@@ -8,7 +8,8 @@
 '       match there, which changes nothing;
 '     * a member that COUNTS or REWRITES every occurrence refuses it with
 '       ErrInvalidArgument, because "every position" has no useful count and
-'       rewriting at every position destroys the input.
+'       rewriting at every position destroys the input -- `count`, `split` and,
+'       since bug-533, `replace`.
 '
 ' Every assertion below is labelled by MEMBER NAME rather than by position, so a
 ' member added or removed from the family cannot silently shift another one's
@@ -191,9 +192,9 @@ FUNC main AS Integer
   io::print("-- counting and rewriting members REFUSE (77050002) --")
   io::print("count           empty=" & sCount("abc", e) & " nonEmpty=" & sCount("abcabc", b))
   io::print("split           empty=" & sSplit("abc", e) & " nonEmpty=" & sSplit("abcabc", b))
-  ' `replace` is the one member that does not conform yet: it answers with a
-  ' silent no-op. bug-533 makes it refuse like `count` and `split`, and this
-  ' line is the golden that records the change.
+  ' bug-533 brought `replace` into line: it answered with a silent no-op, and now
+  ' refuses like `count` and `split`. This line is the golden that recorded the
+  ' change -- `empty=` moved from `"abc"` to `RAISED 77050002`.
   io::print("replace         empty=" & sReplace("abc", e, "-") & " nonEmpty=" & sReplace("abcabc", b, "-"))
   io::print("")
 

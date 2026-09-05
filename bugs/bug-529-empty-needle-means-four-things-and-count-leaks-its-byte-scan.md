@@ -6,8 +6,9 @@ Severity: MEDIUM
 Class: Correctness
 
 Status: Fixed — the rule is written down, `count`'s page specifies a result, and
-the family is pinned. `strings::replace` remains the one recorded exception; it
-is bug-533's to change.
+the family is pinned. `strings::replace` was carried as the one recorded
+exception for exactly one commit; bug-533 brought it into line and deleted the
+exception from the page and the spec.
 Regression Test: `tests/rt-behavior/strings/strings-empty-needle-rt`
 
 Four `strings` members take a needle and run the same byte scan. They disagree
@@ -267,7 +268,7 @@ reading.
 | `stripSuffix(v, "")` | `v` | acts at a single named position | ✓ |
 | `count(v, "")` | raises `ErrInvalidArgument` (77050002) | counts every occurrence | ✓ |
 | `split(v, "")` | raises `ErrInvalidArgument` (77050002) | rewrites at every occurrence | ✓ |
-| `replace(v, "", r)` | `v` — a silent no-op | rewrites at every occurrence | ✗ **exception** |
+| `replace(v, "", r)` | `v` — a silent no-op | rewrites at every occurrence | ✗ at this commit; bug-533 makes it refuse |
 | `trimChars(v, "")` | `v` | not a needle — a *set* of scalars | n/a |
 
 Edges pinned, both as the rule implies: `strings::find("", "")` is `0` and

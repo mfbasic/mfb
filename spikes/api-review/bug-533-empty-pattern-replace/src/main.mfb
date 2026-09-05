@@ -1,26 +1,58 @@
-' bug-533 -- the empty needle/pattern is the exact opposite in the two replace
-' members, and both behaviors are documented as intended:
+' bug-533 -- the empty needle/pattern used to be the exact opposite in the two
+' replace members, and both behaviors were documented as intended:
 '
-'   strings::replace("hi", "", "x")  -> "hi"       (empty needle never matches)
+'   strings::replace("hi", "", "x")  -> "hi"       (empty needle never matched)
 '   regex::replace("abc", "", "-")   -> "-a-b-c-"  (zero-width match everywhere)
 '
-' Each is right for its own model. The hazard is that they share a name, a
+' Each was right for its own model. The hazard was that they share a name, a
 ' shape and an argument order, so a search string that arrives empty at run
-' time -- from a config file, a form field, a CLI flag -- is a no-op through one
+' time -- from a config file, a form field, a CLI flag -- was a no-op through one
 ' and a whole-string rewrite through the other.
+'
+' Both now refuse it with ErrInvalidArgument (77050002). For a needle that was
+' empty by accident every VALUED answer is wrong in a different way: a no-op
+' hides the misconfiguration, interleaving destroys the text. An error is the
+' only outcome that reports the thing that actually went wrong.
+'
+' The guard is on the empty needle/pattern STRING. Zero-width MATCHING is
+' untouched -- the second block below is the proof.
 
 IMPORT io
 IMPORT strings
 IMPORT regex
 
+FUNC sReplace(v AS String, old AS String, new AS String) AS String
+  RETURN "\"" & strings::replace(v, old, new) & "\""
+TRAP(err)
+  RETURN "RAISED code=" & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC rReplace(v AS String, pat AS String, new AS String) AS String
+  RETURN "\"" & regex::replace(v, pat, new) & "\""
+TRAP(err)
+  RETURN "RAISED code=" & toString(err.code)
+END TRAP
+END FUNC
+
 FUNC main AS Integer
   ' A needle that is empty because the user left the field blank.
-  LET needle AS String = ""
+  LET needle AS String = strings::mid("blank", 0, 0)
 
-  io::print("strings::replace(\"abc\", needle, \"-\") = \"" & strings::replace("abc", needle, "-") & "\"")
-  io::print("regex::replace(\"abc\", needle, \"-\")   = \"" & regex::replace("abc", needle, "-") & "\"")
+  io::print("strings::replace(\"abc\", needle, \"-\") = " & sReplace("abc", needle, "-"))
+  io::print("regex::replace(\"abc\", needle, \"-\")   = " & rReplace("abc", needle, "-"))
   io::print("")
-  io::print("same call shape, same empty input, opposite results:")
-  io::print("  one leaves the text untouched, the other rewrites every position.")
+  io::print("same call shape, same empty input, one outcome -- and it names the")
+  io::print("thing that went wrong: no needle was supplied.")
+  io::print("")
+  io::print("zero-width MATCHING is unchanged; only the empty spelling is refused:")
+  io::print("  regex::replace(\"abc\", \"a*\", \"-\")   = " & rReplace("abc", "a*", "-"))
+  io::print("  regex::replace(\"abc\", \"(?:)\", \"-\") = " & rReplace("abc", "(?:)", "-"))
+  io::print("  regex::replace(\"abc\", \"x?\", \"-\")   = " & rReplace("abc", "x?", "-"))
+  io::print("")
+  io::print("and the query members still answer for an empty pattern/needle:")
+  io::print("  regex::find(\"abc\", \"\")       = " & toString(regex::find("abc", needle)))
+  io::print("  strings::find(\"abc\", \"\")     = " & toString(strings::find("abc", needle)))
+  io::print("  strings::contains(\"abc\", \"\") = " & toString(strings::contains("abc", needle)))
   RETURN 0
 END FUNC

@@ -2056,6 +2056,14 @@ impl CodeBuilder<'_> {
             match crate::codegen::builtins::native_builtin_target(target) {
                 Some("find") => self.lower_find(args),
                 Some("mid") => self.lower_mid(args),
+                // bug-533: only the `String` overload of `replace` reaches here
+                // — `inline_builtin_raw_supported` gates on the argument type, and
+                // the `List` overload is infallible. `lower_replace`'s empty-`old`
+                // guard raises `ErrInvalidArgument` through the same
+                // `emit_error_register_return` tail as the index members above, so
+                // the `raw_result_capture` set here redirects it to the capture
+                // point instead of auto-propagating past the handler.
+                Some("replace") => self.lower_replace(args),
                 other => Err(format!(
                     "native raw inline builtin '{target}' ({other:?}) is not supported"
                 )),

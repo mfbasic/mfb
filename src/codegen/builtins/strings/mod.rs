@@ -145,13 +145,14 @@ name:
 - **Acts at a single named position** — `stripPrefix` and `stripSuffix` remove
   the zero-length match at the position they name, so they return a copy of
   `value`.
-- **Counts or rewrites every occurrence** — `count` and `split` refuse, raising
-  `ErrInvalidArgument`. "Every position" has no useful count, and rewriting at
-  every position destroys the text the caller meant to keep.
+- **Counts or rewrites every occurrence** — `count`, `split` and `replace`
+  refuse, raising `ErrInvalidArgument`. "Every position" has no useful count, and
+  rewriting at every position destroys the text the caller meant to keep.
 
-One member is a recorded exception: `replace` belongs to the third group but
-returns a copy of `value` instead of refusing, so an empty `old` is a silent
-no-op there rather than an error. Its own page states that answer.
+There are no exceptions. `regex::` reaches the same answers from the other
+direction — a zero-length pattern has a zero-width match at every position — so
+`regex::find(v, "")` and `strings::find(v, "")` both report `0`, and
+`regex::replace` refuses an empty pattern exactly as `replace` does here.
 
 Two arguments that look like needles and are not, and so do not follow this rule:
 `trimChars` takes a *set* of scalars, and the empty set holds nothing, so nothing

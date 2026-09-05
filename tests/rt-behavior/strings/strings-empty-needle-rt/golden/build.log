@@ -25,7 +25,7 @@ stripSuffix     empty="abc" nonEmpty="ab"
 -- counting and rewriting members REFUSE (77050002) --
 count           empty=RAISED 77050002 nonEmpty=2
 split           empty=RAISED 77050002 nonEmpty=n=3
-replace         empty="abc" nonEmpty="a-ca-c"
+replace         empty=RAISED 77050002 nonEmpty="a-ca-c"
 
 -- trimChars takes a SET of scalars, not a needle: the empty set holds nothing --
 trimChars       empty="aba" nonEmpty="b"
@@ -36,7 +36,7 @@ find            empty=0 nonEmpty=1
 startsWith      empty=TRUE nonEmpty=TRUE
 count           empty=RAISED 77050002 nonEmpty=1
 split           empty=RAISED 77050002 nonEmpty=n=2
-replace         empty="abc" nonEmpty="a-c"
+replace         empty=RAISED 77050002 nonEmpty="a-c"
 
 -- the two edges of the rule: an empty value too --
 contains("","")   = TRUE

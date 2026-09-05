@@ -158,21 +158,26 @@ does with that presence is decided by what the member does, not by its name:
 | answers a question about an occurrence | `contains`, `startsWith`, `endsWith`, `startsWithAny`, `endsWithAny` | `TRUE` [[src/codegen/builtins/strings/func_contains.rs:lower]] |
 | answers with the position of an occurrence | `find` | `start` (short-circuit, no scan) [[src/codegen/builtins/strings/func_find.rs:register]] |
 | acts at a single named position | `stripPrefix`, `stripSuffix` | the zero-length match is removed, so `value` is reproduced [[src/codegen/builtins/strings/gen_strip.rs:lower_strings_strip]] |
-| counts or rewrites every occurrence | `count`, `split` | raises `ErrInvalidArgument` (`77050002`) [[src/codegen/builtins/strings/func_count.rs:lower]] |
+| counts or rewrites every occurrence | `count`, `split`, `replace` | raises `ErrInvalidArgument` (`77050002`) [[src/codegen/builtins/strings/func_count.rs:lower]] [[src/codegen/string/repr/builder_strings.rs:lower_replace]] |
 
-`replace` belongs to the last row by behaviour and is a **recorded exception**: an
-empty `old` matches nothing and a copy of `value` is returned, rather than
-raising. [[src/codegen/builtins/strings/func_replace.rs:register]]
+There are no exceptions. `replace`'s refusal is emitted by the shared
+`lower_replace` on its `String` path only — the `collections::` `List` overload
+returns before that guard, because an empty *element* in a list is an ordinary
+value rather than a degenerate needle.
+[[src/codegen/string/repr/builder_strings.rs:lower_replace]]
 
 The rule does not reach two arguments that are not needles: `trimChars` takes a
 *set* of scalars (the empty set holds nothing, so nothing is trimmed) and `join`
 takes a *delimiter to write* rather than one to find (the empty one concatenates
 with nothing between the parts).
 
-`regex::` reaches the same answers for its query members from the other
-direction — a zero-length pattern has a zero-width match at every position — so
-`regex::find(v, "")` and `strings::find(v, "")` both report `0`. See
-./mfb spec stdlib regex.
+`regex::` lands on the same rule from the other direction. A zero-length pattern
+has a zero-width match at every position, so `regex::find(v, "")` and
+`strings::find(v, "")` both report `0`; and `regex::replace` refuses an empty
+`pattern` with the same `77050002`, so a run-time value routed to either
+`replace` gives the same outcome. That refusal is a guard on the empty pattern
+*string* only — `"a*"`, `"x?"` and `"(?:)"` still match at every position and
+still interleave. See ./mfb spec stdlib regex.
 
 ## `split` and the empty-delimiter error
 

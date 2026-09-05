@@ -484,10 +484,24 @@ TESTING
         expectString(regex::replace("b", "(a)?b", "[$1]"), "[]")
         expectString(regex::replace("ac", "a(b)?c", "[$1]"), "[]")
       END TCASE
-      TCASE "empty pattern inserts around every scalar and once at end"
-        expectString(regex::replace("abc", "", "-"), "-a-b-c-")
+      TCASE "the EMPTY pattern is refused; zero-width patterns are not (bug-533)"
+        ' The guard is on the empty pattern STRING. Everything that MATCHES
+        ' zero-width still interleaves exactly as before -- these four lines are
+        ' what keeps the refusal from being read as a change to zero-width
+        ' matching, which it is not.
         expectString(regex::replace("abc", "x*", "-"), "-a-b-c-")
-        expectString(regex::replace("", "", "-"), "-")
+        expectString(regex::replace("abc", "(?:)", "-"), "-a-b-c-")
+        expectString(regex::replace("abc", "a*", "-"), "-b-c-")
+        expectString(regex::replace("abc", "\\b", "-"), "-abc-")
+        ' And the refusal itself, on both spellings of an empty subject.
+        expectTrap(replaceWrap("abc", "", "-"), errorCode::ErrInvalidArgument)
+        expectTrap(replaceWrap("", "", "-"), errorCode::ErrInvalidArgument)
+        ' The refusal is on the REWRITING side only: the query members keep
+        ' their zero-width answers for the same empty pattern.
+        expectEqual(regex::match("abc", ""), TRUE)
+        expectInteger(regex::find("abc", ""), 0)
+        expectInteger(findAllLen("abc", "", 0), 4)
+        expectInteger(regex::findMatch("abc", "").start, 0)
       END TCASE
       TCASE "zero-length advance never rewrites the same empty twice"
         expectString(regex::replace("ab", "(a)(b)", "${1}0"), "a0")

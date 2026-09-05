@@ -4,9 +4,9 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 25 },
-    { "module": "strings", "line": 26 },
-    { "module": "astrings", "line": 27 }
+    { "module": "io", "line": 26 },
+    { "module": "strings", "line": 27 },
+    { "module": "astrings", "line": 28 }
     ],
     "items": [
     {
@@ -14,20 +14,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "sContains",
-      "line": 29,
+      "line": 30,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 29 },
-      { "name": "n", "type": "String", "default": null, "line": 29 }
+      { "name": "h", "type": "String", "default": null, "line": 30 },
+      { "name": "n", "type": "String", "default": null, "line": 30 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.contains", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 30 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.contains", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 31 }
       ],
       "trap": {
       "name": "err",
-      "line": 31,
+      "line": 32,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 32 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 33 }
       ]
     }
     },
@@ -36,20 +36,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "sStartsWith",
-      "line": 36,
+      "line": 37,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 36 },
-      { "name": "n", "type": "String", "default": null, "line": 36 }
+      { "name": "h", "type": "String", "default": null, "line": 37 },
+      { "name": "n", "type": "String", "default": null, "line": 37 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 37 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 38 }
       ],
       "trap": {
       "name": "err",
-      "line": 38,
+      "line": 39,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 39 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 40 }
       ]
     }
     },
@@ -58,20 +58,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "sEndsWith",
-      "line": 43,
+      "line": 44,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 43 },
-      { "name": "n", "type": "String", "default": null, "line": 43 }
+      { "name": "h", "type": "String", "default": null, "line": 44 },
+      { "name": "n", "type": "String", "default": null, "line": 44 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 44 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 45 }
       ],
       "trap": {
       "name": "err",
-      "line": 45,
+      "line": 46,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 46 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 47 }
       ]
     }
     },
@@ -80,20 +80,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "sStartsWithAny",
-      "line": 50,
+      "line": 51,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 50 },
-      { "name": "n", "type": "List OF String", "default": null, "line": 50 }
+      { "name": "h", "type": "String", "default": null, "line": 51 },
+      { "name": "n", "type": "List OF String", "default": null, "line": 51 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWithAny", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 51 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWithAny", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 52 }
       ],
       "trap": {
       "name": "err",
-      "line": 52,
+      "line": 53,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 53 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 54 }
       ]
     }
     },
@@ -102,20 +102,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "sEndsWithAny",
-      "line": 57,
+      "line": 58,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 57 },
-      { "name": "n", "type": "List OF String", "default": null, "line": 57 }
+      { "name": "h", "type": "String", "default": null, "line": 58 },
+      { "name": "n", "type": "List OF String", "default": null, "line": 58 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWithAny", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 58 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWithAny", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 59 }
       ],
       "trap": {
       "name": "err",
-      "line": 59,
+      "line": 60,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 60 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 61 }
       ]
     }
     },
@@ -124,20 +124,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "sFind",
-      "line": 64,
+      "line": 65,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 64 },
-      { "name": "n", "type": "String", "default": null, "line": 64 }
+      { "name": "h", "type": "String", "default": null, "line": 65 },
+      { "name": "n", "type": "String", "default": null, "line": 65 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 65 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 66 }
       ],
       "trap": {
       "name": "err",
-      "line": 66,
+      "line": 67,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 67 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 68 }
       ]
     }
     },
@@ -146,20 +146,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "sStripPrefix",
-      "line": 71,
+      "line": 72,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 71 },
-      { "name": "n", "type": "String", "default": null, "line": 71 }
+      { "name": "h", "type": "String", "default": null, "line": 72 },
+      { "name": "n", "type": "String", "default": null, "line": 72 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "call", "callee": "strings.stripPrefix", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] } }, "right": { "kind": "string", "value": "\"" } }, "line": 72 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "call", "callee": "strings.stripPrefix", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] } }, "right": { "kind": "string", "value": "\"" } }, "line": 73 }
       ],
       "trap": {
       "name": "err",
-      "line": 73,
+      "line": 74,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 74 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 75 }
       ]
     }
     },
@@ -168,20 +168,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "sStripSuffix",
-      "line": 78,
+      "line": 79,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 78 },
-      { "name": "n", "type": "String", "default": null, "line": 78 }
+      { "name": "h", "type": "String", "default": null, "line": 79 },
+      { "name": "n", "type": "String", "default": null, "line": 79 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "call", "callee": "strings.stripSuffix", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] } }, "right": { "kind": "string", "value": "\"" } }, "line": 79 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "call", "callee": "strings.stripSuffix", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] } }, "right": { "kind": "string", "value": "\"" } }, "line": 80 }
       ],
       "trap": {
       "name": "err",
-      "line": 80,
+      "line": 81,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 81 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 82 }
       ]
     }
     },
@@ -190,20 +190,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "sCount",
-      "line": 85,
+      "line": 86,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 85 },
-      { "name": "n", "type": "String", "default": null, "line": 85 }
+      { "name": "h", "type": "String", "default": null, "line": 86 },
+      { "name": "n", "type": "String", "default": null, "line": 86 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.count", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 86 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.count", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 87 }
       ],
       "trap": {
       "name": "err",
-      "line": 87,
+      "line": 88,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 88 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 89 }
       ]
     }
     },
@@ -212,21 +212,21 @@
       "visibility": "public",
       "isolated": false,
       "name": "sSplit",
-      "line": 92,
+      "line": 93,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 92 },
-      { "name": "n", "type": "String", "default": null, "line": 92 }
+      { "name": "h", "type": "String", "default": null, "line": 93 },
+      { "name": "n", "type": "String", "default": null, "line": 93 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "parts", "type": "List OF String", "value": { "kind": "call", "callee": "strings.split", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }, "line": 93 },
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "n=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "parts" }] }] } }, "line": 94 }
+      { "kind": "binding", "mutable": false, "name": "parts", "type": "List OF String", "value": { "kind": "call", "callee": "strings.split", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }, "line": 94 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "n=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "parts" }] }] } }, "line": 95 }
       ],
       "trap": {
       "name": "err",
-      "line": 95,
+      "line": 96,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 96 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 97 }
       ]
     }
     },
@@ -235,21 +235,21 @@
       "visibility": "public",
       "isolated": false,
       "name": "sReplace",
-      "line": 100,
+      "line": 101,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 100 },
-      { "name": "n", "type": "String", "default": null, "line": 100 },
-      { "name": "r", "type": "String", "default": null, "line": 100 }
+      { "name": "h", "type": "String", "default": null, "line": 101 },
+      { "name": "n", "type": "String", "default": null, "line": 101 },
+      { "name": "r", "type": "String", "default": null, "line": 101 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }, { "kind": "identifier", "value": "r" }] } }, "right": { "kind": "string", "value": "\"" } }, "line": 101 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }, { "kind": "identifier", "value": "r" }] } }, "right": { "kind": "string", "value": "\"" } }, "line": 102 }
       ],
       "trap": {
       "name": "err",
-      "line": 102,
+      "line": 103,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 103 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 104 }
       ]
     }
     },
@@ -258,20 +258,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "sTrimChars",
-      "line": 107,
+      "line": 108,
       "params": [
-      { "name": "h", "type": "String", "default": null, "line": 107 },
-      { "name": "n", "type": "String", "default": null, "line": 107 }
+      { "name": "h", "type": "String", "default": null, "line": 108 },
+      { "name": "n", "type": "String", "default": null, "line": 108 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "call", "callee": "strings.trimChars", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] } }, "right": { "kind": "string", "value": "\"" } }, "line": 108 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "call", "callee": "strings.trimChars", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] } }, "right": { "kind": "string", "value": "\"" } }, "line": 109 }
       ],
       "trap": {
       "name": "err",
-      "line": 109,
+      "line": 110,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 110 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 111 }
       ]
     }
     },
@@ -280,20 +280,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "aContains",
-      "line": 116,
+      "line": 117,
       "params": [
-      { "name": "h", "type": "AttributedString", "default": null, "line": 116 },
-      { "name": "n", "type": "String", "default": null, "line": 116 }
+      { "name": "h", "type": "AttributedString", "default": null, "line": 117 },
+      { "name": "n", "type": "String", "default": null, "line": 117 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.contains", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 117 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.contains", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 118 }
       ],
       "trap": {
       "name": "err",
-      "line": 118,
+      "line": 119,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 119 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 120 }
       ]
     }
     },
@@ -302,20 +302,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "aFind",
-      "line": 123,
+      "line": 124,
       "params": [
-      { "name": "h", "type": "AttributedString", "default": null, "line": 123 },
-      { "name": "n", "type": "String", "default": null, "line": 123 }
+      { "name": "h", "type": "AttributedString", "default": null, "line": 124 },
+      { "name": "n", "type": "String", "default": null, "line": 124 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 124 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 125 }
       ],
       "trap": {
       "name": "err",
-      "line": 125,
+      "line": 126,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 126 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 127 }
       ]
     }
     },
@@ -324,20 +324,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "aStartsWith",
-      "line": 130,
+      "line": 131,
       "params": [
-      { "name": "h", "type": "AttributedString", "default": null, "line": 130 },
-      { "name": "n", "type": "String", "default": null, "line": 130 }
+      { "name": "h", "type": "AttributedString", "default": null, "line": 131 },
+      { "name": "n", "type": "String", "default": null, "line": 131 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 131 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 132 }
       ],
       "trap": {
       "name": "err",
-      "line": 132,
+      "line": 133,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 133 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 134 }
       ]
     }
     },
@@ -346,20 +346,20 @@
       "visibility": "public",
       "isolated": false,
       "name": "aCount",
-      "line": 137,
+      "line": 138,
       "params": [
-      { "name": "h", "type": "AttributedString", "default": null, "line": 137 },
-      { "name": "n", "type": "String", "default": null, "line": 137 }
+      { "name": "h", "type": "AttributedString", "default": null, "line": 138 },
+      { "name": "n", "type": "String", "default": null, "line": 138 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.count", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 138 }
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.count", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }] }, "line": 139 }
       ],
       "trap": {
       "name": "err",
-      "line": 139,
+      "line": 140,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 140 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 141 }
       ]
     }
     },
@@ -368,21 +368,21 @@
       "visibility": "public",
       "isolated": false,
       "name": "aSplit",
-      "line": 144,
+      "line": 145,
       "params": [
-      { "name": "h", "type": "AttributedString", "default": null, "line": 144 },
-      { "name": "n", "type": "String", "default": null, "line": 144 }
+      { "name": "h", "type": "AttributedString", "default": null, "line": 145 },
+      { "name": "n", "type": "String", "default": null, "line": 145 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "parts", "type": "List OF String", "value": { "kind": "call", "callee": "strings.split", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }, "line": 145 },
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "n=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "parts" }] }] } }, "line": 146 }
+      { "kind": "binding", "mutable": false, "name": "parts", "type": "List OF String", "value": { "kind": "call", "callee": "strings.split", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }] }, "line": 146 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "n=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "parts" }] }] } }, "line": 147 }
       ],
       "trap": {
       "name": "err",
-      "line": 147,
+      "line": 148,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 148 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 149 }
       ]
     }
     },
@@ -391,22 +391,22 @@
       "visibility": "public",
       "isolated": false,
       "name": "aReplace",
-      "line": 152,
+      "line": 153,
       "params": [
-      { "name": "h", "type": "AttributedString", "default": null, "line": 152 },
-      { "name": "n", "type": "String", "default": null, "line": 152 },
-      { "name": "r", "type": "String", "default": null, "line": 152 }
+      { "name": "h", "type": "AttributedString", "default": null, "line": 153 },
+      { "name": "n", "type": "String", "default": null, "line": 153 },
+      { "name": "r", "type": "String", "default": null, "line": 153 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "out", "type": "AttributedString", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }, { "kind": "identifier", "value": "r" }] }, "line": 153 },
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "out" }] } }, "right": { "kind": "string", "value": "\"" } }, "line": 154 }
+      { "kind": "binding", "mutable": false, "name": "out", "type": "AttributedString", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "n" }, { "kind": "identifier", "value": "r" }] }, "line": 154 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "out" }] } }, "right": { "kind": "string", "value": "\"" } }, "line": 155 }
       ],
       "trap": {
       "name": "err",
-      "line": 155,
+      "line": 156,
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 156 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 157 }
       ]
     }
     },
@@ -415,57 +415,57 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 160,
+      "line": 161,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "e", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "x" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 162 },
-      { "kind": "binding", "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "xbx" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 163 },
-      { "kind": "binding", "mutable": false, "name": "pfx", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 164 },
-      { "kind": "binding", "mutable": false, "name": "sfx", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }] }, "line": 165 },
-      { "kind": "binding", "mutable": false, "name": "emptyList", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 166 },
-      { "kind": "binding", "mutable": false, "name": "listWithEmpty", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "e" }] }, "line": 167 },
-      { "kind": "binding", "mutable": false, "name": "listWithPfx", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "pfx" }] }, "line": 168 },
-      { "kind": "binding", "mutable": false, "name": "listWithSfx", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "sfx" }] }, "line": 169 },
-      { "kind": "binding", "mutable": false, "name": "a", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.fromString", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 170 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- queries: the empty needle is PRESENT at position 0 --" }] }, "line": 172 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "contains        empty=" }, "right": { "kind": "call", "callee": "sContains", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sContains", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 173 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "startsWith      empty=" }, "right": { "kind": "call", "callee": "sStartsWith", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sStartsWith", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "pfx" }] } }] }, "line": 174 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "endsWith        empty=" }, "right": { "kind": "call", "callee": "sEndsWith", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sEndsWith", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "sfx" }] } }] }, "line": 175 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "startsWithAny   empty=" }, "right": { "kind": "call", "callee": "sStartsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithEmpty" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sStartsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithPfx" }] } }] }, "line": 176 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "endsWithAny     empty=" }, "right": { "kind": "call", "callee": "sEndsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithEmpty" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sEndsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithSfx" }] } }] }, "line": 177 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find            empty=" }, "right": { "kind": "call", "callee": "sFind", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sFind", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 178 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 179 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- the empty candidate LIST is a different question: no candidate matches --" }] }, "line": 181 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "startsWithAny   emptyList=" }, "right": { "kind": "call", "callee": "sStartsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "emptyList" }] } }, "right": { "kind": "string", "value": " listWithEmpty=" } }, "right": { "kind": "call", "callee": "sStartsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithEmpty" }] } }] }, "line": 182 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "endsWithAny     emptyList=" }, "right": { "kind": "call", "callee": "sEndsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "emptyList" }] } }, "right": { "kind": "string", "value": " listWithEmpty=" } }, "right": { "kind": "call", "callee": "sEndsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithEmpty" }] } }] }, "line": 183 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 184 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- single named position: the zero-length match changes nothing --" }] }, "line": 186 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stripPrefix     empty=" }, "right": { "kind": "call", "callee": "sStripPrefix", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sStripPrefix", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "pfx" }] } }] }, "line": 187 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stripSuffix     empty=" }, "right": { "kind": "call", "callee": "sStripSuffix", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sStripSuffix", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "sfx" }] } }] }, "line": 188 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 189 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- counting and rewriting members REFUSE (77050002) --" }] }, "line": 191 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count           empty=" }, "right": { "kind": "call", "callee": "sCount", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sCount", "arguments": [{ "kind": "string", "value": "abcabc" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 192 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "split           empty=" }, "right": { "kind": "call", "callee": "sSplit", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sSplit", "arguments": [{ "kind": "string", "value": "abcabc" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 193 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "replace         empty=" }, "right": { "kind": "call", "callee": "sReplace", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }, { "kind": "string", "value": "-" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sReplace", "arguments": [{ "kind": "string", "value": "abcabc" }, { "kind": "identifier", "value": "b" }, { "kind": "string", "value": "-" }] } }] }, "line": 197 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 198 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- trimChars takes a SET of scalars, not a needle: the empty set holds nothing --" }] }, "line": 200 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trimChars       empty=" }, "right": { "kind": "call", "callee": "sTrimChars", "arguments": [{ "kind": "string", "value": "aba" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sTrimChars", "arguments": [{ "kind": "string", "value": "aba" }, { "kind": "identifier", "value": "pfx" }] } }] }, "line": 201 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 202 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- the AttributedString overloads give the same answers --" }] }, "line": 204 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "contains        empty=" }, "right": { "kind": "call", "callee": "aContains", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aContains", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 205 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find            empty=" }, "right": { "kind": "call", "callee": "aFind", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aFind", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 206 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "startsWith      empty=" }, "right": { "kind": "call", "callee": "aStartsWith", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aStartsWith", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "pfx" }] } }] }, "line": 207 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count           empty=" }, "right": { "kind": "call", "callee": "aCount", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aCount", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 208 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "split           empty=" }, "right": { "kind": "call", "callee": "aSplit", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aSplit", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 209 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "replace         empty=" }, "right": { "kind": "call", "callee": "aReplace", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }, { "kind": "string", "value": "-" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aReplace", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }, { "kind": "string", "value": "-" }] } }] }, "line": 210 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 211 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- the two edges of the rule: an empty value too --" }] }, "line": 213 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "contains(\"\",\"\")   = " }, "right": { "kind": "call", "callee": "sContains", "arguments": [{ "kind": "identifier", "value": "e" }, { "kind": "identifier", "value": "e" }] } }] }, "line": 214 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find(\"\",\"\")       = " }, "right": { "kind": "call", "callee": "sFind", "arguments": [{ "kind": "identifier", "value": "e" }, { "kind": "identifier", "value": "e" }] } }] }, "line": 215 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count(\"\",\"\")      = " }, "right": { "kind": "call", "callee": "sCount", "arguments": [{ "kind": "identifier", "value": "e" }, { "kind": "identifier", "value": "e" }] } }] }, "line": 216 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 217 }
+      { "kind": "binding", "mutable": false, "name": "e", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "x" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 163 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "xbx" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 164 },
+      { "kind": "binding", "mutable": false, "name": "pfx", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 165 },
+      { "kind": "binding", "mutable": false, "name": "sfx", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }] }, "line": 166 },
+      { "kind": "binding", "mutable": false, "name": "emptyList", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 167 },
+      { "kind": "binding", "mutable": false, "name": "listWithEmpty", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "e" }] }, "line": 168 },
+      { "kind": "binding", "mutable": false, "name": "listWithPfx", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "pfx" }] }, "line": 169 },
+      { "kind": "binding", "mutable": false, "name": "listWithSfx", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "sfx" }] }, "line": 170 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.fromString", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 171 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- queries: the empty needle is PRESENT at position 0 --" }] }, "line": 173 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "contains        empty=" }, "right": { "kind": "call", "callee": "sContains", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sContains", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 174 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "startsWith      empty=" }, "right": { "kind": "call", "callee": "sStartsWith", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sStartsWith", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "pfx" }] } }] }, "line": 175 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "endsWith        empty=" }, "right": { "kind": "call", "callee": "sEndsWith", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sEndsWith", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "sfx" }] } }] }, "line": 176 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "startsWithAny   empty=" }, "right": { "kind": "call", "callee": "sStartsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithEmpty" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sStartsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithPfx" }] } }] }, "line": 177 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "endsWithAny     empty=" }, "right": { "kind": "call", "callee": "sEndsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithEmpty" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sEndsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithSfx" }] } }] }, "line": 178 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find            empty=" }, "right": { "kind": "call", "callee": "sFind", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sFind", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 179 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 180 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- the empty candidate LIST is a different question: no candidate matches --" }] }, "line": 182 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "startsWithAny   emptyList=" }, "right": { "kind": "call", "callee": "sStartsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "emptyList" }] } }, "right": { "kind": "string", "value": " listWithEmpty=" } }, "right": { "kind": "call", "callee": "sStartsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithEmpty" }] } }] }, "line": 183 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "endsWithAny     emptyList=" }, "right": { "kind": "call", "callee": "sEndsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "emptyList" }] } }, "right": { "kind": "string", "value": " listWithEmpty=" } }, "right": { "kind": "call", "callee": "sEndsWithAny", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "listWithEmpty" }] } }] }, "line": 184 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 185 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- single named position: the zero-length match changes nothing --" }] }, "line": 187 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stripPrefix     empty=" }, "right": { "kind": "call", "callee": "sStripPrefix", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sStripPrefix", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "pfx" }] } }] }, "line": 188 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stripSuffix     empty=" }, "right": { "kind": "call", "callee": "sStripSuffix", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sStripSuffix", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "sfx" }] } }] }, "line": 189 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 190 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- counting and rewriting members REFUSE (77050002) --" }] }, "line": 192 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count           empty=" }, "right": { "kind": "call", "callee": "sCount", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sCount", "arguments": [{ "kind": "string", "value": "abcabc" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 193 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "split           empty=" }, "right": { "kind": "call", "callee": "sSplit", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sSplit", "arguments": [{ "kind": "string", "value": "abcabc" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 194 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "replace         empty=" }, "right": { "kind": "call", "callee": "sReplace", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "e" }, { "kind": "string", "value": "-" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sReplace", "arguments": [{ "kind": "string", "value": "abcabc" }, { "kind": "identifier", "value": "b" }, { "kind": "string", "value": "-" }] } }] }, "line": 198 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 199 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- trimChars takes a SET of scalars, not a needle: the empty set holds nothing --" }] }, "line": 201 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trimChars       empty=" }, "right": { "kind": "call", "callee": "sTrimChars", "arguments": [{ "kind": "string", "value": "aba" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "sTrimChars", "arguments": [{ "kind": "string", "value": "aba" }, { "kind": "identifier", "value": "pfx" }] } }] }, "line": 202 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 203 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- the AttributedString overloads give the same answers --" }] }, "line": 205 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "contains        empty=" }, "right": { "kind": "call", "callee": "aContains", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aContains", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 206 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find            empty=" }, "right": { "kind": "call", "callee": "aFind", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aFind", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 207 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "startsWith      empty=" }, "right": { "kind": "call", "callee": "aStartsWith", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aStartsWith", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "pfx" }] } }] }, "line": 208 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count           empty=" }, "right": { "kind": "call", "callee": "aCount", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aCount", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 209 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "split           empty=" }, "right": { "kind": "call", "callee": "aSplit", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aSplit", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] } }] }, "line": 210 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "replace         empty=" }, "right": { "kind": "call", "callee": "aReplace", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "e" }, { "kind": "string", "value": "-" }] } }, "right": { "kind": "string", "value": " nonEmpty=" } }, "right": { "kind": "call", "callee": "aReplace", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }, { "kind": "string", "value": "-" }] } }] }, "line": 211 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 212 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- the two edges of the rule: an empty value too --" }] }, "line": 214 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "contains(\"\",\"\")   = " }, "right": { "kind": "call", "callee": "sContains", "arguments": [{ "kind": "identifier", "value": "e" }, { "kind": "identifier", "value": "e" }] } }] }, "line": 215 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find(\"\",\"\")       = " }, "right": { "kind": "call", "callee": "sFind", "arguments": [{ "kind": "identifier", "value": "e" }, { "kind": "identifier", "value": "e" }] } }] }, "line": 216 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count(\"\",\"\")      = " }, "right": { "kind": "call", "callee": "sCount", "arguments": [{ "kind": "identifier", "value": "e" }, { "kind": "identifier", "value": "e" }] } }] }, "line": 217 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 218 }
       ]
     }
     ]

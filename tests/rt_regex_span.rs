@@ -284,8 +284,16 @@ FUNC one(idx AS Integer, pat AS String, subj AS String) AS String
   IF regex::findMatch(subj, pat, 1).start <> findOrMinusOne(subj, pat, 1) THEN
     bad = bad & " first1"
   END IF
-  IF recon(subj, pat) <> regex::replace(subj, pat, "<$0|$1|$2|$3>") THEN
-    bad = bad & " recon"
+  ' bug-533: `regex::replace` refuses an EMPTY pattern, so the reconstruction
+  ' cross-check has nothing to compare against for that one row. Everything else
+  ' this case measures -- findAll/findAllMatches agreement, spans, group 0, and
+  ' the find/findMatch pair -- is unaffected and still runs for it, which is the
+  ' point: the refusal is a guard on `replace`'s argument, not a change to the
+  ' matcher.
+  IF len(pat) > 0 THEN
+    IF recon(subj, pat) <> regex::replace(subj, pat, "<$0|$1|$2|$3>") THEN
+      bad = bad & " recon"
+    END IF
   END IF
   IF bad = "" THEN
     RETURN toString(idx) & ": ok"

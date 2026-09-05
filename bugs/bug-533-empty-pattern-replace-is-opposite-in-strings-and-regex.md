@@ -5,8 +5,10 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/` — new `rt_replace_empty_needle_parity` fixture (Phase 1)
+Status: Fixed — both `strings::replace` and `regex::replace` refuse an empty
+needle/pattern with `ErrInvalidArgument` (77050002). BREAKING on the `strings`
+side (a documented no-op became a raise) with no compile-time signal.
+Regression Test: `tests/rt-behavior/regex/replace-empty-pattern-rt`
 
 Two members with the same name, the same shape and the same argument order give
 opposite results for the same input:
@@ -235,55 +237,175 @@ not two.
 
 ### Phase 1 — measure + audit (no behavior change)
 
-- [ ] Land `spikes/api-review/bug-533-empty-pattern-replace/` (done).
-- [ ] Extend it to measure `regex::find`, `regex::findAll` and `regex::match`
-      with an empty pattern, and `astrings::replace` with an empty needle.
-      Record the results — the bug currently names two members and the family
-      may be larger.
-- [ ] `grep -rn "regex::replace" src/ examples/ benchmark/ repository/` and
-      classify each call by whether its pattern is a literal. A non-literal is
-      a live hazard.
-- [ ] Add a fixture asserting the *desired* rejection from both members, plus
-      `"a*"` and `"(?:)"` asserted to still interleave. Confirm the first two
-      fail today and the last two pass.
-- [ ] `grep -rn "strings::replace" src/ examples/ benchmark/ repository/` as
-      well — `strings::replace` is changing from a no-op to a raise, which is
-      the larger behavior change of the two and needs its own caller list.
+- [x] Land `spikes/api-review/bug-533-empty-pattern-replace/` (done).
+- [x] Measure `regex::find`, `regex::findAll` and `regex::match` with an empty
+      pattern, and `astrings::replace` with an empty needle.
+- [x] Classify every in-tree `regex::replace` caller.
+- [x] Add a fixture asserting the rejection from both members, plus `"a*"` and
+      `"(?:)"` asserted to still interleave. Confirm the first two fail today and
+      the last two pass.
+- [x] Sweep `strings::replace` callers as well.
 
-Acceptance: the family-wide empty-pattern table is measured; every in-tree
-caller of both members is classified; the rejection fixture fails for the
-documented reason while the zero-width fixtures pass.
-Commit: —
+**The measured table.** The prediction held: the `regex` query members keep their
+zero-width answers, and nothing beyond the two `replace` members needed to move.
+
+| call | before | after |
+| --- | --- | --- |
+| `strings::replace(v, "", r)` | `v` — a silent no-op | raises `ErrInvalidArgument` |
+| `regex::replace(v, "", r)` | `"-a-b-c-"` — the whole string | raises `ErrInvalidArgument` |
+| `strings::replace(a, "", r)` (`AttributedString`) | `a` | raises — inherited, see below |
+| `regex::match(v, "")` | `TRUE` | `TRUE` |
+| `regex::find(v, "")` | `0` | `0` |
+| `regex::findAll(v, "")` | 4 matches over `"abc"` | 4 matches |
+| `regex::findMatch(v, "").start` | `0` | `0` |
+| `regex::replace(v, "a*", r)` | `"-b-c-"` | `"-b-c-"` |
+| `regex::replace(v, "(?:)", r)` | `"-a-b-c-"` | `"-a-b-c-"` |
+| `regex::replace(v, "x?", r)` | `"-a-b-c-"` | `"-a-b-c-"` |
+| `collections::replace(l, "", x)` | replaces the empty ELEMENT | unchanged |
+
+The `astrings` overload needed no separate change: `__astrings_replace`'s second
+statement *is* `strings::replace(text, old, new)`, so the two members cannot
+disagree and the raise propagates before the attribute overlay is touched.
+
+`collections::replace` is the containment case worth naming. It shares the bare
+native target and the same `lower_replace`, and it is untouched — an empty
+*element* in a list is an ordinary value, not a degenerate needle, and the `List`
+branch returns before the guard.
+
+**The caller sweep.** `grep -rn "strings::replace(\|regex::replace(" src/ examples/
+benchmark/ repository/ tests/`:
+
+- **Product code passes only literal, non-empty needles.** `examples/browser/**`
+  (`"\t"`, `"\r"`, `"\n"`, `" "`, `">"`, `" +"`, `" ?\n ?"`, `"\n{3,}"`) and
+  `benchmark/mfb` (`"l"`). None can be empty.
+- **In-tree stdlib callers**: `encoding::htmlEscape` (five literal entities),
+  `csv::__csv_quoteField` (the dialect quote char), `astrings::__astrings_replace`
+  (forwards the user's `old`, deliberately).
+- `csv` needed a second look and is safe **because it validates first**:
+  `__csv_firstCode` raises `ErrInvalidFormat` (`77050003`) for an empty
+  `delimiter`/`quote` before `__csv_quoteField` runs. Measured:
+  `csv::stringify(rows, ",", "")` still reports `77050003`, not `77050002`.
+- Tests migrated: `tests/acceptance/src/{regex,general,astrings}.mfb`,
+  `tests/rt-behavior/regex/regex-from-string-rt`, `tests/rt_regex_bounds.rs`
+  (corpus row 49), `tests/rt_regex_span.rs` (the reconstruction cross-check), and
+  bug-529's own family pin, whose golden records the change.
+
+Acceptance: met.
+Commit: (this commit)
 
 ### Phase 2 — the convergence
 
-- [ ] Reject an empty needle in `strings::replace` with `ErrInvalidArgument`.
-- [ ] Reject an empty pattern in `regex::replace` with the same code.
-- [ ] Apply the same to the `astrings::replace` overload.
-- [ ] Migrate every in-tree caller from Phase 1 that can pass an empty value.
-- [ ] Write the "guard on the spelling, not on zero-width matching" paragraph
-      into `regex::replace`'s page, in the exact words from Fix Design. Without
-      it the fix recreates the trap.
-- [ ] Cross-link both pages, and keep the wording consistent with bug-529's
-      query-answers/rewriter-refuses framing.
+- [x] Reject an empty needle in `strings::replace` with `ErrInvalidArgument` —
+      in the shared `lower_replace`, on its `String` path only.
+- [x] Reject an empty pattern in `regex::replace` with the same code, as a guard
+      at the top of `__regex_replace` before the pattern is compiled.
+- [x] The `astrings::replace` overload inherits it (see Phase 1).
+- [x] Migrate every in-tree caller from Phase 1.
+- [x] Write the "guard on the spelling, not on zero-width matching" paragraph
+      into `regex::replace`'s page, in the words Fix Design specified.
+- [x] Cross-link both pages and keep the wording consistent with bug-529's rule.
+      bug-529's package-level rule loses its recorded exception: `replace` now
+      sits with `count` and `split`, and the sentence naming it as the one
+      deviation is deleted from both the man page and the spec.
 
-Acceptance: both members raise on an empty needle; `"a*"` and `"(?:)"` are
-unchanged; each page states the narrowness of the guard.
-Commit: —
+**The `"old` longer than `value`" path was NOT collapsed into the guard.** The
+two conditions used one branch target; only the empty case moved, so an `old`
+longer than `value` still copies `value` through as an ordinary no-match. That is
+a separate documented behaviour and pinning it was the point of the fixture's
+`noMatch=` line.
+
+Acceptance: met — both members raise on an empty needle; `"a*"`, `"(?:)"`, `"x?"`
+and `"\b"` are unchanged; each page states the narrowness of the guard.
+Commit: (this commit)
 
 ### Phase 3 — regenerate + validation
 
-- [ ] Both members gain an error they did not have; check whether any
-      `TYPE_INLINE_TRAP_DEAD_HANDLER` warning flips.
-- [ ] Regenerate the `.ncodesum` goldens the descriptor change shifts (run the
-      regen scripts under **bash**).
-- [ ] `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
-- [ ] `scripts/man-run-examples.sh strings --run`, `regex --run`, `astrings --run`.
-- [ ] Update the spike to assert the converged behavior.
+- [x] Both members gain an error they did not have; check whether any
+      `TYPE_INLINE_TRAP_DEAD_HANDLER` warning flips. **It did, and it was a
+      MISCOMPILE — see below.** This was the most important line of the phase.
+- [x] Regenerate the `.ncodesum` goldens (`bash scripts/regen-ncodesum.sh`).
+- [x] `cargo test --release --no-fail-fast`; `scripts/test-accept.sh`.
+- [x] `scripts/man-run-examples.sh` for `strings`, `regex`, `astrings`,
+      `collections`, `csv`, `encoding` — all green.
+- [x] Update the spike to assert the converged behavior. bug-529's spike was
+      updated with it (its unguarded `strings::replace("hi","","x")` began
+      aborting the program).
 
-Acceptance: full suite green; golden deltas are only the two members'; the
-zero-width behavior is provably unchanged.
-Commit: —
+**The consequence the plan did not anticipate: a name-keyed infallibility census
+turned this into a miscompile.** `strings::replace` and `collections::replace`
+dequalify to the ONE bare native target `replace`
+(`builtins::native_builtin_target`), and `replace` was on
+`inline_builtin_is_infallible`'s name-keyed list. So after the guard landed, this
+program compiled with a warning and then **died**:
+
+```
+LET s AS String = strings::replace("abc", empty, "-") TRAP(err)
+  io::print("HANDLER RAN code=" & toString(err.code))
+  RECOVER "recovered"
+END TRAP
+```
+
+    warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is
+    unreachable — `strings.replace` cannot fail, so the handler is dead code.
+    Error: 7-705-0002
+
+The front-end asserted the call could not fail, elided a **live** handler, and
+the error propagated past it. That is precisely the failure
+`arg_type_makes_inline_builtin_fallible` exists to prevent (bug-486 found the same
+shape in `toString`), and it is invisible to every behavioural test that wraps the
+call in a *function-level* `TRAP` — which is what the fixture originally did.
+
+The fix makes `replace`'s verdict argument-typed, as bug-486 did for `toString`,
+and it **fails closed**: only a provable `List` first argument is infallible.
+Being fallible also makes it raw-supported through the same early return, so the
+inline `TRAP` traps the real error rather than being rejected for having no
+lowering — which needed one more edit, wiring `Some("replace") => lower_replace`
+into `lower_inline_builtin_raw`'s dispatch beside `find` and `mid`.
+
+`codegen::builtins::tests::inline_builtin_fallibility_census` asserted
+`strings.replace` was infallible and is corrected: the untyped verdict moves to
+the fallible list, and a new `replace_is_fallible_only_on_a_string` gives the
+per-overload verdict, mirroring `tostring_is_fallible_only_on_a_byte_list`. Under
+AGENTS.md's four-question gate the row was **proven wrong by the repro above**,
+not merely inconvenient.
+
+**Golden delta, and why it is exactly this.**
+
+* Behavioural (`build.log`): **three lines, tree-wide.**
+  `strings-empty-needle-rt`'s `replace empty=` for the `String` and
+  `AttributedString` overloads, and `regex-from-string-rt`'s `zw_rp_empty`. Every
+  other line of every other fixture is byte-identical — including
+  `zw_rp_astar` and `zw_fa_empty` in that same fixture, which is the containment
+  proof that zero-width matching did not move.
+* `.ir`: four `regex` fixtures, from the three-line guard shifting the embedded
+  package source; plus the two fixtures whose own source this change edited.
+* `.ncodesum`: **9 fixtures × 5 targets**, and the membership was PROVED rather
+  than assumed. `lower_replace` is shared, so every binary emitting a `replace`
+  carries the new guard. Grepping the built `.ncode` for the new label
+  `replace_empty_old` gives exactly nine fixtures with a non-zero count —
+  strings, csv, tls, resource-xfer-slots, regex, json, encoding, crypto,
+  crypto-ec-valid — and those nine are exactly the nine whose sums moved. All 19
+  other byte-identity fixtures count 0 and kept byte-identical sums.
+
+Acceptance: met.
+Commit: (this commit)
+
+## The break, stated
+
+`strings::replace(value, "", new)` returned a copy of `value` and now raises
+`ErrInvalidArgument` (`77050002`). `regex::replace(value, "", replacement)`
+returned `value` with the replacement interleaved at every position and now raises
+the same code. Neither return type moved, so nothing catches an unmigrated caller
+at build time.
+
+A caller whose needle can be empty at run time either checks it or wraps the call
+in a `TRAP`. A caller passing a literal non-empty needle is unaffected.
+
+**The guard is on the empty needle/pattern STRING only.** `regex::replace` still
+interleaves for every pattern that matches zero-width — `"a*"`, `"x?"`, `"(?:)"`,
+`"\b"` — and every `regex` query member still answers for an empty pattern
+(`match` `TRUE`, `find` `0`, `findAll` one match per position, `findMatch.start`
+`0`).
 
 ## Validation Plan
 

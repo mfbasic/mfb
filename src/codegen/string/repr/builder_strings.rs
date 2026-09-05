@@ -135,6 +135,11 @@ impl CodeBuilder<'_> {
         let new_index = &scratch26;
 
         let copy_original = self.label("replace_copy_original");
+        // bug-533: an empty `old` occurs at every position, and rewriting at
+        // every position destroys the input. This is the STRING path only — the
+        // `List` overload returned above, and an empty *element* there is an
+        // ordinary value, not a degenerate needle.
+        let empty_old = self.label("replace_empty_old");
         let first_loop = self.label("replace_first_loop");
         let first_compare = self.label("replace_first_compare");
         let first_match = self.label("replace_first_match");
@@ -159,7 +164,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(old_len, old_ptr, 0));
         self.emit(abi::load_u64(new_len, new_ptr, 0));
         self.emit(abi::compare_immediate(old_len, "0"));
-        self.emit(abi::branch_eq(&copy_original));
+        self.emit(abi::branch_eq(&empty_old));
+        // An `old` longer than `value` cannot match anywhere; that is an ordinary
+        // no-match, and it keeps the copy-through path the empty needle no longer
+        // takes.
         self.emit(abi::compare_registers(old_len, value_len));
         self.emit(abi::branch_hi(&copy_original));
         self.emit(abi::add_immediate(value_ptr, value_ptr, 8));
@@ -295,6 +303,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8(value_byte, dest, 0));
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&empty_old));
+        self.raise_error("strings.replace", "ErrInvalidArgument")?;
 
         self.emit(abi::label(&copy_original));
         // No replacement occurred. The caller owns and frees this result, so it
