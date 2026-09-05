@@ -24,8 +24,9 @@
 //! They are declared in plan-98-B Phase 4 alongside the `destroy*` members that
 //! close them, because `add_resource` derives a runtime call from its close op.
 //! Until then — and in every published scene thereafter — an item names a resource
-//! through the `ImageRef`/`FontRef` value handles, since a record field cannot hold
-//! a resource.
+//! **directly**: `canvas::Picture.image` is a `RES canvas::Image` and
+//! `canvas::Text.font` a `RES canvas::Font`. The scene draws through the resource you
+//! still own; close it and that item draws nothing.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{

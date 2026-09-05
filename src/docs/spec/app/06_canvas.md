@@ -335,25 +335,36 @@ same name replaces what that name draws. The items are copied, so the list passe
 ## Images are named, not embedded
 
 An `Image` is an ordinary resource, closing when it leaves scope or with
-`canvas::destroyImage`. A scene never holds one: an item that draws an image
-carries an `ImageRef`, a plain value holding the id the backend knows the image
-by, obtained with `canvas::imageRef`.
+`canvas::destroyImage`. An item that draws one names it directly:
+`canvas::Picture.image` is a `RES canvas::Image`, and `canvas::Text.font` is a
+`RES canvas::Font`.
 
-That indirection is what makes the two lifetimes independent. A scene holding
-resources would have to keep them alive, which would make `canvas::destroyImage`
-a lie; holding only an id means an installed scene has no opinion about any
-image's lifetime at all. Destroying an image a presented scene still draws is
-therefore safe — the runtime simply defers freeing the backing object until the
-GPU has finished with the last frame that used it. That deferral is entirely
-runtime-side and invisible from MFBASIC: there is no reference count, no
-generation table, and nothing for a program to synchronise.
+**Naming a resource in a scene does not keep it alive.** The scene draws through
+the image you still own, and closing it is still yours to do — `canvas::destroyImage`
+means what it says, and takes effect at once. An item whose image has been closed
+draws nothing; the frame around it renders normally and nothing is raised. That is
+what makes the two lifetimes independent without the scene having an opinion about
+either.
+
+Destroying an image a presented scene still draws is therefore safe. The runtime
+defers freeing the backing object until the GPU has finished with the last frame
+that used it, and that deferral is entirely runtime-side and invisible from
+MFBASIC: there is no reference count, no generation table, and nothing for a
+program to synchronise.
+
+One consequence follows from the field being a resource rather than a plain value:
+**a `List OF canvas::DrawItem` cannot cross a thread's data plane.** A `Picture` or
+a `Text` carries a resource, and a resource crosses a thread only on the `RES`
+plane, so sending a scene to another thread is refused with
+`2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`. Move the `Image` or `Font` with
+`thread::transfer` / `thread::accept` and build the scene on the receiving side.
 
 ### Image content is orthogonal to the scene
 
 An image's *pixels* are mutable without touching the scene. `canvas::setBytes`
-replaces them behind the id, and the change appears on the next rendered frame —
+replaces them behind the image, and the change appears on the next rendered frame —
 no `present` is involved, because the scene has not changed: the same items are in
-the same places, and only the content behind one of their ids is different.
+the same places, and only the content of one of their images is different.
 
 This is why a video frame, a plot, or a progress bar can update without rebuilding
 the scene at all.

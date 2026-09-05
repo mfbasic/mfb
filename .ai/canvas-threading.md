@@ -202,12 +202,22 @@ Supporting rules, each of which the gate depends on:
   knowledge of what the graphics thread is doing.
 * **A closed texture is skipped in new frames.** So `lastUsedFrame` stops advancing
   the moment it closes, and the gate is guaranteed to open.
-* **A closed image cannot be named again.** `canvas::imageRef(image)` is a read of
-  the *resource* and raises `ErrResourceClosed` (plan-98-B), so a program cannot mint
-  a fresh handle to a closed image and no future scene can resurrect one whose free is
-  pending. Note the guard is at `imageRef`, **not** at `present`: a `Picture` carries
-  an `ImageRef`, which is a plain value, so presenting a stale one draws nothing rather
-  than raising.
+* **A closed image cannot be named again — and since plan-116-I the compiler is what
+  says so.** `canvas::destroyImage` **consumes its binding**, so a program cannot name
+  the image afterwards at all: building a second `Picture` from it is
+  `2-203-0055 TYPE_USE_AFTER_MOVE`, a compile error rather than a runtime raise. The
+  old guard (`canvas::imageRef` raising `ErrResourceClosed`) is gone with the member.
+
+  What survives is the case the guard actually protected, and it is now a *render-time*
+  rule rather than a mint-time one: **a scene may still hold an item whose resource has
+  since been closed**, because the item was built while it was live. The renderer reads
+  the backend id through `canvas::imageHandle`/`fontHandle`, which answer **0** for a
+  closed resource instead of raising, and 0 is already "no such object" — so that item
+  draws nothing and the frame around it renders normally.
+
+  The property to preserve if this is ever touched: **the closed flag is read before the
+  handle**, not after. Reading the handle first and testing closed afterwards races a
+  concurrent destroy in exactly the window that makes the answer stale.
 
 ## 8. The race matrix
 
@@ -218,7 +228,7 @@ row names the rule from above that protects it.
 |---|---|---|---|
 | R1 | present → `destroyImage` → graphics mid-record | the in-flight frame keeps sampling the texture and completes normally | §7 "close never frees" |
 | R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the texture; the free fires exactly once | §7 skip-in-new-frames + the gate |
-| R3 | `destroyImage` → try to name it again | `ErrResourceClosed` at `imageRef`, so no new scene can carry it | plan-98-B closed-read guard |
+| R3 | `destroyImage` → try to name it again | **Refused at compile time** — `destroyImage` consumes the binding, so there is no "name it again". A scene built *before* the destroy still draws, as nothing. | plan-116-I; was plan-98-B's closed-read guard |
 | R4 | two presents, no frame between | the second scene renders; the first is skipped, not rendered late | §3 step 2 overwrite |
 | R5 | present while graphics is mid-render | `present` does not block; the new scene renders next frame | §3 three slots |
 | R6 | graphics stalled indefinitely, worker presents repeatedly | `present` still never blocks; slots are reused, no unbounded allocation | §3 "nobody frees a slot" |
