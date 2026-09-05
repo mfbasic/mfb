@@ -42,10 +42,10 @@ See plan-116-A §Prerequisites for the three environment gates.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | **MET** (2026-09-04: one match, archived after box 2228 went green) |
-| plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | **MET** (re-verified 2026-09-04: 5 matches, A–E) |
+| plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | **MET** (re-run 2026-09-04, end of Phase 4: 1 match) |
+| plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | **MET** (re-run 2026-09-04, end of Phase 4: 5 matches) |
 | The ban on resource record fields is retired | `grep -rn TYPE_RESOURCE_FIELD_FORBIDDEN src \| grep -v rules/table.rs` → **no emit site**, only doc comments and the test that pins its absence | **MET** (re-verified 2026-09-04: hits are `ir/verify/tests.rs` ×3, `ir/verify/types.rs` ×2, `ir/verify/resources.rs` ×1 — all doc comments or the pinning tests — plus the spec and the rule-code table; no emit site) |
-| **The `canvas::Picture` image sampler exists** — a `Picture` in a scene actually draws its image | `grep -n 'CASE Picture' src/codegen/builtins/canvas/helper_geometry.rs` → the geometry arm is **not** `__canvas_emptyHeader()`; and `grep -rn imageHandle src/ \| grep -v func_handle_bridge.rs` → **at least one renderer call site** | **NOT MET** (2026-09-04, **J11**). The arm is `CASE Picture(pic) RETURN __canvas_emptyHeader()` — the `NONE` kind every renderer skips — and `canvas::imageHandle` has no caller in any renderer, while its twin `fontHandle` has six. Measured: a `Picture` handed straight to `present`, binding alive, renders an all-black frame. Owned by plan-98-E/G, not by any letter of plan-116. |
+| **The `canvas::Picture` image sampler exists** — a `Picture` in a scene actually draws its image | `sed -n '159,160p' src/codegen/builtins/canvas/helper_geometry.rs` → the `CASE Picture(pic)` arm returns something other than `__canvas_emptyHeader()` | **NOT MET** (re-run 2026-09-04): the arm is still `CASE Picture(pic) / RETURN __canvas_emptyHeader()`, the `NONE` kind every renderer skips. Measured in **J11**: a `Picture` handed straight to `present`, binding alive, renders an all-black frame. Owned by plan-98-E/G, not by any letter of plan-116. **The second half of this check was deleted 2026-09-04, having been falsified by this letter's own Phase 3** — it read *"`grep -rn imageHandle` → at least one renderer call site"*, and `__canvas_closeRetired` now calls `canvas::imageHandle` twice. Those are on the **free** path, not in a renderer, so the row's verdict is unchanged; but the command would report a match and a reader running it would mark the row MET. The geometry arm is the check that cannot be satisfied by anything except the sampler landing. |
 | **plan-116-I complete and archived** — `Picture` holds a `RES canvas::Image`, `Text` a `RES canvas::Font`, and `ImageRef`/`FontRef` are gone | `ls planning/completed/plan-116-I-*` → one match; `grep -n 'ImageRef\|FontRef' src/codegen/builtins/canvas/mod.rs` → no type declarations | NOT MET |
 
 **The sampler row does NOT block this letter, and saying why matters.** What it blocks is
@@ -134,13 +134,13 @@ the time of writing, so a future implementer can see what changed.
 
 | What | Value | Command |
 |---|---|---|
-| `TYPE_RESOURCE_FIELD_FORBIDDEN` | retired (reserved-not-emitted) | `sed -n 1008,1019p src/rules/table.rs` (2026-09-01) |
-| plan-114 letters archived | 5 (A–E) | `ls planning/completed/plan-114-*` (2026-09-01) |
+| `TYPE_RESOURCE_FIELD_FORBIDDEN` | retired (reserved-not-emitted) | `grep -rn TYPE_RESOURCE_FIELD_FORBIDDEN src \| grep -v rules/table.rs` → **8 hits, no emit site** (re-run 2026-09-04, end of Phase 4). The line-range form this row used is the one **J6** replaced: it showed the rule and not the retirement comment above it. |
+| plan-114 letters archived | 5 (A–E) | `ls planning/completed/plan-114-*` → 5 (re-run 2026-09-04, end of Phase 4) |
 | `Picture.image` type | **`RES canvas::Image`** — plan-116-I landed | `grep -n 'RES canvas' src/codegen/builtins/canvas/mod.rs`; `ImageRef` no longer exists (2026-09-04) |
 | `Text.font` type | **`RES canvas::Font`** | same grep; `FontRef` no longer exists (2026-09-04) |
 | `ImageRef` / `FontRef` | **gone**, and their absence is pinned | `grep -n 'imageRef\|fontRef' src/codegen/builtins/canvas/mod.rs` → prose plus `mod.rs:1339`, a test that iterates `["imageRef", "fontRef"]` and asserts neither resolves (2026-09-04) |
 | Close is a whole-word store | `store_u64(1, record, RESOURCE_OFFSET_CLOSED)` | `lower_destroy_image` in `func_destroy_image.rs`; no bitfield anywhere (**J7**) |
-| Resources declared by `canvas` | 2 (`Image`, `Font`) | `grep -n 'pkg\.add_resource' src/codegen/builtins/canvas/mod.rs` → 2 (2026-09-04). **Anchor on `pkg.add_resource`, not `add_resource`**: the bare form greps 4, because the module comment and an inline comment both name it (**J3**). |
+| Resources declared by `canvas` | 2 (`Image`, `Font`) | `grep -n 'pkg\.add_resource' src/codegen/builtins/canvas/mod.rs` → 2 (re-run 2026-09-04, end of Phase 4). **Anchor on `pkg.add_resource`, not `add_resource`**: the bare form greps 4, because the module comment and an inline comment both name it (**J3**). |
 | `live_slots` on both | `&[]`, `sendable: false` | the `live_slots` and `sendable` fields of each `pkg.add_resource` call in `mod.rs` |
 
 ### Verified properties
@@ -896,6 +896,33 @@ Commit: —
 
 ## Corrections
 
+**J17 (2026-09-04, end of Phase 4) — the Prerequisites row **I** added this morning was
+falsified by **my own Phase 3**, and it would have read MET.**
+
+**J11** added a fifth Prerequisites row for the missing `canvas::Picture` image sampler,
+with a two-part check:
+
+> `grep -n 'CASE Picture' … helper_geometry.rs` → the geometry arm is **not**
+> `__canvas_emptyHeader()`; **and** `grep -rn imageHandle src/ | grep -v
+> func_handle_bridge.rs` → **at least one renderer call site**
+
+The second half is now satisfied — by this letter. `__canvas_closeRetired` calls
+`canvas::imageHandle` twice (**J15**), so the grep reports live call sites where it
+reported none this morning. Those are on the **free path**, not in a renderer, so the
+row's *verdict* is unchanged and still **NOT MET** — the geometry arm is still
+`RETURN __canvas_emptyHeader()`. But a reader running the command as written would see a
+match and mark the row MET, and this letter's whole §Phases rests on that row being NOT
+MET (**J11**: the pixel-level acceptance clauses are unmeetable until the sampler lands).
+
+The second half is deleted. The geometry arm is the check that cannot be satisfied by
+anything except the sampler actually landing, and it is now spelled as a `sed` of the two
+lines rather than a `grep` whose match set can grow.
+
+Recorded rather than quietly fixed because of what it demonstrates: a check written against
+"does any code call X" is only as stable as the reasons code might call X, and **the plan's
+own work is one of those reasons**. This is the same failure as a stale line citation
+(**J6**, **J4**) reached from the opposite direction — the citation did not decay, the
+codebase grew into it.
 **J16 (2026-09-04) — the box-2228 row cannot be a bare `cargo test --release`, and the
 plan asks for one in three places.**
 
