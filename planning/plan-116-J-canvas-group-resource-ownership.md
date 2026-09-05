@@ -909,6 +909,48 @@ Commit: —
 
 ## Corrections
 
+**J18 (2026-09-04) — merging `main` exercised plan-116-I's migration against code written
+after it, and that is worth recording as evidence rather than as merge bookkeeping.**
+
+`main` advanced **131 commits** since the fork, **16 files overlapping** this branch, five
+of them conflicting. Four resolutions were routine; the fifth was not.
+
+**`tests/rt_canvas_font.rs`.** `main` added ~320 lines of font-derived size-bomb tests
+(bug-509) written against **`canvas::fontRef(face)`** — the member plan-116-I **deleted** —
+because `main` does not have plan-116-I. It also refactored `minimal_truetype()` into a
+parameterised `truetype_fixture(upem, groups, square)` that those tests call.
+
+Resolved by taking this branch's migrated file as the base, porting `main`'s tests onto
+it, rewriting the one `fontRef` site to name the `RES canvas::Font` directly, and porting
+the `truetype_fixture` refactor so the ported tests have their helper. Both test sets are
+present and no `fontRef` remains.
+
+**Why this is evidence and not housekeeping.** plan-116-I's claim was that a `Text` names
+its font *directly* and `fontRef` is gone. Until now that was verified against code written
+*with* the migration in hand. This merge took a set of tests written by someone who had
+never seen it, and the only change needed was `font := canvas::fontRef(face)` →
+`font := face` — a strictly shorter expression, at one site, with no other adjustment. That
+is the migration behaving as advertised on unseen code.
+
+**The one resolution that discarded this branch's work, and the check that made it safe.**
+plan-122-B moved the sRGB table out of `helper_color.rs` into `color`. This branch had only
+added a doc comment there — a warning that two GPU shaders reproduce the table's rounding
+by hand and that moving it is therefore not a local edit. Taking `main`'s side deletes that
+comment, so I read where the table went before accepting: `builtins/color/helper_srgb.rs`
+already carries the warning, in a **stronger** form — it also records that *neither shader
+mentions the table by name, so a grep for the constant finds neither copy*. Nothing was
+lost. Had it not been carried, the right resolution would have been to carry it, not to
+take the deletion because a merge made it convenient.
+
+**And one where `main`'s fix beat this branch's.** Both had independently fixed the same
+collision in `rt_tls_connect_allow_self_signed.rs` — four concurrent cases sharing a
+scratch root, so a *negative* case could read the in-date peer's certificate and report a
+security property it never tested. This branch used a clock plus a process-local counter;
+`main` used a pid plus counter behind a shared `common::unique_nonce`, and carried the
+measurement this branch never took: **698,577 of 800,000** nanosecond stamps from four
+threads were duplicates on the macOS host. `main`'s is unique across processes and every
+other test file gets it. Took `main`'s.
+
 **J17 (2026-09-04, end of Phase 4) — the Prerequisites row **I** added this morning was
 falsified by **my own Phase 3**, and it would have read MET.**
 
