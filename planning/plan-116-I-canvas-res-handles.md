@@ -480,7 +480,7 @@ asked. The fourth — "destroyed font's text measures 0" — cannot be written: 
 refuses it. That is the guarantee being stronger than the plan expected, not the test
 being weaker (**I6**).
 `MFB_CANVAS_STATS` across 200 presents through one font: no growth.
-Commit: —
+Commit: `a6ea441b0`
 
 ### Phase 4 — Docs, spec, and gates
 
