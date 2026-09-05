@@ -42,4 +42,5 @@ mod optimizer;
 mod os;
 mod perf;
 mod registry_bodies;
+mod threads;
 mod vector;
