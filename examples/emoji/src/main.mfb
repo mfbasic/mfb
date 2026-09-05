@@ -279,13 +279,13 @@ FUNC sceneFor(smiling AS Boolean, surface AS canvas::Size, face AS canvas::Font)
   ' Text is positioned by the start of its baseline, so centring it horizontally
   ' means subtracting half the measured advance width, and placing it below the
   ' face means adding the ascent to the gap under the face.
-  LET label AS canvas::DrawItem = canvas::Text[x := cx - metrics.width / 2.0, y := faceCy + radius + radius * CAPTION_GAP + metrics.ascent, text := caption, font := canvas::fontRef(face), size := textSize, paint := canvas::fill(canvas::rgb(96, 92, 86))]
+  LET label AS canvas::DrawItem = canvas::Text[x := cx - metrics.width / 2.0, y := faceCy + radius + radius * CAPTION_GAP + metrics.ascent, text := caption, font := face, size := textSize, paint := canvas::fill(canvas::rgb(96, 92, 86))]
   scene = collections::append(scene, label)
 
   LET hint AS String = "any key switches  \u{00B7}  q quits"
   LET hintSize AS Float = hintSizeFor(surface)
   LET hintMetrics AS canvas::TextMetrics = canvas::measureText(face, hintSize, hint)
-  LET hintItem AS canvas::DrawItem = canvas::Text[x := cx - hintMetrics.width / 2.0, y := toFloat(surface.height) - hintSize * 1.4, text := hint, font := canvas::fontRef(face), size := hintSize, paint := canvas::fill(canvas::rgb(176, 172, 166))]
+  LET hintItem AS canvas::DrawItem = canvas::Text[x := cx - hintMetrics.width / 2.0, y := toFloat(surface.height) - hintSize * 1.4, text := hint, font := face, size := hintSize, paint := canvas::fill(canvas::rgb(176, 172, 166))]
   scene = collections::append(scene, hintItem)
 
   RETURN scene

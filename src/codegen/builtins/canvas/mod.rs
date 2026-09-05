@@ -41,13 +41,11 @@ mod func_destroy_image;
 mod func_did_resize;
 mod func_fill;
 mod func_fill_stroke;
-mod func_font_ref;
 mod func_get_bytes;
 mod func_get_size;
 mod func_graphics;
 mod func_group_stats;
 mod func_handle_bridge;
-mod func_image_ref;
 mod func_installed_items;
 mod func_installed_layers;
 pub(crate) mod func_load_font;
@@ -140,10 +138,10 @@ transform (which is the *all-zero* `canvas::Transform`, by definition) and a zer
 meaning absent, clip. That is what lets `canvas::fill(red)` mean simply "a red
 shape": every field the caller did not name is already inert.
 
-An item that draws an image or text names it through a `canvas::ImageRef` / `canvas::FontRef` —
-a plain value holding the id the backend knows the resource by. The scene holds
-that id and nothing more, which is what lets a published scene outlive the image
-it names. `canvas::imageRef` takes that id from an `Image`.
+An item that draws an image or text holds the resource itself — `canvas::Picture.image`
+is a `RES canvas::Image` and `canvas::Text.font` a `RES canvas::Font`. A published scene
+may still outlive what it names: closing an image or font a scene still draws makes that
+item draw nothing, rather than failing the frame.
 
 `Image` is a resource, so it is bound with `RES` and named
 **package-qualified**, exactly like `fs::File`:
@@ -441,44 +439,21 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
-    // A `DrawItem` variant is a record, and **a record field cannot hold a
-    // resource** — the language rejects both `font AS Font` (a resource is not a
-    // value type) and `font AS RES Font` (`RES` does not parse in a field position).
-    // So the scene names a resource through a plain value handle instead, which is
-    // exactly the model plan-98 already specified: the backend owns the one real
-    // copy and MFB holds only the id. `canvas::imageRef`/`fontRef` read the id out
-    // of the owning resource.
+    // `ImageRef` and `FontRef` used to be declared here, and the comment above them
+    // explained why: a record field could not hold a resource, so the scene named one
+    // through a plain `Integer` handle instead.
     //
-    // This is what keeps the scene from retaining anything: a handle is an
-    // `Integer`, so a published scene has no opinion about the resource's lifetime.
-    // A handle naming a destroyed resource is not a dangling pointer — the runtime
-    // simply defers freeing the backing object until the GPU is done with it.
-    pkg.add_record(RegistryRecord {
-        name: "ImageRef",
-        export: true,
-        description: "A plain value naming an `Image` — the id the backend knows it \
-                      by. Obtain one with `canvas::imageRef`. The zero handle names \
-                      no image and draws nothing, which is what an unset \
-                      `canvas::Picture.image` is.",
-        props: vec![RecordProp {
-            name: "id",
-            ty: ParameterType::Integer,
-            description: "The backend's id for the image. `0` names no image.",
-        }],
-    });
-
-    pkg.add_record(RegistryRecord {
-        name: "FontRef",
-        export: true,
-        description: "A plain value naming a `Font` — the id the backend knows it \
-                      by. Obtain one with `canvas::fontRef`. The zero handle names \
-                      no font, so text carrying it measures and draws as empty.",
-        props: vec![RecordProp {
-            name: "id",
-            ty: ParameterType::Integer,
-            description: "The backend's id for the font. `0` names no font.",
-        }],
-    });
+    // plan-114-D lifted that ban and plan-116-I removed the workaround. `Picture.image`
+    // and `Text.font` now hold the **resource itself**. What the handle bought — a
+    // published scene having no opinion on the resource's lifetime — is preserved
+    // rather than given up: the renderer reads the backend id through
+    // `canvas::imageHandle`/`fontHandle`, which answer `0` for a destroyed resource
+    // instead of raising, so an item naming something the program has since closed
+    // draws nothing exactly as a zero handle did.
+    //
+    // What changed for a caller is that the compiler now knows a scene names a
+    // resource. That is the point: `canvas::Picture[image := imageRef(img)]` could
+    // outlive `img` silently, and `image := img` cannot.
 
     pkg.add_record(RegistryRecord {
         name: "GradientStop",
@@ -815,10 +790,11 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "font",
-                ty: ParameterType::named("FontRef"),
-                description: "The font to draw it in, as a handle from \
-                              `canvas::fontRef`. The scene holds the id only — it \
-                              does not keep the `Font` resource alive.",
+                ty: ParameterType::res(ParameterType::named("canvas.Font")),
+                description: "The font to draw it in. The item holds the font \
+                              itself — you still close it, and closing it while a \
+                              scene still names it draws nothing rather than \
+                              failing.",
             },
             RecordProp {
                 name: "size",
@@ -841,10 +817,11 @@ pub(crate) fn register(r: &mut Registry) {
                 4,
                 RecordProp {
                     name: "image",
-                    ty: ParameterType::named("ImageRef"),
-                    description: "The image to draw, as a handle from \
-                                  `canvas::imageRef`. The scene holds the id only — \
-                                  it does not keep the `Image` resource alive.",
+                    ty: ParameterType::res(ParameterType::named("canvas.Image")),
+                    description: "The image to draw. The item holds the image \
+                                  itself — you still close it, and closing it while \
+                                  a scene still names it draws nothing rather than \
+                                  failing.",
                 },
             );
             props
@@ -996,17 +973,17 @@ pub(crate) fn register(r: &mut Registry) {
     // member leaves a call the catalog cannot route
     // (`catalog_is_consistent`: "canvas.destroyImage: None (expected Some(Canvas))").
     //
-    // Nothing in the frozen `DrawItem` set depends on them: a record field cannot
-    // hold a resource, so `Picture`/`Text` name the value handles `ImageRef` /
-    // `FontRef` instead — see their declarations above.
+    // `Picture` and `Text` name these directly: since plan-116-I their `image` and
+    // `font` fields are `RES canvas::Image` and `RES canvas::Font`. The value handles
+    // that used to stand in for them are gone.
 
     pkg.add_resource(RegistryResource {
         name: IMAGE_TYPE,
         export: true,
         description: "An opaque handle to an image the drawing backend holds, closed \
-                      automatically when its binding goes out of scope. A scene names one \
-                      through a `canvas::ImageRef`, never directly, so destroying an image a \
-                      scene still draws is safe.",
+                      automatically when its binding goes out of scope. A \
+                      `canvas::Picture` holds one directly, and destroying an image a \
+                      scene still draws is safe — that item draws nothing.",
         close_function: DESTROY_IMAGE,
         // An image belongs to the drawing surface's thread; it does not cross a
         // thread boundary in v1.
@@ -1025,9 +1002,9 @@ pub(crate) fn register(r: &mut Registry) {
         name: FONT_TYPE,
         export: true,
         description: "An opaque handle to a loaded font, closed automatically when it \
-                      leaves scope. A scene names one through a `canvas::FontRef`, never \
-                      directly, so closing a font whose text a scene still draws is \
-                      safe — that text simply draws as empty.",
+                      leaves scope. A `canvas::Text` holds one directly, and closing a \
+                      font whose text a scene still draws is safe — that text simply \
+                      draws as empty.",
         close_function: DESTROY_FONT,
         // A font belongs to the drawing surface's thread, like an image; it does not
         // cross a thread boundary in v1.
@@ -1067,12 +1044,10 @@ pub(crate) fn register(r: &mut Registry) {
     func_load_image::register(&mut pkg);
     func_destroy_image::register(&mut pkg);
     func_handle_bridge::register(&mut pkg);
-    func_image_ref::register(&mut pkg);
     gen_font_table::register(&mut pkg);
     func_load_font::register(&mut pkg);
     func_measure_text::register(&mut pkg);
     func_destroy_font::register(&mut pkg);
-    func_font_ref::register(&mut pkg);
     func_get_size::register(&mut pkg);
     func_did_resize::register(&mut pkg);
     func_get_bytes::register(&mut pkg);
@@ -1302,25 +1277,35 @@ mod tests {
         }
     }
 
-    /// A record field cannot hold a resource, so the two variants that name one
-    /// carry a value handle instead. This pins the *shape* of that decision: the
-    /// handle is a plain `Integer`, which is what keeps a published scene from
-    /// having any opinion about a resource's lifetime.
+    /// The two `DrawItem` variants that name a resource hold the **resource itself**,
+    /// not a handle to it.
+    ///
+    /// This assertion has been inverted, deliberately. It used to read
+    /// `resource_handles_are_plain_integer_values` and pin the opposite: an `ImageRef`/
+    /// `FontRef` record with a single `Integer` `id`. That shape existed for one reason
+    /// — a record field could not hold a resource — and plan-114-D removed the reason.
+    /// plan-116-I removed the workaround.
+    ///
+    /// What is pinned now is the part that could regress silently. A field typed
+    /// `Named("canvas.Image")` renders *identically* to one typed
+    /// `Res(Named("canvas.Image"))` — `mfb man` shows the same text for both — but the
+    /// first is a value field that copies the resource record, and the second aliases
+    /// the live one. So this asserts the **variant**, not the spelling.
+    ///
+    /// The lifetime property the old handle bought is not given up, it moved: the
+    /// renderer reads the backend id through `canvas::imageHandle`/`fontHandle`, which
+    /// answer `0` rather than raising once the resource is closed, so a scene naming a
+    /// destroyed resource still draws nothing instead of failing.
     #[test]
-    fn resource_handles_are_plain_integer_values() {
+    fn the_resource_naming_variants_hold_the_resource_itself() {
         let pkg = registry()
             .resolve_package("canvas")
             .expect("canvas package");
-        for (handle, owner) in [("ImageRef", "Picture"), ("FontRef", "Text")] {
-            let record = pkg
-                .records()
-                .iter()
-                .find(|r| r.name == handle)
-                .unwrap_or_else(|| panic!("{handle} record"));
-            assert_eq!(record.props.len(), 1, "{handle}");
-            assert_eq!(record.props[0].name, "id");
-            assert_eq!(record.props[0].ty, ParameterType::Integer, "{handle}");
 
+        for (owner, field_name, resource) in [
+            ("Picture", "image", "canvas.Image"),
+            ("Text", "font", "canvas.Font"),
+        ] {
             let variant = pkg
                 .records()
                 .iter()
@@ -1329,9 +1314,32 @@ mod tests {
             let field = variant
                 .props
                 .iter()
-                .find(|p| p.ty.name() == handle)
-                .unwrap_or_else(|| panic!("{owner} should name a {handle}"));
-            assert!(matches!(field.name, "image" | "font"), "{owner}");
+                .find(|p| p.name == field_name)
+                .unwrap_or_else(|| panic!("{owner} should have a `{field_name}` field"));
+            assert_eq!(
+                field.ty,
+                ParameterType::res(ParameterType::named(resource)),
+                "`{owner}.{field_name}` must be `RES {resource}`. A bare \
+                 `Named(\"{resource}\")` renders the same and is a VALUE field — it \
+                 would copy the resource record instead of aliasing the live one",
+            );
+        }
+
+        // And the workaround is gone, not merely unused: a lingering `ImageRef` would
+        // still be exported, still be constructible, and still be the thing an example
+        // reached for.
+        for gone in ["ImageRef", "FontRef"] {
+            assert!(
+                !pkg.records().iter().any(|r| r.name == gone),
+                "the `{gone}` record is still registered; plan-116-I deletes it rather \
+                 than leaving it as a second way to name a resource",
+            );
+        }
+        for gone in ["imageRef", "fontRef"] {
+            assert!(
+                !pkg.functions().iter().any(|f| f.name == gone),
+                "`canvas::{gone}` is still registered",
+            );
         }
     }
 

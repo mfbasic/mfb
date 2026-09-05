@@ -32,7 +32,6 @@ const MEMBERS: &[&str] = &[
     "removeGroup",
     "createImage",
     "destroyImage",
-    "imageRef",
     "getSize",
     "getBytes",
     "setBytes",

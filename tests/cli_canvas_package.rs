@@ -14,6 +14,13 @@ use std::process::Command;
 
 fn build(name: &str, source: &str, app: bool) -> (PathBuf, bool, String) {
     let project = temp_project(name, source);
+    // plan-116-I: a `canvas::Text` holds a `RES canvas::Font`, so a fixture can no
+    // longer fabricate `FontRef[id := 0]` — it has to load a real face. Written for
+    // every fixture here rather than only the one that needs it, because an unused
+    // file costs nothing and a missing one fails as a runtime TRAP inside the program
+    // rather than as a build error anyone would read.
+    std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
+        .expect("write the font fixture");
     let mut command = Command::new(common::mfb_exe());
     command.arg("build");
     if app {
@@ -51,8 +58,12 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20   RETURN 4\n\
     \x20 END IF\n\
     \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 1.0, y := 0.0]]\n\
-    \x20 LET img AS canvas::ImageRef = canvas::ImageRef[id := 0]\n\
-    \x20 LET fnt AS canvas::FontRef = canvas::FontRef[id := 0]\n\
+    \x20 RES img AS canvas::Image = canvas::createImage(2, 2) TRAP(e)\n\
+    \x20   RETURN 30\n\
+    \x20 END TRAP\n\
+    \x20 RES fnt AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n\
+    \x20   RETURN 31\n\
+    \x20 END TRAP\n\
     \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(yellow)]\n\
     \x20 LET b AS canvas::DrawItem = canvas::Arc[x := 1.0, y := 2.0, radius := 3.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 4.0)]\n\
     \x20 LET c AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 10.0, h := 10.0, paint := canvas::fill(green)]\n\
@@ -227,23 +238,26 @@ fn macos_canvas_surface_runs() {
 #[cfg(target_os = "macos")]
 const PRESENT_SKIP_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
-     FUNC one(r AS Float) AS List OF canvas::DrawItem\n\
+     FUNC one(r AS Float, f AS RES canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS canvas::Color = canvas::rgb(10, 20, 30)\n\
     \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c)]\n\
-    \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"abc\", font := canvas::FontRef[id := 3], size := 8.0, paint := canvas::fill(c)]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"abc\", font := f, size := 8.0, paint := canvas::fill(c)]\n\
     \x20 RETURN [a, b]\n\
      END FUNC\n\
      FUNC main AS Integer\n\
     \x20 app::setMode(app::Mode.Canvas)\n\
-    \x20 canvas::present(one(5.0))\n\
-    \x20 canvas::present(one(5.0))\n\
-    \x20 canvas::present(one(7.0))\n\
-    \x20 canvas::present(one(7.0))\n\
-    \x20 canvas::present(one(5.0))\n\
+    \x20 RES fnt2 AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n\
+    \x20   RETURN 31\n\
+    \x20 END TRAP\n\
+    \x20 canvas::present(one(5.0, fnt2))\n\
+    \x20 canvas::present(one(5.0, fnt2))\n\
+    \x20 canvas::present(one(7.0, fnt2))\n\
+    \x20 canvas::present(one(7.0, fnt2))\n\
+    \x20 canvas::present(one(5.0, fnt2))\n\
     \x20 LET empty AS List OF canvas::DrawItem = []\n\
     \x20 canvas::present(empty)\n\
     \x20 canvas::present(empty)\n\
-    \x20 canvas::present(one(5.0))\n\
+    \x20 canvas::present(one(5.0, fnt2))\n\
     \x20 RETURN 0\n\
      END FUNC\n";
 

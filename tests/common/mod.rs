@@ -1154,3 +1154,45 @@ pub fn is_stack_base(instruction: &serde_json::Value) -> bool {
 pub fn is_stack_register(name: &str) -> bool {
     name == "sp" || name == "rsp"
 }
+
+/// A minimal TrueType face, for tests that must construct a `canvas::Text`.
+///
+/// Shared rather than duplicated because plan-116-I made a font *resource* the thing a
+/// `Text` item holds: a fixture can no longer fabricate `FontRef[id := 0]` and must
+/// load a real face, so more than one test file needs these bytes.
+///
+/// It is a stub — its `A` and `B` glyphs are solid boxes — which is exactly what a
+/// coverage assertion wants: a glyph that either renders as a filled rectangle or does
+/// not render at all, with nothing in between to argue about.
+/// The twelve-glyph fixture font, as bytes.
+pub fn fixture_truetype() -> Vec<u8> {
+    const B64: &str = concat!(
+        "AAEAAAAGAAAAAAAAY21hcAAAAAAAAABsAAAANGdseWYAAAAAAAAAoAAAACJoZWFkAAAAAAAAAMIA",
+        "AAA2aGhlYQAAAAAAAAD4AAAAJGhtdHgAAAAAAAABHAAAAAxsb2NhAAAAAAAAASgAAAAIAAAAAQAD",
+        "AAoAAAAMAAwAAAAAACgAAAAAAAAAAgAAAEEAAABBAAAAAQAAAEIAAABCAAAAAgABAGQAAAGQASwA",
+        "AwAAAQEBAQBkASwAAP7UAAAAAAEsAAAAAAAAAAAAAAAAAAAAAAAAAAAD6AAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAyD/OABkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMB",
+        "9AAAAPoAAAEsAAAAAAAAABEAEQ==",
+    );
+    let table: Vec<u8> =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_vec();
+    let mut out = Vec::new();
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for ch in B64.bytes() {
+        if ch == b'=' {
+            break;
+        }
+        let v = table
+            .iter()
+            .position(|&c| c == ch)
+            .expect("base64 alphabet") as u32;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    out
+}

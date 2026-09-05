@@ -657,7 +657,7 @@ FUNC __canvas_tailFor(item AS DrawItem) AS List OF Float
 END FUNC
 
 FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
-  LET b AS List OF Byte = __canvas_fontBlob(t.font.id)
+  LET b AS List OF Byte = __canvas_fontBlob(canvas::fontHandle(t.font))
   IF len(b) = 0 THEN
     RETURN []
   END IF
@@ -691,7 +691,7 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
     ' `append(__CANVAS_GLYPH_PINS, __canvas_glyphEntry(...))` appends to whichever list
     ' the argument evaluation had already resolved, which is the one eviction just
     ' replaced.
-    LET entry AS Integer = __canvas_glyphEntry(b, t.font.id, gid, t.size, scale)
+    LET entry AS Integer = __canvas_glyphEntry(b, canvas::fontHandle(t.font), gid, t.size, scale)
     __CANVAS_GLYPH_PINS = collections::append(__CANVAS_GLYPH_PINS, entry)
     c = c + 1
   END WHILE
@@ -712,7 +712,7 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
 END FUNC
 
 FUNC __canvas_textEdges(t AS Text) AS List OF Float
-  LET b AS List OF Byte = __canvas_fontBlob(t.font.id)
+  LET b AS List OF Byte = __canvas_fontBlob(canvas::fontHandle(t.font))
   IF len(b) = 0 THEN
     RETURN []
   END IF
@@ -984,7 +984,7 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
   out = __canvas_paintHeader(out, t.paint)
   ' Slots 2 and 3 carry the font handle and the em size: a glyph run needs both to
   ' rasterise, and they are the shape parameters no other kind uses for text.
-  out = collections::set(out, 2, toFloat(t.font.id))
+  out = collections::set(out, 2, toFloat(canvas::fontHandle(t.font)))
   out = collections::set(out, 3, t.size)
   out = collections::set(out, 20, toFloat(glyphs))
   ' The ink box comes from the metrics rather than from the outlines: this header is
@@ -992,7 +992,7 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
   ' ascent/descent box always contains the ink. It is only used to clip and to
   ' invalidate, so a box that is too large costs nothing and one that is too small
   ' would clip the glyphs it was meant to bound.
-  LET b AS List OF Byte = __canvas_fontBlob(t.font.id)
+  LET b AS List OF Byte = __canvas_fontBlob(canvas::fontHandle(t.font))
   LET upem AS Integer = __canvas_fontUnitsPerEm(b)
   LET scale AS Float = t.size / toFloat(__canvas_maxI(upem, 1))
   LET ascent AS Float = toFloat(__canvas_fontAscent(b)) * scale
@@ -1108,7 +1108,7 @@ FUNC __canvas_textHash(t AS Text) AS Integer
   ' 9.1618e18 and survives by 0.7%, which is not correctness but the luck of that
   ' host's address-space layout. `__canvas_hashStep` multiplies the accumulator, not
   ' the value, so an address folds in with room to spare.
-  acc = __canvas_hashStep(acc, t.font.id)
+  acc = __canvas_hashStep(acc, canvas::fontHandle(t.font))
   FOR EACH cp IN encoding::utf32Encode(t.text)
     acc = __canvas_hashStep(acc, cp)
   NEXT

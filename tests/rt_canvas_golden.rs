@@ -51,38 +51,6 @@ SUB main()
 END SUB
 "#;
 
-/// The twelve-glyph fixture font, as bytes.
-fn fixture_truetype() -> Vec<u8> {
-    const B64: &str = concat!(
-        "AAEAAAAGAAAAAAAAY21hcAAAAAAAAABsAAAANGdseWYAAAAAAAAAoAAAACJoZWFkAAAAAAAAAMIA",
-        "AAA2aGhlYQAAAAAAAAD4AAAAJGhtdHgAAAAAAAABHAAAAAxsb2NhAAAAAAAAASgAAAAIAAAAAQAD",
-        "AAoAAAAMAAwAAAAAACgAAAAAAAAAAgAAAEEAAABBAAAAAQAAAEIAAABCAAAAAgABAGQAAAGQASwA",
-        "AwAAAQEBAQBkASwAAP7UAAAAAAEsAAAAAAAAAAAAAAAAAAAAAAAAAAAD6AAAAAAAAAAAAAAAAAAA",
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAyD/OABkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMB",
-        "9AAAAPoAAAEsAAAAAAAAABEAEQ==",
-    );
-    let table: Vec<u8> =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_vec();
-    let mut out = Vec::new();
-    let mut acc: u32 = 0;
-    let mut bits = 0u32;
-    for ch in B64.bytes() {
-        if ch == b'=' {
-            break;
-        }
-        let v = table
-            .iter()
-            .position(|&c| c == ch)
-            .expect("base64 alphabet") as u32;
-        acc = (acc << 6) | v;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-        }
-    }
-    out
-}
 
 fn golden_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -126,7 +94,7 @@ fn render_gpu(name: &str, source: &str) -> (Frame, String) {
 fn render_inner(name: &str, source: &str, font: bool, extra: &[(&str, &str)]) -> (Frame, String) {
     let project = common::temp_project(name, source);
     if font {
-        std::fs::write(project.join("fixture.ttf"), fixture_truetype())
+        std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
             .expect("write the font fixture");
     }
     let frame_path = project.join("frame.rgba");
@@ -430,8 +398,8 @@ SUB main()
 
   ' 90 degrees, so the rotated run is a vertical column of the fixture's squares.
   LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 860.0, ty := 120.0]
-  LET plainText AS canvas::DrawItem = canvas::Text[x := 380.0, y := 300.0, text := "AA", font := canvas::fontRef(face), size := 50.0, paint := canvas::fill(canvas::rgb(200, 255, 120))]
-  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := canvas::fontRef(face), size := 50.0, paint := WITH canvas::fill(canvas::rgb(200, 255, 120)) { transform := textT }]
+  LET plainText AS canvas::DrawItem = canvas::Text[x := 380.0, y := 300.0, text := "AA", font := face, size := 50.0, paint := canvas::fill(canvas::rgb(200, 255, 120))]
+  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := face, size := 50.0, paint := WITH canvas::fill(canvas::rgb(200, 255, 120)) { transform := textT }]
 
   canvas::present([ground, plainRect, rotRect, plainCircle, scaledCircle, plainPoly, shearPoly, plainText, rotText])
   io::print("rendered")
@@ -1030,7 +998,7 @@ fn a_gradient_on_a_stroked_text_is_ignored() {
              startPoint := canvas::Point[x := 0.0, y := 0.0], \
              endPoint := canvas::Point[x := 400.0, y := 0.0], stops := s]\n  \
              LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, \
-             text := \"AA\", font := canvas::fontRef(face), size := 90.0, \
+             text := \"AA\", font := face, size := 90.0, \
              paint := {paint}]\n  \
              LET box AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 380.0, \
              w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
@@ -1165,7 +1133,7 @@ SUB main()
   LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 160.0, h := 70.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := ramp }]
   LET band AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 80.0, w := 160.0, h := 30.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 40.25, y := 0.0, w := 90.5, h := 640.0] }]
   LET dot AS canvas::DrawItem = canvas::Circle[x := 30.0, y := 140.0, radius := 22.0, paint := canvas::fillStroke(canvas::rgb(0, 170, 220), canvas::rgb(255, 255, 255), 5.0)]
-  LET tag AS canvas::DrawItem = canvas::Text[x := 70.0, y := 155.0, text := "AA", font := canvas::fontRef(face), size := 46.0, paint := canvas::fill(canvas::rgb(230, 60, 170))]
+  LET tag AS canvas::DrawItem = canvas::Text[x := 70.0, y := 155.0, text := "AA", font := face, size := 46.0, paint := canvas::fill(canvas::rgb(230, 60, 170))]
   canvas::setGroup("panel", [bar, band, dot, tag])
   ' A nested group: the outer holds the panel, so the two offsets compose.
   canvas::setGroup("outer", [canvas::Group[name := "panel", dx := 20.0, dy := 30.0]])

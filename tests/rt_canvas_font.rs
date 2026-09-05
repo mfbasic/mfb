@@ -70,9 +70,11 @@ FUNC attempt(label AS String, b0 AS Integer, b1 AS Integer, b2 AS Integer, b3 AS
   RES f AS canvas::Font = canvas::loadFont(path) TRAP(e)
     RETURN label & ": refused " & toString(e.code)
   END TRAP
-  LET r AS canvas::FontRef = canvas::fontRef(f)
-  IF r.id = 0 THEN
-    RETURN label & ": accepted with a zero handle"
+  ' The old form minted a `FontRef` and asserted a non-zero id — "the loader accepted
+  ' it AND the backend registered it". plan-116-I removed the mint, and the second half
+  ' is now observable directly: a font the backend does not know measures nothing.
+  IF canvas::measureText(f, 12.0, "A").width <= 0.0 THEN
+    RETURN label & ": accepted but measures nothing"
   END IF
   canvas::destroyFont(f)
   RETURN label & ": accepted"
@@ -375,7 +377,7 @@ SUB main()
     io::print("font failed")
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "A", font := canvas::fontRef(face), size := 200.0, paint := canvas::fill(canvas::rgb(255, 255, 0))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "A", font := face, size := 200.0, paint := canvas::fill(canvas::rgb(255, 255, 0))]
   canvas::setGroup("label", [label])
   canvas::present([canvas::Group[dx := 400.0, dy := 300.0, name := "label"]])
   io::print("done")
@@ -588,7 +590,7 @@ SUB main()
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := canvas::fontRef(face), size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#,
@@ -639,7 +641,7 @@ SUB main()
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AA", font := canvas::fontRef(face), size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AA", font := face, size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#,
@@ -657,11 +659,18 @@ END SUB
 }
 
 #[test]
-fn text_in_a_font_that_was_never_loaded_draws_nothing() {
-    // A `FontRef` a program fabricated, or one whose font it released — the runtime
-    // draws empty rather than following a handle it cannot resolve. This is the
-    // property that lets `canvas::destroyFont` be safe while a scene still names the
-    // font, so it is worth pinning separately from the happy path.
+fn text_whose_font_was_destroyed_draws_nothing() {
+    // The runtime draws empty rather than following a font it cannot resolve. This is
+    // the property that lets `canvas::destroyFont` be safe while a scene still names
+    // the font, so it is worth pinning separately from the happy path.
+    //
+    // **Written as destroy-then-present since plan-116-I** (§4.3). It used to fabricate
+    // `FontRef[id := 12345]` — a handle naming nothing — which is not expressible now
+    // that `Text.font` holds the font itself. That is a strictly better test for the
+    // same property: a made-up integer proved the renderer tolerated a bad *number*,
+    // while destroying a real font proves it tolerates the case that actually happens,
+    // and exercises the `closed` flag the bridge reads rather than a value no resource
+    // ever had.
     let frame = render(
         "canvas_glyph_no_font",
         r#"IMPORT app
@@ -669,14 +678,20 @@ IMPORT canvas
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := canvas::FontRef[id := 12345], size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  ' Destroyed BEFORE the present, so the frame is rendered from a scene whose font is
+  ' already gone — the ordering the guard exists for.
+  canvas::destroyFont(face)
   canvas::present([label])
 END SUB
 "#,
     );
     assert!(
         frame.chunks(4).all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0),
-        "text in an unresolvable font drew something",
+        "text whose font was destroyed drew something",
     );
 }
 
@@ -697,7 +712,7 @@ SUB main()
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := canvas::fontRef(face), size := 120.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
   canvas::present([label])
 END SUB
 "#;
@@ -769,7 +784,7 @@ SUB main()
     EXIT SUB
   END TRAP
   LET under AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 150.0, w := 300.0, h := 200.0, paint := canvas::fill(canvas::rgb(40, 60, 90))]
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := canvas::fontRef(face), size := 120.0, paint := canvas::fill(canvas::rgba(220, 40, 160, 150))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(canvas::rgba(220, 40, 160, 150))]
   LET tail AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 200.0, radius := 60.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]
   canvas::present([under, label, tail])
 END SUB
@@ -835,7 +850,7 @@ FUNC scene(face AS canvas::Font, base AS Float) AS List OF canvas::DrawItem
     LET size AS Float = base + toFloat(i) * 0.2
     LET x AS Float = 4.0 + toFloat(i MOD 20) * 45.0
     LET y AS Float = 36.0 + toFloat(i / 20) * 40.0
-    LET glyph AS canvas::DrawItem = canvas::Text[x := x, y := y, text := "A", font := canvas::fontRef(face), size := size, paint := white]
+    LET glyph AS canvas::DrawItem = canvas::Text[x := x, y := y, text := "A", font := face, size := size, paint := white]
     items = collections::append(items, glyph)
     i = i + 1
   END WHILE
@@ -939,7 +954,7 @@ SUB main()
   END TRAP
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 100.0]
   LET p AS canvas::Paint = WITH canvas::fill(canvas::rgb(255, 255, 255)) { transform := t }
-  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := canvas::fontRef(face), size := 60.0, paint := p]
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := p]
   canvas::present([label])
 END SUB
 "#;
@@ -953,7 +968,7 @@ SUB main()
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := canvas::fontRef(face), size := 60.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#;

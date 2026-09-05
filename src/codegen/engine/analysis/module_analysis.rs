@@ -55,7 +55,7 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
             "canvas.publishHashes",
             "canvas.installedHashes",
             "canvas.createImage",
-            "canvas.imageRef",
+            "canvas.imageHandle",
             "canvas.getSize",
             "canvas.getBytes",
             "canvas.setBytes",

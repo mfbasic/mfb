@@ -26,9 +26,9 @@ so you are free to reuse or discard the list immediately, and
 `canvas::getBytes` can answer later without asking the backend for anything.
 
 The result is a resource; it closes itself when its binding goes out of scope, or when
-`canvas::destroyImage` is called. Drawing it means putting a `canvas::imageRef` of
-it in a `canvas::Picture` item — the scene carries the id, not the image, so destroying an
-image a scene still names is safe.
+`canvas::destroyImage` is called. Drawing it means putting the image in a
+`canvas::Picture` item. Destroying an image a scene still names is safe: that item
+draws nothing.
 
 Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
 
@@ -43,7 +43,7 @@ SUB main()
   app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(2, 1, px)
-  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 64.0, h := 32.0, image := canvas::imageRef(img), paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 64.0, h := 32.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([tile])
 END SUB
 ```"#;

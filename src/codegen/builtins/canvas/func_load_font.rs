@@ -17,8 +17,8 @@ const INTRO: &str = r#"Load a TrueType font file and hold it as a `Font` resourc
 
 const DESC: &str = r#"`loadFont` reads the file at `path` and returns a `Font`, bound with `RES`. It closes
 by itself when it leaves scope, and `canvas::destroyFont` closes it sooner.
-A `canvas::Text` item names it through a `canvas::FontRef` from `canvas::fontRef`, never directly, so
-you can close a font while a scene that draws with it is still on screen.
+A `canvas::Text` item holds the font itself. You can still close a font while a scene
+that draws with it is on screen: the item then draws nothing rather than failing.
 
 **The file is kept whole, not decoded.** A TrueType file *is* the glyph database —
 its `loca` table indexes `glyf` by glyph id — so decoding up front would mean
@@ -42,7 +42,7 @@ IMPORT canvas
 SUB main()
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("DejaVuSans.ttf")
-  LET label AS canvas::DrawItem = canvas::Text[x := 20.0, y := 60.0, text := "hello", font := canvas::fontRef(face), size := 32.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 20.0, y := 60.0, text := "hello", font := face, size := 32.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 ```"#;
@@ -156,7 +156,7 @@ pub(crate) fn lower_font_from_bytes(
     builder.emit(abi::load_u64(&value, abi::stack_pointer(), owned_slot));
     builder.emit(abi::store_u64(&value, &record, FONT_BYTES));
     // Publish it where the graphics thread can find it. The record is the worker's;
-    // the renderer only ever has the integer a `FontRef` carries.
+    // the renderer only ever has the integer `canvas::fontHandle` reads out of the font.
     super::gen_font_table::emit_register_font(
         builder,
         &Operand::from(record.to_string()),

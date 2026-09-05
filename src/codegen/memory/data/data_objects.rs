@@ -258,7 +258,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         &[
             "canvas.createImage",
             "canvas.loadImage",
-            "canvas.imageRef",
+            "canvas.imageHandle",
             "canvas.getSize",
             "canvas.getBytes",
             "canvas.setBytes",
@@ -288,7 +288,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     // that can raise it.
     if module_uses_any_call(
         module,
-        &["canvas.loadFont", "canvas.fontFromBytes", "canvas.fontRef"],
+        &["canvas.loadFont", "canvas.fontFromBytes", "canvas.fontHandle"],
     ) {
         for value in [
             err_msg("ErrOutOfMemory"),
