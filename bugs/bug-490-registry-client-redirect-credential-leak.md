@@ -5,9 +5,11 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: security (credential confidentiality / SSRF-adjacent)
 
-Status: Open (found in audit-3, Surface 9 SUP-03; `planning/completed/audit-3-supply-chain.md`)
+Status: **FIXED** (2026-09-05)
 
-Regression Test: none yet — add one asserting a credential-bearing request refuses a cross-origin redirect.
+Regression Test: `repository/src/client.rs` —
+`a_credentialed_post_does_not_follow_a_cross_origin_redirect` (RED before the
+fix) and `a_blob_get_still_consults_the_redirect_policy` (the non-goal pin).
 
 ## Summary
 
@@ -55,12 +57,35 @@ Affected credentialed callers: `request_attestation`, `link_start`,
 `transfer_offer`, `transfer_accept`, `set_release_state`, `validate_package`,
 `publish_package`.
 
-## Reproduction
+## Reproduction — DEMONSTRATED after all (2026-09-05)
 
-Not demonstrated end-to-end: the guard requires an https target, so a loopback
-harness cannot drive it without a trusted certificate. The three code facts —
-the origin-blind guard (`client.rs:152-175`), the 307/308 body preservation, and
-`session_token` in the body — are read directly and are unconditional.
+This section said "not demonstrated end-to-end … a loopback harness cannot drive
+it without a trusted certificate". That is escapable, and the escape is the
+guard's own documented limit: `ensure_redirect_target` blocks IP **literals**,
+and its doc says "a hostname that resolves to an internal address is out of scope
+for this literal check". So `https://localhost:<port>/` PASSES the guard, and the
+hop gets attempted for real.
+
+The target port has nothing listening, deliberately — pointing it at the test
+stub would make the client open a TLS handshake against a plain-HTTP socket and
+the stub's `read_request` would block on a `\r\n\r\n` that never arrives. A dead
+port fails instantly and still proves the hop was taken.
+
+Measured, with the pre-fix shared client, on a credentialed
+`post_json("/publish", {"sessionToken": …})` answered
+`307 Location: https://localhost:1/steal`:
+
+    failed to connect to repository service: error sending request for url (…/publish)
+
+i.e. the client **followed** the cross-origin hop and failed at the far end.
+After the fix the same request reports
+
+    repository request failed with status 307
+
+and never opens a connection. What this shows is that the hop is ATTEMPTED with
+the body intact; it does not show a listening attacker receiving the token, which
+would need a trusted certificate. That limit is the honest one and is why the
+assertion is on the connection attempt.
 
 ## Best fix
 

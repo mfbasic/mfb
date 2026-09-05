@@ -73,6 +73,45 @@ fn http_client() -> Result<&'static Client, String> {
         .map_err(|err| err.clone())
 }
 
+/// The client used by every **credential-bearing** request, built with
+/// `redirect::Policy::none()` (bug-490).
+///
+/// The shared [`http_client`] vets each redirect hop's SCHEME and IP-LITERAL
+/// class but not its ORIGIN, so an ordinary hostname target like
+/// `https://attacker.example/` passes — by design, since a presigned blob URL is
+/// exactly that shape. For a 307/308 the method and body are replayed, and
+/// reqwest's cross-host stripping covers HEADERS only
+/// (`remove_sensitive_headers`: AUTHORIZATION, COOKIE, …). This client's
+/// credential is a BODY field (`sessionToken`), so nothing strips it: a
+/// control-plane call answered with `307 Location: https://attacker.example/x`
+/// re-posts the session token — and for `/publish`, the whole base64 `.mfp`; for
+/// `/machines/link`, the sealed ident keypair — to a host the registry chose.
+///
+/// No control-plane route is documented to redirect, so the fix is simply not to
+/// follow one here. Blob GET/HEAD keep the shared client, because a presigned-URL
+/// hop is legitimate there and those bytes are content-address-verified
+/// afterwards.
+///
+/// A second `OnceLock` rather than a per-call `Client`: each blocking client owns
+/// a tokio runtime on a background thread, which is why [`http_client`] is shared
+/// in the first place.
+fn no_redirect_client() -> Result<&'static Client, String> {
+    static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .timeout(CONTROL_TIMEOUT)
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|err| {
+                    format!("failed to build the repository control-plane HTTP client: {err}")
+                })
+        })
+        .as_ref()
+        .map_err(|err| err.clone())
+}
+
 pub fn repo_url_from_env() -> String {
     std::env::var("MFB_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string())
 }
@@ -1316,7 +1355,11 @@ pub fn put_blob(
     let url = format!("{}/blob/{}", repo_url.trim_end_matches('/'), hash);
     // Blob uploads share the download's generous deadline — a large library
     // needs far more than the control-plane 30s to move (plan-48-B §4.1).
-    let response = http_client()?
+    // bug-490: no documented redirect on this route. The bearer header WOULD be
+    // stripped by reqwest on a cross-host hop, but the body — the raw native
+    // library bytes — would be replayed to whatever origin the registry names,
+    // so this does not follow one either.
+    let response = no_redirect_client()?
         .put(&url)
         .bearer_auth(session_token)
         .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
@@ -1400,7 +1443,9 @@ fn post_json<T: DeserializeOwned>(
 ) -> Result<T, String> {
     ensure_transport_security(repo_url)?;
     let url = format!("{}{}", repo_url.trim_end_matches('/'), path);
-    let response = http_client()?
+    // bug-490: credential in the body — never follow a redirect. See
+    // `no_redirect_client`.
+    let response = no_redirect_client()?
         .post(&url)
         .json(body)
         .send()
@@ -1515,6 +1560,85 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+
+    /// bug-490: a credential-bearing request must not follow a redirect at all.
+    ///
+    /// This document was filed "not demonstrated end to end", on the grounds that
+    /// the redirect guard requires an https target so a loopback harness cannot
+    /// drive it. That is escapable: `ensure_redirect_target` blocks IP LITERALS,
+    /// and its own doc says a hostname resolving to an internal address is out of
+    /// scope — so `https://localhost:<port>/` passes the guard. The hop therefore
+    /// gets attempted for real, and the attempt is observable in the error.
+    ///
+    /// The target port has nothing listening, deliberately: pointing it at a stub
+    /// would make the client open a TLS handshake against a plain-HTTP socket and
+    /// the stub's `read_request` would block waiting for a `\r\n\r\n` that never
+    /// comes. A dead port fails immediately and still proves the hop was tried.
+    ///
+    /// BEFORE the fix `post_json` followed the 307 and the error came from
+    /// connecting to the attacker origin. AFTER, the 307 is surfaced as an
+    /// ordinary status and no connection is made — the session token in the body
+    /// never leaves the configured registry.
+    #[test]
+    fn a_credentialed_post_does_not_follow_a_cross_origin_redirect() {
+        let registry = spawn_raw(|_request| {
+            // Port 1 is reserved and never listening; `localhost` is a HOSTNAME,
+            // so it is not caught by the IP-literal guard.
+            b"HTTP/1.1 307 Temporary Redirect\r\nLocation: https://localhost:1/steal\r\n\
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_vec()
+        });
+
+        let err = post_json::<serde_json::Value>(
+            &registry.url,
+            "/publish",
+            &serde_json::json!({ "sessionToken": "s3cret" }),
+        )
+        .expect_err("a 307 is not a successful control-plane response");
+
+        assert!(
+            err.contains("307"),
+            "the redirect must be surfaced as a status, not followed. \
+             A message about connecting to localhost means the hop was taken and \
+             the body — session token and all — went with it. Got: {err}"
+        );
+        assert!(
+            !err.contains("localhost"),
+            "the client must never have contacted the redirect target: {err}"
+        );
+    }
+
+    /// The other half, and the bug's explicit non-goal: `GET /blob` still follows
+    /// a presigned-URL hop, so the fix must not have moved it onto the
+    /// no-redirect client.
+    ///
+    /// Asserted by observing that the blob path still CONSULTS the redirect
+    /// policy — a plaintext hop is refused by `ensure_redirect_target` with its
+    /// own message. A no-redirect client would instead surface the raw 302.
+    #[test]
+    fn a_blob_get_still_consults_the_redirect_policy() {
+        let internal = spawn_raw(|_request| http_reply("GET", 200, "{}"));
+        let internal_url = internal.url.clone();
+        let registry = spawn_raw(move |_request| {
+            format!(
+                "HTTP/1.1 302 Found\r\nLocation: {internal_url}/blob\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .into_bytes()
+        });
+
+        let err = fetch_blob(&registry.url, &"0".repeat(64))
+            .expect_err("a plaintext redirect target must be refused");
+        assert!(
+            err.contains("redirect"),
+            "the blob path must still run the redirect policy (a presigned hop is \
+             legitimate there); got: {err}"
+        );
+        assert!(
+            internal.requests.lock().unwrap().is_empty(),
+            "the refused target must never be contacted"
+        );
+    }
 
     /// bug-489: a registry-authored error string reaches the operator's terminal,
     /// so it is sanitized where it is created.
