@@ -126,20 +126,24 @@ in the Corrections section at the bottom.
 |---|---|---|---|
 | P1 | `cargo-llvm-cov` present at the version the scripts assume | `cargo llvm-cov --version` | MET — `cargo-llvm-cov 0.8.7` |
 | P2 | The three coverage scripts and the exceptions file exist | `ls scripts/coverage.sh scripts/coverage-check.sh scripts/coverage-common.sh scripts/coverage-exceptions.txt` | MET — all four present |
-| P3 | A full instrumented run completes and leaves a profile | `sh scripts/coverage.sh` | pending |
-| P4 | The per-file report regenerates from the cached profile | `FLOOR=0 sh scripts/coverage-check.sh` | pending |
+| P3 | A full instrumented run completes and leaves a profile | `sh scripts/coverage.sh` | MET — exit 0; 3835 unit tests + 128 integration binaries, `grep -c 'test result: FAILED'` = 0 |
+| P4 | The per-file report regenerates from the cached profile | `FLOOR=0 sh scripts/coverage-check.sh` | MET — `Overall line coverage: 89.34%  (1591 files)` |
 
 ## Phase 0 — settle the subprocess-instrumentation question
 
 The authored task says to establish this first because it decides the shape of
 everything after it.
 
-- [ ] Run `sh scripts/coverage.sh` to completion and record the suite's exit status.
-- [ ] Run `sh scripts/coverage-check.sh canvas/gen_present.rs` and record the number.
-- [ ] State the verdict in Findings below: does integration-suite (`mfb_exe()`
+- [x] Run `sh scripts/coverage.sh` to completion and record the suite's exit status.
+      Exit 0, no failing binary (`grep -c "test result: FAILED" = 0`).
+- [x] Run `sh scripts/coverage-check.sh canvas/gen_present.rs` and record the number.
+      `0.00%  (0/233)  src/codegen/builtins/canvas/gen_present.rs`.
+- [x] State the verdict in Findings below: does integration-suite (`mfb_exe()`
       subprocess) execution contribute to `src/**` line coverage, yes or no?
-- [ ] Record the local baseline: overall %, count of files below 98%, and the
+      **No.** See Findings.
+- [x] Record the local baseline: overall %, count of files below 98%, and the
       full below-floor list captured to `planning/coverage-baseline.txt`.
+      **89.34% overall, 416 files below the floor, 15 excepted.**
 
 Acceptance: the verdict is stated with the command and number behind it, and the
 baseline list is committed.
@@ -179,7 +183,69 @@ Acceptance: `sh scripts/coverage-check.sh` prints
 
 ## Findings
 
-_(Phase 0 records the subprocess verdict here.)_
+### F1 — the integration suite contributes NOTHING to `src/**`. Verdict: unit tests only.
+
+Two independent proofs, agreeing:
+
+- **Measured.** A full `sh scripts/coverage.sh` finished green — 3835 unit tests
+  and 128 integration binaries, `grep -c "test result: FAILED" /tmp/pcov-run1.log`
+  = 0, including every `rt_canvas_*` suite. `sh scripts/coverage-check.sh
+  canvas/gen_present.rs` still reports `0.00%  (0/233)`.
+- **Structural, and stronger.** `mfb` is a **binary-only** package — `cargo test
+  -p mfb --lib` answers `error: no library targets found in package 'mfb'`, and
+  `Cargo.toml` declares no `[lib]`. A Cargo integration test can only link a
+  package's *library* target, so nothing under `tests/` links a single line of
+  `src/**`; those binaries can reach the compiler only by spawning
+  `target/release/mfb` (`tests/common/mod.rs:1080`, `mfb_exe()`), a separate
+  process whose profile this one never merges.
+
+  The corollary is the useful part: **`src/**` coverage is a pure function of the
+  `--bins` unit tests.** Iterating with `cargo llvm-cov --bins` is therefore not
+  an approximation of the gate for `src/**` — it is the same measurement, minutes
+  instead of hours. (`repository/src/**` is the opposite case: `mfb_repository`
+  *is* a lib, so its integration tests do count, and it needs the full run.)
+
+So every file in this task is closed by a test that calls the code **in process**.
+
+### F2 — the harness that makes that possible
+
+`src/testutil.rs` (outside the coverage denominator) now runs the real `.ncode`
+dump pipeline minus the file write: `concrete_hir_from_src` → `lower_src_concrete`
+→ `lower_project` → `<backend>::plan::lower_module` → `<backend>::code::lower_module`.
+A test hands it MFBASIC source and gets the `NativeCodePlan` — every emitted
+instruction, relocation and data object — with no linker and no subprocess.
+
+Three things had to be right, each of which failed loudly first:
+
+1. **Monomorphization is not optional.** `testutil::lower_src` skips it, and any
+   program reaching a builtin through a generic seam then dies with
+   `TYPE_CALL_ARGUMENT_MISMATCH: Argument 1 for #encoding_utf8Decode has type
+   List OF Byte, expected List OF Integer`. `lower_src_concrete` runs the build
+   path's pass (`src/cli/build/mod.rs:469-482`).
+2. **An `-app` program needs its `-app` build mode.** In `Console`,
+   `app::setMode` fails with `codegen calls 'g_idle_add' … which the platform
+   import list does not declare`.
+3. **An app build needs an entry point.** The toolkit bootstrap that *defines*
+   `_mfb_gtkapp_reconcile_idle` is emitted only inside `if let Some(entry) =
+   &module.entry` (`src/codegen/engine/builder/mod.rs:1420`), so lowering with
+   `entry: None` fails validation on a dangling relocation.
+
+Plus one that is a harness limit, not a product fact: libtest gives each case a
+2 MiB stack and the unoptimized front end overflows it on a `canvas` program, so
+the lowering runs on a 64 MiB thread. A real build is on the 8 MiB main thread.
+
+### F3 — the local gate and CI's gate are not the same set
+
+Measured here (macOS/arm64) `src/codegen/builtins/tls/gen_macos/timeout.rs` is
+**above** the floor; CI (ubuntu/x86_64) reports it at `0.00% (0/37)`. Coverage of
+a platform-specific emitter follows the host, so "green locally" does not imply
+"green on CI" in either direction.
+
+The mitigation is in the harness: `CodeTarget` lowers for any of the five
+backends **from any host**, so a test for a macOS emitter names
+`CodeTarget::MacosAarch64` and covers it on the ubuntu runner too. Every test
+this task adds for a platform-specific file must name its target explicitly
+rather than relying on the host.
 
 ## Corrections
 
