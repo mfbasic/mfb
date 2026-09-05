@@ -532,7 +532,7 @@ Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bi
 `mfb man canvas picture`-reachable pages describe the new model with zero banned
 vocabulary.
 
-**Met on macOS; box 2228 is running.**
+**Met.**
 
 | gate | result |
 |---|---|
@@ -542,7 +542,7 @@ vocabulary.
 | `scripts/artifact-gate.sh all` | 1357 tests, 1520 builds, **1878 goldens, 0 diffs**. **Merged tree, uncontended: 1377 / 1540 / 1906 goldens, 0 diffs.** |
 | banned vocabulary | `man-census.sh --memory-scope` → **0 unclassified hits** (re-run 2026-09-04 on the merged tree: still 0) |
 | removed surface absent from `mfb man` | `mfb man canvas --all` → `rc=0`, **2417 lines, 0 mentions** of `imageRef`/`fontRef`/`ImageRef`/`FontRef` (re-run 2026-09-04 on the tree merged with `main`, which had added canvas doc text this letter never saw) |
-| box 2228 RELEASE | **folded into the combined final row** (**J16**) — stopped at 2h37m with 0 test targets completed; see that correction for the measurement and the decomposition |
+| box 2228 RELEASE | **GREEN** (2026-09-05), through the combined scoped row this letter shares with plan-116-J (**I7**/**J16**): `rc=0`, **14 targets ok, 0 FAILED**, `--bin mfb` **3824 passed**. The un-decomposed run this letter started first was stopped at 2h37m with **0** test targets completed — see **I7** for the measurement that forced the decomposition. |
 
 The gate's refusal is worth noting rather than glossing: it exits **98** and says
 *"another gate run holds the lock … nothing was checked"*. Read as a failure it would
