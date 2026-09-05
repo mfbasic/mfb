@@ -44,14 +44,13 @@ are landed and archived; 499, 504 and 510 are the remainder and head this list.
 |---|---|---|---|---|
 | 538 | HIGH | medium | `collections::get` of a recursive element aliases storage → append-grow UAF | **memory gate**; pairs with 536 |
 | 536 | HIGH | x-large | scope drop leaks recursive types / return-constructor string temps | **memory gate**; same family as 538 |
-| 535 | HIGH | medium | `RES` bind from `thread::accept` fails the build with an internal error | ICE on valid source — blocks users outright |
 | 519 | HIGH | medium | `datetime parse` silently normalizes out-of-range fields | silent data corruption |
 | 514 | HIGH | large | `KeyPair` carries no curve tag (Ed vs X, 32-byte collision) | crypto: wrong-curve use is silent |
 | 532 | HIGH | x-large | regex reports only match starts, so extraction is impossible | API gap, large |
 | 539 | HIGH | large | GTK app-mode draws no positioned `term` output | platform |
 
-Recommended order: **538 → 536** (one family, cheaper together), then **535**,
-**519**, **514**. The two x-large items (532, 536) deserve a dedicated agent
+535 is landed (`b93de7ed0`). Recommended order: **538 → 536** (one family,
+cheaper together), then **519**, **514**. The two x-large items (532, 536) deserve a dedicated agent
 rather than sharing a slot.
 
 ## Tier 3 — MEDIUM, grouped so a single agent can take a cluster
@@ -86,6 +85,12 @@ rather than sharing a slot.
 479 (inline TRAP on thread start — **memory gate**) · 483 (tls write error code
 per backend) · 484 (`picture::drawItem` never renders) · 487 (state-mutating
 operand UAF — **memory gate**) · 527 (range parameter naming, large)
+
+**Resource bookkeeping holes found by bug-535's sweep** (both hidden by the same
+"any other call into the package" condition, both reproduce on `4d56f1a1a`):
+545 (alias rebind of a tcp/udp socket → missing `_mfb_str_error_resource_closed`
+data object) · 546 (`thread::accept` of a user-declared `THREAD_SENDABLE`
+resource → `native inlined field size not available`; shares a message with 479)
 
 ## Tier 4 — test-infrastructure flakes (cheap, and they are costing us now)
 
