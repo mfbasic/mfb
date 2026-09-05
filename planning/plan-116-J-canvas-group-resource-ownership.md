@@ -591,12 +591,42 @@ Fixed before plan-114 landed, and still true:
 
 ## Compatibility / Format Impact
 
-- **Behavioural change to `setGroup`:** resources in the list are owned by the group.
-  A program that relied on closing them itself after `setGroup` gets
-  `ErrResourceClosed` on the second close — a defined, trappable outcome (plan-59-B),
-  not corruption.
-- **No signature change**; no new type or member.
-- **`.ncodesum` churn.**
+*Re-measured 2026-09-04, at the end of the letter. All three rows were wrong.*
+
+- **Behavioural change to `setGroup`, and it is a COMPILE error, not a runtime one.**
+  ~~*"A program that relied on closing them itself after `setGroup` gets
+  `ErrResourceClosed` on the second close — a defined, trappable outcome."*~~ It gets
+  **`2-203-0055 TYPE_USE_AFTER_MOVE`** and does not build: `items` consumes the resources
+  reachable from it, so naming one again is a use-after-move. A program that closed its
+  own image after `setGroup` must delete that call.
+  **This is the right trade and the letter should say why**: the runtime outcome the
+  original row described is not *"a defined, trappable"* one in practice — closing a
+  resource a group still names makes the item draw **nothing** and raises nothing at all,
+  because `imageHandle`/`fontHandle` answer `0` and `0` is "no such object" (**J8**). A
+  silently wrong picture is exactly what a compile error is worth having.
+  **Not caught in every case**, and the exception is stated rather than implied: the move
+  analysis is conservative straight-line dataflow, so a loop body is analysed once and a
+  rebuild across iterations is a deliberate false negative (**J14**). That conservatism is
+  what keeps the rule from rejecting valid programs, and the free path's
+  *close-only-what-nothing-live-names* rule is what makes the uncaught case correct anyway.
+- **No signature change** — ~~*"no new type or member"*~~ **three new members**, all
+  `internal_only: true` and none reachable from a program or rendered by `mfb man`:
+  `canvas::nextReclaimableGroup`, `canvas::retiredItems` and `canvas::groupSlots`.
+  `canvas::groupReclaim` keeps its name and gains a `slot` parameter. §Non-goals rules out
+  new *surface*; these are the same category as `groupItems`/`groupResolve`/`groupRevision`
+  that plan-116-G already added (**J10**).
+  **What did change is what the rendered signature MEANS**: passing an item list now
+  consumes the resources inside it. That is on the man page.
+- ~~**`.ncodesum` churn.**~~ **None.** `scripts/regen-ncodesum.sh target/release/mfb`
+  refreshed 141 goldens and `git status --short tests/byte-identity/` is empty. **Not read
+  as evidence**: no `canvas` fixture is hashed (plan-116-F **F11**), so this gate could not
+  have moved whatever this letter did.
+- **New registry data, and one new concept other packages can use.**
+  `pkg.add_consuming_parameter(function, parameter)` is now part of the registry
+  vocabulary, with `builtin_consuming_parameter_index` beside
+  `builtin_resource_close_function` as its boundary lookup. `canvas::setGroup`'s `items`
+  is the only entry; three tests guard the table against a silent typo, which would
+  otherwise disable the feature with no error anywhere.
 
 ## Phases
 
