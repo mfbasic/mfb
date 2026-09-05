@@ -173,12 +173,17 @@ fn the_revision_is_published_after_the_items_and_count() {
 /// that the allocator spills and reloads, giving a *different* physical base for each
 /// store. Stack traffic is excluded by its `sp` base; everything left after the
 /// publish label is a scene store.
+/// The frame is excluded on BOTH spellings via `common::is_stack_base` — see its doc
+/// comment for why one spelling is not enough. plan-116-H's box-2228 acceptance row is
+/// what surfaced it: `removeGroup`'s first "store" read as `+176` on Linux x86-64, an
+/// offset that cannot be a group-slot word, because a slot is 64 bytes and its words
+/// live at 0..56.
 fn scene_stores(ins: &[Value]) -> Vec<i64> {
     let publish =
         label_at(ins, "canvas_present_publish").expect("the publish path must have its own label");
     ins[publish..]
         .iter()
-        .filter(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"))
+        .filter(|i| i["op"].as_str() == Some("str_u64") && !common::is_stack_base(i))
         .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
         // Only the LIVE scene fields. The publish path also writes the retirement
         // bookkeeping (48..72, plan-98-D Phase 3), which is not part of the scene a
@@ -235,7 +240,7 @@ fn an_identical_re_present_skips_the_publish() {
     // is the early return.
     let stray = ins[skip..publish].iter().any(|i| {
         i["op"].as_str() == Some("str_u64")
-            && i["base"].as_str() != Some("sp")
+            && !common::is_stack_base(i)
             && i["offset"]
                 .as_str()
                 .and_then(|o| o.parse::<i64>().ok())
@@ -331,7 +336,7 @@ fn a_group_slot_is_published_name_last() {
         .expect("the install path must have its own label");
     let offsets: Vec<i64> = ins[install..]
         .iter()
-        .filter(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"))
+        .filter(|i| i["op"].as_str() == Some("str_u64") && !common::is_stack_base(i))
         .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
         .collect();
 
@@ -379,7 +384,7 @@ fn remove_group_clears_the_name_first_and_retires_the_buffer() {
         label_at(ins, "canvas_remove_group_scan_done").expect("the scan must end at its own label");
     let offsets: Vec<i64> = ins[done..]
         .iter()
-        .filter(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"))
+        .filter(|i| i["op"].as_str() == Some("str_u64") && !common::is_stack_base(i))
         .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
         .collect();
 
