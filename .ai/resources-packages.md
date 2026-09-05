@@ -364,6 +364,51 @@ Known instances:
 
 Fixture note: a `<name>.run` golden may be empty and still load-bearing — its *presence* is what makes `test-accept.sh` build and execute the program (output lands in `build.log`). New fixtures also need seeded empty `.ast`/`.ir` goldens or the harness reports "unexpected actual".
 
+## `builtins::is_resource_type` is BUILTIN-ONLY — never ask it a classification question (bug-546)
+
+`codegen::builtins::is_resource_type` and `is_thread_sendable_resource_type` both
+resolve through the **registry**. They answer `false` for a user-declared
+`RESOURCE Db CLOSE BY sql::close [THREAD_SENDABLE]`, which codegen otherwise knows
+perfectly well: `TypeModel::resource_names` holds the names and
+`TypeModel::sendable_resource_names` the sendable subset, filled from
+`NirModule::native_resources` (`IrNativeResource::sendable`, straight from the
+declaration) and from an imported package's `RESOURCE_TABLE` row
+(`BinaryReprResourceExport::sendable`).
+
+**The failure mode is not "the resource is unknown" — it is that the fall-through
+default is `true` for the wrong question.** In `flatness_walk` a user resource
+matched neither the builtin-resource arm nor `record_field_is_pointer` in the
+`else`, so both `type_is_memcpy_copyable` and `type_is_arena_transferable`
+answered `true` — i.e. "this handle is a flat copyable block that may be
+relocated into another thread's arena". The memcpy half failed the build loudly
+(`native inlined field size not available for type 'Db'`); the arena-transfer half
+is silent and is the dangerous one, because that predicate is the gate on
+relocating a block across a per-thread arena boundary.
+
+Use the model-aware pair instead, both in `builder_collection_layout.rs` and also
+available as `CodeBuilder` methods:
+
+    is_resource_nominal(model, t)           // builtin ∪ model.resource_names
+    is_sendable_resource_nominal(model, t)  // builtin ∪ model.sendable_resource_names
+
+**One predicate, several consumers — census before you conclude the fix is local.**
+bug-546 found a second consumer with the same blind spot after fixing the first:
+`builder_thread_cleanup.rs`'s `defer_resource_flag` (bug-425's deferral of the
+sender's `moved|closed` store to the enqueue-success branch) also asked the
+builtin-only predicate, so bug-425's guarantee — "if the transfer fails the
+sending binding is still open" — silently did not hold for user-declared
+resources. Grep every direct caller of both predicates when touching either.
+
+A user `LINK` resource's record is **the canonical plan-80 record** — a function
+returning `AS RES T` arena-allocates `RESOURCE_RECORD_SIZE` and fills
+`{tag@0 = RESOURCE_TAG_NATIVE, FD@8, CLOSED@16, STATE@24}`
+(`link_thunk.rs`, `if function.return_resource`). So the built-in deep copy
+(`copy_resource_to_current_arena`) is correct for it; the move-only pointer arm is
+not, and that is a measured result, not an argument — routing a declared resource
+to the pointer arm makes
+`tests/rt-behavior/native/native-resource-thread-accept-rt` die with `7-705-0009`
+at 2000 iterations, while passing at three.
+
 ## Record `RES` field (plan-114)
 
 A record field may hold a resource: `TYPE Holder { handle AS RES fs::File }`.

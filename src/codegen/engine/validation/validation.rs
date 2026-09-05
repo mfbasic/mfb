@@ -240,6 +240,7 @@ impl TypeModel {
             union_variant_tags: HashMap::new(),
             union_variant_fields: HashMap::new(),
             resource_names: HashSet::new(),
+            sendable_resource_names: HashSet::new(),
             resource_closers: HashMap::new(),
         }
     }
@@ -320,6 +321,28 @@ impl TypeModel {
                 resource_names.insert(function.return_type.without_state());
             }
         }
+        // bug-546: the sendable subset, which only the `RESOURCE` declaration
+        // knows. `resource_names` above is derived from `module.types` and the
+        // `LINK` functions that produce a resource, neither of which carries the
+        // `THREAD_SENDABLE` opt-in; `native_resources` is the declaration itself,
+        // carried verbatim from the IR (`ir::IrNativeResource::sendable`).
+        //
+        // Derived by INTERSECTING the names already in `resource_names` rather
+        // than by re-spelling them, which keeps the plan-111 `declared_sites`
+        // ratchet flat and makes the subset invariant this set's doc comment
+        // claims (`sendable_resource_names ⊆ resource_names`) true by
+        // construction rather than by convention.
+        let sendable_by_name: HashSet<&str> = module
+            .native_resources
+            .iter()
+            .filter(|resource| resource.sendable)
+            .map(|resource| resource.name.as_str())
+            .collect();
+        let sendable_resource_names: HashSet<ParameterType> = resource_names
+            .iter()
+            .filter(|type_| sendable_by_name.contains(type_.name().as_ref()))
+            .cloned()
+            .collect();
         // `Error` and `ErrorLoc` are read-only compiler/runtime records laid out
         // as ordinary 3-field records so construction, field access, copying, and
         // cleanup reuse the generic record machinery.
@@ -408,6 +431,7 @@ impl TypeModel {
             union_variant_tags,
             union_variant_fields,
             resource_names,
+            sendable_resource_names,
             resource_closers,
         };
         // Assign canonical variant tags over this module's unions (bug-80). When
@@ -546,6 +570,21 @@ impl TypeModel {
             model
                 .resource_names
                 .extend(native_resources.iter().cloned());
+            // bug-546: and its sendability, which the `RESOURCE_TABLE` row
+            // carries. Without it an imported `RESOURCE … THREAD_SENDABLE` would
+            // be classified non-sendable and take the move-only pointer arm on a
+            // thread transfer, publishing a reference into the sender's arena.
+            let sendable_by_name: HashSet<&str> = exported_resources
+                .iter()
+                .filter(|resource| resource.sendable)
+                .map(|resource| resource.type_name.as_str())
+                .collect();
+            model.sendable_resource_names.extend(
+                native_resources
+                    .iter()
+                    .filter(|type_| sendable_by_name.contains(type_.name().as_ref()))
+                    .cloned(),
+            );
             // bug-374: an imported binding's resource drops at scope exit in the
             // importing program too, but a decoded package carries no
             // `native_resources` (`ir/binary.rs` drops them by contract), so the
@@ -664,6 +703,9 @@ impl TypeModel {
         }
         for key in self.resource_names.iter() {
             check(key, "resource_names");
+        }
+        for key in self.sendable_resource_names.iter() {
+            check(key, "sendable_resource_names");
         }
         for key in self.resource_closers.keys() {
             check(key, "resource_closers");

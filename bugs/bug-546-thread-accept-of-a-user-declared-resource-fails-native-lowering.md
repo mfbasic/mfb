@@ -5,8 +5,12 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: none yet.
+Status: **FIXED** (2026-09-05). Two of this document's own conclusions were
+wrong and are corrected below under "The root cause is one layer up".
+Regression Test: `tests/rt-behavior/native/native-resource-thread-accept-rt`
+(runtime), plus three unit pins in
+`src/codegen/collection/layout/builder_collection_layout.rs`
+(`res_field_record_layout_tests`).
 
 `RESOURCE … THREAD_SENDABLE` is the opt-in that lets a user-declared native
 resource cross a thread boundary (`mfb man thread`: "a resource a program
@@ -165,6 +169,137 @@ design problem, but it is still plumbing through NIR, so the "medium (1h-2h)"
 estimate remains optimistic. The runtime half of the Goal — the accepted handle
 is usable and closed exactly once — must be proven with an `rt_*` test, not just
 a build.
+
+## The root cause is one layer up (MEASURED 2026-09-05, and it corrects this doc)
+
+The failure was localized by marking the two sites that can emit the message and
+rebuilding: it is `builder_collection_layout.rs`
+(`emit_inlined_block_size_from_ptr_slot`), reached from `copy_flat_block`
+(`:407`) — **not** the record marshaller. `copy_flat_block` is reachable from
+`emit_thread_copy_real` on exactly one arm, the first one:
+
+    other if self.type_is_memcpy_copyable(other) => self.copy_flat_block(...)
+
+So `Db` never reached the three-arm dispatch this document analysed. It was
+classified **flat** before the resource arms were consulted, and the section
+above ("`copy_value_to_current_arena`'s dispatch … a user-declared `RESOURCE Db
+THREAD_SENDABLE` matches none of them") named the wrong miss.
+
+The real miss is in `flatness_walk` (`builder_collection_layout.rs`), the single
+walk behind both `type_is_memcpy_copyable` and `type_is_arena_transferable`. Its
+resource arm asked `crate::codegen::builtins::is_resource_type`, which answers
+for the **built-in registry only**. A user-declared `Db` matched no arm and fell
+to the final `else`, `!record_field_is_pointer(model, Db)` — and
+`record_field_is_pointer` has no resource arm either (by design; a resource
+*field* is a plain 8-byte slot). So the walk answered **`true` for both modes**,
+by accident rather than by decision.
+
+That accident is precisely the one the arm's own comment already records for
+`Res(_)` before plan-114-B, and it has two consequences of very different size:
+
+- **`type_is_memcpy_copyable(Db) == true`** routed a bare `Db` bind to
+  `copy_flat_block`. That is the reported build failure, and it is the benign
+  half — it fails loudly at compile time.
+- **`type_is_arena_transferable(Db) == true`** is the silent half, and the worse
+  one. That predicate is the gate on whether a thread transfer may relocate a
+  block wholesale; a relocated resource handle points into the **sender's**
+  arena, which is per-thread. It never got the chance to do damage only because
+  the memcpy half failed the build first.
+
+So the fix is at the classification, not at the dispatch: `flatness_walk`'s
+resource arm now asks a model-aware predicate (`is_resource_nominal` = built-in ∪
+`TypeModel::resource_names`), which answers `false` for both modes for the same
+reason a built-in resource does — the resource record is separately allocated
+with its own lifetime and its own close op.
+
+### The sendability plumbing this doc scoped does not exist to be done
+
+The section above concluded that `THREAD_SENDABLE` "does not reach codegen" and
+that carrying it "through NIR" was the remaining work. That is wrong on both
+paths, measured:
+
+- **The project's own declarations.** `NirModule::native_resources` is
+  `Vec<crate::ir::IrNativeResource>`, carried verbatim from the IR
+  (`target/shared/nir/lower.rs`), and `IrNativeResource` has a `sendable: bool`
+  field populated straight from the declaration
+  (`ir/lower_link.rs`: `sendable: resource.thread_sendable`). It was already in
+  the module `TypeModel::from_module` is built from; nothing needed plumbing.
+- **An imported package's declarations.** `BinaryReprResourceExport` carries
+  `sendable` from the `.mfp` `RESOURCE_TABLE`, and
+  `TypeModel::from_module_and_packages` already reads those rows to register
+  `resource_names` and `resource_closers`.
+
+So the change is a `sendable_resource_names` set on `TypeModel`, filled from both
+of those, and `is_sendable_resource_nominal` = built-in ∪ that set. A resource
+declared WITHOUT `THREAD_SENDABLE` stays on the move-only pointer arm, matching
+the frontend rule — verified: transferring one still fails with
+`2-203-0063 TYPE_THREAD_NOT_SENDABLE` at four call sites.
+
+### The deep-copy arm is the right one, and that is now a test result
+
+This document argued from `link_thunk.rs` that a user resource's record is the
+canonical plan-80 record, so `copy_resource_to_current_arena` is correct and the
+move-only pointer arm would risk a cross-arena dangle. Both halves are now
+measured rather than argued. With the sendable predicate temporarily narrowed so
+a declared resource takes the **pointer** arm instead, the regression fixture
+fails at runtime with `7-705-0009` (2000 iterations); with the deep-copy arm it
+reports `used=2000 movedCount=2000` and exits 0. The fixture's iteration count is
+what separates them — at three iterations both arms pass.
+
+### A SECOND defect, same blind spot, found by census — bug-425 never reached user resources
+
+Auditing every direct caller of the two builtin-only predicates turned up a
+second one on this exact path. `builder_thread_cleanup.rs`'s `defer_resource_flag`
+gated on `builtins::is_thread_sendable_resource_type`:
+
+    let defer_resource_flag =
+        matches!(target, "thread.transferResource" | "thread.emitResource")
+            && crate::codegen::builtins::is_thread_sendable_resource_type(&arg_values[1].type_);
+
+That flag is bug-425's whole fix: it defers the `moved|closed` store on the
+SENDER's record from copy time to the enqueue-success branch, so a transfer that
+fails leaves the sender's handle open. Builtin-only means it was never set for a
+user-declared resource, so the store happened at copy time regardless of outcome.
+
+Reproduced before the fix (worker blocks and never accepts, cap-1 queue, so every
+`transfer(t, f, 0)` fails with `ErrTimeout`): the first use of the handle inside
+the `TRAP` handler dies with
+
+    Error: 7-703-0009
+    Resource handle was moved to another thread by `thread::transfer` and is no
+    longer usable by the sender.   [exit 255]
+
+which contradicts `mfb man thread transfer` verbatim: "If the transfer fails, the
+sending binding is still open, so a `TRAP` handler can close it or try again."
+After the fix the same program reports `closed=50`, exit 0. Pinned by
+`tests/rt-behavior/native/native-resource-transfer-fail-usable-rt`, the
+user-resource twin of `thread-resource-transfer-fail-leak`.
+
+This is why the fix widens *both* predicates through `TypeModel` rather than
+special-casing the one dispatch that failed: the blind spot is the predicate, and
+it had more than one consumer.
+
+### What the regression fixture actually asserts
+
+`tests/rt-behavior/native/native-resource-thread-accept-rt` covers the Goal's
+second half ("the accepted handle is usable and closed exactly once"):
+
+- `used=2000` is an **identity** proof, not a liveness one. Main creates the
+  `seeded` table on each database before transferring it, and the worker's only
+  statement is an `INSERT INTO seeded`. A handle that arrived duplicated,
+  re-opened or pointing at a stale block would not have that table, so
+  `sqlite3_exec` would return non-zero, `SUCCESS_ON status = 0` would raise, and
+  the count would fall short.
+- `movedCount=2000` is the **sender** half of closed-exactly-once: after the
+  transfer the sender's binding raises `ErrResourceMoved` (7-703-0009), so the
+  sender neither uses nor closes it. The receiver's scope drop then runs the
+  registered close op through the path `native-resource-scope-drop-rt` already
+  pins.
+
+RSS was tried first as the "closed exactly once" instrument and rejected: with
+two threads racing, the arena high-water mark depends on scheduling, and removing
+work from the loop body *raised* peak RSS (153 MB vs 76 MB at 20 000
+iterations). It is not a usable oracle here.
 
 ## Original hypothesis (now superseded by the section above)
 

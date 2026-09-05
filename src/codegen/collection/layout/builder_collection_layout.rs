@@ -639,6 +639,16 @@ impl CodeBuilder<'_> {
         type_is_arena_transferable(&self.type_model, type_)
     }
 
+    /// See [`is_resource_nominal`].
+    pub(crate) fn is_resource_nominal(&self, type_: &ParameterType) -> bool {
+        is_resource_nominal(&self.type_model, type_)
+    }
+
+    /// See [`is_sendable_resource_nominal`].
+    pub(crate) fn is_sendable_resource_nominal(&self, type_: &ParameterType) -> bool {
+        is_sendable_resource_nominal(&self.type_model, type_)
+    }
+
     /// True when field `field_type` of `record_type` is inlined into the record's
     /// trailing data region (the slot holds a block-relative offset): an inlined
     /// `String`, or a fully-flat composite — a nested record, a flat data union,
@@ -2709,6 +2719,36 @@ fn collection_payload_types(type_: &ParameterType) -> Vec<ParameterType> {
 /// match, not a suffix strip — but the composite-base spelling `parse` declines
 /// to split still arrives as one opaque `Named`, which is why the `&str` adapter
 /// remains the authority for that case.
+/// True when `type_` is a resource **nominal**: one of the language's own
+/// (`fs.File`, `tcp.Socket`, …) or a user-declared `RESOURCE T CLOSE BY op`,
+/// whether this module declares it or imports it.
+///
+/// bug-546: `builtins::is_resource_type` answers for the built-in registry
+/// alone. Every classification that asked it directly therefore treated a
+/// user-declared resource as an ordinary nominal — and the answer that fell out
+/// of the default was "a plain 8-byte flat scalar", i.e. a copyable, relocatable
+/// block. It is not: a `LINK` function returning `AS RES T` arena-allocates the
+/// canonical plan-80 resource record (`link_thunk.rs`, `if function.return_resource`)
+/// with its own lifetime and its own close op, exactly as a built-in does.
+pub(crate) fn is_resource_nominal(model: &TypeModel, type_: &ParameterType) -> bool {
+    crate::codegen::builtins::is_resource_type(type_)
+        || model.resource_names.contains(&base_resource_type(type_))
+}
+
+/// True when a resource nominal may cross a thread boundary — a built-in with
+/// the registry's `sendable` bit, or a user declaration carrying
+/// `THREAD_SENDABLE` (17_native-libraries.md).
+///
+/// A resource this returns `false` for is never deep-copied into another arena:
+/// the frontend forbids transferring it, and codegen must not quietly widen that
+/// rule for a resource whose author did not opt in.
+pub(crate) fn is_sendable_resource_nominal(model: &TypeModel, type_: &ParameterType) -> bool {
+    crate::codegen::builtins::is_thread_sendable_resource_type(type_)
+        || model
+            .sendable_resource_names
+            .contains(&base_resource_type(type_))
+}
+
 fn base_resource_type(type_: &ParameterType) -> ParameterType {
     match type_ {
         ParameterType::Stateful { base, .. } => (**base).clone(),
@@ -2800,7 +2840,7 @@ fn flatness_walk(
             .collect::<Vec<_>>()
             .iter()
             .all(|variant| flatness_walk(model, variant, mode, visited))
-    } else if crate::codegen::builtins::is_resource_type(&type_) {
+    } else if is_resource_nominal(model, type_) {
         // NOT a divergence — `false` for both modes, unchanged from `type_is_flat`.
         //
         // plan-114-B C6: the plan's §4.1 table said `true` for MemcpyCopyable
@@ -2821,6 +2861,18 @@ fn flatness_walk(
         // `pending_temp` free that had never existed — measured as a real
         // `.ncode` diff in `tests/byte-identity/tcp`, a fixture with no thread in
         // it at all.
+        //
+        // bug-546: this arm asked `builtins::is_resource_type`, so it saw the
+        // language's own resources only. A user-declared `RESOURCE Db CLOSE BY
+        // sql::close` matched no arm at all and fell to the `else` below, where
+        // `record_field_is_pointer` has no resource arm either — so it answered
+        // `true` for BOTH modes, by exactly the accident this comment already
+        // records for `Res(_)` before plan-114-B. The memcpy half sent a bare
+        // `Db` bind to `copy_flat_block`, which is the reported build failure
+        // ("native inlined field size not available for type 'Db'"). The
+        // arena-transfer half is worse and silent: it is the predicate that says
+        // a thread transfer may relocate a block wholesale, and a relocated
+        // resource handle points into the *sender's* arena.
         false
     } else {
         // DIVERGENCE 3 (by inheritance) — a resource *union* reaches
@@ -3598,5 +3650,123 @@ mod res_field_record_layout_tests {
             "the resource field must not satisfy is_freeable_flat_value's second \
              term, or scope-drop would arena_free the resource record too"
         );
+    }
+
+    // ===================================================================
+    // bug-546: a USER-declared resource is a resource to the flatness walk
+    // ===================================================================
+
+    /// A module declaring `RESOURCE Db CLOSE BY sql::close [THREAD_SENDABLE]`,
+    /// as `TypeModel::from_module` builds it: the name in `resource_names`, and
+    /// the sendable subset in `sendable_resource_names`.
+    fn declared_resource_model(sendable: bool) -> (TypeModel, ParameterType) {
+        let mut model = TypeModel::empty();
+        let db = ParameterType::declared("Db");
+        model.resource_names.insert(db.clone());
+        if sendable {
+            model.sendable_resource_names.insert(db.clone());
+        }
+        (model, db)
+    }
+
+    /// The defect itself. A user-declared resource used to match no arm of
+    /// `flatness_walk` — not the built-in resource arm (registry-only), and not
+    /// `record_field_is_pointer` in the `else` — so the walk answered `true` for
+    /// BOTH modes. "Memcpy-copyable" routed a bare `Db` bind to
+    /// `copy_flat_block`, which is the build failure the bug reports; the
+    /// "arena-transferable" half is the silent one, because that predicate is
+    /// what permits a thread transfer to relocate a block, and a relocated
+    /// resource handle points into the sender's per-thread arena.
+    #[test]
+    fn a_user_declared_resource_is_neither_memcpy_copyable_nor_arena_transferable() {
+        for sendable in [false, true] {
+            let (model, db) = declared_resource_model(sendable);
+            assert!(
+                is_resource_nominal(&model, &db),
+                "a declared RESOURCE must be a resource nominal to codegen"
+            );
+            assert!(
+                !type_is_memcpy_copyable(&model, &db),
+                "a resource record is separately allocated with its own close op, \
+                 so it is not a copyable flat block (sendable={sendable})"
+            );
+            assert!(
+                !type_is_arena_transferable(&model, &db),
+                "and it may never be relocated wholesale into another arena \
+                 (sendable={sendable})"
+            );
+        }
+    }
+
+    /// The `THREAD_SENDABLE` opt-in is what picks the arm in
+    /// `emit_thread_copy_real`: the deep copy into the receiver's arena, or the
+    /// move-only pointer carry. Codegen must not widen the declaration — the
+    /// frontend rejects transferring a resource whose author did not opt in
+    /// (`2-203-0063 TYPE_THREAD_NOT_SENDABLE`), and this predicate is the only
+    /// thing keeping the backend agreeing with it.
+    #[test]
+    fn only_a_thread_sendable_declaration_reaches_the_deep_copy_arm() {
+        let (plain, db) = declared_resource_model(false);
+        assert!(
+            !is_sendable_resource_nominal(&plain, &db),
+            "a RESOURCE declared without THREAD_SENDABLE is not sendable"
+        );
+        let (sendable, db) = declared_resource_model(true);
+        assert!(
+            is_sendable_resource_nominal(&sendable, &db),
+            "a RESOURCE declared THREAD_SENDABLE is"
+        );
+    }
+
+    /// The positive pin. Widening the two predicates must not change the answer
+    /// for anything that already had one — the built-in resources on both sides
+    /// of the sendable split, and the ordinary flat types whose classification
+    /// the whole record/collection layout rests on.
+    #[test]
+    fn widening_the_resource_predicates_moves_no_pre_existing_answer() {
+        let (model, _) = declared_resource_model(true);
+
+        // Built-in resources: `fs.File` is sendable, `process.Process` is not
+        // (their registry `sendable` bits), and neither is flat in either mode.
+        for builtin in ["fs.File", "tcp.Socket", "process.Process"] {
+            let type_ = ParameterType::parse(builtin);
+            assert!(
+                is_resource_nominal(&model, &type_),
+                "{builtin} is still a resource nominal"
+            );
+            assert!(
+                !type_is_memcpy_copyable(&model, &type_)
+                    && !type_is_arena_transferable(&model, &type_),
+                "{builtin}'s flatness must be unchanged"
+            );
+        }
+        assert!(
+            is_sendable_resource_nominal(&model, &ParameterType::parse("fs.File")),
+            "fs.File keeps the registry's sendable bit"
+        );
+        assert!(
+            !is_sendable_resource_nominal(&model, &ParameterType::parse("process.Process")),
+            "process.Process keeps the registry's unsendable bit"
+        );
+
+        // Ordinary values are untouched: the walk never reaches a resource arm
+        // for them, and a declared resource in the model must not change that.
+        for flat in [
+            "String",
+            "Integer",
+            "List OF String",
+            "Map OF String TO Integer",
+        ] {
+            let type_ = ParameterType::parse(flat);
+            assert!(
+                !is_resource_nominal(&model, &type_),
+                "{flat} is not a resource"
+            );
+            assert!(
+                type_is_memcpy_copyable(&model, &type_)
+                    && type_is_arena_transferable(&model, &type_),
+                "{flat} stays flat in both modes"
+            );
+        }
     }
 }

@@ -1,0 +1,107 @@
+' Runtime test for bug-546: a user-declared `RESOURCE T CLOSE BY op
+' THREAD_SENDABLE` crosses a thread boundary, and the handle the receiver
+' accepts is the SAME open native resource the sender opened.
+'
+' Before the fix the program did not build at all:
+'
+'   error: native inlined field size not available for type 'Db' while lowering
+'   bind d AS Db
+'
+' No code, no file, no line. The cause was not the message's own lookup: codegen
+' classifies a value with `flatness_walk`, whose resource arm asked
+' `builtins::is_resource_type` — the BUILT-IN registry. A user-declared `Db`
+' matched no arm there and fell through to `record_field_is_pointer`, which has
+' no resource arm either, so the walk answered `true` for both of its modes. The
+' memcpy half is what produced the message (a bare `Db` bind was routed to
+' `copy_flat_block`, which then wanted an inlined field size for a type that is
+' really an 8-byte handle). The arena-transfer half never got the chance to do
+' its damage, and is the worse of the two: it is the predicate that says a thread
+' transfer may relocate a block wholesale, and a relocated resource handle points
+' into the *sender's* arena, which is per-thread.
+'
+' WHAT EACH ASSERTION HERE IS FOR.
+'
+' `used=2000` is an IDENTITY proof, not just a liveness one. Main creates the
+' `seeded` table on each database BEFORE transferring it; the worker's only
+' statement is an INSERT INTO that same table. A handle that arrived duplicated,
+' re-opened, or pointing at a stale block would not have the table, sqlite3_exec
+' would return non-zero, `SUCCESS_ON status = 0` would raise, and the worker
+' would die with `used` short of 2000. So this counts accepted handles that are
+' demonstrably the sender's own open database.
+'
+' `movedCount=2000` is the sender half of closed-exactly-once. After a successful
+' `thread::transfer` the sender's binding is flagged moved, so `sql::exec(db, …)`
+' raises ErrResourceMoved (7-703-0009) — and a moved binding is not closed by the
+' sender's scope drop either. The receiver's own scope drop then runs the
+' registered close op through the path `native-resource-scope-drop-rt` pins. One
+' owner at a time, one close.
+'
+' WHY 2000 ITERATIONS AND NOT 3. The correct arm is the deep copy into the
+' RECEIVER's arena (`copy_resource_to_current_arena`); the other candidate
+' considered for this bug was the move-only pointer arm, which is layout-agnostic
+' and passes a three-iteration smoke test. It is wrong, and the loop is what
+' proves it: with the pointer arm the sender's arena is reused underneath the
+' receiver and this program dies with 7-705-0009. Do NOT lower the iteration
+' count — at low counts both arms look identical.
+IMPORT io
+IMPORT thread
+
+RESOURCE Db CLOSE BY sql::close THREAD_SENDABLE
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC exec(RES db AS Db, statement AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING
+    CONST arg = NOTHING
+    CONST errmsg = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+' The receiving end. `thread::accept` yields the bare declared type — the exact
+' bind (`bind d AS Db`) the pre-fix compiler refused to lower. Each accepted
+' handle leaves scope at the end of the iteration, so the registered close op
+' runs 2000 times on this thread.
+ISOLATED FUNC drain(t AS ThreadWorker OF RES Db TO Integer, rounds AS Integer) AS Integer
+  MUT used AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < rounds
+    RES d AS Db = thread::accept(t, 5000)
+    sql::exec(d, "INSERT INTO seeded VALUES (2);")
+    used = used + 1
+    i = i + 1
+  END WHILE
+  RETURN used
+END FUNC
+
+FUNC main AS Integer
+  LET t AS Thread OF RES Db TO Integer = thread::start(drain, 2000)
+  MUT moved AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 2000
+    RES db AS Db = sql::open(":memory:")
+    sql::exec(db, "CREATE TABLE seeded(a INTEGER);")
+    thread::transfer(t, db, 5000)
+    sql::exec(db, "INSERT INTO seeded VALUES (3);") TRAP(err)
+      IF err.code <> 77030009 THEN FAIL err
+      moved = moved + 1
+      RECOVER
+    END TRAP
+    i = i + 1
+  END WHILE
+  io::print("used=" & toString(thread::waitFor(t)))
+  io::print("movedCount=" & toString(moved))
+  RETURN 0
+END FUNC

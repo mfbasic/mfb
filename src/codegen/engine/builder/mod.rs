@@ -767,6 +767,20 @@ pub(crate) struct TypeModel {
     /// type — and `RES x AS Db = <fallible> TRAP` failed to build for want of a
     /// default value on the error path (bug-372).
     pub(crate) resource_names: HashSet<ParameterType>,
+    /// The subset of [`Self::resource_names`] whose declaration opted into
+    /// crossing a thread boundary — `RESOURCE Db CLOSE BY sql::close
+    /// THREAD_SENDABLE` (17_native-libraries.md), or an imported package's
+    /// `RESOURCE_TABLE` row with the sendable bit set.
+    ///
+    /// bug-546: codegen's two resource predicates
+    /// (`builtins::is_resource_type`, `builtins::is_thread_sendable_resource_type`)
+    /// answer for the BUILT-IN registry only, so every user-declared resource was
+    /// invisible to both. The sendable half decides which arm of
+    /// `emit_thread_copy_real` a handle takes — deep-copy into the receiver's
+    /// arena, or carry the pointer move-only — and getting it from the
+    /// declaration is what keeps codegen from sending a resource its author never
+    /// marked, which is the frontend's own rule.
+    pub(crate) sendable_resource_names: HashSet<ParameterType>,
     /// User-declared resource name -> the call target of its registered
     /// `CLOSE BY` op, for scope-drop cleanup.
     ///
