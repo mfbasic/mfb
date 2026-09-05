@@ -532,7 +532,8 @@ vocabulary.
 | mac DEBUG (`--bin mfb`) | `rc=0`, **3790 passed** |
 | `scripts/test-accept.sh` | **1379 tests ran**, passed — one more than before this letter, which is `canvas-drawitem-thread-plane-invalid` |
 | `scripts/artifact-gate.sh all` | 1357 tests, 1520 builds, **1878 goldens, 0 diffs** |
-| banned vocabulary | `man-census.sh --memory-scope` → **0 unclassified hits** |
+| banned vocabulary | `man-census.sh --memory-scope` → **0 unclassified hits** (re-run 2026-09-04 on the merged tree: still 0) |
+| removed surface absent from `mfb man` | `mfb man canvas --all` → `rc=0`, **2417 lines, 0 mentions** of `imageRef`/`fontRef`/`ImageRef`/`FontRef` (re-run 2026-09-04 on the tree merged with `main`, which had added canvas doc text this letter never saw) |
 | box 2228 RELEASE | **folded into the combined final row** (**J16**) — stopped at 2h37m with 0 test targets completed; see that correction for the measurement and the decomposition |
 
 The gate's refusal is worth noting rather than glossing: it exits **98** and says
