@@ -135,14 +135,20 @@ fn labels_up_to_the_limit_decode_and_one_octet_past_it_is_refused() {
         }
         k += 1;
     }
-    assert!(!at_limit.is_empty() && !past_limit.is_empty(), "no label landed on the boundary");
+    assert!(
+        !at_limit.is_empty() && !past_limit.is_empty(),
+        "no label landed on the boundary"
+    );
     let lines = decode_all(
         "punycode_bounds_edge",
         &[at_limit.clone(), past_limit],
         Duration::from_secs(60),
         "decoding boundary labels did not finish",
     );
-    assert_eq!(lines.first().cloned().unwrap_or_default(), format!("ok {}", python_decode(&at_limit)));
+    assert_eq!(
+        lines.first().cloned().unwrap_or_default(),
+        format!("ok {}", python_decode(&at_limit))
+    );
     assert_eq!(
         lines.get(1).cloned().unwrap_or_default(),
         format!("raised {ERR_INVALID_FORMAT}"),
@@ -156,7 +162,8 @@ fn a_label_longer_than_dns_allows_still_decodes() {
     // sample is 74 octets, longer than any DNS label, and it decoded before bug-510
     // — so it must decode after. (A 63-octet cap refused it, which is how the cap
     // ended up at 1024.)
-    let label = "xn--989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c".to_string();
+    let label =
+        "xn--989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c".to_string();
     assert!(label.len() > 63);
     let lines = decode_all(
         "punycode_bounds_over_dns",

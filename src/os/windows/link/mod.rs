@@ -718,8 +718,8 @@ mod tests {
     #[test]
     fn emitted_pe_is_aslr_capable() {
         for gui in [false, true] {
-            let bytes = write_executable(&runnable_exit42_image(), gui, None, None)
-                .expect("link exit42");
+            let bytes =
+                write_executable(&runnable_exit42_image(), gui, None, None).expect("link exit42");
             let e_lfanew = le_u32(&bytes, 0x3C) as usize;
             let coff = e_lfanew + 4;
             let opt = coff + 20;
@@ -743,7 +743,10 @@ mod tests {
             // Data directory [5] = BASERELOC, 112 bytes into the optional header.
             let dd = opt + 112 + 5 * 8;
             let (reloc_rva, reloc_size) = (le_u32(&bytes, dd), le_u32(&bytes, dd + 4));
-            assert_ne!(reloc_size, 0, "BASERELOC directory must be populated (gui={gui})");
+            assert_ne!(
+                reloc_size, 0,
+                "BASERELOC directory must be populated (gui={gui})"
+            );
             let reloc = section_named(&bytes, b".reloc").expect(".reloc section present");
             // The directory points at the section start and covers exactly its body.
             let n = le_u16(&bytes, e_lfanew + 6) as usize;
@@ -752,8 +755,16 @@ mod tests {
                 .map(|i| sect_table + i * 40)
                 .find(|&s| &bytes[s..s + 6] == b".reloc")
                 .expect(".reloc header");
-            assert_eq!(le_u32(&bytes, reloc_hdr + 12), reloc_rva, "[5].RVA = .reloc RVA");
-            assert_eq!(le_u32(&bytes, reloc_hdr + 8), reloc_size, "[5].Size = .reloc VirtualSize");
+            assert_eq!(
+                le_u32(&bytes, reloc_hdr + 12),
+                reloc_rva,
+                "[5].RVA = .reloc RVA"
+            );
+            assert_eq!(
+                le_u32(&bytes, reloc_hdr + 8),
+                reloc_size,
+                "[5].Size = .reloc VirtualSize"
+            );
             assert_eq!(
                 le_u32(&bytes, reloc_hdr + 36),
                 0x4200_0040,
@@ -767,17 +778,29 @@ mod tests {
             while off < reloc_size as usize {
                 let page = le_u32(&reloc, off);
                 let block_size = le_u32(&reloc, off + 4) as usize;
-                assert!(block_size >= 8 && block_size % 4 == 0, "SizeOfBlock {block_size}");
+                assert!(
+                    block_size >= 8 && block_size % 4 == 0,
+                    "SizeOfBlock {block_size}"
+                );
                 assert_eq!(page % 0x1000, 0, "block page {page:#x} is page-aligned");
-                assert!(page < size_of_image, "block page {page:#x} inside the image");
+                assert!(
+                    page < size_of_image,
+                    "block page {page:#x} inside the image"
+                );
                 for entry in (8..block_size).step_by(2) {
                     let kind = le_u16(&reloc, off + entry) >> 12;
-                    assert!(kind == 0 || kind == 10, "entry type {kind} (ABSOLUTE or DIR64)");
+                    assert!(
+                        kind == 0 || kind == 10,
+                        "entry type {kind} (ABSOLUTE or DIR64)"
+                    );
                 }
                 off += block_size;
                 blocks += 1;
             }
-            assert_eq!(off, reloc_size as usize, "blocks tile the directory exactly");
+            assert_eq!(
+                off, reloc_size as usize,
+                "blocks tile the directory exactly"
+            );
             assert!(blocks >= 1, "at least one relocation block");
         }
     }

@@ -253,7 +253,7 @@ pub(super) fn write_image(
     w.u32(0); // PointerToSymbolTable
     w.u32(0); // NumberOfSymbols
     w.u16(OPTIONAL_HEADER_SIZE as u16); // SizeOfOptionalHeader = 0xF0
-    // bug-504: no RELOCS_STRIPPED — the image is relocatable (see `.reloc`).
+                                        // bug-504: no RELOCS_STRIPPED — the image is relocatable (see `.reloc`).
     w.u16(IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE);
 
     // --- PE32+ optional header (§4.3) ---
@@ -293,21 +293,21 @@ pub(super) fn write_image(
             | IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE,
     );
     // 8 MiB reserve matching the worker-thread stacks, with 1 MiB committed
-                            // up front. The commit is a warm-start optimization ONLY — it does not
-                            // license skipping stack probes. This comment used to claim it did ("a
-                            // function with a large frame never skips the stack guard page, so this
-                            // codegen needs no inline __chkstk probe. Real frames are far smaller —
-                            // the largest observed is ~9 KiB in `main`"), and both halves were wrong:
-                            // a >4 KiB frame is ordinary (17 of the 23 `regex` helpers have one, up to
-                            // 19688 bytes in `__regex_parseParen`), and past the committed megabyte the
-                            // OS grows the stack one guard page at a time, so such a frame steps over
-                            // the guard and takes STATUS_ACCESS_VIOLATION. Recursion through those
-                            // frames reached that point quickly — `regex::match` on a deeply nested
-                            // pattern died ~1 MiB in. The probes now live in the prologue, emitted by
-                            // `finalize_frame` under `Backend::stack_probe_page_bytes` (Win64: 4096);
-                            // see `.ai/arch-abi.md`. Raising the commit is NOT an alternative fix: it
-                            // would not help a thread stack, and a frame near the reserve limit would
-                            // still skip the guard.
+    // up front. The commit is a warm-start optimization ONLY — it does not
+    // license skipping stack probes. This comment used to claim it did ("a
+    // function with a large frame never skips the stack guard page, so this
+    // codegen needs no inline __chkstk probe. Real frames are far smaller —
+    // the largest observed is ~9 KiB in `main`"), and both halves were wrong:
+    // a >4 KiB frame is ordinary (17 of the 23 `regex` helpers have one, up to
+    // 19688 bytes in `__regex_parseParen`), and past the committed megabyte the
+    // OS grows the stack one guard page at a time, so such a frame steps over
+    // the guard and takes STATUS_ACCESS_VIOLATION. Recursion through those
+    // frames reached that point quickly — `regex::match` on a deeply nested
+    // pattern died ~1 MiB in. The probes now live in the prologue, emitted by
+    // `finalize_frame` under `Backend::stack_probe_page_bytes` (Win64: 4096);
+    // see `.ai/arch-abi.md`. Raising the commit is NOT an alternative fix: it
+    // would not help a thread stack, and a frame near the reserve limit would
+    // still skip the guard.
     w.u64(0x0080_0000); // SizeOfStackReserve (8 MiB)
     w.u64(0x0010_0000); // SizeOfStackCommit  (1 MiB)
     w.u64(0x0010_0000); // SizeOfHeapReserve
@@ -598,12 +598,20 @@ mod tests {
         assert_eq!(body.len(), 24);
         assert_eq!(le_u32(&body, 0), 0x2000);
         assert_eq!(le_u32(&body, 4), 12);
-        assert_eq!(le_u16(&body, 8), (10 << 12) | 0xFF8, "DIR64 at page offset 0xFF8");
+        assert_eq!(
+            le_u16(&body, 8),
+            (10 << 12) | 0xFF8,
+            "DIR64 at page offset 0xFF8"
+        );
         assert_eq!(le_u16(&body, 10) >> 12, 0, "odd block padded with ABSOLUTE");
         assert_eq!(le_u32(&body, 12), 0x3000);
         assert_eq!(le_u32(&body, 16), 12);
         assert_eq!(le_u16(&body, 20), 10 << 12, "DIR64 at page offset 0");
-        assert_eq!(le_u16(&body, 22), (10 << 12) | 0x010, "deduped DIR64 at 0x10");
+        assert_eq!(
+            le_u16(&body, 22),
+            (10 << 12) | 0x010,
+            "deduped DIR64 at 0x10"
+        );
     }
 
     #[test]
