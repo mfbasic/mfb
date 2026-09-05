@@ -18,6 +18,7 @@
 use crate::codegen::engine::builder::ValueResult;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::tests::test_support::{BuilderHarness, TestPlatform};
+use crate::codegen::engine::util::vreg_frame::Vregs;
 use crate::codegen::registry::{registry, AbiCtx, Body};
 use crate::os::linux::flavor::LinuxFlavor;
 
@@ -48,13 +49,13 @@ fn no_abi_function_body_emits_a_call_the_plan_never_declared() {
                 };
                 swept += 1;
                 let call = format!("{}.{}", package.import_name(), function.name);
+                let mut vregs = Vregs::new();
                 let args: Vec<ValueResult> = implementation
                     .params
                     .iter()
-                    .enumerate()
-                    .map(|(at, param)| ValueResult {
+                    .map(|param| ValueResult {
                         type_: param.ty.clone(),
-                        location: Operand::from(format!("x{}", 9 + at).as_str()),
+                        location: Operand::from(vregs.next().as_str()),
                         text: param.name.to_string(),
                         origin: None,
                     })

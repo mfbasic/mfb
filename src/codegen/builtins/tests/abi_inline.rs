@@ -20,6 +20,7 @@
 use crate::codegen::engine::builder::ValueResult;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::tests::test_support::{BuilderHarness, TestPlatform};
+use crate::codegen::engine::util::vreg_frame::Vregs;
 use crate::codegen::registry::{registry, Body, Implementation};
 use crate::types::ParameterType;
 
@@ -48,13 +49,13 @@ fn args(
     implementation: &Implementation,
     ty: impl Fn(&ParameterType) -> ParameterType,
 ) -> Vec<ValueResult> {
+    let mut vregs = Vregs::new();
     implementation
         .params
         .iter()
-        .enumerate()
-        .map(|(index, param)| ValueResult {
+        .map(|param| ValueResult {
             type_: ty(&param.ty),
-            location: Operand::from(format!("x{}", 9 + index).as_str()),
+            location: Operand::from(vregs.next().as_str()),
             text: param.name.to_string(),
             origin: None,
         })
@@ -223,10 +224,11 @@ fn no_abi_inline_lowering_silently_accepts_the_wrong_argument_count() {
             if count == implementation.params.len() {
                 continue;
             }
+            let mut vregs = Vregs::new();
             let wrong: Vec<ValueResult> = (0..count)
-                .map(|index| ValueResult {
+                .map(|_| ValueResult {
                     type_: ParameterType::Integer,
-                    location: Operand::from(format!("x{}", 9 + index).as_str()),
+                    location: Operand::from(vregs.next().as_str()),
                     text: "extra".to_string(),
                     origin: None,
                 })
