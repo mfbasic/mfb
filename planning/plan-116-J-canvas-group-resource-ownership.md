@@ -45,7 +45,18 @@ See plan-116-A §Prerequisites for the three environment gates.
 | plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | **MET** (2026-09-04: one match, archived after box 2228 went green) |
 | plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | **MET** (re-verified 2026-09-04: 5 matches, A–E) |
 | The ban on resource record fields is retired | `grep -rn TYPE_RESOURCE_FIELD_FORBIDDEN src \| grep -v rules/table.rs` → **no emit site**, only doc comments and the test that pins its absence | **MET** (re-verified 2026-09-04: hits are `ir/verify/tests.rs` ×3, `ir/verify/types.rs` ×2, `ir/verify/resources.rs` ×1 — all doc comments or the pinning tests — plus the spec and the rule-code table; no emit site) |
+| **The `canvas::Picture` image sampler exists** — a `Picture` in a scene actually draws its image | `grep -n 'CASE Picture' src/codegen/builtins/canvas/helper_geometry.rs` → the geometry arm is **not** `__canvas_emptyHeader()`; and `grep -rn imageHandle src/ \| grep -v func_handle_bridge.rs` → **at least one renderer call site** | **NOT MET** (2026-09-04, **J11**). The arm is `CASE Picture(pic) RETURN __canvas_emptyHeader()` — the `NONE` kind every renderer skips — and `canvas::imageHandle` has no caller in any renderer, while its twin `fontHandle` has six. Measured: a `Picture` handed straight to `present`, binding alive, renders an all-black frame. Owned by plan-98-E/G, not by any letter of plan-116. |
 | **plan-116-I complete and archived** — `Picture` holds a `RES canvas::Image`, `Text` a `RES canvas::Font`, and `ImageRef`/`FontRef` are gone | `ls planning/completed/plan-116-I-*` → one match; `grep -n 'ImageRef\|FontRef' src/codegen/builtins/canvas/mod.rs` → no type declarations | NOT MET |
+
+**The sampler row does NOT block this letter, and saying why matters.** What it blocks is
+exactly two *pixel-level* acceptance clauses, which §Phases now states as resource-state
+assertions instead — strictly more discriminating for what this letter is about, since a
+pixel assertion cannot tell *"owned correctly"* from *"nothing draws"* (**J11**). The
+ownership mechanism itself — the transitive move and the free-path close — is fully
+implementable and fully testable today against the resource record, the diagnostic and
+`groupBytes=`. The row is recorded so that when plan-98-E/G lands, the pixel check is
+already written down rather than re-derived, and so nobody reads a green Phase 3 as proof
+that a group-owned image survives to the screen.
 
 **If plan-116-I is not complete, this letter cannot start, full stop.** It is not
 scope this letter absorbs, not a soft preference, and there is no dual-mode design in
@@ -56,7 +67,8 @@ directed it into the series as plan-116-I on 2026-09-01.)
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command before you continue and again before you stop, and report the
-> status of **all four** rows if you stop.
+> status of **all five** rows if you stop. *(Five since 2026-09-04: the sampler row is
+> **J11**'s.)*
 
 ## 1. Goal
 
@@ -78,6 +90,13 @@ directed it into the series as plan-116-I on 2026-09-01.)
 - A resource owned by a group and still drawn by an in-flight frame is not closed until
   that frame completes.
 - 200 install/remove cycles leak neither file descriptors nor backing textures.
+  *(**J11**, 2026-09-04: **there are no backing textures yet**, and an image holds no
+  descriptor — `canvas::createImage` allocates nothing outside MFB's own resource record,
+  and `helper_geometry.rs` gives `Picture` the `NONE` geometry kind that every renderer
+  skips. So this bullet is what it will mean once plan-98-E/G lands the sampler. What is
+  observable **today** is the arena bytes the group owns, which `groupBytes=` reports, and
+  the descriptor a `Font` loaded from a file holds. Both are now in Phase 3; the texture
+  half is a Prerequisites row, not a deletion.)*
 
 ### Non-goals (explicit constraints)
 
@@ -518,15 +537,26 @@ Commit: —
       make the phase look substantial; mark it moot with that evidence if that is what the
       measurement shows.
 - [ ] Tests: a program that opens an image, `setGroup`s a `Picture` naming it, drops its
-      own binding, and presents the group — the image still draws.
+      own binding, and presents the group — **the image is still open.** Assert it on the
+      resource, not the frame: hold a second binding past the producing scope and call
+      `canvas::getSize` on it, the way `closedRefuses` in
+      `tests/cli_canvas_image_resource.rs` asserts the opposite. *(Was "the image still
+      draws". **J11**: measured, and the identical program with the binding still alive
+      renders an all-black frame too, because `helper_geometry.rs` gives `Picture` the
+      `NONE` geometry kind and `canvas::imageHandle` has no caller in any renderer. A
+      pixel assertion here would fail for a reason that has nothing to do with this
+      letter, and would keep failing after the letter was correct.)*
 - [ ] Tests: the §4.3.1 case itself — one image, two groups — pinned to whatever
       §4.3.1 resolves to. If option 2, a `tests/syntax/` fixture pinning the diagnostic;
       if option 1 or 3, a runtime fixture pinning the observable outcome. **A resolution
       with no test is the hole re-opened.**
 
 Acceptance: §4.3.1 has a resolution recorded in Open Decisions **with the probe output
-behind it**, and a test pinning that resolution; the drop-the-binding case draws the
-image; `cargo test --no-fail-fast` green; every canvas golden byte-identical.
+behind it**, and a test pinning that resolution; **the drop-the-binding case leaves the
+image OPEN** — asserted on resource state (`canvas::getSize` through a second binding
+raises nothing) rather than on pixels, because no `Picture` draws an image on any backend
+yet and a pixel assertion cannot tell *"owned correctly"* from *"nothing draws"*
+(**J11**); `cargo test --no-fail-fast` green; every canvas golden byte-identical.
 Commit: —
 
 ### Phase 3 — Ownership on the way out (largest blast radius)
@@ -537,17 +567,23 @@ Commit: —
 - [ ] Tests, extending plan-116-G Phase 5's race matrix — add the rows to
       `.ai/canvas-threading.md` §8 as well:
       - group owning an image → `removeGroup` → graphics mid-frame: the frame completes
-        and still samples the texture.
-      - the same, then a completed frame: the image closes exactly once.
-      - a group owning an image, and a *scene* also drawing that image: assert the
-        documented outcome (Phase 1's re-derivation decides what it is) and that it is
-        not a crash.
+        and the image is **still open** during it. *(Was "still samples the texture" —
+        there is no texture; **J11**.)*
+      - the same, then a completed frame: the image closes exactly once. Observable as
+        `canvas::getSize` raising `ErrResourceClosed` where it did not before.
+      - a group owning an image, and a *scene* also drawing that image: §4.3.1's
+        resolution decides the outcome; assert it, and assert it is not a crash.
       - `setGroup` replacing a group: the old resources close, the new ones do not.
-      - 200 × install/remove of a group owning a `Font` and an `Image`: file descriptors
-        and `groupBytes=` return to baseline.
+      - 200 × install/remove of a group owning a `Font` and an `Image`: `groupBytes=`
+        returns to baseline. *(The fd half is **vacuous today** and must not be reported
+        as a pass: `createImage` allocates nothing outside MFB's own resource record, so
+        there is no descriptor to grow — **J11**. A `Font` loaded from a file is the one
+        that can hold one, so the `Font` half of this row is the real check.)*
 
-Acceptance: all five rows pass; the 200-cycle loop shows no fd growth (`lsof` on the
-process, or the platform equivalent) and no `groupBytes=` growth;
+Acceptance: all five rows pass; the 200-cycle loop shows no `groupBytes=` growth, and no
+fd growth for the `Font` (`lsof` on the process, or the platform equivalent) — **the image
+half of the fd check is vacuous until the sampler lands and must be recorded as such
+rather than counted as a pass** (**J11**);
 `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here).
 Commit: —
 
@@ -639,6 +675,73 @@ Commit: —
   rather than failing."*
 
 ## Corrections
+
+**J11 (2026-09-04, Phase 2 — measured) — `canvas::Picture` does not draw an image on any
+backend, so two of this letter's acceptance criteria cannot discriminate anything, and one
+of its Goal bullets has nothing to observe. This is a cross-plan precondition the entry
+gate never tested.**
+
+Found by running Phase 2's own acceptance case before writing the fix for it.
+
+**The probe.** `install()` creates an image, builds a `Picture`, `setGroup`s it, and
+returns — dropping every binding it made. `main` then presents a `canvas::Group` naming it,
+under the golden harness's environment (`MFB_*_HEADLESS=1`, `MFB_CANVAS_SYNC=1`,
+`MFB_CANVAS_DUMP`). Result: `groups=1 groupBytes=461 blocks=1 draws=0:1:0:0:0 frames=1`,
+and a frame that is **`(0,0,0,255)` × 576000 — every pixel black**.
+
+**The control, which is the part that matters.** The same `Picture`, binding still alive,
+handed straight to `canvas::present`. **Also entirely black.** So the first result says
+nothing whatever about ownership.
+
+**Root-caused, three independent ways, rather than inferred from the black frame:**
+
+1. `helper_geometry.rs`: `CASE Picture(pic) RETURN __canvas_emptyHeader()`. A `Picture`
+   produces the `NONE` geometry kind — *"a real kind rather than an absent record"* so the
+   indices stay parallel — and every renderer skips `NONE`. This is not backend-specific:
+   it is upstream of all three.
+2. `canvas::imageHandle` has **no caller in any renderer**.
+   `grep -rn imageHandle src/ | grep -v func_handle_bridge.rs` finds only the three
+   per-target support tables, `data_objects.rs`, `module_analysis.rs` and two comments. Its
+   twin `fontHandle` has six live callers in `helper_geometry.rs`. The font path exists;
+   the image path does not.
+3. `.ai/canvas-threading.md` §8 says so outright: *"Rows R1, R2, R9, R10 and R11 are not
+   yet reachable. They are the texture and dirty-upload rows, and there is no texture:
+   `Picture` draws nothing until plan-98-G brings the sampler, and `canvas::createImage`
+   allocates nothing outside MFB's own resource record."*
+
+**What this breaks in this letter.**
+
+| Where | Text | Status |
+|---|---|---|
+| Phase 2 acceptance | *"the drop-the-binding case **draws the image**"* | **Unmeetable.** No `Picture` draws any image on any path. |
+| Phase 3 acceptance | *"the 200-cycle loop shows **no fd growth** (`lsof`) …"* | **Vacuous.** `createImage` allocates nothing outside MFB's own record, so there is no fd to grow and a green result proves nothing. |
+| Goal bullet 4 | *"200 install/remove cycles leak neither file descriptors nor **backing textures**"* | Same: there are no backing textures yet. |
+
+**What it does not break.** The ownership work itself — the transitive move (**J10**) and
+the free-path close (§4.3) — is entirely implementable and entirely testable now, because
+its observables are the **resource record** and the **diagnostic**, not pixels:
+
+* whether a binding is moved is `2-203-0055` at compile time, which **J7**'s and **J9**'s
+  probes already read;
+* whether a resource is closed is observable at run time through `canvas::getSize`, which
+  raises `ErrResourceClosed` on a closed image — `closedRefuses` in
+  `tests/cli_canvas_image_resource.rs` is the existing pattern;
+* whether the group's buffer is freed is `groupBytes=` in `MFB_CANVAS_STATS`, which
+  plan-116-G already made load-bearing.
+
+**So the criteria are strengthened rather than dropped, per the rule that an acceptance
+criterion that cannot be met as written is rewritten to something checkable and never
+weakened.** "Draws the image" is replaced by an assertion on the image's **closed state**
+after the producing scope exits — which is strictly more discriminating for what this
+letter is about: a rendering assertion cannot tell *"owned correctly"* from *"nothing
+draws"*, and the resource-state assertion can. The pixel assertion is **not deleted**: it
+is recorded as a Prerequisites row against plan-98-E/G, so that when the sampler lands the
+check is already written down rather than re-derived.
+
+**And the Goal is corrected, not narrowed.** Bullet 4's *"neither file descriptors nor
+backing textures"* is what it will mean once the sampler lands; today the leak that is
+actually observable is the arena bytes the group owns, which `groupBytes=` reports. Both
+are recorded.
 
 **J10 (2026-09-04, Phase 2's first box, measured early while letter I's Linux row
 compiled) — the transitive move IS reachable, the machinery is 80% there, and the 20%
