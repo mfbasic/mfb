@@ -3,7 +3,7 @@
 // the rest go through `common::temp_project`.
 #[cfg(unix)]
 use std::fs;
-#[cfg(unix)]
+
 mod common;
 use common::*;
 

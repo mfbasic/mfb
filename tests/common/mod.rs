@@ -1324,8 +1324,16 @@ pub fn run_bounded_with_rss(
 /// `flock` locks per description, so two threads contend as two processes would.
 ///
 /// Held for the whole bind→release→child-listening window; released on drop.
+/// Unix-only: `flock(2)` has no Windows equivalent here, and none is needed — the
+/// one consumer, `rt_tls_connect_allow_self_signed`, is itself
+/// `#![cfg(any(target_os = "macos", target_os = "linux"))]` (its peer is the
+/// `openssl` CLI). Left ungated, this module is compiled into EVERY test binary,
+/// so `libc::flock`/`AsRawFd` took the whole `windows-x86_64` row down at COMPILE
+/// time — 8 errors, 0 of 123 binaries run.
+#[cfg(unix)]
 pub struct PortGate(fs::File);
 
+#[cfg(unix)]
 impl PortGate {
     /// Blocks until every other holder on this machine releases.
     pub fn acquire() -> Self {
@@ -1354,6 +1362,7 @@ impl PortGate {
     }
 }
 
+#[cfg(unix)]
 impl Drop for PortGate {
     fn drop(&mut self) {
         use std::os::unix::io::AsRawFd;

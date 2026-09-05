@@ -92,6 +92,35 @@ the blast radius the change predicts. Regenerated with
 `bash scripts/regen-ncodesum.sh target/release/mfb` (141 refreshed, 28 changed,
 all windows), gate re-run clean: **1371 tests, 1900 goldens, 0 diffs**.
 
+## Sweep for siblings of the same shape (done, negative)
+
+The shape that let this ship is "a cross-platform API whose only runtime test is
+`#![cfg(unix)]`". Seven files carry that attribute; four are genuinely
+unix-only concepts (`0600` modes, `environ` layout, `SIGPIPE`, symlinks). Two
+cover APIs that DO exist on Windows, so their Windows halves had no runtime
+test at all:
+
+* `rt_process_spawn_no_fd_inherit.rs` — bug-499 fixed Windows by a completely
+  different mechanism (`bInheritHandles = FALSE` + a `STARTUPINFOEXA`
+  `PROC_THREAD_ATTRIBUTE_LIST`), and nothing ran it.
+* `rt_process_detach_preserves_exit_code.rs` — bug-474's defect was a Unix
+  `signal(SIGCHLD, SIG_IGN)` disposition, but `func_detach.rs` has a Windows arm.
+
+Both probed on box 2230 (2026-09-04), cross-compiled with
+`-target windows-x86_64`. **Both work:**
+
+```
+process::spawn(["cmd.exe","/c","echo child-ran"])  ->  out=child-ran, exit=0
+detach(a); waitFor(b)                              ->  other-child-exit=4
+```
+
+So no second instance of this bug is hiding behind those two. What remains
+untested on Windows is the fd/handle-inheritance *assertion* itself — that a
+spawned child receives only its three stdio handles — because the probe is a
+POSIX `fstat` loop over fds. Proving the Windows property needs a handle-
+enumerating probe, which is why it is called out in bug-543 rather than fixed
+here.
+
 ## Follow-up worth doing
 
 The audit that found these two was "for every `win_x86_64` emitter whose result a
