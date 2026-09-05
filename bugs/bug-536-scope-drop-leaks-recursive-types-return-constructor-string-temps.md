@@ -6,7 +6,7 @@ Severity: HIGH
 Class: Memory-safety / Security (denial of service — unbounded memory growth on ordinary programs; the real amplifier behind audit-3 DEC-03)
 
 Status: **Shape A FIXED** (2026-09-04, `f9be6e128`, merged `c210cc67d`).
-**Shape B's NATIVE half FIXED** (2026-09-05, branch `bug-536-shape-b`) — every
+**Shape B's NATIVE half FIXED** (2026-09-05, `cd8699103`) — every
 unbound `String` a *native* producer makes is now freed at statement end. Shape
 B's **callee half** (a `String` returned by a user / `.mfb`-bodied function) is
 open and is what still costs the decoders; shape C is
