@@ -91,10 +91,10 @@ const MODULE_INTRO: &str =
     r#"Spawn and manage child processes: run a program, stream its standard I/O,"#;
 const MODULE_DESC: &str = r#"The `process` package runs and controls child processes. Its one resource,
 `Process`, is an opaque handle to a spawned child. Like every resource handle it
-cannot be copied and cannot be a field of a record, but it can be held in a
-collection (a `List OF RES process::Process` is how you supervise several
-children).
-It closes itself when its binding goes out of scope.
+is not copied — a second name for one is an alias — and it may be a field of a
+record or an element of a collection (a `List OF RES process::Process` is how you
+supervise several children). It closes itself when its binding goes out of
+scope.
 
 
 A child is created two ways. `process::spawn` runs a program directly from an
@@ -231,6 +231,9 @@ pub(crate) fn register(r: &mut Registry) {
         // handle's waitpid semantics are per-thread on some platforms). Empty
         // here is only consistent with `sendable: false`.
         live_slots: &[],
+        unsendable_reason: Some(
+            "it holds the child's pipes and collects the child from the thread that started it",
+        ),
         close_may_fail: false,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

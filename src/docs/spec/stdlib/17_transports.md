@@ -68,9 +68,12 @@ Every transport handle is thread-sendable — `tcp::Socket`, `udp::Socket`,
 thread and accept on another, and hand each accepted connection to a worker.
 `thread::transfer` **moves** the handle (§16): the receiving thread carries the
 close obligation and the sender's binding is consumed, so one handle is never
-driven from two threads at once. No transport handle may be stored in a record
-field; a collection element is allowed, and is what the list `poll` form exists
-for.
+driven from two threads at once. A transport handle may be stored in a record
+field and as a collection element; the list `poll` form exists for the latter.
+(This paragraph said a record field was forbidden until bug-523. §15.4 permits
+one — `TYPE Holder { handle AS RES fs::File STATE Cursor }` is the spec's own
+example — and `tests/rt-behavior/resources/record-res-field-export-rt` carries
+such a record across a package boundary.)
 
 ## Streams versus datagrams
 

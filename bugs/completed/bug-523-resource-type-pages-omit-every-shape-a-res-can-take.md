@@ -1,12 +1,16 @@
 # bug-523: every built-in resource page omits that a `RES` may be a record field, a collection element, or handed to another thread
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
-Regression Test: `scripts/man-run-examples.sh` over the new resource-page examples
+Status: **FIXED** (`593d68965`) — every `mfb man <pkg> types` page states the
+record-field and collection-element shapes once, and derives thread
+transferability from the `sendable` bit; `mfb man variable` gained a runnable
+example of each shape. Two pages that claimed a record field was forbidden are
+corrected.
+Regression Test: `cli::man::tests::every_resource_page_states_transferability_from_the_sendable_bit`
 
 There are eleven built-in resource types. Rendering all eleven
 (`mfb man <pkg> types` for `fs`, `tcp`, `udp`, `tls`, `process`, `audio`,
@@ -275,3 +279,78 @@ a rewrite of the value model across eleven pages. The design deliberately
 splits it — one derived line the registry cannot contradict, and one shared
 prose section linked eleven times — so the only per-resource content added is
 the five reasons that already exist as Rust comments.
+
+## Resolution (2026-09-05, `593d68965`)
+
+**Which side was wrong: the docs — and two of them were worse than silent.**
+`process`'s package description said a handle "cannot be a field of a record",
+and `mfb spec stdlib transports` said "No transport handle may be stored in a
+record field". Both are false. `mfb spec language resource-management` §15.4
+permits a `RES` field and uses one as its own example
+(`TYPE Holder { handle AS RES fs::File STATE Cursor }`);
+`tests/rt-behavior/resources/record-res-field-export-rt` carries such a record
+across a package boundary; and a program built for this fix puts a
+`tcp::Listener` in a record field and reads its bound port back through it. Both
+statements are corrected.
+
+### Phase 1 verdicts
+
+- **What `mfb man variable` / §14 already covered.** They own the copy/alias
+  model and cover it well — `RES` bindings, aliasing through a parameter,
+  closing through either name, the automatic scope-exit close. Neither said
+  anything about a handle *in a record* or *in a collection*. The new section
+  fills exactly that gap and adds no second explanation of the model.
+- **The record-field named-argument limitation is not a resource fact.**
+  `Plain[label: "x", n: 3]` is a parse error for a resource-free record too:
+  MFBASIC record literals are positional, full stop. So it is not a separate gap
+  to file, and the spike's comment claiming a resource-specific limitation is
+  corrected.
+- **All 11 `sendable` bits** re-checked against bug-522's tables; they match.
+
+### The design, and why it is split
+
+- **Uniform → written once.** The record-field and collection-element shapes are
+  true of all eleven, so they are one preamble under `## Resources`, rendered on
+  every types page, together with the `List OF RES <Type>` marker rule — which
+  until now was taught only by `TYPE_RESOURCE_REQUIRES_RES`, i.e. only after
+  guessing wrong. It links `mfb man variable` rather than restating the model.
+  Eleven pages did not each grow three paragraphs, which was the report's stated
+  risk.
+- **Structured → derived.** Transferability is rendered from
+  `RegistryResource.sendable`, the same bit the compiler reads, so it cannot
+  disagree with it. That is the property bug-522 lacked. The *reason* a handle
+  stays put is per-resource, so it is prose — a new `unsendable_reason` field
+  populated for the five non-sendable rows from the sentences already sitting
+  beside them as Rust comments.
+
+### "move-only"
+
+Deleted from both `audio` descriptions rather than defined. It was an undefined
+term appearing on no other resource, and the fact under it — the handle is not
+copied — is now stated once, for all eleven, in the preamble, in permitted
+vocabulary.
+
+### Validation
+
+`man-census.sh --memory-scope` reports 0 unclassified hits; the new prose uses
+only *alias*, *copy* and *value*. Both new `mfb man variable` examples were
+compiled and run: the record-field one writes through `log.handle` and the file's
+contents prove the write landed; the collection one holds two handles.
+
+Note `scripts/man-run-examples.sh` reaches package pages only, not guide topics,
+so `variable`'s examples were verified by hand — a gap that belongs to bug-472
+("man examples are never compiled"), not here, and is recorded rather than
+papered over.
+
+Pin: `every_resource_page_states_transferability_from_the_sendable_bit` renders
+each types page and asserts the line against the bit for all eleven, requires an
+`unsendable_reason` on every non-sendable row (so a new resource cannot render
+the bare fact by omission), and asserts the census is 11.
+
+### Open Decisions — resolved
+
+- **`mfb man variable` vs. a new `mfb man resources` topic** → `variable`, as
+  recommended. It already owns the value model, and the type pages link it.
+- **User-declared resources** → still a follow-up, as recommended. The wording
+  lands here first; a `RESOURCE … THREAD_SENDABLE` declaration renders no type
+  page of its own.

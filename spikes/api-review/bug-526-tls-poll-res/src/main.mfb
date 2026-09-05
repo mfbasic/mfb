@@ -1,18 +1,19 @@
-' bug-526 -- `mfb man tls poll` renders the list overload as
+' bug-526 (FIXED) -- `mfb man tls poll` rendered the list overload as
 '     tls::poll(socks AS List OF tls::Socket, ...) AS tls::Socket
-' but its own Description says "Given a List OF RES tls::Socket" and "The
-' elements must be marked RES", and its example declares
-'     MUT socks AS List OF RES tls::Socket
+' while its own Description said "Given a List OF RES tls::Socket" and its
+' example declared `MUT socks AS List OF RES tls::Socket`. The signature was the
+' half that was wrong: `List OF tls::Socket` is TYPE_RESOURCE_REQUIRES_RES.
 '
-' `mfb man tcp poll` renders the same overload correctly, as
-'     tcp::poll(socks AS List OF RES tcp::Socket, ...) AS tcp::Socket
-' because tcp builds the parameter as ParameterType::list_of(ParameterType::Res(..))
-' while tls builds it as ParameterType::ListOf(ParameterType::named(..)),
-' dropping the RES marker from the rendered signature.
+' `mfb man tcp poll` always rendered the same overload correctly, because tcp
+' builds the parameter as list_of(Res(named(..))) while tls built it as
+' ListOf(named(..)) -- and matching is RES-transparent, so the marker could
+' always have been carried; only the RENDER lost it. tls now builds it the tcp
+' way, and both pages print `List OF RES <pkg>::Socket`.
 '
-' This spike is the copy-paste test: the signature `mfb man` prints for tls is
-' not a declaration that compiles. Uncomment the `LIST OF tls::Socket` binding
-' to see it rejected.
+' The `List OF tls::Socket` line below stays commented out because it is still
+' rejected -- that rule did not change, and it is what made the old signature
+' uncompilable. Pinned generally by
+' `cli::man::tests::every_rendered_signature_marks_a_resource_collection_element_res`.
 
 IMPORT io
 IMPORT tls
@@ -29,12 +30,11 @@ END TRAP
 END FUNC
 
 FUNC main AS Integer
-  ' What the man page's Description and example say -- this compiles:
+  ' What the man page prints NOW, in every place -- and it compiles:
   MUT ok AS List OF RES tls::Socket = []
   io::print("List OF RES tls::Socket declared: " & toString(len(ok)))
 
-  ' What the man page's Overloads and Parameters tables print. Restore this
-  ' line to see the RES rule reject it:
+  ' A bare element is still refused. Restore this line to see it:
   '   MUT bad AS List OF tls::Socket = []
 
   io::print("touch = " & toString(touch(FALSE)))

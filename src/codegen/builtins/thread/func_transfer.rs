@@ -26,10 +26,23 @@ The thread's type has to declare the resource channel — `Thread OF Msg RES Res
 TO Out`, or `Thread OF RES Res TO Out` for a thread that carries only resources.
 A thread declared without one has nothing to transfer over.
 
-Only some resource types may cross at all: `fs::File`, `tcp::Socket` and
-`udp::Socket` may; listeners and `tls::Socket` may not. Resources are also never
-allowed on the message channel, so this is the only way one moves between
-threads.
+Only some resource types may cross at all. These six may — `fs::File`,
+`tcp::Socket`, `tcp::Listener`, `udp::Socket`, `tls::Socket` and `tls::Listener`
+— so a server may accept on one thread and hand each connection to a worker.
+
+These five may not, each for a reason of its own:
+
+| type | why it stays put |
+| --- | --- |
+| `process::Process` | it holds the child's pipes and collects the child from the thread that started it |
+| `audio::AudioInput` | a capture stream is driven from the thread that opened it |
+| `audio::AudioOutput` | a playback stream waits for room from the thread that opened it |
+| `canvas::Image` | it belongs to the drawing surface's thread |
+| `canvas::Font` | it belongs to the drawing surface's thread |
+
+A resource your own project declares may cross when it is declared
+`THREAD_SENDABLE`. Resources are never allowed on the message channel, so this
+is the only way one moves between threads.
 
 Like the message queue, the resource queue is bounded, and `transfer` waits up
 to `timeoutMs` milliseconds for room in it. If the queue is still full when that
