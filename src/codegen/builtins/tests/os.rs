@@ -21,8 +21,17 @@ use crate::codegen::engine::types::{CodeFunction, CodegenPlatform, NativeCodePla
 use crate::codegen::registry::AbiCtx;
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::NativeBuildMode::Console;
-use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
+use crate::testutil::{code_for_src_cached, code_function, try_code_for_src, CodeTarget};
 
+/// A program that calls the WHOLE `os::` surface.
+///
+/// Eighteen of the nineteen members, not a sample: each one dispatches on
+/// `ctx.platform.family()` into a different syscall, so a member the program
+/// does not call leaves three arms unmeasured rather than one. Calling them all
+/// and lowering for all five backends is what turns "the host's arm" into "every
+/// arm". `os::resourcePath` is the one left out, because it does not lower for
+/// Windows at all -- that refusal is a contract of its own and gets its own case
+/// below.
 const SRC: &str = "\
 IMPORT io
 IMPORT os
@@ -34,6 +43,20 @@ FUNC main() AS Integer
   io::print(toString(os::uptime()))
   io::print(toString(os::isAdmin()))
   io::print(toString(os::pid()))
+  io::print(os::hostName())
+  io::print(os::userName())
+  io::print(os::executablePath())
+  io::print(toString(os::cpuCount()))
+  io::print(os::getEnv(\"PATH\"))
+  io::print(os::getEnvOr(\"NOPE\", \"fallback\"))
+  io::print(toString(os::hasEnv(\"PATH\")))
+  os::setEnv(\"MFB_COVERAGE\", \"1\")
+  os::unsetEnv(\"MFB_COVERAGE\")
+  LET env AS Map OF String TO String = os::environ()
+  io::print(toString(len(env)))
+  LET argv AS List OF String = os::args()
+  io::print(toString(len(argv)))
+  os::sleep(0)
   RETURN 0
 END FUNC
 ";
@@ -408,4 +431,46 @@ fn register_publishes_the_whole_os_surface() {
         package.len(),
         expected.len()
     );
+}
+
+/// `os::resourcePath` refuses to lower on Windows, with a reason.
+///
+/// The member reads the executable's own directory through a raw-buffer helper
+/// that has no Windows implementation. Refusing at compile time is the whole
+/// point: the alternative is an executable that computes a resource path from an
+/// empty buffer and then reports "file not found" for every bundled asset, on
+/// the one platform nobody building it is running. The message must say which
+/// symbol and what is missing.
+#[test]
+fn resource_path_refuses_to_lower_on_windows() {
+    const SRC: &str = "\
+IMPORT io
+IMPORT os
+
+FUNC main() AS Integer
+  io::print(os::resourcePath(\"data.txt\"))
+  RETURN 0
+END FUNC
+";
+    for target in [
+        CodeTarget::MacosAarch64,
+        CodeTarget::LinuxAarch64,
+        CodeTarget::LinuxX86_64,
+        CodeTarget::LinuxRiscv64,
+    ] {
+        assert!(
+            try_code_for_src(SRC, target, Console).is_ok(),
+            "os::resourcePath must lower on {}",
+            target.name()
+        );
+    }
+    let refusal = try_code_for_src(SRC, CodeTarget::WindowsX86_64, Console)
+        .err()
+        .unwrap_or_default();
+    for want in ["resourcePath", "not implemented for Windows"] {
+        assert!(
+            refusal.contains(want),
+            "the Windows refusal must mention {want:?}; it said {refusal:?}"
+        );
+    }
 }
