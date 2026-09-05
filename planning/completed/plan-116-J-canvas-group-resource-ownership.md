@@ -1061,6 +1061,39 @@ Commit: `76d938d02` (docs), `0ddaaeabd` + `5d0ce5bc9` (`.ai/canvas-threading.md`
 
 ## Corrections
 
+**J23 (2026-09-05, landed) — plan-116 is on `main` at `65cd07517`, after four merges.**
+
+`main` moved **four times** during the landing: 131 commits before the first merge, then
+3, then 19, then 1, then 1 more — the last two while the *validation of the previous merge*
+was still running. **J20**'s loop is what made that terminate rather than diverge: merge,
+measure the overlap, re-validate proportionately, try the fast-forward, repeat.
+
+| merge | `main` gained | overlap with this branch | resolution |
+|---|---|---|---|
+| 1 | 131 commits | 16 files | **5 conflicts**, resolved individually (**J18**) |
+| 2 | 3 (crypto) | 0 | clean |
+| 3 | 19 (regex, record layout) | 3 files | clean (**J22**) |
+| 4 | 1 (`process::close` → `closeInput`) | **5 files — the support tables and `resource/mod.rs`** | clean; verified by hand that `builtin_consuming_parameter_index` and all three rows in each of the five tables survived |
+| 5 | 1 (docs only) | 0 | clean |
+
+Only the **first** merge needed hand resolution, and four of its five conflicts were
+mechanical.
+
+**Final gates, on the tree that landed:** `--bin mfb` **3832 passed**;
+`rt_canvas_group_ownership` **11**; `rt_canvas_golden` 19; `cli_canvas_package` 60;
+`cli_canvas_image_resource` 7; the `process` targets green; and
+`artifact-gate all` **1378 tests, 1543 builds, 1910 goldens, 0 diffs** from an
+uncontended run. The box-2228 scoped row was green on the tree before merges 4 and 5, both
+of which are `process` and docs and neither of which touches `canvas`, `ir::verify` or the
+registry seam.
+
+**Landed by fast-forward**, per the route a worktree-isolated session has:
+`receive.denyCurrentBranch=updateInstead` then `git push . HEAD:main`, restoring `refuse`
+after. It updates `main`'s ref **and** its working tree atomically and **declines
+harmlessly if that tree is dirty** — which is what made it safe to run against a checkout
+eleven other worktrees share. `git worktree list` confirms `main` at `65cd07517` and the
+archived letters present in the shared checkout.
+
 **J22 (2026-09-05, landing) — the second merge, and **J20**'s proportionate policy used
 in anger.**
 
