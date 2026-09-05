@@ -202,11 +202,22 @@ Supporting rules, each of which the gate depends on:
   knowledge of what the graphics thread is doing.
 * **A closed texture is skipped in new frames.** So `lastUsedFrame` stops advancing
   the moment it closes, and the gate is guaranteed to open.
-* **A closed image cannot be named again — and since plan-116-I the compiler is what
-  says so.** `canvas::destroyImage` **consumes its binding**, so a program cannot name
-  the image afterwards at all: building a second `Picture` from it is
-  `2-203-0055 TYPE_USE_AFTER_MOVE`, a compile error rather than a runtime raise. The
-  old guard (`canvas::imageRef` raising `ErrResourceClosed`) is gone with the member.
+* **A directly closed image cannot be named again — and since plan-116-I the compiler
+  is what says so.** `canvas::destroyImage`'s parameter is a plain `canvas::Image`, not
+  a `RES` one, so passing a resource to it is a **move**: a program that calls
+  `canvas::destroyImage(img)` and then builds a `Picture` from `img` is refused with
+  `2-203-0055 TYPE_USE_AFTER_MOVE`, *"Binding `img` was moved and cannot be used
+  again"* — a compile error rather than a runtime raise. The old guard
+  (`canvas::imageRef` raising `ErrResourceClosed`) is gone with the member.
+
+  **"Directly" is load-bearing.** A `RES` parameter is an *alias*, so a close that
+  happens behind one consumes nothing at the caller: `closeIt(RES img AS canvas::Image)`
+  leaves the caller's `img` usable, and `canvas::getSize(img)` afterwards compiles and
+  raises `ErrResourceClosed` at run time — pinned by `closedRefuses` in
+  `tests/cli_canvas_image_resource.rs`. Any close performed *inside* the runtime is in
+  that second category by construction. The compile-time refusal is therefore a
+  convenience for the direct case, **not** the invariant the rest of this section rests
+  on; the runtime guarantees below are.
 
   What survives is the case the guard actually protected, and it is now a *render-time*
   rule rather than a mint-time one: **a scene may still hold an item whose resource has
@@ -228,7 +239,8 @@ row names the rule from above that protects it.
 |---|---|---|---|
 | R1 | present → `destroyImage` → graphics mid-record | the in-flight frame keeps sampling the texture and completes normally | §7 "close never frees" |
 | R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the texture; the free fires exactly once | §7 skip-in-new-frames + the gate |
-| R3 | `destroyImage` → try to name it again | **Refused at compile time** — `destroyImage` consumes the binding, so there is no "name it again". A scene built *before* the destroy still draws, as nothing. | plan-116-I; was plan-98-B's closed-read guard |
+| R3 | `destroyImage(img)` → try to name `img` again | **Refused at compile time** — a direct `destroyImage` moves the binding, so there is no "name it again". A scene built *before* the destroy still draws, as nothing. | plan-116-I; was plan-98-B's closed-read guard |
+| R3b | close behind a `RES` parameter → name it again | **Compiles**, and raises `ErrResourceClosed` at run time. A `RES` parameter is an alias and consumes nothing, so R3's compile-time refusal does not reach here — this is the row that covers every close performed inside the runtime. | §7 closed-read guard; `closedRefuses` in `tests/cli_canvas_image_resource.rs` |
 | R4 | two presents, no frame between | the second scene renders; the first is skipped, not rendered late | §3 step 2 overwrite |
 | R5 | present while graphics is mid-render | `present` does not block; the new scene renders next frame | §3 three slots |
 | R6 | graphics stalled indefinitely, worker presents repeatedly | `present` still never blocks; slots are reused, no unbounded allocation | §3 "nobody frees a slot" |

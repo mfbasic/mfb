@@ -42,7 +42,7 @@ See plan-116-A §Prerequisites for the three environment gates.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | **MET** (2026-09-05: one match, archived after box 2228 went green) |
+| plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | **MET** (2026-09-04: one match, archived after box 2228 went green) |
 | plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | **MET** (re-verified 2026-09-04: 5 matches, A–E) |
 | The ban on resource record fields is retired | `grep -rn TYPE_RESOURCE_FIELD_FORBIDDEN src \| grep -v rules/table.rs` → **no emit site**, only doc comments and the test that pins its absence | **MET** (re-verified 2026-09-04: hits are `ir/verify/tests.rs` ×3, `ir/verify/types.rs` ×2, `ir/verify/resources.rs` ×1 — all doc comments or the pinning tests — plus the spec and the rule-code table; no emit site) |
 | **plan-116-I complete and archived** — `Picture` holds a `RES canvas::Image`, `Text` a `RES canvas::Font`, and `ImageRef`/`FontRef` are gone | `ls planning/completed/plan-116-I-*` → one match; `grep -n 'ImageRef\|FontRef' src/codegen/builtins/canvas/mod.rs` → no type declarations | NOT MET |
@@ -94,8 +94,10 @@ the time of writing, so a future implementer can see what changed.
 |---|---|---|
 | `TYPE_RESOURCE_FIELD_FORBIDDEN` | retired (reserved-not-emitted) | `sed -n 1008,1019p src/rules/table.rs` (2026-09-01) |
 | plan-114 letters archived | 5 (A–E) | `ls planning/completed/plan-114-*` (2026-09-01) |
-| `Picture.image` type | `ImageRef` until plan-116-I lands | `mod.rs`'s `Picture` record and `ImageRef` record |
-| `Text.font` type | `FontRef` | `mod.rs`'s `Text` record |
+| `Picture.image` type | **`RES canvas::Image`** — plan-116-I landed | `grep -n 'RES canvas' src/codegen/builtins/canvas/mod.rs`; `ImageRef` no longer exists (2026-09-04) |
+| `Text.font` type | **`RES canvas::Font`** | same grep; `FontRef` no longer exists (2026-09-04) |
+| `ImageRef` / `FontRef` | **gone**, and their absence is pinned | `grep -n 'imageRef\|fontRef' src/codegen/builtins/canvas/mod.rs` → prose plus `mod.rs:1339`, a test that iterates `["imageRef", "fontRef"]` and asserts neither resolves (2026-09-04) |
+| Close is a whole-word store | `store_u64(1, record, RESOURCE_OFFSET_CLOSED)` | `lower_destroy_image` in `func_destroy_image.rs`; no bitfield anywhere (**J7**) |
 | Resources declared by `canvas` | 2 (`Image`, `Font`) | `grep -n 'pkg\.add_resource' src/codegen/builtins/canvas/mod.rs` → 2 (2026-09-04). **Anchor on `pkg.add_resource`, not `add_resource`**: the bare form greps 4, because the module comment and an inline comment both name it (**J3**). |
 | `live_slots` on both | `&[]`, `sendable: false` | the `live_slots` and `sendable` fields of each `pkg.add_resource` call in `mod.rs` |
 
@@ -107,7 +109,11 @@ the time of writing, so a future implementer can see what changed.
   `sendable: false`; opting an image in means auditing its record tail first, not just
   flipping the bit."* A group is worker-owned state that the graphics thread *reads*,
   so this letter must establish whether group ownership constitutes a transfer under
-  plan-114's rules. **UNVERIFIED and it is the letter's first task.**
+  plan-114's rules. **ANSWERED 2026-09-04 — no** (**J5**, and §4.1): the group stores a
+  pointer, the resource record never moves arenas, and the graphics thread merely reads
+  it, which is the pattern every published scene already uses. `live_slots` and
+  `sendable` are unchanged. The record-tail audit the "if yes" branch called for is
+  recorded in **J5** anyway, so a future `sendable: true` does not have to re-derive it.
 
 - **A `Picture` holding a `RES Image` cannot cross a thread data plane, and after
   plan-114-A that is a hard compile error rather than a silent acceptance.**
@@ -197,13 +203,134 @@ on every canvas-emitting target.
 
 ## 4. Detailed Design
 
-**Deliberately deferred.** The design below the level of §3 depends on decisions
-plan-114-B and plan-114-C make about record `RES` slot layout and escape-edge routing,
-and writing it now would be writing against a guess. **The first task of Phase 1 is to
-read plan-114-B/C/D as landed and fill this section in** — that is a task, not an
-omission, and it is listed as one.
+*Written 2026-09-04 against landed code, per Phase 1. The three constraints below the
+line were fixed before plan-114 landed and still hold; everything above it is new.*
 
-What can be fixed now, because it does not depend on plan-114:
+### 4.1 What ownership can and cannot mean here
+
+The group holds an **alias**, not a copy. `emit_set_group`'s `copy_flat_block` copies the
+items block, and a `Picture`/`Text` slot inside it is one 8-byte pointer to a resource
+record that stays where the worker allocated it — `flatness_walk`'s `ParameterType::Res(_)`
+arm, which is why `List OF DrawItem` is still `type_is_memcpy_copyable` after plan-116-I
+(**J4**, **J5**).
+
+So "the group takes ownership" cannot mean *the group has its own resource*. It can only
+mean **the group becomes responsible for closing the one that exists**. Two consequences:
+
+* There is nothing to do at install time. Nothing new comes into being, so there is no
+  install-side step to write — which is why §4.3's "ownership attaches at the copy" is a
+  place to put a *comment*, not code.
+* The whole letter is the **free** path.
+
+### 4.2 Closing is cheap and idempotent, which is what makes this tractable
+
+`lower_destroy_image` is two instructions: `move_immediate(flag, 1)` and
+`store_u64(flag, record, RESOURCE_OFFSET_CLOSED)`. **There is no runtime call.** The
+OS-side free is already deferred behind the backend's own
+`closed AND lastUsedFrame < lastCompletedFrame` gate (plan-98-D). `lower_destroy_font`
+adds one step before the flag — `emit_unregister_font`, so a renderer never finds a
+published block whose resource is closed.
+
+Both write the flag **unconditionally**, so closing an already-closed resource is a
+no-op. That matters more than it looks: it means the letter does not need to prove
+"exactly once" at the instruction level. It needs to prove *at least once* and rely on
+idempotence for the rest — including the case where the caller's own scope-drop cleanup
+also closes.
+
+`RESOURCE_OFFSET_CLOSED` (16) is a **plain boolean word**, not a bitfield: both
+`lower_destroy_image` and the resource system's own `emit_closed_resource_record` store a
+whole-word `1` over it, and no second bit is defined anywhere. So the close this letter
+emits is a whole-word store too — a read-modify-write would be inventing a hazard that
+does not exist (**J7**).
+
+### 4.3 Where the close goes: one chokepoint, two callers
+
+There are **two** free sites, and the obvious one is not the dangerous one (**J4**):
+
+| site | when | gated? |
+|---|---|---|
+| `emit_group_reclaim` | `canvas::groupReclaim()`, first thing in `present` | yes — `RETIRED_ITEMS != 0` and `frame_now >= stamped` |
+| `emit_retire_current_items` | a **second `setGroup` in one frame**, freeing the block retired by the first | **no** — deliberately bypasses the gate |
+
+Both funnel through `emit_free_items_block`. **The walk-and-close goes there, immediately
+before `emit_arena_free`** — after the `OWNED_BYTES` subtraction, so the accounting is
+unchanged, and before the block is released, so the pointers are still readable.
+
+Putting it in the helper rather than at the two call sites is not tidiness: a close added
+only at the reclaim site leaves the second-`setGroup`-in-one-frame path silently
+unclosed, and that path has no test today.
+
+**The ungated site needs its own argument.** Closing there could close a resource an
+in-flight frame is still drawing. plan-116-G's justification for the ungated free is that
+the block being freed was retired by an *earlier* `setGroup` in the same frame and was
+therefore never published to the graphics thread — if that is exact, the resources in it
+were never drawn either and closing is safe. **Phase 2 must verify that claim against the
+publish path rather than inherit it**, because it was written about a block, and this
+letter extends it to the resources the block points at.
+
+### 4.4 The walk this letter has to write
+
+**Nothing walks a group's stored items today.** Every existing walk goes through
+`canvas::groupItems(slot)`, which returns a *copy*, and runs on the **graphics thread** —
+`__canvas_appendDraw`, `__canvas_groupSignature`, `__canvas_memoGroup`,
+`__canvas_drawGroup`. None of them visits `Picture.image` or `Text.font`; the only code
+that reads a resource out of an item is `helper_geometry.rs`'s six `canvas::fontHandle`
+sites (**J4**).
+
+So the walk is new, and it must run on the **worker**, because the close writes to a
+record in the worker's arena and `emit_free_items_block` already runs there.
+
+**The existing owned-container machinery does not fit.** An owned list carries **one**
+`OwnedListDrop`, and `builder_resource_cleanup.rs` explicitly refuses *"a record with two
+`RES` fields of differing resource types"*. A `DrawItem` list holds an `Image` (via
+`Picture`) and a `Font` (via `Text`) — two close ops. `emit_owned_list_drain` cannot be
+pointed at it unchanged, and widening that primitive to carry a close op *per field* is a
+change to shared cleanup code that every other package depends on.
+
+The narrower option, and the one this letter should cost first: emit a **canvas-specific**
+walk that steps the items block by `ITEM_BLOCK_SIZE`, switches on the kind word, and for
+`Picture`/`Text` loads the field's pointer and sets the closed bit inline. Two
+instructions per resource, no call, no tag to check — §4.2. That keeps the change inside
+`gen_group.rs` and out of the shared cleanup path.
+
+### 4.6 The compile-time refusal does not reach this letter's close
+
+`.ai/canvas-threading.md` §7 and row R3 say a closed image cannot be named again because
+`destroyImage` **consumes its binding**. Probed, and true for a *direct* call — a program
+that calls `canvas::destroyImage(img)` and then builds a `Picture` from `img` is refused
+with `2-203-0055 TYPE_USE_AFTER_MOVE`, *"Binding `img` was moved and cannot be used
+again"*. The mechanism is the parameter type: `destroyImage`'s `image` parameter is
+`ParameterType::named(IMAGE_TYPE_ID)`, not `res(...)`, so passing a resource to it is a
+move.
+
+**It does not generalise, and the exception is exactly this letter's shape.** Close the
+image through a helper that takes `RES img AS canvas::Image` and the caller's binding is
+*not* moved — `cli_canvas_image_resource.rs`'s `closedRefuses` calls `getSize` on it
+afterwards and pins the **runtime** `ErrResourceClosed`. A `RES` parameter is an alias, so
+nothing is consumed at the call site.
+
+A group closing its own items is that case and not the first one: the close happens inside
+the runtime, against a record the program still has a live binding to. So this letter
+**cannot** lean on the compile-time refusal, and the properties it has to preserve are the
+runtime ones — close is idempotent (§4.2), and a render reads `closed` before the handle
+and draws nothing (`func_handle_bridge.rs`, `errors: vec![]`).
+
+### 4.5 The slot is full
+
+`error_constants.rs` says so already: *"Both spare words are now used: `RETIRED_ITEMS` and
+`RETIRED_NAME`. plan-116-J will need to grow the slot to 128 (still a power of two, still
+a shift) rather than find room here."* If this letter needs a per-slot word — an owned
+flag, say — growing `CANVAS_GROUP_SLOT_BYTES` to 128 and `SHIFT` to 7 is the sanctioned
+move, and the new word must also be added to
+`the_group_slot_size_is_a_power_of_two_matching_its_shift`, which takes the max over a
+hardcoded list.
+
+**Whether a new word is needed at all is open.** If every group owns its items
+unconditionally, no flag is required and the slot stays at 64.
+
+---
+
+Fixed before plan-114 landed, and still true:
 
 - The close happens on the **worker**, in the group free path plan-116-G §4.3 placed at
   the top of `present`. Not on the graphics thread: an arena is per-thread and a
@@ -234,17 +361,32 @@ The letter opens against a world that did not exist when it was written.
 
 - [ ] Re-run every row of §Prerequisites and every row of §2's measured table; update
       both in place.
-- [ ] Read plan-114-B, -C and -D **as landed** and write §4's detailed design against
-      them.
+- [x] Read plan-114-B, -C and -D **as landed** and write §4's detailed design against
+      them. §4 is now §4.1–§4.6, written against `gen_group.rs`, `func_destroy_image.rs`,
+      `func_handle_bridge.rs`, `builder_resource_cleanup.rs` and `flatness_walk` as
+      landed. Its load-bearing findings are **J4** (two free sites, one chokepoint; no
+      `refs == 0` term; the slot is full), **J5** (alias, not copy) and **J7** (the close
+      is a whole-word store, and the compile-time refusal does not reach this letter).
 - [ ] Settle the §2 open question: does installing a resource into a process-global,
       graphics-thread-readable group buffer constitute a transfer under plan-114's
       rules? If yes, audit `Image`'s and `Font`'s record tails and set `live_slots`
       accordingly (the `live_slots` field of each `pkg.add_resource` call in `mod.rs`) — *"opting an image in means auditing its
       record tail first, not just flipping the bit."*
-- [ ] Read `.ai/canvas-threading.md` §7 **as plan-116-I rewrote it** (a `Picture`
+      **Answered: no** (**J5**, §4.1). The group stores a pointer; the resource record
+      never changes arena; the graphics thread only reads it, which is what every
+      published scene already does. `live_slots` and `sendable` stay as they are. The
+      record-tail audit the "if yes" branch asked for is recorded in **J5** regardless,
+      so a future `sendable: true` need not re-derive it.
+- [x] Read `.ai/canvas-threading.md` §7 **as plan-116-I rewrote it** (a `Picture`
       now carries a `RES`, and the renderer reads a closed handle as the zero id, so
       "draws nothing rather than raising" survives in a new mechanism). Verify the
       rewritten paragraph against the landed code rather than against this plan.
+      Four claims checked, three verified as written and one corrected in the doc
+      (**J7**): the move refusal is real but holds only for a *direct* `destroyImage`, so
+      §7 gained the qualifier and the matrix gained **R3b**. Verified unchanged:
+      `imageHandle`/`fontHandle` carry `errors: vec![]` and cannot raise; the closed
+      guard is emitted **before** the handle load in `lower_handle`; `imageRef`/`fontRef`
+      survive only as prose and as `mod.rs:1339`, a test asserting neither resolves.
 
 Acceptance: §4 of this document is written against landed code, §2's table is current,
 and the transfer question has a recorded answer with the audit behind it.
@@ -340,7 +482,48 @@ Commit: —
 
 ## Corrections
 
-**J5 (2026-09-05, pre-execution) — §2's open transfer question, answered, with the tail
+**J7 (2026-09-04, Phase 1) — verifying `.ai/canvas-threading.md` §7 against landed code
+found one true claim stated too broadly, and disproved a constraint I had just written
+into §4.2 myself.**
+
+**The §7 claim, probed rather than reasoned about.** A scratch app-mode project that calls
+`canvas::destroyImage(img)` and then builds a `canvas::Picture` from `img` is refused:
+
+```
+error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+              Binding `img` was moved and cannot be used again.
+```
+
+So the claim holds, and the mechanism is now recorded rather than assumed:
+`destroyImage`'s parameter is `ParameterType::named(IMAGE_TYPE_ID)` — a plain
+`canvas::Image`, **not** a `RES` one — so passing a resource to it is a move.
+
+**But §7 and row R3 stated it without the qualifier, and the missing case is exactly this
+letter's.** A `RES` parameter is an *alias* and consumes nothing, so a close performed
+behind one leaves the caller's binding usable. That is not a hypothetical:
+`closedRefuses` in `tests/cli_canvas_image_resource.rs` calls `closeIt(img)` — a
+`SUB closeIt(RES img AS canvas::Image)` — and then `canvas::getSize(img)`, which
+**compiles** and raises `ErrResourceClosed` at run time. A group closing its own items is
+in that second category by construction, so a reader who took R3 at face value would
+conclude this letter's close is protected by a compile error that cannot reach it.
+
+Corrected in the doc, not just here: §7's bullet now names the parameter-type mechanism
+and adds the "directly" qualifier with the test citation, and the matrix gains **R3b** for
+the close-behind-a-`RES`-parameter case, protected by the runtime closed-read guard.
+§4.6 records what this letter may and may not lean on.
+
+**And the self-inflicted one.** §4.2, as first written this phase, claimed
+`RESOURCE_OFFSET_CLOSED` is a flag set (bit 0 closed, bit 1 moved) and that the close must
+therefore be a read-modify-write. **It is a plain boolean word.** `lower_destroy_image`
+emits `move_immediate(flag, "1")` then `store_u64(flag, record, RESOURCE_OFFSET_CLOSED)`,
+and the resource system's own `emit_closed_resource_record`
+(`builder_value_semantics.rs`) does the identical whole-word store; no second bit is
+defined anywhere in the tree. §4.2 is corrected. Left standing it would have put a
+read-modify-write into Phase 3 to defend a hazard that does not exist — a design
+constraint invented, at the point in the plan where inventing one is cheapest and
+catching it is hardest.
+
+**J5 (2026-09-04, pre-execution) — §2's open transfer question, answered, with the tail
 audit behind it.**
 
 The question: *does installing a resource into a process-global, graphics-thread-readable
@@ -384,7 +567,7 @@ is why the close has to hang off the free path (**J4**: `emit_free_items_block`,
 chokepoint both free sites funnel through) and not off anything at install time — at
 install there is nothing new to own.
 
-**J4 (2026-09-05, pre-execution) — §1's description of the gate is wrong in two ways,
+**J4 (2026-09-04, pre-execution) — §1's description of the gate is wrong in two ways,
 J2's central claim is wrong, and the slot this letter needs room in is full.**
 
 Measured before starting, after plan-116-I landed.
@@ -525,7 +708,9 @@ Phase 2 rather than a follow-up to it.
 (`Font`), not `:748`/`:790`. `grep -n 'live_slots' src/codegen/builtins/canvas/mod.rs`
 finds both.)*
 
-**J1 (2026-09-03, pre-execution) — the rule-retirement row cited a line range that no
+**J6 (2026-09-03, pre-execution; recorded as a second "J1" and renumbered 2026-09-04 —
+two corrections carried the same number, so a reference to "J1" resolved to whichever
+the reader found first) — the rule-retirement row cited a line range that no
 longer contains what it describes.** The check was `sed -n 1008,1019p src/rules/table.rs`
 "under a *retired by plan-114-B* comment". The `Rule` block for `2-203-0084` does start
 at 1008, but the comment explaining the retirement sits **above** it (`:1004-1007`, "Kept
