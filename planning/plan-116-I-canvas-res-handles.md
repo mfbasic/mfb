@@ -322,20 +322,56 @@ re-run, not assumed.
 
 ### Phase 1 — Prove the registry plumbing; land the bridge (no surface change)
 
-- [ ] Re-run every §2 census row; update the tables in place.
-- [ ] Unit-prove a builtin `RecordProp` with `ty: ParameterType::res(...)`: give a
+- [x] Re-run every §2 census row; update the tables in place. — Done, and three rows
+      were wrong in ways re-running their own commands does not reveal (**I5**): the
+      file count's two commands return 29 over *different* sets (union 30, plus
+      `.ai/canvas-threading.md`, which no command reaches); the `Text[` row counted three
+      `astrings::AttrText[` sites in another package (20 canvas sites, not 22); and the
+      fabricated-handle row's line for `rt_canvas_present_deep_copy.rs` was 26 lines
+      stale. A new row records the two `.id` reads that are *assertions about* a handle
+      rather than constructions with one, so the sweep driving Phase 2 cannot see them.
+      §Summary's third copy of "five integer reads" now says six.
+- [x] Unit-prove a builtin `RecordProp` with `ty: ParameterType::res(...)`: give a
       scratch (or the real, still-unwired) record the field in a `#[cfg(test)]`
       registry and drive record validation, construction type-check and
       type-export over it. Fix whatever seams reject it — this is the letter's
-      unverified premise and lands first.
-- [ ] Add `canvas::imageHandle`/`fontHandle` (non-exported, §4.2) with unit tests:
-      live resource → its id; destroyed → 0.
-- [ ] Tests: `cargo test --no-fail-fast`; every golden unchanged (nothing visible
-      moved yet).
+      unverified premise and lands first. —
+      `a_builtin_record_property_may_carry_a_res_type` in `codegen/registry/mod.rs`.
+      **No seam rejected it**, so there was nothing to fix: `source_spelling` is
+      `ty.name()`, and `Res(inner).name()` is `RES <inner>`, so the property exports as
+      `image AS RES canvas::Image` by construction.
+      The test asserts the **variant**, not the spelling, because
+      `Named("RES canvas.Image")` and `Res(Named("canvas.Image"))` render identically
+      and behave differently — that substitution would satisfy every other assertion
+      here while the field was not a resource at all.
+- [~] Add `canvas::imageHandle`/`fontHandle` (non-exported, §4.2) with unit tests:
+      live resource → its id; destroyed → 0. — Both landed in
+      `func_handle_bridge.rs`, forked from `lower_image_ref` with the two deletions §4.2
+      names: no arena allocation (the id is returned bare, since a scene can now carry
+      the resource) and no raise on the closed path.
+      `the_handle_bridges_are_internal_take_a_resource_and_cannot_raise` pins the
+      declared contract — `internal_only`, a `RES` parameter, an `Integer` return, and
+      an **empty `errors` list**, which is the machine-checkable form of "answers 0,
+      does not raise". `mfb man canvas --all` mentions neither.
+      **Remaining:** the runtime half (live → id, destroyed → 0) is not asserted yet.
+      An `internal_only` member has no caller until Phase 2 wires it into
+      `helper_geometry`, so the observation lands with Phase 3's destroyed-font rt test
+      rather than here. Recorded rather than claimed.
+- [x] Tests: `cargo test --no-fail-fast`; every golden unchanged (nothing visible
+      moved yet). — `cargo test --release --no-fail-fast` on macOS: **rc=0, 113 targets,
+      no failures**. The artifact gate is one of those targets, so "every golden
+      unchanged" is asserted by the same run rather than by a separate claim.
 
 Acceptance: the `Res`-prop probe passes validation/construction/export in tests,
 and both bridges return measured ids/zeros at runtime.
-Commit: —
+
+**Half met.** The probe passes, and it passed *unmodified* — the premise held, so the
+"fix whatever seams reject it" half of that box turned out to be empty. The bridges
+are landed and their declared contract is pinned, but "return measured ids/zeros **at
+runtime**" is not shown: nothing calls an `internal_only` member until Phase 2, so
+there is no runtime to measure. That assertion moves to Phase 3, where a destroyed
+font in an installed scene is already a planned rt case — it is the same observation.
+Commit: `5a1dd63d1`, `509b72a22`
 
 ### Phase 2 — The breaking swap, in one commit
 
