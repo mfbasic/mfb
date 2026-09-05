@@ -189,12 +189,19 @@ Re-run every row at Phase 1 start — the series letters before this one add sit
   works: same resource → same pointer bytes.
 - **The registry's type machinery already models `Res`.**
   `ParameterType::Res` exists and is threaded through registry qualification
-  (`src/types.rs:64`, `src/codegen/registry/mod.rs:1928`), and is used today for
-  *parameters* (`tcp/udp func_poll`: `list_of(Res(socket()))`).
-  **UNVERIFIED: whether a `RecordProp` whose `ty` is `Res(...)` flows through
-  record validation, construction type-check, and type-export for a BUILTIN
-  package record** — plan-114-E proved user-declared records; the registry prop
-  path is this letter's Phase 1 experiment.
+  (`grep -n 'Res(' src/types.rs` for the variant; `grep -n 'ParameterType::Res' src/codegen/registry/mod.rs`
+  for the qualification arm — *line citations dropped per **I9***), and was used at
+  authoring time only for *parameters* (`tcp`/`udp` `func_poll`: `list_of(Res(socket()))`).
+  ~~**UNVERIFIED: whether a `RecordProp` whose `ty` is `Res(...)` flows through record
+  validation, construction type-check, and type-export for a BUILTIN package record**~~
+  — **VERIFIED, and then shipped** (2026-09-05, closing a marker that would otherwise be
+  archived still reading as open). Phase 1's experiment answered it and the whole letter
+  rests on the answer: `Picture.image` is
+  `ty: ParameterType::res(ParameterType::named("canvas.Image"))` in
+  `canvas/mod.rs` today, it renders as `RES canvas.Image` in `mfb man canvas types`, and
+  programs construct `canvas::Picture[…, image := img, …]` from a `RES` binding across
+  the whole test suite. plan-114-E had proved only user-declared records; the registry
+  prop path is proved by this letter existing.
 
 ## 3. Design Overview
 
@@ -228,7 +235,8 @@ first, then the id; a torn observation yields either the live id or 0, both of
 which render a defined picture.**
 
 **Where the design uncertainty concentrates:** the registry `RecordProp` +
-`Res` plumbing (§2, UNVERIFIED). Phase 1 proves it on a scratch non-exported
+`Res` plumbing (§2 — **UNVERIFIED at authoring time, verified in Phase 1 and shipped**).
+Phase 1 proves it on a scratch non-exported
 record before the breaking swap.
 
 **Byte-identity is NOT this letter's gate** (surface changes), but every canvas
