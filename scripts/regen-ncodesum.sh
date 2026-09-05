@@ -27,6 +27,16 @@ fi
 set -u
 MFB=${1:?usage: regen-ncodesum.sh <mfb-exe> [host-target]}
 HOST=${2:-macos-aarch64}
+# bug-470: this script rewrites and deletes the SAME fixture dumps that
+# `artifact-gate.sh` and `test-accept.sh` do, so it contends with them for the
+# tree and must take the same per-tree lock. The regenerate-then-gate pairing is
+# not exotic — it is the normal workflow after an intended codegen change.
+GATE_LOCK_HOLDER="regen-ncodesum.sh"
+GATE_LOCK_TREE="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=gate-lock.sh
+. "$(dirname "$0")/gate-lock.sh"
+gate_lock_acquire || exit $?
+
 updated=0
 missing=0
 while IFS= read -r gsum; do

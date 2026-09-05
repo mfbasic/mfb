@@ -167,6 +167,16 @@ END SUB
 const LARGE_SUBJECT: &str = r#"IMPORT io
 IMPORT regex
 
+' bug-531: `regex::find` raises `ErrNotFound` on absence. This test measures
+' memory, not the absence contract, so it keeps its `-1` observable through the
+' documented TRAP wrapper rather than restating the contract here.
+FUNC findOrMinusOne(v AS String, p AS String) AS Integer
+  RETURN regex::find(v, p)
+TRAP(err)
+  RETURN -1
+END TRAP
+END FUNC
+
 SUB main()
   MUT s AS String = ""
   MUT i AS Integer = 0
@@ -174,7 +184,7 @@ SUB main()
     s = s & "a"
     i = i + 1
   END WHILE
-  LET at AS Integer = regex::find(s, "zzz")
+  LET at AS Integer = findOrMinusOne(s, "zzz")
   io::print("find=" & toString(at))
 END SUB
 "#;
@@ -218,16 +228,41 @@ IMPORT regex
 IMPORT collections
 IMPORT strings
 
+' bug-531: `regex::find` raises `ErrNotFound` on absence, and this corpus's
+' single TRAP would swallow a whole row -- losing its match/findAll/replace
+' coverage -- if a non-matching pattern raised out of `one`. The guard keeps the
+' recorded `f=-1` observable, so the 85 rows below still pin what they always did.
+FUNC findOrMinusOne(subj AS String, pat AS String, start AS Integer) AS Integer
+  RETURN regex::find(subj, pat, start)
+TRAP(err)
+  IF err.code = 77050004 THEN
+    RETURN -1
+  END IF
+  FAIL error(err.code, err.message)
+END TRAP
+END FUNC
+
+' bug-533: `regex::replace` refuses an EMPTY pattern. Row 49 is that pattern, and
+' its `m`/`f`/`f1`/`all` columns are exactly the zero-width matcher coverage the
+' refusal must NOT disturb -- so `r` records the raise rather than letting the
+' outer TRAP swallow the whole row. Only row 49's `r=` moves.
+FUNC replaceOrCode(subj AS String, pat AS String, repl AS String) AS String
+  RETURN regex::replace(subj, pat, repl)
+TRAP(err)
+  RETURN "<raised " & toString(err.code) & ">"
+END TRAP
+END FUNC
+
 FUNC one(idx AS Integer, pat AS String, subj AS String, repl AS String) AS String
   LET m AS Boolean = regex::match(subj, pat)
-  LET f AS Integer = regex::find(subj, pat)
-  LET f2 AS Integer = regex::find(subj, pat, 1)
+  LET f AS Integer = findOrMinusOne(subj, pat, 0)
+  LET f2 AS Integer = findOrMinusOne(subj, pat, 1)
   LET all AS List OF Integer = regex::findAll(subj, pat)
   MUT alls AS String = ""
   FOR EACH a IN all
     alls = alls & toString(a) & ","
   NEXT
-  LET r AS String = regex::replace(subj, pat, repl)
+  LET r AS String = replaceOrCode(subj, pat, repl)
   RETURN toString(idx) & ": m=" & toString(m) & " f=" & toString(f) & " f1=" & toString(f2) & " all=[" & alls & "] r=" & r
   TRAP(e)
     RETURN toString(idx) & ": raised " & toString(e.code)
@@ -378,7 +413,7 @@ d
 46: m=TRUE f=0 f1=1 all=[0,] r=<aaa:>
 47: m=TRUE f=0 f1=1 all=[0,] r=<aab:>
 48: raised 77050001
-49: m=TRUE f=0 f1=1 all=[0,1,2,3,] r=-a-b-c-
+49: m=TRUE f=0 f1=1 all=[0,1,2,3,] r=<raised 77050002>
 50: m=TRUE f=5 f1=5 all=[5,11,] r=cost $ or $
 51: m=TRUE f=0 f1=1 all=[0,2,] r=badc
 52: m=TRUE f=0 f1=1 all=[0,1,] r=[x][y]

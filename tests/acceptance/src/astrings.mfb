@@ -75,6 +75,11 @@ END FUNC
 
 ' Per-scalar flag map: one character per visible scalar — B/I/U/S/O for the
 ' first flag present in canonical order, `-` when no flag is resolved there.
+' bug-533: `expectTrap` needs a runtime call whose failure it can catch.
+FUNC astrReplaceWrap(a AS AttributedString, old AS String, new AS String) AS String
+  RETURN toString(strings::replace(a, old, new))
+END FUNC
+
 FUNC astrFlagMap(a AS AttributedString) AS String
   MUT out AS String = ""
   MUT i AS Integer = 0
@@ -579,14 +584,15 @@ TESTING
         expectString(toString(r2), "aYYbYYc")
         expectString(astrFlagMap(r2), "------I")
       END TCASE
-      TCASE "replace edges: no match and empty needle are no-ops"
+      TCASE "replace edges: a no-match is a no-op, an empty needle is refused"
         LET s AS AttributedString = astrings::addAttribute(astrings::fromString("abcde"), 1, 3, astrings::bold())
         LET keep AS AttributedString = strings::replace(s, "zz", "Y")
         expectString(toString(keep), "abcde")
         expectString(astrFlagMap(keep), "-BBB-")
-        LET empty AS AttributedString = strings::replace(s, "", "Y")
-        expectString(toString(empty), "abcde")
-        expectString(astrFlagMap(empty), "-BBB-")
+        ' bug-533: the overload inherits `strings::replace`'s refusal of an empty
+        ' `old` -- the text transform IS `strings::replace`, so the two members
+        ' cannot disagree. The attribute overlay is never reached.
+        expectTrap(astrReplaceWrap(s, "", "Y"), errorCode::ErrInvalidArgument)
         ' Deletion (empty replacement) still remaps the kept segments.
         LET del AS AttributedString = strings::replace(s, "bc", "")
         expectString(toString(del), "ade")

@@ -172,6 +172,7 @@ pub(crate) fn register(r: &mut Registry) {
         // `copy_resource_to_current_arena`, which is what an undeclared slot
         // gets.
         live_slots: &[],
+        unsendable_reason: None,
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

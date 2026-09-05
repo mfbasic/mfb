@@ -550,7 +550,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
             t = ((px - gradFX) * gradAX + (py - gradFY) * gradAY) / gradLen2
           END IF
         END IF
-        LET gc AS Color = __canvas_gradientColor(gradBase, gradCount, t)
+        LET gc AS color::Color = __canvas_gradientColor(gradBase, gradCount, t)
         gR = gc.red
         gG = gc.green
         gB = gc.blue

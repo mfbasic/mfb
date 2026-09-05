@@ -40,7 +40,7 @@
 //!    (plan-59-D): at scope exit a cleanup whose record pointer equals the value
 //!    escaping the scope skips both close and reclaim.
 //! 3. **A second close is a defined no-op, not corruption** (plan-59-B): every
-//!    resource record carries a closed/moved flag at offset 8, and both the
+//!    resource record carries a closed/moved flag at offset 16, and both the
 //!    built-in helpers and every native `LINK` thunk test it before acting.
 //!
 //! So this pass no longer needs to prove that a resource cannot escape; it needs

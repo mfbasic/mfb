@@ -1,0 +1,66 @@
+' Runtime test: a USER-DECLARED resource lives in a collection, exactly as a
+' built-in one does.
+'
+' `mfb spec` §15.6 gives a collection element the `RES` marker precisely so a
+' resource can be stored in one, and `List OF RES fs::File` has always worked.
+' The identical program over a declared `RESOURCE Db` did not BUILD:
+'
+'   error: native collection packed payload does not support type 'Db'
+'
+' No code, no file, no line. Cause: `is_pointer_collection_payload_type` asked
+' `builtins::is_resource_type`, which answers for the BUILT-IN registry only, so
+' a declared resource was not recognised as an 8-byte pointer payload and fell
+' through the packed-payload dispatch to its error arm. That is bug-546's family
+' — a builtin-only classifier — at a third site, after the flatness walk
+' (bug-546) and the thread-handle arm (bug-479).
+'
+' WHAT THIS ASSERTS. `count=4` is the layout half: four handles were appended and
+' the list agrees. `used=4` is the sharper half — every element is read back out
+' of the list and used, so a wrong stride or alignment would hand `sql::exec` a
+' misaligned or aliased pointer and the SUCCESS_ON gate would raise. Each
+' iteration creates a DIFFERENTLY-NAMED table, so two elements aliasing the same
+' database would also fail rather than pass quietly.
+IMPORT io
+IMPORT collections
+
+RESOURCE Db CLOSE BY sql::close
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC exec(RES db AS Db, statement AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING
+    CONST arg = NOTHING
+    CONST errmsg = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+FUNC main AS Integer
+  MUT dbs AS List OF RES Db = []
+  MUT i AS Integer = 0
+  WHILE i < 4
+    RES d AS Db = sql::open(":memory:")
+    dbs = collections::append(dbs, d)
+    i = i + 1
+  END WHILE
+  io::print("count=" & toString(len(dbs)))
+  MUT j AS Integer = 0
+  WHILE j < len(dbs)
+    sql::exec(collections::get(dbs, j), "CREATE TABLE t" & toString(j) & "(a INTEGER);")
+    j = j + 1
+  END WHILE
+  io::print("used=" & toString(j))
+  RETURN 0
+END FUNC

@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT collections
 IMPORT fs
 IMPORT io
@@ -70,30 +71,30 @@ LET HINT_BAND AS Float = 3.0         ' the strip the hint reserves, in hint ems
 ' --- The palette ------------------------------------------------------------
 
 ' The lit centre of the face, up under the light.
-FUNC skinLit AS canvas::Color
-  RETURN canvas::rgb(254, 228, 116)
+FUNC skinLit AS color::Color
+  RETURN color::rgb(254, 228, 116)
 END FUNC
 
 ' The colour at SHADE_KNEE, a quarter of the way out of the face's ramp. Not the
 ' halfway mix — it is already most of the way to skinRim, which is what keeps the lit
 ' spot small. See faceDisc.
-FUNC skinMid AS canvas::Color
-  RETURN canvas::rgb(245, 185, 73)
+FUNC skinMid AS color::Color
+  RETURN color::rgb(245, 185, 73)
 END FUNC
 
 ' The face's shaded edge — the colour the lit centre falls off to.
-FUNC skinRim AS canvas::Color
-  RETURN canvas::rgb(240, 158, 46)
+FUNC skinRim AS color::Color
+  RETURN color::rgb(240, 158, 46)
 END FUNC
 
 ' The line around the outside, a shade deeper again than the edge.
-FUNC skinEdge AS canvas::Color
-  RETURN canvas::rgb(224, 132, 32)
+FUNC skinEdge AS color::Color
+  RETURN color::rgb(224, 132, 32)
 END FUNC
 
 ' The one dark warm brown the eyes and the mouth are drawn in.
-FUNC inkColor AS canvas::Color
-  RETURN canvas::rgb(66, 47, 24)
+FUNC inkColor AS color::Color
+  RETURN color::rgb(66, 47, 24)
 END FUNC
 
 ' --- The face ---------------------------------------------------------------
@@ -267,9 +268,9 @@ FUNC sceneFor(smiling AS Boolean, surface AS canvas::Size, face AS canvas::Font)
   ' GradientKind.Linear is the other kind: t is the distance ALONG the axis, so a
   ' vertical axis shades top to bottom and holds constant across the width. The axis
   ' is the window's own height, so the wash restretches on every resize.
-  LET washStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 255, 255)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(243, 240, 234)]]
+  LET washStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 255, 255)], canvas::GradientStop[offset := 1.0, color := color::rgb(243, 240, 234)]]
   LET wash AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 0.0, y := toFloat(surface.height)], stops := washStops]
-  LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := toFloat(surface.width), h := toFloat(surface.height), paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { fillGradient := wash }]
+  LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := toFloat(surface.width), h := toFloat(surface.height), paint := WITH canvas::fill(color::rgb(255, 255, 255)) { fillGradient := wash }]
 
   MUT scene AS List OF canvas::DrawItem = [backdrop]
   FOR EACH item IN facePicture(smiling, cx, faceCy, radius)
@@ -279,13 +280,13 @@ FUNC sceneFor(smiling AS Boolean, surface AS canvas::Size, face AS canvas::Font)
   ' Text is positioned by the start of its baseline, so centring it horizontally
   ' means subtracting half the measured advance width, and placing it below the
   ' face means adding the ascent to the gap under the face.
-  LET label AS canvas::DrawItem = canvas::Text[x := cx - metrics.width / 2.0, y := faceCy + radius + radius * CAPTION_GAP + metrics.ascent, text := caption, font := face, size := textSize, paint := canvas::fill(canvas::rgb(96, 92, 86))]
+  LET label AS canvas::DrawItem = canvas::Text[x := cx - metrics.width / 2.0, y := faceCy + radius + radius * CAPTION_GAP + metrics.ascent, text := caption, font := face, size := textSize, paint := canvas::fill(color::rgb(96, 92, 86))]
   scene = collections::append(scene, label)
 
   LET hint AS String = "any key switches  \u{00B7}  q quits"
   LET hintSize AS Float = hintSizeFor(surface)
   LET hintMetrics AS canvas::TextMetrics = canvas::measureText(face, hintSize, hint)
-  LET hintItem AS canvas::DrawItem = canvas::Text[x := cx - hintMetrics.width / 2.0, y := toFloat(surface.height) - hintSize * 1.4, text := hint, font := face, size := hintSize, paint := canvas::fill(canvas::rgb(176, 172, 166))]
+  LET hintItem AS canvas::DrawItem = canvas::Text[x := cx - hintMetrics.width / 2.0, y := toFloat(surface.height) - hintSize * 1.4, text := hint, font := face, size := hintSize, paint := canvas::fill(color::rgb(176, 172, 166))]
   scene = collections::append(scene, hintItem)
 
   RETURN scene

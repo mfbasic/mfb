@@ -125,9 +125,18 @@ impl CodeBuilder<'_> {
         // failed transfer (`ErrTimeout`/`ErrInterrupted`/`ErrResourceClosed`) leaves
         // the sender's handle open and closable, matching the man-page contract and
         // the already success-gated `deactivate_moved_resource_arguments`.
+        //
+        // bug-546: the sendability test is the MODEL's, not the builtin registry's.
+        // Asking `builtins::is_thread_sendable_resource_type` here meant bug-425's
+        // fix never reached a user-declared `RESOURCE … THREAD_SENDABLE`: the flag
+        // was stored at copy time, so a FAILED `thread::transfer` left the sender's
+        // handle flagged moved and the very next use in its `TRAP` handler raised
+        // `ErrResourceMoved` (7-703-0009) — the opposite of what
+        // `mfb man thread transfer` promises ("If the transfer fails, the sending
+        // binding is still open, so a `TRAP` handler can close it or try again").
         let defer_resource_flag =
             matches!(target, "thread.transferResource" | "thread.emitResource")
-                && crate::codegen::builtins::is_thread_sendable_resource_type(&arg_values[1].type_);
+                && self.is_sendable_resource_nominal(&arg_values[1].type_);
         let copied_message_slot =
             self.allocate_stack_object("runtime_thread_send_copied_message", 8);
         // Allocated only when deferring, so data-plane sends keep their slot layout.

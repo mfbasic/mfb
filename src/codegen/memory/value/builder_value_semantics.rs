@@ -750,6 +750,11 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
 
+        // bug-536 shape B: `_mfb_rt_string_concat` arena-allocates the result and
+        // copies both operands' bytes into it (`lower_string_concat_helper`), so
+        // the block is fresh and unaliased — neither operand's storage is handed
+        // back. An unbound `a & b` may therefore be freed at statement end.
+        self.mark_fresh_string(Operand::from(result_ptr.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -864,6 +869,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(byte, "Integer", "0"));
         self.emit(abi::store_u8(byte, write_cur, 0));
 
+        // bug-536 shape B: the one `emit_arena_alloc_call` in step 3 is this
+        // block's only allocation and every operand was *copied* into it, so the
+        // fused chain's result is as fresh as the pairwise form's.
+        self.mark_fresh_string(Operand::from(result_ptr.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1375,12 +1384,39 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Option<ParameterType> {
         match target {
-            // The worker entry's FIRST parameter — `thread::start`'s runtime
-            // return type. plan-106-E: the isolated-FUNC spelling is a variant, so
-            // the parameter is read off it instead of being re-split out of
-            // `ISOLATED FUNC(` … `) AS `.
+            // `thread::start` returns the PARENT handle. Its channel slots are
+            // the worker entry's first parameter — plan-106-E: the isolated-FUNC
+            // spelling is a variant, so the parameter is read off it instead of
+            // being re-split out of `ISOLATED FUNC(` … `) AS ` — but the KIND is
+            // the parent's, not the worker's.
+            //
+            // bug-479: this used to hand back that parameter verbatim, i.e. a
+            // `ThreadWorker`. `registry/mod.rs` states the two never interchange
+            // ("kind (parent `Thread` vs worker `ThreadWorker`) must match"), and
+            // the descriptor agrees — `th(false, …)`. The wrong kind was invisible
+            // for a plain call, because both spellings denote the same one-pointer
+            // handle and nothing asks the type a question; it surfaced only under
+            // an inline `TRAP`, where `materialize_current_result` marshals the
+            // `Result`'s success payload BY TYPE and reported
+            //   native inlined field size not available for type
+            //   'ThreadWorker OF String TO Integer'
+            // while lowering `bind $trap_res0 AS Result OF Thread OF String TO
+            // Integer` — the two types in that message being different is the
+            // whole clue.
             "thread.start" => match self.static_type_name(args.first()?)? {
-                ParameterType::Func(params, _, true) => params.first().cloned(),
+                ParameterType::Func(params, _, true) => match params.first()? {
+                    ParameterType::ThreadHandle { msg, res, out, .. } => {
+                        Some(ParameterType::thread_handle(
+                            false,
+                            (**msg).clone(),
+                            (**res).clone(),
+                            (**out).clone(),
+                        ))
+                    }
+                    // Not a thread handle: the entry is ill-formed and the
+                    // frontend rejects it. Decline rather than invent a type.
+                    _ => None,
+                },
                 _ => None,
             },
             "thread.isRunning" | "thread.poll" | "thread.isCancelled" => {

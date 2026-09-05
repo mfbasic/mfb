@@ -58,8 +58,6 @@ mod func_present;
 mod func_present_layers;
 mod func_publish_scene;
 mod func_remove_group;
-mod func_rgb;
-mod func_rgba;
 mod func_scene_hashes;
 mod func_set_bytes;
 mod func_set_group;
@@ -104,9 +102,14 @@ const MODULE_INTRO: &str =
 const MODULE_DESC: &str = r#"The `canvas` package draws 2D graphics on the surface `app::setMode(app::Mode.Canvas)`
 presents. Like `app`, it is importable **only** in `--app` builds, and every call
 that touches the surface requires `app::Mode.Canvas` — outside it they raise the
-trappable `ErrWrongMode`. The two colour constructors `canvas::rgb` and
-`canvas::rgba` are the exception: they touch no surface, they only build a
-`canvas::Color`, so a program can compute its palette before it ever presents anything.
+trappable `ErrWrongMode`. The `canvas::Paint` constructors `canvas::fill`,
+`canvas::stroke` and `canvas::fillStroke` are exempt: they build a value and touch
+no surface.
+
+Colour is not a canvas concept at all. Those three take a `color::Color`, built with
+`color::rgb`, `color::fromHex` or any other `color` member — and `color` is gated by
+nothing, in any build. So a program still computes its palette before it ever
+presents anything; it just does so through `IMPORT color`.
 
 `canvas` is **retained**, not immediate. A program builds a `List OF canvas::DrawItem` and
 installs it with `canvas::present`; the runtime keeps rendering that scene on
@@ -130,14 +133,15 @@ state — there is no "current colour" to set. Build one with `canvas::fill`,
 `canvas::stroke` or `canvas::fillStroke`, and refine it with `WITH`:
 
 ```
-LET glow AS Paint = WITH canvas::fill(red) { blend := BlendMode.Add }
+LET glow AS Paint = WITH canvas::fill(color::rgb(255, 64, 0)) { blend := BlendMode.Add }
 ```
 
 `canvas::Paint` is designed so that **each field's zero value is that field's no-op** —
 transparent fill and stroke, zero stroke width, `Normal` blend, the identity
 transform (which is the *all-zero* `canvas::Transform`, by definition) and a zero-area,
 meaning absent, clip. That is what lets `canvas::fill(red)` mean simply "a red
-shape": every field the caller did not name is already inert.
+shape": every field the caller did not name is already inert. The transparent
+colour is the all-zero `color::Color`, so this holds for `fill` and `stroke` too.
 
 An item that draws an image or text holds the resource itself — `canvas::Picture.image`
 is a `RES canvas::Image` and `canvas::Text.font` a `RES canvas::Font`. A published scene
@@ -151,7 +155,9 @@ item draw nothing, rather than failing the frame.
 RES logo AS canvas::Image = canvas::createImage(w, h, pixels)
 ```
 
-The value types — `canvas::Color`, `canvas::DrawItem`, `canvas::Paint` and the rest — are referenced bare.
+The value types — `canvas::DrawItem`, `canvas::Paint` and the rest — are referenced bare.
+The one colour type a canvas program names, `color::Color`, belongs to `color` and
+needs its own `IMPORT color`.
 An image closes itself when its binding goes out of scope, or earlier with
 `canvas::destroyImage`; destroying one that a presented scene still draws is
 safe, because the scene holds only its id."#;
@@ -193,37 +199,11 @@ pub(crate) fn register(r: &mut Registry) {
 
     // ---- Value types the items are built from -----------------------------
 
-    pkg.add_record(RegistryRecord {
-        name: "Color",
-        export: true,
-        description: "An 8-bit-per-channel RGBA colour. Build one with `canvas::rgb` \
-                      or `canvas::rgba`; the all-zero value is fully transparent, \
-                      which is what makes it the no-op default for a `canvas::Paint` \
-                      channel.",
-        props: vec![
-            RecordProp {
-                name: "red",
-                ty: ParameterType::Byte,
-                description: "The red channel, `0`..`255`.",
-            },
-            RecordProp {
-                name: "green",
-                ty: ParameterType::Byte,
-                description: "The green channel, `0`..`255`.",
-            },
-            RecordProp {
-                name: "blue",
-                ty: ParameterType::Byte,
-                description: "The blue channel, `0`..`255`.",
-            },
-            RecordProp {
-                name: "alpha",
-                ty: ParameterType::Byte,
-                description: "The alpha channel, `0` fully transparent to `255` fully opaque.",
-            },
-        ],
-    });
-
+    // plan-122-D retired `canvas::Color`. The colour type is `color::Color`, an
+    // ordinary value record owned by `color` with an identical field set — so the
+    // props below reference it by qualified type id, exactly as `tcp` references
+    // `net.Address`, and every canvas internal that reads `paint.fill.red` is
+    // unchanged. Colour construction lives in `color` and needs no `Mode.Canvas`.
     pkg.add_record(RegistryRecord {
         name: "Point",
         export: true,
@@ -479,8 +459,9 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "color",
-                ty: ParameterType::named("Color"),
-                description: "The colour at that offset.",
+                ty: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),
+                description: "The colour at that offset. A `color::Color` — the \
+                              program needs `IMPORT color` to name the type.",
             },
         ],
     });
@@ -541,15 +522,15 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "fill",
-                ty: ParameterType::named("Color"),
-                description: "The interior colour. Transparent (the zero `canvas::Color`) \
-                              leaves the item unfilled.",
+                ty: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),
+                description: "The interior colour, a `color::Color`. Transparent (the \
+                              zero `color::Color`) leaves the item unfilled.",
             },
             RecordProp {
                 name: "stroke",
-                ty: ParameterType::named("Color"),
-                description: "The outline colour. Transparent (the zero `canvas::Color`) \
-                              leaves the item unstroked.",
+                ty: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),
+                description: "The outline colour, a `color::Color`. Transparent (the \
+                              zero `color::Color`) leaves the item unstroked.",
             },
             RecordProp {
                 name: "strokeWidth",
@@ -1000,6 +981,7 @@ pub(crate) fn register(r: &mut Registry) {
         live_slots: &[],
         // `destroyImage` sets the closed flag and returns; the backend frees the real
         // object later, on its own schedule, so there is nothing here that can fail.
+        unsendable_reason: Some("it belongs to the drawing surface's thread"),
         close_may_fail: false,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
@@ -1022,12 +1004,11 @@ pub(crate) fn register(r: &mut Registry) {
         // `destroyFont` sets the closed flag and returns. The font's bytes are
         // arena-owned, so unlike a file there is no OS handle to hand back and nothing
         // here that can fail.
+        unsendable_reason: Some("it belongs to the drawing surface's thread"),
         close_may_fail: false,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
 
-    func_rgb::register(&mut pkg);
-    func_rgba::register(&mut pkg);
     func_fill::register(&mut pkg);
     func_stroke::register(&mut pkg);
     func_fill_stroke::register(&mut pkg);
@@ -1387,7 +1368,6 @@ mod tests {
             "DrawItem",
             "DrawLayer",
             "Paint",
-            "Color",
             "Point",
             "Size",
             "Bounds",

@@ -1,0 +1,41 @@
+' plan-122-D: `canvas::rgb` was REMOVED, and its removal is a tested contract rather
+' than an absence.
+'
+' WHY A FIXTURE AND NOT JUST A DELETION. The `canvas` colour surface -- the record
+' `canvas::Color` and the two constructors `canvas::rgb`/`canvas::rgba` -- was one of
+' three unrelated notions of a colour in this language. plan-122 replaced all three
+' with `color::Color`. Deleting a member from the registry is invisible: nothing in
+' the tree fails, and the only way a reader learns the call is gone is by not finding
+' it. This fixture makes the removal something the compiler asserts.
+'
+' WHAT IT PINS, precisely: that the call is a NAMED diagnostic. The failure mode this
+' guards against is not "the program still compiles" -- it is a diagnostic that names
+' nothing useful, or a silent `TYPE_UNKNOWN_VALUE` on a later field read, which is
+' what a caller would get if `canvas::rgb` resolved to an untyped value instead of
+' being refused outright. The golden below is the whole assertion: the error names
+' `rgb`, and it names `canvas` as the package that does not have it.
+'
+' THE MIGRATION, for anyone who lands here from a build failure:
+'
+'   IMPORT color                          ' add this
+'   canvas::rgb(r, g, b)     -> color::rgb(r, g, b)
+'   canvas::rgba(r, g, b, a) -> color::rgba(r, g, b, a)
+'   canvas::Color            -> color::Color
+'
+' `color::Color` has the same four `Byte` fields in the same order, so anything
+' reading `paint.fill.red` is unchanged. `color::rgb` clamps exactly as `canvas::rgb`
+' did -- the promise moved with the constructor.
+'
+' The sibling removals are pinned separately, because the compiler reports the first
+' unresolved name and stops: see `canvas_color_type_removed_invalid` for
+' `canvas::Color`. Do not "fix" this fixture by adding `IMPORT color` and calling
+' `color::rgb`. The point is that the OLD spelling is refused.
+IMPORT app
+IMPORT canvas
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 8.0, y := 8.0, radius := 4.0, paint := canvas::fill(canvas::rgb(1, 2, 3))]
+  canvas::present([dot])
+  RETURN 0
+END FUNC

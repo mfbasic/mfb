@@ -1,13 +1,15 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-05
-Open bugs: **33** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 27 MEDIUM · 5 LOW/other** (re-derived from
-the `Severity:` line of each open bug on 2026-09-05; the previous 45/10/31/4 line
-predated several landings and no longer matched the tree)
+Open bugs: **23** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 20 MEDIUM · 2 LOW/other** (re-derived from
+each open bug's `Severity:` line on 2026-09-05; several rows carry a
+parenthetical qualifier after the word, so grep for the leading word, not the
+whole line)
 
-The audit-3 security pass (goal-08) is done: 19 of its 20 CRITICAL/HIGH findings
-are landed and archived; 499, 504 and 510 are the remainder and head this list.
+The audit-3 security pass (goal-08) is **complete**: all 20 of its
+CRITICAL/HIGH findings are landed and archived — 499, 504 and 510 were the last
+three and are all in `bugs/completed/`.
 
 ## Working rules for this pass
 
@@ -32,47 +34,89 @@ are landed and archived; 499, 504 and 510 are the remainder and head this list.
      `every_byte_list_producer_still_passes_the_write_header_check`, which
      caught that a new guard could reject valid programs.
 
-## Tier 1 — finish audit-3 (in flight)
+## Tier 1 — audit-3: DONE
 
-| Bug | Sev | Effort | Title | State |
-|---|---|---|---|---|
-| 510 | HIGH | medium | text-decoder DoS cluster (regex/json/csv/punycode) | agent running; also owes a verdict on a corruption lead |
-| 499 | HIGH | medium | spawned child inherits fds (no CLOEXEC) | worktree has partial work; lead taking it |
-| 504 | HIGH | medium | emitted PE has no ASLR (`.reloc`, DYNAMIC_BASE) | worktree has the RED test only, no fix |
+Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
+510 (text-decoder DoS cluster) are landed and archived, as are 514, 535, 538,
+539 and 545. **Do not re-dispatch these** — the table that used to sit here said
+"agent running" for all three and was stale for a full session.
 
-## Tier 2 — HIGH, memory and correctness first
+## Tier 2 — the one remaining HIGH
 
 | Bug | Sev | Effort | Title | Note |
 |---|---|---|---|---|
-| 538 | HIGH | medium | `collections::get` of a recursive element aliases storage → append-grow UAF | **memory gate**; pairs with 536 |
-| 536 | HIGH | x-large | scope drop leaks recursive types / return-constructor string temps | **memory gate**; same family as 538 |
-| 514 | HIGH | large | `KeyPair` carries no curve tag (Ed vs X, 32-byte collision) | crypto: wrong-curve use is silent |
+| 536 | HIGH | large | scope drop leaks: shapes **B-2** and **C** remain | **memory gate** |
 
-535 is landed (`b93de7ed0`); 539 is landed (`af39f8bbe`) — it also fixed a
-pre-existing GTK draw-callback SIGSEGV on any pooled grapheme cluster, and put the
-Linux GTK app backend under byte-identity coverage for the first time (two new
-`.app.ncodesum` goldens). 540 and 541 carry notes on what it did and did NOT
-share with them: no shared root cause, but 541's expected widening to Linux does
-not happen, and 540's WIN-01/WIN-04 now have a worked in-tree precedent.
-Recommended order: **538 → 536** (one family,
-cheaper together), then **514**. 519 is landed. **532 is landed (`2cf23f5b0`)** —
-`regex::findMatch`/`findAllMatches` now report each match's span, text and
-capture groups through two new exported records, which also **unblocks bug-534's
-`split`** (532 deliberately did not take it; 534 owns the zero-width /
-empty-piece / `limit` decisions). 536 is the remaining x-large item and deserves
-a dedicated agent.
+**536 is the only open HIGH.** Three of its four parts are done:
+
+- **Shape A** — `RETURN <constructor>` abandoned the fresh block. Fixed
+  `f9be6e128`, merged `c210cc67d`.
+- **Shape B, native half** — an unbound `String` from a *native* producer was
+  never freed (`acc = acc + len(toString(i))` leaked 64 B per evaluation). Fixed
+  `cd8699103` by **fail-closed freshness provenance**: a producer that just
+  `arena_alloc`ed the block it returns marks it, and `register_pending_temp`
+  frees a bare `String` only on that mark. Unmarked keeps leaking, never wild-frees.
+  Golden delta was 142 `.ncodesum` + 4 `.ncode` + 1 `.mir` and **zero**
+  `.run`/`build.log`.
+- **Shape B-2, callee half** — a `String` returned by a user / `.mfb`-bodied
+  function. **Open**, and it is what still costs the decoders: `csv::parse` is
+  byte-identically unchanged by the native fix. The bug doc's old claim that "csv
+  has a SECOND leak that is NOT shape B" is **wrong** and now corrected there — it
+  is shape B one level up (`row = append(row, __csv_fieldValue(...))`). Needs a
+  transitive `function_returns_fresh_string` NIR predicate; it is a
+  **double-free** risk, not a leak risk, so it wants its own change and audit.
+- **Shape C** — a value of a recursive type is never freed. **Blocked**: it needs
+  recursive COPY-insertion, which does not exist, and the naive fix is a double
+  free. It is a design pass, not a bug fix. Do not dispatch it as one.
+
+514 is landed. 519, 532 and 535 are landed; 538 is landed and 539 also fixed a
+pre-existing GTK draw-callback SIGSEGV and put the Linux GTK app backend under
+byte-identity coverage for the first time. 532 **unblocked bug-534's `split`**.
 
 ## Tier 3 — MEDIUM, grouped so a single agent can take a cluster
 
-**Regex/strings semantic divergence** (one coherent agent task):
-529 (empty needle means four things) · 531 (absence: raise vs sentinel) ·
-533 (empty-pattern replace is opposite) · 534 (no split/count/AttributedString — `split` unblocked by 532) ·
-528 (`pad` counts scalars, `displayWidth` counts columns) ·
-530 (`utf8Encode` return overload invisible in signature)
+**Regex/strings semantic divergence**: 529, 531 and 533 are **landed**
+(`2860dd7e7`, `5e93d26a3`, `426660224`). Remaining: 534 (no split/count/
+AttributedString — `split` unblocked by 532) · 528 (`pad` counts scalars,
+`displayWidth` counts columns) · 530 (`utf8Encode` return overload invisible in
+its signature).
 
-**Resource / close contracts** (one agent):
-522 (stale transferable list) · 523 (RES type pages omit shapes) ·
-526 (`tls::poll` list overload renders without RES).
+Two things from that cluster worth carrying forward:
+
+- **531 and 533 are BREAKING**, both on the owner's own recorded decision
+  (`ded34df72`). `regex::find` now raises `ErrNotFound` instead of returning `-1`,
+  and the return type did NOT move — so an unmigrated caller still compiles and
+  fails at run time. Product code had zero call sites; both migrations are on the
+  member's page.
+- **533 turned a doc-shaped change into a MISCOMPILE**, and it is the second
+  instance of a known trap. `strings::replace` and `collections::replace`
+  dequalify to one bare native target `replace`, which sat on
+  `inline_builtin_is_infallible`'s NAME-keyed list. Once the `String` overload
+  could fail, an inline `TRAP` on it compiled with
+  `TYPE_INLINE_TRAP_DEAD_HANDLER` and the live handler was ELIDED — the program
+  aborted instead of recovering, and a function-level `TRAP` test cannot see it.
+  Reproduced independently while reviewing: reverting the fix aborts the fixture
+  with `7-705-0002`. `toString` was the first instance (bug-486). **Before making
+  any overload of a shared bare native target fallible, check that list.**
+
+**Resource / close contracts** (one agent): the cluster is **complete** — 524,
+525, 526, 522 and 523 are all landed.
+**522 is landed (`09453380a`)** — the `transfer` page's list was stale since
+bug-464; `transfer`, `accept` and the intro now agree with the registry and all
+three name the five resources that may not cross. A pin asserts every `sendable`
+bit against an explicit table.
+**523 is landed (`593d68965`)** — each `types` page states the record-field and
+collection-element shapes once and derives transferability from the `sendable`
+bit (a new `unsendable_reason` carries the per-resource reason); `mfb man
+variable` gained a runnable example of each shape. It also corrected two FALSE
+statements — `process`'s package description and `mfb spec stdlib transports`
+both said a handle may not be a record field, which §15.4 and
+`record-res-field-export-rt` refute.
+
+Follow-ups these left behind, both already-filed bugs rather than new ones:
+`scripts/man-run-examples.sh` reaches package pages only, so `mfb man variable`'s
+new examples were verified by hand (**bug-472**); and `audio::close`'s new
+raise-on-double-close has no runtime proof on any host for want of a device.
 **524 is landed (`be88539c8`)** — `process::close` is now `process::closeInput`;
 the behaviour did not move and zero `.run` goldens changed. It also leaves 523 a
 concrete correction: `process`'s package description claims a handle "cannot be a
@@ -85,6 +129,10 @@ non-conforming side and `src/docs/spec/stdlib/17_transports.md` was the stdlib s
 contradicting the language spec. Proven before/after on all three TLS backends
 (macOS Network.framework, box 2228 OpenSSL, box 2230 Schannel); `audio` has no
 runtime proof anywhere (no device) and rides a lowering pin.
+**526 is landed (`521b731e0`)** — `mfb man tls poll` printed a signature that did
+not compile. A registry-wide renderer pin now fails any rendered signature whose
+collection element is an unmarked resource; it found exactly one violation, so
+the sibling census is complete.
 
 **App backends** (one agent): 540 (Win app term reduced) ·
 541 (backends do not enforce the inactive-term gate)
@@ -101,29 +149,56 @@ three landed siblings). 518, 519 and 521 are landed.
 491 (`pkg install` not bound to the lock)
 
 **Older carryover**: 453 (riscv64 jal range) · 454 (win64 `os::resourcePath`) ·
-479 (inline TRAP on thread start — **memory gate**) · 483 (tls write error code
+479 (inline TRAP on thread start — **memory gate**; **three of its four defects
+are landed** in `a4a9d59dc`, and it is now ONE decision: the `TRAP` error path
+has no safe default `Thread` value. A resource gets a CLOSED record so operations
+short-circuit; `simple_thread_handle_helper` `pthread_mutex_lock`s the queue
+pointer off the handle with no null guard, so a null handle AND a zeroed block
+both fault, and `THREAD_STATE_CLOSED` cannot help because the lock precedes the
+state read. Answering it means a runtime contract across every `thread` member
+with a user-visible error code — a product decision, not a codegen arm) · 483 (tls write error code
 per backend) · 484 (`picture::drawItem` never renders) · 487 (state-mutating
 operand UAF — **memory gate**) · 527 (range parameter naming, large)
 
 **Resource bookkeeping holes found by bug-535's sweep** (both hidden by the same
 "any other call into the package" condition, both reproduce on `4d56f1a1a`):
-545 (alias rebind of a tcp/udp socket → missing `_mfb_str_error_resource_closed`
-data object) · 546 (`thread::accept` of a user-declared `THREAD_SENDABLE`
-resource → `native inlined field size not available`; shares a message with 479)
+545 and 546 are both landed. **546 (`6da957747`) is worth reading before any
+codegen work that classifies a type**, because its root cause generalizes: every
+`codegen::builtins::is_resource_type` / `is_thread_sendable_resource_type` call
+answers for the BUILT-IN registry only, and a user-declared `RESOURCE` fell
+through to a default of `true` for both flatness modes — "this handle is a flat
+copyable block that may be relocated into another thread's arena". Use the
+model-aware `is_resource_nominal` / `is_sendable_resource_nominal` instead. The
+same blind spot had a SECOND consumer (`defer_resource_flag`), which meant
+bug-425's guarantee never held for user resources; **479 is the remaining bug
+that shares 546's error message**, so read them together. The invariant is
+recorded in `.ai/resources-packages.md`.
 
 ## Tier 4 — test-infrastructure flakes (cheap, and they are costing us now)
 
 | Bug | Sev | Effort | Title |
 |---|---|---|---|
-| 537 | LOW | small | `rt_macos_tls_write_capacity` fixed port + sleep readiness |
 | 488 | LOW | small | `rt_tls_connect_allow_self_signed` port gate is per-process |
-| 470 | MED | small | artifact-gate and test-accept do not lock against each other |
 | 456 | LOW | small | `mfb opt` sweep level-variant ncode goldens |
 | 472 | MED | small | man examples are never compiled |
 
-**These are worth doing early despite being LOW.** 488 and 537 produced false
-reds on four separate suite runs during the audit-3 fix pass, every time two
-`cargo test` runs shared the machine — which is exactly the agent-plus-lead
-setup this backlog prescribes. 470 is the same class (two harnesses that do not
-lock against each other). Each is <1h and each removes a recurring
-misdiagnosis risk from every later bug.
+537 is landed. **The rest are worth doing early despite being LOW.** 488 and 537
+produced false reds on four separate suite runs during the audit-3 fix pass,
+every time two `cargo test` runs shared the machine — which is exactly the
+agent-plus-lead setup this backlog prescribes.
+
+**470 is landed (`fea98e3cb`)** — and it turned out to be three fixes, not one.
+The prior branch's per-tree `mkdir` lock was the right mechanism; what was
+missing was everything around it. Both halves of the defect were REPRODUCED
+(the doc had said "inferred, not reproduced"): pre-fix, an `artifact-gate` ran
+to completion in the same tree as a live `test-accept`, and a `test-accept` in
+one worktree refused one in another. The fix itself leaked the lock on
+`test-accept.sh`'s SUCCESS path (`trap` replaces, it does not chain — only
+INT/TERM survived, so a killed run released correctly and only success leaked).
+And the lock covered 3 of the **11** scripts that rewrite fixture dumps in-tree;
+regenerate-then-gate is a normal workflow, so the `regen-*` scripts mattered.
+The transferable lesson is in `tests/gate_lock_covers_every_writer.rs`: a
+recogniser for "which scripts contend" was written three times and
+under-reported every time, so it is now an exhaustive classification with a
+blindness guard. 488, 456 and 472 remain; each is <1h and each removes a
+recurring misdiagnosis risk from every later bug.

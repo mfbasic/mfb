@@ -11,26 +11,28 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Count the non-overlapping occurrences of a substring."#;
 
-const DESC: &str = r#"`strings::count` returns the number of non-overlapping occurrences of `needle`
-within `value`. The scan starts at the first byte of `value` and compares the
-bytes of `needle` at the current offset. On a match the count is incremented and
-the cursor advances past the whole matched needle; on a mismatch the cursor
-advances by a single byte. The scan ends once fewer than `byteLen(needle)` bytes
-remain.
+const DESC: &str = r#"`strings::count` returns how many times `needle` occurs in `value`, counting
+leftmost-first and never counting two occurrences that overlap.
 
-The non-overlapping rule matters for self-similar needles. Counting `"aa"` in
-`"aaa"` yields `1`, not `2`, because after the match at offset `0` the cursor
-jumps to offset `2`. Counting `"a"` in `"aaa"` yields `3`.
+The non-overlapping rule is what decides a self-similar needle. Counting `"aa"`
+in `"aaa"` yields `1`, not `2`: the leftmost occurrence uses the first two
+scalars, and the only remaining `"a"` cannot start another. Counting `"a"` in
+`"aaa"` yields `3`. `strings::replace` rewrites exactly the occurrences `count`
+reports, so `count` predicts how many substitutions a `replace` with the same
+`value` and `needle` will make.
 
-Matching is an exact byte comparison with no normalization and no case folding.
-Because both operands are well-formed UTF-8 and UTF-8 is self-synchronizing, a
-multi-byte needle is only ever reported where its complete byte sequence appears,
-so a match can never land mid-scalar.
+Matching is an exact comparison of the UTF-8 encodings, with no normalization and
+no case folding: `"é"` written as one scalar does not match `"é"` written as `e`
+plus a combining accent. A reported occurrence always begins and ends on a scalar
+boundary, so a count can never be inflated by a match landing inside a multi-byte
+scalar.
 
-A `needle` longer than `value` yields `0`, as does an empty `value`. The empty
-`needle` has no well-defined occurrence count and is rejected with
-`ErrInvalidArgument` — note that this differs from `strings::contains` and
-`strings::find`, which both accept an empty needle. Neither operand is modified.
+A `needle` longer than `value` yields `0`, as does an empty `value`. An empty
+`needle` is refused with `ErrInvalidArgument`: it occurs at every position, which
+is not a count worth reporting. `strings::split` refuses an empty delimiter for
+the same reason, while `strings::contains` and `strings::find` answer for an empty
+needle, because reporting an occurrence is harmless where counting them is not —
+see `mfb man strings` for the rule. Neither operand is modified.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and

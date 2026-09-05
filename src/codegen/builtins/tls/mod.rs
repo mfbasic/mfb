@@ -224,6 +224,7 @@ pub(crate) fn register(r: &mut Registry) {
             // socket. Only ever declare a slot the resource's OWN constructors
             // write.
         ],
+        unsendable_reason: None,
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
@@ -274,6 +275,7 @@ pub(crate) fn register(r: &mut Registry) {
                 what: "bound-host C string for tls::localAddress -- an ARENA string",
             },
         ],
+        unsendable_reason: None,
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

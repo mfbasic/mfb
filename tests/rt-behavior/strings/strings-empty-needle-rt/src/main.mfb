@@ -1,0 +1,219 @@
+' bug-529 -- the `strings` empty-needle rule, pinned family-wide.
+'
+' The rule (stated once in the `strings` package description):
+'
+'   An empty needle is PRESENT at every position, beginning at 0.
+'     * a member that ANSWERS A QUESTION about an occurrence reports it;
+'     * a member that acts at a SINGLE NAMED POSITION acts on the zero-length
+'       match there, which changes nothing;
+'     * a member that COUNTS or REWRITES every occurrence refuses it with
+'       ErrInvalidArgument, because "every position" has no useful count and
+'       rewriting at every position destroys the input -- `count`, `split` and,
+'       since bug-533, `replace`.
+'
+' Every assertion below is labelled by MEMBER NAME rather than by position, so a
+' member added or removed from the family cannot silently shift another one's
+' verdict.
+'
+' The needle is always a RUNTIME-derived empty string, never the `""` literal:
+' the hazard this rule exists for is a needle that arrives empty from a config
+' value, a form field or a CLI flag, and a literal would let a constant fold
+' answer instead of the lowering under test.
+'
+' Positive pins: every member is also called with an ordinary NON-EMPTY needle
+' on the same line, so a guard that rejects valid input fails here too.
+
+IMPORT io
+IMPORT strings
+IMPORT astrings
+
+FUNC sContains(h AS String, n AS String) AS String
+  RETURN toString(strings::contains(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sStartsWith(h AS String, n AS String) AS String
+  RETURN toString(strings::startsWith(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sEndsWith(h AS String, n AS String) AS String
+  RETURN toString(strings::endsWith(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sStartsWithAny(h AS String, n AS List OF String) AS String
+  RETURN toString(strings::startsWithAny(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sEndsWithAny(h AS String, n AS List OF String) AS String
+  RETURN toString(strings::endsWithAny(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sFind(h AS String, n AS String) AS String
+  RETURN toString(strings::find(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sStripPrefix(h AS String, n AS String) AS String
+  RETURN "\"" & strings::stripPrefix(h, n) & "\""
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sStripSuffix(h AS String, n AS String) AS String
+  RETURN "\"" & strings::stripSuffix(h, n) & "\""
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sCount(h AS String, n AS String) AS String
+  RETURN toString(strings::count(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sSplit(h AS String, n AS String) AS String
+  LET parts AS List OF String = strings::split(h, n)
+  RETURN "n=" & toString(len(parts))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sReplace(h AS String, n AS String, r AS String) AS String
+  RETURN "\"" & strings::replace(h, n, r) & "\""
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC sTrimChars(h AS String, n AS String) AS String
+  RETURN "\"" & strings::trimChars(h, n) & "\""
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+' ---- the same members through the AttributedString overload ---------------
+
+FUNC aContains(h AS AttributedString, n AS String) AS String
+  RETURN toString(strings::contains(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC aFind(h AS AttributedString, n AS String) AS String
+  RETURN toString(strings::find(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC aStartsWith(h AS AttributedString, n AS String) AS String
+  RETURN toString(strings::startsWith(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC aCount(h AS AttributedString, n AS String) AS String
+  RETURN toString(strings::count(h, n))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC aSplit(h AS AttributedString, n AS String) AS String
+  LET parts AS List OF String = strings::split(h, n)
+  RETURN "n=" & toString(len(parts))
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC aReplace(h AS AttributedString, n AS String, r AS String) AS String
+  LET out AS AttributedString = strings::replace(h, n, r)
+  RETURN "\"" & toString(out) & "\""
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' A runtime-derived empty needle, and a runtime-derived non-empty one.
+  LET e AS String = strings::mid("x", 0, 0)
+  LET b AS String = strings::mid("xbx", 1, 1)
+  LET pfx AS String = strings::mid("abc", 0, 1)
+  LET sfx AS String = strings::mid("abc", 2, 1)
+  LET emptyList AS List OF String = []
+  LET listWithEmpty AS List OF String = [e]
+  LET listWithPfx AS List OF String = [pfx]
+  LET listWithSfx AS List OF String = [sfx]
+  LET a AS AttributedString = astrings::fromString("abc")
+
+  io::print("-- queries: the empty needle is PRESENT at position 0 --")
+  io::print("contains        empty=" & sContains("abc", e) & " nonEmpty=" & sContains("abc", b))
+  io::print("startsWith      empty=" & sStartsWith("abc", e) & " nonEmpty=" & sStartsWith("abc", pfx))
+  io::print("endsWith        empty=" & sEndsWith("abc", e) & " nonEmpty=" & sEndsWith("abc", sfx))
+  io::print("startsWithAny   empty=" & sStartsWithAny("abc", listWithEmpty) & " nonEmpty=" & sStartsWithAny("abc", listWithPfx))
+  io::print("endsWithAny     empty=" & sEndsWithAny("abc", listWithEmpty) & " nonEmpty=" & sEndsWithAny("abc", listWithSfx))
+  io::print("find            empty=" & sFind("abc", e) & " nonEmpty=" & sFind("abc", b))
+  io::print("")
+
+  io::print("-- the empty candidate LIST is a different question: no candidate matches --")
+  io::print("startsWithAny   emptyList=" & sStartsWithAny("abc", emptyList) & " listWithEmpty=" & sStartsWithAny("abc", listWithEmpty))
+  io::print("endsWithAny     emptyList=" & sEndsWithAny("abc", emptyList) & " listWithEmpty=" & sEndsWithAny("abc", listWithEmpty))
+  io::print("")
+
+  io::print("-- single named position: the zero-length match changes nothing --")
+  io::print("stripPrefix     empty=" & sStripPrefix("abc", e) & " nonEmpty=" & sStripPrefix("abc", pfx))
+  io::print("stripSuffix     empty=" & sStripSuffix("abc", e) & " nonEmpty=" & sStripSuffix("abc", sfx))
+  io::print("")
+
+  io::print("-- counting and rewriting members REFUSE (77050002) --")
+  io::print("count           empty=" & sCount("abc", e) & " nonEmpty=" & sCount("abcabc", b))
+  io::print("split           empty=" & sSplit("abc", e) & " nonEmpty=" & sSplit("abcabc", b))
+  ' bug-533 brought `replace` into line: it answered with a silent no-op, and now
+  ' refuses like `count` and `split`. This line is the golden that recorded the
+  ' change -- `empty=` moved from `"abc"` to `RAISED 77050002`.
+  io::print("replace         empty=" & sReplace("abc", e, "-") & " nonEmpty=" & sReplace("abcabc", b, "-"))
+  io::print("")
+
+  io::print("-- trimChars takes a SET of scalars, not a needle: the empty set holds nothing --")
+  io::print("trimChars       empty=" & sTrimChars("aba", e) & " nonEmpty=" & sTrimChars("aba", pfx))
+  io::print("")
+
+  io::print("-- the AttributedString overloads give the same answers --")
+  io::print("contains        empty=" & aContains(a, e) & " nonEmpty=" & aContains(a, b))
+  io::print("find            empty=" & aFind(a, e) & " nonEmpty=" & aFind(a, b))
+  io::print("startsWith      empty=" & aStartsWith(a, e) & " nonEmpty=" & aStartsWith(a, pfx))
+  io::print("count           empty=" & aCount(a, e) & " nonEmpty=" & aCount(a, b))
+  io::print("split           empty=" & aSplit(a, e) & " nonEmpty=" & aSplit(a, b))
+  io::print("replace         empty=" & aReplace(a, e, "-") & " nonEmpty=" & aReplace(a, b, "-"))
+  io::print("")
+
+  io::print("-- the two edges of the rule: an empty value too --")
+  io::print("contains(\"\",\"\")   = " & sContains(e, e))
+  io::print("find(\"\",\"\")       = " & sFind(e, e))
+  io::print("count(\"\",\"\")      = " & sCount(e, e))
+  RETURN 0
+END FUNC

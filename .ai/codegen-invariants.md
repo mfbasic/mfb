@@ -133,6 +133,57 @@ Load-bearing gotchas:
 - The elision is INVISIBLE to `.ir`/`.ast` (a codegen-only decision) but churns `.ncode` for every fixture containing a passthrough function; a fresh-returning function (`RETURN append(xs,…)`, a `Call` not a bare param) is correctly NOT marked.
 - Measured: the benchmark `list (Dynamic) copy` pattern (`len(copyStrs(base))` over a 1000-element String list) went from a full-list deep-copy per call to a pointer return — a ~2900x drop on the isolated micro-bench. Related: collection memory management and the read-only element-borrow twin (get-borrow pending-temp + MATCH-desugar).
 
+## Bare `String` temps: fail-closed freshness provenance, not a call-target allowlist
+
+plan-25's `register_pending_temp` exempted **every** `String` result from the
+statement-scope free, because a String produced by a call may be a shared rodata
+constant, an alias of an argument, or a view into a container. So an *unbound*
+String — `acc = acc + len(toString(i))`, `out & fromCodepoint(cp)`, a comparison
+operand, a `MATCH` scrutinee — had no owner at all and leaked for the life of the
+process (bug-536 shape B, 64 B per evaluation).
+
+The fix is a **freshness mark on the builder**, not a flag on `ValueResult` and
+not a list of blessed call targets:
+
+- A producer that has just `_mfb_arena_alloc`ed the block it is about to return
+  calls `mark_fresh_string(<that operand>)`.
+- `lower_value` clears the mark before lowering a node and `take()`s it after, and
+  honours it only when it names **that node's own result operand**. An operand's
+  own `lower_value` frame already consumed its mark, so what survives was set by
+  this node's emitter, and the identity test rejects an *interior* block the
+  lowering allocated but did not return.
+- `register_pending_temp` frees a bare `String` only with that mark.
+
+Why the builder and not `ValueResult`: the producers return a bare
+`VirtualRegister`, and there are 333 `ValueResult` literals in the tree
+(`rg -c 'ValueResult\s*\{'`). A struct field would be dropped by almost every
+intermediate rebuild between the emitter and `lower_value`, so it would be
+fail-closed **and inert**. The mark survives those rebuilds because it never
+travels in the value.
+
+The asymmetry is the entire safety argument, so keep it: **an unmarked producer
+keeps leaking; nothing unmarked can ever be freed.** Freeing a rodata String is
+SIGBUS (the free list is written into read-only memory) and freeing a view into
+an argument or a container corrupts the free list, surfacing much later as
+"Allocation failed". Traps found while opting producers in:
+
+- `toString(String)` is the IDENTITY arm — it hands back its own argument. Not fresh.
+- `toString(Boolean)`, `typeName`, every constant fold, and `strings::upper/lower/caseFold/normalizeNfc`'s
+  constant-fold early return load a rodata pointer. Not fresh.
+- `fs::pathDirName` has one arm that yields a rodata constant and one that
+  materializes. Not fresh (its siblings `pathBaseName`/`pathExtension` materialize
+  on every path and are).
+- `strings::padLeft/padRight` with the default padChar allocate an INTERIOR
+  one-byte pad String that is copied into the result and never returned. No
+  result-shaped rule can reach it — that one is handed to the statement free
+  explicitly with `register_fresh_string_temp`.
+- A **user/`.mfb`-bodied** function returning `String` is NOT covered: `RETURN
+  "literal"` yields rodata and `RETURN toString(s)` yields the argument, so
+  freeing a user call result needs a callee-side NIR predicate (the shape of
+  `function_returns_param_borrow`) that does not exist yet. This is what still
+  makes `csv::parse` / `json::parse` / `regex::findAll` leak per field — see
+  bug-536.
+
 ## Producer-side `Operand::imm` is an allocation trap
 
 Replacing `.field("imm"/"offset", &n.to_string())` (builds `Operand::Raw`) with a typed `Operand::imm(n)` at the PRODUCER is not automatically an allocation win, and is often a net LOSS. The trap: `Operand::rendered()` (operand.rs) returns `Cow::Borrowed` for `Raw`/`Phys` (0 alloc) but `Cow::Owned(render())` for `Imm`/`VReg` — so `Imm::rendered()` allocates a fresh `String` every call.
@@ -423,3 +474,62 @@ is memcpy-copyable and not arena-transferable.
 `copy_value_to_current_arena` takes the *memcpy* predicate — most of its callers
 are in-arena (the `Result` wrap is reached by any `TRAP`), and asking the arena
 question there changed codegen for a fixture containing no threads at all.
+
+## A classifier's fall-through default is a decision nobody made (bug-546, bug-479)
+
+`ParameterType` has 24 variants. A classifier written as an `if`/`else if` chain
+ending in a default answers for all 24 whether or not its author thought about
+them — and in `codegen::collection::layout` that default was **"flat"**, i.e.
+"this value is a copyable block that may be relocated into another thread's
+arena". Four live instances, plus two the tree already recorded:
+
+| Type | Default it inherited | Cost |
+| --- | --- | --- |
+| `Stateful` | `Named(_)` guards changed answer | "cost a real bug" (`src/types.rs`) |
+| `C(CAbiType)` | same | audited in plan-113 §Corrections |
+| user `RESOURCE Db` | memcpy-copyable AND arena-transferable | bug-546 |
+| `ThreadHandle` | same | bug-479 |
+| user resource as a collection payload | not a pointer payload | build error, fixed with bug-479's sweep |
+| `MapEntryOf` | flat | **still inherited — nobody has decided it** |
+
+**So the variant dispatch in these classifiers is a `match` with no `_` arm.**
+`cargo build` is the enforcement, not review: adding a 25th variant fails to
+compile until someone decides what it is. Measured — a probe variant breaks
+**four** sites now (`flatness_walk`, `default_payload_alignment`,
+`record_field_is_pointer`, and `types.rs`'s renderer); before the change it broke
+only the renderer.
+
+Three things to know before extending this:
+
+* **A guarded arm does not count toward exhaustiveness.** Rust cannot prove
+  `other if self.is_pointer_collection_payload_type(other) => …` ever fires, so it
+  still demands a pattern for every variant. On a guard-heavy dispatch, delegate
+  the final `other =>` to a small helper whose own match is unguarded and
+  wildcard-free — that is what `default_payload_alignment` does, and why several
+  of its arms are unreachable in practice yet still listed.
+* **Exhaustiveness cannot reach the bug-546 class.** `Db` is a `Named(Symbol)` —
+  an open namespace — so the variant arm exists and is correct while the answer
+  still comes from a `TypeModel` lookup. Those lookups are quarantined in
+  `flatness_of_model_type` so the residual default has one home with a name.
+  Making it total needs a closed `TypeModel::classify` enum; not done.
+* **Fail-closed changes the severity, not the presence, of the bug.** The packed
+  payload dispatch has the same builtin-only blind spot as the flatness walk, but
+  its last arm returns an `Err` — so it produced a build error
+  (`native collection packed payload does not support type 'Db'`) instead of a
+  mis-strided collection. Same missing information, two very different outcomes.
+
+**Two ways to convert, and they are not equally safe.** `flatness_walk` and
+`collection_payload_alignment` delegate their whole tail to a helper verbatim, so
+they are behavior-identical *by construction* and the gate merely confirms it.
+`record_field_is_pointer` instead asserts answers in its structural arms
+(`Res(_)`/`ThreadHandle` are plain 8-byte slots; scalars occupy their slot by
+value; collections and `ResultOf` are pointers). Those are claims, so the gate is
+doing real work there — it came back 1918 golden(s) / 0 diff(s), which is what
+makes them safe to keep. Prefer the delegate form unless the structural answer is
+worth stating; if you assert, gate it.
+
+`#[deny(clippy::wildcard_enum_match_arm)]` is on each converted classifier as a
+secondary guard against a `_` coming back. **Note it is local-only: clippy is not
+run in CI** (`.github/workflows/` has `coverage.yml` and nothing else), which is
+also true of the existing `[lints.clippy] items_after_test_module = "deny"`. The
+exhaustive `match` is the mechanism that actually holds the line.

@@ -1,0 +1,81 @@
+' Runtime test for bug-546's second defect: a FAILED `thread::transfer` of a
+' user-declared `RESOURCE … THREAD_SENDABLE` must leave the sender's handle open
+' and usable. This is the user-resource twin of
+' `tests/rt-behavior/threads/thread-resource-transfer-fail-leak`, which pins the
+' same contract for the built-in `fs::File`.
+'
+' `mfb man thread transfer` states the guarantee:
+'
+'   If the transfer fails, the sending binding is still open, so a `TRAP` handler
+'   can close it or try again.
+'
+' bug-425 implemented it by DEFERRING the `moved|closed` store on the sender's
+' record from copy time to the enqueue-success branch. Its gate asked
+' `builtins::is_thread_sendable_resource_type` — the built-in registry — so the
+' deferral never applied to a resource the program declares. The flag was stored
+' at copy time regardless of the outcome, and the first use in the TRAP handler
+' died with `7-703-0009 ErrResourceMoved`, exit 255. That is the same builtin-only
+' blind spot as bug-546's headline failure, one predicate over.
+'
+' The handler READS the handle before closing it — an `INSERT` into the table this
+' iteration created — so a tombstoned record cannot pass: `sqlite3_exec` on a
+' closed/moved binding is refused before it reaches sqlite. That also defeats a
+' "make close a no-op" wrong fix, which would leave the read failing.
+'
+' The worker blocks on the message channel and never accepts, so the parent's
+' cap-1 outbound resource queue stays full after the one fill transfer. Every
+' later `transfer(t, f, 0)` then fails immediately with ErrTimeout, which is what
+' makes all 50 iterations take the failure path.
+IMPORT io
+IMPORT thread
+
+RESOURCE Db CLOSE BY sql::close THREAD_SENDABLE
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC exec(RES db AS Db, statement AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING
+    CONST arg = NOTHING
+    CONST errmsg = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+ISOLATED FUNC blockNeverAccept(t AS ThreadWorker OF String RES Db TO Integer, seed AS String) AS Integer
+  LET s AS String = thread::receive(t, 60000)
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET t AS Thread OF String RES Db TO Integer = thread::start(blockNeverAccept, "seed", 1, 1)
+  RES fill AS Db = sql::open(":memory:")
+  thread::transfer(t, fill, 1000)
+
+  MUT closed AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 50
+    RES f AS Db = sql::open(":memory:")
+    sql::exec(f, "CREATE TABLE seeded(a INTEGER);")
+    thread::transfer(t, f, 0) TRAP(err)
+      sql::exec(f, "INSERT INTO seeded VALUES (1);")
+      sql::close(f)
+      closed = closed + 1
+      RECOVER
+    END TRAP
+    i = i + 1
+  END WHILE
+  io::print("closed=" & toString(closed))
+  RETURN 0
+END FUNC

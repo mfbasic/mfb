@@ -1,0 +1,141 @@
+' bug-533 -- `strings::replace` and `regex::replace` did exactly opposite things
+' with an empty needle/pattern:
+'
+'   strings::replace("abc", "", "-")  ->  "abc"       ' a silent no-op
+'   regex::replace("abc", "", "-")    ->  "-a-b-c-"   ' the whole string rewritten
+'
+' Same call shape, same empty input, opposite blast radius. An empty needle
+' usually arrives at run time from a config value, a form field or a `--replace`
+' flag, so it is a normal accident -- and for that caller every VALUED answer is
+' wrong in a different way: a no-op hides the misconfiguration, interleaving
+' destroys the text. Both members now refuse it with ErrInvalidArgument
+' (77050002), the code `strings::count` and `strings::split` already use for the
+' same input.
+'
+' THE SINGLE MOST IMPORTANT THING THIS FIXTURE PINS is the second half: the
+' guard is on the empty pattern STRING, not on zero-width matching. `"a*"`,
+' `"x?"` and `"(?:)"` are patterns that match at every position, and they must
+' still interleave exactly as before. Without those assertions the fix looks like
+' it tamed zero-width matching, and the first optional quantifier a reader writes
+' would surprise them.
+
+IMPORT io
+IMPORT strings
+IMPORT regex
+IMPORT astrings
+IMPORT collections
+
+FUNC sReplace(v AS String, old AS String, new AS String) AS String
+  RETURN "\"" & strings::replace(v, old, new) & "\""
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC rReplace(v AS String, pat AS String, new AS String) AS String
+  RETURN "\"" & regex::replace(v, pat, new) & "\""
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC aReplace(a AS AttributedString, old AS String, new AS String) AS String
+  LET out AS AttributedString = strings::replace(a, old, new)
+  RETURN "\"" & toString(out) & "\""
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC lReplace(l AS List OF String, old AS String, new AS String) AS String
+  LET out AS List OF String = collections::replace(l, old, new)
+  MUT s AS String = ""
+  FOR EACH e IN out
+    s = s & "[" & e & "]"
+  NEXT
+  RETURN s
+TRAP(err)
+  RETURN "RAISED " & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' Runtime-derived, never the `""` literal: the hazard is a needle that ARRIVES
+  ' empty, and a literal would let a constant fold answer instead of the call.
+  LET e AS String = strings::mid("x", 0, 0)
+  LET b AS String = strings::mid("xbx", 1, 1)
+  LET a AS AttributedString = astrings::fromString("abc")
+  LET l AS List OF String = ["a", "", "c"]
+
+  io::print("-- both members refuse the empty needle/pattern, with one code --")
+  io::print("strings::replace  empty=" & sReplace("abc", e, "-"))
+  io::print("regex::replace    empty=" & rReplace("abc", e, "-"))
+  io::print("astrings overload empty=" & aReplace(a, e, "-"))
+  io::print("")
+
+  io::print("-- the positive half: an ordinary needle is untouched --")
+  io::print("strings::replace  nonEmpty=" & sReplace("abcabc", b, "-"))
+  io::print("regex::replace    nonEmpty=" & rReplace("abcabc", b, "-"))
+  io::print("astrings overload nonEmpty=" & aReplace(a, b, "-"))
+  io::print("strings::replace  noMatch=" & sReplace("abc", strings::mid("xzx", 1, 1), "-"))
+  io::print("regex::replace    noMatch=" & rReplace("abc", strings::mid("xzx", 1, 1), "-"))
+  io::print("strings::replace  emptyNew=" & sReplace("abcabc", b, e))
+  io::print("regex::replace    emptyNew=" & rReplace("abcabc", b, e))
+  io::print("")
+
+  io::print("-- THE GUARD IS ON THE SPELLING, NOT ON ZERO-WIDTH MATCHING --")
+  io::print("regex::replace \"a*\"   =" & rReplace("abc", "a*", "-"))
+  io::print("regex::replace \"(?:)\" =" & rReplace("abc", "(?:)", "-"))
+  io::print("regex::replace \"x?\"   =" & rReplace("abc", "x?", "-"))
+  io::print("regex::replace \"\\\\b\"   =" & rReplace("abc", "\\b", "-"))
+  io::print("")
+
+  io::print("-- regex QUERY members keep their zero-width answers for \"\" --")
+  io::print("regex::match(\"abc\",\"\")    = " & toString(regex::match("abc", e)))
+  io::print("regex::find(\"abc\",\"\")     = " & toString(regex::find("abc", e)))
+  io::print("regex::findAll(\"abc\",\"\")  = n" & toString(len(regex::findAll("abc", e))))
+  io::print("regex::findMatch(\"abc\",\"\").start = " & toString(regex::findMatch("abc", e).start))
+  io::print("")
+
+  io::print("-- the `strings` empty-needle rule, unchanged on the query side --")
+  io::print("strings::contains(\"abc\",\"\") = " & toString(strings::contains("abc", e)))
+  io::print("strings::find(\"abc\",\"\")     = " & toString(strings::find("abc", e)))
+  io::print("")
+
+  io::print("-- collections::replace shares the lowering; an empty ELEMENT is a")
+  io::print("   value, not a degenerate needle, so it is untouched --")
+  io::print("collections::replace  empty=" & lReplace(l, e, "Z"))
+  io::print("collections::replace  nonEmpty=" & lReplace(l, strings::mid("xax", 1, 1), "Z"))
+  io::print("")
+
+  ' `strings::replace` and `collections::replace` dequalify to ONE bare native
+  ' target, and that target was on the name-keyed infallible census. Before this
+  ' was fixed the compiler warned TYPE_INLINE_TRAP_DEAD_HANDLER on the live
+  ' handler below, elided it, and the program aborted instead of recovering.
+  ' Three assertions, because the verdict is now argument-typed:
+  io::print("-- the inline TRAP form, which is where a name-keyed verdict bites --")
+
+  LET recovered AS String = strings::replace("abc", e, "-") TRAP(err)
+    io::print("inline TRAP handler RAN, code=" & toString(err.code))
+    RECOVER "recovered"
+  END TRAP
+  io::print("strings::replace  empty       -> \"" & recovered & "\"")
+
+  ' The success path through the same raw capture: it must produce the real
+  ' result, not fall into the error label.
+  LET produced AS String = strings::replace("abcabc", b, "-") TRAP(err)
+    io::print("DEAD: the success path reached the handler, code=" & toString(err.code))
+    RECOVER "?"
+  END TRAP
+  io::print("strings::replace  nonEmpty    -> \"" & produced & "\"")
+
+  ' And the List overload is still INFALLIBLE, so this handler is dead code and
+  ' the build log carries its TYPE_INLINE_TRAP_DEAD_HANDLER advisory. If that
+  ' warning ever disappears, the fail-closed rule has widened too far.
+  LET kept AS List OF String = collections::replace(l, e, "Z") TRAP(err)
+    io::print("DEAD: collections::replace is infallible, code=" & toString(err.code))
+    RECOVER []
+  END TRAP
+  io::print("collections::replace inline   -> n=" & toString(len(kept)))
+  RETURN 0
+END FUNC

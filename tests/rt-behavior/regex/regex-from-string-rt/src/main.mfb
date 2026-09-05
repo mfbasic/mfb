@@ -24,11 +24,25 @@ END FUNC
 ' bug-339 C3: exercises the zero-width-match rule shared by findAll and replace
 ' after it was extracted into __regex_matchResults. An empty pattern and X* both
 ' produce empty matches; the rule records one match per position without looping.
+'
+' bug-533: `regex::replace` refuses an EMPTY pattern, so `zw_rp_empty` reports
+' the raise. `zw_fa_empty` is unchanged and is the point: the shared
+' __regex_matchResults rule still produces one match per position for the empty
+' pattern -- the refusal is a guard on `replace`'s argument, not a change to the
+' matcher. `zw_rp_astar` is the same rule reaching `replace` through a pattern
+' that is zero-width without being empty, and it is unchanged too.
+FUNC replaceOrCode(v AS String, pat AS String, repl AS String) AS String
+  RETURN regex::replace(v, pat, repl)
+TRAP(err)
+  RETURN "<raised " & toString(err.code) & ">"
+END TRAP
+END FUNC
+
 FUNC zerowidth_run AS Integer
   io::print("zw_fa_empty=" & render(regex::findAll("abc", "")))
   io::print("zw_fa_astar=" & render(regex::findAll("aXbXc", "X*")))
-  io::print("zw_rp_empty=" & regex::replace("abc", "", "-"))
-  io::print("zw_rp_astar=" & regex::replace("aXbXc", "X*", "-"))
+  io::print("zw_rp_empty=" & replaceOrCode("abc", "", "-"))
+  io::print("zw_rp_astar=" & replaceOrCode("aXbXc", "X*", "-"))
   RETURN 0
 END FUNC
 

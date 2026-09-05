@@ -406,9 +406,10 @@ fn macos_canvas_readbyte_returns_bytes_in_order_then_eof() {
 #[cfg(target_os = "macos")]
 const GROUPS_TRAP_OUTSIDE_CANVAS_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
+     IMPORT color\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
-    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
     \x20 LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(c)]\n\
     \x20 canvas::setGroup(\"panel\", [a]) TRAP(err)\n\
     \x20   IF err.code <> errorCode::ErrWrongMode THEN\n\
@@ -470,10 +471,11 @@ fn macos_group_members_trap_wrong_mode_outside_canvas() {
 #[cfg(target_os = "macos")]
 const GROUP_LIMIT_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
+     IMPORT color\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
     \x20 app::setMode(app::Mode.Canvas)\n\
-    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
     \x20 LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(c)]\n\
     \x20 MUT i AS Integer = 0\n\
     \x20 WHILE i < 256\n\

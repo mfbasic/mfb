@@ -63,14 +63,14 @@ fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<S
 /// A program body, wrapped in the canvas-mode boilerplate.
 fn program(body: &str) -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT io\n\nSUB main()\n  \
+        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nSUB main()\n  \
          app::setMode(app::Mode.Canvas)\n{body}END SUB\n"
     )
 }
 
 const ONE_BOX: &str =
     "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, \
-                       h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n";
+                       h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n";
 
 /// A program that presents and returns immediately still gets its frame drawn.
 ///
@@ -180,10 +180,10 @@ fn sync_mode_gives_one_frame_per_changed_present() {
     let body = format!(
         "{ONE_BOX}  canvas::present([box])\n  \
          LET two AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
-         paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+         paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
          canvas::present([box, two])\n  \
          LET three AS canvas::DrawItem = canvas::Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
-         paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+         paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
          canvas::present([box, two, three])\n  io::print(\"done\")\n"
     );
     let (_, frames) = run("canvas_gfx_sync", &program(&body), true);
@@ -217,10 +217,10 @@ fn the_metal_path_gives_one_completed_frame_per_changed_present() {
     let body = format!(
         "{ONE_BOX}  canvas::present([box])\n  \
          LET two AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
-         paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+         paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
          canvas::present([box, two])\n  \
          LET three AS canvas::DrawItem = canvas::Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
-         paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+         paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
          canvas::present([box, two, three])\n  io::print(\"done\")\n"
     );
     let (out, frames) = run_with("canvas_gfx_sync_metal", &program(&body), true, true);
@@ -386,11 +386,11 @@ fn stat_field(line: &str, name: &str) -> String {
 #[test]
 #[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
 fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
-    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
          canvas::setGroup(\"panel\", [a])\n  \
          LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := \"panel\"]\n  \
          canvas::present([node])\n  \
-         LET b AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 500.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+         LET b AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 500.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
          canvas::setGroup(\"panel\", [b])\n  \
          canvas::present([node])\n  io::print(\"done\")\n";
     let (_, frames) = run("canvas_group_revision", &program(body), true);
@@ -428,7 +428,7 @@ fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
 #[test]
 #[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
 fn two_identical_presents_of_an_unchanged_group_draw_one_frame() {
-    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
          canvas::setGroup(\"panel\", [a])\n  \
          LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := \"panel\"]\n  \
          canvas::present([node])\n  \

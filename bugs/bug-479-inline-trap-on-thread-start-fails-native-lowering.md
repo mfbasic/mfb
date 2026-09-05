@@ -5,8 +5,15 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/rt-behavior/threads/thread-start-inline-trap-rt/` (new, Phase 1)
+Status: **OPEN — three of four defects fixed; the fourth is a product decision**
+(2026-09-05). The reported error is gone and the failure has moved forward twice
+to a genuinely different question: *what value does the `TRAP` error path bind
+for a `Thread`?* There is no safe answer today. See "Where this actually stands".
+Regression Test: `a_thread_handle_is_flat_in_neither_mode` and
+`a_result_wrapping_a_thread_handle_is_flat_in_neither_mode`
+(`src/codegen/collection/layout/builder_collection_layout.rs`,
+`res_field_record_layout_tests`). The `rt-behavior` fixture cannot be written
+until the fourth defect is decided — the idiom still does not compile.
 
 Attaching an inline `TRAP` to `thread::start` — the idiom `mfb man errors`
 teaches for handling one call's failure at the call site — fails the build:
@@ -30,6 +37,134 @@ documented failure of a documented call, and it does not compile.
 call — the success value binds to the `Thread` handle and the handler runs on
 failure — for every channel shape (`Thread OF Msg TO Out`,
 `Thread OF RES Res TO Out`, `Thread OF Msg RES Res TO Out`).
+
+## Where this actually stands (2026-09-05) — the bug is FOUR defects in a row
+
+Each one was hidden behind the previous, so the error message moved three times.
+The site was localized first by marking both candidate raise sites and rebuilding
+(it is `builder_collection_layout.rs`, **not** `memory/marshal/record.rs`), then
+by a backtrace: `lower_runtime_helper_call` → `materialize_current_result` →
+`emit_thread_copy_real` → **its first arm**, `type_is_memcpy_copyable` →
+`copy_flat_block`.
+
+### Defect A — FIXED. The success type was the `ThreadWorker`, not the `Thread`
+
+This document's Lead section was right to flag the two-type asymmetry, and right
+that adding a `ThreadWorker` size arm would have been a silent miscompile.
+Proven by probe:
+
+    PROBE materialize_current_result success_type=ThreadWorker OF String TO Integer
+                                     text=callResult thread.start
+
+`thread_runtime_return_type` (`builder_value_semantics.rs`) read
+`thread::start`'s runtime return type as **the worker entry's first parameter**,
+verbatim — a `ThreadWorker`. `thread::start` returns the PARENT handle; the
+descriptor says so (`th(false, …)`, `func_start.rs`) and `registry/mod.rs` states
+the two never interchange. The parameter is still where the channel slots come
+from, so the fix keeps the slots and corrects the kind.
+
+Why it hid: both spellings denote the same one-pointer handle, so a plain call
+never notices. Only a type-directed question exposes it — and an inline `TRAP`
+is the first thing to ask one.
+
+### Defect B — FIXED. `flatness_walk` had no `ThreadHandle` arm
+
+Exactly bug-546's shape, one nominal over. No arm matched a thread handle, and
+`record_field_is_pointer` in the `else` has none either, so the walk answered
+**`true` for both modes**. A 120-byte block holding pointers to four queues is
+not a copyable flat block; `type_is_arena_transferable` saying `true` is the
+silent half, since that predicate gates relocating a block into another thread's
+arena. `ir::verify`'s `is_copyable` has answered `ThreadHandle { .. } => false`
+all along — codegen simply never agreed with it.
+
+### Defect C — FIXED. No arm carried the handle
+
+With B fixed the value fell through to `native thread transfer cannot copy value
+of type 'Thread OF String TO Integer'`. A thread handle is now carried by
+POINTER, like the non-sendable resource arm beside it: a deep copy would
+duplicate the block while its queues stayed behind, so every send into the copy
+would be lost. Sound because the only materialization reaching this arm is
+same-arena — a thread handle can never cross a thread boundary.
+
+### Defect D — NOT FIXED, and it is a product decision
+
+The error is now:
+
+    error: native code cannot materialize default value for type
+           'Thread OF String TO Integer' while lowering bind $trap_val1 AS
+           Thread OF String TO Integer
+
+The `TRAP` error path has to bind *something*. For a resource, bug-372 answered
+this: a **CLOSED resource record**, so "every operation then short-circuits
+safely and no null handle is ever exposed to a program"
+(`builder_value_semantics.rs`). A thread has no equivalent, and it cannot be
+improvised:
+
+- **A null handle is not safe to use.** `simple_thread_handle_helper`
+  (`runtime_helpers_thread.rs`) begins every op by loading
+  `THREAD_OFFSET_OUTBOUND_QUEUE` off the handle and calling
+  `pthread_mutex_lock` on it. No null guard anywhere in the file.
+- **A zeroed 120-byte block is not safe either**, for the same reason: its queue
+  pointers are 0, so the very same `pthread_mutex_lock` faults.
+- **The pieces for an inert handle DO exist** — `THREAD_STATE_CLOSED = 2`
+  alongside `THREAD_STATE_RUNNING`/`COMPLETED` (`runtime_helpers.rs`). But the
+  ordering defeats it: `IsRunning` loads the queue and locks it BEFORE reading
+  `THREAD_OFFSET_STATE`. So an inert handle needs either real allocated-but-empty
+  queues, or the state check hoisted above the queue lock **in every thread op**.
+
+Null IS already safe on the **drop** path — bug-469 null-guarded all five
+`ActiveCleanup` kinds and zero-inits the `Thread` slot at bind and in the
+prologue. So the exposure is precisely: a handler that `RECOVER`s and then
+touches the binding.
+
+**The decision this needs, which is the user's and not a fix:** what does
+`thread::waitFor` / `isRunning` / `send` do on a handle whose `start` failed?
+The options are (1) an inert "closed thread" — allocate the queues, or hoist the
+state check above the queue lock in every op, and pick the error code each member
+raises; (2) raise at the bind instead, which contradicts this document's own
+non-goal that the idiom must work; (3) leave the binding unusable after
+`RECOVER`, which is what null gives and is a segfault rather than a diagnostic.
+
+Option (1) is a new runtime contract across every `thread` member with a
+user-visible error code, so it is not a codegen arm and should not be guessed.
+
+### The matrix after A/B/C — all three inline rows converge on ONE question
+
+Re-measured on this branch, macOS aarch64 release:
+
+| Channel shape | `TRAP` form | Before | After |
+| --- | --- | --- | --- |
+| `Thread OF String TO Integer` | inline | `inlined field size … 'ThreadWorker OF String TO Integer'` | `cannot materialize default value for 'Thread OF String TO Integer'` |
+| `Thread OF RES fs::File TO Integer` | inline | same, `ThreadWorker` spelling | `cannot materialize default value for 'Thread OF RES fs.File TO Integer'` |
+| `Thread OF RES tcp::Socket TO Integer` | inline | same, `ThreadWorker` spelling | (same shape as the row above) |
+| `Thread OF RES tcp::Socket TO Integer` | **function-level** | works ✓ | works ✓ |
+| `Thread OF String TO Integer` | none | works ✓ | works ✓ |
+
+Two things this establishes. Every inline row now fails at the **same** point, so
+defect D is one decision rather than a per-shape family. And the two rows this
+document's non-goals protect are verified unchanged — measured by running them,
+not just building: `plain=7` and `fnLevel=7`, exit 0.
+
+The artifact gate is **0 diffs over 1916 goldens** for A+B+C. That is not the
+usual "nothing covered changed" — it is a measured statement about coverage, and
+it is worth reading carefully:
+
+    $ grep -rln 'thread::start' tests/byte-identity/     # 2 fixtures
+    tests/byte-identity/resource-xfer-slots/src/main.mfb
+    tests/byte-identity/thread/src/main.mfb
+    $ grep -rn 'thread::start.*TRAP' tests/             # nothing, tree-wide
+
+So two byte-identity fixtures DO call `thread::start`, and defect A changed the
+static type of its result for both — with zero golden movement, which says
+nothing downstream of a *plain* `thread::start` branches on that type. But
+**nothing in the tree inline-`TRAP`s one**, which is why the defect survived: the
+gate cannot see the only shape that asks the type a question. The covering
+instruments are the two unit pins and the matrix above, not the gate.
+
+**What is landed** is A, B and C: three independently-correct defects, each of
+which is a real misclassification regardless of how D is answered, and two of
+which (B's transferable half, A's wrong kind) are silent hazards rather than
+build failures. The idiom still does not compile, so this bug stays OPEN.
 
 ## Lead: the error names a DIFFERENT type than the bind (2026-08-31, coordinator)
 

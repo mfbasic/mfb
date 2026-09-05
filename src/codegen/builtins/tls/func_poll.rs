@@ -154,13 +154,20 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         name: "socks",
                         desc: "A non-empty list of open TLS sockets. Each stays open and the list still closes it. An empty list raises `ErrInvalidArgument`.",
                         aliases: &[],
-                        // The element is the bare resource id: `ParameterType::parse`
-                        // strips the `RES ` ownership marker off a list element, so the
-                        // concrete `List OF RES tls.Socket` argument unifies as
-                        // `ListOf(Named("tls.Socket"))`. (The `RES` requirement itself
-                        // is enforced separately by the resource/type checker.)
-                        ty: ParameterType::ListOf(Box::new(ParameterType::named(
-                            super::TLS_SOCKET_TYPE_ID,
+                        // bug-526: the element carries the `RES` marker, built
+                        // directly — exactly as `tcp::poll` builds it. It used to
+                        // be a bare `Named`, on the reasoning that
+                        // `ParameterType::parse` strips `RES ` off a list element
+                        // so the concrete argument unifies as
+                        // `ListOf(Named("tls.Socket"))` anyway. True about
+                        // `parse`, and the wrong conclusion: matching is
+                        // RES-*transparent*, so a constructed `Res` node unifies
+                        // against the same argument AND survives into the rendered
+                        // signature. Without it `mfb man tls poll` printed
+                        // `List OF tls::Socket`, which does not compile
+                        // (`TYPE_RESOURCE_REQUIRES_RES`).
+                        ty: ParameterType::list_of(ParameterType::Res(Box::new(
+                            ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                         ))),
                         default: DefaultValue::None,
                     },

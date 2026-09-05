@@ -1462,8 +1462,13 @@ fn validate_package_file(project_dir: &Path, target: &str) -> Result<(), String>
             return Err("package validation failed".to_string());
         }
     };
-    println!("  ident: {}", package.ident);
-    println!("  version: {}", package.version);
+    // bug-489: these come from the decoded `.mfp`, the same untrusted source
+    // bug-210 covers at the `pkg info` print sites — this pair was missed.
+    println!("  ident: {}", crate::terminal_safe::safe(&package.ident));
+    println!(
+        "  version: {}",
+        crate::terminal_safe::safe(&package.version)
+    );
     println!(
         "  signature type: {}",
         signature_type_name(package.signature_type)
@@ -1871,7 +1876,14 @@ fn print_package_info(path: &Path) -> Result<(), String> {
                     .iter()
                     .find(|version| version.version == header.version)
                 {
-                    println!("Release State: {}", version.state);
+                    // bug-489: registry-authored. Sanitized HERE, not at the
+                    // source, because `state` is a data field a caller may
+                    // compare — escaping it upstream would change logic, not
+                    // just display.
+                    println!(
+                        "Release State: {}",
+                        crate::terminal_safe::safe(&version.state)
+                    );
                 }
             }
         }

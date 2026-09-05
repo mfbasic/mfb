@@ -57,8 +57,20 @@ impl CodeBuilder<'_> {
         if typed_is_collection_type(type_) {
             return !self.type_is_memcpy_copyable(type_);
         }
-        crate::codegen::builtins::is_resource_type(&type_)
-            && !self.type_model.union_names.contains(type_)
+        // bug-546's family, third instance: this asked
+        // `builtins::is_resource_type`, which answers for the BUILT-IN registry
+        // only, so a user-declared `RESOURCE Db CLOSE BY sql::close` was not a
+        // pointer payload. Measured before the fix — `List OF RES fs::File`
+        // built and ran (`count=4`), while the identical program over a declared
+        // `Db` died at build time with
+        //   error: native collection packed payload does not support type 'Db'
+        // even though `mfb spec` §15.6 gives collection elements the `RES` marker
+        // precisely so a resource CAN be stored in one.
+        //
+        // That dispatch fails CLOSED (an `Err`, not a wrong size), which is why
+        // this surfaced as a build error rather than a corrupted stride — the
+        // same defect behind a fail-open predicate would have been silent.
+        self.is_resource_nominal(type_) && !self.type_model.union_names.contains(type_)
     }
 
     /// Alignment, in bytes, that a packed collection payload of `type_` requires
@@ -84,7 +96,59 @@ impl CodeBuilder<'_> {
             other if self.inline_collection_payload_size(other).is_some() => 8,
             // An inlined flat collection block begins with `U64` header fields.
             other if typed_is_collection_type(other) => 8,
-            _ => 1,
+            // NOT `_ => 1`. The fallback is delegated to an exhaustive helper so
+            // a new `ParameterType` variant cannot inherit "no alignment
+            // requirement" by silence — see `unaligned_payload_variants`.
+            other => Self::default_payload_alignment(other),
+        }
+    }
+
+    /// The 1-byte fallback of [`Self::collection_payload_alignment`], written as
+    /// an EXHAUSTIVE match so the answer is chosen rather than defaulted.
+    ///
+    /// This used to be `_ => 1`, and of the three fall-through defaults in this
+    /// file it is the most dangerous kind: a silent NUMBER. "Alignment 1" for a
+    /// payload that is really 8 bytes wide misaligns every element after the
+    /// first, and `mfb spec` memory-layouts (Scalar Storage) requires every
+    /// payload to begin at an offset valid for its type. A wrong `false` from a
+    /// predicate produces a build error somewhere; a wrong `1` from here produces
+    /// a silently mis-strided collection.
+    ///
+    /// Several variants below are unreachable in practice because a GUARDED arm
+    /// above claims them first (`Func`, the collections, an inlinable record or
+    /// union, a resource pointer payload). They are still listed, because a
+    /// guarded arm does not count toward exhaustiveness — Rust cannot prove the
+    /// guard fires, so it demands the pattern anyway, and that is exactly what
+    /// makes this technique work on a guard-heavy dispatch.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn default_payload_alignment(type_: &ParameterType) -> usize {
+        match type_ {
+            // The genuinely-reachable 1-byte cases: a `Nothing` payload occupies
+            // no aligned slot, and the remaining nominals are byte-packed.
+            ParameterType::Nothing
+            | ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::String
+            | ParameterType::AttributeString
+            | ParameterType::Named(_)
+            | ParameterType::UserOf(..)
+            | ParameterType::Stateful { .. }
+            | ParameterType::MapEntryOf(..)
+            | ParameterType::ResultOf(_)
+            | ParameterType::Res(_)
+            | ParameterType::ThreadHandle { .. }
+            | ParameterType::C(_)
+            | ParameterType::Var(_)
+            | ParameterType::Arg(_)
+            | ParameterType::Unknown
+            | ParameterType::Integer
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Money
+            | ParameterType::Func(..)
+            | ParameterType::ListOf(_)
+            | ParameterType::MapOf(..)
+            | ParameterType::SetOf(_) => 1,
         }
     }
 
@@ -637,6 +701,16 @@ impl CodeBuilder<'_> {
     /// answers exactly as memcpy-copyability does.
     pub(crate) fn type_is_arena_transferable(&self, type_: &ParameterType) -> bool {
         type_is_arena_transferable(&self.type_model, type_)
+    }
+
+    /// See [`is_resource_nominal`].
+    pub(crate) fn is_resource_nominal(&self, type_: &ParameterType) -> bool {
+        is_resource_nominal(&self.type_model, type_)
+    }
+
+    /// See [`is_sendable_resource_nominal`].
+    pub(crate) fn is_sendable_resource_nominal(&self, type_: &ParameterType) -> bool {
+        is_sendable_resource_nominal(&self.type_model, type_)
     }
 
     /// True when field `field_type` of `record_type` is inlined into the record's
@@ -2275,6 +2349,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8(&scratch15, &scratch13, 0));
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        // bug-536 shape B: this block came from the `emit_arena_alloc_call`
+        // above and nothing else holds it, so a caller that returns it verbatim
+        // as its value's result is handing back a fresh, unaliased String. The
+        // mark only takes effect if `lower_value` sees this exact operand as the
+        // node's result (`mark_fresh_string`), so the callers that materialize an
+        // *interior* String and return something else stay opted out.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(result)
     }
 }
@@ -2674,9 +2755,49 @@ pub(crate) fn is_pointer_string_record(type_: &ParameterType) -> bool {
 /// pointer to its record; a slot stores a copy of that pointer exactly like any
 /// other pointer payload (§15.6)". A resource *union* IS a pointer composite and
 /// is caught by the `union_names` arm.
+///
+/// EXHAUSTIVE BY CONSTRUCTION — do not add a `_` arm. Its default answer is
+/// "a plain 8-byte value slot", so a variant nobody classified gets laid out as
+/// a scalar; see the fall-through note in `.ai/codegen-invariants.md`.
+#[deny(clippy::wildcard_enum_match_arm)]
 pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &ParameterType) -> bool {
-    typed_is_collection_type(field_type)
-        || model.record_fields.contains_key(field_type)
+    match field_type {
+        // A collection field is a pointer to its own block.
+        ParameterType::ListOf(_) | ParameterType::MapOf(..) | ParameterType::SetOf(_) => true,
+        ParameterType::ResultOf(_) => true,
+        // A resource handle — bare, `RES`-marked, or a thread handle — is a
+        // plain 8-byte slot holding the pointer, NOT a pointer composite
+        // (plan-114-B). `is_pointer_collection_payload_type` applies the same
+        // rule to a collection slot.
+        ParameterType::Res(_) | ParameterType::ThreadHandle { .. } => false,
+        // Scalars occupy their slot by value.
+        ParameterType::Boolean
+        | ParameterType::Byte
+        | ParameterType::Integer
+        | ParameterType::Fixed
+        | ParameterType::Float
+        | ParameterType::Money
+        | ParameterType::Nothing
+        | ParameterType::String => false,
+        // Everything left is a NOMINAL (or a shape only the model can place), so
+        // the answer is a model lookup rather than a property of the variant.
+        ParameterType::Named(_)
+        | ParameterType::UserOf(..)
+        | ParameterType::Stateful { .. }
+        | ParameterType::MapEntryOf(..)
+        | ParameterType::AttributeString
+        | ParameterType::C(_)
+        | ParameterType::Func(..)
+        | ParameterType::Var(_)
+        | ParameterType::Arg(_)
+        | ParameterType::Unknown => named_field_is_pointer(model, field_type),
+    }
+}
+
+/// The model half of [`record_field_is_pointer`] — the part exhaustiveness
+/// cannot reach, because a nominal's answer depends on its NAME.
+fn named_field_is_pointer(model: &TypeModel, field_type: &ParameterType) -> bool {
+    model.record_fields.contains_key(field_type)
         // A resource union is a pointer composite (its value is a pointer to a
         // `{tag, ptr}` block), never a flat block. A transferred stateful union
         // is spelled `Stream STATE Cursor`; base-strip so the STATE suffix does
@@ -2686,7 +2807,6 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &ParameterT
         || model
             .union_names
             .contains(&base_resource_type(field_type))
-        || matches!(field_type, ParameterType::ResultOf(_))
         || field_type.is_named("Error")
 }
 
@@ -2709,6 +2829,36 @@ fn collection_payload_types(type_: &ParameterType) -> Vec<ParameterType> {
 /// match, not a suffix strip — but the composite-base spelling `parse` declines
 /// to split still arrives as one opaque `Named`, which is why the `&str` adapter
 /// remains the authority for that case.
+/// True when `type_` is a resource **nominal**: one of the language's own
+/// (`fs.File`, `tcp.Socket`, …) or a user-declared `RESOURCE T CLOSE BY op`,
+/// whether this module declares it or imports it.
+///
+/// bug-546: `builtins::is_resource_type` answers for the built-in registry
+/// alone. Every classification that asked it directly therefore treated a
+/// user-declared resource as an ordinary nominal — and the answer that fell out
+/// of the default was "a plain 8-byte flat scalar", i.e. a copyable, relocatable
+/// block. It is not: a `LINK` function returning `AS RES T` arena-allocates the
+/// canonical plan-80 resource record (`link_thunk.rs`, `if function.return_resource`)
+/// with its own lifetime and its own close op, exactly as a built-in does.
+pub(crate) fn is_resource_nominal(model: &TypeModel, type_: &ParameterType) -> bool {
+    crate::codegen::builtins::is_resource_type(type_)
+        || model.resource_names.contains(&base_resource_type(type_))
+}
+
+/// True when a resource nominal may cross a thread boundary — a built-in with
+/// the registry's `sendable` bit, or a user declaration carrying
+/// `THREAD_SENDABLE` (17_native-libraries.md).
+///
+/// A resource this returns `false` for is never deep-copied into another arena:
+/// the frontend forbids transferring it, and codegen must not quietly widen that
+/// rule for a resource whose author did not opt in.
+pub(crate) fn is_sendable_resource_nominal(model: &TypeModel, type_: &ParameterType) -> bool {
+    crate::codegen::builtins::is_thread_sendable_resource_type(type_)
+        || model
+            .sendable_resource_names
+            .contains(&base_resource_type(type_))
+}
+
 fn base_resource_type(type_: &ParameterType) -> ParameterType {
     match type_ {
         ParameterType::Stateful { base, .. } => (**base).clone(),
@@ -2749,6 +2899,30 @@ pub(crate) fn type_is_arena_transferable(model: &TypeModel, type_: &ParameterTyp
 /// record fields, union variants, `ResultOf`, the cycle guard) exist once and so
 /// cannot drift apart; `mode` changes the answer in exactly the three leaf arms
 /// marked below.
+/// EXHAUSTIVE BY CONSTRUCTION — do not add a `_` arm.
+///
+/// This function answered two production bugs wrong in one week (bug-546, a
+/// user-declared `RESOURCE`; bug-479, a `ThreadHandle`) for the same reason: it
+/// was an `if`/`else if` chain whose final `else` returned a DEFAULT, and that
+/// default was "flat". A type nobody had thought about was therefore claimed as
+/// a copyable, arena-relocatable block — silently, and in the
+/// `type_is_arena_transferable` mode that decides whether a block may cross a
+/// thread's arena boundary. The tree already records two earlier instances of the
+/// same shape: `src/types.rs` notes that the `Stateful` variant "cost a real bug"
+/// and that `C(CAbiType)` "changed answer" for every `Named(_)` guard when it
+/// landed.
+///
+/// So the variant dispatch is a `match` with **no wildcard arm**. Adding a 25th
+/// `ParameterType` variant now fails to compile here until someone decides what
+/// it is, which is the whole point — `cargo build` is the enforcement, not review.
+///
+/// What this canNOT catch is the bug-546 class, and the boundary is worth being
+/// precise about: `Db` is a `Named(Symbol)`, an OPEN namespace, so the variant
+/// arm exists and is correct while the answer still depends on a `TypeModel`
+/// lookup. Every such lookup is quarantined in [`flatness_of_model_type`] rather
+/// than scattered through the arms, so there is exactly one place where a
+/// "the model does not recognise this name" default still lives.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn flatness_walk(
     model: &TypeModel,
     type_: &ParameterType,
@@ -2760,9 +2934,8 @@ fn flatness_walk(
         // a single finite flat block, so treat them as pointers.
         return false;
     }
-    let result = if *type_ == ParameterType::String {
-        true
-    } else if let ParameterType::Res(_) = type_ {
+    let result = match type_ {
+        ParameterType::String => true,
         // DIVERGENCE 1 — a `RES`-marked element/map value. The slot holds one
         // 8-byte pointer to the resource record, so a `memcpy` copying it is a
         // correct alias (§15.6) but relocating it into another arena is not.
@@ -2772,19 +2945,85 @@ fn flatness_walk(
         // answer was `true` INCIDENTALLY rather than by decision — and `true` is
         // the wrong answer for the transfer path. bug-483 is what that class of
         // accident costs when the default happens to be wrong.
-        mode == Flatness::MemcpyCopyable
-    } else if let ParameterType::ResultOf(payload) = type_ {
+        ParameterType::Res(_) => mode == Flatness::MemcpyCopyable,
+        // bug-479: a thread handle is flat in NEITHER mode, for the same reason a
+        // bare resource nominal is not (the arm below) — and, like it, this used
+        // to be decided by accident. There was no `ThreadHandle` arm, and
+        // `record_field_is_pointer` in the `else` has none either, so the walk
+        // answered `true` for both modes.
+        //
+        // It is emphatically not flat. The value is a pointer to a 120-byte
+        // `THREAD_BLOCK_SIZE` block that itself holds POINTERS — to the inbound
+        // and outbound message queues and to both resource queues
+        // (`THREAD_OFFSET_RESOURCE_INBOUND_QUEUE` = 104,
+        // `THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE` = 112). "Memcpy-copyable" sent
+        // an inline-TRAP'd `thread::start` result to `copy_flat_block`, which then
+        // asked for an inlined field size for a handle — the reported build
+        // failure. "Arena-transferable" would be worse and silent: it is the gate
+        // on relocating a block into another thread's arena, and a copied block
+        // would carry the queue pointers while the queues stayed behind.
+        //
+        // `ir::verify`'s `is_copyable` has said `ThreadHandle { .. } => false`
+        // all along; this arm is codegen finally agreeing with it.
+        ParameterType::ThreadHandle { .. } => false,
         // A flat `Result` `{tag, size, payload}` is pointer-free when its
         // success payload is flat (the `Err` variant is the now-flat `Error`).
-        flatness_walk(model, payload, mode, visited)
-    } else if typed_is_collection_type(type_) {
+        ParameterType::ResultOf(payload) => flatness_walk(model, payload, mode, visited),
         // A collection is flat when every payload is flat — including a nested
         // flat collection, which is inlined in the data region (plan-02 §4.4,
         // Phase 5a). A resource or recursive payload makes it non-flat.
-        collection_payload_types(type_)
-            .into_iter()
-            .all(|p| flatness_walk(model, &p, mode, visited))
-    } else if model.record_fields.contains_key(type_) {
+        //
+        // These are exactly `typed_is_collection_type`'s three. `MapEntryOf` is
+        // deliberately NOT one of them and never was — it falls to the
+        // model-decided arm below, where it lands on the same `true` the old
+        // `else` gave it. Naming it there rather than here is the point: that
+        // answer is inherited, not chosen.
+        ParameterType::ListOf(_) | ParameterType::MapOf(..) | ParameterType::SetOf(_) => {
+            collection_payload_types(type_)
+                .into_iter()
+                .all(|p| flatness_walk(model, &p, mode, visited))
+        }
+        // Every remaining variant is either a NOMINAL, whose answer only the
+        // `TypeModel` knows, or a scalar that has always taken the same default
+        // path. Listed one by one so a new variant cannot join them by accident.
+        ParameterType::Named(_)
+        | ParameterType::UserOf(..)
+        | ParameterType::Stateful { .. }
+        | ParameterType::MapEntryOf(..)
+        | ParameterType::C(_)
+        | ParameterType::AttributeString
+        | ParameterType::Func(..)
+        | ParameterType::Var(_)
+        | ParameterType::Arg(_)
+        | ParameterType::Unknown
+        | ParameterType::Boolean
+        | ParameterType::Byte
+        | ParameterType::Integer
+        | ParameterType::Fixed
+        | ParameterType::Float
+        | ParameterType::Money
+        | ParameterType::Nothing => flatness_of_model_type(model, type_, mode, visited),
+    };
+    visited.remove(type_);
+    result
+}
+
+/// The half of [`flatness_walk`] the compiler cannot make exhaustive: the answer
+/// for a nominal depends on what the `TypeModel` knows about that NAME, and the
+/// name namespace is open.
+///
+/// Kept as one function, and called from exactly one arm, so the residual
+/// "nothing matched" default lives in a single place with a name — rather than
+/// as the tail of a chain where two bugs have already hidden. Making THIS total
+/// is a separate, larger change (a closed `TypeModel::classify` enum); until
+/// then the default below is explicit rather than incidental.
+fn flatness_of_model_type(
+    model: &TypeModel,
+    type_: &ParameterType,
+    mode: Flatness,
+    visited: &mut std::collections::HashSet<ParameterType>,
+) -> bool {
+    if model.record_fields.contains_key(type_) {
         !is_pointer_string_record(type_)
             && model
                 .record_fields
@@ -2800,7 +3039,7 @@ fn flatness_walk(
             .collect::<Vec<_>>()
             .iter()
             .all(|variant| flatness_walk(model, variant, mode, visited))
-    } else if crate::codegen::builtins::is_resource_type(&type_) {
+    } else if is_resource_nominal(model, type_) {
         // NOT a divergence — `false` for both modes, unchanged from `type_is_flat`.
         //
         // plan-114-B C6: the plan's §4.1 table said `true` for MemcpyCopyable
@@ -2821,6 +3060,18 @@ fn flatness_walk(
         // `pending_temp` free that had never existed — measured as a real
         // `.ncode` diff in `tests/byte-identity/tcp`, a fixture with no thread in
         // it at all.
+        //
+        // bug-546: this arm asked `builtins::is_resource_type`, so it saw the
+        // language's own resources only. A user-declared `RESOURCE Db CLOSE BY
+        // sql::close` matched no arm at all and fell to the `else` below, where
+        // `record_field_is_pointer` has no resource arm either — so it answered
+        // `true` for BOTH modes, by exactly the accident this comment already
+        // records for `Res(_)` before plan-114-B. The memcpy half sent a bare
+        // `Db` bind to `copy_flat_block`, which is the reported build failure
+        // ("native inlined field size not available for type 'Db'"). The
+        // arena-transfer half is worse and silent: it is the predicate that says
+        // a thread transfer may relocate a block wholesale, and a relocated
+        // resource handle points into the *sender's* arena.
         false
     } else {
         // DIVERGENCE 3 (by inheritance) — a resource *union* reaches
@@ -2832,9 +3083,7 @@ fn flatness_walk(
         // Everything else is a scalar (not a pointer composite, `String`, or
         // resource) and is flat for both modes.
         !record_field_is_pointer(model, type_)
-    };
-    visited.remove(type_);
-    result
+    }
 }
 
 /// True when field `field_type` of `record_type` is inlined into the record's
@@ -3598,5 +3847,175 @@ mod res_field_record_layout_tests {
             "the resource field must not satisfy is_freeable_flat_value's second \
              term, or scope-drop would arena_free the resource record too"
         );
+    }
+
+    // ===================================================================
+    // bug-546: a USER-declared resource is a resource to the flatness walk
+    // ===================================================================
+
+    /// A module declaring `RESOURCE Db CLOSE BY sql::close [THREAD_SENDABLE]`,
+    /// as `TypeModel::from_module` builds it: the name in `resource_names`, and
+    /// the sendable subset in `sendable_resource_names`.
+    fn declared_resource_model(sendable: bool) -> (TypeModel, ParameterType) {
+        let mut model = TypeModel::empty();
+        let db = ParameterType::declared("Db");
+        model.resource_names.insert(db.clone());
+        if sendable {
+            model.sendable_resource_names.insert(db.clone());
+        }
+        (model, db)
+    }
+
+    /// The defect itself. A user-declared resource used to match no arm of
+    /// `flatness_walk` — not the built-in resource arm (registry-only), and not
+    /// `record_field_is_pointer` in the `else` — so the walk answered `true` for
+    /// BOTH modes. "Memcpy-copyable" routed a bare `Db` bind to
+    /// `copy_flat_block`, which is the build failure the bug reports; the
+    /// "arena-transferable" half is the silent one, because that predicate is
+    /// what permits a thread transfer to relocate a block, and a relocated
+    /// resource handle points into the sender's per-thread arena.
+    #[test]
+    fn a_user_declared_resource_is_neither_memcpy_copyable_nor_arena_transferable() {
+        for sendable in [false, true] {
+            let (model, db) = declared_resource_model(sendable);
+            assert!(
+                is_resource_nominal(&model, &db),
+                "a declared RESOURCE must be a resource nominal to codegen"
+            );
+            assert!(
+                !type_is_memcpy_copyable(&model, &db),
+                "a resource record is separately allocated with its own close op, \
+                 so it is not a copyable flat block (sendable={sendable})"
+            );
+            assert!(
+                !type_is_arena_transferable(&model, &db),
+                "and it may never be relocated wholesale into another arena \
+                 (sendable={sendable})"
+            );
+        }
+    }
+
+    /// The `THREAD_SENDABLE` opt-in is what picks the arm in
+    /// `emit_thread_copy_real`: the deep copy into the receiver's arena, or the
+    /// move-only pointer carry. Codegen must not widen the declaration — the
+    /// frontend rejects transferring a resource whose author did not opt in
+    /// (`2-203-0063 TYPE_THREAD_NOT_SENDABLE`), and this predicate is the only
+    /// thing keeping the backend agreeing with it.
+    #[test]
+    fn only_a_thread_sendable_declaration_reaches_the_deep_copy_arm() {
+        let (plain, db) = declared_resource_model(false);
+        assert!(
+            !is_sendable_resource_nominal(&plain, &db),
+            "a RESOURCE declared without THREAD_SENDABLE is not sendable"
+        );
+        let (sendable, db) = declared_resource_model(true);
+        assert!(
+            is_sendable_resource_nominal(&sendable, &db),
+            "a RESOURCE declared THREAD_SENDABLE is"
+        );
+    }
+
+    /// bug-479: a thread handle is flat in NEITHER mode, and used to be flat in
+    /// BOTH by the same accident as a user-declared resource — no arm matched it,
+    /// and `record_field_is_pointer` in the `else` has no arm either.
+    ///
+    /// The value is a pointer to a 120-byte `THREAD_BLOCK_SIZE` block that itself
+    /// holds pointers to four queues, so "memcpy-copyable" is wrong (it sent an
+    /// inline-TRAP'd `thread::start` result to `copy_flat_block`, the reported
+    /// build failure) and "arena-transferable" is wrong AND silent — that
+    /// predicate gates relocating a block into another thread's arena, and the
+    /// copy would carry the queue pointers while the queues stayed behind.
+    ///
+    /// `ir::verify`'s `is_copyable` has answered `ThreadHandle { .. } => false`
+    /// all along; this is codegen agreeing with it.
+    #[test]
+    fn a_thread_handle_is_flat_in_neither_mode() {
+        let model = TypeModel::empty();
+        for spelling in [
+            "Thread OF String TO Integer",
+            "ThreadWorker OF String TO Integer",
+            "Thread OF String RES fs.File TO Integer",
+        ] {
+            let type_ = ParameterType::parse(spelling);
+            assert!(
+                matches!(type_, ParameterType::ThreadHandle { .. }),
+                "`{spelling}` must parse to a ThreadHandle for this test to mean \
+                 anything"
+            );
+            assert!(
+                !type_is_memcpy_copyable(&model, &type_),
+                "`{spelling}` is a handle to a block full of queue pointers, not a \
+                 copyable flat block"
+            );
+            assert!(
+                !type_is_arena_transferable(&model, &type_),
+                "`{spelling}` may never be relocated into another arena"
+            );
+        }
+    }
+
+    /// And the propagation: a `Result OF Thread …` is what an inline `TRAP` on
+    /// `thread::start` actually binds, so the payload's answer has to reach it.
+    #[test]
+    fn a_result_wrapping_a_thread_handle_is_flat_in_neither_mode() {
+        let model = TypeModel::empty();
+        let type_ = ParameterType::parse("Result OF Thread OF String TO Integer");
+        assert!(
+            !type_is_memcpy_copyable(&model, &type_) && !type_is_arena_transferable(&model, &type_),
+            "the ResultOf arm walks its payload, so a thread payload makes the \
+             whole Result non-flat"
+        );
+    }
+
+    /// The positive pin. Widening the two predicates must not change the answer
+    /// for anything that already had one — the built-in resources on both sides
+    /// of the sendable split, and the ordinary flat types whose classification
+    /// the whole record/collection layout rests on.
+    #[test]
+    fn widening_the_resource_predicates_moves_no_pre_existing_answer() {
+        let (model, _) = declared_resource_model(true);
+
+        // Built-in resources: `fs.File` is sendable, `process.Process` is not
+        // (their registry `sendable` bits), and neither is flat in either mode.
+        for builtin in ["fs.File", "tcp.Socket", "process.Process"] {
+            let type_ = ParameterType::parse(builtin);
+            assert!(
+                is_resource_nominal(&model, &type_),
+                "{builtin} is still a resource nominal"
+            );
+            assert!(
+                !type_is_memcpy_copyable(&model, &type_)
+                    && !type_is_arena_transferable(&model, &type_),
+                "{builtin}'s flatness must be unchanged"
+            );
+        }
+        assert!(
+            is_sendable_resource_nominal(&model, &ParameterType::parse("fs.File")),
+            "fs.File keeps the registry's sendable bit"
+        );
+        assert!(
+            !is_sendable_resource_nominal(&model, &ParameterType::parse("process.Process")),
+            "process.Process keeps the registry's unsendable bit"
+        );
+
+        // Ordinary values are untouched: the walk never reaches a resource arm
+        // for them, and a declared resource in the model must not change that.
+        for flat in [
+            "String",
+            "Integer",
+            "List OF String",
+            "Map OF String TO Integer",
+        ] {
+            let type_ = ParameterType::parse(flat);
+            assert!(
+                !is_resource_nominal(&model, &type_),
+                "{flat} is not a resource"
+            );
+            assert!(
+                type_is_memcpy_copyable(&model, &type_)
+                    && type_is_arena_transferable(&model, &type_),
+                "{flat} stays flat in both modes"
+            );
+        }
     }
 }

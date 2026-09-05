@@ -35,8 +35,12 @@ an ordinary runtime `String`, so it may be built or read at run time; because
 `String` literals process backslash escapes, a literal backslash must be written
 `"\\"` — `regex::match(value, "\\d+")` tests for one or more digits. `match`
 never reports absence as a failure; absence simply returns `FALSE`. Only an
-invalid pattern fails, with `ErrInvalidFormat`. Because `match` takes no `start`
-argument, it raises neither `ErrIndexOutOfRange` nor `ErrNotFound`.
+invalid pattern fails, with `ErrInvalidFormat`. `match` raises no
+`ErrIndexOutOfRange`, because it takes no `start`, and no `ErrNotFound`, because
+a `Boolean` already has a value that means "no match". That makes it the guard
+for `regex::find`, whose `Integer` return has no such value and which therefore
+raises `ErrNotFound` on absence: test with `match`, then call `find` for the
+position.
 
 
 `match` does not mutate `value` or `pattern` and has no side effects."#;

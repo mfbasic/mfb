@@ -147,7 +147,20 @@ In `repository/src/client.rs`, `ensure_transport_security(repo_url)` validates O
 
 The one shared `reqwest::blocking::Client` is built once in `http_client()` (a `OnceLock`) — that is the ONLY place `connect_timeout` AND the redirect policy can be set. Per-hop transport enforcement therefore lives in `redirect_policy()` / `ensure_redirect_target()`, not in `ensure_transport_security`. The redirect guard is https-only and blocks private/loopback/link-local/CGNAT/unspecified IP literals (incl. IPv4-mapped IPv6) — otherwise a hostile registry 302 drives blind SSRF (169.254.169.254, 127.0.0.1, RFC-1918) or an https→http downgrade leak. Blob bytes stay SHA-256 checked and control-plane bodies signature-checked regardless; the redirect guard only closes the transport-level leak.
 
-Takeaway: if you add a new registry route or loosen networking, remember the initial-URL check and the redirect check are SEPARATE — enforce both. `reqwest::redirect::Policy::custom` closures track depth via `attempt.previous().len()` and reject a hop with `attempt.error(String)`.
+**The redirect guard is ORIGIN-BLIND, deliberately — so a credential-bearing request must not use it at all (bug-490).** `ensure_redirect_target` vets a hop's scheme and IP-LITERAL class, and its own doc says a hostname resolving to an internal address is out of scope. So `https://attacker.example/` — or `https://localhost:1/` — passes, and it has to, because a presigned blob URL is exactly that shape.
+
+That is safe for a blob GET (bytes are content-address-verified afterwards) and unsafe for the control plane, because **the registry credential is a BODY field (`sessionToken`), not a header**. reqwest's cross-host stripping (`remove_sensitive_headers`: AUTHORIZATION, COOKIE, …) covers headers only, and a 307/308 preserves method and body. So a control-plane call answered with `307 Location: https://attacker.example/x` re-posts the session token — and for `/publish` the whole base64 `.mfp`, for `/machines/link` the sealed ident keypair.
+
+**The invariant: a credential-bearing request never follows a redirect.** There are now TWO clients, both `OnceLock`s (a per-call `Client` would spawn a tokio runtime per request, which is why `http_client` is shared in the first place):
+
+| client | policy | used by |
+| --- | --- | --- |
+| `http_client()` | `redirect_policy()` — vetted hops | `fetch_blob`, `blob_exists`, `get_json` |
+| `no_redirect_client()` | `Policy::none()` | `post_json`, `put_blob` |
+
+No control-plane route is documented to redirect, so refusing is free. `get_json` stays on the vetted client because no GET path carries a credential — the paths interpolate owner names and package idents only; check that before adding a route with a token in the URL.
+
+Takeaway: if you add a new registry route or loosen networking, remember the initial-URL check and the redirect check are SEPARATE — enforce both, and pick the client by whether the request carries a credential. `reqwest::redirect::Policy::custom` closures track depth via `attempt.previous().len()` and reject a hop with `attempt.error(String)`.
 
 ## The `http` server parses strictly, the client leniently — and rejects early with a lingering close
 

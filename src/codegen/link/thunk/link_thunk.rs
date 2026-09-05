@@ -303,7 +303,7 @@ pub(crate) fn emit_link_support(
         }
     }
 
-    // plan-59-A: the resource TYPES that are represented as 80-byte records —
+    // plan-59-A: the resource TYPES that are represented as 96-byte records —
     // which is now EVERY type a native func returns as `AS RES R`, with or
     // without a `STATE S`. (plan-53-A wrapped only the stateful ones, so a
     // stateless `Db` was the raw handle and had nowhere to put a `closed` flag.)
@@ -633,7 +633,7 @@ fn lower_link_thunk(
     let cursor_off = cstr_area + n_cstr * 16;
     let total_off = cursor_off + 8;
     // plan-53-A: two scratch slots for building a stateful native resource's
-    // 80-byte record after the call — one parks the native handle, one the record
+    // 96-byte record after the call — one parks the native handle, one the record
     // pointer, across the `arena_alloc` that clobbers all caller-saved registers.
     let rec_handle_off = total_off + 8;
     let rec_ptr_off = rec_handle_off + 8;
@@ -1540,7 +1540,7 @@ fn lower_link_thunk(
 
     // plan-59-A: a native func that produces `AS RES T` — with or without a
     // `STATE S` — hands back a resource RECORD, not the bare handle. Wrapping the
-    // stateless case too is what gives it a `closed` flag at offset 8, which it
+    // stateless case too is what gives it a `closed` flag at offset 16, which it
     // had nowhere to store while the handle itself was the value.
     // RESULT_VALUE_REGISTER currently holds
     // the native handle; wrap it in a resource record so the value the
@@ -1582,7 +1582,7 @@ fn lower_link_thunk(
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_FILL),
             abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_AT_EOF),
         ]);
-        // STATE@16: `BIND STATE <res> = <out-struct>` (plan-53-B) marshals the OUT
+        // STATE@24: `BIND STATE <res> = <out-struct>` (plan-53-B) marshals the OUT
         // struct the native call filled into an `S` record and stores its pointer;
         // otherwise leave it null so the caller's bind default-inits it (a built-in
         // `fs.File STATE S` works the same way — the producer never inits STATE).
@@ -2900,8 +2900,8 @@ mod tests {
     /// plan-59-A Phase 3: a native `LINK` resource must never reach the
     /// buffer-free path in `emit_resource_block_reclaim`.
     ///
-    /// Since plan-59-A every native resource is an 80-byte record, so it now flows
-    /// through the same drop-reclamation as a built-in `File`. Words 24..72 of a
+    /// Since plan-59-A every native resource is a 96-byte record, so it now flows
+    /// through the same drop-reclamation as a built-in `File`. Words 32..80 of a
     /// native record are zeroed by the thunk and are NOT buffer pointers; handing
     /// them to `arena_free` would free addresses the resource never owned.
     ///
@@ -2942,7 +2942,7 @@ mod tests {
                     type_
                 )),
                 "{type_} must not take the I/O-buffer free path: its record's \
-                 words 24..72 are not buffer pointers"
+                 words 32..80 are not buffer pointers"
             );
         }
     }

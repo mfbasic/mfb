@@ -9,6 +9,7 @@ pub mod log;
 pub mod package;
 pub mod server;
 pub mod store;
+pub mod terminal_safe;
 pub mod validation;
 pub mod web;
 

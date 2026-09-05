@@ -28,7 +28,9 @@ precomposed `é` does not match a decomposed one.
 through the scalar length of `value` *inclusive*; the upper bound equals the
 length so a search may begin at the very end of the string, where only an empty
 needle can match. A negative `start`, or one past the scalar length, raises
-`ErrIndexOutOfRange`. An empty `needle` matches immediately and returns `start`.
+`ErrIndexOutOfRange`. An empty `needle` matches immediately and returns `start`,
+which is the package's empty-needle rule for a member that answers with a
+position (see `mfb man strings`).
 
 `find` always returns a valid index on success and never reports absence with a
 sentinel such as `-1`. When `needle` does not occur at or after `start` it raises
@@ -45,7 +47,11 @@ either handle the failure with a `TRAP` or search the suffix beginning at
 `start` instead.
 
 `find` does not mutate either operand. The bare `find` name is also defined for
-lists; see `mfb man collections find` for the `List` form.
+lists; see `mfb man collections find` for the `List` form. Every index-returning
+`find` in the language reports absence the same way — `strings::find`,
+`regex::find`, `collections::find`, `collections::findIndex` and
+`collections::findLastIndex` all raise `ErrNotFound` — so swapping a literal
+search for a pattern search does not change how absence behaves.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and

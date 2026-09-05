@@ -415,7 +415,13 @@ impl CodeBuilder<'_> {
             other if typed_is_collection_type(other) => {
                 self.copy_collection_to_current_arena(other, source)
             }
-            other if crate::codegen::builtins::is_thread_sendable_resource_type(&other) => {
+            // bug-546: the sendability question is the MODEL's, not the builtin
+            // registry's — a user-declared `RESOURCE Db … THREAD_SENDABLE` is as
+            // sendable as `fs.File`, and its record is the same canonical plan-80
+            // record (`link_thunk.rs`, `if function.return_resource`), so the same
+            // deep copy is correct for it. Before this the predicate was
+            // builtin-only, so a declared resource reached neither resource arm.
+            other if self.is_sendable_resource_nominal(other) => {
                 self.copy_resource_to_current_arena(other, source)
             }
             // A non-sendable resource (audio streams, TLS sockets/listeners) is a
@@ -427,7 +433,29 @@ impl CodeBuilder<'_> {
             // assume the fixed `File` layout, which audio's larger `AudioHandle`
             // does not share). The source temporary is consumed, so the handle is
             // owned and closed exactly once.
-            other if crate::codegen::builtins::is_resource_type(&other) => {
+            // bug-479: a thread handle is carried by POINTER, exactly like the
+            // non-sendable resource arm below and for the same reasons. It is a
+            // 120-byte block holding pointers to its two message queues and two
+            // resource queues, so a deep copy would duplicate the block while the
+            // queues stayed behind — every send into the copy would be lost.
+            //
+            // Carrying the pointer is sound here because the only materialization
+            // that reaches this arm is a SAME-ARENA one: an inline `TRAP` wrapping
+            // `thread::start`'s result in `Result OF Thread OF …`. A thread handle
+            // can never cross a thread boundary — `ir::verify`'s `is_copyable`
+            // answers `false` for `ThreadHandle`, and the frontend rejects sending
+            // one — so there is no cross-arena caller to strand a pointer for.
+            other if matches!(other, ParameterType::ThreadHandle { .. }) => {
+                let result = self.allocate_register();
+                self.emit(abi::move_register(&result, source));
+                Ok(result)
+            }
+            // bug-546: likewise model-aware. A user-declared resource WITHOUT
+            // `THREAD_SENDABLE` belongs here and not on the arm above — the
+            // frontend forbids transferring it, so the only materialization that
+            // reaches this arm is the same-arena `TRAP` wrap, and routing it to
+            // the deep copy would quietly grant a capability its author declined.
+            other if self.is_resource_nominal(other) => {
                 let result = self.allocate_register();
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
@@ -710,7 +738,8 @@ impl CodeBuilder<'_> {
         // already-moved record and make the transferred handle unusable.
         //
         // `moved` is bit 1 of the same word `closed` (bit 0) lives in, so this
-        // costs no space and keeps plan-38's offset-8 invariant. Both bits are set:
+        // costs no space and keeps plan-38's canonical closed-flag invariant
+        // (offset 16 since plan-80). Both bits are set:
         // every existing guard is a `!= 0` test, so bit 0 makes a stale alias of a
         // moved handle refuse operations with no new code, while bit 1 lets a guard
         // that cares report `ErrResourceMoved` instead of `ErrResourceClosed`.

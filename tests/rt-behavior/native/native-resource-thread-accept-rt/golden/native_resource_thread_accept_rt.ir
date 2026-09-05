@@ -1,0 +1,93 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_resource_thread_accept_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "drain",
+    "line": 77,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "t", "line": 77, "type": "ThreadWorker OF RES Db TO Integer", "default": null },
+    { "name": "rounds", "line": 77, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 78, "mutable": true, "name": "used", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 79, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 80,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "rounds" } },
+      "body": [
+      { "op": "bind", "line": 81, "mutable": false, "name": "d", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "thread.acceptResource", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "5000" }] } },
+      { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "d" }, { "kind": "const", "type": "String", "value": "INSERT INTO seeded VALUES (2);" }] } },
+      { "op": "assign", "line": 83, "name": "used", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "used" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "assign", "line": 84, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 86, "value": { "kind": "local", "name": "used" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 89,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 90, "mutable": false, "name": "t", "type": "Thread OF RES Db TO Integer", "value": { "kind": "call", "type": "Thread OF RES Db TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "drain", "type": "ISOLATED FUNC(ThreadWorker OF RES Db TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "2000" }] } },
+    { "op": "bind", "line": 91, "mutable": true, "name": "moved", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 92, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 93,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2000" } },
+      "body": [
+      { "op": "bind", "line": 94, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+      { "op": "eval", "line": 95, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "CREATE TABLE seeded(a INTEGER);" }] } },
+      { "op": "eval", "line": 96, "value": { "kind": "call", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "db" }, { "kind": "const", "type": "Integer", "value": "5000" }] } },
+      { "op": "bind", "line": 97, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO seeded VALUES (3);" }] } },
+      {
+        "op": "if",
+        "line": 97,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+        "then": [
+        ],
+        "else": [
+        { "op": "bind", "line": 97, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+        {
+          "op": "if",
+          "line": 98,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77030009" } },
+          "then": [
+          { "op": "fail", "line": 98, "error": { "kind": "local", "name": "err" } }
+          ],
+          "else": [
+          { "op": "assign", "line": 99, "name": "moved", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "moved" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          ]
+        }
+        ]
+      },
+      { "op": "assign", "line": 102, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 104, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "used=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] }] } }] } },
+    { "op": "eval", "line": 105, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "movedCount=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "moved" }] } }] } },
+    { "op": "return", "line": 106, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

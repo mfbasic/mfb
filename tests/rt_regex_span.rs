@@ -232,6 +232,22 @@ FUNC recon(subj AS String, pat AS String) AS String
   RETURN out
 END FUNC
 
+' bug-531: `regex::find` raises `ErrNotFound` on absence while `findMatch`
+' reports a no-match `MatchInfo`. The find/findMatch cross-check below is an
+' equality of POSITIONS, so it is only meaningful where a match exists; the
+' guard restores the `-1` that `findMatch` reports so the two stay comparable,
+' and keeps a non-matching row from collapsing into the outer TRAP and losing
+' its findAll/findAllMatches/replace coverage.
+FUNC findOrMinusOne(subj AS String, pat AS String, start AS Integer) AS Integer
+  RETURN regex::find(subj, pat, start)
+TRAP(err)
+  IF err.code = 77050004 THEN
+    RETURN -1
+  END IF
+  FAIL error(err.code, err.message)
+END TRAP
+END FUNC
+
 FUNC one(idx AS Integer, pat AS String, subj AS String) AS String
   MUT bad AS String = ""
   LET starts AS List OF Integer = regex::findAll(subj, pat)
@@ -262,14 +278,22 @@ FUNC one(idx AS Integer, pat AS String, subj AS String) AS String
       i = i + 1
     END WHILE
   END IF
-  IF regex::findMatch(subj, pat).start <> regex::find(subj, pat) THEN
+  IF regex::findMatch(subj, pat).start <> findOrMinusOne(subj, pat, 0) THEN
     bad = bad & " first"
   END IF
-  IF regex::findMatch(subj, pat, 1).start <> regex::find(subj, pat, 1) THEN
+  IF regex::findMatch(subj, pat, 1).start <> findOrMinusOne(subj, pat, 1) THEN
     bad = bad & " first1"
   END IF
-  IF recon(subj, pat) <> regex::replace(subj, pat, "<$0|$1|$2|$3>") THEN
-    bad = bad & " recon"
+  ' bug-533: `regex::replace` refuses an EMPTY pattern, so the reconstruction
+  ' cross-check has nothing to compare against for that one row. Everything else
+  ' this case measures -- findAll/findAllMatches agreement, spans, group 0, and
+  ' the find/findMatch pair -- is unaffected and still runs for it, which is the
+  ' point: the refusal is a guard on `replace`'s argument, not a change to the
+  ' matcher.
+  IF len(pat) > 0 THEN
+    IF recon(subj, pat) <> regex::replace(subj, pat, "<$0|$1|$2|$3>") THEN
+      bad = bad & " recon"
+    END IF
   END IF
   IF bad = "" THEN
     RETURN toString(idx) & ": ok"

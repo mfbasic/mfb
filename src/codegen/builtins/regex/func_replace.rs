@@ -29,8 +29,26 @@ short as possible), and after each match the scan resumes at the position just
 past the end of that match, so the matches are non-overlapping. A zero-length
 match is valid; the iterator then advances one scalar so iteration always
 terminates and the same empty match is never rewritten twice at one position.
-Consequently an empty or empty-matching pattern inserts the replacement before
-each scalar and once at the end: `regex::replace("abc", "", "-")` is `"-a-b-c-"`.
+Consequently an empty-matching pattern inserts the replacement before each scalar
+and once at the end: `regex::replace("abc", "a*", "-")` is `"-b-c-"` and
+`regex::replace("abc", "(?:)", "-")` is `"-a-b-c-"`.
+
+`replace` refuses an *empty* `pattern`, raising `ErrInvalidArgument`. **This is a
+guard on the empty pattern string, not a change to zero-width matching** —
+`"a*"`, `"x?"` and `"(?:)"` still match at every position, and
+`regex::replace(value, "a*", "-")` still interleaves. The guard exists because a
+pattern usually arrives at run time, from a configuration value, a form field or
+a `--replace` flag, and an empty one is a normal accident: rewriting the whole
+subject is the most destructive answer available for an argument the caller did
+not mean to supply, and returning `value` unchanged would report success for a
+call that did nothing. `strings::replace` refuses an empty `old` with the same
+code, so routing a run-time value to either member gives the same outcome, and
+`strings::count` and `strings::split` already refused it before either.
+
+The refusal is only on the rewriting side. `regex::match`, `regex::find`,
+`regex::findAll`, `regex::findMatch` and `regex::findAllMatches` all still accept
+an empty `pattern` and answer with its zero-width match: `regex::find(v, "")` is
+`0`, exactly as `strings::find(v, "")` is.
 
 
 Positions are Unicode scalar values, never UTF-8 bytes and never grapheme
@@ -52,7 +70,9 @@ time; it uses MFBASIC's own portable regex dialect, defined in
 produces identical results on every target and never defers to a host regex
 library. Because `String` literals process backslash escapes, a literal backslash
 is written `"\\"` — `regex::replace(value, "\\d", "#")` rewrites every digit. An
-invalid pattern fails with `ErrInvalidFormat`. When `pattern` matches nothing in
+invalid pattern fails with `ErrInvalidFormat`; an *empty* pattern is not
+malformed, it is a well-formed pattern this member declines, so it fails with
+`ErrInvalidArgument` instead. When `pattern` is valid and matches nothing in
 `value`, `replace` does not fail; it returns a fresh `String` equal to `value`.
 
 `replace` does not mutate `value`, `pattern`, or `replacement` and has no side
@@ -77,11 +97,34 @@ IMPORT regex
 SUB main()
   LET price AS String = regex::replace("5", "5", "$$")
 END SUB
+```
+
+A zero-width pattern still interleaves; only the *empty* pattern is refused:
+
+```
+IMPORT io
+IMPORT regex
+IMPORT strings
+
+FUNC main() AS Integer
+  io::print(regex::replace("abc", "a*", "-"))
+  io::print(regex::replace("abc", "(?:)", "-"))
+  LET pattern AS String = strings::mid("configured", 0, 0)
+  io::print(regex::replace("abc", pattern, "-"))
+  RETURN 0
+TRAP(err)
+  io::print("no pattern was supplied")
+  RETURN 0
+END TRAP
+END FUNC
 ```"##;
 
 #[rustfmt::skip]
 const FUNC_BODY: &str =
 r#"FUNC __regex_replace(value AS String, pattern AS String, replacement AS String) AS String
+  IF len(pattern) = 0 THEN
+    FAIL error(77050002, "Argument value is not valid for the requested operation.")
+  END IF
   LET prog AS __regex_Program = __regex_compile(pattern)
   LET ctx AS __regex_Ctx = __regex_makeCtx(value)
   MUT out AS String = ""
@@ -115,7 +158,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "pattern",
-                    desc: "The regular expression to compile and search for. It must be a valid pattern in the MFBASIC regex dialect; otherwise the call fails with ErrInvalidFormat.",
+                    desc: "The regular expression to compile and search for. It must be a valid pattern in the MFBASIC regex dialect; otherwise the call fails with ErrInvalidFormat. It must also be non-empty: an empty pattern is refused with ErrInvalidArgument, which does not affect patterns such as \"a*\" that match zero-width.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,
@@ -129,7 +172,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrInvalidArgument"],
             body: Body::mfb(FUNC_BODY, "__regex_replace"),
         }],
     });

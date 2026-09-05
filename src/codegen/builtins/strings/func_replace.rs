@@ -28,10 +28,17 @@ match byte for byte. Because both operands are well-formed UTF-8 and UTF-8 is
 self-synchronizing, a byte match is always a whole-scalar match, so the result is
 always well-formed UTF-8.
 
-If `old` is the empty string, nothing can match and a copy of `value` is
-returned; `replace` never inserts `new` between existing scalars. If `old` is
-longer than `value` it likewise cannot match. When `old` does match and `new` is
-empty, each match is deleted.
+An empty `old` is refused with `ErrInvalidArgument`. It occurs at every position,
+and rewriting at every position would insert `new` between every pair of scalars
+— which is the most destructive answer available for a needle that was empty by
+accident, as one read from a configuration value or a command-line flag usually
+is. `strings::count` and `strings::split` refuse it for the same reason; see
+`mfb man strings` for the rule. `regex::replace` refuses an empty `pattern` too,
+so routing a run-time value to either member gives the same outcome.
+
+An `old` longer than `value` is different: it cannot match anywhere, which is an
+ordinary no-match, and a copy of `value` is returned. When `old` does match and
+`new` is empty, each match is deleted.
 
 None of the three arguments is mutated. The result is always a new `String` —
 when nothing matched, it is its own copy of `value`, so you always get a `String`
@@ -58,7 +65,7 @@ FUNC main() AS Integer
 END FUNC
 ```
 
-Matches never overlap, and an empty `old` changes nothing:
+Matches never overlap, and an `old` that cannot match copies `value` through:
 
 ```
 IMPORT io
@@ -66,8 +73,25 @@ IMPORT strings
 
 FUNC main() AS Integer
   io::print(strings::replace("ababa", "aba", "x"))
-  io::print(strings::replace("hi", "", "x"))
+  io::print(strings::replace("hi", "hello", "x"))
   RETURN 0
+END FUNC
+```
+
+An empty `old` is refused, so a needle read at run time is worth checking:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  LET old AS String = strings::mid("configured", 0, 0)
+  io::print(strings::replace("hi", old, "x"))
+  RETURN 0
+TRAP(err)
+  io::print("no needle was supplied")
+  RETURN 0
+END TRAP
 END FUNC
 ```
 
@@ -102,7 +126,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "old",
-                    desc: "The substring to search for. Also accepted under the name `needle`. An empty `old`, or one longer than `value`, never matches.",
+                    desc: "The substring to search for. Also accepted under the name `needle`. Must be non-empty; an `old` longer than `value` is allowed and never matches.",
                     aliases: &["needle"],
                     ty: ParameterType::String,
                     default: DefaultValue::None,
@@ -116,7 +140,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument"],
             body: Body::Intrinsic,
         }],
     });

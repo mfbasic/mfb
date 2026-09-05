@@ -928,6 +928,9 @@ impl CodeBuilder<'_> {
         self.raise_error("strings.mid", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&done));
 
+        // bug-536 shape B: `result_slot` holds this lowering's own
+        // `emit_arena_alloc_call` block, with the selected span copied into it.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,

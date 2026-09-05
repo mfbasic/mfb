@@ -95,12 +95,13 @@ fn number(lines: &[String], key: &str) -> i64 {
 /// `skipped=0`, which is indistinguishable from damage not working at all.
 const UNCHANGED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT os
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40))]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
   canvas::present([box, dot])
   os::sleep(150)
   canvas::present([box, dot])
@@ -113,13 +114,14 @@ END SUB
 /// The same scene, except that the second present moves the circle a long way.
 const MOVED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT os
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
-  LET moved AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 420.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40))]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
+  LET moved AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 420.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
   canvas::present([box, dot])
   os::sleep(150)
   canvas::present([box, moved])
@@ -232,12 +234,13 @@ fn a_moved_item_repaints_its_own_rectangle_and_not_the_window() {
 /// assertions below are about the sequence of answers rather than about a fixed count.
 const RESIZE_POLL: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 IMPORT os
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(200, 40, 40))]
   canvas::present([box])
   os::sleep(150)
   ' Before anything resizes: the surface has been its size since it existed, so there
@@ -310,12 +313,13 @@ fn did_resize_is_false_until_the_surface_changes_and_then_true_once() {
 /// without them.
 const GROUP_REPLACED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET far AS canvas::DrawItem = canvas::Rectangle[x := 20.0, y := 20.0, w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
-  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
-  LET b AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(40, 120, 220))]
+  LET far AS canvas::DrawItem = canvas::Rectangle[x := 20.0, y := 20.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(200, 40, 40))]
+  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 200, 120))]
+  LET b AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 120, 220))]
   canvas::setGroup("panel", [a])
   LET node AS canvas::DrawItem = canvas::Group[dx := 500.0, dy := 300.0, name := "panel"]
   canvas::present([far, node])
@@ -384,10 +388,11 @@ fn replacing_a_group_damages_where_the_group_draws() {
 /// an implementation keying damage off the geometry would see nothing changed.
 const GROUP_MOVED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 200, 120))]
   canvas::setGroup("panel", [a])
   LET here AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := "panel"]
   LET there AS canvas::DrawItem = canvas::Group[dx := 600.0, dy := 400.0, name := "panel"]

@@ -55,57 +55,17 @@ else
   fi
 fi
 
-# Refuse to run concurrently with another artifact-gate — they thrash disk/CPU
-# and can kill each other (0-byte artifacts / exit 144).
-#
-# `pgrep -f` matches our OWN transient children too: the subshells/pipeline
-# members bash fork()s for a `$(...)` still carry the parent
-# `bash scripts/artifact-gate.sh …` command line before they exec(). Excluding
-# only `$$` (the main shell) missed those and reported a phantom "pid N" with no
-# real concurrent run. Instead skip every candidate sharing our process group —
-# our children inherit our PGID at fork() (excluded even mid-race), a separate
-# run is launched into its own session/group. An already-exited candidate (empty
-# PGID) is not a live run.
-mypgid=$(ps -o pgid= -p "$$" | tr -d ' ')
-other=""
-for pid in $(pgrep -f 'artifact-gate\.sh'); do
-  [ "$pid" = "$$" ] && continue
-  cpgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
-  [ -z "$cpgid" ] && continue
-  [ "$cpgid" = "$mypgid" ] && continue
-  # bug-455: a candidate only counts if it is EXECUTING the script, not merely
-  # mentioning it. Another session's wrapper shell
-  # (`zsh -c "... scripts/artifact-gate.sh ..."`) carries the path inside its `-c`
-  # string and matches `pgrep -f` while holding no lock at all -- observed
-  # blocking a run whose rival was still in its `cargo build` stage, and causing
-  # mutual-wait deadlocks between sessions politely queueing on each other's
-  # text. A real invocation has the script as argv[0] (`./scripts/artifact-gate.sh`) or
-  # argv[1] (`bash scripts/artifact-gate.sh`); a wrapper has `-c` there instead.
-  cargs=$(ps -o args= -p "$pid" 2>/dev/null)
-  ca0=${cargs%% *}
-  carest=${cargs#* }
-  ca1=${carest%% *}
-  case "$ca0" in
-    */artifact-gate.sh|artifact-gate.sh) ;;
-    *)
-      case "$ca1" in
-        */artifact-gate.sh|artifact-gate.sh) ;;
-        *) continue ;;
-      esac
-      ;;
-  esac
-  other=$pid
-  break
-done
-if [ -n "$other" ]; then
-  echo "Another artifact-gate (pid $other) is running." >&2
-# Exit 98, not 1: a refusal is NOT a gate result. Sharing 1 with "found diffs"
-# means a lock collision reads as a golden regression, and the reader spends
-# their time on the wrong question (observed: `cargo test` and a manual
-# `artifact-gate.sh all` refusing each other, and `tests/golden.rs` reporting it
-# as a failed gate in 0.16s).
-  exit 98
-fi
+# bug-470: refuse to run concurrently with EITHER gate script IN THIS TREE.
+# Both rewrite the same fixture dumps, so a concurrent pair corrupts each
+# other's artifacts. A run in a DIFFERENT worktree owns a different `tests/`
+# and is deliberately NOT refused. The acquire is atomic (`mkdir`), replacing
+# a check-then-act `pgrep` that two simultaneous runs could both pass.
+GATE_LOCK_HOLDER="artifact-gate.sh"
+GATE_LOCK_TREE="$REPO"
+# shellcheck source=gate-lock.sh
+. "$SCRIPT_DIR/gate-lock.sh"
+gate_lock_acquire || exit $?
+
 # shellcheck source=artifact-kinds.sh
 . "$SCRIPT_DIR/artifact-kinds.sh"
 host_arch="$(uname -m)"; case "$host_arch" in arm64) A=aarch64;; x86_64) A=x86_64;; *) A=$host_arch;; esac

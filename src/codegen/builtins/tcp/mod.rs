@@ -181,6 +181,7 @@ pub(crate) fn register(r: &mut Registry) {
         // Header-only: the connected fd @8 and the closed flag @16. Deadlines
         // are kernel-side (`SO_RCVTIMEO`/`SO_SNDTIMEO`) and ride the fd.
         live_slots: &[],
+        unsendable_reason: None,
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
@@ -200,6 +201,7 @@ pub(crate) fn register(r: &mut Registry) {
         // Header-only, exactly like the `Socket` above -- which is why this
         // needed no change to the transfer copy.
         live_slots: &[],
+        unsendable_reason: None,
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

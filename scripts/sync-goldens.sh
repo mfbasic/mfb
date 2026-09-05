@@ -23,6 +23,19 @@ MFB_EXE=${1:?usage: sync-goldens.sh <mfb-exe> [name-glob ...]}
 shift || true
 ACTUAL=$(mktemp -d)
 
+# bug-470: hold the tree's gate lock across BOTH phases below. The
+# `test-accept.sh` invocation locks and releases on its own, but the golden COPY
+# that follows it would then run unlocked — and an `artifact-gate.sh` starting
+# in that window reads half-written goldens, which is exactly the corruption the
+# lock exists to prevent. Acquiring here covers both; the nested acquire inside
+# the spawned `test-accept.sh` is a no-op because this process tree already
+# holds it (see `gate_lock_acquire`'s re-entrancy note).
+GATE_LOCK_HOLDER="sync-goldens.sh"
+GATE_LOCK_TREE="$ROOT"
+# shellcheck source=gate-lock.sh
+. "$ROOT/scripts/gate-lock.sh"
+gate_lock_acquire || exit $?
+
 # Forward the name globs so test-accept.sh runs ONLY the matching tests. With no
 # globs, "$@" is empty and it runs everything (mass-migration mode).
 #

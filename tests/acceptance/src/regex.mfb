@@ -282,22 +282,22 @@ TESTING
     END TGROUP
 
     ' =================================================================
-    ' regex::find  (Integer start index, -1 when absent)
+    ' regex::find  (Integer start index; raises ErrNotFound when absent -- bug-531)
     ' =================================================================
     TGROUP "find"
       TCASE "worked examples with explicit start"
         expectInteger(regex::find("hello", "l", 0), 2)
         expectInteger(regex::find("hello", "l", 3), 3)
-        expectInteger(regex::find("hello", "l", 4), -1)
+        expectTrap(findAt("hello", "l", 4), errorCode::ErrNotFound)
         expectInteger(regex::find("a1b2c3", "\\d", 0), 1)
         expectInteger(regex::find("aaa", "a+", 0), 0)
-        expectInteger(regex::find("abc", "x", 0), -1)
+        expectTrap(findAt("abc", "x", 0), errorCode::ErrNotFound)
         expectInteger(regex::find("hello", "o$", 0), 4)
       END TCASE
       TCASE "default start (omitted argument)"
         expectInteger(regex::find("a1b2c3", "\\d"), 1)
         expectInteger(regex::find("hello", "l"), 2)
-        expectInteger(regex::find("abc", "z"), -1)
+        expectTrap(findAt("abc", "z", 0), errorCode::ErrNotFound)
       END TCASE
       TCASE "empty and zero-length matches report their start"
         expectInteger(regex::find("abc", "", 0), 0)
@@ -306,20 +306,30 @@ TESTING
         expectInteger(regex::find("abc", "a*", 0), 0)
       END TCASE
       TCASE "start restricts where a match may begin, not the absolute anchors"
-        expectInteger(regex::find("abc", "^b", 1), -1)
-        expectInteger(regex::find("abab", "^a", 2), -1)
+        expectTrap(findAt("abc", "^b", 1), errorCode::ErrNotFound)
+        expectTrap(findAt("abab", "^a", 2), errorCode::ErrNotFound)
         expectInteger(regex::find("abc", "$", 3), 3)
         expectInteger(regex::find("abc", "\\Aa", 0), 0)
       END TCASE
       TCASE "start may equal len(value)"
         expectInteger(regex::find("abc", "", 3), 3)
         expectInteger(regex::find("hi", "", 2), 2)
-        expectInteger(regex::find("hi", "x", 2), -1)
+        expectTrap(findAt("hi", "x", 2), errorCode::ErrNotFound)
         expectInteger(regex::find("abc", "$", 3), 3)
       END TCASE
-      TCASE "the -1 sentinel is unambiguous"
-        expectInteger(regex::find("abc", "\\d"), -1)
-        expectNInteger(regex::find("a1", "\\d"), -1)
+      TCASE "absence raises rather than returning a sentinel (bug-531)"
+        ' The convergence: `regex::find` reports absence exactly as
+        ' `strings::find` and the `collections` find-family do. A present match
+        ' is the positive half -- it must still return its index, not raise.
+        expectTrap(findAt("abc", "\\d", 0), errorCode::ErrNotFound)
+        expectInteger(regex::find("a1", "\\d"), 1)
+        expectTrap(findAt("", "x", 0), errorCode::ErrNotFound)
+        ' Absence is a raise ONLY for `find`; the other members keep their
+        ' answers, because each return type already holds a "no match" value.
+        expectEqual(regex::match("abc", "\\d"), FALSE)
+        expectInteger(findAllLen("abc", "\\d", 0), 0)
+        expectString(regex::replace("abc", "\\d", "-"), "abc")
+        expectInteger(regex::findMatch("abc", "\\d").start, -1)
       END TCASE
       TCASE "start out of range traps ErrIndexOutOfRange"
         expectTrap(findAt("hello", "l", 6), errorCode::ErrIndexOutOfRange)
@@ -329,7 +339,18 @@ TESTING
       END TCASE
       TCASE "in-range start does not trap"
         expectNTrap(findAt("hello", "l", 0))
-        expectNTrap(findAt("hello", "l", 5))
+        expectNTrap(findAt("hello", "l", 3))
+        ' bug-531: this case pins the RANGE contract -- a start in 0..len(value)
+        ' is not out of range. Since absence now raises, the observable has to be
+        ' a call that can still match, or the case would silently be asserting
+        ' the absence contract instead. `start == len(value)` is the boundary
+        ' that matters, and a zero-length pattern matches there.
+        expectNTrap(findAt("hello", "", 5))
+        expectInteger(regex::find("hello", "", 5), 5)
+        ' And the discriminator: at that same in-range boundary a pattern that
+        ' cannot match raises ErrNotFound -- never ErrIndexOutOfRange, which
+        ' would mean the boundary had been rejected as out of range.
+        expectTrap(findAt("hello", "l", 5), errorCode::ErrNotFound)
       END TCASE
       TCASE "invalid pattern traps ErrInvalidFormat, taking precedence over start"
         expectTrap(findAt("hi", "(", 0), errorCode::ErrInvalidFormat)
@@ -463,10 +484,24 @@ TESTING
         expectString(regex::replace("b", "(a)?b", "[$1]"), "[]")
         expectString(regex::replace("ac", "a(b)?c", "[$1]"), "[]")
       END TCASE
-      TCASE "empty pattern inserts around every scalar and once at end"
-        expectString(regex::replace("abc", "", "-"), "-a-b-c-")
+      TCASE "the EMPTY pattern is refused; zero-width patterns are not (bug-533)"
+        ' The guard is on the empty pattern STRING. Everything that MATCHES
+        ' zero-width still interleaves exactly as before -- these four lines are
+        ' what keeps the refusal from being read as a change to zero-width
+        ' matching, which it is not.
         expectString(regex::replace("abc", "x*", "-"), "-a-b-c-")
-        expectString(regex::replace("", "", "-"), "-")
+        expectString(regex::replace("abc", "(?:)", "-"), "-a-b-c-")
+        expectString(regex::replace("abc", "a*", "-"), "-b-c-")
+        expectString(regex::replace("abc", "\\b", "-"), "-abc-")
+        ' And the refusal itself, on both spellings of an empty subject.
+        expectTrap(replaceWrap("abc", "", "-"), errorCode::ErrInvalidArgument)
+        expectTrap(replaceWrap("", "", "-"), errorCode::ErrInvalidArgument)
+        ' The refusal is on the REWRITING side only: the query members keep
+        ' their zero-width answers for the same empty pattern.
+        expectEqual(regex::match("abc", ""), TRUE)
+        expectInteger(regex::find("abc", ""), 0)
+        expectInteger(findAllLen("abc", "", 0), 4)
+        expectInteger(regex::findMatch("abc", "").start, 0)
       END TCASE
       TCASE "zero-length advance never rewrites the same empty twice"
         expectString(regex::replace("ab", "(a)(b)", "${1}0"), "a0")
@@ -592,8 +627,8 @@ TESTING
         expectInteger(regex::find(manyA(500), "a+", 0), 0)
         expectInteger(len(regex::findAll(manyA(50), "a", 0)), 50)
       END TCASE
-      TCASE "a long non-matching scan terminates with the -1 / empty sentinels"
-        expectInteger(regex::find(manyA(2000), "b", 0), -1)
+      TCASE "a long non-matching scan terminates with a raise / empty result"
+        expectTrap(findAt(manyA(2000), "b", 0), errorCode::ErrNotFound)
         expectInteger(len(regex::findAll(manyA(2000), "b", 0)), 0)
         expectString(regex::replace(manyA(5), "b", "c"), manyA(5))
       END TCASE

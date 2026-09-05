@@ -123,8 +123,9 @@ const PUBLISH: &str = "_mfb_rt_canvas_canvas_publishScene";
 /// the function that made it.
 const SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
+     IMPORT color\n\
      FUNC scene(RES f AS canvas::Font) AS List OF canvas::DrawItem\n\
-    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
     \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 1.0, y := 2.0]]\n\
     \x20 LET a AS canvas::DrawItem = canvas::Polygon[points := pts, paint := canvas::fill(c)]\n\
     \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := f, size := 9.0, paint := canvas::fill(c)]\n\
@@ -286,9 +287,10 @@ const SET_GROUP: &str = "_mfb_rt_canvas_canvas_setGroup";
 /// A program that installs a group and then removes one that was never installed.
 const GROUP_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
+     IMPORT color\n\
      FUNC main AS Integer\n\
     \x20 app::setMode(app::Mode.Canvas)\n\
-    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
     \x20 LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(c)]\n\
     \x20 canvas::setGroup(\"panel\", [a])\n\
     \x20 canvas::removeGroup(\"absent\")\n\

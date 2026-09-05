@@ -421,10 +421,36 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
     let resources: Vec<_> = package.resources().iter().filter(|r| r.export).collect();
     if !resources.is_empty() {
         md.push_str("## Resources\n\n");
+        // bug-523: every resource page said what the handle is and that it
+        // closes at the end of its binding's scope, and nothing about the three
+        // shapes a `RES` value actually has. Two of the three are true of ALL
+        // of them, so they are stated once here rather than eleven times; the
+        // third is per-resource and is DERIVED from the `sendable` bit below,
+        // never restated in prose (that is the drift bug-522 recorded).
+        md.push_str(
+            "Each of these is a `RES` handle. A second name for one is an alias, not a \
+             copy, and it closes itself when its binding's scope ends. A handle may be a \
+             field of a record and an element of a collection — written \
+             `List OF RES <Type>`, never a bare `List OF <Type>`. `mfb man variable` \
+             covers all of that in one place. Whether a particular handle may be handed \
+             to another thread is stated with it.\n\n",
+        );
         for resource in resources {
             md.push_str(&format!("#### {pkg}::{}\n\n", resource.name));
             md.push_str(resource.description);
             md.push_str("\n\n");
+            if resource.sendable {
+                md.push_str(
+                    "May be handed to another thread with `thread::transfer`.\n\n",
+                );
+            } else {
+                match resource.unsendable_reason {
+                    Some(reason) => md.push_str(&format!(
+                        "Stays on the thread that opened it: {reason}.\n\n"
+                    )),
+                    None => md.push_str("Stays on the thread that opened it.\n\n"),
+                }
+            }
         }
     }
 
@@ -702,6 +728,162 @@ mod tests {
         values.iter().map(|value| value.to_string()).collect()
     }
 
+    /// bug-526: a rendered signature has to be a declaration that COMPILES.
+    ///
+    /// `mfb man tls poll` printed
+    /// `tls::poll(socks AS List OF tls::Socket, …)` in both the Overloads block
+    /// and the Parameters table, and that spelling is refused —
+    /// `TYPE_RESOURCE_REQUIRES_RES`, "Collection element type `tls.Socket` is a
+    /// resource; mark it `RES`". The same page's Description and example had it
+    /// right, so the page carried both the correct form and an uncompilable one,
+    /// and the uncompilable one was in the two places a reader looks first.
+    ///
+    /// The cause is that a `ParameterType` built by PARSING a string and one
+    /// built by CONSTRUCTION are not interchangeable: `parse` strips the `RES `
+    /// marker off a collection element, so a descriptor written
+    /// `ListOf(named(T))` has no marker to render, while `tcp::poll`'s
+    /// `list_of(Res(named(T)))` keeps one and still unifies against the same
+    /// concrete argument. The difference is invisible until something renders
+    /// it — which is exactly what this test does.
+    ///
+    /// Scoped to collection ELEMENTS because that is what the diagnostic
+    /// enforces: `List OF RES T`, never `List OF T`. A bare top-level resource
+    /// parameter (`sock AS tls::Socket`) renders without `RES` across the whole
+    /// tree and is a separate question.
+    #[test]
+    fn every_rendered_signature_marks_a_resource_collection_element_res() {
+        use crate::codegen::resource::is_builtin_resource_type;
+        use crate::types::ParameterType;
+
+        /// Walk `ty`, reporting each collection element that names a built-in
+        /// resource without a `RES` marker.
+        fn check(ty: &ParameterType, bad: &mut Vec<String>) {
+            match ty {
+                ParameterType::ListOf(inner) | ParameterType::SetOf(inner) => {
+                    element(inner, bad);
+                }
+                ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+                    element(key, bad);
+                    element(value, bad);
+                }
+                ParameterType::ResultOf(inner) | ParameterType::Res(inner) => check(inner, bad),
+                ParameterType::Stateful { base, .. } => check(base, bad),
+                _ => {}
+            }
+        }
+
+        /// One collection element position.
+        fn element(ty: &ParameterType, bad: &mut Vec<String>) {
+            match ty {
+                // Marked: correct. Keep walking for a nested collection.
+                ParameterType::Res(inner) => check(inner, bad),
+                ParameterType::Stateful { base, .. } => element(base, bad),
+                other => {
+                    if is_builtin_resource_type(other) {
+                        bad.push(other.name().into_owned());
+                    }
+                    check(other, bad);
+                }
+            }
+        }
+
+        let mut failures = Vec::new();
+        for package in registry().packages() {
+            for function in package.functions() {
+                for implementation in function.implementations() {
+                    let mut bad = Vec::new();
+                    for param in &implementation.params {
+                        check(&param.ty, &mut bad);
+                    }
+                    check(&implementation.return_type, &mut bad);
+                    if !bad.is_empty() {
+                        failures.push(format!(
+                            "{} — unmarked resource element(s) {bad:?}",
+                            render_declaration(
+                                package.import_name(),
+                                function.name,
+                                implementation
+                            )
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "a rendered signature must be a declaration that compiles, and a \
+             collection of a resource must carry the `RES` marker \
+             (`List OF RES T`, never `List OF T` — TYPE_RESOURCE_REQUIRES_RES). \
+             Build the parameter with `ParameterType::list_of(ParameterType::\
+             Res(..))` as `tcp::poll` does, not `ListOf(named(..))`, which drops \
+             the marker (bug-526):\n{}",
+            failures.join("\n")
+        );
+    }
+
+    /// bug-523: every resource type page states, for every built-in resource,
+    /// whether the handle may cross a thread — and states it from the
+    /// `sendable` bit, not from prose.
+    ///
+    /// That is the whole point of deriving it. bug-522 is what prose costs: two
+    /// pages restated the transferable set, bug-464 flipped three bits, and one
+    /// of the two sentences went a year saying the opposite of what the compiler
+    /// enforced. A line rendered from the bit cannot disagree with it.
+    ///
+    /// The reason a handle stays put IS prose, because it is per-resource; this
+    /// asserts every non-sendable row has one, so a new one cannot render the
+    /// bare line by omission.
+    #[test]
+    fn every_resource_page_states_transferability_from_the_sendable_bit() {
+        let mut seen = 0;
+        for package in registry().packages() {
+            if !package.resources().iter().any(|r| r.export) {
+                continue;
+            }
+            let md = render_types_markdown(package);
+            // Stated once for the whole section, not eleven times.
+            assert!(
+                md.contains("may be a field of a record and an element of a collection"),
+                "{}'s types page must state the record-field and collection-element \
+                 shapes a RES handle has (bug-523)",
+                package.import_name()
+            );
+            assert!(
+                md.contains("`List OF RES <Type>`, never a bare `List OF <Type>`"),
+                "{}'s types page must state the RES-marker rule before a reader \
+                 meets TYPE_RESOURCE_REQUIRES_RES (bug-523)",
+                package.import_name()
+            );
+            for resource in package.resources().iter().filter(|r| r.export) {
+                seen += 1;
+                let name = format!("{}::{}", package.import_name(), resource.name);
+                if resource.sendable {
+                    assert!(
+                        md.contains("May be handed to another thread with `thread::transfer`."),
+                        "{name} is sendable, so its page must say so"
+                    );
+                } else {
+                    let reason = resource.unsendable_reason.unwrap_or_else(|| {
+                        panic!(
+                            "{name} is not thread-sendable and carries no \
+                             `unsendable_reason`; the type page would state the bare \
+                             fact with no reason (bug-523)"
+                        )
+                    });
+                    assert!(
+                        md.contains(&format!("Stays on the thread that opened it: {reason}.")),
+                        "{name}'s page must give its reason for staying put"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            seen, 11,
+            "the built-in resource census is 11 exported handles; a new one needs a \
+             verdict here and in `codegen::resource`'s sendability table"
+        );
+    }
+
     #[test]
     fn renders_a_csv_function_from_the_clean_room_registry() {
         assert!(show_man(&s(&["csv", "parse"])).is_ok());
@@ -936,6 +1118,7 @@ mod tests {
             close_function: "demo.close",
             sendable: true,
             live_slots: &[],
+            unsendable_reason: None,
             close_may_fail: true,
             kind: ResourceKind::Builtin,
         });

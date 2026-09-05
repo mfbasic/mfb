@@ -1024,7 +1024,8 @@ pub(crate) const RESOURCE_TAG_NATIVE: &str = "255";
 
 /// The word at `RESOURCE_OFFSET_CLOSED` is a u64 flag set, not a boolean: bit 0
 /// is `closed`, bit 1 is `moved`, and 62 bits are spare. Storing `moved` here
-/// costs no space and keeps plan-38's offset-8 invariant intact.
+/// costs no space and keeps plan-38's canonical closed-flag invariant intact
+/// (that offset is 16 since plan-80, not the original 8).
 ///
 /// The payoff is that every existing guard is `load; compare 0; branch_ne` —
 /// a *non-zero* test, not an equals-1 test — so a moved resource already refuses

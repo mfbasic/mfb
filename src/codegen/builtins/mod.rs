@@ -204,8 +204,8 @@ pub(crate) fn inline_trap_unsupported(target: &str, arg_types: &[ParameterType])
         && !inline_builtin_is_infallible(target, arg_types)
 }
 
-/// The one inline built-in whose fallibility depends on its **argument type**
-/// rather than its name (bug-486).
+/// The inline built-ins whose fallibility depends on their **argument type**
+/// rather than their name (bug-486, bug-533).
 ///
 /// `toString` is overloaded across every type, and exactly one of those overloads
 /// can fail: `List OF Byte → String` decodes UTF-8 and raises `ErrEncoding`
@@ -221,32 +221,79 @@ pub(crate) fn inline_trap_unsupported(target: &str, arg_types: &[ParameterType])
 /// emit no error return at all, and `typeName` folds to a string constant at
 /// compile time.
 ///
+/// `replace` is the second entry (bug-533), and it is the same hazard from the
+/// other side. `strings::replace` and `collections::replace` dequalify to the one
+/// bare native target `replace` (`native_builtin_target`), and since bug-533 the
+/// `String` overload refuses an empty `old` with `ErrInvalidArgument` while the
+/// `List` overload cannot fail — an empty *element* in a list is an ordinary
+/// value, not a degenerate needle, and its lowering returns before the guard.
+/// Leaving `replace` on the name-keyed infallible list made the front-end warn
+/// `TYPE_INLINE_TRAP_DEAD_HANDLER` on a live handler and drop the error on the
+/// floor; the guarded call then aborted the program instead of recovering.
+///
+/// Its rule **fails closed**: anything that is not provably the `List` overload
+/// counts as fallible. Over-approximating only ever keeps a handler that could
+/// not have run; the other direction is the miscompile above.
+///
 /// A caller that cannot type its arguments passes an empty slice (or `Unknown`),
-/// which answers the name-keyed verdict — the same answer as before this existed.
-/// That is the *under*-approximating side, so every site that can type its
-/// arguments must: [`inline_builtin_is_infallible`]'s consumers act on this to
-/// decide whether an inline `TRAP`'s handler is live.
+/// which for `toString` answers the name-keyed verdict — the same answer as
+/// before this existed, and the *under*-approximating side, so every site that
+/// can type its arguments must. For `replace` the untyped answer is "fallible",
+/// the safe side, by the same fail-closed rule.
+/// [`inline_builtin_is_infallible`]'s consumers act on this to decide whether an
+/// inline `TRAP`'s handler is live.
 pub(crate) fn arg_type_makes_inline_builtin_fallible(
     target: &str,
     arg_types: &[ParameterType],
 ) -> bool {
-    inline_builtin_fallibility_depends_on_args(target)
-        && matches!(
+    match inline_builtin_arg_fallibility_rule(target) {
+        None => false,
+        // `toString(<List OF Byte>)` decodes UTF-8 and can raise `ErrEncoding`.
+        Some(ArgFallibility::ToStringOverAListOfByte) => matches!(
             arg_types.first(),
             Some(ParameterType::ListOf(element)) if **element == ParameterType::Byte
-        )
+        ),
+        // `replace` over anything but a `List` — i.e. the `String` overload, and
+        // any future overload — refuses an empty needle.
+        Some(ArgFallibility::ReplaceOverAnythingButAList) => {
+            !matches!(arg_types.first(), Some(ParameterType::ListOf(_)))
+        }
+    }
+}
+
+/// Which argument-typed fallibility rule a target uses. One value per entry in
+/// the shared list below, so the recogniser and the measurer cannot drift.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ArgFallibility {
+    ToStringOverAListOfByte,
+    ReplaceOverAnythingButAList,
+}
+
+/// The single list of argument-typed entries, consulted by both
+/// [`arg_type_makes_inline_builtin_fallible`] (which applies the rule) and
+/// [`inline_builtin_fallibility_depends_on_args`] (which only asks whether one
+/// exists). Keeping it as one function is what stops a recogniser and its
+/// measurer becoming two lists that lose an entry.
+fn inline_builtin_arg_fallibility_rule(target: &str) -> Option<ArgFallibility> {
+    if target == "toString" {
+        return Some(ArgFallibility::ToStringOverAListOfByte);
+    }
+    if native_builtin_target(target) == Some("replace") {
+        return Some(ArgFallibility::ReplaceOverAnythingButAList);
+    }
+    None
 }
 
 /// Whether `target`'s verdict depends on its argument types at all — the cheap
 /// gate a caller uses to skip typing arguments it would not consult.
 ///
-/// Deliberately the *same* name list [`arg_type_makes_inline_builtin_fallible`]
-/// tests, not a second copy of it: a recogniser and its measurer kept as two
+/// Deliberately reads the *same* list [`arg_type_makes_inline_builtin_fallible`]
+/// applies, not a second copy of it: a recogniser and its measurer kept as two
 /// lists is exactly the shape that loses an entry when one grows. Adding a name
-/// here without a rule there only costs wasted work; the reverse would be a
-/// miscompile, and the shared `matches!` makes it impossible.
+/// there is the only edit needed, and a name cannot appear in one and not the
+/// other.
 pub(crate) fn inline_builtin_fallibility_depends_on_args(target: &str) -> bool {
-    matches!(target, "toString")
+    inline_builtin_arg_fallibility_rule(target).is_some()
 }
 
 /// Whether a fallible inline member has a raw-`Result` inline lowering
@@ -315,7 +362,9 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
 /// `ErrEncoding`; see [`arg_type_makes_inline_builtin_fallible`]), every total
 /// `bits::*` op (all but the variable shifts), and the pure-query /
 /// default-returning / OOM-only members `contains`, `hasKey`, `keys`, `values`,
-/// `sum`, `getOr`, `append`, `prepend`, `removeKey`, `replace`.
+/// `sum`, `getOr`, `append`, `prepend`, `removeKey`, and `replace` **on a
+/// `List`** (bug-533 — the `String` overload of the same bare target refuses an
+/// empty `old`; see [`arg_type_makes_inline_builtin_fallible`]).
 ///
 /// Fallible (NOT infallible — raw-supported, so an inline `TRAP` traps their real
 /// error): the `bits::` variable shifts `sl`/`sr`/`sra` (out-of-range count
@@ -928,7 +977,6 @@ mod tests {
             "collections.append",
             "collections.prepend",
             "collections.removeKey",
-            "strings.replace",
         ] {
             assert!(
                 inline_builtin_is_infallible(c, &[]),
@@ -952,6 +1000,13 @@ mod tests {
             "collections.transform",
             "collections.filter",
             "collections.reduce",
+            // bug-533: `strings.replace` and `collections.replace` dequalify to
+            // one bare native target, and the `String` overload now refuses an
+            // empty `old`. Untyped, the fail-closed rule answers "fallible" for
+            // both spellings; the per-overload verdict is
+            // `replace_is_fallible_only_on_a_string` below.
+            "strings.replace",
+            "collections.replace",
         ] {
             assert!(
                 !inline_builtin_is_infallible(c, &[]),
@@ -1012,16 +1067,94 @@ mod tests {
             );
         }
 
-        // The overload rule is `toString`'s alone: `len` and `typeName` were
-        // audited and have no fallible overload, so a byte-list argument must not
-        // flip them (`lower_len`'s two arms emit no error return; `typeName` folds
-        // to a string constant at compile time).
+        // `len` and `typeName` were audited and have no fallible overload, so a
+        // byte-list argument must not flip them (`lower_len`'s two arms emit no
+        // error return; `typeName` folds to a string constant at compile time).
         for name in ["len", "typeName"] {
             assert!(
                 inline_builtin_is_infallible(name, &bytes),
                 "expected infallible: {name}(List OF Byte)"
             );
         }
+    }
+
+    /// bug-533: the second argument-typed name, and the one that made the
+    /// name-keyed census a MISCOMPILE rather than a missed optimisation.
+    /// `strings::replace` and `collections::replace` dequalify to the same bare
+    /// native target `replace`. Since bug-533 the `String` overload refuses an
+    /// empty `old` with `ErrInvalidArgument`; the `List` overload cannot fail,
+    /// because an empty *element* is an ordinary value and its lowering returns
+    /// before the guard. With `replace` on the name-keyed infallible list the
+    /// front-end warned `TYPE_INLINE_TRAP_DEAD_HANDLER` on a LIVE handler, elided
+    /// it, and the guarded call aborted the program instead of recovering.
+    ///
+    /// The rule fails CLOSED: only a provable `List` first argument is
+    /// infallible. Over-approximating keeps a handler that could not have run;
+    /// the other direction is the miscompile above.
+    #[test]
+    fn replace_is_fallible_only_on_a_string() {
+        for name in ["strings.replace", "collections.replace"] {
+            // The `String` overload is fallible, and therefore raw-supported so
+            // an inline `TRAP` on it traps the real error rather than being
+            // rejected for having no lowering.
+            let strings = [
+                ParameterType::String,
+                ParameterType::String,
+                ParameterType::String,
+            ];
+            assert!(
+                !inline_builtin_is_infallible(name, &strings),
+                "expected fallible: {name}(String, String, String)"
+            );
+            assert!(inline_builtin_raw_supported(name, &strings));
+            assert!(!inline_trap_unsupported(name, &strings));
+
+            // The `List` overload keeps its infallible verdict, for every element
+            // type — including `List OF Byte`, which is `toString`'s fallible
+            // shape and must not leak across.
+            for element in [
+                ParameterType::Integer,
+                ParameterType::String,
+                ParameterType::Byte,
+            ] {
+                let list = [
+                    ParameterType::list_of(element.clone()),
+                    element.clone(),
+                    element,
+                ];
+                assert!(
+                    inline_builtin_is_infallible(name, &list),
+                    "expected infallible: {name}{list:?}"
+                );
+                assert!(!inline_builtin_raw_supported(name, &list));
+            }
+
+            // Fail closed: an untyped or unknown first argument is fallible.
+            for args in [vec![], vec![ParameterType::Unknown]] {
+                assert!(
+                    !inline_builtin_is_infallible(name, &args),
+                    "expected fallible (fail closed): {name}{args:?}"
+                );
+            }
+
+            // The cheap gate must agree, or a consumer would skip typing the
+            // arguments and take the name-keyed answer.
+            assert!(inline_builtin_fallibility_depends_on_args(name));
+        }
+
+        // The rule is `replace`'s alone: the sibling intrinsics that share the
+        // dequalifying path must be untouched by a String first argument.
+        let strings = [
+            ParameterType::String,
+            ParameterType::String,
+            ParameterType::String,
+        ];
+        assert!(!inline_builtin_fallibility_depends_on_args("strings.mid"));
+        assert!(!inline_builtin_fallibility_depends_on_args("strings.find"));
+        assert!(!arg_type_makes_inline_builtin_fallible(
+            "strings.mid",
+            &strings
+        ));
     }
 
     #[test]

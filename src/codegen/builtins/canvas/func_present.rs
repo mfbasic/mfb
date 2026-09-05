@@ -38,11 +38,12 @@ a list literal does not span source lines:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)
-  LET green AS canvas::Color = canvas::rgb(0, 160, 0)
+  LET yellow AS color::Color = color::rgb(255, 255, 0)
+  LET green AS color::Color = color::rgb(0, 160, 0)
 
   LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
   LET eyeL AS canvas::DrawItem = canvas::Circle[x := 150.0, y := 160.0, radius := 22.0, paint := canvas::fill(green)]
@@ -61,11 +62,12 @@ its own centre, clockwise from +X, so the two lean towards each other:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)
-  LET green AS canvas::Color = canvas::rgb(0, 160, 0)
+  LET yellow AS color::Color = color::rgb(255, 255, 0)
+  LET green AS color::Color = color::rgb(0, 160, 0)
 
   LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
   LET eyeL AS canvas::DrawItem = canvas::Ellipse[x := 150.0, y := 160.0, radiusX := 30.0, radiusY := 12.0, angle := 0.0 - 0.35, paint := canvas::fill(green)]

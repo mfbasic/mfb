@@ -135,6 +135,11 @@ impl CodeBuilder<'_> {
         let new_index = &scratch26;
 
         let copy_original = self.label("replace_copy_original");
+        // bug-533: an empty `old` occurs at every position, and rewriting at
+        // every position destroys the input. This is the STRING path only — the
+        // `List` overload returned above, and an empty *element* there is an
+        // ordinary value, not a degenerate needle.
+        let empty_old = self.label("replace_empty_old");
         let first_loop = self.label("replace_first_loop");
         let first_compare = self.label("replace_first_compare");
         let first_match = self.label("replace_first_match");
@@ -159,7 +164,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(old_len, old_ptr, 0));
         self.emit(abi::load_u64(new_len, new_ptr, 0));
         self.emit(abi::compare_immediate(old_len, "0"));
-        self.emit(abi::branch_eq(&copy_original));
+        self.emit(abi::branch_eq(&empty_old));
+        // An `old` longer than `value` cannot match anywhere; that is an ordinary
+        // no-match, and it keeps the copy-through path the empty needle no longer
+        // takes.
         self.emit(abi::compare_registers(old_len, value_len));
         self.emit(abi::branch_hi(&copy_original));
         self.emit(abi::add_immediate(value_ptr, value_ptr, 8));
@@ -296,6 +304,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         self.emit(abi::branch(&done));
 
+        self.emit(abi::label(&empty_old));
+        self.raise_error("strings.replace", "ErrInvalidArgument")?;
+
         self.emit(abi::label(&copy_original));
         // No replacement occurred. The caller owns and frees this result, so it
         // must be a fresh arena block, not an alias of the input `value` (which
@@ -311,6 +322,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, &copied));
         self.emit(abi::label(&done));
 
+        // bug-536 shape B: BOTH arms put a fresh block in `result` — the
+        // replacing arm its own `emit_arena_alloc_call`, the no-match arm the
+        // `copy_flat_block` right above (which exists precisely so the result is
+        // never an alias of the input).
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -918,6 +934,10 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&text_ptr, &value_register, 0));
                 self.emit(abi::add_registers(&text_ptr, &value_register, &text_ptr));
                 let copied = self.copy_flat_block(&ParameterType::String, &text_ptr)?;
+                // bug-536 shape B: `copied` is the `copy_flat_block` above —
+                // a fresh arena block, deliberately not the record's inlined
+                // text field.
+                self.mark_fresh_string(Operand::from(copied.render()));
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::String,
@@ -986,6 +1006,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register();
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
+        // bug-536 shape B: `_mfb_rt_int_to_string` renders into its own stack
+        // buffer, `_mfb_arena_alloc`s the String block and copies the digits in
+        // (`lower_int_to_string_helper`); the argument is an Integer, so no
+        // caller storage can be aliased. Fresh — an unbound `toString(i)` is
+        // freed at statement end.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1230,6 +1256,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8(byte, dst, 0));
         self.emit(abi::load_u64(result, abi::stack_pointer(), result_slot));
 
+        // bug-536 shape B: `result_slot` holds this lowering's own
+        // `emit_arena_alloc_call` block, with the list's bytes copied in.
+        self.mark_fresh_string(Operand::from(result.to_string()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1720,6 +1749,9 @@ impl CodeBuilder<'_> {
 
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        // bug-536 shape B: the rendered decimal is this lowering's own
+        // `result_slot` allocation; the argument is a scalar.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1910,6 +1942,9 @@ impl CodeBuilder<'_> {
 
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        // bug-536 shape B: the rendered decimal is this lowering's own
+        // `result_slot` allocation; the argument is a scalar.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1948,6 +1983,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register();
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
+        // bug-536 shape B: `_mfb_rt_float_to_string` ends in an
+        // `_mfb_arena_alloc` + copy of its own digit buffer (`float_format.rs`),
+        // and its argument is an f64 bit pattern — nothing of the caller's can
+        // come back. Fresh.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1983,6 +2023,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register();
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
+        // bug-536 shape B: `_mfb_rt_float_to_string_sci` ends in an
+        // `_mfb_arena_alloc` (`float_format_sci.rs`) and takes an f64 bit
+        // pattern, so its String is fresh.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,

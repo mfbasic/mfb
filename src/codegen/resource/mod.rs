@@ -480,12 +480,67 @@ mod tests {
         );
     }
 
+    /// bug-522: the thread-transferable set has exactly one source of truth —
+    /// the `sendable` bit on each `RegistryResource` — and three man pages
+    /// restate it in prose the compiler never reads. bug-464 flipped
+    /// `tcp::Listener`, `tls::Socket` and `tls::Listener` to `true` and updated
+    /// the `thread` package intro; `thread::transfer`'s own page still said
+    /// "listeners and `tls::Socket` may not" a year later, which is the exact
+    /// restriction the intro's headline pattern ("accept on one thread and hand
+    /// each connection to a worker") depends on NOT existing.
+    ///
+    /// This asserts every built-in resource's bit against an explicit table, so
+    /// flipping one without following the prose fails here rather than shipping
+    /// a page that contradicts the compiler.
+    #[test]
+    fn every_builtin_resource_sendability_matches_the_documented_set() {
+        // (qualified type, may it cross a thread)
+        const EXPECTED: &[(&str, bool)] = &[
+            ("fs.File", true),
+            ("tcp.Socket", true),
+            ("tcp.Listener", true),
+            ("udp.Socket", true),
+            ("tls.Socket", true),
+            ("tls.Listener", true),
+            ("process.Process", false),
+            ("audio.AudioInput", false),
+            ("audio.AudioOutput", false),
+            ("canvas.Image", false),
+            ("canvas.Font", false),
+        ];
+        // The table has to be COMPLETE, not just correct: a new resource that
+        // nobody added here would otherwise never be classified, and the three
+        // pages below would silently omit it.
+        let mut actual: Vec<(String, bool)> = Vec::new();
+        for pkg in registry().packages() {
+            for r in pkg.resources() {
+                actual.push((format!("{}.{}", pkg.import_name(), r.name), r.sendable));
+            }
+        }
+        actual.sort();
+        let mut expected: Vec<(String, bool)> = EXPECTED
+            .iter()
+            .map(|(n, s)| ((*n).to_string(), *s))
+            .collect();
+        expected.sort();
+        assert_eq!(
+            actual, expected,
+            "the built-in thread-transferable set changed. It is stated in PROSE on \
+             three pages that no build can check — `thread::transfer` and \
+             `thread::accept` (`src/codegen/builtins/thread/func_transfer.rs`, \
+             `func_accept.rs`) and the `thread` package intro \
+             (`thread/mod.rs`) — and on each resource's own type page, which \
+             derives it from this bit. Update this table AND those pages together; \
+             bug-522 is what happens when only one of them moves."
+        );
+    }
+
     #[test]
     fn every_builtin_resource_has_a_close_op() {
         // The closed-default (plan-38) relies on every built-in resource being
         // closeable so scope-drop can no-op a closed-default record. Guard against
         // a new built-in added without a registered close op (which would also
-        // need a closed-flag review at the canonical offset 8).
+        // need a closed-flag review at the canonical offset 16).
         for pkg in registry().packages() {
             for r in pkg.resources() {
                 let name = format!("{}.{}", pkg.import_name(), r.name);

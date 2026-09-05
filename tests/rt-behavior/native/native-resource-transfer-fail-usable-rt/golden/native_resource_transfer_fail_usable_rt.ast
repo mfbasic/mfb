@@ -1,0 +1,173 @@
+{
+  "project": "native_resource_transfer_fail_usable_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 29 },
+    { "module": "thread", "line": 30 }
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "public", "name": "Db", "closeFn": "sql.close", "threadSendable": true, "line": 32 },
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "sql",
+      "line": 34,
+      "cstructs": [
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "open",
+        "symbol": "sqlite3_open",
+        "returnResource": true,
+        "returnType": "Db",
+        "returnState": null,
+        "line": 35,
+        "params": [
+        { "name": "path", "type": "String", "default": null, "line": 35 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 37 },
+          { "name": "db", "ctype": "CPtr", "out": true, "line": 37 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "db" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "exec",
+        "symbol": "sqlite3_exec",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "returnState": null,
+        "line": 41,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 41 },
+        { "name": "statement", "type": "String", "default": null, "line": 41 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 43 },
+          { "name": "statement", "ctype": "CString", "out": false, "line": 43 },
+          { "name": "callback", "ctype": "CPtr", "out": false, "line": 43 },
+          { "name": "arg", "ctype": "CPtr", "out": false, "line": 43 },
+          { "name": "errmsg", "ctype": "CPtr", "out": false, "line": 43 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "callback", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 44 },
+        { "slot": "arg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 45 },
+        { "slot": "errmsg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 46 }
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "close",
+        "symbol": "sqlite3_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "returnState": null,
+        "line": 49,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 49 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 51 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "blockNeverAccept",
+      "line": 56,
+      "params": [
+      { "name": "t", "type": "ThreadWorker OF String RES Db TO Integer", "default": null, "line": 56 },
+      { "name": "seed", "type": "String", "default": null, "line": 56 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "s", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "60000" }] }, "line": 57 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 58 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 61,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String RES Db TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "blockNeverAccept" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 62 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "fill", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "fill" }, { "kind": "number", "value": "1000" }] }, "line": 64 },
+      { "kind": "binding", "mutable": true, "name": "closed", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 66 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 67 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "50" } },
+        "line": 68,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 69 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "sql.exec", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "CREATE TABLE seeded(a INTEGER);" }] }, "line": 70 },
+        { "kind": "expression", "expression": {
+          "kind": "trapped",
+          "binding": "err",
+          "line": 71,
+          "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }] },
+          "handler": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "sql.exec", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "INSERT INTO seeded VALUES (1);" }] }, "line": 72 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 73 },
+          { "kind": "assignment", "name": "closed", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "closed" }, "right": { "kind": "number", "value": "1" } }, "line": 74 },
+          { "kind": "recover", "value": null, "line": 75 }
+          ]
+        }, "line": 71 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 77 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "closed=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "closed" }] } }] }, "line": 79 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 80 }
+      ]
+    }
+    ]
+  }
+  ]
+}

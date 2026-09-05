@@ -94,6 +94,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register();
         self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
+        // bug-536 shape B: `_mfb_rt_fs_path_join` arena-allocs the joined path
+        // and copies both components in.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -708,6 +711,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8(abi::ZERO, &scratch12, 8));
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        // bug-536 shape B: `result_slot` holds this lowering's own
+        // `emit_arena_alloc_call` block. `fs.pathDirName` beside it is NOT
+        // marked — one of its arms yields a rodata constant pointer.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,

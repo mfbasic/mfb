@@ -24,6 +24,21 @@ FUNC divide(a AS Integer, b AS Integer) AS Integer
   RETURN a / b
 END FUNC
 
+' bug-533: `expectTrap` needs a runtime call whose failure it can catch, so the
+' empty-needle `strings::replace` gets a thin FUNC the way the `regex` suite
+' wraps its own fallible entry points.
+'
+' Declared HERE, below `divide`, and `IMPORT errorCode` is at the bottom of the
+' import list for the same reason: the `error` TGROUP asserts the LITERAL line
+' numbers 14 and 24 that `load`'s FAIL and `divide`'s `/` sit on, so anything
+' inserted above them silently reds three cases that have nothing to do with
+' this change.
+IMPORT errorCode
+
+FUNC stringsReplaceWrap(value AS String, old AS String, new AS String) AS String
+  RETURN strings::replace(value, old, new)
+END FUNC
+
 FUNC loadCode AS Integer
   MUT out AS Integer = 0
   LET r = load("") TRAP(e)
@@ -351,7 +366,10 @@ TESTING
       expectString(strings::replace("aé日é", "é", "E"), "aE日E")
       expectString(strings::replace(text, "z", "x"), "hello")
       expectString(strings::replace("hi", "long", "x"), "hi")
-      expectString(strings::replace("hi", "", "x"), "hi")
+      ' bug-533: an `old` LONGER than `value` cannot match and copies through
+      ' (the line above); an EMPTY `old` occurs at every position and is refused,
+      ' because rewriting at every position destroys the text.
+      expectTrap(stringsReplaceWrap("hi", "", "x"), errorCode::ErrInvalidArgument)
       expectString(strings::replace("ababa", "aba", "x"), "xba")
     END TCASE
   END TGROUP

@@ -306,6 +306,31 @@ pub(crate) struct CodeBuilder<'a> {
     /// consumer (`lower_value_owned`, `RETURN`, `StateAssign`, thread-spawn move)
     /// claims its temp so the block is freed exactly once by whoever owns it.
     pub(crate) pending_temp_frees: Vec<PendingTemp>,
+    /// bug-536 shape B: the location of a `String` block this builder has just
+    /// **provably freshly allocated** — set by the shared String producers
+    /// (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
+    /// `toString` formatter helpers) immediately after the `arena_alloc` whose
+    /// block they return, and consumed by the very next `lower_value` that
+    /// finishes lowering a node.
+    ///
+    /// This is fail-closed provenance, and the asymmetry is the whole safety
+    /// argument. `register_pending_temp` frees a bare `String` temp only when
+    /// this mark names the same operand the node's `ValueResult` carries; a
+    /// producer that does not set it (a `RETURN "literal"` rodata pointer, the
+    /// `toString(String)` identity arm that hands back its *argument*, a
+    /// `strings::*` view into a parameter) keeps the pre-existing leak, which is
+    /// bounded and safe. Freeing one of those instead would be a wild
+    /// `arena_free` — SIGBUS on rodata, free-list corruption on a borrow.
+    ///
+    /// It lives on the builder rather than on `ValueResult` deliberately: the
+    /// producers return a bare `VirtualRegister`, and the 333 `ValueResult`
+    /// literals between them and `lower_value` would each have to re-thread a
+    /// struct field, so the flag would be dropped (and the fix inert) at almost
+    /// every site. Staleness is impossible because `lower_value` clears the mark
+    /// before lowering a node and takes it after, and honours it only when it
+    /// names that node's own result operand — the vregs the producers return are
+    /// freshly allocated, so no unrelated value can wear one.
+    pub(crate) fresh_string_block: Option<Operand>,
     /// bug-496: addresses (`&NirValue as usize`) of the operand nodes of every
     /// multi-operand value currently being lowered that must be **snapshotted**
     /// before a later sibling operand runs. Pushed by `lower_value` on entry to a
@@ -523,6 +548,7 @@ impl<'a> CodeBuilder<'a> {
             owned_list_heads: HashMap::new(),
             owned_value_slots: Vec::new(),
             pending_temp_frees: Vec::new(),
+            fresh_string_block: None,
             operand_snapshot_wanted: Vec::new(),
             for_each_iterable_locals: Vec::new(),
             for_each_iterable_state_fields: Vec::new(),
@@ -617,9 +643,9 @@ pub(crate) struct ResourceCleanup {
     /// Whether this resource kind actually uses the per-`File` I/O buffer words
     /// (`BUF_PTR`/`READ_PTR`) — i.e. whether it is a `File`.
     ///
-    /// Every resource kind shares the 80-byte record, but ONLY `File`'s open
+    /// Every resource kind shares the 96-byte record, but ONLY `File`'s open
     /// helpers zero the buffer words after the (PRNG-poisoned) arena alloc.
-    /// `net`'s `emit_make_handle` initializes offsets 0/8/16 and leaves 24–72 as
+    /// `net`'s `emit_make_handle` initializes offsets 0/8/16/24 and leaves 32–80 as
     /// poison; the layout comment calls those words "inert" for non-`File`
     /// resources, which was true only because nothing read them. The drop-path
     /// reclaim made them live, so freeing them unconditionally handed
@@ -767,6 +793,20 @@ pub(crate) struct TypeModel {
     /// type — and `RES x AS Db = <fallible> TRAP` failed to build for want of a
     /// default value on the error path (bug-372).
     pub(crate) resource_names: HashSet<ParameterType>,
+    /// The subset of [`Self::resource_names`] whose declaration opted into
+    /// crossing a thread boundary — `RESOURCE Db CLOSE BY sql::close
+    /// THREAD_SENDABLE` (17_native-libraries.md), or an imported package's
+    /// `RESOURCE_TABLE` row with the sendable bit set.
+    ///
+    /// bug-546: codegen's two resource predicates
+    /// (`builtins::is_resource_type`, `builtins::is_thread_sendable_resource_type`)
+    /// answer for the BUILT-IN registry only, so every user-declared resource was
+    /// invisible to both. The sendable half decides which arm of
+    /// `emit_thread_copy_real` a handle takes — deep-copy into the receiver's
+    /// arena, or carry the pointer move-only — and getting it from the
+    /// declaration is what keeps codegen from sending a resource its author never
+    /// marked, which is the frontend's own rule.
+    pub(crate) sendable_resource_names: HashSet<ParameterType>,
     /// User-declared resource name -> the call target of its registered
     /// `CLOSE BY` op, for scope-drop cleanup.
     ///

@@ -24,6 +24,20 @@ The `byte-identity/<pkg>` fixtures are a per-package SMOKE test, not the whole g
 The gate checks CODEGEN; it cannot see the error message of an *invalid* program. A metadata/diagnostics migration (e.g. collapsing `expected_arguments`, which dropped the `[optional]` bracket: `strings.find` → `"String, String, Integer"` instead of `"String, String[, Integer]"`) is INVISIBLE to the gate — only `test-accept.sh` catches it. Also, deleting dead wrappers can break CROSS-MODULE tests invisibly to `cargo build --bin mfb` warnings; `cargo build --bin mfb --tests` is the real check.
 
 ### Concurrency & macOS hazards
+- **The two harnesses lock against each other PER TREE (bug-470).** Both
+  `artifact-gate.sh` and `test-accept.sh` regenerate and delete the same fixture
+  dumps, so within one worktree they are mutually exclusive; `scripts/gate-lock.sh`
+  takes an atomic `mkdir` lock at `<tree>/tests/.gate.lock` (macOS has no
+  `flock(1)`) and both scripts refuse with **exit 98** naming the rival script,
+  its PID and the tree. `sync-goldens.sh` holds the lock across BOTH the
+  `test-accept.sh` it spawns and the golden copy that follows, so acquire is
+  re-entrant within one process tree; a lock whose recorded PID is gone is
+  reclaimed, so a killed run does not wedge the tree.
+  **A run in a DIFFERENT worktree is not refused and must not be** — each tree
+  owns its own `tests/`. The guards this replaced keyed on the script's NAME and
+  so got both answers wrong at once: they missed the sibling script in the same
+  tree, and they serialized unrelated trees. Exit 98 is a REFUSAL, not a gate
+  result — nothing was checked, so re-run; do not read it as a diff.
 - Do NOT run two artifact-gates at once (yours + another session/worktree): they saturate cores and one gets KILLED mid-run. Exit 144 / 0-byte output = infrastructure kill, NOT a codegen regression — re-run alone, don't treat it as a diff (a real diff prints `artifact-gate: N tests … M diff(s)` + DIFF lines). Check `pgrep -f artifact-gate` (and `ps -o command=`) first. A killed run leaves stray untracked dump files (`tests/byte-identity/.../*.ncode`) — clean before re-running.
 - Never run `cargo` (even `cargo check`) while the gate/acceptance is using `target/debug/mfb`: macOS invalidates the in-place-modified Mach-O's signature, so every subsequent harness exec is SIGKILLed and the suite silently stops producing actuals (looks like a pile of "missing actual"). If the binary's mtime changed mid-run (`stat -f "%m" target/debug/mfb`), discard that run's actuals.
 

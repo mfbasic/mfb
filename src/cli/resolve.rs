@@ -432,9 +432,13 @@ pub(crate) fn install(project_dir: &Path) -> Result<(), String> {
         // plan-48-B §4.4: the `.mfp` verified, so download every vendor blob its
         // section-10 table names into `packages/<name>.vendor/`.
         super::pkg::install_vendor_blobs(&repo_url, project_dir, &package.name)?;
+        // bug-489: all three are registry-authored data fields, sanitized at
+        // the print site for the same reason as `Release State` above.
         println!(
             "Installed {} {} ({})",
-            package.name, package.selected, package.state
+            crate::terminal_safe::safe(&package.name),
+            crate::terminal_safe::safe(&package.selected),
+            crate::terminal_safe::safe(&package.state)
         );
     }
     Ok(())
@@ -979,24 +983,36 @@ fn print_lock_diff(previous: Option<&Lock>, next: &Lock) {
     println!("Resolution:");
     for package in &next.packages {
         match old.get(package.ident.as_str()) {
+            // bug-489: name/version/state are all registry-authored.
             None => println!(
                 "  + {} {} ({})",
-                package.name, package.selected, package.state
+                crate::terminal_safe::safe(&package.name),
+                crate::terminal_safe::safe(&package.selected),
+                crate::terminal_safe::safe(&package.state)
             ),
             Some(before) if before.selected != package.selected => println!(
                 "  ~ {} {} -> {} ({})",
-                package.name, before.selected, package.selected, package.state
+                crate::terminal_safe::safe(&package.name),
+                crate::terminal_safe::safe(&before.selected),
+                crate::terminal_safe::safe(&package.selected),
+                crate::terminal_safe::safe(&package.state)
             ),
             Some(_) => println!(
                 "    {} {} ({})",
-                package.name, package.selected, package.state
+                crate::terminal_safe::safe(&package.name),
+                crate::terminal_safe::safe(&package.selected),
+                crate::terminal_safe::safe(&package.state)
             ),
         }
     }
     if let Some(previous) = previous {
         for package in &previous.packages {
             if !next.packages.iter().any(|p| p.ident == package.ident) {
-                println!("  - {} {}", package.name, package.selected);
+                println!(
+                    "  - {} {}",
+                    crate::terminal_safe::safe(&package.name),
+                    crate::terminal_safe::safe(&package.selected)
+                );
             }
         }
     }

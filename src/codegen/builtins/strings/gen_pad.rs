@@ -48,6 +48,13 @@ pub(crate) fn lower_strings_pad(
         ));
         builder.emit(abi::move_immediate(&scratch12, "Integer", "1"));
         let space = builder.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
+        // bug-536 shape B: this one-byte pad String is INTERIOR — its bytes are
+        // copied into the padded result and it is never returned, so nothing
+        // owned it and every `strings::padLeft(s, n)` / `padRight(s, n)` call
+        // leaked a block. Hand it to the statement-scope free. Only this
+        // default-padChar branch qualifies; the 3-argument branch spills the
+        // CALLER's padChar, which this scope does not own.
+        builder.register_fresh_string_temp(Operand::from(space.render()));
         builder.spill_to_slot("strings_pad_char", &space.render())
     };
     // Number of pad chars to prepend/append.
@@ -274,6 +281,12 @@ pub(crate) fn lower_strings_pad(
     } else {
         "strings.padLeft"
     };
+    // bug-536 shape B: the padded String is this lowering's own
+    // `emit_arena_alloc_call` block (`result_slot`). The interior one-byte
+    // padChar materialized above is a DIFFERENT vreg, so it stays opted out —
+    // `mark_fresh_string` only takes effect for the operand `lower_value` sees
+    // as this value's result.
+    builder.mark_fresh_string(Operand::from(result.render()));
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,

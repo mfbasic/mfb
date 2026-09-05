@@ -1,18 +1,26 @@
-' bug-529 -- the empty needle gets three different answers from three members
-' of the same package that all do the same byte scan:
+' bug-529 -- the empty needle used to get three different answers from three
+' members of the same package that all do the same byte scan:
 '
 '   strings::contains(value, "")  -> TRUE
 '   strings::find(value, "")      -> 0
 '   strings::count(value, "")     -> raises ErrInvalidArgument
+'   strings::replace(value, "", x) -> value, a silent no-op
 '
-' `mfb man strings count` names the split ("note that this differs from
-' strings::contains and strings::find, which both accept an empty needle") but
-' the split itself is unexplained: if the empty needle occurs at position 0 for
-' `find`, it has an occurrence count, and `contains` already commits to one.
+' `mfb man strings count` named the split but did not resolve it, and the page
+' also leaked the scan's implementation into the contract -- "on a mismatch the
+' cursor advances by a single byte" -- which is a statement about bytes in a
+' member whose siblings report scalar indices.
 '
-' The same page also leaks the scan's implementation into the contract -- "on a
-' mismatch the cursor advances by a single byte" -- which is a statement about
-' bytes in a member whose siblings report scalar indices.
+' There is now ONE rule, stated once in `mfb man strings`:
+'
+'   An empty needle is PRESENT at every position, beginning at 0. A member that
+'   ANSWERS A QUESTION about an occurrence reports it; a member that acts at a
+'   SINGLE NAMED POSITION acts on the zero-length match there, which changes
+'   nothing; a member that COUNTS or REWRITES every occurrence refuses it.
+'
+' `contains` and `find` answer, `stripPrefix`/`stripSuffix` are no-ops, and
+' `count`, `split` and `replace` refuse. `replace` was the last to come into
+' line (bug-533), which also made `regex::replace` refuse an empty pattern.
 
 IMPORT io
 IMPORT strings
@@ -31,12 +39,40 @@ TRAP(err)
 END TRAP
 END FUNC
 
+FUNC splitGuard(hay AS String, needle AS String) AS String
+  LET parts AS List OF String = strings::split(hay, needle)
+  RETURN "n=" & toString(len(parts))
+TRAP(err)
+  RETURN "RAISED code=" & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC replaceGuard(hay AS String, needle AS String, new AS String) AS String
+  RETURN "\"" & strings::replace(hay, needle, new) & "\""
+TRAP(err)
+  RETURN "RAISED code=" & toString(err.code)
+END TRAP
+END FUNC
+
 FUNC main AS Integer
-  io::print("strings::contains(\"hi\", \"\") = " & toString(strings::contains("hi", "")))
-  io::print("strings::find(\"hi\", \"\")     -> " & findGuard("hi", ""))
-  io::print("strings::count(\"hi\", \"\")    -> " & countGuard("hi", ""))
-  io::print("strings::replace(\"hi\", \"\", \"x\") = \"" & strings::replace("hi", "", "x") & "\"")
+  ' A needle that ARRIVED empty, which is the shape the hazard actually takes.
+  LET e AS String = strings::mid("blank", 0, 0)
+
+  io::print("answers a question:")
+  io::print("  strings::contains(\"hi\", \"\")   = " & toString(strings::contains("hi", e)))
+  io::print("  strings::startsWith(\"hi\", \"\") = " & toString(strings::startsWith("hi", e)))
+  io::print("  strings::endsWith(\"hi\", \"\")   = " & toString(strings::endsWith("hi", e)))
+  io::print("  strings::find(\"hi\", \"\")       -> " & findGuard("hi", e))
   io::print("")
-  io::print("=> four members, four different readings of the same empty needle.")
+  io::print("acts at a single named position, so it changes nothing:")
+  io::print("  strings::stripPrefix(\"hi\", \"\") = \"" & strings::stripPrefix("hi", e) & "\"")
+  io::print("  strings::stripSuffix(\"hi\", \"\") = \"" & strings::stripSuffix("hi", e) & "\"")
+  io::print("")
+  io::print("counts or rewrites every occurrence, so it refuses:")
+  io::print("  strings::count(\"hi\", \"\")       -> " & countGuard("hi", e))
+  io::print("  strings::split(\"hi\", \"\")       -> " & splitGuard("hi", e))
+  io::print("  strings::replace(\"hi\", \"\", \"x\") -> " & replaceGuard("hi", e, "x"))
+  io::print("")
+  io::print("=> one rule, and which group a member is in follows from what it does.")
   RETURN 0
 END FUNC

@@ -141,7 +141,8 @@ Unicode version, identical across every target.
 
 The functions differ only in what they report. `match` returns a `Boolean` for
 whether the pattern matches anywhere; `find` returns the start index of the first
-match at or after `start`, or `-1` when there is none; `findAll` returns a
+match at or after `start`, and raises `ErrNotFound` when there is none; `findAll`
+returns a
 `List OF Integer` of the start index of every non-overlapping match; `findMatch`
 returns a `regex::MatchInfo` for the first match — its span, its text, and its
 capture groups; `findAllMatches` returns a `List OF regex::MatchInfo`, one for every
@@ -149,9 +150,10 @@ non-overlapping match; and `replace` returns a new `String` with every
 non-overlapping match rewritten by a replacement template.
 
 The reporting pairs agree exactly. `findMatch` finds the match `find` locates, so
-`findMatch(value, pattern, start).start` is `find(value, pattern, start)`, and
-`findAllMatches` finds the matches `findAll` locates, in the same order and the
-same number — the index-only members are the cheaper call when the text is not
+wherever a match exists `findMatch(value, pattern, start).start` is
+`find(value, pattern, start)` — where none exists they part company, because
+`find` raises and `findMatch` reports a no-match `MatchInfo`. `findAllMatches`
+finds the matches `findAll` locates, in the same order and the same number — the index-only members are the cheaper call when the text is not
 wanted, never a different search. Reach for `findMatch` and `findAllMatches`
 whenever the matched text is needed: a pattern's match length is an output, not
 something the caller knows in advance, so a start index alone cannot be sliced.
@@ -164,11 +166,17 @@ where a match may begin — the absolute anchors `\A`, `\z`, and unflagged
 valid; iteration advances one scalar past an empty match so it always
 terminates.
 
-No `regex` function fails on the absence of a match: `match` returns `FALSE`,
-`find` returns `-1`, `findAll` returns an empty list, `findMatch` returns a
-`MatchInfo` whose `start` is `-1`, `findAllMatches` returns an empty list, and
-`replace` returns `value` unchanged. `ErrNotFound` is never raised by this
-package. None of the functions mutate their arguments or have side effects."#;
+Absence of a match is reported per member, and the split is decided by whether
+the return type has a value that can mean "no match". `match` returns `FALSE`,
+`findAll` and `findAllMatches` return empty lists, `findMatch` returns a
+`MatchInfo` whose `start` is `-1`, and `replace` returns `value` unchanged — none
+of those fails, because a `Boolean`, an empty list, a no-match record and an
+unrewritten string each *are* the answer. `find` is the exception: it returns an
+index, and every `Integer` is a position some search could legitimately report,
+so there is no value left over to mean "absent". It raises `ErrNotFound`
+(`77050004`), the same contract `strings::find` and the `collections` find-family
+use, and `regex::match` is the guard for callers who treat absence as ordinary.
+None of the functions mutate their arguments or have side effects."#;
 
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("regex", INTRO, DESC);

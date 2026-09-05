@@ -28,10 +28,11 @@ const EX: &str = r#"A smile — the lower half of a circle, stroked. Angles are 
 ```
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET green AS canvas::Color = canvas::rgb(0, 160, 0)
+  LET green AS color::Color = color::rgb(0, 160, 0)
   LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
   canvas::present([smile])
 END SUB
@@ -39,7 +40,7 @@ END SUB
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __canvas_stroke(color AS Color, width AS Float) AS Paint
+r#"FUNC __canvas_stroke(color AS color::Color, width AS Float) AS Paint
   RETURN __canvas_fillStroke(__canvas_transparent(), color, width)
 END FUNC"#;
 
@@ -55,9 +56,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "color",
-                    desc: "The outline colour.",
+                    desc: "The outline colour. A `color::Color` — the program \
+                           needs `IMPORT color`.",
                     aliases: &[],
-                    ty: ParameterType::named("Color"),
+                    ty: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),
                     default: DefaultValue::None,
                 },
                 Parameter {

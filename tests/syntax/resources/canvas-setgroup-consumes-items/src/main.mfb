@@ -29,17 +29,18 @@
 ' sharing.
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
 
-  LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::setGroup("one", [a])
 
   ' `img` was moved into the group above. Naming it again is the use-after-move.
-  LET b AS canvas::DrawItem = canvas::Picture[x := 9.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET b AS canvas::DrawItem = canvas::Picture[x := 9.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::setGroup("two", [b])
 
   RETURN 0

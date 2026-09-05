@@ -25,6 +25,36 @@ it here rather than re-deriving.
 FOUND: plan-121-E prerequisite run (2026-09-03)
 SEVERITY: low — the test fails CLOSED (it reports the anomaly); it does not pass silently
 
+## Clean period so far (2026-09-05) — 3 full-suite runs under concurrency, still OPEN
+
+Recorded because this bug's closing criterion is a count, and a count is only
+useful if the runs behind it are described.
+
+Three complete `cargo test --release --no-fail-fast` runs today, each in a
+separate worktree, **all four cases green in every one**:
+
+| run | tree | concurrent load on the box |
+| --- | --- | --- |
+| bug-546 | `/tmp/wt-546` | a subagent's full suite + artifact gate, and a peer's `cargo-llvm-cov` in `.claude/worktrees/P-cov` |
+| bug-536 shape B | `/tmp/wt-536b` | a subagent working bugs 529/531/533 |
+| bug-470 | `/tmp/wt-470` | the same subagent, still running |
+
+That is the machine-sharing condition all six field sightings occurred under, so
+these are relevant runs rather than quiet ones.
+
+**Not closing on this.** Six sightings accumulated over an unknown number of
+full-suite runs, so the base rate is unknown and three clean runs cannot be
+decisive about it. What would close this is a count large enough to be worth
+something against that base rate, or a seventh sighting — which will now name its
+own cause through the `code=` token the fix added.
+
+**One confounder for whoever counts next.** bug-470 landed today
+(`fea98e3cb`): `artifact-gate.sh` and `test-accept.sh` now hold a per-tree lock
+and no longer overlap within a tree. That does not gate the `rt_tls_*` tests
+directly, but it changes the port-pressure profile of a full run, so runs before
+and after `fea98e3cb` are not quite the same experiment. Today's first two rows
+are before it; the third is after.
+
 ## Symptom
 
 In a full `cargo test --no-fail-fast`, one case failed:
