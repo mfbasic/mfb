@@ -164,7 +164,10 @@ reloads the exit code, and calls the platform process-exit. [[src/codegen/error/
 `_mfb_shutdown` reads the arena address from `_mfb_rt_main_arena`, **clears that
 global first** (so a signal arriving mid-teardown re-enters as a no-op), and skips
 all work if it was already null. It restores the terminal when `term::` was active
-(`_mfb_rt_term_term_off`) and frees the main arena (`_mfb_arena_destroy`). It
+(`_mfb_rt_term_term_off`) and frees the main arena (`_mfb_arena_destroy`) — unless
+the program embeds a `thread.` runtime call, in which case the free is skipped on
+every platform because a detached worker may still be reading arena memory
+(`./mfb spec threading os-integration`). It
 preserves `x19` and the link register across the call, so the entry's reloaded
 exit code is valid on return. Because the global gate is idempotent, the
 SIGINT/SIGTERM handler racing the normal exit path cannot double-free.

@@ -1165,24 +1165,43 @@ pub(crate) fn lower_module_for_platform(
         .collect();
     let mut code_functions = Vec::new();
     let mut runtime_symbols = native_plan.runtime_symbols.clone();
-    // Linux defers arena teardown while worker threads may still be live; macOS
-    // does not. 47-H must deliberately decide this for Windows (§3.2 flags the
-    // silent `false` a raw `starts_with("linux")` would have handed it).
-    let family_defers_arena_destroy = match platform.family() {
-        PlatformFamily::Linux => true,
-        // macOS destroys the arena at exit; Windows console does the same. This is
-        // computed for EVERY build, so it must be a real answer, not unreachable!.
-        // A threadless program has no live workers, so destroying is safe; 47-H
-        // revisits this when Windows threads (CreateThread) land, exactly as it
-        // will for the Linux `&& has_threads` guard below.
-        PlatformFamily::MacOS | PlatformFamily::Windows => false,
-    };
-    let skip_entry_arena_destroy = family_defers_arena_destroy
-        && runtime_symbols.iter().any(|symbol| {
-            runtime::spec_for_symbol(symbol)
-                .map(|spec| spec.call.starts_with("thread."))
-                .unwrap_or(false)
-        });
+    // bug-547: the main arena is NOT destroyed at exit when the program can still
+    // have a live worker — on EVERY platform family. This is not a platform
+    // preference, it is a use-after-free.
+    //
+    // `thread.start` `arena_alloc`s BOTH the worker's thread control block and the
+    // worker's entire arena-state block (arena state + the per-arena globals
+    // region, stored at `THREAD_OFFSET_ARENA_STATE`) out of the SPAWNING thread's
+    // arena, so a running worker's two pinned registers — its arena register and
+    // `abi::CURRENT_THREAD` — both point INTO the main arena's blocks. Dropping a
+    // `Thread` handle only cancels and broadcasts (detached semantics, bug-205), so
+    // a program that returns from `main` without `thread::waitFor` reaches
+    // `_mfb_shutdown` with those blocks live; `_mfb_arena_destroy` then
+    // `munmap`/`VirtualFree`s them and the still-running worker faults on its next
+    // touch of its own arena state.
+    //
+    // Only Linux deferred. Windows was left `false` by 47-H pending "when Windows
+    // threads (CreateThread) land" — they landed, and the deferral was never
+    // revisited: box 2230 faulted `0xC0000005` in ~8% of runs of a program whose
+    // worker merely spins (bug-547). macOS carried the identical latent UAF and was
+    // only ever incidentally clean (its `exit` follows the `munmap` closely enough
+    // that the worker rarely gets scheduled in between).
+    //
+    // Skipping the free costs nothing: the process is exiting, so the OS reclaims
+    // every block either way — a bulk `arena_destroy` at exit is ceremony. And it
+    // leaves NO window rather than narrowing one: nothing at all is released before
+    // the platform process-exit, so a worker terminated at an arbitrary instruction
+    // boundary (which is exactly what Windows `ExitProcess` does) cannot fault.
+    // Observable semantics are unchanged — a detached worker still does not block
+    // exit, which joining every worker here would have broken.
+    //
+    // The gate keeps it surgical: a program with no `thread.` runtime call can have
+    // no worker outliving it, and still destroys the arena byte-identically.
+    let skip_entry_arena_destroy = runtime_symbols.iter().any(|symbol| {
+        runtime::spec_for_symbol(symbol)
+            .map(|spec| spec.call.starts_with("thread."))
+            .unwrap_or(false)
+    });
 
     let global_initializer_symbol = if module.globals.is_empty() {
         None
