@@ -172,7 +172,10 @@ mod tests {
             .find(|p| p.import_name() == "canvas")
             .expect("the canvas package is registered");
 
-        for (member, resource) in [("imageHandle", "canvas.Image"), ("fontHandle", "canvas.Font")] {
+        for (member, resource) in [
+            ("imageHandle", "canvas.Image"),
+            ("fontHandle", "canvas.Font"),
+        ] {
             let function = package
                 .functions()
                 .iter()

@@ -5,7 +5,10 @@
 //! worker-owned state — and the group table is worker-owned state living in a
 //! process-global block no MFBASIC expression can reach.
 
-use super::gen_group::{emit_group_bytes, emit_group_count, emit_group_items, emit_group_reclaim, emit_group_resolve, emit_group_revision, emit_group_slots, emit_next_reclaimable_group, emit_retired_items};
+use super::gen_group::{
+    emit_group_bytes, emit_group_count, emit_group_items, emit_group_reclaim, emit_group_resolve,
+    emit_group_revision, emit_group_slots, emit_next_reclaimable_group, emit_retired_items,
+};
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };

@@ -3853,9 +3853,7 @@ mod tests {
                 let indices: Vec<usize> = function
                     .implementations
                     .iter()
-                    .filter_map(|imp| {
-                        imp.params.iter().position(|p| p.name == entry.parameter)
-                    })
+                    .filter_map(|imp| imp.params.iter().position(|p| p.name == entry.parameter))
                     .collect();
                 if let Some(first) = indices.first() {
                     assert!(
@@ -3972,7 +3970,6 @@ mod tests {
             "the resource's nominal does not round-trip through `parse`"
         );
     }
-
 
     /// plan-111-C Phase 3's overload-resolution regression guard.
     ///

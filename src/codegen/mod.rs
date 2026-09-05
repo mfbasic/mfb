@@ -54,10 +54,7 @@ pub(crate) fn resource_containment(
     ops: &[crate::target::shared::nir::NirOp],
 ) -> std::collections::HashMap<String, Vec<String>> {
     use crate::target::shared::nir::NirOp;
-    fn walk(
-        ops: &[NirOp],
-        out: &mut std::collections::HashMap<String, Vec<String>>,
-    ) {
+    fn walk(ops: &[NirOp], out: &mut std::collections::HashMap<String, Vec<String>>) {
         for op in ops {
             match op {
                 NirOp::Bind {

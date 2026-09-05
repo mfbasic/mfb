@@ -972,8 +972,7 @@ END FUNC"#;
 ///
 /// `0` is skipped on both sides: an already-closed resource has nothing to close, and it
 /// must not match a live one either.
-const CLOSE_RETIRED: &str =
-r#"SUB __canvas_closeRetired(gone AS List OF DrawItem, scene AS List OF DrawItem)
+const CLOSE_RETIRED: &str = r#"SUB __canvas_closeRetired(gone AS List OF DrawItem, scene AS List OF DrawItem)
   IF len(gone) = 0 THEN
     EXIT SUB
   END IF

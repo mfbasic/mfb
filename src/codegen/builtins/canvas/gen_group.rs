@@ -764,11 +764,7 @@ pub(crate) fn emit_group_reclaim(
     builder.emit(abi::branch_eq(&no_items));
     emit_free_items_block(builder, &retired, &symbol, &list_type)?;
     let after_items = builder.temporary_vreg();
-    builder.emit(abi::load_u64(
-        &after_items,
-        abi::stack_pointer(),
-        addr_slot,
-    ));
+    builder.emit(abi::load_u64(&after_items, abi::stack_pointer(), addr_slot));
     builder.emit(abi::store_u64(
         abi::ZERO,
         &after_items,

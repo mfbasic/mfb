@@ -266,7 +266,10 @@ fn a_group_does_not_close_an_image_the_scene_still_names() {
 #[test]
 fn a_group_rebuilt_each_frame_keeps_its_font() {
     let (_, stats) = run_for("canvas_group_own_rebuild", REBUILDS_EACH_FRAME, true);
-    assert!(stats.len() >= 4, "expected one stats line per present: {stats:?}");
+    assert!(
+        stats.len() >= 4,
+        "expected one stats line per present: {stats:?}"
+    );
     for (i, line) in stats.iter().enumerate() {
         assert!(
             field(line, "glyphs") > 0,
@@ -493,7 +496,10 @@ fn removing_a_group_mid_frame_keeps_the_image_until_the_frame_completes() {
 #[test]
 fn two_hundred_owning_cycles_return_group_bytes_to_baseline() {
     let (out, stats) = run_for("canvas_group_own_churn", CHURN_200, false);
-    assert!(out.contains("CHURN-DONE"), "the churn loop did not finish\n{out}");
+    assert!(
+        out.contains("CHURN-DONE"),
+        "the churn loop did not finish\n{out}"
+    );
     let first = &stats[0];
     let last = stats.last().expect("at least one present");
     let baseline = field(first, "groupBytes");

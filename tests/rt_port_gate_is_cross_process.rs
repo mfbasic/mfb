@@ -46,7 +46,8 @@ fn append_line(path: &PathBuf, line: &str) {
         .append(true)
         .open(path)
         .expect("open the shared log");
-    f.write_all(line.as_bytes()).expect("append to the shared log");
+    f.write_all(line.as_bytes())
+        .expect("append to the shared log");
 }
 
 /// The child half: take the gate, mark the critical section, release it.
@@ -77,7 +78,11 @@ fn the_port_gate_excludes_across_processes() {
     let children: Vec<_> = (0..4)
         .map(|_| {
             Command::new(&exe)
-                .args(["the_port_gate_excludes_across_processes", "--exact", "--nocapture"])
+                .args([
+                    "the_port_gate_excludes_across_processes",
+                    "--exact",
+                    "--nocapture",
+                ])
                 .env(CHILD_ENV, &log)
                 .spawn()
                 .expect("spawn a child copy of this test binary")

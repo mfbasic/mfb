@@ -51,7 +51,6 @@ SUB main()
 END SUB
 "#;
 
-
 fn golden_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

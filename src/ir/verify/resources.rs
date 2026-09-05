@@ -129,63 +129,64 @@ impl TypeEnv {
         // Run `body` as a branch: fresh scope, then merge the new moves of a
         // fall-through branch back into the outer set (the former source checker's MaybeMoved —
         // moved on *some* path means unusable after the join).
-        let run_branch = |body: &[IrOp],
-                          locals: &HashMap<String, ParameterType>,
-                          moved: &mut HashSet<String>,
-                          aliases: &mut HashMap<String, HashSet<String>>,
-                          contains: &mut HashMap<String, HashSet<String>>| {
-            let mut branch_moved = moved.clone();
-            // Aliases discovered inside a branch merge back the same way moves do:
-            // "may alias on *some* fall-through path" is still may-alias after the
-            // join, and treating it otherwise would lose the relation exactly where
-            // it is needed.
-            let mut branch_aliases = aliases.clone();
-            // Containment merges the same way, and for the same reason: a relation
-            // established on *some* fall-through path is still a may-hold after the
-            // join, and dropping it there would lose it exactly where a later consume
-            // needs it.
-            let mut branch_contains = contains.clone();
-            self.check_resource_moves(
-                body,
-                &mut locals.clone(),
-                &mut branch_moved,
-                owners,
-                non_owning,
-                &mut branch_aliases,
-                &mut branch_contains,
-            );
-            if !diverges(body) {
-                for name in branch_moved {
-                    // Only propagate moves of bindings the outer scope knows;
-                    // branch-local resources die with the branch.
-                    if locals.contains_key(&name) {
-                        moved.insert(name);
+        let run_branch =
+            |body: &[IrOp],
+             locals: &HashMap<String, ParameterType>,
+             moved: &mut HashSet<String>,
+             aliases: &mut HashMap<String, HashSet<String>>,
+             contains: &mut HashMap<String, HashSet<String>>| {
+                let mut branch_moved = moved.clone();
+                // Aliases discovered inside a branch merge back the same way moves do:
+                // "may alias on *some* fall-through path" is still may-alias after the
+                // join, and treating it otherwise would lose the relation exactly where
+                // it is needed.
+                let mut branch_aliases = aliases.clone();
+                // Containment merges the same way, and for the same reason: a relation
+                // established on *some* fall-through path is still a may-hold after the
+                // join, and dropping it there would lose it exactly where a later consume
+                // needs it.
+                let mut branch_contains = contains.clone();
+                self.check_resource_moves(
+                    body,
+                    &mut locals.clone(),
+                    &mut branch_moved,
+                    owners,
+                    non_owning,
+                    &mut branch_aliases,
+                    &mut branch_contains,
+                );
+                if !diverges(body) {
+                    for name in branch_moved {
+                        // Only propagate moves of bindings the outer scope knows;
+                        // branch-local resources die with the branch.
+                        if locals.contains_key(&name) {
+                            moved.insert(name);
+                        }
                     }
-                }
-                for (name, targets) in branch_aliases {
-                    if locals.contains_key(&name) {
-                        let kept: HashSet<String> = targets
-                            .into_iter()
-                            .filter(|t| locals.contains_key(t))
-                            .collect();
-                        if !kept.is_empty() {
-                            aliases.entry(name).or_default().extend(kept);
+                    for (name, targets) in branch_aliases {
+                        if locals.contains_key(&name) {
+                            let kept: HashSet<String> = targets
+                                .into_iter()
+                                .filter(|t| locals.contains_key(t))
+                                .collect();
+                            if !kept.is_empty() {
+                                aliases.entry(name).or_default().extend(kept);
+                            }
+                        }
+                    }
+                    for (name, held) in branch_contains {
+                        if locals.contains_key(&name) {
+                            let kept: HashSet<String> = held
+                                .into_iter()
+                                .filter(|t| locals.contains_key(t))
+                                .collect();
+                            if !kept.is_empty() {
+                                contains.entry(name).or_default().extend(kept);
+                            }
                         }
                     }
                 }
-                for (name, held) in branch_contains {
-                    if locals.contains_key(&name) {
-                        let kept: HashSet<String> = held
-                            .into_iter()
-                            .filter(|t| locals.contains_key(t))
-                            .collect();
-                        if !kept.is_empty() {
-                            contains.entry(name).or_default().extend(kept);
-                        }
-                    }
-                }
-            }
-        };
+            };
         for op in ops {
             self.current_line.set(op.loc().line);
             // A read of an already-moved binding is a use-after-move. The
