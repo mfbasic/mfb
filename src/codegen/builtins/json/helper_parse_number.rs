@@ -8,14 +8,18 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_parseNumber(bytes AS List OF Byte, index AS Integer) AS __json_Node
-  LET token AS __json_StringNode = __json_collectNumber(bytes, index)
-  IF __json_validNumber(token.value) = FALSE THEN
+r#"' bug-510 (DEC-03): find the token's end, validate the grammar over its bytes,
+' and only then decode it -- once -- for toFloat. The old order (slice to a
+' String, graphemize it to validate) cost ~1.5 KB per number.
+FUNC __json_parseNumber(bytes AS List OF Byte, index AS Integer) AS __json_Node
+  LET endIndex AS Integer = __json_numberEnd(bytes, index)
+  IF __json_validNumber(bytes, index, endIndex) = FALSE THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  LET numberValue AS Float = __json_toNumber(token.value)
+  LET token AS String = encoding::utf8Decode(collections::mid(bytes, index, endIndex - index))
+  LET numberValue AS Float = __json_toNumber(token)
   LET value AS Json = JsonNum[numberValue]
-  RETURN __json_Node[value, token.index]
+  RETURN __json_Node[value, endIndex]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

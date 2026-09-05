@@ -20,9 +20,10 @@ r#"' plan-120-B: the array-index grammar for a `json::get`/`json::getOr` path st
 ' the outcome is the same miss, and `toInt`'s ErrOverflow never escapes. That
 ' matters most for `json::getOr`, whose whole contract is that it does not fail.
 '
-' The digit test is a SUBSTRING search, not `__json_isDigit`'s `ch >= "0" AND
-' ch <= "9"` range compare. That compare is right for the parser, which feeds it
-' one scanned character at a time, but wrong here: a path token is arbitrary
+' The digit test is a SUBSTRING search, not the `ch >= "0" AND ch <= "9"` range
+' compare the parser's `__json_isDigit` used to make (the parser now compares
+' bytes). That compare was right for the parser, which fed it one scanned
+' character at a time, but wrong here: a path token is arbitrary
 ' caller text, and `strings::graphemes` yields whole grapheme clusters. The
 ' cluster "1" + U+0308 COMBINING DIAERESIS sorts INSIDE ["0", "9"] because
 ' comparison is lexicographic and it starts with "1" -- so the range compare

@@ -1,4 +1,9 @@
-//! `__json_collectNumber` — shared private helper for the `json` package.
+//! `__json_numberEnd` — shared private helper for the `json` package.
+//!
+//! Was `__json_collectNumber`, which returned the token as a `String` inside a
+//! `__json_StringNode`. bug-510 (DEC-03): the token is now validated over its
+//! bytes before anything is sliced, so this only finds where it ends; the caller
+//! decodes the (by then known-ASCII) token once, and the record is gone.
 //!
 //! Registered via `add_helper`; renders in the helper section of the assembled
 //! source (before the member bodies), in the order `mod.rs` calls the helpers.
@@ -10,12 +15,11 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' bug-302: iterative (see __json_skipWhitespace) — a long numeric literal recursed
 ' once per character and overflowed the native stack.
-' bug-510: measures the token over bytes, then copies it out in ONE slice rather
-' than growing an accumulator per character. The four terminators (`,` `]` `}` and
-' whitespace) are ASCII, so the token never ends inside a multi-byte scalar and
-' always decodes; a non-ASCII scalar inside the token is carried through and
-' rejected by __json_validNumber, exactly as the grapheme scan rejected it.
-FUNC __json_collectNumber(bytes AS List OF Byte, index AS Integer) AS __json_StringNode
+' The end of the number token starting at `index`: the first `,` (44), `]` (93),
+' `}` (125) or whitespace byte, or the end of the document. All four terminators
+' are ASCII, so the token never ends inside a multi-byte scalar; a non-ASCII byte
+' inside it is carried to __json_validNumber and rejected there.
+FUNC __json_numberEnd(bytes AS List OF Byte, index AS Integer) AS Integer
   MUT at AS Integer = index
   MUT finished AS Boolean = FALSE
   MUT code AS Integer = 0
@@ -34,10 +38,9 @@ FUNC __json_collectNumber(bytes AS List OF Byte, index AS Integer) AS __json_Str
       at = at + 1
     END IF
   END WHILE
-  LET token AS String = encoding::utf8Decode(collections::mid(bytes, index, at - index))
-  RETURN __json_StringNode[token, at]
+  RETURN at
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    pkg.add_helper(RegistryHelper::always("json_collectNumber", BODY));
+    pkg.add_helper(RegistryHelper::always("json_numberEnd", BODY));
 }

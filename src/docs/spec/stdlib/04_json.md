@@ -109,9 +109,12 @@ everything else to the number lexer. [[src/codegen/builtins/json/func_parse.rs:_
 
 Notable parse rules and deviations:
 
-- **Numbers**: a number token is collected greedily up to the next `,`, `]`, `}`,
-  or whitespace, then validated by `__json_validNumber` against the grammar above
-  *before* `toFloat` conversion. The exponent marker accepts both `e` and `E`; a
+- **Numbers**: a number token extends greedily up to the next `,`, `]`, `}`,
+  or whitespace (`__json_numberEnd`), is validated in place over its bytes by
+  `__json_validNumber` against the grammar above, and only then is sliced and
+  decoded to a `String` for `toFloat` conversion — so an invalid token is never
+  materialised and a valid one costs one slice (bug-510). The exponent marker
+  accepts both `e` and `E`; a
   leading `0` may not be followed by more integer digits; a fraction requires at
   least one digit after `.`; an exponent requires at least one digit.
   [[src/codegen/builtins/json/helper_valid_number.rs:__json_validNumber]]

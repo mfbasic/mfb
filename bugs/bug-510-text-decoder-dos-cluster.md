@@ -84,7 +84,32 @@ None — the `encoding`/`json`/`csv`/`regex` packages had no prior DoS audit
   field, so the stream path must keep scalars; its dominant cost is bug-536's
   String-temp leak and the result list's one-time growth garbage, neither of which a
   tokenizer change touches. Measured 1.2 MB of empty fields → 524 MB, of which ~83 MB
-  per call is the leak.
+  per call is the leak. Re-measured by the second session against the *output's own
+  cost*: building the `List OF List OF String` that `csv::parse` returns directly,
+  with no decoder in the way, costs 88 MB for 33 334 five-field rows and 269 MB for
+  1.2 M empty fields; `csv::parse` on the same shapes costs 274 MB and 524 MB. The
+  gap is per-call garbage from bug-536's leak shapes (`__csv_decodeRange`'s per-scalar
+  `out & __encoding_fromCodepoint(cp)`, `__csv_fieldValue`'s `RETURN <call>`, the
+  per-field `fieldBuf = []`), and a user-level port of `__csv_parse` shows that
+  rewriting the range decode as one `utf32Decode(mid(...))` merely moves the leak:
+  it saves on long fields and costs ~190 B *more* per empty field (756 MB vs 524 MB
+  on the empty-field input). csv is linear in its input today; the constant is
+  bug-536's to fix.
+- **DEC-03's lead reproduction after the fix:** `spikes/audit-3/DEC-03` (800 KB, 400 000
+  numbers) peaks at 1 010 MB on main and 772 MB on this branch; `[null,…]` of the same
+  count costs 251 MB either way. The three-megabyte-string shape the tokenisation
+  dominated went 721 → 35 MB. What remains per element is bug-536's.
+- **The "corruption" the first session was bisecting is bug-538**, not a defect of
+  this fix. The first explicit-stack matcher kept its choice records in a growable
+  `List OF Integer` plus append-only side tables of recursive-type values; a
+  `collections::get` of one of those aliases the list's storage and the next growing
+  `append` frees it. The bisect (`/tmp/spk510/bisect.sh`, varying the step budget so
+  the corrupted read fired at a known step) localised it to exactly that shape; the
+  user-level side-table constructs that "all restored correctly" were the flat ones.
+  It was filed as `bugs/bug-538-…` (reproduces on main `aa2121518` and again on this
+  branch: the doc's minimal program prints two lines and dies with exit 139), and the
+  matcher was rewritten to keep choice points in a linked chain of records that is
+  never appended to anything.
 - **DEC-05's cap is 1024 octets, not the 63 the brief named.** A 63-octet cap was
   implemented first and refused RFC 3492's own Korean sample string (74 octets),
   which decoded before the fix — the positive test caught it. The encoder also emits
@@ -101,6 +126,7 @@ None — the `encoding`/`json`/`csv`/`regex` packages had no prior DoS audit
 | DEC-01 | The matcher is an explicit-stack backtracker: `__regex_run` loops over a node-or-continuation task with a backtrack stack of `__regex_Choice` records, each holding the choice below it (a linked chain, the shape the continuations already use). Same exploration order as the CPS recursion — the 85-case corpus is byte-identical. `__REGEX_DEPTH_LIMIT` is retired; `__REGEX_PENDING_LIMIT` (500 000 pending choices) bounds the matcher's memory. The first version kept the choice points in a flat `List OF Integer` with append-only side tables for continuations, capture snapshots and `Repeat` records; it died of bug-538 (`collections::get` of a recursive-type element aliases the list's storage and the next growing `append` frees it — `(a|b)+?c` on `abc` raised "Allocation failed"), which is filed separately and re-reproduced on main. | `regex/helper_run.rs` (replaces `helper_match_{node,alt,cont,rep}.rs`, `helper_depth_limit.rs`) |
 | DEC-02 | One backtracking budget per public call: `__regex_makeCtx` arms `__regex_callBudget = 2 000 000 + 100 × len(subject)`; every node visit is charged to it and to the unchanged per-search budget. | `regex/helper_make_ctx.rs`, `helper_steps.rs`, `helper_run.rs` |
 | DEC-03 (regex) | The context holds the subject once, as scalars; `__regex_Lit` carries its code point; text is rebuilt from the scalar (`__regex_chr`) only where folding or a non-ASCII class needs it. | `regex/helper_make_ctx.rs`, `helper_char_eq.rs`, `helper_class_match.rs`, `helper_anchor_match.rs`, `helper_simple_match_at.rs`, `mod.rs` |
+| DEC-03 (json numbers) | `__json_validNumber` validates the token over its bytes (`__json_numberEnd` finds the end; the token is sliced and decoded once, only if valid); the grapheme list and the `__json_StringNode` per number are gone, and `__json_isDigit` with them. 400 000 one-digit numbers: 2186 → 1928 B per element. The residual over a literal (658 B per element; every primitive on the path — `toFloat`, `mid`, `utf8Decode`, a `TRAP`ped call — is leak-free at 2 B per iteration in user code) is bug-536's shape-A/C garbage in the injected helpers, not tokenisation. | `json/helper_valid_number.rs`, `helper_number_end.rs`, `helper_consume_digits.rs`, `helper_parse_number.rs` |
 | DEC-03 (json) + DEC-04 | `json::parse` scans `strings::toBytes(value)` (tight, one byte per byte) instead of a grapheme list; string bodies accumulate bytes and decode once. CR LF between tokens is two whitespace bytes and now parses; nothing else in the accept set moves (63-document corpus). | `json/**` |
 | DEC-05 / DEC-06 | `punycodeDecode` refuses an encoded label past 1024 octets before decoding, inserts in place (`collections::insert` on the `MUT` output), and applies RFC 3492 §6.4's overflow checks so an overflowing integer is `ErrInvalidFormat`, not `ErrOverflow`. | `encoding/helper_puny_decode_label.rs` |
 

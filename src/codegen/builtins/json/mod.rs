@@ -14,7 +14,6 @@ mod func_stringify;
 
 mod helper_array_index;
 mod helper_code_point_to_string;
-mod helper_collect_number;
 mod helper_consume_digits;
 mod helper_control_escape;
 mod helper_decode_escape;
@@ -25,13 +24,13 @@ mod helper_expect_literal;
 mod helper_expect_literal_at;
 mod helper_hex_digit;
 mod helper_indent_text;
-mod helper_is_digit;
 mod helper_is_high_surrogate;
 mod helper_is_low_surrogate;
 mod helper_is_non_zero_digit;
 mod helper_is_raw_control_char;
 mod helper_is_whitespace;
 mod helper_next_digit;
+mod helper_number_end;
 mod helper_parse_array;
 mod helper_parse_array_items;
 mod helper_parse_escape;
@@ -279,7 +278,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_is_low_surrogate::register(&mut pkg);
     helper_code_point_to_string::register(&mut pkg);
     helper_parse_number::register(&mut pkg);
-    helper_collect_number::register(&mut pkg);
+    helper_number_end::register(&mut pkg);
     helper_to_number::register(&mut pkg);
     helper_valid_number::register(&mut pkg);
     helper_consume_digits::register(&mut pkg);
@@ -287,7 +286,6 @@ pub(crate) fn register(r: &mut Registry) {
     helper_expect_literal_at::register(&mut pkg);
     helper_skip_whitespace::register(&mut pkg);
     helper_is_whitespace::register(&mut pkg);
-    helper_is_digit::register(&mut pkg);
     helper_is_non_zero_digit::register(&mut pkg);
     // plan-120-B. Appended rather than slotted next to the other predicates so
     // the helpers above keep the order the old `package.mfb` blob had.

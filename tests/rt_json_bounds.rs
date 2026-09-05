@@ -65,6 +65,68 @@ END SUB
     );
 }
 
+#[test]
+fn number_grammar_verdicts_are_unchanged_over_bytes() {
+    // bug-510 (DEC-03) moved `__json_validNumber` from a grapheme list to the
+    // token's bytes. The corpus pins the ordinary forms; these are the edges a byte
+    // scanner could get wrong: a non-ASCII byte inside a token (a combining mark on
+    // a digit, a letter with a diacritic, an astral character), an exponent or
+    // fraction cut off at the token's end, and the non-JSON spellings. Every raise
+    // is 77050003, exactly as before; every accepted form stringifies as before.
+    let lines = run(
+        "json_bounds_number_edges",
+        r#"IMPORT io
+IMPORT json
+
+FUNC one(doc AS String) AS String
+  LET v AS json::Json = json::parse(doc)
+  RETURN json::stringify(v)
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+SUB main()
+  io::print(one("1\u{301}"))
+  io::print(one("[1\u{E9}]"))
+  io::print(one("1\u{1F600}"))
+  io::print(one("\u{E9}1"))
+  io::print(one("-"))
+  io::print(one("1e"))
+  io::print(one("1e+"))
+  io::print(one("1.e5"))
+  io::print(one("0x10"))
+  io::print(one("1_000"))
+  io::print(one("--1"))
+  io::print(one("[1,-0.5e+10,1E2,0.0,-0,7e-1]"))
+  io::print(one("{\"n\":-12.5E3}"))
+  io::print(one(" 42 "))
+END SUB
+"#,
+        Duration::from_secs(60),
+        "the number-edge documents did not finish",
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "raised 77050003",
+            "raised 77050003",
+            "raised 77050003",
+            "raised 77050003",
+            "raised 77050003",
+            "raised 77050003",
+            "raised 77050003",
+            "raised 77050003",
+            "raised 77050003",
+            "raised 77050003",
+            "raised 77050003",
+            "[1,-5000000000,100,0,0,0.7]",
+            "{\"n\":-12500}",
+            "42",
+        ],
+    );
+}
+
 /// A document that is one three-megabyte string. Its tokenisation is the whole
 /// cost: there is one value to build and no structure.
 const LARGE_STRING: &str = r#"IMPORT io
