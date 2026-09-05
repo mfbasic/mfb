@@ -1251,7 +1251,7 @@ pub(crate) fn emit_win_spawn_tail(
     Ok(())
 }
 
-// process.close — close the parent's stdin write handle (signals the child's
+// process.closeInput — close the parent's stdin write handle (signals the child's
 // stdin EOF); mark it -1. Idempotent per-record via the -1 sentinel.
 
 /// Emit a blocking `WriteFile(fd, [src_slot], [rem_slot], &[written_slot], NULL)`

@@ -1,0 +1,61 @@
+{
+  "project": "process_close_input_keeps_handle",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 6 },
+    { "module": "process", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "sendAfterInputClosed",
+      "line": 11,
+      "params": [
+      { "name": "p", "type": "process.Process", "resource": true, "state": null, "default": null, "line": 11 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 12,
+        "expression": { "kind": "call", "callee": "process.send", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "cherry" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 13 }
+        ]
+      }, "line": 12 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sorter", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "sort" }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.send", "arguments": [{ "kind": "identifier", "value": "sorter" }, { "kind": "string", "value": "banana" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.send", "arguments": [{ "kind": "identifier", "value": "sorter" }, { "kind": "string", "value": "apple" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.closeInput", "arguments": [{ "kind": "identifier", "value": "sorter" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "process.receive", "arguments": [{ "kind": "identifier", "value": "sorter" }] }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "process.receive", "arguments": [{ "kind": "identifier", "value": "sorter" }] }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pid-live=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "process.pid", "arguments": [{ "kind": "identifier", "value": "sorter" }] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.closeInput", "arguments": [{ "kind": "identifier", "value": "sorter" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "second-closeInput=ok" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "send-after=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sendAfterInputClosed", "arguments": [{ "kind": "identifier", "value": "sorter" }] }] } }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exit=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "sorter" }] }] } }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 39 }
+      ]
+    }
+    ]
+  }
+  ]
+}

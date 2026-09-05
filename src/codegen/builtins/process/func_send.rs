@@ -29,7 +29,7 @@ read enough to make room.
 
 If the child has closed or is no longer reading its standard input — a broken pipe —
 the write fails and `send` raises `ErrResourceClosed`, the same error raised when
-the input was already closed with `process::close` or the handle was dropped or
+the input was already closed with `process::closeInput` or the handle went out of scope or
 detached.
 
 `timeoutMs` bounds how long the call may wait for pipe space, in milliseconds;
@@ -47,7 +47,7 @@ FUNC main AS Integer
   RES sorter = process::spawn(["sort"])
   process::send(sorter, "banana")
   process::send(sorter, "apple")
-  process::close(sorter)
+  process::closeInput(sorter)
   io::print(process::receive(sorter))
   RETURN 0
 END FUNC
@@ -106,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "p",
-                    desc: "The child process handle. The handle stays open — you still close it. Also accepts the alternate named-argument spelling `process`.",
+                    desc: "The child process handle. The handle stays open, and closes itself when its binding goes out of scope. Also accepts the alternate named-argument spelling `process`.",
                     aliases: &["process"],
                     ty: ParameterType::named(super::PROCESS_TYPE_ID),
                     default: DefaultValue::None,

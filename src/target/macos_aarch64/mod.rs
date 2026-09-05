@@ -266,7 +266,7 @@ impl NativeBackend for Backend {
                 "process.pid",
                 "process.isRunning",
                 "process.waitFor",
-                "process.close",
+                "process.closeInput",
                 "process.send",
                 "process.sendBytes",
                 "process.receive",

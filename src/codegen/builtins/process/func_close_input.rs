@@ -1,10 +1,15 @@
-//! `process::close` — descriptor + per-platform OS-seam emission.
+//! `process::closeInput` — descriptor + per-platform OS-seam emission.
 //!
 //! `Implementation::Os`: the member owns its arch-neutral, OS-branching native
 //! emission. `lower_process_close_helper_posix` (libc `close`, macOS/Linux) and
-//! `lower_process_close_helper_win` (`CloseHandle`) emit the `_mfb_rt_process_close`
-//! helper body; the runtime-call dispatch (`crate::codegen::os`) picks by
-//! `platform.family()`.
+//! `lower_process_close_helper_win` (`CloseHandle`) emit the
+//! `_mfb_rt_process_closeInput` helper body; the runtime-call dispatch
+//! (`crate::codegen::os`) picks by `platform.family()`.
+//!
+//! bug-524: the member was spelled `close` until it was renamed. It closes the
+//! child's standard input, not the `Process` handle, so it is deliberately NOT
+//! the resource's registered close op (that is the internal `__drop`) — see
+//! `codegen::resource`'s `a_member_named_close_is_its_packages_resource_close_op`.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::types::*;
@@ -21,22 +26,22 @@ use crate::types::ParameterType;
 
 use super::gen_shared::{ProcBodyParts, PROC_STDIN_W};
 const INTRO: &str =
-    r#"Close a child's standard input, signalling end-of-input; the child keeps running."#;
-const DESC: &str = r#"`process::close` closes the child's standard input — the parent's write end of the
-child's stdin pipe. It sends end-of-input to the child, so a filter that reads
+    r#"Close a child's standard input, signalling end-of-input to the child."#;
+const DESC: &str = r#"`process::closeInput` closes the child's standard input — the parent's write end of
+the child's stdin pipe. It sends end-of-input to the child, so a filter that reads
 until EOF (`sort`, `cat`, `wc`, `tr`, …) stops waiting for more input and produces
-its output. After `close`, further `process::send`/`process::sendBytes` to the same
-child raise `ErrResourceClosed`.
+its output. After `closeInput`, further `process::send`/`process::sendBytes` to the
+same child raise `ErrResourceClosed`.
 
-`process::close` does **not** close the handle. Despite the name, it does not
-end the `Process`: the child keeps running, its output stays readable with
-`process::receive`, and the handle stays usable. The child is still cleaned up
-the usual way — when the binding ends, which force-kills and reaps it.
+The child keeps running and its handle stays usable: `process::receive` still reads
+what it writes, `process::isRunning` still reports on it, and `process::waitFor`
+still collects its exit code. `process` has no public close for the handle itself —
+a child is stopped and cleaned up when the binding holding it goes out of scope.
 
-Closing the input is idempotent with respect to the input pipe: once stdin is
-closed the call is a harmless no-op. Only a handle that has already been dropped or
-detached makes `close` raise `ErrResourceClosed`."#;
-const EX: &str = r#"Feed a filter its input, then close stdin so it flushes its output:
+Closing the input twice is harmless: once standard input is closed the call is a
+no-op. Only a handle that has already gone out of scope, or that `process::detach`
+has released, makes `closeInput` raise `ErrResourceClosed`."#;
+const EX: &str = r#"Feed a filter its input, then close its standard input so it flushes its output:
 
 ```
 IMPORT process
@@ -46,7 +51,7 @@ FUNC main AS Integer
   RES sorter = process::spawn(["sort"])
   process::send(sorter, "banana")
   process::send(sorter, "apple")
-  process::close(sorter)
+  process::closeInput(sorter)
   io::print(process::receive(sorter))
   RETURN 0
 END FUNC
@@ -55,7 +60,7 @@ END FUNC
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::AbiCtx;
 
-/// `abi_function` body for `process::close` — branches win/posix and calls this
+/// `abi_function` body for `process::closeInput` — branches win/posix and calls this
 /// member's own backend helper (with any alias discriminant via `ctx.call`), then
 /// finalizes.
 pub(crate) fn lower_close(
@@ -78,7 +83,7 @@ pub(crate) fn lower_close(
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
-        name: "close",
+        name: "closeInput",
         intro: INTRO,
         desc: DESC,
         example: EX,
@@ -87,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "p",
-                desc: "The child process handle whose standard input to close. The handle stays open — you still close it. Also accepts the alternate named-argument spelling `process`.",
+                desc: "The child process handle whose standard input to close. The handle itself stays open, and closes itself when its binding goes out of scope. Also accepts the alternate named-argument spelling `process`.",
                 aliases: &["process"],
                 ty: ParameterType::named(super::PROCESS_TYPE_ID),
                 default: DefaultValue::None,

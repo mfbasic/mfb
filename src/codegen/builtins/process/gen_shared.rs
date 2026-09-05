@@ -245,11 +245,11 @@ mod tests {
 
     #[test]
     fn void_result_preserves_the_runtime_call_identity() {
-        let result = void_result("process.close");
+        let result = void_result("process.closeInput");
         assert!(result.origin.is_none());
         assert_eq!(result.type_, ParameterType::Nothing);
         assert_eq!(result.location, Operand::from("void"));
-        assert_eq!(result.text, "process.close");
+        assert_eq!(result.text, "process.closeInput");
     }
 
     #[test]

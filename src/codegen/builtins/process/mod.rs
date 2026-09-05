@@ -25,7 +25,7 @@ use crate::codegen::registry::{
     EnumVariant, Registry, RegistryEnum, RegistryPackage, RegistryResource,
 };
 
-mod func_close;
+mod func_close_input;
 mod func_detach;
 
 mod gen_shared;
@@ -81,10 +81,10 @@ pub(crate) const SIGNAL_TYPE: &str = "Signal";
 ///
 /// Not user-callable: when a live `Process` goes out of scope the runtime
 /// force-kills it (`SIGKILL`) and reaps it (`waitpid`) so no zombie is left and
-/// drop never blocks. This is deliberately NOT the public `process::close`
-/// (which closes only the child's stdin and leaves the child running) — so
-/// `process::close(p)` is not treated as an ownership transfer and scope-drop
-/// still runs `__drop`.
+/// drop never blocks. `process` has no public close op at all: the nearest-looking
+/// member, `process::closeInput`, closes only the child's stdin and leaves the child
+/// running, so it is not treated as an ownership transfer and scope-drop still runs
+/// `__drop` (bug-524 renamed it from `close` for exactly that reason).
 pub(crate) const DROP: &str = "process.__drop";
 
 const MODULE_INTRO: &str =
@@ -109,9 +109,10 @@ flag.
 
 What happens to a live child is deliberate. Letting a `Process` go out of scope
 **force-kills and reaps** it (`SIGKILL` + `waitpid` on Unix), so no runaway child
-or zombie is left behind and the cleanup never blocks. `process::close` does *not* close the
-handle: it closes only the child's standard input (signalling
-end-of-input to a filter) and leaves the child running and the handle usable.
+or zombie is left behind and the cleanup never blocks. There is no call that closes
+a handle early: `process::closeInput` closes only the child's standard input
+(signalling end-of-input to a filter) and leaves the child running and the handle
+usable.
 `process::detach` goes the other way — it closes the parent-side
 pipes, arranges for the child to be auto-reaped, and marks the handle closed so
 the child keeps running independently after the program exits.
@@ -239,7 +240,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_pid::register(&mut pkg);
     func_is_running::register(&mut pkg);
     func_wait_for::register(&mut pkg);
-    func_close::register(&mut pkg);
+    func_close_input::register(&mut pkg);
     func_send::register(&mut pkg);
     func_send_bytes::register(&mut pkg);
     func_receive::register(&mut pkg);
@@ -293,7 +294,7 @@ mod tests {
             Some("Boolean")
         );
         assert_eq!(
-            registry::call_return_type_typed("process.close")
+            registry::call_return_type_typed("process.closeInput")
                 .map(|t| t.name().into_owned())
                 .as_deref(),
             Some("Nothing")

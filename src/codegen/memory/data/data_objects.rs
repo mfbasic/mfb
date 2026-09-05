@@ -580,7 +580,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         "process.pid",
         "process.isRunning",
         "process.waitFor",
-        "process.close",
+        "process.closeInput",
         "process.send",
         "process.sendTimeout",
         "process.sendBytes",

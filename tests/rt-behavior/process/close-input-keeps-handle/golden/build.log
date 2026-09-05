@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/process/close-input-keeps-handle
+Wrote AST to tests/rt-behavior/process/close-input-keeps-handle/process_close_input_keeps_handle.ast
+Wrote IR to tests/rt-behavior/process/close-input-keeps-handle/process_close_input_keeps_handle.ir
+[exit 0]
+$ mfb build tests/rt-behavior/process/close-input-keeps-handle
+Wrote executable to tests/rt-behavior/process/close-input-keeps-handle/build/process_close_input_keeps_handle.out
+[exit 0]
+$ tests/rt-behavior/process/close-input-keeps-handle/build/process_close_input_keeps_handle.out
+apple
+
+banana
+
+pid-live=TRUE
+second-closeInput=ok
+send-after=77030004
+exit=0
+[exit 0]
