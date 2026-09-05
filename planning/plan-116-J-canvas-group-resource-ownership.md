@@ -997,6 +997,15 @@ Commit: —
   directed because `destroyImage(img)` followed by `present([a])` compiles today and must,
   since `Picture.image` promises *"closing it while a scene still names it draws nothing
   rather than failing."*
+  **And the resolution is only half of the answer, which the recommendation above did not
+  foresee.** The move catches the sharing the checker can *see*, and it deliberately does
+  not see all of it: `check_resource_moves` is conservative straight-line dataflow, so a
+  loop body is analysed once and a group rebuilt across iterations from one binding is a
+  **deliberate false negative** (**J14**). That conservatism is what keeps the rule from
+  rejecting valid programs, so it is not a gap to close — it is why the **free path** must
+  be correct on its own, and why it closes a resource only when nothing live names it
+  (**J15**). Two mechanisms, and neither is sufficient alone: the compiler turns the cases
+  it can see into build errors, and the free path makes the rest harmless.
 
 ## Corrections
 
