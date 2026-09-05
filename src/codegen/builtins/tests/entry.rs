@@ -43,6 +43,17 @@ END FUNC
 ",
     ),
     (
+        "entry-takes-args",
+        "\
+IMPORT io
+
+FUNC main(args AS List OF String) AS Integer
+  io::print(toString(len(args)))
+  RETURN 0
+END FUNC
+",
+    ),
+    (
         "args",
         "\
 IMPORT io
@@ -124,9 +135,9 @@ fn every_entry_symbol_is_defined_by_the_plan_that_names_it() {
             }
         }
     }
-    // 6 programs x 5 backends x (console + app, except console-only rv64).
+    // 7 programs x 5 backends x (console + app, except console-only rv64).
     assert_eq!(
-        checked, 54,
+        checked, 63,
         "expected every program to be lowered for every backend and mode"
     );
 }
@@ -166,6 +177,51 @@ fn an_app_build_runs_the_program_on_a_worker_under_its_own_symbol() {
             "{}: an -app build must emit the toolkit's own entry alongside the \
              program's",
             target.name()
+        );
+    }
+}
+
+/// An entry that TAKES arguments captures them; one that does not, does not.
+///
+/// `ProgramEntrySpec::capture_args` decides whether the entry reads `argc`/`argv`
+/// off the initial stack at all, and it is computed from the entry's signature.
+/// Getting it wrong in either direction is silent: a program declared
+/// `FUNC main(args AS List OF String)` whose entry skips the capture receives an
+/// empty list forever, and one that captures when it should not reads the
+/// kernel's argv layout on a thread whose stack has none.
+#[test]
+fn only_an_args_taking_entry_captures_argv() {
+    let with_args = PROGRAMS
+        .iter()
+        .find(|(name, _)| *name == "entry-takes-args")
+        .map(|(_, source)| *source)
+        .expect("the args-taking program");
+    let without = PROGRAMS
+        .iter()
+        .find(|(name, _)| *name == "plain")
+        .map(|(_, source)| *source)
+        .expect("the plain program");
+
+    for target in CodeTarget::ALL {
+        let mode = crate::target::NativeBuildMode::Console;
+        let taking = code_for_src_mode(with_args, target, mode);
+        let plain = code_for_src_mode(without, target, mode);
+        let entry_of = |plan: &crate::codegen::engine::types::NativeCodePlan| {
+            let symbol = plan.entry_symbol.clone().unwrap_or_default();
+            plan.functions
+                .iter()
+                .find(|f| f.symbol == symbol)
+                .map(|f| f.instructions.len())
+                .unwrap_or_default()
+        };
+        assert!(
+            entry_of(&taking) > entry_of(&plain),
+            "{}: the entry of an args-taking program must be LONGER than one that \
+             takes none -- it has to capture argc/argv and build the list. It was \
+             {} instructions against {}",
+            target.name(),
+            entry_of(&taking),
+            entry_of(&plain)
         );
     }
 }

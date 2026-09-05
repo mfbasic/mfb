@@ -110,12 +110,22 @@ pub fn lower_src_concrete(source: &str, entry: Option<crate::ir::EntryPoint>) ->
     crate::ir::lower_augmented_project(&concrete_hir_from_src(source), entry, &HashMap::new(), &[])
 }
 
-/// The `FUNC main() AS Integer` entry every harness program declares.
-fn main_entry() -> crate::ir::EntryPoint {
+/// The entry the harness declares for `source`.
+///
+/// `accepts_args` is read off the source rather than hardcoded. It is not
+/// cosmetic: it decides whether the program entry captures `argv` at all, and a
+/// harness that always said `false` left the whole args-capture path in
+/// `engine/function/entry.rs` unreachable -- the load of `argc`/`argv` off the
+/// initial stack, the deferred-capture branch, and the copy into the arena.
+fn main_entry(source: &str) -> crate::ir::EntryPoint {
+    let accepts_args = source
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("FUNC main"))
+        .any(|rest| rest.starts_with('(') && !rest.starts_with("()"));
     crate::ir::EntryPoint {
         name: "main".to_string(),
         returns: crate::types::ParameterType::Integer,
-        accepts_args: false,
+        accepts_args,
     }
 }
 
@@ -346,7 +356,7 @@ fn code_for_src_inner(
     use crate::os::linux::flavor::LinuxFlavor::Glibc;
     use crate::target::shared::lower;
 
-    let mut ir = lower_src_concrete(source, Some(main_entry()));
+    let mut ir = lower_src_concrete(source, Some(main_entry(source)));
     ir.native_libraries = libraries;
     let module = lower::lower_project(&ir, target.name().to_string(), &[], build_mode, None)
         .expect("test source must lower to NIR");
