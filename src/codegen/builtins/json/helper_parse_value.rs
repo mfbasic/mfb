@@ -20,7 +20,8 @@ FUNC __json_parseValue(bytes AS List OF Byte, index AS Integer, depth AS Integer
   ' frames and killed the process with an uncatchable SIGSEGV; json::parse is the
   ' untrusted-input boundary (HTTP bodies, files), so that was a remote crash.
   ' Capping here turns it into an ordinary catchable failure well before the stack
-  ' runs out, mirroring the regex engine's __REGEX_DEPTH_LIMIT guard (bug-315).
+  ' runs out, as the regex matcher's __REGEX_DEPTH_LIMIT guard did (bug-315) until
+  ' bug-510 removed that matcher's native recursion altogether.
   ' plan-120-A: reported as 77050024 ErrDepthExceeded rather than the generic
   ' 77050003, because the document is well-formed -- it is only nested deeper
   ' than this reader descends, which is a limit the caller can act on.
