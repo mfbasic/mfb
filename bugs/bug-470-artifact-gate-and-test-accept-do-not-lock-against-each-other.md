@@ -310,6 +310,58 @@ needs the same `gate_lock_acquire` call — one line, and this note is the point
   same-tree tests and the nesting test; a machine-wide lock fails only the
   cross-tree test.
 
+## Two things the fix got wrong, found while landing it (2026-09-05)
+
+Both were in the *unlanded fix*, not in the original bug, and both are the same
+error shape as the bug itself: a list that was shorter than the thing it stood
+for.
+
+### 1. `test-accept.sh` leaked the lock on its SUCCESS path
+
+`gate_lock_acquire` installs `trap gate_lock_release EXIT INT TERM`.
+`test-accept.sh` then installs `trap 'rm -rf "$MFB_HOME"' EXIT` forty lines
+later. **`trap` replaces; it does not chain.** Measured: a successful run exited
+0, printed `acceptance tests passed (1 test(s) ran)`, and left
+`tests/.gate.lock` holding `test-accept.sh 73694 <ts>`.
+
+It nearly hides twice over. Only EXIT was clobbered, so INT/TERM still released
+— an interrupted run looked correct, which is why the first check of this
+(`pkill`, then `git status`) reported clean. And the leak self-heals *most* of
+the time via the stale-pid reclaim; "most" is the problem, because a reused pid
+makes `kill -0` succeed and the tree wedges behind a refusal naming a process
+that has nothing to do with it.
+
+Fixed by releasing in the same trap. Pinned by
+`tests/gate_release_on_normal_exit.rs`, which asserts the property (after the
+shell exits, is the lock gone?) and builds its snippet from each script's own
+`trap ... EXIT` lines, so a future handler that forgets the release fails there.
+
+### 2. The lock covered 3 of the 11 scripts that rewrite fixture dumps in-tree
+
+This document's own analysis says the contended resource is
+`tests/<fixture>/<pkg>.{ast,ir,hex,nir,nplan,nobj,ncode,mir}` — not two scripts.
+Eight more write and delete exactly those paths and were unlocked:
+`regen-ncodesum.sh`, `regen-outside-ncode.sh`, `regen-rt-goldens.sh`,
+`bug387-gate.sh`, `ncode-determinism.sh`, `ncode-determinism-alltargets.sh`,
+`bench-lowering.sh`, `diag-set-diff.sh`. Regenerate-then-gate is the normal
+workflow after an intended codegen change, so `regen-*` beside a gate in one
+tree is a realistic pairing, not an exotic one. `linux-artifact-baseline.sh` is
+the only dump-emitting script that stays exempt — it copies each fixture to
+`$WORKDIR/w$slot` and builds there.
+
+**A recogniser was the wrong instrument, three times.** Each attempt
+under-reported, which is the direction that silently ships the bug: "does it
+`rm -f` a dump beside a fixture" missed `regen-rt-goldens.sh`; the repaired
+version missed `bench-lowering.sh`, which uses `find … -delete`; and the
+exemption list written alongside them wrongly cleared `ncode-determinism.sh`,
+whose `mktemp` is only its hash accumulator while the build writes to
+`$REPO/$td`. `tests/gate_lock_covers_every_writer.rs` is therefore an
+**exhaustive classification**: every dump-emitting script must appear in a table
+saying which side it is on and why, so a new one fails the test until someone
+decides. It carries a blindness guard (a floor on how many the scan finds), and
+it verifies every table entry rather than only the scanned ones — three entries
+contend without naming a dump flag at all.
+
 ## Blast radius
 
 Any session that runs `cargo test` (which reaches `artifact-gate all` through
