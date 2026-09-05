@@ -434,3 +434,56 @@ fn every_publish_retires_the_displaced_blocks_and_stamps_the_frame() {
         );
     }
 }
+
+/// The canvas program lowers on every backend that has an `-app` mode.
+///
+/// Everything above inspects the linux-x86_64 lowering, because the publish
+/// body's ordering rules are arch-neutral. The rest of the canvas surface is
+/// not: `canvas::getSize`, `setBytes`, `blitSurface`, the Metal seam and the
+/// `term::` shared helpers each `match` on the platform family, and the arms
+/// none of them takes on Linux are the ones nobody has ever lowered in process.
+///
+/// The contract is the same one the corpus states for console programs and the
+/// acceptance matrix states slowly for app ones: every backend emits the whole
+/// program. A canvas member that lowers on Linux and not on macOS is a build
+/// failure nobody sees until a release runner reaches it.
+#[test]
+fn the_canvas_program_lowers_on_every_app_capable_backend() {
+    let mut lowered = 0;
+    let mut agreed: Option<Vec<String>> = None;
+    for target in CodeTarget::ALL {
+        if target.app_mode().is_none() {
+            continue;
+        }
+        let plan = app_code_cached(PRESENT_SRC, target);
+        lowered += 1;
+        let publish: Vec<String> = plan
+            .functions
+            .iter()
+            .map(|f| f.name.clone())
+            .filter(|name| name.starts_with("runtime.canvas."))
+            .collect();
+        assert!(
+            publish.contains(&"runtime.canvas.publishScene".to_string()),
+            "{}: the canvas runtime must emit publishScene",
+            target.name()
+        );
+        let mut sorted = publish;
+        sorted.sort();
+        match &agreed {
+            None => agreed = Some(sorted),
+            Some(first) => assert_eq!(
+                first,
+                &sorted,
+                "{}: the canvas runtime surface differs from the first backend's; \
+                 a member emitted on one target and not another is a build failure \
+                 nobody sees until a release runner reaches it",
+                target.name()
+            ),
+        }
+    }
+    assert_eq!(
+        lowered, 4,
+        "four of the five backends have an -app mode (rv64 is console-only)"
+    );
+}

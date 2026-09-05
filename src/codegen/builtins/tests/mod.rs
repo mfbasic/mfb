@@ -29,6 +29,7 @@
 //! `pub(crate)` paths.
 
 mod abi_inline;
+mod app_surface;
 mod canvas;
 mod collections;
 mod corpus;
