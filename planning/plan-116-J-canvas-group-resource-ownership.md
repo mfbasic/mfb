@@ -62,9 +62,19 @@ directed it into the series as plan-116-I on 2026-09-01.)
 
 - `setGroup` takes ownership of every resource reachable from the item list it is
   given, so the caller's bindings may go out of scope without closing them.
-- The group closes each owned resource exactly once, when the group's buffer is freed
-  — which plan-116-G §4.3 already gates on `refs == 0 AND retiredFrame <
-  lastCompletedFrame`.
+  *(**J9**, 2026-09-04: the second clause is the demanding one and the plan never named
+  what it costs. "The caller's binding may go out of scope without closing" means the
+  binding must be **moved** — scope-drop closes a `RES` it still owns, and the group
+  holding an alias does nothing to stop that. So this bullet requires a transitive move at
+  the `setGroup` call site, which nothing implements today. It is not a consequence of
+  ownership; it is the mechanism ownership has to be built on. §4.3.1 option 2.)*
+- The group closes each owned resource exactly once, when the group's buffer is freed —
+  which plan-116-G §4.3 already gates. *(Corrected 2026-09-04, **J4**: the gate has no
+  `refs == 0` term and never had one. It is `RETIRED_ITEMS != 0` as the discriminator and
+  `frame_now >= stamped` as the frame test, against the frames-**completed** counter.
+  `CANVAS_GROUP_REFS` is written and decremented and never read as a predicate anywhere.
+  Also **J8**: against a **shared** resource record "exactly once" is satisfied by code
+  that is still wrong, because the close is global — see §4.3.1.)*
 - A resource owned by a group and still drawn by an in-flight frame is not closed until
   that frame completes.
 - 200 install/remove cycles leak neither file descriptors nor backing textures.
@@ -306,21 +316,34 @@ the same code in all three and only the surrounding contract differs:
    `destroyImage` moving its binding for a *direct* call — but §4.6 is exactly why that
    analogy does not carry: the compiler cannot see this one, so the failure is silent and
    at render time, which is the worst shape a diagnostic can have.
-2. **`setGroup` moves the resource out of the caller's binding**, the way `destroyImage`
-   does, making the second install a compile error. This is the only option where the
-   compiler catches it. It requires the items list to reach `setGroup` as something the
-   move checker can attribute to a binding, and a `List OF DrawItem` built inline may not
-   be — that is the thing to measure first.
+2. **`setGroup` moves every resource transitively reachable from its `items` argument**,
+   the way `destroyImage` moves its one, making the second install `2-203-0055`. The only
+   option where the compiler catches it.
 3. **Drop ownership for shared-by-construction resources** and keep this letter to the
    case it can defend.
 
-Option 2 is the one to cost first: it is the only one that converts a silent render-time
-wrong-picture into a compile error, and this letter's whole premise is that plan-116-I made
-resources visible to the type system.
+**Measured 2026-09-04 (J9), because two cheaper readings of option 2 are both dead.**
+
+*Moving the list is not enough.* The two installs pass **different** lists (`[a]` and
+`[b]`); the binding used twice is `img`, inside two separate `Picture` constructions. A
+move attached to the `items` argument moves a list, and catches nothing.
+
+*Moving at the constructor is impossible.* One could make `Picture[image := img]` consume
+`img` — but `canvas::present(items AS List OF canvas::DrawItem)` and
+`canvas::setGroup(name AS String, items AS List OF canvas::DrawItem)` take the **identical
+type**, so a `DrawItem` cannot know at construction which it is destined for, and §Non-goals
+requires that `present` not own. Probed: a `FOR` loop building a fresh `Picture` from one
+long-lived image and presenting it each pass compiles today, and it is what every canvas
+program does. A consuming constructor would refuse it on the second frame.
+
+So option 2 survives only in its transitive form: the move is decided **at the `setGroup`
+call**, and the checker must walk from the argument through the list to the records to the
+`RES` slots inside them. Nothing does that today — the two-group probe compiles clean with
+no diagnostic. Whether the move analysis in `src/ir/verify/` can be extended to it is
+implementation work, and it is Phase 2's first box.
 
 **This is a Phase 2 decision with a Phase 3 consequence, and it is recorded as an Open
-Decision rather than settled here** — settling it needs the measurement in option 2, which
-is implementation work, not document work.
+Decision rather than settled here.**
 
 ### 4.4 The walk this letter has to write
 
@@ -574,6 +597,68 @@ Commit: —
   task**, not a document decision.
 
 ## Corrections
+
+**J9 (2026-09-04, Phase 1 — measured, three probes) — §4.3.1's recommended option is
+right in outline and both of its cheap readings are dead; and §1's first Goal bullet
+depends on a mechanism that does not exist, which the letter never says.**
+
+All three probes are `mfb build -app` on a scratch project, against
+`target/release/mfb`.
+
+**Probe 1 — the hole is reachable today.** One image, two `Picture`s, two `setGroup`s:
+
+```basic
+RES img AS canvas::Image = canvas::createImage(1, 1, px)
+LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, …, image := img, paint := …]
+canvas::setGroup("one", [a])
+LET b AS canvas::DrawItem = canvas::Picture[x := 9.0, …, image := img, paint := …]
+canvas::setGroup("two", [b])
+```
+
+**Compiles clean.** No diagnostic of any kind. §4.3.1 is not a hypothetical.
+
+**Probe 2 — moving the list catches nothing.** The two installs pass *different* lists,
+`[a]` and `[b]`. The binding used twice is `img`, in two separate constructions. A move
+attached to `setGroup`'s `items` parameter moves a `List OF DrawItem` and leaves `img`
+untouched. This is how I first phrased option 2, and it is wrong.
+
+**Probe 3 — moving at the constructor is impossible, not merely undesirable.** The
+alternative is to make `Picture[image := img]` consume `img`. But
+`canvas::present(items AS List OF canvas::DrawItem)` and
+`canvas::setGroup(name AS String, items AS List OF canvas::DrawItem)` take the **same
+type** (`mfb man canvas present`, `mfb man canvas setGroup`), so a `DrawItem` cannot know
+at construction which of the two it is destined for — and §Non-goals requires `present`
+not to own. Probed the shape that would break:
+
+```basic
+FOR i = 1 TO 3
+  LET p AS canvas::DrawItem = canvas::Picture[…, image := img, …]
+  canvas::present([p])
+NEXT
+```
+
+**Compiles today**, and it is the ordinary live-scene shape — one long-lived image, a
+fresh `Picture` per frame. A consuming constructor refuses it on the second pass.
+
+So option 2 survives only in a **transitive** form: the move is decided at the `setGroup`
+call, and the checker walks argument → list → record → the `RES` slots inside. That is new
+analysis in `src/ir/verify/`, and it is Phase 2's first box.
+
+**The consequence for §1, which is the part worth stopping on.** Goal bullet 1 reads
+*"`setGroup` takes ownership … so the caller's bindings may go out of scope without
+closing them."* The second clause does not follow from the first. Scope-drop closes a
+`RES` the binding still owns; the group holding an **alias** (**J5**) does nothing to
+prevent that. For the caller's binding to go out of scope harmlessly it must have been
+**moved** — so the transitive move is not a nicety option 2 offers for catching a sharing
+bug, it is **the mechanism the Goal's headline promise is built on**, and without it
+Phase 2's own test (open an image, `setGroup` a `Picture`, drop the binding, present — the
+image still draws) fails no matter what the free path does.
+
+The letter never says this. It describes ownership as a free-path concern throughout, and
+§3 calls itself *"deliberately small"*. It is not small: it needs a move-checker change.
+Recorded here rather than resolved because Phase 2 measures whether that analysis is
+reachable, and **size is not a reason to narrow the Goal** — the Goal is what the letter
+is for.
 
 **J8 (2026-09-04, Phase 1) — §4.3 as I first wrote it attributed an argument to
 plan-116-G that plan-116-G does not make; following the real one to the end found a hole
