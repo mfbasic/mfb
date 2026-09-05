@@ -267,12 +267,30 @@ on every canvas-emitting target.
 
 ### Rejected alternatives
 
-- **Refcount the resources themselves alongside the group's own refcount.** Rejected:
+- **Refcount the resources themselves ~~alongside the group's own refcount~~.** Rejected:
   the RES model deliberately has no refcount (`.ai/canvas-threading.md` §7), and adding
   one for group-owned resources only would give the subsystem two ownership models for
-  the same object depending on where it is stored.
-- **Have `present` own resources too, for symmetry.** Rejected in §Non-goals: it
-  contradicts a documented promise and would make a published scene keep an image open.
+  the same object depending on where it is stored. *(The phrase "the group's own refcount"
+  is wrong and was corrected in §1 too — `CANVAS_GROUP_REFS` is written and decremented
+  and **never read as a predicate**; there is no refcount to sit alongside, **J4**.)*
+  **What replaced it is worth naming, because the shipped design does answer a
+  refcount-shaped question.** *"Does anything still name this?"* is asked — but **at the
+  moment of the free, by scanning**, rather than maintained as a count. That trades an
+  invariant every writer must uphold for a `CANVAS_MAX_GROUPS` × items scan that runs only
+  when a buffer is actually reclaimed (§4.4). The trade is the right one here because the
+  writers are the problem: a count has to be correct at every `setGroup`, `removeGroup`,
+  replace, scope-drop and error path, and a miss is a leak or a use-after-close with no
+  local symptom. A scan cannot be wrong about a state it reads directly.
+- **Have `present` own resources too, for symmetry.** Rejected in §Non-goals: it would
+  make a published scene keep an image open. *(The "documented promise" it contradicted no
+  longer exists in the tree — **J4**. The Non-goal now rests on a test instead:
+  `set_group_items_is_the_consuming_parameter` asserts
+  `builtin_consuming_parameter_index("canvas.present")` is `None`.)*
+  **And it turned out to be impossible, not merely undesirable** (**J9**): `present` and
+  `setGroup` take the *identical* `List OF canvas::DrawItem`, so a `DrawItem` cannot know
+  at construction which of the two it is destined for. Symmetry here would have meant a
+  consuming constructor, which refuses the per-frame `present` loop every canvas program
+  writes.
 - **Copy the resource (dup the fd / clone the texture) into the group.** Rejected: it
   is not what ownership means here, it would double every image's memory, and
   `canvas::Image` has no defined clone.
