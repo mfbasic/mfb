@@ -754,21 +754,29 @@ Commit: `321dfddaf` (boxes), `1d2f1ff3e` (codegen), `49257cfba` (verifier), `1fb
       (`#canvas_present`'s own `items`) **plus every group's live items**, via a new
       internal `canvas::groupSlots()` so no `256` is spelled in MFBASIC source. Pinned by
       `a_group_does_not_close_an_image_the_scene_still_names`.
-- [ ] Tests, extending plan-116-G Phase 5's race matrix — add the rows to
-      `.ai/canvas-threading.md` §8 as well:
+- [x] Tests, extending plan-116-G Phase 5's race matrix — added to
+      `.ai/canvas-threading.md` §8 as **R17–R21**. All five in
+      `tests/rt_canvas_group_ownership.rs`, **10 tests, all green**:
       - group owning an image → `removeGroup` → graphics mid-frame: the frame completes
-        and the image is **still open** during it. *(Was "still samples the texture" —
-        there is no texture; **J11**.)*
-      - the same, then a completed frame: the image closes exactly once. Observable as
-        `canvas::getSize` raising `ErrResourceClosed` where it did not before.
-      - a group owning an image, and a *scene* also drawing that image: §4.3.1's
-        resolution decides the outcome; assert it, and assert it is not a crash.
-      - `setGroup` replacing a group: the old resources close, the new ones do not.
-      - 200 × install/remove of a group owning a `Font` and an `Image`: `groupBytes=`
-        returns to baseline. *(The fd half is **vacuous today** and must not be reported
-        as a pass: `createImage` allocates nothing outside MFB's own resource record, so
-        there is no descriptor to grow — **J11**. A `Font` loaded from a file is the one
-        that can hold one, so the `Font` half of this row is the real check.)*
+        and the image is still open during it —
+        `removing_a_group_mid_frame_keeps_the_image_until_the_frame_completes`, printing
+        `OPEN-MID-FRAME` under `MFB_CANVAS_FRAME_HOLD_MS=600` with the worker's own
+        `os::sleep(120)` as the other half of the ordering. **R17.**
+      - the same, then a completed frame: the image closes. Same test, `CLOSED-AFTER`.
+        *"Exactly once" is asserted as a state transition — open at the first point,
+        closed at the second — because there is nothing to count.* **R17.**
+      - a group owning an image, and a *scene* also drawing that image:
+        `a_group_does_not_close_an_image_the_scene_still_names`. **R19**, and it **failed
+        when first probed** (**J15**).
+      - `setGroup` replacing a group: `a_replacement_that_drops_the_image_closes_it` for
+        the close, `a_group_rebuilt_each_frame_keeps_its_font` +
+        `the_rebuild_still_frees_the_buffers_it_retires` for the same-resource case.
+        **R18**, **R20**.
+      - 200 × install/remove: `two_hundred_owning_cycles_return_group_bytes_to_baseline`.
+        **R21.** *(The fd half is **vacuous today** and is not counted as a pass:
+        `createImage` allocates nothing outside MFB's own resource record, so there is no
+        descriptor to grow — **J11**. What this asserts is `groupBytes=`, which is the
+        leak that IS observable.)*
 
 Acceptance: all five rows pass; the 200-cycle loop shows no `groupBytes=` growth, and no
 fd growth for the `Font` (`lsof` on the process, or the platform equivalent) — **the image

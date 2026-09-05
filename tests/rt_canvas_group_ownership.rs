@@ -361,6 +361,150 @@ fn ownership_does_not_change_what_is_drawn() {
     );
 }
 
+/// Rows 1 and 2 of Phase 3's matrix in one program: a group owning an image,
+/// `removeGroup` while a frame is still drawing, then a completed frame.
+///
+/// `MFB_CANVAS_FRAME_HOLD_MS` slows the graphics thread and the worker's own
+/// `os::sleep(120)` is the other half — without it the worker wins the race to the start
+/// of the frame and the group is removed before it is ever resolved, which tests the
+/// absent-name path instead (plan-116-G Phase 5 measured exactly that on its first run).
+///
+/// The program prints its verdict at two points, so one run covers both rows:
+/// `OPEN-MID-FRAME` while the in-flight frame is still going, and `CLOSED-AFTER` once a
+/// frame has completed past the retirement. **"Exactly once" is not asserted by counting
+/// closes** — there is nothing to count — but by the state being `open` at the first
+/// point and `closed` at the second, which a close that fired early or never would break.
+const REMOVE_MID_FRAME: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+IMPORT os
+
+SUB install(RES img AS canvas::Image)
+  LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::setGroup("panel", [p])
+END SUB
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
+  RES img AS canvas::Image = canvas::createImage(1, 1, px)
+  install(img)
+
+  LET node AS canvas::DrawItem = canvas::Group[dx := 200.0, dy := 200.0, name := "panel"]
+  LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]
+  canvas::present([mark, node])
+
+  os::sleep(120)
+  canvas::removeGroup("panel")
+
+  ' Still mid-frame: the hold is 600ms and only 120 have passed.
+  LET during AS canvas::Size = canvas::getSize(img) TRAP(e)
+    io::print("CLOSED-MID-FRAME")
+    RETURN 2
+  END TRAP
+  io::print("OPEN-MID-FRAME")
+
+  os::sleep(1200)
+  ' The reclaim runs at the top of `present`, so a present is what drains it.
+  canvas::present([mark])
+  canvas::present([mark, canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(1, 1, 1))]])
+
+  LET after AS canvas::Size = canvas::getSize(img) TRAP(e)
+    io::print("CLOSED-AFTER")
+    RETURN 0
+  END TRAP
+  io::print("STILL-OPEN-AFTER-REMOVE")
+  RETURN 3
+END FUNC
+"#;
+
+/// Row 5: 200 install/remove cycles of a group owning an `Image` leave `groupBytes=` at
+/// its baseline.
+///
+/// The `Font` half of this row is what would show an fd leak; an image holds no
+/// descriptor, because `canvas::createImage` allocates nothing outside MFB's own resource
+/// record (**J11**). So this asserts the arena bytes, which is the leak that *is*
+/// observable today, and the fd question is recorded in the plan rather than answered by
+/// a green run that could not have failed.
+const CHURN_200: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB cycle(n AS Integer)
+  LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
+  RES img AS canvas::Image = canvas::createImage(1, 1, px)
+  LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::setGroup("churn", [p])
+END SUB
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  MUT i AS Integer = 0
+  WHILE i < 200
+    cycle(i)
+    canvas::removeGroup("churn")
+    canvas::present([canvas::Rectangle[x := 0.0, y := toFloat(i - 100 * (i / 100)), w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(1, 1, 1))]])
+    i = i + 1
+  END WHILE
+  ' Two more presents so the last cycle's retirement drains too.
+  canvas::present([canvas::Rectangle[x := 8.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(2, 2, 2))]])
+  canvas::present([canvas::Rectangle[x := 16.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(3, 3, 3))]])
+  io::print("CHURN-DONE")
+  RETURN 0
+END FUNC
+"#;
+
+/// Rows 1 and 2: the in-flight frame keeps its image, and a completed frame closes it.
+#[test]
+fn removing_a_group_mid_frame_keeps_the_image_until_the_frame_completes() {
+    let project = common::temp_project("canvas_group_own_race", REMOVE_MID_FRAME);
+    let binary = common::build_app(&project, "canvas_group_own_race");
+    let run = Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        // Slows the GRAPHICS thread. The worker's own os::sleep(120) is the other half:
+        // without it the worker reaches removeGroup before the frame starts.
+        .env("MFB_CANVAS_FRAME_HOLD_MS", "600")
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let out = String::from_utf8_lossy(&run.stdout).into_owned();
+    let _ = std::fs::remove_dir_all(&project);
+    assert!(
+        run.status.success(),
+        "program {}:\n{out}",
+        common::exit_description(&run.status),
+    );
+    assert!(
+        out.contains("OPEN-MID-FRAME"),
+        "the frame that was already drawing when `removeGroup` arrived must still have \
+         its image — closing here is the use-after-close the drain gate exists to \
+         prevent\n{out}",
+    );
+    assert!(
+        out.contains("CLOSED-AFTER"),
+        "once a frame has completed past the retirement the group must close the image \
+         it owned; `STILL-OPEN-AFTER-REMOVE` means nothing will ever close it\n{out}",
+    );
+}
+
+/// Row 5: 200 install/remove cycles do not grow `groupBytes=`.
+#[test]
+fn two_hundred_owning_cycles_return_group_bytes_to_baseline() {
+    let (out, stats) = run_for("canvas_group_own_churn", CHURN_200, false);
+    assert!(out.contains("CHURN-DONE"), "the churn loop did not finish\n{out}");
+    let first = &stats[0];
+    let last = stats.last().expect("at least one present");
+    let baseline = field(first, "groupBytes");
+    let end = field(last, "groupBytes");
+    assert!(
+        end <= baseline.max(1) * 2,
+        "groupBytes grew across 200 install/remove cycles, so the table is holding \
+         buffers it retired\nfirst: {first}\nlast:  {last}",
+    );
+}
+
 /// The fixture directory this file assumes exists, so a rename of `common`'s helper is
 /// a compile error here rather than a runtime "font failed to load" that would look
 /// like an ownership bug.

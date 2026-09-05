@@ -256,6 +256,19 @@ row names the rule from above that protects it.
 | R15 | `setGroup(A, …)` replacing a live A | the displaced buffer is freed only after a frame completes; the new one is not | §13 one retired buffer per slot |
 | R16 | `removeGroup(A)` while a parent group still names A | the parent's node becomes a silent no-op, and the parent's other items still draw | §13 a parent holds a NAME, not a pointer |
 
+| R17 | a group **owning** an image → `removeGroup` → graphics mid-frame | the in-flight frame keeps the image **open**; it is closed only after a frame completes past the retirement | §13 retire-then-drain + plan-116-J's close on the free path |
+| R18 | `setGroup` replacing a group whose new items name the **same** resource | **nothing is closed.** This is the ordinary shape — one long-lived font, a group rebuilt each frame — and closing here makes its text vanish one frame later, silently | plan-116-J: close only what nothing live names |
+| R19 | a resource named by a group **and** by the live scene, group then drops it | **nothing is closed.** `present` does not take ownership, so a `Picture` built before the `setGroup` reaches the scene with nothing for the move checker to object to | plan-116-J: the live set includes the incoming scene |
+| R20 | a resource named by **two groups**, one of them reclaimed | **nothing is closed.** Refused at compile time when the compiler can see it (`2-203-0055`, `setGroup` consumes its `items`), and caught at run time when it cannot — a loop body is analysed once, so a rebuild across iterations is a deliberate false negative | plan-116-J: the live set is every group's items |
+| R21 | 200 × install/remove of a group owning a resource | `groupBytes=` returns to baseline | plan-116-J + §13's gate |
+
+**R17–R21 are plan-116-J's**, and they share one rule: **a group closes a resource only if
+nothing live names it** — where "live" is the scene about to be published *plus every
+group's live items*. Closing on the narrower "what the retired buffer named" is wrong in
+three of these five rows, and wrong **silently**: `imageHandle`/`fontHandle` answer `0` for
+a closed resource, `0` is "no such object", so the item simply stops drawing and nothing is
+raised. All five are pinned by `tests/rt_canvas_group_ownership.rs`.
+
 **R13–R16 are plan-116-G's, and R13 is the first mid-frame row that is deterministic
 rather than probabilistic** — see `MFB_CANVAS_FRAME_HOLD_MS` in §11. R14's *"of an
 unchanged scene"* is load-bearing and not incidental: a free placed where the scene
