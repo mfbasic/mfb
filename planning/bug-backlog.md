@@ -1,8 +1,8 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-05
-Open bugs: **28** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 24 MEDIUM · 3 LOW/other** (re-derived from
+Open bugs: **23** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 20 MEDIUM · 2 LOW/other** (re-derived from
 each open bug's `Severity:` line on 2026-09-05; several rows carry a
 parenthetical qualifier after the word, so grep for the leading word, not the
 whole line)
@@ -75,14 +75,29 @@ byte-identity coverage for the first time. 532 **unblocked bug-534's `split`**.
 
 ## Tier 3 — MEDIUM, grouped so a single agent can take a cluster
 
-**Regex/strings semantic divergence** (one coherent agent task):
-529 (empty needle means four things) · 531 (absence: raise vs sentinel) ·
-533 (empty-pattern replace is opposite) · 534 (no split/count/AttributedString — `split` unblocked by 532) ·
-528 (`pad` counts scalars, `displayWidth` counts columns) ·
-530 (`utf8Encode` return overload invisible in signature)
+**Regex/strings semantic divergence**: 529, 531 and 533 are **landed**
+(`2860dd7e7`, `5e93d26a3`, `426660224`). Remaining: 534 (no split/count/
+AttributedString — `split` unblocked by 532) · 528 (`pad` counts scalars,
+`displayWidth` counts columns) · 530 (`utf8Encode` return overload invisible in
+its signature).
 
-**Regex/strings 529/531/533 are with an agent as of 2026-09-05** — check for a
-`bug-529`/`531`/`533` branch before dispatching. 534, 528 and 530 are unclaimed.
+Two things from that cluster worth carrying forward:
+
+- **531 and 533 are BREAKING**, both on the owner's own recorded decision
+  (`ded34df72`). `regex::find` now raises `ErrNotFound` instead of returning `-1`,
+  and the return type did NOT move — so an unmigrated caller still compiles and
+  fails at run time. Product code had zero call sites; both migrations are on the
+  member's page.
+- **533 turned a doc-shaped change into a MISCOMPILE**, and it is the second
+  instance of a known trap. `strings::replace` and `collections::replace`
+  dequalify to one bare native target `replace`, which sat on
+  `inline_builtin_is_infallible`'s NAME-keyed list. Once the `String` overload
+  could fail, an inline `TRAP` on it compiled with
+  `TYPE_INLINE_TRAP_DEAD_HANDLER` and the live handler was ELIDED — the program
+  aborted instead of recovering, and a function-level `TRAP` test cannot see it.
+  Reproduced independently while reviewing: reverting the fix aborts the fixture
+  with `7-705-0002`. `toString` was the first instance (bug-486). **Before making
+  any overload of a shared bare native target fallible, check that list.**
 
 **Resource / close contracts** (one agent): the cluster is **complete** — 524,
 525, 526, 522 and 523 are all landed.
