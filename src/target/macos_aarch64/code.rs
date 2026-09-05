@@ -43,7 +43,16 @@ pub(crate) fn lower_module_mir(
     )
 }
 
-struct Platform;
+/// The macOS/AArch64 codegen platform.
+///
+/// `pub(crate)` so a unit test can drive a macOS-only emitter against the REAL
+/// platform rather than a stub. `codegen::builtins::perf` is the case that
+/// forced it: those bodies are emitted only by a `--cfg perf` compiler on a
+/// macOS entry, so no whole-program lowering reaches them, and a hand-written
+/// `CodegenPlatform` stub would be asserting against the test's own
+/// approximation of `emit_arena_map` / `emit_external_call` / `emit_write`
+/// instead of the code that ships.
+pub(crate) struct Platform;
 
 const DARWIN_PROT_READ_WRITE: &str = "3";
 const DARWIN_MAP_PRIVATE_ANON: &str = "4098";
