@@ -122,4 +122,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             body: Body::abi_function(emit_set_group),
         }],
     });
+
+    // plan-116-J: `items` consumes the resources reachable from it. A group outlives the
+    // `present` that draws it, so it has to keep the images and fonts its items name
+    // alive — and it cannot, while the caller still owns them: scope-drop closes a `RES`
+    // its binding still owns, and the group holds only an alias into the same record.
+    // Marking the parameter consuming is what moves those bindings, so the caller's
+    // scope-drop no longer fires and the group's free path is the one close.
+    //
+    // The rendered signature is unchanged; what changed is what passing an item list
+    // DOES to the resources inside it, which is why `DESC` says so.
+    pkg.add_consuming_parameter("setGroup", "items");
 }
