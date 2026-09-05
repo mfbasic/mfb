@@ -31,14 +31,12 @@ or to bound how many descriptors a long-running program holds open. Closing and
 then letting the binding drop is safe: the drop sees the closed flag and does
 nothing.
 
-**An already-closed handle is an error rather than a no-op, and `tls::close`
-deliberately differs** — there, closing twice succeeds. The two are otherwise
-drop-in mirrors, so the split is worth knowing: code moved between the transports
-must not assume either answer. Neither package will change under the other
-without a decision, because each has callers relying on what it does today. In
-practice the difference is invisible to the recommended idiom — close once, or
-let the end of the scope do it — since the automatic close after an explicit one
-does nothing on both.
+**An already-closed handle is an error rather than a no-op**, and that is the
+answer every built-in `close` gives — `fs`, `tcp`, `udp`, `tls` and `audio`
+alike. Using a closed handle is a mistake whichever call you make it with, and
+`close` is not an exception to that. In practice the rule is invisible to the
+recommended idiom — close once, or let the end of the scope do it — because the
+automatic close after an explicit one is a silent no-op, not a raise.
 
 A socket handed to another thread is refused too, but with `ErrResourceMoved`,
 which says what actually happened. And if the host itself fails to close, you get
@@ -76,7 +74,7 @@ fn overload(ty: ParameterType) -> Implementation {
             default: crate::codegen::registry::DefaultValue::None,
         }],
         return_type: ParameterType::Nothing,
-        errors: vec![],
+        errors: vec!["ErrResourceClosed", "ErrResourceMoved", "ErrCloseFailed"],
         body: super::native_body(lower_close, &[]),
     }
 }

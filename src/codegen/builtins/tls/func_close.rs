@@ -24,18 +24,18 @@ later `tls::` call that takes the same value raises an error rather than touchin
 a stale handle.
 
 `close` closes the `Socket` it is given: the handle cannot be used again, and
-cannot be referenced afterward. The call is idempotent with respect to a socket
-that is already closed — closing a socket whose closed flag is already set does
-nothing and returns successfully — so closing a socket and then letting it drop is
-safe. This differs from `tcp::close`, which treats an already-closed resource as
-an error.
+cannot be referenced afterward. An already-closed handle is an error rather than
+a no-op, exactly as in `tcp`, `udp`, `fs` and `audio` — using a closed handle is
+a mistake whichever call you make it with. Closing a socket and then letting the
+end of its scope close it again is still safe: the automatic close sees the
+closed flag and does nothing.
 
 `close` also closes a `Listener` from `tls::listen`. The same name spans both
 handle types: given a listener it closes the listening socket and releases the
 server TLS settings it holds. Because every accepted `Socket` only
 shares those settings, closing the listener is safe while accepted
-sockets are still open — they are released exactly once, when the listener closes, and an accepted socket's own close never touches it. The listener close
-is likewise idempotent and closes its handle.
+sockets are still open — they are released exactly once, when the listener closes, and an accepted socket's own close never touches it. Closing a listener
+twice is refused the same way closing a socket twice is.
 
 Closing is otherwise automatic. Every `Socket` and `Listener` is closed by
 itself when the binding that holds it goes out of scope. Call `tls::close` only
@@ -93,13 +93,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "sock",
-                    desc: "The connected TLS socket to close, as returned by `tls::connect` or `tls::accept`. Closed by this call; the handle cannot be used again. Closing a socket that is already closed is harmless and returns successfully.",
+                    desc: "The connected TLS socket to close, as returned by `tls::connect` or `tls::accept`. Closed by this call; the handle cannot be used again — a second close raises `ErrResourceClosed`.",
                     aliases: &["resource"],
                     ty: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                     default: DefaultValue::None,
                 }],
                 return_type: ParameterType::Nothing,
-                errors: vec![],
+                errors: vec!["ErrResourceClosed", "ErrTlsFailed"],
                 body: Body::abi_function(lower_close),
             },
             // Listener close — rewritten to the internal `tls.closeListener` body
@@ -107,13 +107,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "listener",
-                    desc: "Alternatively, the listener to close, as returned by `tls::listen`. Closes the listening socket and releases the server TLS settings it holds; safe to call while accepted sockets are still open. Closed by this call; the handle cannot be used again. Closing an already-closed listener returns successfully.",
+                    desc: "Alternatively, the listener to close, as returned by `tls::listen`. Closes the listening socket and releases the server TLS settings it holds; safe to call while accepted sockets are still open. Closed by this call; the handle cannot be used again — a second close raises `ErrResourceClosed`.",
                     aliases: &["resource"],
                     ty: ParameterType::named(super::TLS_LISTENER_TYPE_ID),
                     default: DefaultValue::None,
                 }],
                 return_type: ParameterType::Nothing,
-                errors: vec![],
+                errors: vec!["ErrResourceClosed", "ErrTlsFailed"],
                 body: Body::abi_function_aliased(lower_close, &["closeListener"]),
             },
         ],

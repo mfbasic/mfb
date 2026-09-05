@@ -51,9 +51,14 @@ Three specifics are transport-shaped:
 * **`close` consumes.** It is the one call in each package that moves its
   argument. Using the handle afterwards is a compile error
   (`TYPE_USE_AFTER_MOVE`), not a runtime raise.
-* **An already-closed handle is an error, not a no-op**, for `tcp` and `udp`.
-  `tls::close` differs deliberately: it treats an already-closed handle as
-  success, so closing and then letting the binding drop is safe on either.
+* **An already-closed handle is an error, not a no-op**, in `tcp`, `udp` and
+  `tls` alike — §15's rule, not a per-transport choice. `tls::close` reported
+  success instead until bug-525; the divergence was documented on both pages
+  rather than reconciled. Closing and then letting the binding drop is still
+  safe on every transport: a drop-close discards its failure (§15).
+* **`listen`'s `backlog` defaults to `128` on both transports.** `tls::listen`
+  defaulted it to `0` ("host default") until bug-525, so the two mirrors did not
+  queue the same depth unless the argument was given.
 * **The list form of `poll` returns a BORROWED element.** The list remains the
   owner and closes it once; the binding that receives it registers no close
   obligation. Classifying that bind as an owner double-closes the element.

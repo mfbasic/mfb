@@ -15,8 +15,8 @@ keyPath, backlog)`, so the listener behaves in every respect like one opened by
 match `http::server`, while `tls::listen` leads with `host`.
 
 `host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`, so the three- and
-four-argument forms mean exactly the five-argument form with those values. The `128` default is supplied by
-`http` — calling `tls::listen` directly defaults `backlog` to `0` instead.
+four-argument forms mean exactly the five-argument form with those values, and
+`tls::listen` defaults `backlog` to `128` too.
 
 The port is bound with address reuse enabled, and placed in the listening
 state. On Linux, address resolution uses `AF_INET` passive hints, so **only IPv4

@@ -248,6 +248,202 @@ mod tests {
         }
     }
 
+    /// bug-525: **every** built-in `close` refuses an already-closed handle.
+    ///
+    /// `mfb spec language resource-management` §15 states the rule for the whole
+    /// language — "an already-closed record is flagged, and a second close is a
+    /// defined no-op reported as `ErrResourceClosed` rather than an operation on
+    /// a dead handle". `fs`, `tcp` and `udp` implemented it; `tls` and `audio`
+    /// set the closed flag once and then reported *success* forever after, and
+    /// each page documented its own answer, so the divergence was ratified
+    /// rather than noticed.
+    ///
+    /// This lowers each close emitter and asserts the already-closed arm
+    /// relocates the `ErrResourceClosed` message — the signature of
+    /// `emit_fail`, and something a "return OK" arm cannot produce. It is the
+    /// cross-transport half of the pin: `tests/rt_double_close_is_refused.rs`
+    /// measures the same rule at runtime for `fs`/`tcp`/`udp`/`tls`, but it
+    /// cannot reach a `tls::Socket` (which needs a completed handshake), any
+    /// `audio` handle (which needs a device), or the Schannel and WASAPI
+    /// backends at all. Those are exactly the rows below.
+    #[test]
+    fn every_builtin_close_refuses_an_already_closed_handle() {
+        use crate::codegen::builtins::{audio, tls};
+        use crate::codegen::engine::mir;
+        use crate::codegen::engine::tests::TestPlatform;
+        use std::collections::HashMap;
+
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports: HashMap<String, String> = HashMap::new();
+        let closed = crate::codegen::registry::runtime_error_emission("ErrResourceClosed")
+            .expect("ErrResourceClosed is an errorCode constant")
+            .1;
+
+        // (label, relocations) for every close emitter that a runtime fixture
+        // cannot reach on this host. `fs`/`tcp`/`udp` share
+        // `fs::gen_handle::lower_fs_close_helper`, whose already-closed arm is
+        // measured directly by the runtime test on every host it runs on.
+        let mut lowered: Vec<(&str, Vec<crate::codegen::engine::types::CodeRelocation>)> =
+            Vec::new();
+        let push = |label: &'static str,
+                        parts: Result<
+                            (
+                                Vec<crate::codegen::engine::types::CodeInstruction>,
+                                Vec<crate::codegen::engine::types::CodeRelocation>,
+                                usize,
+                            ),
+                            String,
+                        >,
+                        sink: &mut Vec<_>| {
+            let (_ins, rel, _frame) = parts.unwrap_or_else(|e| panic!("lower {label}: {e}"));
+            sink.push((label, rel));
+        };
+
+        push(
+            "tls::close (macOS / Network.framework)",
+            tls::gen_macos::lower_tls_close_macos("t_tls_close_mac", &imports, &TestPlatform),
+            &mut lowered,
+        );
+        push(
+            "tls::close listener (macOS / Network.framework)",
+            tls::gen_macos::lower_tls_close_listener_macos(
+                "t_tls_closel_mac",
+                &imports,
+                &TestPlatform,
+            ),
+            &mut lowered,
+        );
+        push(
+            "tls::close (Linux / OpenSSL)",
+            tls::gen_openssl::lower_tls_close_openssl("t_tls_close_ssl", &imports, &TestPlatform),
+            &mut lowered,
+        );
+        push(
+            "tls::close listener (Linux / OpenSSL)",
+            tls::gen_openssl::lower_tls_close_listener_openssl(
+                "t_tls_closel_ssl",
+                &imports,
+                &TestPlatform,
+            ),
+            &mut lowered,
+        );
+        push(
+            "tls::close (Windows / Schannel)",
+            tls::gen_schannel::lower_tls_close("t_tls_close_sch", &imports, &TestPlatform),
+            &mut lowered,
+        );
+        push(
+            "tls::close listener (Windows / Schannel)",
+            tls::gen_schannel::lower_tls_close_listener("t_tls_closel_sch", &imports, &TestPlatform),
+            &mut lowered,
+        );
+        push(
+            "audio::close input (macOS / CoreAudio)",
+            audio::gen_macos_stream::lower_close_input("t_au_ci_mac", &imports, &TestPlatform),
+            &mut lowered,
+        );
+        push(
+            "audio::close output (macOS / CoreAudio)",
+            audio::gen_macos_stream::lower_close_output("t_au_co_mac", &imports, &TestPlatform),
+            &mut lowered,
+        );
+        push(
+            "audio::close input (Linux / ALSA)",
+            audio::gen_alsa_stream::lower_close("t_au_ci_alsa", true, &imports, &TestPlatform),
+            &mut lowered,
+        );
+        push(
+            "audio::close output (Linux / ALSA)",
+            audio::gen_alsa_stream::lower_close("t_au_co_alsa", false, &imports, &TestPlatform),
+            &mut lowered,
+        );
+        push(
+            "audio::close input (Windows / WASAPI)",
+            audio::gen_windows::lower_close("t_au_ci_win", true, &imports, &TestPlatform),
+            &mut lowered,
+        );
+        push(
+            "audio::close output (Windows / WASAPI)",
+            audio::gen_windows::lower_close("t_au_co_win", false, &imports, &TestPlatform),
+            &mut lowered,
+        );
+
+        assert_eq!(
+            lowered.len(),
+            12,
+            "the close-emitter census is two handle shapes x three backends for \
+             each of `tls` and `audio`; a new backend belongs in this list"
+        );
+        for (label, rel) in &lowered {
+            assert!(
+                rel.iter().any(|r| r.to == closed),
+                "{label}: an already-closed handle must be refused with \
+                 ErrResourceClosed (`mfb spec language resource-management` §15), \
+                 so this helper must relocate `{closed}`. Reporting success on a \
+                 dead handle is bug-525."
+            );
+        }
+    }
+
+    /// bug-525: `tcp::listen` and `tls::listen` queue the same depth by default.
+    ///
+    /// The two are documented as drop-in mirrors, and they defaulted `backlog`
+    /// differently — `tcp` padded `128` in the code layer, `tls` filled `0`
+    /// ("host default") from its descriptor — so the same program got a
+    /// different queue depth depending on which one it called. There is one
+    /// constant now; this asserts the descriptor half still reads it, because
+    /// the code-layer half is a `.to_string()` no test can see from here.
+    #[test]
+    fn both_listen_members_default_the_same_backlog() {
+        use crate::codegen::builtins::net::DEFAULT_LISTEN_BACKLOG;
+        use crate::codegen::registry::{registry, DefaultValue};
+
+        let listen = registry()
+            .resolve_package("tls")
+            .expect("tls package")
+            .functions()
+            .iter()
+            .find(|f| f.name == "listen")
+            .expect("tls::listen")
+            .implementations()[0]
+            .params
+            .iter()
+            .find(|p| p.name == "backlog")
+            .expect("tls::listen backlog")
+            .default
+            .clone();
+        match listen {
+            DefaultValue::Fill { expr, .. } => assert_eq!(
+                expr, DEFAULT_LISTEN_BACKLOG,
+                "tls::listen must default `backlog` to the same depth tcp::listen \
+                 pads (bug-525) — the two are drop-in mirrors"
+            ),
+            other => panic!("tls::listen's backlog must stay a Fill default, got {other:?}"),
+        }
+        // `tcp::listen`'s is `DefaultValue::Optional`: the code layer pads it,
+        // from the same constant. Pinning the shape keeps a future move to a
+        // `Fill` from silently reintroducing a second spelling.
+        let tcp = registry()
+            .resolve_package("tcp")
+            .expect("tcp package")
+            .functions()
+            .iter()
+            .find(|f| f.name == "listen")
+            .expect("tcp::listen")
+            .implementations()[0]
+            .params
+            .iter()
+            .find(|p| p.name == "backlog")
+            .expect("tcp::listen backlog")
+            .default
+            .clone();
+        assert!(
+            matches!(tcp, DefaultValue::Optional),
+            "tcp::listen's backlog is padded by the code layer; if it becomes a \
+             Fill it must read DEFAULT_LISTEN_BACKLOG too"
+        );
+    }
+
     #[test]
     fn every_builtin_resource_has_a_close_op() {
         // The closed-default (plan-38) relies on every built-in resource being

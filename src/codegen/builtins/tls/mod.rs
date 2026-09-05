@@ -30,7 +30,7 @@ use crate::codegen::registry::{
     Registry, RegistryPackage, RegistryResource, ResourceLiveSlot, SlotBackend, SlotTransfer,
 };
 pub(crate) mod gen_macos;
-mod gen_openssl;
+pub(crate) mod gen_openssl;
 pub(crate) mod gen_schannel;
 pub(crate) mod gen_shared;
 

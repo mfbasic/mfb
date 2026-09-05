@@ -41,6 +41,20 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
+/// The pending-connection queue depth a `listen` uses when the caller omits
+/// `backlog` — **one constant for both transports** (bug-525).
+///
+/// `tcp::listen` and `tls::listen` are documented as drop-in mirrors, and they
+/// defaulted differently: `tcp` padded `128` in the code layer while `tls`
+/// filled `0` ("whatever the host does") from its descriptor, so the same
+/// program queued a different depth depending on which one it called. Two
+/// spellings of one policy is how that happened, so there is now one: the code
+/// layer's padding (`engine::value::builder_values`) and the `tls::listen`
+/// descriptor's `DefaultValue::Fill` both read this, and
+/// `codegen::resource::tests::both_listen_members_default_the_same_backlog`
+/// fails if either stops.
+pub(crate) const DEFAULT_LISTEN_BACKLOG: &str = "128";
+
 /// A required `net` member parameter. Docs live in the `src/docs/man/builtins/net`
 /// pages (as the legacy descriptor's empty doc strings did); the registry carries
 /// name/aliases/type for arity, coercion, and named-argument binding.

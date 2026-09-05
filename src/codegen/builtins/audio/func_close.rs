@@ -67,8 +67,11 @@ differently. Unlike every other `audio::` call, `close` ends its stream handle: 
 used afterward. Closing an `AudioOutput` first
 drains queued playback (so it can block until the audio already written has finished
 sounding); closing an `AudioInput` drops any buffered capture immediately. `close` is
-idempotent — closing an already-closed or defaulted handle is a no-op that returns
-successfully. A stream also closes itself when its binding goes out of scope."#;
+not idempotent: closing an already-closed or defaulted handle raises
+`ErrResourceClosed`, exactly as `fs`, `tcp`, `udp` and `tls` do — using a closed
+handle is a mistake whichever call you make it with. A stream also closes itself
+when its binding goes out of scope, and doing that after an explicit close is
+still safe: the automatic close sees the closed flag and does nothing."#;
 const EX: &str = r#"Close an output stream explicitly after playback:
 
 ```
@@ -82,7 +85,7 @@ SUB main()
 END SUB
 ```"#;
 
-const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Closed by this call; the handle cannot be used again. A closed handle is a no-op.";
+const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Closed by this call; the handle cannot be used again — a second close raises `ErrResourceClosed`.";
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
@@ -101,7 +104,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     ParameterType::named(AUDIO_INPUT_TYPE_ID),
                 )],
                 return_type: ParameterType::Nothing,
-                errors: vec!["ErrAudioUnavailable"],
+                errors: vec!["ErrAudioUnavailable", "ErrResourceClosed"],
                 body: super::native_body(lower_close, &["closeInput"]),
             },
             Implementation {
@@ -112,7 +115,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     ParameterType::named(AUDIO_OUTPUT_TYPE_ID),
                 )],
                 return_type: ParameterType::Nothing,
-                errors: vec!["ErrAudioUnavailable"],
+                errors: vec!["ErrAudioUnavailable", "ErrResourceClosed"],
                 body: super::native_body(lower_close, &["closeOutput"]),
             },
         ],

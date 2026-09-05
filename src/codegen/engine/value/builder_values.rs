@@ -2286,7 +2286,7 @@ impl CodeBuilder<'_> {
         } else if target == "tcp.listen" && helper_args.len() == 2 {
             helper_args.push(NirValue::Const {
                 type_: ParameterType::Integer,
-                value: "128".to_string(),
+                value: crate::codegen::builtins::net::DEFAULT_LISTEN_BACKLOG.to_string(),
             });
         } else if target == "udp.poll" && helper_args.len() == 1 {
             // plan-110-C: an omitted readiness timeout blocks, as everywhere else.

@@ -85,7 +85,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: crate::codegen::registry::DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrResourceClosed", "ErrResourceMoved", "ErrCloseFailed"],
             body: super::native_body(lower_close, &[]),
         }],
     });

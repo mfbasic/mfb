@@ -538,6 +538,11 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             err_msg("ErrAudioUnavailable"),
             err_msg("ErrAudioDevice"),
             err_msg("ErrInvalidArgument"),
+            // bug-525: `audio::close` refuses an already-closed stream with
+            // ErrResourceClosed, so its message has to be present whenever any
+            // `audio.` call is — a scope-exit close is emitted by cleanup rather
+            // than as a NIR call, exactly like the `tls` case bug-249 records.
+            err_msg("ErrResourceClosed"),
         ] {
             push_string_value(&mut values, value);
         }

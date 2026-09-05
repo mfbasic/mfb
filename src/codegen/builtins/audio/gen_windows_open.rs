@@ -575,12 +575,21 @@ pub(crate) fn lower_close(
         abi::load_u64(&v9, abi::stack_pointer(), HANDLE_OFF),
         abi::move_immediate(&v10, "Integer", "1"),
         abi::store_u64(&v10, &v9, H_CLOSED),
-        abi::label(&already),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        // The success path used to FALL THROUGH into `already`, which shared its
+        // OK tag. It has to branch past the refusal now.
         abi::branch(&done),
-        abi::label(&done),
-        abi::return_(),
+        abi::label(&already),
     ]);
+    // bug-525: an already-closed (or defaulted) stream is refused, not reported
+    // as success. `mfb spec language resource-management` §15: "an already-closed
+    // record is flagged, and a second close is a defined no-op reported as
+    // `ErrResourceClosed` rather than an operation on a dead handle" — the same
+    // answer `fs`, `tcp` and `udp` have always given. Letting a stream close at
+    // the end of its scope after an explicit close still costs nothing: lexical
+    // cleanup discards a close failure (§15).
+    emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.extend([abi::label(&done), abi::return_()]);
     Ok((ins, rel, FRAME))
 }

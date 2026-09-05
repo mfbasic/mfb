@@ -10,6 +10,38 @@ So a real TLS 1.3 handshake to a remote host can essentially never pass with `ti
 
 A live-network fixture must therefore pass a positive `timeoutMs`. Example: `tests/rt-behavior/tls/tls-connect-google-rt` had `tls::connect("8.8.8.8", 443, 0, "dns.google")` while its golden expected `connected=TRUE` — internally contradictory. The fix is the fixture: use a positive `timeoutMs` (e.g. 5000) so the live connect reliably completes when the network is up. Such a failure is easy to mislabel as a "network flake" when it is actually a `timeoutMs=0` fixture bug. The acceptance golden harness's `test-gate.sh` skip hook covers the genuinely-offline case.
 
+## `tcp` and `tls` are drop-in mirrors — including on close and on `listen`
+
+Two answers used to differ, both deliberately, both documented on each other's
+pages, and neither reconciled (bug-525):
+
+- **A second close.** `tls::close` set the closed flag once and then returned OK
+  forever after; `tcp`/`udp`/`fs` refuse with `ErrResourceClosed`. The language
+  spec had already settled it — `mfb spec language resource-management` §15: "an
+  already-closed record is flagged, and a second close is a defined no-op
+  reported as `ErrResourceClosed` rather than an operation on a dead handle" — so
+  `tls` (and `audio`, which had the same shape) was the non-conforming side, not
+  a second valid policy. Every close emitter now ends its already-closed arm in
+  `emit_fail(.., "ErrResourceClosed", ..)`. Three of the ten emitters had the
+  SUCCESS path **falling through** into the `already` label and sharing its OK
+  tag (`gen_schannel_read_close`, both audio macOS closes, ALSA, WASAPI), so each
+  needed an `abi::branch(&done)` inserted before the label — without it the fix
+  makes the *first* close fail.
+- **`listen`'s backlog.** `tcp` padded `128` in the code layer, `tls` filled `0`
+  from its descriptor. There is one constant now,
+  `builtins::net::DEFAULT_LISTEN_BACKLOG`, read by both.
+
+A raising close is safe against the drop path on every resource here because all
+of them declare `close_may_fail: true` and §15 discards a drop-close failure —
+`fs` has worked exactly this way since it was written. Pins:
+`codegen::resource::tests::every_builtin_close_refuses_an_already_closed_handle`
+lowers all ten emitters and asserts the `ErrResourceClosed` relocation (the only
+instrument that reaches Schannel and WASAPI from a Mac), and
+`tests/rt_double_close_is_refused.rs` measures it at runtime for
+`fs`/`tcp`/`udp`/`tls`. `audio::close` needed `ErrResourceClosed` added to
+`data_objects.rs`'s per-package gate; a scope-exit close is emitted by cleanup
+rather than as a NIR call, which is the same trap bug-249 records for `tls`.
+
 ## TLS readiness must check the decrypted-buffer, not just the fd
 
 A TLS socket's "is a read ready?" is **not** an fd `poll(2)`. One TLS record decrypts to many application bytes; a single `SSL_read`/Network.framework receive drains a record and **buffers the remainder**, so the TLS layer can hold already-decrypted app bytes while the raw fd is idle. An fd-only poll then reports "not ready" while a byte is available — a correctness bug. Readiness = `(TLS-buffered app bytes > 0) OR (raw layer readable)`, and the buffered half is backend-specific:

@@ -19,11 +19,11 @@ set, so a restarted server can re-bind a recently used port. Port `0` asks the O
 to choose a free port, which `tls::localAddress` on the returned `Listener` then
 reports — the race-free way to bind.
 
-The optional `backlog` hints the size of the kernel's pending-connection queue;
-`0` (the default when omitted) uses the host default. **`tcp::listen` defaults to
-`128` instead**, so the two transports do not queue the same depth unless the
-argument is given explicitly. On macOS `backlog` is accepted for
-signature parity but ignored: Network.framework manages its own accept queue.
+The optional `backlog` hints the size of the kernel's pending-connection queue
+and defaults to `128`, the same as `tcp::listen`, so a plaintext and a TLS
+listener written the same way queue the same depth. On macOS `backlog` is
+accepted for signature parity but ignored: Network.framework manages its own
+accept queue.
 
 `certPath` and `keyPath` are filesystem paths to PEM files: the certificate
 chain (leaf certificate first, followed by any intermediates) and the matching
@@ -128,12 +128,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "backlog",
-                    desc: "Optional. A hint for the kernel pending-connection queue length. Defaults to `0`, which uses the host default.",
+                    desc: "Optional. A hint for the kernel pending-connection queue length. Defaults to `128`, matching `tcp::listen`. Ignored on macOS, where Network.framework manages its own accept queue.",
                     aliases: &[],
                     ty: ParameterType::Integer,
+                    // bug-525: the same constant `tcp::listen`'s code-layer
+                    // padding reads. The two transports are documented as
+                    // drop-in mirrors and now queue the same depth by default.
                     default: DefaultValue::Fill {
                         type_name: ParameterType::Integer,
-                        expr: "0",
+                        expr: crate::codegen::builtins::net::DEFAULT_LISTEN_BACKLOG,
                     },
                 },
             ],

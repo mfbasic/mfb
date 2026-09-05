@@ -2890,12 +2890,22 @@ pub(crate) fn lower_tls_close_openssl(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&already),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::label(&done),
-        abi::return_(),
-    ]);
+    instructions.push(abi::label(&already));
+    // bug-525: an already-closed handle is refused, not reported as success.
+    // `mfb spec language resource-management` §15: "an already-closed record is
+    // flagged, and a second close is a defined no-op reported as
+    // `ErrResourceClosed` rather than an operation on a dead handle" — the same
+    // answer `fs`, `tcp` and `udp` have always given. A drop-time re-close still
+    // costs nothing: lexical cleanup discards a close failure (§15), so the
+    // "close once, or let the scope do it" idiom is unaffected.
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
     {
         Ok((instructions, relocations, FRAME_SIZE))
     }
@@ -2998,12 +3008,22 @@ pub(crate) fn lower_tls_close_listener_openssl(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&already),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::label(&done),
-        abi::return_(),
-    ]);
+    instructions.push(abi::label(&already));
+    // bug-525: an already-closed handle is refused, not reported as success.
+    // `mfb spec language resource-management` §15: "an already-closed record is
+    // flagged, and a second close is a defined no-op reported as
+    // `ErrResourceClosed` rather than an operation on a dead handle" — the same
+    // answer `fs`, `tcp` and `udp` have always given. A drop-time re-close still
+    // costs nothing: lexical cleanup discards a close failure (§15), so the
+    // "close once, or let the scope do it" idiom is unaffected.
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
     {
         Ok((instructions, relocations, FRAME_SIZE))
     }
