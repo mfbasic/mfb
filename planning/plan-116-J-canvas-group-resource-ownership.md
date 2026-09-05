@@ -444,41 +444,75 @@ is no "kind word" at offset 64 to switch on.
    through `canvas::groupItems(slot)`, which returns the **live** buffer, and this walk
    needs the **retired** one.
 
-**Resolved: option 2, and the accessor it seemed to need does not exist either.**
+**Resolved: option 2 — the walk is an MFBASIC `MATCH`, driven from `#canvas_present`.**
 
-`canvas::groupReclaim()` is already `internal_only: true`, takes no parameters, returns
-`Nothing`, and is called from exactly one place — `func_present.rs`'s MFBASIC body, first
-and unconditional. **Change its return type to `List OF canvas::DrawItem`: the items of
-every buffer it just freed.** Then `#canvas_present` becomes
+*(First formulation, discarded: "change `groupReclaim()`'s return type to
+`List OF canvas::DrawItem` — the items of every buffer it just freed." One member changed,
+no new ones, very tidy — and it requires **concatenating N collection blocks inside Rust
+codegen**, which is the one part of this there is no existing helper for. `copy_flat_block`
+copies one block; nothing appends. Discarded before it was built rather than after.)*
+
+**The gate stays in Rust; only the walk moves to MFBASIC.** `groupReclaim`'s scan splits
+into a finder and a freer, both internal-only:
+
+* `canvas::nextReclaimableGroup() AS Integer` — the first slot whose retired buffer the
+  gate has opened for, or `-1`. **Frees nothing.** This is `emit_group_reclaim`'s existing
+  loop with the two free calls replaced by a `RETURN i`.
+* `canvas::retiredItems(slot) AS List OF canvas::DrawItem` — `emit_group_items` with
+  `CANVAS_GROUP_RETIRED_ITEMS` in place of `CANVAS_GROUP_ITEMS`. A copy, for the same
+  reason.
+* `canvas::reclaimGroupSlot(slot)` — what `groupReclaim`'s body already does for one slot:
+  free the items block, free the retired name, zero both words. **Unconditional**; the
+  caller has just been told this slot is due.
+
+`#canvas_present` then replaces its single `canvas::groupReclaim()` with
 
 ```basic
-FOR EACH gone AS canvas::DrawItem IN canvas::groupReclaim()
-  MATCH gone
-    CASE Picture(p)
-      canvas::destroyImage(p.image)
-    CASE Text(t)
-      canvas::destroyFont(t.font)
-    …
-  END MATCH
-NEXT
+LET slot AS Integer = canvas::nextReclaimableGroup()
+WHILE slot >= 0
+  FOR EACH gone IN canvas::retiredItems(slot)
+    MATCH gone
+      CASE Picture(p)
+        canvas::destroyImage(p.image)
+      CASE Text(t)
+        canvas::destroyFont(t.font)
+      CASE ELSE
+    END MATCH
+  NEXT
+  canvas::reclaimGroupSlot(slot)
+  slot = canvas::nextReclaimableGroup()
+WEND
 ```
+
+**Why not the obvious `FOR i = 0 TO CANVAS_MAX_GROUPS - 1` in MFBASIC.**
+`CANVAS_MAX_GROUPS` is **256**. A per-present MFBASIC loop calling a builtin per slot
+would put 256 calls on the per-present path — the exact axis plan-116-G optimised, whose
+`groupItems` doc comment says the copy is *"charged to the frame that draws, not to
+`present`"*. The finder keeps the scan in Rust, so **a present with nothing due costs one
+call and one scan, exactly as today**, and the loop above executes zero times.
+
+**No re-evaluation hazard between finder and freer.** `frame_now` only advances and both
+run on the worker with nothing between them, so a slot the finder reported as due cannot
+have become undue by the time `reclaimGroupSlot` runs.
 
 Four properties this buys, none of which the other shapes have:
 
-* **No new surface at all.** §Non-goals is satisfied literally: no new member, and the
-  one whose signature changes is internal-only and has a single call site.
-* **One gate evaluation.** A separate "which slots are due" predicate followed by a
-  separate reclaim would evaluate the gate twice, and a frame completing between the two
-  makes them disagree. Returning what was actually freed cannot disagree with itself.
+* **No new *public* surface.** All three members are `internal_only: true`, so none is
+  reachable from a program or rendered by `mfb man` — §Non-goals rules out new members a
+  user can call, and these are the same category as `groupItems`, `groupResolve` and
+  `groupRevision` that plan-116-G already added. `groupReclaim` is not deleted so much as
+  renamed and narrowed to one slot.
+* **One gate evaluation per slot.** The finder evaluates it; the freer does not
+  re-evaluate it. A design where both tested the gate could disagree if a frame completed
+  between them — here only one of the two tests it at all.
 * **The layout is the compiler's problem.** A `MATCH` that a new `DrawItem` variant must
   handle is a compile error; an open-coded tag offset that a new variant must not break is
   a hope (**J13**).
-* **The handles are readable, which §4.3's "before the buffer is released" existed to
-  guarantee.** `groupReclaim` returns a **copy** — the same copy-out `groupItems` already
-  makes, for the reason its doc comment gives — so the resource pointers survive the block
-  being freed. The resource *records* are separate arena allocations; freeing the items
-  block does not touch them. So the close may now happen strictly **after** the free, and
-  §4.3's ordering constraint is met by holding the copy rather than by ordering.
+* **The handles are readable, and §4.3's ordering constraint is met directly.** The
+  close runs **before** `reclaimGroupSlot` frees anything, which is what §4.3 asked for.
+  (It would also have been safe after: `retiredItems` returns a **copy**, and the resource
+  *records* are separate arena allocations that freeing the items block does not touch. But
+  the loop above does not need that argument, so it does not rest on it.)
 
 Two things Phase 3 must check rather than assume:
 
@@ -494,9 +528,10 @@ Two things Phase 3 must check rather than assume:
    Unqualified `CASE Picture(p)` is `2-201-0015 SYMBOL_UNKNOWN_TYPE`. Inside the package's
    own injected source — which is where this helper goes — the unqualified form is the one
    that works, as `helper_render.rs`'s `CASE Group(g)` shows.)*
-2. **The returned copy must register no cleanup of its own**, or the helper's scope exit
-   closes the resources a second time and — worse — a `List OF DrawItem` returned from a
-   reclaim that freed nothing would still be walked. Expected fine:
+2. **`retiredItems`' copy must register no cleanup of its own**, or `#canvas_present`'s
+   scope exit closes the resources a second time — harmless by idempotence (§4.2), but it
+   would also mean the *live* scene's `groupItems` copies do the same, which is not
+   harmless. Expected fine:
    `is_resource_owning_container(List OF DrawItem)` is false (it is not a `List OF RES T`,
    and `record_res_field_types` has no entry for a union), which is the same reason
    `groupItems`' copies register none today. **Verify it rather than expect it.**
