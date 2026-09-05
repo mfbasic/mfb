@@ -16,6 +16,16 @@
 #
 # Usage: scripts/regen-rt-goldens.sh <mfb-exe> <fixture-dir>...
 set -u
+
+# bug-470: this script drives `mfb build` against fixtures INSIDE the tree, so it
+# rewrites and deletes the same dumps `artifact-gate.sh` and `test-accept.sh` do
+# and must take the same per-tree lock. A run in a different worktree is not
+# affected.
+GATE_LOCK_HOLDER="regen-rt-goldens.sh"
+GATE_LOCK_TREE="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=gate-lock.sh
+. "$(dirname "$0")/gate-lock.sh"
+gate_lock_acquire || exit $?
 MFB=${1:?usage: regen-rt-goldens.sh <mfb-exe> <fixture-dir>...}
 shift
 host_arch="$(uname -m)"; case "$host_arch" in arm64) A=aarch64;; x86_64) A=x86_64;; *) A=$host_arch;; esac

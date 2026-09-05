@@ -10,6 +10,16 @@
 set -u
 MFB=$1; MODE=${2:-app}
 ROOT=$(cd "$(dirname "$0")/.." && pwd); cd "$ROOT" || exit 2
+# bug-470: this script rewrites and deletes the SAME fixture dumps that
+# `artifact-gate.sh` and `test-accept.sh` do, so it contends with them for the
+# tree and must take the same per-tree lock. The regenerate-then-gate pairing is
+# not exotic — it is the normal workflow after an intended codegen change.
+GATE_LOCK_HOLDER="bug387-gate.sh"
+GATE_LOCK_TREE="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=gate-lock.sh
+. "$(dirname "$0")/gate-lock.sh"
+gate_lock_acquire || exit $?
+
 BASE=/tmp/bug387
 rc=0
 

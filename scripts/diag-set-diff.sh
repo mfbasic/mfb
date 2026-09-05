@@ -31,6 +31,16 @@
 #   -v         also print the before/after order for REORDER fixtures
 #   name-glob  restrict to fixtures whose `tests/…` path matches (shell glob)
 set -u
+
+# bug-470: this script drives `mfb build` against fixtures INSIDE the tree, so it
+# rewrites and deletes the same dumps `artifact-gate.sh` and `test-accept.sh` do
+# and must take the same per-tree lock. A run in a different worktree is not
+# affected.
+GATE_LOCK_HOLDER="diag-set-diff.sh"
+GATE_LOCK_TREE="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=gate-lock.sh
+. "$(dirname "$0")/gate-lock.sh"
+gate_lock_acquire || exit $?
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO" || exit 2
