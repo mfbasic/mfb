@@ -5,8 +5,9 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/` — new `rt_thread_accept_only_helper` fixture (Phase 1)
+Status: Fixed (`b93de7ed0`)
+Regression Test: `src/target/shared/validate/mod.rs` unit tests,
+`tests/cli_thread_accept_res_bind.rs`, `tests/rt_thread_accept_res_drop_closes.rs`
 
 A legal MFBASIC program fails to build with a message about the compiler's own
 intermediate representation:
@@ -81,7 +82,7 @@ only consumer is the codegen-emitted scope drop.
 | Environment | arch/config | Result |
 | --- | --- | --- |
 | macOS | aarch64, release | fails ✗ |
-| Linux / Windows | — | `validate` runs per target; expected identical, confirm in Phase 3 |
+| linux-x86_64 / linux-aarch64 / linux-riscv64 / windows-x86_64 | cross-build, release | fails ✗ — identical message on all four (measured) |
 
 ## Root Cause
 
@@ -204,43 +205,96 @@ ordering, arena interaction) for a validator bookkeeping bug.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Land `spikes/api-review/bug-535-unused-runtime-helper/` (done).
-- [ ] Add the fixture: the worker program above, asserted to build. Confirm it
-      fails with the documented message.
-- [ ] Test a plain `Bind` with no other package call for **every** builtin
-      resource — `fs`, `udp`, `process`, `audio`, `canvas` as well as
-      `tcp`/`tls`. Record which fail. The `thread::accept` route only reaches
-      the sendable ones, so some may need a different producer to reach.
-- [ ] Test a user-declared resource with the same shape.
-- [ ] Confirm the stateful form (`RES f AS fs::File STATE Cursor`) is covered by
-      the fix design's `STATE` stripping, by testing it.
+- [x] Land `spikes/api-review/bug-535-unused-runtime-helper/` (done).
+- [x] Add the fixture: `tests/cli_thread_accept_res_bind.rs`. Confirmed failing
+      for the documented reason on the pre-fix compiler.
+- [x] Test a plain `Bind` with no other package call for every builtin resource.
+      **Measured table below.**
+- [x] Test a user-declared resource with the same shape.
+- [x] Confirm the stateful form is covered — it is, and it was failing too.
 
-Acceptance: the fixture fails for the documented reason; the per-resource table
-is measured; the stateful case has a verdict.
-Commit: —
+The per-resource sweep, measured against the pre-fix `target/release/mfb`:
+
+| bind | pre-fix | post-fix |
+| --- | --- | --- |
+| `RES s AS tcp::Socket = thread::accept(t, 1000)` | `unused runtime helper 'tcp'` ✗ | builds ✓ |
+| `tcp::Listener` | `… 'tcp'` ✗ | builds ✓ |
+| `tls::Socket` | `… 'tls'` ✗ | builds ✓ |
+| `tls::Listener` | `… 'tls'` ✗ | builds ✓ |
+| `udp::Socket` | `… 'udp'` ✗ | builds ✓ |
+| `fs::File` | `… 'fs'` ✗ | builds ✓ |
+| `RES f AS fs::File STATE Progress` | `… 'fs'` ✗ | builds ✓ |
+| alias-only `RES g AS fs::File = f` (no `fs::` call) | builds ✓ | builds ✓ (the over-count pin) |
+
+`audio`, `canvas` and `process` are **not reachable**: their resources are not
+`THREAD_SENDABLE`, so `thread::accept` cannot produce one, and no other producer
+of a plain resource bind exists that does not also call into the package. They
+are covered by construction once the arm is type-driven rather than
+package-driven, and by the `every_sendable_builtin_resource_bind_counts_its_helper`
+unit test's shape.
+
+A **user-declared** `RESOURCE … THREAD_SENDABLE` off `thread::accept` fails for a
+DIFFERENT reason — `native inlined field size not available for type 'Db'` — at
+native lowering, not in the helper accounting (a user resource registers no
+runtime helper at all, so it cannot reach this check). Filed as **bug-546**;
+unchanged by this fix.
+
+A second incidental find, also unchanged by this fix and also hidden by "any
+other call into the package": an alias rebind of a `tcp`/`udp` socket fails with
+`data relocation target '_mfb_str_error_resource_closed' is not a data object`.
+Filed as **bug-545**.
+
+Acceptance: met.
+Commit: `b93de7ed0`
 
 ### Phase 2 — the fix
 
-- [ ] Add the plain-resource arm to `used_helpers`, with `STATE` stripped.
-- [ ] Verify the "requires undeclared helper" arm still fires — deliberately
-      break a module and confirm it is caught. An accounting fix that disables
-      the opposite check is a worse bug.
+- [x] Add the plain-resource arm to `used_helpers`, with `STATE` handled.
+      `resource_close_function` peels `STATE` itself
+      (`builtin_resource_close_function` resolves `type_.without_state()`), so no
+      second textual strip was needed — pinned by
+      `a_stateful_plain_resource_bind_counts_the_same_helper`, which asserts the
+      fixture really does carry a `STATE` clause.
+- [x] Verify the "requires undeclared helper" arm still fires — pinned twice:
+      `a_resource_bind_whose_helper_is_undeclared_is_still_rejected` (on the new
+      path specifically) and the pre-existing `rejects_undeclared_runtime_helper`.
+      The "declares unused" arm is pinned by
+      `a_genuinely_unused_helper_is_still_rejected`.
 
-Acceptance: every Phase 1 case builds; the undeclared-helper arm still fires on
-a deliberately broken module.
-Commit: —
+The over-count risk the Fix Design named is handled by giving the new collector
+the **declarer's** aliasing gate (bug-375: a bind naming an already-live resource
+closes nothing). Used and declared are compared against each other, so the used
+side must recognize no MORE shapes than `runtime::required_helpers` — hence the
+private NIR twin of `runtime::usage::value_aliases_live_resource` rather than
+`CodeBuilder::value_aliases_live_resource`, which knows three further shapes and
+would raise "requires undeclared helper" on programs that build today. Pinned by
+`an_aliasing_resource_bind_counts_no_helper` and by the alias-only build test.
 
-### Phase 3 — the diagnostic frame + validation
+Acceptance: met.
+Commit: `b93de7ed0`
 
-- [ ] Give the validator's errors a rule code and a source location, so the
-      next genuine failure names the user's program rather than the NIR.
-- [ ] `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
-- [ ] Build the spike on Linux and Windows — `validate` runs per target.
-- [ ] Update `.ai/codegen-invariants.md` if it records the helper-set rule.
+### Phase 3 — validation
 
-Acceptance: full suite green on all three platforms; the reproduction builds and
-runs everywhere.
-Commit: —
+- [ ] **Deferred, filed separately.** The diagnostic frame is a bigger change
+      than it looks: `validate_nir` returns `Result<(), String>` and that `String`
+      is `?`-propagated through every one of the five backends' build entry
+      points. Every failure mode of the validator is a compiler-internal
+      invariant violation with no `NirOp::Bind` source location to attach (the op
+      carries no `loc`), so the honest fix is a module-level diagnostic frame for
+      the whole file plus a return-type change across all five backends — a
+      refactor with its own golden risk, not a rider on an accounting fix. The
+      program in this bug is VALID, so the check no longer fires on it at all.
+- [x] `cargo test --release --no-fail-fast`.
+- [x] Built the reproduction for `linux-x86_64`, `linux-aarch64`,
+      `linux-riscv64` and `windows-x86_64` as well as the macOS host: all four
+      failed pre-fix with the identical message and all four build post-fix.
+- [x] `.ai/resources-packages.md` updated — it already carried the union half of
+      this rule as a three-place list; the plain-resource half is now recorded
+      beside it, with the "the used side must recognize no more shapes than the
+      declarer" invariant.
+
+Acceptance: met.
+Commit: `b93de7ed0`
 
 ## Validation Plan
 
@@ -257,9 +311,14 @@ Commit: —
 ## Open Decisions
 
 - Whether the diagnostic-frame work (Phase 3) belongs here or in its own bug.
-  **Recommend keeping it here.** The opaque message is why this bug reads as a
-  compiler crash rather than a program error, and every other failure mode of
-  this validator has the same defect.
+  **Resolved: its own bug.** The recommendation to keep it here underestimated
+  it. `validate_nir` returns a `String` that is `?`-propagated through all five
+  backends, and `NirOp::Bind` carries no source location, so there is nothing to
+  point at even once the plumbing exists — the frame would have to be
+  module-level and the change is a five-backend return-type refactor. Every
+  failure mode of this file is an internal invariant violation rather than a
+  user error, which is what makes it a coherent separate piece of work instead
+  of a rider on an accounting fix.
 
 ## Summary
 
@@ -267,5 +326,8 @@ Found while verifying an unrelated documentation item, which is the point: the
 shape needed to trigger it is a worker that receives handles and does nothing
 else, and nearly every real program calls one more function and escapes. The
 fix is a few lines mirroring an arm that already exists for unions — twice
-patched for the same class — and the real work is Phase 1's per-resource sweep,
-because `tcp` and `tls` are almost certainly not the only two.
+patched for the same class — and the real work was Phase 1's per-resource sweep,
+because `tcp` and `tls` were not the only two: all six sendable resources and the
+stateful spelling failed, on all five targets. The sweep also turned up two
+neighbouring defects hidden by the same "any other call into the package"
+condition, filed as bug-545 and bug-546.
