@@ -523,6 +523,13 @@ box itself instructs.
 existed *before* the package ("Before this package MFBASIC had three unrelated
 notions…"). It is a historical statement and stays correct; **untouched**.
 
+### C6 — letter order: D ran last, not third
+
+D was authored to run before E and F. It ran after them (E and F landed
+2026-09-04, D started 2026-09-05). Nothing depended on the authored order: D cites
+no term or astrings symbol, and E/F cite no canvas file. §Prerequisites records the
+re-measurement.
+
 ### C7 — `canvas::GradientStop.color` is a fifth descriptor site §2 misses
 
 §2's table lists exactly two `ParameterType::named("Color")` descriptor sites,
@@ -545,13 +552,6 @@ importer's companion, not as a compile error in `canvas/mod.rs`.
 §2's stated line numbers are also stale throughout (`:183`/`:458`/`:464`/`:1110`
 vs. the measured `:197`/`:544`/`:550`/`:1390`); the census table above carries the
 measured ones.
-
-### C6 — letter order: D ran last, not third
-
-D was authored to run before E and F. It ran after them (E and F landed
-2026-09-04, D started 2026-09-05). Nothing depended on the authored order: D cites
-no term or astrings symbol, and E/F cite no canvas file. §Prerequisites records the
-re-measurement.
 
 ### C8 — Phase 4's rewrite instruction is wrong: three constructors stay exempt
 
