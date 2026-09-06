@@ -459,6 +459,37 @@ fn code_for_src_inner(
     lower_ir_to_code(ir, target, build_mode, &[]).unwrap_or_else(|err| panic!("{err}"))
 }
 
+/// The NIR module for a source string, without going on to a backend.
+///
+/// `NirModule::to_json` — the `-nir` dump — has exactly one caller, each
+/// backend's `write_nir`, and no unit test ever reached it. Stopping at NIR is
+/// what lets a test read the module the dump describes AND the dump itself, so
+/// "the dump is the module" is checkable rather than a golden's word.
+pub fn nir_for_src(
+    source: &str,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+) -> Result<crate::target::shared::nir::NirModule, String> {
+    let source = source.to_string();
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .name(format!("nir_for_src({})", target.name()))
+        .spawn(move || {
+            let ir = lower_src_concrete(&source, Some(main_entry(&source)));
+            crate::target::shared::lower::lower_project(
+                &ir,
+                target.name().to_string(),
+                &[],
+                build_mode,
+                None,
+            )
+            .map_err(|err| format!("{err:?}"))
+        })
+        .expect("spawn the lowering thread")
+        .join()
+        .unwrap_or_else(|_| Err("the lowering thread died".to_string()))
+}
+
 /// NIR + the backend, for an [`IrProject`] however it was produced.
 ///
 /// Shared by the source-string path ([`code_for_src_inner`]) and the project
