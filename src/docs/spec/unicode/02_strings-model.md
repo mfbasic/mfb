@@ -39,6 +39,20 @@ wide grapheme reserves a trailing cell and wraps at the right edge.
 [[src/codegen/builtins/strings/func_display_width.rs:displayWidth]]
 [[src/unicode/runtime_tables.rs:charwidth]]
 
+**Padding has one member per unit, and they are not interchangeable.**
+`strings::padLeft`/`padRight` pad to a **scalar** count; `strings::padLeftToWidth`/
+`padRightToWidth` pad to a **display-column** count, the measure above. The two
+agree only on text whose scalars are all one column wide, so a table aligned with
+the scalar-counted pair is misaligned by exactly the wide/zero-width scalars it
+contains (`padLeft("日本", 4, "-")` is 4 scalars and 6 columns). The
+column-counted pair **undershoots**: it lays down whole copies of `padChar` and
+the result never exceeds the requested width, so a 2-column `padChar` filling an
+odd gap leaves the last column empty. A `padChar` of zero columns can never reach
+the target and is rejected with `ErrInvalidArgument` (`77050002`), which is the
+one input the scalar-counted pair accepts and the column-counted pair does not.
+Neither pair truncates.
+[[src/codegen/builtins/strings/helper_pad_to_width.rs:__strings_padToWidthCopies]]
+
 ## Scalar / byte mapping
 
 The runtime converts between a scalar index and a byte offset on demand; it never

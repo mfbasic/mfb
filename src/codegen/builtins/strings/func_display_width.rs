@@ -36,6 +36,11 @@ scalars but six display columns, while `"café"` written with a combining accent
 (`"cafe"` plus `U+0301`) is four clusters and four display columns but five
 scalars.
 
+`strings::padLeftToWidth` and `strings::padRightToWidth` pad to this measure, and
+are what a column-aligned table needs; `strings::padLeft` and
+`strings::padRight` pad to a scalar count instead, which is a different number
+for anything but plain ASCII.
+
 East Asian **Ambiguous**-width characters are treated as width `1` (narrow), the
 modern terminal default. The empty string yields `0`. `value` is not mutated and
 the call never fails.

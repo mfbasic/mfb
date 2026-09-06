@@ -1,12 +1,12 @@
 # bug-528: `padLeft`/`padRight` pad to a scalar count while `displayWidth` measures columns, and there is no `padToDisplayWidth`
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
-Regression Test: `tests/` — new `rt_strings_pad_display_width` fixture (Phase 1)
+Status: FIXED — `strings::padLeftToWidth`/`padRightToWidth` added; two of the report's three Phase 1 claims were already true at HEAD
+Regression Test: `tests/rt-behavior/strings/strings-pad-to-width-rt`
 
 `strings::padLeft`/`padRight` pad to a width counted in **Unicode scalar
 values**. `strings::displayWidth` measures **terminal columns**, summed over
@@ -86,7 +86,40 @@ Contrast cases that are correct today:
 
 ## Root Cause
 
-Not a defect — a missing member plus two missing cross-references.
+**CONFIRMED (2026-09-05), and the scope is narrower than the report says.**
+
+The reproduction is exact — the spike prints `scalars=3 columns=5`,
+`scalars=4 columns=6`, `scalars=6 columns=5` and a three-row table where every
+row is 8 scalars and no two are the same width. But three of the report's
+supporting claims were measured and two of them were already true at HEAD:
+
+| claim | measured |
+| --- | --- |
+| there is no column-counted padding member | TRUE — the gap this bug fixes |
+| "neither page's **See also** mentions the other" | TRUE — `padLeft`/`padRight` linked only `astrings::AttributedString`; `displayWidth` linked `byteLen`/`graphemes`/`graphemesCount` |
+| "the pad pages state the unit ... only in the body prose" | **FALSE.** Both `width` parameter descriptions already read "The target total length of the result in Unicode scalar values." (`func_pad_left.rs`, `func_pad_right.rs`) |
+| "`term` — the package that most needs column alignment ... is a current victim" | **FALSE.** `grep -rn "padLeft\|padRight" src/codegen/builtins/term/` returns NOTHING. `term` draws per cell and never pads. |
+
+The real in-tree victim is `examples/browser/display/src/lib.mfb`, which
+hand-rolled the member this bug adds:
+
+```
+' Right-pad `s` with spaces to exactly `w` display columns (s must already fit).
+FUNC padTo(s AS String, w AS Integer) AS String
+  LET sw AS Integer = strings::displayWidth(s)
+  IF sw >= w THEN RETURN s
+  RETURN s & strings::repeat(" ", w - sw)
+END FUNC
+```
+
+A second one is `examples/ai_chat/src/main.mfb`, whose TUI boxes pad with
+`strings::padRight(clip(label, n), n)` — but its `clip` counts scalars too, so it
+is consistently scalar-counted and converting only its PADDING to columns would
+misalign it further. It needs the column-counted **truncate** this bug's Fix
+Design deliberately defers (`strings::truncateToWidth`), and is left alone.
+
+The mechanism itself is as reported: a missing member plus two missing
+cross-references.
 
 `gen_pad.rs` implements padding by scalar count, which is the right primitive:
 it is cheap, total, and the correct answer when the "width" the caller means is
@@ -176,41 +209,51 @@ undershoot case above.
 
 ### Phase 1 — cross-links + audit (no behavior change)
 
-- [ ] Land `spikes/api-review/bug-528-pad-display-width/` (done).
-- [ ] Add the **See also** cross-links between `padLeft`/`padRight` and
-      `displayWidth`, and state the unit in the `width` parameter description.
-      This is the cheap half and is worth landing alone.
-- [ ] `grep -rn "padLeft\|padRight" src/codegen/builtins/term/ examples/ benchmark/`
-      — list the callers that are actually building terminal layouts.
-- [ ] Decide the undershoot/overshoot rule and the `astrings` overload
-      question; write both into this file.
-
-Acceptance: the cross-links render; the caller list is written down; both
-decisions are recorded.
-Commit: —
+- [x] Land `spikes/api-review/bug-528-pad-display-width/` (done).
+- [x] **See also** now links `padLeft`/`padRight` ↔ `displayWidth` ↔ the two new
+      members, in both directions (the section is derived from `pkg::member`
+      mentions in `desc`, so the link is a sentence that carries a fact).
+      The `width` parameter description already stated the unit — see Root Cause.
+- [x] Caller census run. `term`: none. `examples`: `browser/display`'s `padTo`
+      (the hand-rolled member) and `ai_chat`'s scalar-consistent TUI. `benchmark`:
+      `string.mfb`/`strbuild.mfb` measure `padLeft` on ASCII, where the two
+      measures agree.
+- [x] Undershoot and the `astrings` overload decided — see Open Decisions.
 
 ### Phase 2 — the new member
 
-- [ ] Implement column-counted padding over the `displayWidth` machinery.
-- [ ] Reject a zero-column `padChar` with `ErrInvalidArgument`.
-- [ ] Write the man page, including the undershoot rule and a worked example
-      with CJK, emoji and a combining sequence.
-- [ ] Add the `astrings` overload if Phase 1 decided in favour.
-
-Acceptance: the spike's three-row table lines up when built with the new member.
-Commit: —
+- [x] `strings::padLeftToWidth` / `padRightToWidth`, `Body::Rewrite` over a
+      `WhenUsed`-gated `__strings_padToWidth*` chunk — NOT `Body::Mfb`, which
+      would render into every `IMPORT strings` program.
+- [x] A zero-column `padChar` raises `ErrInvalidArgument`.
+- [x] Both man pages written, rendered and their examples run.
+- [x] `astrings` overloads added (Tier-B companions + the two
+      `TIER_B_TRANSFORMS` rows).
 
 ### Phase 3 — validation
 
-- [ ] Add fixtures: ASCII, CJK, emoji, NFD combining, and the undershoot case.
-- [ ] Regenerate `.ncodesum` goldens; `cargo test --no-fail-fast`;
-      `scripts/test-accept.sh`.
-- [ ] `scripts/man-run-examples.sh strings --run`.
-- [ ] Confirm identical output on Linux and Windows.
-
-Acceptance: full suite green; the new member's output is byte-identical across
-platforms; existing `padLeft` output is unchanged.
-Commit: —
+- [x] `tests/rt-behavior/strings/strings-pad-to-width-rt`: ASCII, CJK, NFC and
+      NFD `café`, emoji, the undershoot case, the exact-fit case, no-truncation,
+      `columns = 0`, all four rejections through an INLINE trap, both
+      `AttributedString` overloads with a per-scalar bold map, and the positive
+      pins.
+- [x] `scripts/man-run-examples.sh strings --run`: 89 examples, 89 built, 89 ran,
+      0 failed. `man-census.sh --memory-scope strings`/`astrings`: 0 unclassified.
+- [x] `cargo test --release --no-fail-fast`: 4838 passed, 0 failed, cargo exit 0.
+      `cargo check --all-targets`: clean.
+- [x] `scripts/test-accept.sh`: **1412 ran**, exit 0.
+      `scripts/artifact-gate.sh all`: 1390 tests, 1930 goldens, **0 diffs**.
+- [x] Golden delta, predicted before it was measured and matched exactly: the 14
+      `.ir` goldens of every fixture that imports `astrings`, and nothing else.
+      No `.run` and no `build.log` moved, so no behavior changed anywhere. With
+      `"line": N` normalized away, the whole delta across those 14 files is the
+      five new functions (`#strings_padToWidthCopies`, `#strings_padLeftToWidth`,
+      `#strings_padRightToWidth`, `#astrings_padLeftToWidth`,
+      `#astrings_padRightToWidth`) plus one `ErrorLoc` constant that carries a
+      source line as a value.
+- [ ] Linux/Windows confirmation is not run here — the members are pure text
+      handling over the same vendored Unicode tables `displayWidth` already uses,
+      and every target's `.ncodesum` is in the artifact gate above.
 
 ## Validation Plan
 
@@ -224,14 +267,43 @@ Commit: —
 
 ## Open Decisions
 
-- Undershoot vs. overshoot when the target is unreachable. **Recommend
-  undershoot.**
-- One member (`padToWidth` with a side argument) vs. two
-  (`padLeftToWidth`/`padRightToWidth`). **Recommend two**, mirroring the
-  existing pair — a side argument on a padding function is one more thing to
-  get backwards.
-- Whether `term` should adopt it. **Recommend yes** as the validation case: if
-  the new member does not make `term`'s layouts correct, it is the wrong member.
+**All four decided 2026-09-05, each with its reason.**
+
+- **Undershoot**, as recommended. `__strings_padToWidthCopies` divides the gap by
+  the pad's own column width and integer division truncates toward zero, so the
+  rule falls out of the arithmetic rather than being a special case. Pinned:
+  padding a 1-column value to 6 columns with a 2-column `padChar` yields 5, and
+  to 7 columns yields exactly 7.
+- **Two members**, as recommended: `strings::padLeftToWidth` and
+  `strings::padRightToWidth`, mirroring the existing pair.
+- **A zero-column `padChar` is rejected** with `ErrInvalidArgument` (77050002),
+  along with a negative `columns`, an empty `padChar` and a multi-scalar one.
+  Note the asymmetry this creates, and it is deliberate: `strings::padLeft`
+  ACCEPTS a combining mark as `padChar` (it counts scalars, so it terminates),
+  and `padLeftToWidth` cannot. Both halves are in the fixture.
+- **The `astrings` overloads are INCLUDED**, the question the report said Phase 1
+  must settle. Both members are Tier-B transforms with `__astrings_*` companions,
+  so `strings::padRightToWidth(anAttributedString, 8)` returns an
+  `AttributedString` with its spans remapped, exactly as `padRight` does. Adding
+  them later would have cost the same golden churn as adding them now, and
+  leaving them out would have created precisely the asymmetry bug-534 is filed
+  about.
+- **`term` does not adopt it** — the premise was wrong. `term` has no
+  `padLeft`/`padRight` call at all (see Root Cause); it draws per cell. The
+  validation case is `examples/browser/display`'s `padTo`, which the fix rewrites
+  onto the member, and the fixture proves the two agree on all 65 (value, width)
+  pairs it compares.
+
+## Found while fixing this
+
+`strings::padLeft`/`padRight` — and `strings::left`/`right` with them — raise
+`ErrInvalidArgument` and declared `errors: vec![]`, which made
+`inline_builtin_is_infallible` prove the call infallible and DELETE a live inline
+`TRAP` handler. Third instance of the bug-486 / bug-533 shape. Fixed in its own
+commit ahead of this one, with `tests/rt-behavior/strings/strings-inline-trap-fallible-rt`.
+The two new members are source-backed (`Body::Rewrite`), so they were never
+subject to that verdict — but their rejections are pinned through the INLINE
+`TRAP` form anyway, because that is the only form that can see the bug.
 
 ## Summary
 

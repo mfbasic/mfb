@@ -84,7 +84,9 @@ mod helper_normalize_nfc;
 mod helper_number_from_member;
 mod helper_number_member;
 mod helper_pad_left;
+mod helper_pad_left_to_width;
 mod helper_pad_right;
+mod helper_pad_right_to_width;
 mod helper_remap_segment;
 mod helper_repeat;
 mod helper_replace;
@@ -427,6 +429,8 @@ pub(crate) fn register(r: &mut Registry) {
     helper_remap_segment::register(&mut pkg);
     helper_replace::register(&mut pkg);
     helper_concat::register(&mut pkg);
+    helper_pad_left_to_width::register(&mut pkg);
+    helper_pad_right_to_width::register(&mut pkg);
     // toMarkdown (plan-89-E): render resolved styling into a bespoke markdown-
     // flavored format. NOT CommonMark. Flags wrap each maximal run as nested pairs
     // in canonical order (bold ** , italic * , underline __ , strike ~~ , overline

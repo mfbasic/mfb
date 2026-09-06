@@ -56,7 +56,9 @@ mod func_lower;
 mod func_mid;
 mod func_normalize_nfc;
 mod func_pad_left;
+mod func_pad_left_to_width;
 mod func_pad_right;
+mod func_pad_right_to_width;
 mod func_repeat;
 mod func_replace;
 mod func_right;
@@ -81,6 +83,7 @@ mod gen_strings_support;
 mod gen_strip;
 mod gen_trim;
 mod gen_with_any;
+mod helper_pad_to_width;
 mod helper_scalar_seam;
 pub(crate) use gen_strings_support::*;
 
@@ -117,9 +120,18 @@ raw UTF-8 bytes one element per byte. Case-insensitive comparison should use
 characters differently can be normalized with `normalizeNfc` before comparison.
 
 Several functions accept an optional or defaulted argument: `find` takes an
-optional `start` position, and `padLeft` and `padRight` take an optional
+optional `start` position, and the four padding members take an optional
 `padChar` that defaults to a single space. The pad character, when supplied, must
 be exactly one Unicode scalar value.
+
+**Padding comes in two units, and picking the wrong one is the package's
+sharpest edge.** `padLeft` and `padRight` pad to a count of Unicode scalar
+values — right for a fixed-length record field or a zero-padded number.
+`padLeftToWidth` and `padRightToWidth` pad to a count of terminal columns, the
+measure `displayWidth` reports — right for anything that has to line up on
+screen. The two agree only on text whose scalars are all one column wide, so a
+table built with `padLeft` goes crooked the moment a row carries CJK text, an
+emoji or a combining sequence.
 
 ## The empty needle
 
@@ -196,7 +208,9 @@ pub(crate) fn register(r: &mut Registry) {
     func_right::register(&mut pkg);
     func_repeat::register(&mut pkg);
     func_pad_left::register(&mut pkg);
+    func_pad_left_to_width::register(&mut pkg);
     func_pad_right::register(&mut pkg);
+    func_pad_right_to_width::register(&mut pkg);
     func_grapheme_at::register(&mut pkg);
     func_graphemes_count::register(&mut pkg);
     func_display_width::register(&mut pkg);
@@ -220,6 +234,7 @@ pub(crate) fn register(r: &mut Registry) {
 
     // The scalar seam + classification predicates + general-category table, as one
     // gated chunk (see `helper_scalar_seam.rs` for why it cannot be `Body::mfb`).
+    helper_pad_to_width::register(&mut pkg);
     helper_scalar_seam::register(&mut pkg);
 
     r.add_package(pkg);
@@ -323,7 +338,9 @@ const TIER_B_TRANSFORMS: &[(&str, &str)] = &[
     ("strings.stripPrefix", "__astrings_stripPrefix"),
     ("strings.stripSuffix", "__astrings_stripSuffix"),
     ("strings.padLeft", "__astrings_padLeft"),
+    ("strings.padLeftToWidth", "__astrings_padLeftToWidth"),
     ("strings.padRight", "__astrings_padRight"),
+    ("strings.padRightToWidth", "__astrings_padRightToWidth"),
     ("strings.repeat", "__astrings_repeat"),
     ("strings.replace", "__astrings_replace"),
     ("strings.upper", "__astrings_upper"),

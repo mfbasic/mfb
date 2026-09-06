@@ -168,10 +168,11 @@ FUNC dropCols(s AS String, n AS Integer) AS String
 END FUNC
 
 ' Right-pad `s` with spaces to exactly `w` display columns (s must already fit).
+' This is strings::padRightToWidth (bug-528) -- the hand-rolled version below was
+' the in-tree victim that motivated the member. A space is one column wide, so
+' the member's undershoot rule cannot bite here and the two are identical.
 FUNC padTo(s AS String, w AS Integer) AS String
-  LET sw AS Integer = strings::displayWidth(s)
-  IF sw >= w THEN RETURN s
-  RETURN s & strings::repeat(" ", w - sw)
+  RETURN strings::padRightToWidth(s, w)
 END FUNC
 
 ' Overlay `s` onto `base` starting at display column `x`, clipped to `width`.
