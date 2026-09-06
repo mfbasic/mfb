@@ -48,7 +48,7 @@
     "name": "astrings.AttrSpan",
     "fields": [
     { "visibility": null, "line": 39, "name": "start", "type": "Integer" },
-    { "visibility": null, "line": 40, "name": "last", "type": "Integer" },
+    { "visibility": null, "line": 40, "name": "endIndex", "type": "Integer" },
     { "visibility": null, "line": 41, "name": "seq", "type": "Integer" },
     { "visibility": null, "line": 42, "name": "class", "type": "Integer" },
     { "visibility": null, "line": 43, "name": "member", "type": "Integer" },
@@ -627,7 +627,7 @@
     {
       "op": "if",
       "line": 209,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "last" }, "right": { "kind": "local", "name": "rs" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" }, "right": { "kind": "local", "name": "re" } } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "endIndex" }, "right": { "kind": "local", "name": "rs" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" }, "right": { "kind": "local", "name": "re" } } },
       "then": [
       { "op": "assign", "line": 210, "name": "out", "value": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "s" }] } },
       { "op": "return", "line": 211, "value": { "kind": "local", "name": "out" } }
@@ -648,9 +648,9 @@
     {
       "op": "if",
       "line": 216,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "re" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "last" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "re" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "endIndex" } },
       "then": [
-      { "op": "assign", "line": 217, "name": "out", "value": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "re" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "last" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "seq" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "class" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "member" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "s" }, "member": "text" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "number" }] }] } }
+      { "op": "assign", "line": 217, "name": "out", "value": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "re" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "endIndex" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "seq" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "class" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "member" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "s" }, "member": "text" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "number" }] }] } }
       ],
       "else": [
       ]
@@ -744,7 +744,7 @@
       "iterable": { "kind": "local", "name": "spans" },
       "body": [
       { "op": "bind", "line": 250, "mutable": true, "name": "lo", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" } },
-      { "op": "bind", "line": 251, "mutable": true, "name": "hi", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "last" } },
+      { "op": "bind", "line": 251, "mutable": true, "name": "hi", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "endIndex" } },
       {
         "op": "if",
         "line": 252,
@@ -799,7 +799,7 @@
       "type": "astrings.AttrSpan",
       "iterable": { "kind": "local", "name": "spans" },
       "body": [
-      { "op": "assign", "line": 269, "name": "out", "value": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" }, "right": { "kind": "local", "name": "delta" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "last" }, "right": { "kind": "local", "name": "delta" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "seq" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "class" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "member" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "s" }, "member": "text" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "number" }] }] } }
+      { "op": "assign", "line": 269, "name": "out", "value": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" }, "right": { "kind": "local", "name": "delta" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "endIndex" }, "right": { "kind": "local", "name": "delta" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "seq" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "class" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "member" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "s" }, "member": "text" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "number" }] }] } }
       ]
     },
     { "op": "return", "line": 271, "value": { "kind": "local", "name": "out" } }
@@ -1073,7 +1073,7 @@
         "type": "astrings.AttrSpan",
         "iterable": { "kind": "local", "name": "spans" },
         "body": [
-        { "op": "assign", "line": 380, "name": "out", "value": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" }, "right": { "kind": "local", "name": "offset" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "last" }, "right": { "kind": "local", "name": "offset" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "seq" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "class" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "member" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "s" }, "member": "text" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "number" }] }] } }
+        { "op": "assign", "line": 380, "name": "out", "value": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" }, "right": { "kind": "local", "name": "offset" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "endIndex" }, "right": { "kind": "local", "name": "offset" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "seq" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "class" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "member" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "s" }, "member": "text" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "number" }] }] } }
         ]
       },
       { "op": "assign", "line": 382, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
@@ -1215,7 +1215,7 @@
       "iterable": { "kind": "local", "name": "spans" },
       "body": [
       { "op": "bind", "line": 433, "mutable": true, "name": "lo", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" } },
-      { "op": "bind", "line": 434, "mutable": true, "name": "hi", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "last" } },
+      { "op": "bind", "line": 434, "mutable": true, "name": "hi", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "endIndex" } },
       {
         "op": "if",
         "line": 435,
@@ -1311,7 +1311,7 @@
       "type": "astrings.AttrSpan",
       "iterable": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "astrings.readSpans", "args": [{ "kind": "local", "name": "b" }] },
       "body": [
-      { "op": "assign", "line": 478, "name": "out", "value": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" }, "right": { "kind": "local", "name": "aLen" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "last" }, "right": { "kind": "local", "name": "aLen" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "seq" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "class" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "member" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "s" }, "member": "text" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "number" }] }] } }
+      { "op": "assign", "line": 478, "name": "out", "value": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" }, "right": { "kind": "local", "name": "aLen" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "endIndex" }, "right": { "kind": "local", "name": "aLen" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "seq" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "class" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "member" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "s" }, "member": "text" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "number" }] }] } }
       ]
     },
     { "op": "return", "line": 480, "value": { "kind": "call", "type": "AttributedString", "target": "#astrings_assemble", "args": [{ "kind": "local", "name": "newText" }, { "kind": "local", "name": "out" }] } }
@@ -1805,7 +1805,7 @@
       {
         "op": "if",
         "line": 652,
-        "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" }, "right": { "kind": "local", "name": "index" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "last" } } },
+        "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "start" }, "right": { "kind": "local", "name": "index" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "s" }, "member": "endIndex" } } },
         "then": [
         { "op": "assign", "line": 653, "name": "covering", "value": { "kind": "call", "type": "List OF astrings.AttrSpan", "target": "collections.append", "args": [{ "kind": "local", "name": "covering" }, { "kind": "local", "name": "s" }] } }
         ],

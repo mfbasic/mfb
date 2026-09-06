@@ -382,10 +382,11 @@ impl TypeModel {
             ParameterType::named("AttrSpan"),
             vec![
                 ("start".to_string(), ParameterType::Integer),
-                // `last` (not `end`): `end` is a reserved keyword and cannot follow
-                // `.` in the companion's member access. Field-identical to the
-                // companion's `AttrSpan`.
-                ("last".to_string(), ParameterType::Integer),
+                // `endIndex` (not `end`): `end` is a reserved keyword and cannot
+                // follow `.` in the companion's member access, and `end<Noun>` is the
+                // language-wide spelling for a range bound (bug-527).
+                // Field-identical to the companion's `AttrSpan`.
+                ("endIndex".to_string(), ParameterType::Integer),
                 ("seq".to_string(), ParameterType::Integer),
                 ("class".to_string(), ParameterType::Integer),
                 ("member".to_string(), ParameterType::Integer),

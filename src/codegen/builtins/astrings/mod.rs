@@ -191,9 +191,11 @@ pub(crate) fn register(r: &mut Registry) {
     // `AttrSpan` registered in `validation.rs` (the `AttributedString` overlay
     // element). Not exported: only the injected helpers and the native bridge touch
     // it. `class`: 0=flag, 1=text, 2=number. `member`: the enum-member ordinal within
-    // that class. `text`/`number`: the flat attribute payload. `last` (not `end`)
-    // because `end` is a reserved keyword — it can be neither a member accessed with
-    // `.` nor a parameter/field identifier.
+    // that class. `text`/`number`: the flat attribute payload. The inclusive end of the
+    // range is `endIndex` (not `end`, a reserved keyword that can be neither a member
+    // accessed with `.` nor a parameter/field identifier) — `end<Noun>` is the
+    // language-wide spelling for a range bound, and it matches this package's public
+    // `addAttribute`/`removeAttribute` parameters (bug-527).
     pkg.add_record(RegistryRecord {
         name: "AttrSpan",
         export: false,
@@ -205,7 +207,7 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "",
             },
             RecordProp {
-                name: "last",
+                name: "endIndex",
                 ty: ParameterType::Integer,
                 description: "",
             },

@@ -18,7 +18,7 @@ r#"FUNC __astrings_repeat(a AS AttributedString, times AS Integer) AS Attributed
   WHILE k < times
     LET offset AS Integer = k * n
     FOR EACH s IN spans
-      out = collections::append(out, AttrSpan[s.start + offset, s.last + offset, s.seq, s.class, s.member, s.text, s.number])
+      out = collections::append(out, AttrSpan[s.start + offset, s.endIndex + offset, s.seq, s.class, s.member, s.text, s.number])
     NEXT
     k = k + 1
   END WHILE

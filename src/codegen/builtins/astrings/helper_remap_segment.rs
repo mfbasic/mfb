@@ -19,7 +19,7 @@ FUNC __astrings_remapSegment(acc AS List OF AttrSpan, spans AS List OF AttrSpan,
   END IF
   FOR EACH s IN spans
     MUT lo AS Integer = s.start
-    MUT hi AS Integer = s.last
+    MUT hi AS Integer = s.endIndex
     IF lo < o0 THEN
       lo = o0
     END IF

@@ -209,24 +209,24 @@ const INTRO: &str =
     r#"Index of the last element at or before an end position that satisfies a predicate"#;
 
 const DESC: &str = r#"`collections::findLastIndex` scans `value` **backward**, beginning at the
-element selected by `endIndex` and decreasing by one down to index `0`, calling
+element selected by `start` and decreasing by one down to index `0`, calling
 `predicate` with each element. It returns the zero-based index of the first
 element (in that backward order) for which `predicate` returns `TRUE` — that is,
-the last matching element at or before `endIndex`. The scan short-circuits at
+the last matching element at or before `start`. The scan short-circuits at
 that element: no lower index is examined. When the scan passes index `0` without
 a match, the call raises `ErrNotFound` (`77050004`) rather than returning a
 sentinel index.
 
-`endIndex` is optional and there are two forms, which differ only in where the
+`start` is optional and there are two forms, which differ only in where the
 scan begins:
 
 - **Omit it** and the scan begins at the last element, `len(value) - 1`, so the
   whole list is searched. This is the common form.
-- **Supply it** and the scan begins exactly there. `endIndex` is a plain
-  zero-based index: it must satisfy `0 <= endIndex < len(value)` or the call
+- **Supply it** and the scan begins exactly there. `start` is a plain
+  zero-based index: it must satisfy `0 <= start < len(value)` or the call
   raises `ErrIndexOutOfRange` (`77050001`).
 
-A **negative** `endIndex` is out of range, exactly as it is for
+A **negative** `start` is out of range, exactly as it is for
 `collections::findIndex`, `collections::mid` and `strings::find`. It is not an
 offset from the end of the list; `-1` does not mean the last element. Omitting
 the argument is how you ask for the last element.
@@ -248,7 +248,7 @@ non-escaping is `collections::forEach`, not `findLastIndex`.It does not mutate `
 `findLastIndex` imposes no comparability or orderability constraint on `T`,
 because elements are never compared to one another — they are only passed to
 `predicate`. The second argument must be a function value taking exactly one `T`
-and returning `Boolean`, and `endIndex`, when supplied, must be an `Integer`."#;
+and returning `Boolean`, and `start`, when supplied, must be an `Integer`."#;
 
 const EX: &str = r#"Find the last positive element:
 
@@ -266,7 +266,7 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Limit the backward scan with an explicit `endIndex`:
+Limit the backward scan with an explicit `start`:
 
 ```
 IMPORT io
@@ -283,7 +283,7 @@ FUNC main AS Integer
 END FUNC
 ```
 
-The parameter is named `endIndex`, so this is the named-argument spelling. A
+The parameter is named `start`, so this is the named-argument spelling. A
 negative index is out of range, so ask for the second element from the end by
 its index rather than by `-2`:
 
@@ -297,7 +297,7 @@ END FUNC
 
 FUNC main AS Integer
   LET nums AS List OF Integer = [5, 0, 7]
-  io::print(toString(collections::findLastIndex(nums, isPos, endIndex := len(nums) - 2)))
+  io::print(toString(collections::findLastIndex(nums, isPos, start := len(nums) - 2)))
   RETURN 0
 END FUNC
 ```
@@ -330,11 +330,11 @@ END FUNC
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, endIndex AS Integer) AS Integer
-  IF endIndex < 0 OR endIndex >= len(value) THEN
+r#"FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, start AS Integer) AS Integer
+  IF start < 0 OR start >= len(value) THEN
     FAIL error(77050001, "List or string index/range is outside valid bounds.")
   END IF
-  MUT i AS Integer = endIndex
+  MUT i AS Integer = start
   WHILE i >= 0
     IF predicate(collections::get(value, i)) THEN
       RETURN i
@@ -346,8 +346,8 @@ END FUNC"#;
 
 /// The two-argument form's own body (bug-527).
 ///
-/// `endIndex` used to default to `-1` and the body resolved a negative index as
-/// `len(value) + endIndex`. That made `findLastIndex` the one index parameter on the
+/// `start` used to default to `-1` and the body resolved a negative index as
+/// `len(value) + start`. That made `findLastIndex` the one index parameter on the
 /// surface that answered a negative argument with a success instead of
 /// `ErrIndexOutOfRange`, and it was reachable by writing `-1` explicitly, not only by
 /// omitting the argument. Dropping the default means "scan from the end" can no
@@ -410,8 +410,8 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                     value("The list to scan. Not modified. An empty list always raises `ErrIndexOutOfRange`."),
                     predicate,
                     Parameter {
-                        name: "endIndex",
-                        desc: "Zero-based index at which the backward scan begins. Optional; omit it to begin at the last element. Must satisfy `0 <= endIndex < len(value)` — a negative value is out of range, **not** an offset from the end.",
+                        name: "start",
+                        desc: "Zero-based index at which the backward scan begins. Optional; omit it to begin at the last element. Must satisfy `0 <= start < len(value)` — a negative value is out of range, **not** an offset from the end.",
                         aliases: &[],
                         ty: ParameterType::Integer,
                         default: DefaultValue::None,

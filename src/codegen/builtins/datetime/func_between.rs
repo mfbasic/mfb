@@ -4,14 +4,14 @@
 //! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"The signed `datetime::Duration` span between two instants."#;
-const DESC: &str = r#"`datetime::between` returns the signed `datetime::Duration` `finish - start`: the length of
-elapsed time you would add to `start` to reach `finish`. The span is positive when
-`finish` is later than `start`, negative when `finish` is earlier, and zero when
+const DESC: &str = r#"`datetime::between` returns the signed `datetime::Duration` `endTime - start`: the length of
+elapsed time you would add to `start` to reach `endTime`. The span is positive when
+`endTime` is later than `start`, negative when `endTime` is earlier, and zero when
 the two instants are equal. Because the result is a `datetime::Duration` it carries no anchor
 on the timeline — it names a length, not a point.
 
 The span is computed by subtracting the two `datetime::Instant`s field by field
-(`finish.seconds - start.seconds` and `finish.nanos - start.nanos`) and then
+(`endTime.seconds - start.seconds` and `endTime.nanos - start.nanos`) and then
 normalizing the pair so the stored `nanos` lands in `0 .. 999_999_999` and any
 borrow is carried into the `seconds` field. A negative nanosecond difference
 borrows a whole second during normalization, so the `seconds` field of the result
@@ -37,41 +37,41 @@ IMPORT io
 
 SUB main()
   LET start AS datetime::Instant = datetime::instant(1_000)
-  LET finish AS datetime::Instant = datetime::instant(1_090)
-  LET span AS datetime::Duration = datetime::between(start, finish)
+  LET endTime AS datetime::Instant = datetime::instant(1_090)
+  LET span AS datetime::Duration = datetime::between(start, endTime)
   io::print(datetime::formatDuration(span))
 END SUB
 ```
 
-A `finish` earlier than `start` yields a negative span:
+An `endTime` earlier than `start` yields a negative span:
 
 ```
 IMPORT datetime
 
 SUB main()
   LET start AS datetime::Instant = datetime::instant(1_090)
-  LET finish AS datetime::Instant = datetime::instant(1_000)
-  LET span AS datetime::Duration = datetime::between(start, finish)
+  LET endTime AS datetime::Instant = datetime::instant(1_000)
+  LET span AS datetime::Duration = datetime::between(start, endTime)
 END SUB
 ```
 
-Re-apply the measured span to recover `finish` from `start`:
+Re-apply the measured span to recover `endTime` from `start`:
 
 ```
 IMPORT datetime
 
 SUB main()
   LET start AS datetime::Instant = datetime::instant(1_000)
-  LET finish AS datetime::Instant = datetime::instant(1_090)
-  LET span AS datetime::Duration = datetime::between(start, finish)
+  LET endTime AS datetime::Instant = datetime::instant(1_090)
+  LET span AS datetime::Duration = datetime::between(start, endTime)
   LET again AS datetime::Instant = datetime::add(start, span)
 END SUB
 ```"#;
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __datetime_between(start AS Instant, finish AS Instant) AS Duration
-  RETURN __datetime_normDuration(finish.seconds - start.seconds, finish.nanos - start.nanos)
+r#"FUNC __datetime_between(start AS Instant, endTime AS Instant) AS Duration
+  RETURN __datetime_normDuration(endTime.seconds - start.seconds, endTime.nanos - start.nanos)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {
@@ -92,8 +92,8 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
-                    name: "finish",
-                    desc: "The later instant. The result is `finish - start`.",
+                    name: "endTime",
+                    desc: "The later instant. The result is `endTime - start`.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,
