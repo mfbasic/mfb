@@ -332,7 +332,18 @@ these files, and is not for `repository/src/**`).
 | after the data-layout, imported-type and app-surface suites | 207 | 7,126 |
 | after merging main (48 commits) + the append/platform-hook/validation suites | 205 | 6,863 |
 | after `drop_never_executed_binaries` — see C6, a MEASUREMENT fix | 205 | 6,863 |
-| after the five-backend `abi_function` sweep and the strings folds | **199** | **6,746** |
+| after the five-backend `abi_function` sweep and the strings folds | 199 | 6,746 |
+| after the group table, the app-mode `term::` surface and the trait defaults | 197 | 6,468 |
+| **after C8** — `src/target/**` enters the denominator (+51 files measured) | 225 | 8,012 |
+| after the project-based fixture lowering (F7) | 225 | 7,971 |
+| after the `-nir` dump suite | **225** | **7,701** |
+
+**Two rows in this table are measurement changes, not work**, and both moved the
+number in a direction that has nothing to do with tests. C6 (`drop_never_executed
+_binaries`) took 16,020 lines OUT of the reported gap; C8 (`src/target/**`) put
+1,544 back IN. Neither is comparable with the CI baseline this task was written
+from, and the second one is why the count stops falling at 225 while the line
+count keeps dropping.
 
 The `drop_never_executed_binaries` row is the one that needs reading twice. It
 changed no test and closed no file *as measured against the row above it*, which
