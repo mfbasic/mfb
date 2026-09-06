@@ -1,0 +1,30 @@
+' bug-556: a list literal written INLINE at a call argument used to lower as
+' `List OF Unknown`, whatever its elements were.
+'
+' `check_builtin_comparability` deliberately lets an `Unknown` element pass — it
+' must never reject on a type it cannot see — so the rule was silently skipped
+' for the inline spelling. The same list given a NAME first inferred `List OF Bag`
+' and was refused. The verdict depended on whether the author had bound the list,
+' not on the types, which is what makes this a silently-skipped rule rather than
+' a missing one.
+'
+' All FOUR call sites below must be refused. Two of them (11, 14) were already
+' refused before the fix; the pair on 9 and 12 is the regression under test, and
+' keeping all four in one fixture is what pins that the two spellings AGREE
+' rather than merely that the inline one now fails.
+IMPORT collections
+
+TYPE Bag
+  items AS List OF Integer
+END TYPE
+
+FUNC main AS Integer
+  LET one AS Bag = Bag[[1, 2]]
+  LET a AS Integer = collections::find([one], one)
+  LET inferred = [one]
+  LET b AS Integer = collections::find(inferred, one)
+  LET c AS Boolean = collections::contains([one], one)
+  LET annotated AS List OF Bag = [one]
+  LET d AS Integer = collections::find(annotated, one)
+  RETURN a + b + d
+END FUNC

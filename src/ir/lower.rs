@@ -4718,6 +4718,27 @@ fn lower_expression_with_expected(
                 values
                     .first()
                     .and_then(literal_expression_type)
+                    // bug-556: a list literal written INLINE at a call argument
+                    // has no `expected` to inherit from, and its first element is
+                    // usually not a *literal* — so this fell straight to
+                    // `Unknown`, and every rule that reads the argument's element
+                    // type was silently skipped. `check_builtin_comparability`
+                    // deliberately lets an `Unknown` element pass (it must never
+                    // reject on an unknown), so `collections::find([bag], bag)`
+                    // was ACCEPTED while the identical `LET xs = [bag]` then
+                    // `find(xs, bag)` was refused — the verdict depended on
+                    // whether the author had named the list.
+                    //
+                    // `expression_type` is the same typer the binding path
+                    // already uses and is in scope here; falling back to it makes
+                    // the two spellings agree. It is a fallback, not a
+                    // replacement: `expected_element` still wins, so an annotated
+                    // or parameter-driven element type is unaffected.
+                    .or_else(|| {
+                        values
+                            .first()
+                            .and_then(|first| expression_type(first, locals, context))
+                    })
                     .unwrap_or(ParameterType::Unknown)
             });
             IrValue::ListLiteral {

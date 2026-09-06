@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/collections/inline-list-comparability-invalid
+  21 | FUNC main AS Integer
+  22 |   LET one AS Bag = Bag[[1, 2]]
+  23 |   LET a AS Integer = collections::find([one], one)
+     | ^
+tests/syntax/collections/inline-list-comparability-invalid/src/main.mfb:23 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `collections.find` requires a comparable type, got `Bag`.
+  23 |   LET a AS Integer = collections::find([one], one)
+  24 |   LET inferred = [one]
+  25 |   LET b AS Integer = collections::find(inferred, one)
+     | ^
+tests/syntax/collections/inline-list-comparability-invalid/src/main.mfb:25 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `collections.find` requires a comparable type, got `Bag`.
+  24 |   LET inferred = [one]
+  25 |   LET b AS Integer = collections::find(inferred, one)
+  26 |   LET c AS Boolean = collections::contains([one], one)
+     | ^
+tests/syntax/collections/inline-list-comparability-invalid/src/main.mfb:26 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `collections.contains` requires a comparable type, got `Bag`.
+  26 |   LET c AS Boolean = collections::contains([one], one)
+  27 |   LET annotated AS List OF Bag = [one]
+  28 |   LET d AS Integer = collections::find(annotated, one)
+     | ^
+tests/syntax/collections/inline-list-comparability-invalid/src/main.mfb:28 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `collections.find` requires a comparable type, got `Bag`.
+[exit 1]
