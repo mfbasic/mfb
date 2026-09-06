@@ -366,7 +366,8 @@ these files, and is not for `repository/src/**`).
 | after the `-nir` dump suite | 225 | 7,701 |
 | after the 63 package-bearing fixtures | 224 | 7,491 |
 | after the dump writers, the NIR validator and the package decoder | 224 | 7,414 |
-| after the code stage sees the packages | **224** | **7,370** |
+| after the code stage sees the packages | 224 | 7,370 |
+| after the remaining `-nir` op/value/resource shapes | **224** | **7,290** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
