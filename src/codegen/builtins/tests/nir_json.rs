@@ -101,6 +101,45 @@ END TRAP
 END FUNC
 ";
 
+/// The three module-level shapes the two programs above do not have: a global
+/// binding, an `ENUM`, and a resource whose ownership FLOATS.
+///
+/// Each reaches a different top-level arm of the writer. `"globals"` and the
+/// `NirGlobal` body are only emitted for a module that has one; the `"enum"`
+/// arm of the type writer is one of three, and the other two (`record`,
+/// `union`) are covered by `SHAPES`; and `"resourceOwners"` is emitted only
+/// when the escape analysis recorded an owner that is not the local scope —
+/// `res_owner_json`'s `Float` and `FloatBlocked` arms.
+///
+/// The resource shape is the one worth naming. A `RES` opened inside the loop
+/// and appended to an outer-scope list has its ownership float up to the list's
+/// scope (§15.6), which is what puts a `Float(scope)` in the table. A dump that
+/// dropped it would describe a program whose resources close somewhere else.
+const MODULE_SHAPES: &str = "\
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+ENUM Color
+  Red, Blue
+END ENUM
+
+MUT counter AS Integer = 7
+LET label AS String = \"start\"
+
+FUNC main() AS Integer
+  MUT handles AS List OF RES fs::File = []
+  MUT i AS Integer = 0
+  WHILE i < 2
+    RES f AS fs::File = fs::openFile(\"project.json\")
+    handles = collections::append(handles, f)
+    i = i + 1
+  END WHILE
+  io::print(label & toString(counter) & toString(len(handles)))
+  RETURN 0
+END FUNC
+";
+
 /// Every backend's `-nir` dump is parseable JSON.
 ///
 /// The dump is a debugging surface, so a malformed one is not caught by
@@ -108,7 +147,11 @@ END FUNC
 /// into a tool, and the failure is a parse error in whatever they used.
 #[test]
 fn the_nir_dump_is_json_on_every_backend() {
-    for (label, source) in [("linking", LINKING), ("shapes", SHAPES)] {
+    for (label, source) in [
+        ("linking", LINKING),
+        ("shapes", SHAPES),
+        ("module shapes", MODULE_SHAPES),
+    ] {
         for target in CodeTarget::ALL {
             let module = nir_for_src(source, target, Console)
                 .unwrap_or_else(|err| panic!("{label} on {}: {err}", target.name()));
