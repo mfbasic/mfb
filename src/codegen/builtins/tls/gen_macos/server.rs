@@ -1050,6 +1050,28 @@ pub(crate) fn lower_tls_listen_macos(
         abi::load_u64(&v9, abi::stack_pointer(), LCTX),
         abi::store_u64(&v10, &v9, CTX_RETAIN),
     ]);
+    // bug-483: the listener shares STATE_INVOKE with connection contexts, so it
+    // must carry the same error-domain pair — the trampoline writes them
+    // unconditionally and an uninitialised CTX_EDOMFN would be called.
+    dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        NWH,
+        "nw_error_get_error_domain",
+        FNPTR,
+        &load_fail,
+    )?;
+    ins.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), FNPTR),
+        abi::load_u64(&v9, abi::stack_pointer(), LCTX),
+        abi::store_u64(&v10, &v9, CTX_EDOMFN),
+        abi::store_u64(abi::ZERO, &v9, CTX_EDOM),
+    ]);
     // nw_listener_set_queue(listener, queue)
     dlsym(
         &mut EmitCtx {
@@ -1558,6 +1580,29 @@ pub(crate) fn lower_tls_accept_macos(
         abi::load_u64(&v10, abi::stack_pointer(), FNPTR),
         abi::load_u64(&v9, abi::stack_pointer(), CCTX),
         abi::store_u64(&v10, &v9, CTX_SIGNAL),
+    ]);
+    // bug-483: ctx->edomfn = &nw_error_get_error_domain, and edom = 0 ("no error
+    // classified yet"). Only the send trampoline may touch an `nw_error` — it is
+    // released when the completion block returns — so the pointer is parked here
+    // for it.
+    dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        NWH,
+        "nw_error_get_error_domain",
+        FNPTR,
+        &load_fail,
+    )?;
+    ins.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), FNPTR),
+        abi::load_u64(&v9, abi::stack_pointer(), CCTX),
+        abi::store_u64(&v10, &v9, CTX_EDOMFN),
+        abi::store_u64(abi::ZERO, &v9, CTX_EDOM),
     ]);
     // nw_connection_set_queue(conn, queue) — the listener's serial queue.
     dlsym(

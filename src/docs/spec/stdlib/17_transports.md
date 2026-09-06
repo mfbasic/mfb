@@ -88,6 +88,18 @@ sender always knows what it has — so it takes a `String` as a second overload.
 An empty read (`[]`) marks end of stream: the peer closed. It is not an error and
 not a timeout.
 
+A write to a peer that has gone away raises `ErrConnectionClosed` — the same
+code both `read` calls carry at end of stream, on `tcp` and on `tls` alike, and
+on every target. It is not reported on the first such write: that one is accepted
+by the local OS (or by the TLS layer), and only a later write in the same loop
+raises, so a write is never a delivery receipt. `ErrTlsFailed` stays what it has
+always meant on `tls` — a handshake, certificate or protocol failure — and a
+write that reaches a `setWriteTimeout` deadline stays `ErrTimeout`. Each backend
+had to be taught this separately: left alone, every one of them reports whatever
+transport error it happens to produce (bug-467 for OpenSSL, bug-483 for
+Network.framework and Schannel, which named the identical event `ErrTlsFailed`
+and `ErrNetworkFailed`).
+
 `udp` carries datagrams, and the difference is not a detail:
 
 * Boundaries are preserved exactly. One `send` becomes one `receive`, never split

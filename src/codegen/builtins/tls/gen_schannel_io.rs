@@ -360,6 +360,12 @@ pub(crate) fn lower_tls_write(
 
     let closed = format!("{symbol}_closed");
     let fail = format!("{symbol}_fail");
+    // bug-483: `send` has its own failure arm now, so its Winsock error can be
+    // classified. `EncryptMessage` keeps the plain `fail` — that one really is a
+    // protocol failure, not a transport one.
+    let send_fail = format!("{symbol}_send_fail");
+    let peer_closed = format!("{symbol}_peer_closed");
+    let timed_out = format!("{symbol}_timed_out");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
     let wloop = format!("{symbol}_wloop");
@@ -480,7 +486,7 @@ pub(crate) fn lower_tls_write(
         abi::add_registers(&v6, &v6, &v7), // total len
         abi::load_u64(&v7, abi::stack_pointer(), SENDBUF), // buf
     ]);
-    send_all(symbol, FD, &v7, &v6, "enc", &fail, imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    send_all(symbol, FD, &v7, &v6, "enc", &send_fail, imports, platform, &mut ins, &mut rel, &mut vregs)?;
     // advance src/remaining
     ins.extend([
         abi::load_u64(&v10, abi::stack_pointer(), CHUNK),
@@ -498,8 +504,42 @@ pub(crate) fn lower_tls_write(
         abi::branch(&done),
     ]);
 
+    // bug-483 / plan-110-D: classify the Winsock error behind a failed `send`
+    // instead of collapsing every one into `ErrNetworkFailed`. Measured on box
+    // 2230 before this: an MFBASIC TLS server writing to a client that had gone
+    // away reported `ErrNetworkFailed` -- "Network operation failed before a
+    // connection was established" -- for a connection that was established and
+    // had been used, where Linux/OpenSSL reported `ErrConnectionClosed`.
+    //
+    //   10054 WSAECONNRESET / 10053 WSAECONNABORTED / 10058 WSAESHUTDOWN
+    //         the peer is gone. `mfb man tls write` and `mfb man tcp write`
+    //         both promise `ErrConnectionClosed` here, and `tls::read` on this
+    //         same backend already raises it (`gen_schannel_read_close.rs`).
+    //   10060 WSAETIMEDOUT
+    //         the SO_SNDTIMEO deadline `tls::setWriteTimeout` installs expired.
+    //         Its own page says that raises `ErrTimeout` "rather than blocking
+    //         further"; this backend was the one that never learned it, exactly
+    //         as the read side had to (plan-110-D). NOT EWOULDBLOCK on Winsock.
+    //   else  unchanged: `ErrNetworkFailed`.
+    ins.push(abi::label(&send_fail));
+    platform.emit_errno(symbol, (&v9).into(), imports, &mut ins, &mut rel)?;
+    ins.extend([
+        abi::compare_immediate(&v9, "10054"), // WSAECONNRESET
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v9, "10053"), // WSAECONNABORTED
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v9, "10058"), // WSAESHUTDOWN
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v9, "10060"), // WSAETIMEDOUT
+        abi::branch_eq(&timed_out),
+        abi::branch(&fail),
+    ]);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&peer_closed));
+    emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&timed_out));
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&fail));
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
