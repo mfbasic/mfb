@@ -5,15 +5,19 @@ drawing surface that is swapped in as the window content view while TUI mode is
 active. This documents the cell model, the grid-state memory layout, the
 content-view swap, and how the GUI `term::` helpers keep the **same** term-state
 global that the console backend uses, so `term::isOn` and auto-restore read the
-same flag everywhere. **The inactive no-op gate is NOT uniform**: the console and
-macOS bodies test the shared `active` slot, the GTK bodies test it for every
-member except `term::off`, and the Windows bodies test the live `TUI_MEMDC`
-handle instead — which `emit_term_off` never clears — so after `term::off` a
-Windows `term::` call still reaches the memDC, and `emit_term_size` still answers
-with the fixed grid rather than raising `ErrUnsupported`. Closing that is
-tracked as a gap, not a property this topic can be read as guaranteeing.
-[[src/target/win_x86_64/app/mod.rs:emit_term_off]]
-[[src/target/linux_gtk/app_io.rs:emit_app_term_off]] Per-function semantics (`term::on`,
+same flag everywhere. **The inactive no-op gate is uniform, and it is the shared
+`active` slot that every backend tests** — never a surface handle. The
+distinction is normative because the two are not the same lifetime: `term::off`
+clears the `active` slot but deliberately leaves the Windows `TUI_MEMDC` live
+(a program may leave `Console` for `Canvas` and come back), so a body gated on
+the handle still runs after `term::off`. That was the Windows shape until
+bug-541; the memDC test remains, but as the "was a surface ever built" guard it
+always was, with the mode gate in front of it. `term::off` is itself gated on
+every backend, so a redundant `term::off` schedules nothing.
+[[src/codegen/term/core/term.rs:emit_gate_inactive]]
+[[src/target/macos_aarch64/app/app_io.rs:emit_term_active_gate]]
+[[src/target/linux_gtk/app_io.rs:emit_gtk_term_active_gate]]
+[[src/target/win_x86_64/app/mod.rs:emit_win_term_active_gate]] Per-function semantics (`term::on`,
 `term::moveTo`, …) are owned by `mfb man`; this topic is the rendering/cell-model
 contract a reimplementer rebuilds against.
 
@@ -31,7 +35,7 @@ actually serves:
 | Member | console (all platforms) | macOS app | Linux GTK app | Windows app |
 |--------|-------------------------|-----------|---------------|-------------|
 | `moveTo`, `clear`, `sync`, colour/attr/cursor | yes | yes | yes | yes |
-| `terminalSize` | live terminal size | live view size | live view size | **fixed 80x25** (`TUI_COLS`/`TUI_ROWS`) |
+| `terminalSize` | live terminal size | live view size | live view size | **fixed 80x25** (`TUI_COLS`/`TUI_ROWS`); raises `ErrUnsupported` while inactive like the rest |
 | `didResize` | latches a terminal resize | latches a view resize | latches a view resize | **always `FALSE`** — no dispatcher arm and nothing sets the flag |
 | `drawHLine`, `drawVLine` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | draws, **`LineStyle` ignored** (always Light) |
 | `drawBox` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | draws, **`LineStyle` ignored** |

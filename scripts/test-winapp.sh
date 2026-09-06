@@ -143,13 +143,18 @@ JSON
 cat > "$cproj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 IMPORT os
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  ' `canvas::fill` takes a `color::Color`; `canvas::rgb` no longer exists, and this
+  ' program named it until 2026-09-05. `set -e` made that a hard stop at the BUILD,
+  ' so every assertion after this point — the canvas frame, the whole Vulkan
+  ' section, and both resize runs — had silently not run since the rename.
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40))]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
   canvas::present([box, dot])
   io::print("canvas presented")
   ' The scripted resize runs on the MAIN thread and waits for the first frame before
@@ -391,6 +396,132 @@ PY
     *) fail "the resized Vulkan frame is outside Tolerance::GPU_DEFAULT — $verdict" ;;
   esac
 fi
+
+
+# ---------------------------------------------------------------------------
+# The `term::` inactive gate on Windows (bug-541)
+#
+# `term::` has one module-wide rule: while TUI mode is off every member except
+# `term::on`, `term::isOn` and `term::didResize` short-circuits, and
+# `term::terminalSize` raises `ErrUnsupported`. The console and macOS backends
+# enforced it on every member; the Windows bodies gated on the live `TUI_MEMDC`
+# handle — which `term::off` never clears — or on nothing at all, so
+# `term::terminalSize` answered `80x25` before any `term::on` and every setter
+# and drawing call still ran after `term::off`.
+#
+# **Why every observation is buffered and printed at the end.** While TUI mode is
+# on, `io::print` renders into the GDI grid instead of the inherited standard
+# handle, so a print inside the TUI section never reaches this transcript. The
+# program accumulates one line and emits it after its last `term::off`.
+#
+# This runs headless: the gate's whole observable is what the program computes,
+# not what the window shows, so it needs no GPU and no display — which is what
+# makes it a test rather than a screenshot somebody looks at once.
+tproj="$work/winterm"
+mkdir -p "$tproj/src"
+cat > "$tproj/project.json" <<'JSON'
+{ "name": "winterm", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$tproj/src/main.mfb" <<'MFB'
+IMPORT term
+IMPORT io
+IMPORT color
+
+' `term::terminalSize` raises `ErrUnsupported` while TUI mode is off on every
+' backend, so -1 means "the contract held" and a column count means it did not.
+' A helper with a function-level TRAP is how the raise is observed: the failure
+' auto-propagates out of the `term::terminalSize` call.
+FUNC probeColumns() AS Integer
+  LET size AS term::TermSize = term::terminalSize()
+  RETURN size.columns
+
+  TRAP(e)
+    RETURN -1
+  END TRAP
+END FUNC
+
+SUB main()
+  MUT log AS String = ""
+
+  LET before AS Integer = probeColumns()
+  IF before = -1 THEN
+    log = log & "gate01=raised;"
+  ELSE
+    log = log & "gate01=size" & toString(before) & ";"
+  END IF
+
+  ' The three members that answer either way.
+  log = log & "ungated=" & toString(term::isOn()) & "," & toString(term::didResize()) & ";"
+
+  term::on()
+  term::drawText(1, 1, "hello")
+  term::sync()
+  term::off()
+
+  LET after AS Integer = probeColumns()
+  IF after = -1 THEN
+    log = log & "gate01b=raised;"
+  ELSE
+    log = log & "gate01b=size" & toString(after) & ";"
+  END IF
+
+  ' Every one of these must be inert, return OK, and paint nothing.
+  term::setForeground(color::rgb(255, 0, 0))
+  term::setBold(TRUE)
+  term::moveTo(3, 3)
+  term::clear()
+  term::drawText(3, 1, "AFTER OFF")
+  term::fillRect(term::FillStyle.Filled, 5, 1, 6, 20)
+  term::drawBox(term::LineStyle.Double, 7, 2, 11, 20)
+  term::sync()
+  term::off()
+
+  log = log & "afteroff=ok;isOn=" & toString(term::isOn()) & ";bold=" & toString(term::getBold())
+  io::print(log)
+END SUB
+MFB
+
+echo "--- building the term gate program for windows-x86_64 ---"
+"$MFB_EXE" build --app --target windows-x86_64 "$tproj" >/dev/null
+
+cat > "$work/winterm.bat" <<'BAT'
+@echo off
+setlocal
+set MFB_WINAPP_HEADLESS=1
+cd /d C:\mfbwin
+winterm.exe > winterm.out 2>&1
+echo rc=%errorlevel%
+type winterm.out
+BAT
+
+ssh -p "$PORT" "$host" "del /q $remote\\winterm.out 2>nul" >/dev/null 2>&1 || true
+scp -P "$PORT" "$tproj/build/winterm.exe" "$host:C:/mfbwin/winterm.exe" >/dev/null
+scp -P "$PORT" "$work/winterm.bat" "$host:C:/mfbwin/winterm.bat" >/dev/null
+tout="$(ssh -p "$PORT" "$host" "$remote\\winterm.bat" 2>&1 || true)"
+echo "$tout" | sed 's/^/    /'
+
+case "$tout" in
+  *"rc=0"*) pass "the term gate program exited cleanly" ;;
+  *) fail "the term gate program did not exit 0" ;;
+esac
+case "$tout" in
+  *"gate01=raised"*) pass "term::terminalSize raises before any term::on (bug-541 GATE-01)" ;;
+  *) fail "term::terminalSize answered with a size before term::on — the documented contract is ErrUnsupported, and this backend returned the fixed 80x25 grid (bug-541 GATE-01)" ;;
+esac
+case "$tout" in
+  *"gate01b=raised"*) pass "term::terminalSize raises again after term::off" ;;
+  *) fail "term::terminalSize answered with a size after term::off — the memDC outlives TUI mode, so gating on it is not gating on the mode (bug-541 GATE-01)" ;;
+esac
+case "$tout" in
+  *"ungated=FALSE,FALSE"*) pass "term::isOn and term::didResize answer while TUI mode is off" ;;
+  *) fail "the three ungated members did not answer FALSE before term::on — adding the module gate must not reach them" ;;
+esac
+case "$tout" in
+  *"afteroff=ok;isOn=FALSE;bold=FALSE"*) pass "every gated member after term::off returned OK and changed nothing" ;;
+  *) fail "a term:: call after term::off mutated shared state — term::setBold is the visible one, and term::moveTo had no gate of any kind (bug-541 GATE-02)" ;;
+esac
 
 if [ "$fails" -eq 0 ]; then
   echo "windows app-mode, canvas and Vulkan runtime tests passed"

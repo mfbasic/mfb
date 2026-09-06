@@ -1,0 +1,68 @@
+' bug-541: the console backend IS the oracle for the "does nothing while TUI mode
+' is off" rule, so pin what it answers. Every app backend has to match this line.
+'
+' Deliberately never calls `term::on`: the alternate-screen present writes a whole
+' grid sized from the live terminal, which is not the same text from one host to
+' the next. Everything this fixture is about happens while TUI mode is OFF, where
+' there is no grid and no escape output at all.
+IMPORT term
+IMPORT io
+IMPORT color
+
+' `term::terminalSize` RAISES while TUI mode is off — it does not report a size.
+' -1 means the contract held. A function-level TRAP is how the raise is observed:
+' the failure auto-propagates out of the `term::terminalSize` call.
+FUNC probeColumns() AS Integer
+  LET size AS term::TermSize = term::terminalSize()
+  RETURN size.columns
+
+  TRAP(e)
+    RETURN -1
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  MUT log AS String = ""
+
+  LET before AS Integer = probeColumns()
+  IF before = -1 THEN
+    log = log & "terminalSize=raised;"
+  ELSE
+    log = log & "terminalSize=size" & toString(before) & ";"
+  END IF
+
+  ' The three members that are NOT gated: they answer either way, and
+  ' `term::didResize` reads FALSE before any `term::on` rather than raising.
+  log = log & "isOn=" & toString(term::isOn()) & ";"
+  log = log & "didResize=" & toString(term::didResize()) & ";"
+
+  ' Every setter, every drawing call, `clear`, `moveTo` and `sync` are inert while
+  ' TUI mode is off: each returns OK and none of them writes anything anybody can
+  ' observe. A redundant `term::off` is a complete no-op too.
+  ' Red 7, not 255: the inert default foreground is WHITE, whose red channel is
+  ' also 255, so a setter that leaked past the gate would be invisible to the
+  ' read-back below if this asked for red.
+  term::setForeground(color::rgb(7, 0, 0))
+  term::setBackground(color::rgb(0, 0, 255))
+  term::setBold(TRUE)
+  term::setUnderline(TRUE)
+  term::showCursor()
+  term::moveTo(3, 3)
+  term::clear()
+  term::drawText(3, 1, "MUST NOT APPEAR")
+  term::drawGlyph(4, 1, 9731)
+  term::drawHLine(term::LineStyle.Double, 5, 1, 12)
+  term::drawVLine(term::LineStyle.Double, 6, 3, 10)
+  term::drawBox(term::LineStyle.Double, 7, 2, 11, 20)
+  term::fillRect(term::FillStyle.Filled, 8, 4, 10, 16)
+  term::sync()
+  term::off()
+
+  ' The getters take their inert defaults while off, so the setters above are not
+  ' observable through them either.
+  log = log & "fg=" & toString(term::getForeground().red) & ";"
+  log = log & "bold=" & toString(term::getBold()) & ";"
+  log = log & "underline=" & toString(term::getUnderline())
+  io::print(log)
+  RETURN 0
+END FUNC

@@ -48,8 +48,7 @@ is rendered on the console backend and in windowed app mode.
 console backend on every platform, and macOS and Linux app mode, honour the style.
 
 The call is gated: while TUI mode is off it does nothing and reports no
-error (in a Linux or Windows `mfb build --app` build the gate is
-not enforced — see `mfb man term`)."#;
+error."#;
 
 const EX: &str = r#"Draw a heavy horizontal rule across the top of the surface:
 

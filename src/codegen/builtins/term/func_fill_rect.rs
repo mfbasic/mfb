@@ -38,8 +38,7 @@ background colour instead of the block or shade glyph. The console backend on
 every platform, and macOS and Linux app mode, honour the style.
 
 The call is gated: while TUI mode is off it does nothing and reports no
-error (in a Linux or Windows `mfb build --app` build the gate is
-not enforced — see `mfb man term`)."#;
+error."#;
 
 const EX: &str = r#"Paint a solid panel, then a lighter band inside it:
 
