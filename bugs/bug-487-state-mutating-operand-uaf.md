@@ -1,6 +1,6 @@
 # bug-487 — an operand that mutates a resource's STATE frees the block a sibling operand points into
 
-STATUS: OPEN
+STATUS: FIXED (see "Fix" below)
 FOUND: plan-121-D Phase 1 (2026-09-03), while settling the STATE reachability question
 REPRO: `bugs/repro/bug-487-state-mutating-operand-uaf.mfb`
 
@@ -60,7 +60,99 @@ the bug. Do not "fix" this by trying to make the nested append survive.
    plan-121-D task**: it is outside that plan's blast radius and needs its own
    design.
 
+### CORRECTION (2026-09-06) — half 2 was fixed by bug-496
+
+Half 2 no longer reproduces. `a075a589b` (bug-496) added
+`src/codegen/engine/value/operand_snapshot.rs`, whose
+`operand_reachable_by_later_call` already treats a resource-handle local and any
+`MemberAccess` of one as reachable, so the copying path deep-copies
+`f.state.xs` before the later operand's call runs. Measured at `8f0ebfeb8` with
+the repro rewritten as a two-field `WITH` (which declines `G14` and so takes the
+copying path):
+
+```
+len=3
+n=3
+e0=222  e1=222  e2=222   ' exit 0
+```
+
+Only half 1 was still live at `8f0ebfeb8`, and only in the in-place arms. The
+`.ncode` for the repro confirms it: `_mfb_fn_main` allocates `inline_state_ptr`
+and `inline_state_rhs` and **no** `operand_snapshot` slot — the in-place arm
+never lowers operand 0, so it never reaches bug-496's seam at all.
+
+### A THIRD arm, found while auditing the other eight
+
+`try_inplace_state_scalar_assign` (`engine/control/builder_control.rs`) does not
+go through the shared STATE container matcher. It re-loads the STATE pointer
+*after* the operands, so it never dangled — but it has the same *divergence*:
+
+```
+f.state.n = f.state.n + sideEffect(f)   ' sideEffect appends to f.state.xs
+```
+
+kept the nested `xs` growth (`xs=1`), while the whole-state `WITH` that
+statement is shorthand for discards it (`xs=0`, measured on a STATE shape whose
+updated field is inlined so the arm declines). Same root cause, same gate, fixed
+in the same change.
+
+## Fix
+
+**`G25` — decline any in-place `RES … STATE` arm whose operands can reach a
+`STATE` assignment.**
+
+The contract the fix realizes is `mfb spec language resource-management` §15:
+
+> It is updated either by assigning a single field in place
+> (`s.state.field = value`) or by assigning a whole-state `WITH` update
+> (`s.state = WITH s.state { field := value }`); **the former is shorthand for
+> the latter.**
+
+The `WITH` form *reads* `s.state`, and `mfb spec language memory-semantics`
+§14.6 says *"Reads produce owned values, not aliases into the buffer"* — so the
+record stored at the end of the statement is built from a value taken **before**
+the operands ran, and a `STATE` write performed during operand evaluation is
+overwritten. §14 permits the in-place strategy — *"The compiler may choose stack
+storage, inline storage, heap allocation, or destructive update, but those
+choices cannot change the ownership behavior described here"* — only while
+nothing else writes the block in between.
+
+So the gate asks exactly one question: **can any operand reach a
+`NirOp::StateAssign`?** It is transitive over the module call graph, and fails
+closed on a call whose body it cannot see (an indirect `FUNC`-value call, a
+higher-order builtin handed a callback, a separately-lowered symbol).
+
+It is deliberately *not* "does the operand call user code at all". That broader
+guard would have rejected `append(f.state.xs, clamp(v))` — a valid program, and
+the exact 20 000× cliff `tests/codegen_inplace_append_call_result.rs` measures.
+Both halves are pinned.
+
+Seams (one shared, one arm-local, both pure declines that emit and allocate
+nothing, so `O-order-1` holds):
+
+* `resolve_inplace_state_field` (`collection/assign/inplace_dest.rs`) — the
+  shared container matcher all eight STATE collection arms go through.
+* `try_inplace_state_scalar_assign` (`engine/control/builder_control.rs`).
+
+`O-order-4` is left exactly as it was: the fix does not reorder the STATE-pointer
+load, it removes the statements that could invalidate it.
+
+### Why an operand's callee can hold an alias the operand never names
+
+Measured at `8f0ebfeb8`, so the gate could not be narrowed to "the operand
+mentions the resource":
+
+| escape route | result |
+| --- | --- |
+| `LAMBDA() -> sideEffect(f)` | rejected — `2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED` |
+| `RES h AS fs::File STATE St = f` | rejected — `2-203-0055 TYPE_USE_AFTER_MOVE` |
+| a global `List OF RES fs::File STATE St` that a callee stashes into, read back by a later callee | **compiles, and reproduces the same `7-701-0001`** with an operand that never names `f` |
+
+The third row is why the gate is a call-graph question rather than a
+name-occurrence one.
+
 ## Reproduce
+
 
 ```
 mfb build bugs/repro/                # as a scratch project with entry main
@@ -69,3 +161,28 @@ mfb build bugs/repro/                # as a scratch project with entry main
 
 The count matters only for which symptom appears, not whether it fails: 3 rounds
 already fails.
+
+## Verification
+
+* **RED**: `tests/rt-behavior/resources/bug487_state_mutating_operand` — at
+  `8f0ebfeb8` it exits 255 with `Error: 7-701-0001 / Allocation failed.`; with
+  the fix it exits 0 and its golden `build.log` pins the full expected output.
+  Three codegen pins in `tests/rt_res_state_inplace_mutation.rs` are RED at
+  `8f0ebfeb8` and green after:
+  `state_field_append_whose_operand_reaches_a_state_assign_declines`,
+  `state_field_append_whose_operand_reaches_a_state_assign_transitively_declines`,
+  `scalar_state_field_whose_operand_reaches_a_state_assign_declines`.
+* **POSITIVE pins** (green *before* the fix too, so they pin what must not
+  change): `state_field_append_whose_operand_call_chain_never_assigns_state_grows_in_place`
+  and `scalar_state_field_whose_operand_never_assigns_state_stores_in_place`,
+  plus the pre-existing
+  `codegen_inplace_append_call_result::state_field_append_of_a_user_call_result_grows_in_place`.
+* **Independent oracle.** The same fixture program, with the STATE record given
+  a trailing `String` field so `xs` is no longer last-inlined and `G17` declines
+  every statement to the copying whole-record replace (four `state_assign_value`
+  slots in `_mfb_fn_main`), prints output **identical** to the fixed in-place
+  compiler's. The two strategies now agree.
+* **Artifact gate**: 1394 tests, 1560 builds, **1939 goldens checked, 0 diffs** —
+  the only goldens that moved in the whole tree are the new fixture's own. No
+  `.ncodesum` regeneration was needed, because no existing fixture emits the
+  shape the gate declines.

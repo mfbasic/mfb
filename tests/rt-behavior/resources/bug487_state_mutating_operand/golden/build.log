@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/bug487_state_mutating_operand
+Wrote AST to tests/rt-behavior/resources/bug487_state_mutating_operand/bug487_state_mutating_operand.ast
+Wrote IR to tests/rt-behavior/resources/bug487_state_mutating_operand/bug487_state_mutating_operand.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/bug487_state_mutating_operand
+Wrote executable to tests/rt-behavior/resources/bug487_state_mutating_operand/build/bug487_state_mutating_operand.out
+[exit 0]
+$ tests/rt-behavior/resources/bug487_state_mutating_operand/build/bug487_state_mutating_operand.out
+len=3
+n=0
+e0=222
+e1=222
+e2=222
+len2=4
+last2=222
+len3=4
+n3=222
+last4=42
+[exit 0]

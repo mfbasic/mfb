@@ -676,3 +676,158 @@ fn a_plain_local_splice_does_not_use_the_state_grow() {
         "plan-121-D: a plain local has no STATE pointer to open."
     );
 }
+
+// ---------------------------------------------------------------------------
+// bug-487 — `G25`: an operand that can reach a `STATE` assignment.
+//
+// `mfb spec language resource-management` §15 makes `s.state.field = value`
+// shorthand for `s.state = WITH s.state { field := value }`, whose target is a
+// READ — and `mfb spec language memory-semantics` §14.6, "Reads produce owned
+// values, not aliases into the buffer", makes that read a snapshot. So a `STATE`
+// write performed while the operands are evaluated is overwritten by the store.
+// An in-place arm mutating the live block instead kept that nested write, and —
+// because a *growing* arm snapshots the STATE block pointer before lowering the
+// operand — the nested write's realloc FREED the block the arm was holding
+// (7-701-0001 / SIGSEGV).
+//
+// The gate has two halves and both are pinned here: it declines when an operand
+// can reach a `STATE` assignment (however deep the call chain), and it does NOT
+// decline for an ordinary user call that cannot — which is the 20 000x cliff
+// `tests/codegen_inplace_append_call_result.rs` measures.
+// ---------------------------------------------------------------------------
+
+/// A stateful `fs::File` with a `List` STATE field, a state-mutating helper
+/// `bump`, a state-free helper chain `outer`->`inner`, and a `mutate` body.
+fn g25_src(body: &str) -> String {
+    format!(
+        "IMPORT fs\n\
+         IMPORT collections\n\
+         TYPE St\n\
+        \x20 xs AS List OF Integer\n\
+        \x20 n AS Integer\n\
+         END TYPE\n\
+         FUNC bump(RES f AS fs::File STATE St) AS Integer\n\
+        \x20 f.state.n = f.state.n + 1\n\
+        \x20 RETURN 7\n\
+         END FUNC\n\
+         FUNC relay(RES f AS fs::File STATE St) AS Integer\n\
+        \x20 RETURN bump(f)\n\
+         END FUNC\n\
+         FUNC inner(v AS Integer) AS Integer\n\
+        \x20 RETURN v + 1\n\
+         END FUNC\n\
+         FUNC outer(v AS Integer) AS Integer\n\
+        \x20 RETURN inner(v) * 2\n\
+         END FUNC\n\
+         FUNC mutate(RES f AS fs::File STATE St, v AS Integer) AS Nothing\n\
+        \x20 {body}\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RES f AS fs::File STATE St = fs::openFile(\"project.json\")\n\
+        \x20 RETURN 0\n\
+         END FUNC\n"
+    )
+}
+
+/// RED for bug-487. The appended operand calls a function that assigns a `STATE`
+/// field, so the in-place grow must decline and the whole-record replace must
+/// run.
+#[test]
+fn state_field_append_whose_operand_reaches_a_state_assign_declines() {
+    let plan = ncode(
+        "bug487_direct",
+        &g25_src("f.state.xs = collections::append(f.state.xs, bump(f))"),
+    );
+    assert_eq!(
+        label_count(&plan, "_mfb_fn_mutate", "inline_append_write"),
+        0,
+        "bug-487 G25: `append(f.state.xs, bump(f))` must NOT grow the STATE block \
+         in place. `bump` assigns a STATE field, so it reallocates and frees the \
+         very block this arm snapshotted before lowering the operand."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        1,
+        "bug-487 G25: declining must fall through to the whole-record STATE \
+         replace, whose operand snapshot (bug-496) reads `f.state.xs` into an \
+         owned value before the operand runs -- §14.6."
+    );
+}
+
+/// The gate is transitive. `relay` assigns no `STATE` itself; it calls `bump`,
+/// which does. A one-level-deep check would admit this and reintroduce the
+/// use-after-free.
+#[test]
+fn state_field_append_whose_operand_reaches_a_state_assign_transitively_declines() {
+    let plan = ncode(
+        "bug487_transitive",
+        &g25_src("f.state.xs = collections::append(f.state.xs, relay(f))"),
+    );
+    assert_eq!(
+        label_count(&plan, "_mfb_fn_mutate", "inline_append_write"),
+        0,
+        "bug-487 G25: the reachability question must follow the call graph. \
+         `relay` assigns no STATE, but it calls `bump`, which does."
+    );
+}
+
+/// POSITIVE PIN. The gate must not reject a valid program: a user call chain
+/// that assigns no `STATE` anywhere still takes the in-place grow. This is the
+/// half a guard written as "decline whenever the operand calls user code" would
+/// break, re-opening the 20 000x cliff
+/// `tests/codegen_inplace_append_call_result.rs::state_field_append_of_a_user_call_result_grows_in_place`
+/// closed.
+#[test]
+fn state_field_append_whose_operand_call_chain_never_assigns_state_grows_in_place() {
+    let plan = ncode(
+        "bug487_positive",
+        &g25_src("f.state.xs = collections::append(f.state.xs, outer(v))"),
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_mutate", "inline_append_write") >= 1,
+        "bug-487 G25 must stay narrow: `outer` calls `inner` and neither assigns \
+         a STATE field, so nothing can reallocate the STATE block during the \
+         operand and the in-place grow is still correct -- and still required, \
+         because the fall-back rebuilds the whole STATE block per element."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        0,
+        "bug-487 G25 must stay narrow: a state-free user call chain must not be \
+         pushed onto the whole-record replace path."
+    );
+}
+
+/// The scalar STATE arm shares the defect and the gate. It re-loads the STATE
+/// pointer after the operands, so it never dangled — but a nested write to a
+/// field this statement does not update survived it, while the whole-state
+/// `WITH` the statement is shorthand for discards it (§15, §14.6).
+#[test]
+fn scalar_state_field_whose_operand_reaches_a_state_assign_declines() {
+    let plan = ncode("bug487_scalar", &g25_src("f.state.n = f.state.n + bump(f)"));
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        1,
+        "bug-487 G25: a scalar STATE field assign whose operand reaches a STATE \
+         assignment must fall through to the whole-record replace, so the record \
+         it stores is built from the read taken before the operand ran."
+    );
+}
+
+/// POSITIVE PIN for the scalar arm: an ordinary state-free call in the operand
+/// keeps the in-place store. `scalar_state_field_assign_stores_in_place` above
+/// pins the no-call case; this one pins that adding a call does not by itself
+/// cost the fast path.
+#[test]
+fn scalar_state_field_whose_operand_never_assigns_state_stores_in_place() {
+    let plan = ncode(
+        "bug487_scalar_positive",
+        &g25_src("f.state.n = f.state.n + outer(v)"),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        0,
+        "bug-487 G25 must stay narrow: `outer`/`inner` assign no STATE, so the \
+         scalar in-place store is still correct and must be kept."
+    );
+}

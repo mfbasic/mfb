@@ -100,6 +100,19 @@ impl CodeBuilder<'_> {
         if indices.is_empty() {
             return Ok(false);
         }
+        // `G25` (bug-487) — an operand that can reach a `STATE` assignment writes
+        // this same block while the arm holds it. This arm re-loads the STATE
+        // pointer *after* the operands, so it cannot dangle the way the growing
+        // collection arms did, but the divergence is the same one: a nested write
+        // to a field this statement does not update survives here, while the
+        // whole-state `WITH` this statement is shorthand for (§15) builds its
+        // record from a read taken before the operands ran and so discards it.
+        // Falling through to that replace is what makes the two agree.
+        if updates.iter().any(|update| {
+            self.inplace_state_operands_reach_a_state_assign(std::slice::from_ref(&update.value))
+        }) {
+            return Ok(false);
+        }
         // Eligible. Compute every new value first (source order, matching WITH so a
         // field that reads another field's old value sees it), spilling each to a
         // slot; then store them into the existing STATE block.
