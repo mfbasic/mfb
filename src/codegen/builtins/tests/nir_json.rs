@@ -57,7 +57,7 @@ LINK \"sqlite3\" AS sql
     SYMBOL \"sqlite3_get_autocommit\"
     ABI (buf OUT CBuffer, items CInt64) AS got CInt64
     BUFFER buf SIZE items * 2
-    SUCCESS_ON got * 2 >= 0 AND (got <> 1 OR got = 100)
+    SUCCESS_ON NOT (got + 1 - 1 < 0) AND got * 2 >= 0 AND (got <> 1 OR got = 100)
     RETURN buf LENGTH got * 2
   END FUNC
 END LINK
@@ -156,6 +156,32 @@ FUNC main() AS Integer
 END FUNC
 ";
 
+/// A `RES` whose STATE payload is assigned, and whose ownership stays local.
+///
+/// Two arms nothing else here reaches. `NirOp::StateAssign` is `resource.state =
+/// value`, the one field-assignment statement the language has (spec §15) — and
+/// `ResOwner::Local` is what the escape analysis records for a resource that is
+/// never handed anywhere, which is the ordinary case and therefore the one no
+/// program written to exercise escaping produces.
+const STATE_SHAPES: &str = "\
+IMPORT fs
+IMPORT io
+
+TYPE FileState
+  pos AS Integer
+  len AS Integer
+END TYPE
+
+FUNC main() AS Integer
+  RES f AS fs::File STATE FileState = fs::createTempFile()
+  f.state = WITH f.state { pos := 10 }
+  f.state = WITH f.state { len := f.state.pos + 1 }
+  io::print(toString(f.state.pos) & toString(f.state.len))
+  fs::close(f)
+  RETURN 0
+END FUNC
+";
+
 /// The statement and value shapes the three programs above do not have.
 ///
 /// `NirModule::to_json` is a `match` over every `NirOp` and every `NirValue`,
@@ -228,6 +254,7 @@ fn the_nir_dump_is_json_on_every_backend() {
         ("shapes", SHAPES),
         ("module shapes", MODULE_SHAPES),
         ("op shapes", OP_SHAPES),
+        ("state shapes", STATE_SHAPES),
     ] {
         for target in CodeTarget::ALL {
             let module = nir_for_src(source, target, Console)
@@ -355,6 +382,7 @@ fn the_native_plan_dump_is_json_on_every_backend() {
         ("shapes", SHAPES),
         ("module shapes", MODULE_SHAPES),
         ("op shapes", OP_SHAPES),
+        ("state shapes", STATE_SHAPES),
     ] {
         for target in CodeTarget::ALL {
             let plan = native_plan_for_src(source, target, Console)
@@ -407,6 +435,21 @@ fn the_nir_dump_spells_every_shape_the_program_has() {
             "the program has a {kind} and the dump does not spell one; an arm \
              that falls through to a neighbour's spelling is still valid JSON \
              and still describes a program, just not this one"
+        );
+    }
+}
+
+/// The resource arms: a STATE assignment, and an owner that is local.
+#[test]
+fn the_nir_dump_spells_the_resource_shapes() {
+    let module =
+        nir_for_src(STATE_SHAPES, CodeTarget::LinuxX86_64, Console).expect("the program lowers");
+    let text = module.to_json();
+    for kind in ["stateAssign", "local"] {
+        assert!(
+            text.contains(&format!("\"{kind}\"")),
+            "the program assigns a resource's STATE and never lets the resource \
+             escape, so the dump must carry {kind:?}"
         );
     }
 }
