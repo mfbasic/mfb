@@ -151,3 +151,6 @@ pub(crate) trait RegisterModel {
         crate::target::shared::abi::REGISTER_ARGUMENT_COUNT
     }
 }
+
+#[cfg(test)]
+mod tests;
