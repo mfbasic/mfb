@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Fixed
+Status: **FIXED** (2026-09-05, `0ba90b19f`)
 Regression Test: `tests/cli_app_term_inactive_gate.rs` (four cases: the Windows
 gate census, the `terminalSize` raise, the GTK `term::off` no-op, and the
 positive pin that `on`/`isOn`/`didResize` stay ungated on all three app
