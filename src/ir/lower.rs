@@ -4233,7 +4233,14 @@ fn lower_expression_with_expected(
             // split — so both lowerings receive a `String` and the result equals
             // `strings::q(toString(a))`. (Tier-B transforms are plan-89-D and return
             // `AttributedString` instead.)
-            if crate::codegen::builtins::strings::is_tier_a_query(&canonical_callee)
+            //
+            // bug-534: `regex::`'s query members join the same tier on the same
+            // terms — the query runs on the visible text and returns exactly what
+            // the `String` overload returns. `regex` has no Tier-B, because a
+            // `regex::replace` that preserved attributes would have to remap spans
+            // across a pattern rewrite; it stays a type error instead.
+            if (crate::codegen::builtins::strings::is_tier_a_query(&canonical_callee)
+                || crate::codegen::builtins::regex::is_tier_a_query(&canonical_callee))
                 && !args.is_empty()
                 && normalized_builtin
                     .first()

@@ -164,7 +164,8 @@ name:
 There are no exceptions. `regex::` reaches the same answers from the other
 direction — a zero-length pattern has a zero-width match at every position — so
 `regex::find(v, "")` and `strings::find(v, "")` both report `0`, and
-`regex::replace` refuses an empty pattern exactly as `replace` does here.
+`regex::count`, `regex::split` and `regex::replace` refuse an empty pattern
+exactly as `count`, `split` and `replace` do here.
 
 Two arguments that look like needles and are not, and so do not follow this rule:
 `trimChars` takes a *set* of scalars, and the empty set holds nothing, so nothing

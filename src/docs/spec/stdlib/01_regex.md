@@ -18,9 +18,10 @@ scalar.[[src/codegen/builtins/regex/mod.rs:source_file]]
 
 ## Public Surface
 
-Six built-in calls are recognized and rewritten to internal entry points during the
+Eight built-in calls are recognized and rewritten to internal entry points during the
 front end. Their signatures and return types are fixed (resolved by exact arg-type
-match); `find`/`findAll`/`findMatch`/`findAllMatches` take an optional `start` that is
+match); `find`/`findAll`/`findMatch`/`findAllMatches`/`count` take an optional `start`
+that is
 padded to `0` during IR lowering.[[src/codegen/builtins/regex/mod.rs:resolve_call]][[src/codegen/builtins/regex/mod.rs:default_argument_padding]]
 
 | Call | Internal | Returns | Args |
@@ -28,17 +29,64 @@ padded to `0` during IR lowering.[[src/codegen/builtins/regex/mod.rs:resolve_cal
 | `regex.match` | `__regex_match` | `Boolean` | `value, pattern` |
 | `regex.find` | `__regex_find` | `Integer` | `value, pattern[, start=0]` |
 | `regex.findAll` | `__regex_findAll` | `List OF Integer` | `value, pattern[, start=0]` |
+| `regex.count` | `__regex_count` | `Integer` | `value, pattern[, start=0]` |
 | `regex.findMatch` | `__regex_findMatch` | `regex.MatchInfo` | `value, pattern[, start=0]` |
 | `regex.findAllMatches` | `__regex_findAllMatches` | `List OF regex.MatchInfo` | `value, pattern[, start=0]` |
+| `regex.split` | `__regex_split` | `List OF String` | `value, pattern` |
 | `regex.replace` | `__regex_replace` | `String` | `value, pattern, replacement` |
 
 `find` returns the scalar index of the first match at or after `start`, and
 raises `ErrNotFound` when there is none.
-`findAll` returns the start index of every non-overlapping match. `findMatch` and
+`findAll` returns the start index of every non-overlapping match, and `count` returns
+how many there are. `findMatch` and
 `findAllMatches` return the same matches with their spans, text and captures attached
-(see [Match Projection](#match-projection)). `replace` substitutes every match. There is
+(see [Match Projection](#match-projection)). `split` returns the text between the
+matches, and `replace` substitutes every match. There is
 no separate flags argument: flags are set inline in the pattern (see [Flags](#flags)).
 Per-call API detail is owned by `mfb man regex`.
+
+`count`, `split`, `findAll`, `findAllMatches` and `replace` all walk
+`__regex_matchResults`, so the match SEQUENCE — including the zero-width rule of
+[Search and Captures](#search-and-captures) — is one implementation, not five. It
+follows that `count(v, p, s)` is `len(findAll(v, p, s))` and that
+`len(split(v, p))` is `count(v, p) + 1` for every pattern the members share, which
+is every pattern but the empty one (see below).
+
+### The empty pattern
+
+An empty `pattern` matches, zero-width, at every position. The package splits on what
+the member does with a match, mirroring the empty-needle rule of
+./mfb spec unicode strings-model — a member that answers a question about a match
+reports it, and a member that counts or rewrites every match refuses it.
+
+| Member | Empty `pattern` |
+|--------|-----------------|
+| `match` | `TRUE` |
+| `find` | `start` |
+| `findAll` / `findAllMatches` | one zero-length match per position from `start` |
+| `findMatch` | a `MatchInfo` with `start = endIndex = start` |
+| `count` / `split` / `replace` | raise `77050002` (`ErrInvalidArgument`) |
+
+The guard is on the empty pattern **string**, tested before the pattern is compiled;
+it is not a restriction on zero-width matching. A pattern such as `a*`, `x?`, `(?:)`
+or `\b` compiles, matches at every position, and is counted, split on and rewritten
+like any other.[[src/codegen/builtins/regex/func_count.rs:__regex_count]][[src/codegen/builtins/regex/func_split.rs:__regex_split]]
+
+`split` keeps every empty piece — a match at position `0` yields a leading empty
+element, a match ending at `len(value)` a trailing one, and adjacent matches an empty
+element between them — so the result always holds exactly one more element than the
+number of matches and is never empty. There is no `limit` parameter, matching
+`strings::split`, which has none either.
+
+### Attributed text
+
+The seven **query** members (`match`, `find`, `findAll`, `findMatch`,
+`findAllMatches`, `count`, `split`) accept an `AttributedString` at the `value`
+position. IR lowering rewrites that argument to `toString(a)` before the
+rewrite-target split, so the call resolves to, and returns exactly what, the `String`
+overload returns. This is the Tier-A half of the partition `strings` uses; `regex` has
+no Tier-B, and `regex.replace` therefore rejects an `AttributedString` at build time
+rather than dropping its attributes.[[src/codegen/builtins/regex/mod.rs:is_tier_a_query]]
 
 The package exports exactly two type names, both value records; every other declaration
 is `__regex_`-prefixed and package-internal. `MATCH` is a reserved keyword, so the match
@@ -50,8 +98,9 @@ record is spelled `MatchInfo`.[[src/codegen/builtins/regex/mod.rs:MatchInfo]]
 | `regex.MatchInfo` | `start AS Integer`, `endIndex AS Integer`, `text AS String`, `groups AS List OF Group`, `names AS Map OF String TO Integer` |[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
 
 Errors use `FAIL error(code, ...)`: `77050003` invalid pattern, `77050001` `start` index
-out of range, `77050004` (`ErrNotFound`) raised by `find` alone when no match exists at
-or after `start`.[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
+out of range, `77050002` (`ErrInvalidArgument`) raised by `count`, `split` and `replace`
+on an empty pattern, `77050004` (`ErrNotFound`) raised by `find` alone when no match
+exists at or after `start`.[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
 
 Absence is reported per member, and which form a member uses is decided by whether its
 return type holds a value that can mean "no match": `match` returns `FALSE`, `findAll`

@@ -1,0 +1,82 @@
+$ mfb build -ast -ir tests/rt-behavior/regex/regex-surface-parity-rt
+Wrote AST to tests/rt-behavior/regex/regex-surface-parity-rt/regex_surface_parity_rt.ast
+Wrote IR to tests/rt-behavior/regex/regex-surface-parity-rt/regex_surface_parity_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/regex/regex-surface-parity-rt
+Wrote executable to tests/rt-behavior/regex/regex-surface-parity-rt/build/regex_surface_parity_rt.out
+[exit 0]
+$ tests/rt-behavior/regex/regex-surface-parity-rt/build/regex_surface_parity_rt.out
+count runs-of-digits    = 3
+count no-match          = 0
+count non-overlapping   = 2
+count with start        = 2
+count start=len(value)  = 0
+count = len(findAll) A  = TRUE
+count = len(findAll) B  = TRUE
+count = len(findAll) C  = TRUE
+strings::count mirror   = 2
+regex::count mirror     = 2
+split whitespace-runs   = n=3 [<the>, <quick>, <brown>]
+split literal on space  = n=6 [<the>, <>, <>, <quick>, <>, <brown>]
+split alternation       = n=3 [<a>, <b>, <c>]
+split no-match          = n=1 [<abc>]
+split empty value       = n=1 [<>]
+split keeps empties     = n=4 [<>, <a>, <>, <>]
+strings::split empties  = n=4 [<>, <a>, <>, <>]
+split N+1 pieces        = TRUE
+split rejoin roundtrip  = a-b-c
+split non-ascii         = n=3 [<a>, <b>, <c>]
+EMPTY regex::count      = RAISED 77050002
+EMPTY regex::split      = RAISED 77050002
+EMPTY regex::replace    = RAISED 77050002
+EMPTY strings::count    = RAISED 77050002
+EMPTY strings::split    = RAISED 77050002
+EMPTY regex::match      = TRUE
+EMPTY regex::find       = 0
+EMPTY regex::findAll    = 4
+EMPTY regex::findMatch  = 0
+zw count a-star         = 4
+zw count optional       = 4
+zw count empty-group    = 4
+zw count word-boundary  = 4
+zw split a-star         = n=5 [<>, <a>, <b>, <c>, <>]
+zw split empty-group    = n=5 [<>, <a>, <b>, <c>, <>]
+zw replace a-star       = -a-b-c-
+zw count real-runs      = 2
+zw split real-runs      = n=3 [<>, <b>, <>]
+count bad pattern       = RAISED 77050003
+split bad pattern       = RAISED 77050003
+count start out-of-range= RAISED 77050001
+count start negative    = RAISED 77050001
+count bad-pattern wins  = RAISED 77050003
+inline count HANDLER RAN code=77050002
+inline count recovered  = -1
+inline split HANDLER RAN code=77050002
+inline split recovered  = n=0 []
+inline count valid      = 2
+inline split valid      = n=2 [<a>, <b>]
+astr match   agrees     = TRUE
+astr find    agrees     = TRUE
+astr findAll agrees     = TRUE
+astr findMatch agrees   = TRUE
+astr findAllM agrees    = TRUE
+astr count   agrees     = TRUE
+astr split   agrees     = TRUE
+astr match              = TRUE
+astr find               = 1
+astr count              = 3
+astr split              = n=3 [<a>, <b>, <>]
+astr findMatch.text     = 1
+astr find with start    = 3
+astr count with start   = 2
+astr EMPTY count        = RAISED 77050002
+astr EMPTY split        = RAISED 77050002
+astr EMPTY match answers= TRUE
+tokenizer two-pass      = n=4 [<the>, <quick>, <brown>, <fox>]
+tokenizer one-pass      = n=4 [<the>, <quick>, <brown>, <fox>]
+tokenizer agrees        = TRUE
+leading two-pass        = n=3 [<>, <a>, <b>]
+leading one-pass        = n=3 [<>, <a>, <b>]
+astr text after queries = a1b22
+astr attrs after queries= 1
+[exit 0]

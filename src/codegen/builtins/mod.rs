@@ -452,7 +452,7 @@ pub(crate) fn resolve_call_return_type_typed(
     // feeding IR lowering / codegen) keep the coarse match so a nominally-spelled
     // argument does not perturb type propagation.
     //
-    // Three packages carry a computed return the generic matcher cannot express
+    // Four packages carry a computed return the generic matcher cannot express
     // and keep their own co-located resolver:
     //
     // * `general` — bare-named, so disjoint from every qualified member and
@@ -462,6 +462,10 @@ pub(crate) fn resolve_call_return_type_typed(
     //   a per-type return, which the coarse-nominal matcher cannot select.
     // * `strings` — carries the `AttributedString` Tier-A/Tier-B return typing,
     //   deferring to the generic path for every other call (plan-99 PART B).
+    // * `regex` — carries the `AttributedString` Tier-A return typing for its query
+    //   members (bug-534). Tier-A only: `regex::replace` has no attribute-preserving
+    //   form, so it deliberately keeps the generic path and stays a type error for
+    //   an `AttributedString`.
     //
     // plan-111-C: all three take and return `ParameterType` now, so this is the
     // ONE entry — the render-in/parse-out pocket plan-104-C recorded here as a
@@ -474,6 +478,9 @@ pub(crate) fn resolve_call_return_type_typed(
     }
     if crate::codegen::registry::registry().owning_package(callee) == Some("strings") {
         return crate::codegen::builtins::strings::resolve_return_type(callee, arg_types, strict);
+    }
+    if crate::codegen::registry::registry().owning_package(callee) == Some("regex") {
+        return crate::codegen::builtins::regex::resolve_return_type(callee, arg_types, strict);
     }
     if crate::codegen::registry::registry().is_member(callee) {
         return crate::codegen::registry::resolve_call_typed(callee, arg_types, strict);

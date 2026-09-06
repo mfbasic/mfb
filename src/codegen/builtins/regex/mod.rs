@@ -7,6 +7,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
+mod func_count;
 mod func_find;
 mod func_find_all;
 mod func_find_all_matches;
@@ -15,6 +16,7 @@ mod func_gen_cat;
 mod func_match;
 mod func_replace;
 mod func_script_of;
+mod func_split;
 
 mod helper_all_digits;
 mod helper_anchor_match;
@@ -143,10 +145,12 @@ The functions differ only in what they report. `match` returns a `Boolean` for
 whether the pattern matches anywhere; `find` returns the start index of the first
 match at or after `start`, and raises `ErrNotFound` when there is none; `findAll`
 returns a
-`List OF Integer` of the start index of every non-overlapping match; `findMatch`
+`List OF Integer` of the start index of every non-overlapping match; `count`
+returns how many non-overlapping matches there are; `findMatch`
 returns a `regex::MatchInfo` for the first match — its span, its text, and its
 capture groups; `findAllMatches` returns a `List OF regex::MatchInfo`, one for every
-non-overlapping match; and `replace` returns a new `String` with every
+non-overlapping match; `split` returns the `List OF String` of text between the
+matches; and `replace` returns a new `String` with every
 non-overlapping match rewritten by a replacement template.
 
 The reporting pairs agree exactly. `findMatch` finds the match `find` locates, so
@@ -176,7 +180,127 @@ index, and every `Integer` is a position some search could legitimately report,
 so there is no value left over to mean "absent". It raises `ErrNotFound`
 (`77050004`), the same contract `strings::find` and the `collections` find-family
 use, and `regex::match` is the guard for callers who treat absence as ordinary.
-None of the functions mutate their arguments or have side effects."#;
+None of the functions mutate their arguments or have side effects.
+
+## The empty pattern
+
+An empty `pattern` is not a pattern that fails to match — it matches, zero-width,
+at every position. `regex` reads that the same way `strings` reads an empty
+needle, and the rule is stated once on `mfb man strings` ("The empty needle"):
+
+- a member that **answers a question** about a match reports it — `match` returns
+  `TRUE`, `find` returns `start`, `findAll` and `findAllMatches` return one
+  zero-length match per position, and `findMatch` reports the one at `start`;
+- a member that **counts or rewrites every match** refuses it with
+  `ErrInvalidArgument` (`77050002`) — `count`, `split` and `replace`, because
+  "every position" is neither a useful count, nor a division of the text, nor a
+  rewrite that leaves anything of the input.
+
+That guard is on the empty pattern **string** and on nothing else. A pattern such
+as `a*`, `x?`, `(?:)` or `\b` that merely *matches* zero-width text is an ordinary
+pattern: it still matches at every position, and `count`, `split` and `replace`
+still act on every one of those matches. One consequence worth stating: `count`
+is `len(findAll(...))` for every pattern except the empty one, where `findAll`
+answers and `count` refuses — the same split `strings::find` and `strings::count`
+already have, for the same reason.
+
+## What `strings` has that `regex` does not
+
+`regex` is the pattern mirror of `strings`, and the mirror is now complete for the
+operations a *pattern* can express: `match`↔`contains`, `find`↔`find`,
+`count`↔`count`, `split`↔`split`, `replace`↔`replace`. The `strings` members with
+no pattern equivalent have none because a pattern would add nothing to them, not
+because they were overlooked:
+
+- The **measurements and decompositions** — `len`, `byteLen`, `displayWidth`,
+  `graphemes`, `graphemesCount`, `graphemeAt`, `toBytes`, `toScalars`,
+  `fromScalars` — ask about the text itself, not about a pattern in it.
+- The **position-anchored members** — `startsWith`, `endsWith`, `startsWithAny`,
+  `endsWithAny`, `stripPrefix`, `stripSuffix`, `left`, `right`, `mid` — are
+  written as patterns instead: `^p` and `p$` anchor a `regex::match`, and a span
+  from `regex::findMatch` is what `strings::mid` slices.
+- The **rewriters that do not search** — `upper`, `lower`, `caseFold`,
+  `normalizeNfc`, `trim`, `trimStart`, `trimEnd`, `trimChars`, `padLeft`,
+  `padRight`, `repeat`, `join` — transform the whole value or assemble a new one,
+  so there is nothing for a pattern to select. `regex::replace` is the searching
+  rewriter, and it is present.
+
+## Attributed text
+
+Every `regex` **query** member — `match`, `find`, `findAll`, `findMatch`,
+`findAllMatches`, `count` and `split` — also accepts an
+`astrings::AttributedString` at the `value` position: the query runs on its
+visible text and returns exactly what the `String` overload returns (same value,
+type, and errors). That is the rule `strings` uses, unchanged.
+
+`regex::replace` deliberately has no such overload, and a call passing an
+`AttributedString` to it is a build error rather than a silent loss of the
+attributes. A pattern rewrite has no answer for what the attributes should become:
+a match can begin inside one attribute span and end inside another, and the
+replacement text has no extent in the original to inherit from. Rewriting attributed
+text with a pattern is a design of its own, not a missing line here."#;
+
+// ---------------------------------------------------------------------------
+// The `AttributedString` Tier-A seam (bug-534).
+//
+// `regex::` QUERY members can take an `astrings::AttributedString` (astrings' type,
+// which STAYS hardcoded/always-in-scope — astrings has not migrated) at the text
+// position. This is the same genuine non-registry behavior `strings` carries
+// (the registry matcher speaks only its own type vocabulary), so it lives here as
+// a co-located rewrite that `ir::lower` and `builtins::resolve_call_return_type_typed`
+// consult, NOT as a registry matcher entry.
+//
+// `regex` has Tier-A only. There is no Tier-B: an attribute-preserving
+// `regex::replace` would have to remap attribute spans across a pattern rewrite,
+// where a match can span attribute boundaries and the replacement has no
+// corresponding extent. That is a design problem of its own, deliberately out of
+// scope, and a `regex::replace(AttributedString, …)` call stays a type error
+// rather than silently dropping the attributes.
+// ---------------------------------------------------------------------------
+
+/// Argument-validated return type of a `regex::` call. A Tier-A query answers on
+/// the visible text of an `AttributedString`, so its result type is exactly the
+/// `String` overload's (substitute `String` for the leading `AttributedString` and
+/// reuse the registry resolution — `ir::lower` rewrites the argument to
+/// `toString(a)`). Every other call defers to the generic `registry::resolve_call`.
+/// `strict` carries through the bug-443 strict(validation)/lenient(inference) split.
+pub(crate) fn resolve_return_type(
+    name: &str,
+    arg_types: &[ParameterType],
+    strict: bool,
+) -> Option<ParameterType> {
+    if is_tier_a_query(name)
+        && arg_types
+            .first()
+            .is_some_and(|a| a.is_named("AttributedString"))
+    {
+        let mut substituted = arg_types.to_vec();
+        substituted[0] = ParameterType::String;
+        return crate::codegen::registry::resolve_call_typed(name, &substituted, strict);
+    }
+    crate::codegen::registry::resolve_call_typed(name, arg_types, strict)
+}
+
+/// The Tier-A `regex::` query members: they *interrogate* the text (returning a
+/// verdict, a position, a count, a match record, or a decomposition into a
+/// collection) rather than re-expressing it, so an `AttributedString` argument is
+/// answered on its visible text and the result type matches the `String` overload.
+/// `ir::lower` wraps the leading argument in `toString(a)` for these. Keyed on the
+/// qualified dot name.
+///
+/// `regex.replace` is deliberately absent — see the module comment above.
+pub(crate) fn is_tier_a_query(name: &str) -> bool {
+    matches!(
+        name,
+        "regex.count"
+            | "regex.find"
+            | "regex.findAll"
+            | "regex.findAllMatches"
+            | "regex.findMatch"
+            | "regex.match"
+            | "regex.split"
+    )
+}
 
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("regex", INTRO, DESC);
@@ -1094,17 +1218,20 @@ pub(crate) fn register(r: &mut Registry) {
     func_replace::register(&mut pkg);
     func_find_match::register(&mut pkg);
     func_find_all_matches::register(&mut pkg);
+    func_count::register(&mut pkg);
+    func_split::register(&mut pkg);
 
     r.add_package(pkg);
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{is_tier_a_query, resolve_return_type};
     use crate::codegen::registry::{self, registry};
 
     /// plan-118-B split the member list in two, so this asserts the split by
-    /// NAME rather than by a bare count: six PUBLIC members (bug-532 added the
-    /// two span-returning ones), and two
+    /// NAME rather than by a bare count: eight PUBLIC members (bug-532 added the
+    /// two span-returning ones, bug-534 `count` and `split`), and two
     /// `internal_only` Unicode lookups the companion resolves through but user
     /// source must never reach. A bare count could not tell a new public member
     /// (a language change) from a new internal one (an implementation detail),
@@ -1123,12 +1250,15 @@ mod tests {
         assert_eq!(
             public,
             [
+                // bug-534: `count` and `split` complete the `strings` mirror.
+                "count",
                 "find",
                 "findAll",
                 "findAllMatches",
                 "findMatch",
                 "match",
-                "replace"
+                "replace",
+                "split"
             ]
         );
         let mut internal: Vec<&str> = pkg
@@ -1139,7 +1269,81 @@ mod tests {
             .collect();
         internal.sort_unstable();
         assert_eq!(internal, ["genCat", "scriptOf"]);
-        assert_eq!(pkg.functions().len(), 8);
+        assert_eq!(pkg.functions().len(), 10);
+    }
+
+    /// bug-534: the Tier-A list and the public member list are two lists that
+    /// must not drift. Every public member EXCEPT `replace` is a query and takes
+    /// an `AttributedString` at `value`; `replace` is the one rewriter and is
+    /// deliberately excluded, because remapping attribute spans across a pattern
+    /// rewrite has no answer. A member added without a Tier-A row would silently
+    /// lack the overload, and a member wrongly added to it would type-check a
+    /// call the lowering cannot serve — this fails either way.
+    #[test]
+    fn every_public_query_member_is_tier_a_and_replace_is_not() {
+        let pkg = registry().resolve_package("regex").expect("regex package");
+        for function in pkg.functions() {
+            if function.internal_only {
+                continue;
+            }
+            let qualified = format!("regex.{}", function.name);
+            let expected = function.name != "replace";
+            assert_eq!(
+                is_tier_a_query(&qualified),
+                expected,
+                "regex::{} tier-A membership",
+                function.name
+            );
+        }
+        // The list holds no name the package does not export.
+        for name in [
+            "regex.count",
+            "regex.find",
+            "regex.findAll",
+            "regex.findAllMatches",
+            "regex.findMatch",
+            "regex.match",
+            "regex.split",
+        ] {
+            assert!(
+                registry().is_member(name),
+                "tier-A list names {name}, which the registry does not export"
+            );
+        }
+    }
+
+    /// An `AttributedString` at `value` resolves a Tier-A query to exactly the
+    /// `String` overload's return type, and leaves `replace` unresolvable.
+    #[test]
+    fn attributed_string_resolves_the_string_overloads_return() {
+        use crate::types::ParameterType;
+        let attributed = ParameterType::named("AttributedString");
+        let cases: &[(&str, &str)] = &[
+            ("regex.match", "Boolean"),
+            ("regex.find", "Integer"),
+            ("regex.count", "Integer"),
+            ("regex.findAll", "List OF Integer"),
+            ("regex.split", "List OF String"),
+        ];
+        for (name, expected) in cases {
+            let args = vec![attributed.clone(), ParameterType::String];
+            assert_eq!(
+                resolve_return_type(name, &args, true)
+                    .map(|t| t.name().into_owned())
+                    .as_deref(),
+                Some(*expected),
+                "{name} through the AttributedString overload"
+            );
+        }
+        assert_eq!(
+            resolve_return_type(
+                "regex.replace",
+                &[attributed, ParameterType::String, ParameterType::String],
+                true
+            ),
+            None,
+            "regex::replace must reject an AttributedString rather than drop its attributes"
+        );
     }
 
     #[test]

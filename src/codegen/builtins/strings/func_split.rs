@@ -44,6 +44,12 @@ own values.
 the same non-empty delimiter reproduces `value` exactly — `split` and
 `strings::join` are inverses.
 
+`delimiter` is a literal, matched byte for byte, and there is no `limit`: every
+piece is always returned. When the separator is a *run* rather than a fixed
+string — one-or-more whitespace, a set of alternatives, an optional trailing
+comma — reach for `regex::split`, which breaks on a regular-expression match and
+follows the same counting and empty-piece rules as this member.
+
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
 errors)."#;

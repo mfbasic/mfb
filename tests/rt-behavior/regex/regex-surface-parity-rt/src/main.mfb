@@ -1,0 +1,288 @@
+' bug-534 -- the `regex` <-> `strings` surface parity, pinned member by member.
+'
+' Three things landed together and each is asserted here:
+'
+'   1. `regex::count(value, pattern[, start])` -- the pattern mirror of
+'      `strings::count`, and `len(regex::findAll(...))` by construction.
+'   2. `regex::split(value, pattern)` -- the pattern mirror of `strings::split`,
+'      one pass over `__regex_matchResults`. No `limit`, because
+'      `strings::split` has none. Every empty piece is KEPT, because
+'      `strings::split` keeps them.
+'   3. The `AttributedString` Tier-A overload on every regex QUERY member: the
+'      query runs on the visible text and returns exactly what the `String`
+'      overload returns.
+'
+' THE EMPTY PATTERN IS NOT ZERO-WIDTH MATCHING. `count`, `split` and `replace`
+' refuse the empty pattern STRING with ErrInvalidArgument (77050002), per the
+' rule stated in the `strings` package description ("The empty needle") and
+' already implemented by `strings::count`, `strings::split` and (bug-533) both
+' `replace` members. A pattern that merely MATCHES zero-width -- "a*", "x?",
+' "(?:)", "\b" -- is an ordinary pattern and is counted, split on and rewritten
+' at every position. The second half of this fixture is those assertions; without
+' them the guard would read as having tamed zero-width matching.
+'
+' POSITIVE PINS: every degenerate/rejecting call is paired with an ordinary
+' valid call of the SAME member on the same run, so a guard that rejected valid
+' input would fail here too.
+'
+' Every empty pattern is a RUNTIME-derived empty string, never the "" literal,
+' so no constant fold can answer instead of the lowering under test.
+
+IMPORT io
+IMPORT regex
+IMPORT strings
+IMPORT astrings
+IMPORT collections
+
+' Render a List OF String so an extra or missing empty piece is visible.
+FUNC render(parts AS List OF String) AS String
+  MUT s AS String = "n=" & toString(len(parts)) & " ["
+  MUT first AS Boolean = TRUE
+  FOR EACH p IN parts
+    IF first = FALSE THEN
+      s = s & ", "
+    END IF
+    s = s & "<" & p & ">"
+    first = FALSE
+  NEXT
+  RETURN s & "]"
+END FUNC
+
+FUNC countOrRaise(value AS String, pattern AS String) AS String
+  LET n AS Integer = regex::count(value, pattern) TRAP(err)
+    RETURN "RAISED " & toString(err.code)
+  END TRAP
+  RETURN toString(n)
+END FUNC
+
+FUNC splitOrRaise(value AS String, pattern AS String) AS String
+  LET parts AS List OF String = regex::split(value, pattern) TRAP(err)
+    RETURN "RAISED " & toString(err.code)
+  END TRAP
+  RETURN render(parts)
+END FUNC
+
+FUNC sCountOrRaise(value AS String, needle AS String) AS String
+  LET n AS Integer = strings::count(value, needle) TRAP(err)
+    RETURN "RAISED " & toString(err.code)
+  END TRAP
+  RETURN toString(n)
+END FUNC
+
+FUNC sSplitOrRaise(value AS String, delim AS String) AS String
+  LET parts AS List OF String = strings::split(value, delim) TRAP(err)
+    RETURN "RAISED " & toString(err.code)
+  END TRAP
+  RETURN render(parts)
+END FUNC
+
+FUNC replaceOrRaise(value AS String, pattern AS String, rep AS String) AS String
+  LET out AS String = regex::replace(value, pattern, rep) TRAP(err)
+    RETURN "RAISED " & toString(err.code)
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC main() AS Integer
+  ' A runtime-derived empty string. `strings::mid` is a call, so no constant
+  ' fold can turn the arguments below back into a literal "".
+  LET empty AS String = strings::mid("x", 0, 0)
+
+  ' ---- 1. regex::count, the pattern mirror of strings::count --------------
+
+  io::print("count runs-of-digits    = " & countOrRaise("a1b22c333", "\\d+"))
+  io::print("count no-match          = " & countOrRaise("xyz", "\\d+"))
+  io::print("count non-overlapping   = " & countOrRaise("aaaa", "aa"))
+  io::print("count with start        = " & toString(regex::count("a1b2c3", "\\d", 3)))
+  io::print("count start=len(value)  = " & toString(regex::count("abc", "\\d", 3)))
+
+  ' count IS len(findAll) -- the same walk, asserted rather than assumed.
+  io::print("count = len(findAll) A  = " & toString(regex::count("a1b22c333", "\\d+") = len(regex::findAll("a1b22c333", "\\d+"))))
+  io::print("count = len(findAll) B  = " & toString(regex::count("aba", "a*") = len(regex::findAll("aba", "a*"))))
+  io::print("count = len(findAll) C  = " & toString(regex::count("abc", "x*") = len(regex::findAll("abc", "x*"))))
+
+  ' The strings mirror, measured on the same run.
+  io::print("strings::count mirror   = " & sCountOrRaise("abcabc", "bc"))
+  io::print("regex::count mirror     = " & countOrRaise("abcabc", "bc"))
+
+  ' ---- 2. regex::split, the pattern mirror of strings::split --------------
+
+  ' The textbook reason to reach for a regex: a separator that is a RUN.
+  ' strings::split takes a literal, so it cannot collapse one.
+  io::print("split whitespace-runs   = " & splitOrRaise("the   quick  brown", "\\s+"))
+  io::print("split literal on space  = " & sSplitOrRaise("the   quick  brown", " "))
+
+  io::print("split alternation       = " & splitOrRaise("a,b;c", ",|;"))
+  io::print("split no-match          = " & splitOrRaise("abc", "\\d+"))
+  io::print("split empty value       = " & splitOrRaise("", ";"))
+
+  ' Empty pieces are KEPT -- leading, interior and trailing -- exactly as
+  ' strings::split keeps them. The two lines below must agree.
+  io::print("split keeps empties     = " & splitOrRaise(";a;;", ";"))
+  io::print("strings::split empties  = " & sSplitOrRaise(",a,,", ","))
+
+  ' N matches -> N+1 pieces, so the input is reconstructible.
+  io::print("split N+1 pieces        = " & toString(len(regex::split(";a;;", ";")) = regex::count(";a;;", ";") + 1))
+  io::print("split rejoin roundtrip  = " & strings::join(regex::split("a-b-c", "-"), "-"))
+
+  ' Non-ASCII: pieces are cut on scalar boundaries, never mid-scalar.
+  io::print("split non-ascii         = " & splitOrRaise("a😀b😀c", "😀"))
+
+  ' ---- 3. THE EMPTY PATTERN: refused by count/split/replace ---------------
+  '
+  ' The rule (`mfb man strings`, "The empty needle"): a member that counts or
+  ' rewrites EVERY occurrence refuses an empty needle/pattern; a member that
+  ' answers a question about one reports it. Labelled by MEMBER NAME so a member
+  ' added or removed cannot silently shift another's verdict, and each is paired
+  ' with a valid call of the same member above.
+
+  io::print("EMPTY regex::count      = " & countOrRaise("abc", empty))
+  io::print("EMPTY regex::split      = " & splitOrRaise("abc", empty))
+  io::print("EMPTY regex::replace    = " & replaceOrRaise("abc", empty, "-"))
+  io::print("EMPTY strings::count    = " & sCountOrRaise("abc", empty))
+  io::print("EMPTY strings::split    = " & sSplitOrRaise("abc", empty))
+
+  ' The QUERY members still ANSWER for an empty pattern -- unchanged by this
+  ' change, and the other half of the rule.
+  io::print("EMPTY regex::match      = " & toString(regex::match("abc", empty)))
+  io::print("EMPTY regex::find       = " & toString(regex::find("abc", empty)))
+  io::print("EMPTY regex::findAll    = " & toString(len(regex::findAll("abc", empty))))
+  io::print("EMPTY regex::findMatch  = " & toString(regex::findMatch("abc", empty).start))
+
+  ' ---- 4. ZERO-WIDTH MATCHING IS UNTOUCHED --------------------------------
+  '
+  ' The guard is on the empty pattern STRING. A pattern that MATCHES zero-width
+  ' is ordinary: it matches at every position and every member acts on all of
+  ' them. If these lines ever start raising, the guard has escaped its scope.
+
+  io::print("zw count a-star         = " & countOrRaise("abc", "x*"))
+  io::print("zw count optional       = " & countOrRaise("abc", "x?"))
+  io::print("zw count empty-group    = " & countOrRaise("abc", "(?:)"))
+  io::print("zw count word-boundary  = " & countOrRaise("ab cd", "\\b"))
+  io::print("zw split a-star         = " & splitOrRaise("abc", "x*"))
+  io::print("zw split empty-group    = " & splitOrRaise("abc", "(?:)"))
+  io::print("zw replace a-star       = " & replaceOrRaise("abc", "x*", "-"))
+  io::print("zw count real-runs      = " & countOrRaise("aba", "a*"))
+  io::print("zw split real-runs      = " & splitOrRaise("aba", "a*"))
+
+  ' ---- 5. count/split error surface ---------------------------------------
+
+  io::print("count bad pattern       = " & countOrRaise("abc", "["))
+  io::print("split bad pattern       = " & splitOrRaise("abc", "["))
+
+  LET oob AS Integer = regex::count("abc", "\\d", 9) TRAP(err)
+    io::print("count start out-of-range= RAISED " & toString(err.code))
+    RECOVER -1
+  END TRAP
+  LET neg AS Integer = regex::count("abc", "\\d", -1) TRAP(err2)
+    io::print("count start negative    = RAISED " & toString(err2.code))
+    RECOVER -1
+  END TRAP
+
+  ' An invalid pattern outranks an out-of-range start, as on every other member.
+  LET both AS Integer = regex::count("abc", "[", 9) TRAP(err3)
+    io::print("count bad-pattern wins  = RAISED " & toString(err3.code))
+    RECOVER -1
+  END TRAP
+
+  ' ---- 6. INLINE TRAP form (bug-533's miscompile shape) -------------------
+  '
+  ' A FUNCTION-level TRAP cannot see a front-end verdict that a call "cannot
+  ' fail" and deletes a LIVE handler. The INLINE form can, so both new members
+  ' get one -- with the handler PRINTING, so a deleted handler is visible rather
+  ' than merely changing a value.
+
+  LET ic AS Integer = regex::count("abc", empty) TRAP(e1)
+    io::print("inline count HANDLER RAN code=" & toString(e1.code))
+    RECOVER -1
+  END TRAP
+  io::print("inline count recovered  = " & toString(ic))
+
+  LET isp AS List OF String = regex::split("abc", empty) TRAP(e2)
+    io::print("inline split HANDLER RAN code=" & toString(e2.code))
+    RECOVER []
+  END TRAP
+  io::print("inline split recovered  = " & render(isp))
+
+  ' Positive pin for the inline form: valid input must still succeed with no
+  ' handler firing.
+  LET ic2 AS Integer = regex::count("a1b2", "\\d") TRAP(e3)
+    io::print("UNEXPECTED inline count handler code=" & toString(e3.code))
+    RECOVER -1
+  END TRAP
+  io::print("inline count valid      = " & toString(ic2))
+
+  LET isp2 AS List OF String = regex::split("a1b", "\\d") TRAP(e4)
+    io::print("UNEXPECTED inline split handler code=" & toString(e4.code))
+    RECOVER []
+  END TRAP
+  io::print("inline split valid      = " & render(isp2))
+
+  ' ---- 7. The AttributedString Tier-A overload ----------------------------
+  '
+  ' Every regex QUERY member answers on the visible text and returns exactly
+  ' what the String overload returns. Each line compares the two directly, so a
+  ' routing bug that answered from the wrong text shows up as a mismatch rather
+  ' than as a value nobody checked.
+
+  LET plain AS String = "a1b22"
+  LET attr AS AttributedString = astrings::addAttribute(astrings::fromString(plain), 0, 2, astrings::bold())
+
+  io::print("astr match   agrees     = " & toString(regex::match(attr, "\\d+") = regex::match(plain, "\\d+")))
+  io::print("astr find    agrees     = " & toString(regex::find(attr, "\\d+") = regex::find(plain, "\\d+")))
+  io::print("astr findAll agrees     = " & toString(len(regex::findAll(attr, "\\d+")) = len(regex::findAll(plain, "\\d+"))))
+  io::print("astr findMatch agrees   = " & toString(regex::findMatch(attr, "\\d+").text = regex::findMatch(plain, "\\d+").text))
+  io::print("astr findAllM agrees    = " & toString(len(regex::findAllMatches(attr, "\\d+")) = len(regex::findAllMatches(plain, "\\d+"))))
+  io::print("astr count   agrees     = " & toString(regex::count(attr, "\\d") = regex::count(plain, "\\d")))
+  io::print("astr split   agrees     = " & toString(render(regex::split(attr, "\\d+")) = render(regex::split(plain, "\\d+"))))
+
+  ' The values themselves, not only the agreement, so a change that broke BOTH
+  ' overloads identically still fails here.
+  io::print("astr match              = " & toString(regex::match(attr, "\\d+")))
+  io::print("astr find               = " & toString(regex::find(attr, "\\d+")))
+  io::print("astr count              = " & toString(regex::count(attr, "\\d")))
+  io::print("astr split              = " & render(regex::split(attr, "\\d+")))
+  io::print("astr findMatch.text     = " & regex::findMatch(attr, "\\d+").text)
+
+  ' The optional `start` still routes through the overload.
+  io::print("astr find with start    = " & toString(regex::find(attr, "\\d", 3)))
+  io::print("astr count with start   = " & toString(regex::count(attr, "\\d", 3)))
+
+  ' The AttributedString overload inherits the empty-pattern rule unchanged.
+  LET ac AS Integer = regex::count(attr, empty) TRAP(e5)
+    io::print("astr EMPTY count        = RAISED " & toString(e5.code))
+    RECOVER -1
+  END TRAP
+  LET asp AS List OF String = regex::split(attr, empty) TRAP(e6)
+    io::print("astr EMPTY split        = RAISED " & toString(e6.code))
+    RECOVER []
+  END TRAP
+  io::print("astr EMPTY match answers= " & toString(regex::match(attr, empty)))
+
+  ' ---- 8. The in-tree tokenizer this member replaces ---------------------
+  '
+  ' `examples/browser/display/src/lib.mfb` collapses whitespace runs with
+  ' `regex::replace(t, " +", " ")` before splitting on a literal space -- the
+  ' two-pass workaround for a missing `regex::split`. On text with no leading or
+  ' trailing run the one-pass member reproduces it exactly; where they part
+  ' company (a leading run) the difference is the empty piece `split` keeps, and
+  ' both halves are pinned so a future change cannot quietly move either.
+
+  LET messy AS String = "the   quick  brown   fox"
+  LET twoPass AS List OF String = strings::split(regex::replace(messy, " +", " "), " ")
+  LET onePass AS List OF String = regex::split(messy, " +")
+  io::print("tokenizer two-pass      = " & render(twoPass))
+  io::print("tokenizer one-pass      = " & render(onePass))
+  io::print("tokenizer agrees        = " & toString(render(twoPass) = render(onePass)))
+
+  LET leading AS String = "  a  b"
+  io::print("leading two-pass        = " & render(strings::split(regex::replace(leading, " +", " "), " ")))
+  io::print("leading one-pass        = " & render(regex::split(leading, " +")))
+
+  ' The attributes survive the query -- the query reads the text and does not
+  ' rewrite the value it was handed.
+  io::print("astr text after queries = " & toString(attr))
+  io::print("astr attrs after queries= " & toString(len(astrings::getAttributes(attr, 0))))
+
+  RETURN 0
+END FUNC

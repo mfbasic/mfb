@@ -34,6 +34,10 @@ the same reason, while `strings::contains` and `strings::find` answer for an emp
 needle, because reporting an occurrence is harmless where counting them is not —
 see `mfb man strings` for the rule. Neither operand is modified.
 
+`needle` is a literal. To count matches of a *pattern* instead, use
+`regex::count`, which counts the same way — leftmost-first, non-overlapping — and
+refuses an empty pattern for the same reason this member refuses an empty needle.
+
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
 errors)."#;

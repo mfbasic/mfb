@@ -187,11 +187,15 @@ with nothing between the parts).
 
 `regex::` lands on the same rule from the other direction. A zero-length pattern
 has a zero-width match at every position, so `regex::find(v, "")` and
-`strings::find(v, "")` both report `0`; and `regex::replace` refuses an empty
-`pattern` with the same `77050002`, so a run-time value routed to either
-`replace` gives the same outcome. That refusal is a guard on the empty pattern
-*string* only — `"a*"`, `"x?"` and `"(?:)"` still match at every position and
-still interleave. See ./mfb spec stdlib regex.
+`strings::find(v, "")` both report `0`; and `regex::count`, `regex::split` and
+`regex::replace` refuse an empty `pattern` with the same `77050002`, so a run-time
+value routed to either package's `count`, `split` or `replace` gives the same
+outcome. Those refusals are a guard on the empty pattern
+*string* only — `"a*"`, `"x?"` and `"(?:)"` still match at every position, and are
+still counted, split on and interleaved.
+[[src/codegen/builtins/regex/func_count.rs:__regex_count]]
+[[src/codegen/builtins/regex/func_split.rs:__regex_split]]
+See ./mfb spec stdlib regex.
 
 ## `split` and the empty-delimiter error
 
@@ -199,11 +203,19 @@ still interleave. See ./mfb spec stdlib regex.
 returns the parts. An empty `delimiter` is rejected (raising `ErrInvalidArgument`
 before scanning) — there is no per-scalar or per-grapheme split mode. [[src/codegen/builtins/strings/func_split.rs:lower]]
 
-Splitting delegates to `str::split`, so it follows Rust semantics: a leading or
-trailing delimiter yields an empty leading/trailing part, and N non-overlapping
-matches produce N+1 parts. The delimiter match is on raw UTF-8 bytes with no
-normalization. The inverse `join(parts, delimiter)` concatenates with the
+Splitting is a clean-room native lowering, not a call into any host library: a
+leading or trailing delimiter yields an empty leading/trailing part, and N
+non-overlapping matches produce N+1 parts, so the result is never empty. The
+delimiter match is on raw UTF-8 bytes with no
+normalization. There is no `limit` parameter. The inverse `join(parts, delimiter)`
+concatenates with the
 delimiter between parts and never errors. [[src/codegen/builtins/strings/func_join.rs:lower]]
+
+`regex::split(value, pattern)` is the pattern form, and it obeys this same
+counting rule over the matches `regex::findAll` reports — N matches, N+1 parts,
+every empty part kept. It is the member for a separator that is a run or an
+alternation, which a byte-exact delimiter cannot express.
+[[src/codegen/builtins/regex/func_split.rs:__regex_split]]
 
 ## See Also
 

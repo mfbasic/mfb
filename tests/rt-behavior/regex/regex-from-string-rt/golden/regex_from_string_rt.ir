@@ -7445,6 +7445,84 @@
     ]
   },
   {
+    "name": "#regex_count",
+    "line": 2263,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 2263, "type": "String", "default": null },
+    { "name": "pattern", "line": 2263, "type": "String", "default": null },
+    { "name": "start", "line": 2263, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 2264,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "pattern" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "fail", "line": 2265, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "Argument value is not valid for the requested operation." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/regex.mfb" }, { "kind": "const", "type": "Integer", "value": "2265" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 2267, "mutable": false, "name": "prog", "type": "#regex_Program", "value": { "kind": "call", "type": "#regex_Program", "target": "#regex_compile", "args": [{ "kind": "local", "name": "pattern" }] } },
+    { "op": "bind", "line": 2268, "mutable": false, "name": "ctx", "type": "#regex_Ctx", "value": { "kind": "call", "type": "#regex_Ctx", "target": "#regex_makeCtx", "args": [{ "kind": "local", "name": "value" }] } },
+    {
+      "op": "if",
+      "line": 2269,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "start" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "start" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ctx" }, "member": "n" } } },
+      "then": [
+      { "op": "fail", "line": 2270, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050001" }, { "kind": "const", "type": "String", "value": "List or string index/range is outside valid bounds." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/regex.mfb" }, { "kind": "const", "type": "Integer", "value": "2270" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 2272, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF #regex_Result", "target": "#regex_matchResults", "args": [{ "kind": "local", "name": "prog" }, { "kind": "local", "name": "ctx" }, { "kind": "local", "name": "start" }] }] } }
+    ]
+  },
+  {
+    "name": "#regex_split",
+    "line": 2275,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 2275, "type": "String", "default": null },
+    { "name": "pattern", "line": 2275, "type": "String", "default": null }
+    ],
+    "returns": "List OF String",
+    "body": [
+    {
+      "op": "if",
+      "line": 2276,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "pattern" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "fail", "line": 2277, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "Argument value is not valid for the requested operation." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/regex.mfb" }, { "kind": "const", "type": "Integer", "value": "2277" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 2279, "mutable": false, "name": "prog", "type": "#regex_Program", "value": { "kind": "call", "type": "#regex_Program", "target": "#regex_compile", "args": [{ "kind": "local", "name": "pattern" }] } },
+    { "op": "bind", "line": 2280, "mutable": false, "name": "ctx", "type": "#regex_Ctx", "value": { "kind": "call", "type": "#regex_Ctx", "target": "#regex_makeCtx", "args": [{ "kind": "local", "name": "value" }] } },
+    { "op": "bind", "line": 2281, "mutable": true, "name": "out", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
+    { "op": "bind", "line": 2282, "mutable": true, "name": "cursor", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 2283,
+      "name": "r",
+      "type": "#regex_Result",
+      "iterable": { "kind": "call", "type": "List OF #regex_Result", "target": "#regex_matchResults", "args": [{ "kind": "local", "name": "prog" }, { "kind": "local", "name": "ctx" }, { "kind": "const", "type": "Integer", "value": "0" }] },
+      "body": [
+      { "op": "bind", "line": 2284, "mutable": false, "name": "mstart", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "r" }, "member": "caps" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+      { "op": "assign", "line": 2285, "name": "out", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "cursor" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "mstart" }, "right": { "kind": "local", "name": "cursor" } }] }] } },
+      { "op": "assign", "line": 2286, "name": "cursor", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "r" }, "member": "pos" } }
+      ]
+    },
+    { "op": "assign", "line": 2288, "name": "out", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "cursor" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ctx" }, "member": "n" }, "right": { "kind": "local", "name": "cursor" } }] }] } },
+    { "op": "return", "line": 2289, "value": { "kind": "local", "name": "out" } }
+    ]
+  },
+  {
     "name": "#encoding_byteChar",
     "line": 39,
     "visibility": "public",
