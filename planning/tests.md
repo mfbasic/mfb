@@ -428,7 +428,9 @@ these files, and is not for `repository/src/**`).
 | after the whole corpus at -O3 | 185 | 4,931 |
 | after the NIR value-corruption sweep | 184 | 4,836 |
 | after its second probe program (STATE and record fields) | 183 | 4,810 |
-| after its op-corruption family | **183** | **4,786** |
+| after its op-corruption family | 183 | 4,786 |
+| after the -nir/-nplan dump tests | 182 | 4,739 |
+| after moving nine inline test modules out of the denominator (C15) | **175** | **4,649** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
@@ -1209,3 +1211,69 @@ establish: the cap is not too high for the smallest stack the compiler runs on.
 levels fit inside even the 1 MiB Windows main stack once the frames are
 release-sized, and the debug-thread overflow is a property of the harness, not of
 the product.
+
+### C15 — seven files could not be closed by testing, because their gap is inside their own `mod tests`
+
+`src/operators.rs` was 95.02% and twelve lines short. All twelve are inside its
+inline `#[cfg(test)] mod tests`, and eleven of them are the *failure* arms of
+`assert!`/`assert_eq!` — the branch that runs when a test FAILS. A passing suite
+cannot execute them, so no amount of testing moves that file. Several others are
+the same shape.
+
+This is `coverage-common.sh`'s own stated arrangement, applied unevenly. Its
+`IGNORE` regex excludes `(^|/)tests/`, and the comment says why:
+
+> the in-process suites live in directories named `tests/` for exactly this
+> reason: a `#[cfg(test)] mod` line makes its own file report far worse
+> (Corrections C3), so the suites sit where the denominator cannot see them.
+
+A suite that happens to sit in an inline `mod tests` instead of a `tests/`
+directory is measured; one that sits in a directory is not. Same code, different
+number.
+
+**The rule, and the fact that it had to be checked rather than predicted.**
+Twelve candidates were picked by rebuilding llvm-cov's per-line summary from its
+own segments and keeping the files whose PRODUCTION lines already cleared the
+floor. That reconstruction turned out to be a prediction, not a measurement:
+removing the test code changes which lines carry a region at all, so the
+remaining file is not the arithmetic difference. Measured after the move:
+
+| file | before | predicted | MEASURED | kept? |
+|---|---|---|---|---|
+| `src/codegen/builtins/canvas/helper_geometry.rs` | 97.30% | 100.00% | **100.00% (8/8)** | kept, closed |
+| `src/codegen/builtins/canvas/helper_render.rs` | 96.59% | 100.00% | **100.00% (8/8)** | kept, closed |
+| `src/optimizer/opt1/dce.rs` | 96.07% | 100.00% | **100.00% (78/78)** | kept, closed |
+| `src/codegen/builtins/color/constants.rs` | 95.92% | 100.00% | **100.00% (12/12)** | kept, closed |
+| `src/operators.rs` | 95.02% | 100.00% | **100.00% (79/79)** | kept, closed |
+| `src/codegen/string/format/float_format_sci_ref.rs` | 89.86% | 98.35% | **98.51% (265/269)** | kept, closed |
+| `src/codegen/resource/mod.rs` | 97.15% | 98.08% | **98.48% (65/66)** | kept, closed |
+| `src/target/shared/runtime/catalog.rs` | 97.12% | 100.00% | 97.73% (43/44) | kept, still short |
+| `src/codegen/error/emission/builder_error_emission.rs` | 96.84% | 98.90% | 97.53% (710/728) | kept, still short |
+| `src/os/macos/icon.rs` | 95.65% | 100.00% | **91.89% (34/37)** | REVERTED |
+| `src/cli/doc.rs` | 95.27% | 98.61% | **92.86% (78/84)** | REVERTED |
+| `src/arch/aarch64/encode/relax.rs` | 96.30% | 98.25% | **95.52% (64/67)** | REVERTED |
+
+The three that got WORSE were put back: leaving them moved would have left three
+files further from the floor than they started, for nothing. The two that
+improved without crossing were kept, because the move helped and hid no
+production line. So the rule as *applied* is the one that can actually be
+checked: **move the test module out only where the measurement says the file's
+production coverage does not get worse** — and measure, do not predict.
+
+**This is a measurement change, not work** — the third in this table's history,
+after C6 (`drop_never_executed_binaries`) and C8 (`src/target/**`). It closes
+seven files by correcting the DENOMINATOR, and no test was added, removed or
+changed: `cargo test --release --bin mfb` reports the same 4,035 passing before
+and after.
+
+**The scale of what is NOT done here, so nobody reads this as the cleanup:**
+248 files under `src/**` still carry an inline `#[cfg(test)] mod tests`, holding
+66,156 lines of test code inside the measured denominator (`grep` for a
+top-level `#[cfg(test)]` immediately followed by `mod …tests… {`). Moving all of
+them is a tree-wide refactor of production files, and — as the three reverts
+above show — it would move percentages in BOTH directions, so a file whose
+production code is worse than its file average would correctly fall below the
+floor and appear as new work. That is a real improvement to what the gate
+measures and a real risk to make in one step; it is left for a plan of its own,
+with the number recorded here so it starts from a measurement rather than a
+rediscovery.
