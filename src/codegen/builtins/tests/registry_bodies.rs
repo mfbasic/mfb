@@ -18,29 +18,66 @@
 use crate::codegen::engine::builder::ValueResult;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::tests::test_support::{BuilderHarness, TestPlatform};
+use crate::codegen::engine::types::CodegenPlatform;
 use crate::codegen::engine::util::vreg_frame::Vregs;
 use crate::codegen::registry::{registry, AbiCtx, Body};
 use crate::os::linux::flavor::LinuxFlavor;
 
-/// With no import declared, no `abi_function` body emits an external call.
+/// The five real backends, for a sweep that has to cross the OS seam.
 ///
-/// A relocation carries `library: Some(_)` exactly when it binds to a symbol the
-/// platform import list must declare; emitting one from an EMPTY list is a call
-/// the plan does not know about. These bodies are where the OS actually gets
-/// reached — `fs`, `net`, `process`, `audio`, `datetime` — so it is the family
-/// where the guard matters most and the one no program can exercise.
-#[test]
-fn no_abi_function_body_emits_a_call_the_plan_never_declared() {
-    // The REAL Linux platform, not the stub: these bodies reach the OS through
-    // hooks `TestPlatform` leaves `unimplemented!()`, and a stub's
-    // `emit_external_call` never consults the import list at all -- which is the
-    // very thing under test.
-    let platform = crate::target::linux_common::code::Platform::for_test(
-        crate::target::linux_x86_64::code::X86_64,
-        LinuxFlavor::Glibc,
-    );
-    let mut leaked = Vec::new();
+/// One platform is not enough. An `abi_function` body that reaches the OS
+/// branches on `platform.family()` and calls `emit_external_call` in EACH arm,
+/// so sweeping only Linux runs the POSIX arm and leaves the Windows arm's import
+/// guard exactly as dead as it was — two uncovered lines in ~40 `func_*.rs`
+/// files, every one of them the same `?`.
+///
+/// The real backends, not `TestPlatform`: these bodies reach the OS through
+/// hooks the stub leaves `unimplemented!()`, and a stub's `emit_external_call`
+/// never consults the import list at all, which is the very thing under test.
+fn os_seam_platforms() -> Vec<(&'static str, Box<dyn CodegenPlatform>)> {
+    vec![
+        (
+            "macos-aarch64",
+            Box::new(crate::target::macos_aarch64::code::Platform),
+        ),
+        (
+            "windows-x86_64",
+            Box::new(crate::target::win_x86_64::code::Platform),
+        ),
+        (
+            "linux-aarch64",
+            Box::new(crate::target::linux_common::code::Platform::for_test(
+                crate::target::linux_aarch64::code::Aarch64,
+                LinuxFlavor::Glibc,
+            )),
+        ),
+        (
+            "linux-x86_64",
+            Box::new(crate::target::linux_common::code::Platform::for_test(
+                crate::target::linux_x86_64::code::X86_64,
+                LinuxFlavor::Glibc,
+            )),
+        ),
+        (
+            "linux-riscv64",
+            Box::new(crate::target::linux_common::code::Platform::for_test(
+                crate::target::linux_riscv64::code::Riscv64,
+                LinuxFlavor::Glibc,
+            )),
+        ),
+    ]
+}
+
+/// Every `abi_function` body that a backend can lower, lowered with an EMPTY
+/// import list, on all five backends.
+fn sweep_abi_function_bodies(
+    target: &str,
+    platform: &dyn CodegenPlatform,
+    leaked: &mut Vec<String>,
+    panicked: &mut Vec<String>,
+) -> usize {
     let mut swept = 0;
+    let windows = platform.family() == crate::codegen::engine::types::PlatformFamily::Windows;
     for package in registry().packages() {
         for function in package.functions() {
             for (index, implementation) in function.implementations().iter().enumerate() {
@@ -61,40 +98,136 @@ fn no_abi_function_body_emits_a_call_the_plan_never_declared() {
                     })
                     .collect();
                 let harness = BuilderHarness::default();
-                let mut builder = harness.builder("_mfb_rt_probe", &platform);
-                let base = harness.abi_ctx(&platform);
+                let mut builder = harness.builder("_mfb_rt_probe", platform);
+                let base = harness.abi_ctx(platform);
                 let ctx = AbiCtx {
                     call: &call,
                     ..base
                 };
-                if lower(&mut builder, &args, &ctx).is_err() {
+                // A body that refuses is not a finding: plenty of members are
+                // implemented on some backends and not others, and refusing is
+                // how they say so. The finding is a body that SUCCEEDS while
+                // naming a library nothing declared.
+                //
+                // A body that PANICS is not automatically a finding either --
+                // `AppSupport::require_gtk` hard-stops an ISA with no app-mode
+                // port at the boundary, deliberately -- but it is not waved
+                // through: the message is recorded, and the caller asserts the
+                // only ones are that documented hard-stop. Swallowing every
+                // panic here would hide a real crash in a body nothing else
+                // lowers.
+                let hook = std::panic::take_hook();
+                std::panic::set_hook(Box::new(|_| {}));
+                let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    lower(&mut builder, &args, &ctx)
+                }));
+                std::panic::set_hook(hook);
+                let lowered = match lowered {
+                    Ok(result) => result,
+                    Err(payload) => {
+                        let message = payload
+                            .downcast_ref::<String>()
+                            .cloned()
+                            .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                            .unwrap_or_else(|| "panicked with no message".to_string());
+                        panicked.push(format!(
+                            "{target} {}::{}#{index}: {message}",
+                            package.import_name(),
+                            function.name
+                        ));
+                        continue;
+                    }
+                };
+                if lowered.is_err() {
                     continue;
                 }
-                let external: Vec<String> = builder
-                    .relocations
-                    .iter()
-                    .filter(|r| r.library.is_some())
-                    .map(|r| r.to.clone())
-                    .collect();
-                if !external.is_empty() {
-                    leaked.push(format!(
-                        "{}::{}#{index} -> {external:?}",
-                        package.import_name(),
-                        function.name
-                    ));
+                for relocation in &builder.relocations {
+                    let Some(library) = &relocation.library else {
+                        continue;
+                    };
+                    if windows {
+                        // Win32 names the DLL at the emit site, so an empty
+                        // import list does not suppress the relocation. The
+                        // contract there is the complementary one: the reloc is
+                        // SELF-DESCRIBING. A `Some("")` would bind to whatever
+                        // the loader turns up.
+                        if library.is_empty() {
+                            leaked.push(format!(
+                                "{target} {}::{}#{index} -> `{}` bound externally \
+                                 with an empty library name",
+                                package.import_name(),
+                                function.name,
+                                relocation.to
+                            ));
+                        }
+                    } else {
+                        leaked.push(format!(
+                            "{target} {}::{}#{index} -> {} ({library})",
+                            package.import_name(),
+                            function.name,
+                            relocation.to
+                        ));
+                    }
                 }
             }
         }
     }
+    swept
+}
+
+/// No `abi_function` body binds to a symbol nothing declared — on any backend.
+///
+/// Swept on all five backends because the guard is per-ARM, not per-body: a body
+/// that branches win/posix has one `emit_external_call` in each, and a
+/// single-platform sweep proves nothing about the arm it did not take. That is
+/// two uncovered lines in ~40 `func_*.rs` files, every one of them the same `?`.
+///
+/// **The invariant is not the same on both sides of that branch, and asserting
+/// the POSIX one everywhere reported 16 false findings.** On POSIX,
+/// `emit_external_call` resolves the symbol through `platform_imports`, so an
+/// EMPTY list must yield no externally-bound relocation at all — that is the
+/// guard, and a body that emitted one anyway would produce an executable that
+/// does not link, or worse binds to whatever the loader finds. Win32 does not
+/// work that way: `call_external` names the DLL at the emit site (`kernel32`),
+/// deliberately, because "naming the library here keeps the reloc
+/// self-describing" and the trait methods that need it carry no
+/// `platform_imports` at all. So Windows legitimately emits `library:
+/// Some("kernel32.dll")` from an empty list, and the contract to check there is
+/// the complementary one: the name is never EMPTY.
+#[test]
+fn no_abi_function_body_emits_a_call_the_plan_never_declared() {
+    let mut leaked = Vec::new();
+    let mut panicked = Vec::new();
+    let mut swept = 0;
+    for (target, platform) in os_seam_platforms() {
+        swept += sweep_abi_function_bodies(target, platform.as_ref(), &mut leaked, &mut panicked);
+    }
+    // The one sanctioned hard-stop: riscv64 has no app-mode port, and every GTK
+    // hook refuses at the boundary "rather than after assembling
+    // wrong-convention instructions". Anything else that panicked is a body that
+    // crashes on a backend nothing else lowers it for.
+    let unexpected: Vec<&String> = panicked
+        .iter()
+        .filter(|p| !p.contains("not ported"))
+        .collect();
     assert!(
-        swept >= 100,
-        "the sweep found only {swept} abi_function implementations, so the \
-         registry walk has broken"
+        unexpected.is_empty(),
+        "{} abi_function body(ies) panicked for a reason that is not the \
+         documented rv64 app-mode hard-stop:\n  {}",
+        unexpected.len(),
+        unexpected
+            .iter()
+            .map(|p| p.as_str())
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+    assert!(
+        swept >= 500,
+        "the sweep found only {swept} abi_function implementations across five          backends; there were >= 100 per backend when this was written, so the          registry walk has broken"
     );
     assert!(
         leaked.is_empty(),
-        "{} abi_function body(ies) emitted an externally-bound relocation with no \
-         platform import declared:\n  {}",
+        "{} abi_function body(ies) emitted an externally-bound relocation with no          platform import declared:\n  {}",
         leaked.len(),
         leaked.join("\n  ")
     );
