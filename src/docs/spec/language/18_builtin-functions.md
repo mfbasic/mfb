@@ -166,6 +166,57 @@ Conformance was completed across the codebase in one pass; `thread` was the pilo
 rejects negatives and treats `0` as an immediate check, so its value meanings
 match the table — it simply does not offer the unbounded/omit spelling.)
 
+## 18.5 Index and range convention
+
+Every built-in that names a **position inside a value** — an index into a `List`
+or a `String`, or a bound of a range within one — draws that parameter's name
+from one vocabulary and gives it one meaning. As with the timeout convention
+above, this is normative and there is no per-package variation.
+
+| Shape | Spelling | Meaning |
+|---|---|---|
+| offset + length | `start` + `count` | begin at `start` and take `count` items |
+| a bounded range | `start` + `end`*Noun* | run from `start` to the bound, whose page states whether it is inclusive or exclusive |
+| a scan origin | `start` | where a search begins, whether it runs forward or backward |
+| a plain quantity | `count`, `length`, `size` | how many, not where — not a position, and not covered by this section |
+
+`end` is a reserved word (`./mfb spec language lexical-structure`), so an
+end-of-range parameter cannot be called `end`. It is spelled `end` followed by
+the noun for what the bound is: `endIndex` for an index
+(`astrings::addAttribute`, `astrings::removeAttribute`, `collections::findLastIndex`,
+`regex::Group`, `regex::MatchInfo`), `endTime` for an instant
+(`datetime::between`), `endPoint` for a point and `endAngle` for an angle
+(`canvas::Gradient`, `canvas::DrawItem`). `stop`, `finish` and `last` are not
+used for a range bound. A bound never appears without its `start`; a bare
+`start` with no bound is a scan origin. [[src/codegen/registry/mod.rs:range_and_index_parameters_use_the_documented_vocabulary]]
+
+**Inclusivity is a per-member fact, stated on the member's page** — the name
+says the parameter is a bound, not which end it stops at.
+`astrings::addAttribute`'s `[start, endIndex]` is **inclusive**;
+`regex::Group`'s and `regex::MatchInfo`'s is **exclusive**, so
+`endIndex - start` is the match length. Both spellings are correct under this
+section; a page that leaves the question unanswered is not.
+
+**A negative index is out of range.** Every index and every range bound rejects
+a negative value — with `ErrIndexOutOfRange` (`77050001`), or with
+`ErrInvalidArgument` (`77050002`) where the member reports a malformed range
+rather than a bad position (`astrings::addAttribute`). A negative value is
+never an offset from the end of the value, in any built-in: `-1` does not mean
+"the last element". This holds for `collections::findIndex`,
+`collections::findLastIndex`, `collections::mid`, `collections::get`,
+`collections::set`, `collections::insert`, `collections::removeAt`,
+`strings::find`, `strings::mid`, `strings::graphemeAt`, `regex::find`,
+`regex::findAll`, `regex::count`, `astrings::addAttribute`,
+`astrings::removeAttribute` and `astrings::getAttributes` alike.
+
+A member that needs to say "from the end" says it by **omitting** an optional
+argument, not by passing a negative one. `collections::findLastIndex(xs, pred)`
+scans backward from the last element; `collections::findLastIndex(xs, pred, -1)`
+raises `ErrIndexOutOfRange`. (The two forms are separate signatures — see
+`./mfb man collections findLastIndex` — because no `Integer` value can mean
+"the last element" without also being writable by a caller, which is the `-1`
+this rule removes.) [[src/codegen/builtins/collections/func_find_last_index.rs:register]]
+
 ## See Also
 
 * ./mfb spec language types — the numeric conversions (`toInt`/`toFloat`/`toFixed`/…) these built-ins perform

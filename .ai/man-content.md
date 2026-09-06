@@ -73,6 +73,43 @@ of the language contract) or `.ai/**` (if it is an implementation invariant).
 - Cross-references to the sibling a developer would otherwise reach for by
   mistake.
 
+### 2.1 The index and range vocabulary
+
+Parameter names are **public surface** — every one is usable as a named argument
+(`collections::findLastIndex(xs, isPos, start := 2)`) — and the compiler never
+reads them, so a name is a promise nothing checks. Five authors independently
+inventing a name for "the end of a range" is what bug-527 found, and one of the
+five (`endIndex`) had been reused for a parameter that was a range *start*.
+
+A parameter or record field that names a **position inside a value** draws its
+name from this table:
+
+| Shape | Spelling |
+|---|---|
+| offset + length | `start` + `count` |
+| a bounded range | `start` + `end`*Noun* — `endIndex`, `endTime`, `endPoint`, `endAngle` |
+| a scan origin, forward or backward | bare `start` |
+| a quantity that is not a position | `count` / `length` / `size` |
+
+`end` is a reserved keyword, which is why the bound carries the noun for what it
+bounds instead of standing alone. `stop`, `finish`, `last` and `endIdx` are not
+used. The pin is
+`range_and_index_parameters_use_the_documented_vocabulary`
+(`src/codegen/registry/mod.rs`); it fails on a retired spelling anywhere, and on
+an `end`*Noun* or `start`*Noun* without its counterpart.
+
+Two things the *name* does not say, so the `desc` must:
+
+- **Whether the bound is inclusive.** `astrings::addAttribute`'s
+  `[start, endIndex]` is inclusive; `regex::Group`'s is exclusive, so
+  `endIndex - start` is the match length. Both are correct spellings; a page that
+  leaves the question unanswered is not.
+- **Nothing about negatives** — that answer is the same for every member and is a
+  language contract, not a per-page choice: a negative index is out of range
+  (`./mfb spec language builtin-functions` §18.5). Never document a member as
+  resolving `-1` to the last element. No member does; the one that did is what
+  bug-527 fixed.
+
 ## 3. What a page MUST NOT contain
 
 - Registry / descriptor / lowering / monomorph / ABI vocabulary.

@@ -204,7 +204,6 @@ impl CodeBuilder<'_> {
 
 // --- source-generic descriptor + body ---
 
-
 const INTRO: &str =
     r#"Index of the last element at or before an end position that satisfies a predicate"#;
 

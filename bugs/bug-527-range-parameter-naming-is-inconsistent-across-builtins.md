@@ -1,12 +1,15 @@
 # bug-527: range parameters are spelled five different ways across the built-ins, and `endIndex` means two different things
 
-Last updated: 2026-09-04
+Last updated: 2026-09-06
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
-Regression Test: `tests/` — a registry pin asserting the range-parameter vocabulary
+Status: Fixed (pending land)
+Regression Test: `tests/rt-behavior/collections/negative-index-rule-rt` (the
+negative-index rule, per member) and
+`codegen::registry::tests::range_and_index_parameters_use_the_documented_vocabulary`
+(the vocabulary pin)
 
 There is no language-wide convention for naming the ends of a range. A census of
 every registry parameter (`grep -rhoE '"(start|stop|end|endIndex|from|to|first|last|count|length)"' src/codegen/builtins/`)
@@ -240,50 +243,50 @@ any sense the pair implies — and churns five correct members.
 
 ### Phase 1 — census + decisions (no behavior change)
 
-- [ ] Complete the parameter census: every registry `Parameter` whose name is a
+- [x] Complete the parameter census: every registry `Parameter` whose name is a
       range bound, an index, or a count, with its semantics and its
       negative-value rule. `grep` is the start, not the answer — read each `desc`.
-- [ ] Write a fixture recording today's behavior for negative arguments to
+- [x] Write a fixture recording today's behavior for negative arguments to
       `findIndex`, `findLastIndex`, `mid`, `find`, `addAttribute`. It passes; it
       is the guard for Phase 3.
-- [ ] Decide the vocabulary and the negative-index rule; write both into
+- [x] Decide the vocabulary and the negative-index rule; write both into
       `.ai/man-content.md`.
-- [ ] Count named-argument call sites for every parameter proposed for rename
+- [x] Count named-argument call sites for every parameter proposed for rename
       (`grep -rn "endIndex :=\|finish :=" tests/ examples/ benchmark/ src/`).
 
 Acceptance: the census is complete with a verdict per parameter; both decisions
 are written down; the rename cost is counted.
-Commit: —
+Commit: 177cdd2e7
 
 ### Phase 2 — the negative-index rule
 
-- [ ] Apply the decided rule to every divergent member. This is the behavioral
+- [x] Apply the decided rule to every divergent member. This is the behavioral
       half and lands first, alone, so its blast radius is not entangled with a
       rename.
-- [ ] Give `collections::findLastIndex` a default that does not depend on `-1`.
+- [x] Give `collections::findLastIndex` a default that does not depend on `-1`.
 
 Acceptance: the Phase 1 fixture is updated to the new rule and passes; every
 index parameter answers a negative argument the same way.
-Commit: —
+Commit: b3463305a
 
 ### Phase 3 — the renames
 
-- [ ] Rename the parameters that diverge from the vocabulary.
-- [ ] Update every named-argument call site from Phase 1.
-- [ ] Update the man pages, including the examples that use named arguments.
+- [x] Rename the parameters that diverge from the vocabulary.
+- [x] Update every named-argument call site from Phase 1.
+- [x] Update the man pages, including the examples that use named arguments.
 
 Acceptance: the vocabulary pin passes; all examples compile and run.
-Commit: —
+Commit: 74b798e55
 
 ### Phase 4 — pin + validation
 
-- [ ] Add a registry pin: every range/index parameter name is in the documented
+- [x] Add a registry pin: every range/index parameter name is in the documented
       vocabulary, with an explicit exception list.
-- [ ] Regenerate goldens; `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
-- [ ] `scripts/man-run-examples.sh` for every touched package.
+- [x] Regenerate goldens; `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
+- [x] `scripts/man-run-examples.sh` for every touched package.
 
 Acceptance: full suite green; the pin rejects a new out-of-vocabulary name.
-Commit: —
+Commit: (this commit)
 
 ## Validation Plan
 
@@ -313,3 +316,46 @@ a source-compatibility break to fix. The negative-index divergence between
 `findIndex` and `findLastIndex` is narrow, behavioral, and the only part that
 produces wrong answers — it is worth landing on its own, first, whatever
 happens to the names.
+
+## What the fix found that this document did not
+
+1. **The census missed `canvas`, which already had the general answer.**
+   `canvas::Gradient` spells its bounds `startPoint`/`endPoint` and
+   `canvas::DrawItem`'s `Arc` spells them `startAngle`/`endAngle` — `end` plus
+   the noun for what the bound is. The recommended vocabulary (`endIndex`,
+   full stop) does not generalise: `datetime::between` bounds an `Instant`, and
+   `endIndex` on it would be a false name. The convention landed is
+   `end`*Noun*, which yields `endIndex` for every index bound (the ruling) and
+   `endTime` for datetime.
+
+2. **The census missed `regex`, where `endIndex` has a THIRD meaning.**
+   `regex::Group.endIndex` and `regex::MatchInfo.endIndex` are public and
+   **exclusive** ("one past the last scalar"), where `astrings`' is inclusive.
+   That is not two meanings of `endIndex` but three. It is left alone and
+   recorded as an exception: the name says the parameter is a bound, not which
+   end it stops at, and changing an inclusivity is this document's own
+   non-goal.
+
+3. **The rename cost was one call site, not "every fixture and example".**
+   `grep -rn 'endIndex :=\|finish :=' tests/ examples/ benchmark/ src/` finds
+   exactly one named-argument site for a renamed parameter — `findLastIndex`'s
+   own man-page example — and zero for `finish`.
+
+4. **Dropping the `-1` default was the hard part, and it is not a naming
+   change.** A `DefaultValue` is a CONSTANT the call site injects, so "the last
+   element" cannot be expressed as a default at all without also being writable
+   by a caller. `findLastIndex` is now two implementations with two bodies
+   (`__collections_findLastIndexFromEnd` and `__collections_findLastIndex`),
+   routed by argument COUNT through a new `registry::rewrite_target_for_arity`
+   — the `collections` monomorph seam previously resolved every member to its
+   first implementation.
+
+5. **"Rejected" is two error codes, not one.** Every index member answers a
+   negative argument with `ErrIndexOutOfRange` (77050001) except
+   `astrings::addAttribute`/`removeAttribute`, which report a malformed range
+   as `ErrInvalidArgument` (77050002). Verified by probing all 17 members.
+
+6. **The negative-index divergence did not need splitting into its own bug.**
+   It was exactly one member, so Phase 2 landed alone as its own commit
+   (b3463305a) as the document's Open Decision asked, without a separate
+   document.

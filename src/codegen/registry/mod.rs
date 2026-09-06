@@ -3923,6 +3923,131 @@ mod tests {
         );
     }
 
+    /// **Every range/index parameter is spelled from the documented vocabulary.**
+    ///
+    /// Parameter names are PUBLIC surface — each one is usable as a named argument
+    /// (`collections::findLastIndex(xs, isPos, start := 2)`) — and nothing in the
+    /// compiler reads them, so a name is a promise no build, test or golden checks.
+    /// Before bug-527 the end of a range was spelled five ways across the surface
+    /// (`endIndex`, `finish`, `last`, `count`, and a backward scan ORIGIN misnamed
+    /// `endIndex`), and `endIndex` itself carried two meanings on two packages. The
+    /// convention is written in `./mfb spec language builtin-functions` §18.5 and
+    /// `.ai/man-content.md` §2.1; this is the pin that fails when a new parameter
+    /// leaves it.
+    ///
+    /// Three rules, each of which a real descriptor broke:
+    ///
+    /// 1. The retired spellings of a range end are not used anywhere. `end` itself
+    ///    cannot be a parameter or field name at all (it is a reserved keyword),
+    ///    which is exactly why each author invented a different replacement; the
+    ///    convention's answer is `end` plus the noun for what the bound is —
+    ///    `endIndex`, `endTime`, `endPoint`, `endAngle`.
+    /// 2. An `end<Noun>` bound never stands alone: the same parameter list or record
+    ///    also declares `start` or `start<SameNoun>`. A lone `end…` is a scan ORIGIN
+    ///    wearing a bound's name, which is what `collections::findLastIndex` was.
+    /// 3. `start<Noun>` pairs with `end<Noun>` for the same noun. A `startIndex` with
+    ///    no `endIndex` is a scan origin and should be a bare `start`.
+    ///
+    /// Rules 2 and 3 are applied to every implementation's parameter list and to
+    /// every EXPORTED record's fields. A non-exported record is not public surface
+    /// and is exempt from the pairing rules (the `__regex_*` engine nodes carry a
+    /// `startPos` with no counterpart); rule 1 is tree-wide, because the retired
+    /// spellings are wrong wherever they appear.
+    #[test]
+    fn range_and_index_parameters_use_the_documented_vocabulary() {
+        // The spellings of "the end of a range" the convention retired. `end` is in
+        // the list even though the lexer already refuses it, so the reason it is
+        // absent is recorded here rather than inferred from a parse error.
+        const RETIRED: &[&str] = &["end", "endIdx", "endPos", "finish", "last", "stop"];
+
+        /// The noun after a `start`/`end` prefix, or `None` when `name` is not of that
+        /// shape. The capital is what separates `startPoint` (a bound) from
+        /// `startsWith` (a different word that happens to begin the same way).
+        fn noun<'a>(name: &'a str, prefix: &str) -> Option<&'a str> {
+            let rest = name.strip_prefix(prefix)?;
+            rest.chars()
+                .next()
+                .is_some_and(|first| first.is_ascii_uppercase())
+                .then_some(rest)
+        }
+
+        fn check(where_: &str, names: &[&str], pair: bool, failures: &mut Vec<String>) {
+            for name in names {
+                if RETIRED.contains(name) {
+                    failures.push(format!(
+                        "{where_}: `{name}` is a retired spelling of a range end; the \
+                         convention spells it `start` + `end<Noun>` (`endIndex`, \
+                         `endTime`, `endPoint`, `endAngle`)"
+                    ));
+                }
+                if !pair {
+                    continue;
+                }
+                if let Some(n) = noun(name, "end") {
+                    let paired = names
+                        .iter()
+                        .any(|other| *other == "start" || noun(other, "start") == Some(n));
+                    if !paired {
+                        failures.push(format!(
+                            "{where_}: `{name}` names the end of a range but there is \
+                             no `start` or `start{n}` beside it; a bound never stands \
+                             alone, and a scan origin is a bare `start`"
+                        ));
+                    }
+                }
+                if let Some(n) = noun(name, "start") {
+                    let paired = names.iter().any(|other| noun(other, "end") == Some(n));
+                    if !paired {
+                        failures.push(format!(
+                            "{where_}: `{name}` has no `end{n}` beside it; a start with \
+                             no bound is a scan origin and is spelled `start`"
+                        ));
+                    }
+                }
+            }
+        }
+
+        let mut failures = Vec::new();
+        let mut checked = 0usize;
+        for package in registry().packages() {
+            for function in package.functions() {
+                for (index, implementation) in function.implementations().iter().enumerate() {
+                    let names: Vec<&str> = implementation
+                        .params
+                        .iter()
+                        .map(|param| param.name)
+                        .collect();
+                    let where_ =
+                        format!("{}::{} impl {index}", package.import_name(), function.name);
+                    check(&where_, &names, true, &mut failures);
+                    checked += names.len();
+                    for param in &implementation.params {
+                        let where_ = format!("{where_} alias of `{}`", param.name);
+                        check(&where_, param.aliases, false, &mut failures);
+                        checked += param.aliases.len();
+                    }
+                }
+            }
+            for record in package.records() {
+                let names: Vec<&str> = record.props.iter().map(|prop| prop.name).collect();
+                let where_ = format!("{}::{} record", package.import_name(), record.name);
+                check(&where_, &names, record.export, &mut failures);
+                checked += names.len();
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "{} parameter name(s) leave the range/index vocabulary:\n  {}",
+            failures.len(),
+            failures.join("\n  "),
+        );
+        assert!(
+            checked > 1000,
+            "the census only reached {checked} names, so it is not covering the surface"
+        );
+    }
+
     /// **Every `add_consuming_parameter` names a real member and a real parameter of
     /// it.**
     ///
