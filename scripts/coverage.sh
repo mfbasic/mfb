@@ -32,6 +32,12 @@ status=0
 cargo llvm-cov --workspace --all-targets --no-fail-fast \
   --no-report || status=$?
 
+# The plain (non-test) binaries are instrumented and never executed; llvm-cov
+# would merge their whole mapping at count 0. Drop them before the first report
+# pass — they stay gone for coverage-check.sh and the global-floor pass that
+# follow in the same job.
+drop_never_executed_binaries
+
 # Human-readable + tooling reports from the held profile. If the run produced no
 # profile at all (e.g. a compile failure), these error out and `set -e` fails the
 # script here — which is still a loud, non-zero exit, so nothing is masked.

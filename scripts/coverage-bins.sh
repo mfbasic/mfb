@@ -27,6 +27,10 @@ cd "$(dirname "$0")/.."
 
 cargo llvm-cov --bins --no-fail-fast --no-report "$@"
 
+# Before reporting: the plain `mfb` binary is instrumented and never executed,
+# and llvm-cov would merge its whole mapping at count 0.
+drop_never_executed_binaries
+
 cargo llvm-cov report $PKG_FLAGS \
   --ignore-filename-regex "$IGNORE" \
   --json --output-path target/coverage/coverage.json >/dev/null

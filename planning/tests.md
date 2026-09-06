@@ -232,10 +232,32 @@ The per-file ledger is generated from the Phase 0 baseline; see
       passing an empty table.
 - [x] The canvas and term surfaces in `-app` mode on every backend.
       `runtime/canvas/metal.rs` 39.29% -> 96.43%.
-- [ ] The remaining 207 `src/**` files below the floor, worst first. Regenerate
+- [x] Merge `main` (48 commits) and repair the fallout. plan-122-D moved the
+      colour model out of `canvas` into a new `color` package, which red-lit all
+      nine canvas codegen tests — c9df391b0. The same commit makes the harness
+      report the CAUSE of a lowering failure: it now runs the source checkers on
+      the FAILURE path only, so a dead name reads as a source error rather than
+      as `internal relocation target '<name>' is not defined`.
+- [x] `CodegenPlatform`'s 36 optional hooks: who implements each, and how the
+      rest decline — 695715824. Four decline shapes (`Err`, `unreachable!`,
+      `None`, `unimplemented!`), and the table records WHICH answer each
+      (backend, hook) pair gives, because `None` swallowing the other three is
+      silent: a macOS build that lost `emit_app_io_write` would link, run, and
+      print nothing.
+- [x] `engine/validation/validation.rs` 81.50% (116 short): one real lowering,
+      mutated once per rule, twenty-one refusals — 311cde9db. Shown to bite by
+      disabling the branch-label check and watching exactly that row go red.
+- [x] `builder_inplace_assign.rs`: which of the three `append` lowerings a
+      program gets (`append_inplace_*` / `bulk_append_*` / `list_insert_*`),
+      mutually exclusive — e2293ef98.
+- [ ] The remaining `src/**` files below the floor, worst first. Regenerate
       the ranking with `python3 scripts/coverage-src-gaps.py <report.json>`,
-      which sorts by LINES SHORT rather than by percentage, and
-      `scripts/coverage-src-delta.py` to diff two reports.
+      which sorts by LINES SHORT rather than by percentage,
+      `scripts/coverage-src-delta.py` to diff two reports, and
+      `scripts/coverage-src-lines.py <report.json> <file>` for the uncovered
+      RANGES of one file (`--source` interleaves the text). Ranking by file said
+      which file; nothing said which lines, and reconstructing that by eye from
+      a 3,000-line file is where the time went.
 
 ### What the remaining 7,126 lines ARE
 
@@ -478,32 +500,63 @@ been ~90 commits for the same result, with 90 copies of the same assertion.
 The task's "one file per commit" rule still holds for a real gap; it does not
 hold for a gap that is one defect replicated by a code pattern.
 
-### C6 — the gate counts a never-executed second copy of the crate
+### C6 — the gate counted a never-executed second copy of the crate. Fixed.
 
-`cargo llvm-cov --bins` leaves two instrumented `mfb` binaries in the target
-directory: the test harness (`deps/mfb-62f5312171eba2f4`, which runs) and the
-plain binary (`deps/mfb-b63d0159555d2520` and its `debug/mfb` copy, which is
-built, instrumented, and never executed). The report merges both, and the
-never-run copy contributes 10,954 function records, every one at count 0.
+`cargo llvm-cov --bins` / `--all-targets` builds each bin target twice: the test
+harness, which runs, and the plain binary, which is instrumented and never
+executed by anything. Nothing executes it — the integration suite reaches the
+compiler by spawning `target/release/mfb`, a separate uninstrumented process
+whose profile this one never merges (F1).
 
-Where the two copies inline the same function differently, llvm-cov reports the
-union of their regions, so lines the running copy demonstrably executes come
-back uncovered. That is C3's mechanism, and it is also why the number moves for
-reasons that have nothing to do with tests: making
-`os::gen_introspect::lower_const_string` infallible (a real cleanup, 4035966c7)
-doubled that file's countable lines from 83 to 166, because the plain binary
-started emitting an out-of-line copy. Its records:
+`llvm-cov` reports the union of every object's regions and sums their line
+counts, so the never-run copy contributes its whole mapping at count 0. Where
+the two copies inline the same function differently, lines the running copy
+demonstrably executes come back uncovered.
 
-    290  ..Cs6neornPKIZM_..gen_introspect18lower_const_string   (the test binary)
-      0  ..Cse8eQQ6yvCB6_..gen_introspect18lower_const_string   (the plain one)
+**This entry previously read "Not changed", on a measurement of 231 files -> 228.
+That measurement was right and the conclusion drawn from it was wrong**, because
+the effect is not a fixed 3 files — it swings with code changes that have nothing
+to do with any test. Re-measured after merging main, on one profile, reporting
+with the plain binaries present against absent:
 
-Removing the plain binary before reporting was measured, on the same profile:
-**231 files -> 228, 7,747 uncovered lines -> 7,488.** Every line it removes is
-one the test copy already covers, and `src/**` contains no `#[cfg(not(test))]`
-code (`grep -rn "cfg(not(test))" src/ | grep -v cfg_attr` = 0), so nothing can
-exist only in the plain binary.
+    248 files below the floor / 22,883 uncovered lines   (present)
+    205 files below the floor /  6,863 uncovered lines   (absent)
 
-**Not changed.** The gain is 3 files, the scripts are shared with CI, and
-AGENTS.md is right that a gate's measurement is not something to alter casually.
-The evidence is recorded here so a future session can weigh it with the numbers
-rather than rediscover the mechanism.
+43 files and 16,020 lines. `engine/builder/mod.rs` reads 47.16% (1902/4033) with
+them and 94.30% (1902/2017) without: the same numerator, a doubled denominator.
+
+Two things make this a defect rather than a tradeoff:
+
+1. **No test can close those files.** A line in a binary that is never executed
+   cannot be covered by anything. So the plan's own goal — every non-excepted
+   file at or above the floor, with exceptions forbidden — is unreachable while
+   the gate counts them.
+2. **CI enforces this gate.** `scripts/coverage.sh` runs `--workspace
+   --all-targets`, so the per-file gate and the `--fail-under-lines 98` global
+   floor both ran against the polluted denominator. The baseline this task was
+   written from (405 files, 89.09%) is that number.
+
+**Changed.** `drop_never_executed_binaries` in `scripts/coverage-common.sh`,
+called from `coverage.sh`, `coverage-bins.sh` and `coverage-check.sh` before the
+first report pass. Nothing is lost: `grep -rn "cfg(not(test))" src/
+repository/src/` (discounting `cfg_attr`) is 0, so no line exists only in a plain
+build.
+
+The discriminator is the binary's **content**, and two cheaper rules were tried
+and measured wrong first:
+
+- *by size* — `mfb_repo`'s plain copy is the LARGER of its two (17.9 MB against
+  5.0 MB).
+- *by the `debug/<name>` uplift* — `mfb_repo` had none, so its plain copy
+  survived and stayed in the report.
+
+A libtest harness embeds libtest's own argument help, so `--test-threads` appears
+in it and in nothing else here; the classification was checked against the run
+log's own `Running unittests ... (target/.../deps/mfb_repo-a40426a75b11f039)`
+line. A count guard leaves a name completely alone if ALL its binaries classify
+as plain, because deleting a harness would zero the coverage of everything it
+covers and read as a catastrophic regression.
+
+One more trap on the way: the metadata target name is not the on-disk name.
+Cargo writes `mfb-repo` as `mfb_repo`, so globbing the metadata spelling matched
+nothing.

@@ -14,6 +14,11 @@ cd "$(dirname "$0")/.."
 FLOOR="${FLOOR:-98}"
 . ./scripts/coverage-common.sh
 
+# Idempotent, and cheap when there is nothing to drop: this script is also run
+# directly (CI runs it as its own step after scripts/coverage.sh), and a rebuild
+# between the two would put the never-executed plain binaries back.
+drop_never_executed_binaries
+
 # Regenerate the JSON summary from the cached profile (no test re-run).
 cargo llvm-cov report $PKG_FLAGS \
   --ignore-filename-regex "$IGNORE" \
