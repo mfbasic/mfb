@@ -96,6 +96,11 @@ const CROSS_BACKEND: &[&str] = &[
     "return-param-borrow-rt",
     "get-borrow-match-rt",
     "recursive-get-then-grow-rt",
+    // `EXIT PROGRAM` is the one statement whose lowering asks the PLATFORM for
+    // imports of its own (`program_exit_imports`), and no program in this list
+    // had one -- so `linux_aarch64/plan.rs` and `linux_riscv64/plan.rs` each
+    // carried a three-line delegation that had never run.
+    "exit-program-valid-rt",
 ];
 
 /// Every committed single-file fixture this harness can lower, four per family.
