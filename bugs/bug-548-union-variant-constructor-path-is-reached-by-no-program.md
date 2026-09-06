@@ -1,6 +1,6 @@
-# bug-548: the union-variant `Constructor` path in `builder_values.rs` is reached by no program in the tree
+# bug-548: two paths in `builder_values.rs::lower_value` are reached by no program in the tree
 
-Last updated: 2026-09-05
+Last updated: 2026-09-05 (second path added)
 Effort: small (30m–1h) to decide; medium if it turns out reachable
 Severity: LOW
 Class: Dead code (suspected) / Coverage
@@ -89,8 +89,44 @@ Either half is enough:
   `codegen/engine/types`'s `TypeModel`), then delete the half and let the
   corpus + `test-accept.sh` prove nothing moved.
 
+## The second path: `CallResult` on a function-typed LOCAL
+
+`lower_value`'s `NirValue::CallResult` arm opens with
+
+```rust
+if let Some(local) = self.locals.get(target).cloned() {
+    if matches!(local.type_, ParameterType::Func(_, _, false)) {
+```
+
+and about ninety lines follow it: load the callable out of its stack slot, call
+through it, materialize the `Result`. It is the fallible indirect call — `f(x)`
+where `f` is a binding of function type and the callee can `FAIL`.
+
+**The outer `if let` never binds.** An `eprintln!` at the top of the arm,
+printing `target` and `self.locals.get(target)`, across every in-process program
+— the 424-fixture corpus, the 63 package-bearing fixtures, and every
+hand-written suite — reports `local=None` on every single hit. The targets are
+all function names (`toInt`, `tls.read`, `#http_buildResponse`, user functions);
+not one is a local.
+
+This is not for want of a program that does it.
+`tests/rt-behavior/functions/function-value-error-propagates-rt` is in the
+corpus and is precisely this shape — it exists for plan-120-E, "a FAIL inside a
+function called through a FUNC-typed VALUE must propagate to the caller's TRAP"
+— and it lowers through the same arm with `local=None`. So the indirect fallible
+call reaches codegen as something other than a `CallResult` naming its callable,
+and this branch is waiting for a shape the front end does not produce.
+
+Same disposition as the union path above: measured dead, not proven unreachable,
+and the same two ways to settle it. If a shape does produce it, that fixture is
+the place to look for why it does not today; if none can, ninety lines go, and
+whatever DOES lower `function-value-error-propagates-rt` becomes the single
+documented path.
+
 ## How it was found
 
 `planning/tests.md` (the per-file coverage gate task), while ranking the
-remaining gaps. The probe is described above; it was reverted, and
+remaining gaps — `builder_values.rs` is the largest one left (373 lines short,
+80.17%) and these two paths are about half of it. Both probes are described
+above; both were reverted, and
 `src/codegen/engine/value/builder_values.rs` is byte-identical to HEAD.
