@@ -1,10 +1,12 @@
-//! `mfb build -nir` writes JSON, and nothing ever checked that it is JSON.
+//! `mfb build -nir` and `-nplan` write JSON, and nothing checked that it is.
 //!
-//! `NirModule::to_json` (`target/shared/nir/json.rs`, 561 countable lines) has
-//! exactly one caller: the `-nir` dump, from each backend's `write_nir`. No unit
-//! test reaches it, and the integration suite that runs `-nir` compares the
-//! output against a committed golden — which pins the bytes of the programs that
-//! have a golden and says nothing about the writer's other arms.
+//! `NirModule::to_json` (`target/shared/nir/json.rs`, 561 countable lines) and
+//! `NativePlan::to_json` (`target/shared/plan/json.rs`, 94) each have exactly one
+//! caller per backend — the `-nir` and `-nplan` dumps, from `write_nir` and
+//! `write_native_plan`. No unit test reaches either, and the integration suite
+//! that runs them compares against a committed golden, which pins the bytes of
+//! the programs that HAVE a golden and says nothing about the writers' other
+//! arms.
 //!
 //! The file was at 23.35%, and `link_function_json` (84 lines) and
 //! `link_expr_json` (52) were among the widest never-executed functions in the
@@ -19,7 +21,7 @@
 
 use crate::json;
 use crate::target::NativeBuildMode::Console;
-use crate::testutil::{nir_for_src, CodeTarget};
+use crate::testutil::{native_plan_for_src, nir_for_src, CodeTarget};
 
 /// A program with a `LINK` block: the arms `link_function_json` and
 /// `link_expr_json` exist for.
@@ -276,5 +278,39 @@ fn the_nir_dump_carries_a_link_block_whole() {
             "the dump must carry {kind} -- {why}. Its absence means the \
              expression tree reached the dump flattened or not at all"
         );
+    }
+}
+
+/// The `-nplan` dump is parseable JSON on every backend, for every program here.
+///
+/// One stage below `-nir`: the native plan is where the module has become
+/// per-backend — sections, symbols, imports, the entry — and it is the last
+/// text dump before the code plan. Same contract and same reason as the `-nir`
+/// row above: there is no reader, so a malformed dump is caught by nobody.
+#[test]
+fn the_native_plan_dump_is_json_on_every_backend() {
+    for (label, source) in [
+        ("linking", LINKING),
+        ("shapes", SHAPES),
+        ("module shapes", MODULE_SHAPES),
+    ] {
+        for target in CodeTarget::ALL {
+            let plan = native_plan_for_src(source, target, Console)
+                .unwrap_or_else(|err| panic!("{label} on {}: {err}", target.name()));
+            let text = plan.to_json();
+            json::parse_json_bounded(&text).unwrap_or_else(|err| {
+                panic!(
+                    "{label} on {}: `-nplan` emitted text that is not JSON: {err}",
+                    target.name()
+                )
+            });
+            assert!(
+                text.contains("main"),
+                "{}: the plan dump must name the program's entry function; a \
+                 dump that parses but describes nothing is the failure this row \
+                 exists for",
+                target.name()
+            );
+        }
     }
 }

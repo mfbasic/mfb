@@ -490,6 +490,33 @@ pub fn nir_for_src(
         .unwrap_or_else(|_| Err("the lowering thread died".to_string()))
 }
 
+/// The NATIVE PLAN for a source string — one stage below NIR, one above the
+/// code plan.
+///
+/// `NativePlan::to_json` is the `-nplan` dump, and like `-nir` it has exactly
+/// one caller per backend and no unit test. Stopping here is what lets a test
+/// read the plan the dump describes and the dump itself.
+pub fn native_plan_for_src(
+    source: &str,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+) -> Result<crate::target::shared::plan::NativePlan, String> {
+    use crate::os::linux::flavor::LinuxFlavor::Glibc;
+
+    let module = nir_for_src(source, target, build_mode)?;
+    match target {
+        CodeTarget::MacosAarch64 => crate::target::macos_aarch64::plan::lower_module(&module),
+        CodeTarget::LinuxAarch64 => {
+            crate::target::linux_aarch64::plan::lower_module(&module, Glibc)
+        }
+        CodeTarget::LinuxX86_64 => crate::target::linux_x86_64::plan::lower_module(&module, Glibc),
+        CodeTarget::LinuxRiscv64 => {
+            crate::target::linux_riscv64::plan::lower_module(&module, Glibc)
+        }
+        CodeTarget::WindowsX86_64 => crate::target::win_x86_64::plan::lower_module(&module),
+    }
+}
+
 /// NIR + the backend, for an [`IrProject`] however it was produced.
 ///
 /// Shared by the source-string path ([`code_for_src_inner`]) and the project
