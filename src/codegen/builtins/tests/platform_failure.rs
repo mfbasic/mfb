@@ -979,6 +979,15 @@ fn os_seam_platforms() -> Vec<(&'static str, Box<dyn CodegenPlatform>)> {
     ]
 }
 
+/// Everything a body asks the harness for before it will lower.
+#[derive(Default, Clone)]
+struct Needs {
+    /// Symbol -> library, as a `NativePlan`'s platform imports render.
+    imports: HashMap<String, String>,
+    /// String literal -> data-object symbol.
+    strings: HashMap<String, String>,
+}
+
 /// The import list a clean lowering of this body needs, discovered by asking.
 ///
 /// `FailAt` grants the symbol `emit_external_call` names, which is enough for a
@@ -993,37 +1002,44 @@ fn os_seam_platforms() -> Vec<(&'static str, Box<dyn CodegenPlatform>)> {
 /// the cap is a guard against a refusal whose wording changes, not against a
 /// real loop. This is the same list a real plan derives from the calls the body
 /// emits — discovered the same way, one call at a time.
-fn imports_a_clean_lowering_needs(
+fn what_a_clean_lowering_needs(
     lower: crate::codegen::registry::AbiFunction,
     params: &[crate::codegen::registry::Parameter],
     call: &str,
     platform: &dyn CodegenPlatform,
-) -> HashMap<String, String> {
-    let mut imports: HashMap<String, String> = HashMap::new();
-    for _ in 0..64 {
+) -> Needs {
+    let mut needs = Needs::default();
+    for _ in 0..128 {
         let counting = FailAt::counting(platform);
-        match lower_body(lower, params, call, &counting, &imports) {
-            Some(Err(message)) => {
-                let Some(symbol) = message
-                    .split("requires ")
-                    .nth(1)
-                    .and_then(|rest| rest.split(" import").next())
-                else {
-                    return imports;
-                };
-                if imports
-                    .insert(symbol.to_string(), "c".to_string())
-                    .is_some()
-                {
-                    // Asked for the same symbol twice: the refusal is not about
-                    // an import any more.
-                    return imports;
-                }
-            }
-            _ => return imports,
+        let Some(Err(message)) = lower_body(lower, params, call, &counting, &needs) else {
+            return needs;
+        };
+        // Each arm reads what the refusal names and provides it. A refusal this
+        // does not recognise ends the loop and the body is skipped -- which is
+        // how `native record type 'KeyPair' does not resolve` (5 bodies) is
+        // handled: a type model is more than a name, and those stay out.
+        let satisfied = if let Some(symbol) = between(&message, "requires ", " import") {
+            needs.imports.insert(symbol, "c".to_string()).is_none()
+        } else if let Some(literal) = between(&message, "string literal '", "' has no data object")
+        {
+            let symbol = format!("_mfb_str_probe_{}", needs.strings.len());
+            needs.strings.insert(literal, symbol).is_none()
+        } else {
+            false
+        };
+        if !satisfied {
+            // Asked for the same thing twice, or asked for something this does
+            // not know how to give.
+            return needs;
         }
     }
-    imports
+    needs
+}
+
+/// The text between `open` and `close`, if both are present in that order.
+fn between(haystack: &str, open: &str, close: &str) -> Option<String> {
+    let rest = haystack.split(open).nth(1)?;
+    Some(rest.split(close).next()?.to_string())
 }
 
 /// Lower one `abi_function` body with `platform`, swallowing a panic.
@@ -1037,7 +1053,7 @@ fn lower_body(
     params: &[crate::codegen::registry::Parameter],
     call: &str,
     platform: &dyn CodegenPlatform,
-    imports: &HashMap<String, String>,
+    needs: &Needs,
 ) -> Option<Result<ValueResult, String>> {
     let mut vregs = Vregs::new();
     let args: Vec<ValueResult> = params
@@ -1050,12 +1066,24 @@ fn lower_body(
         })
         .collect();
     let harness = BuilderHarness {
-        platform_imports: imports.clone(),
+        platform_imports: needs.imports.clone(),
+        string_symbols: needs.strings.clone(),
         ..BuilderHarness::default()
     };
     let mut builder = harness.builder("_mfb_rt_probe", platform);
     let base = harness.abi_ctx(platform);
-    let ctx = AbiCtx { call, ..base };
+    // Both slots reserved, because 130 bodies refuse without them -- "native
+    // code plan emits '_mfb_rt_probe' without reserving term state" and "…
+    // without reserving the presentation-mode slot". A real app-mode plan
+    // reserves both; the harness's default leaves them `None`, which is the
+    // right default for a suite that is not about app mode and the wrong one
+    // for a sweep that wants every body to run.
+    let ctx = AbiCtx {
+        call,
+        term_state_offset: Some(0),
+        presentation_mode_offset: Some(8),
+        ..base
+    };
 
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
@@ -1094,7 +1122,7 @@ fn an_emit_failure_past_the_first_one_still_propagates() {
                     // How many fallible platform calls a clean lowering makes.
                     // A body that refuses outright, or panics, contributes none:
                     // refusing is how a member says it is not implemented here.
-                    let imports = imports_a_clean_lowering_needs(
+                    let needs = what_a_clean_lowering_needs(
                         lower,
                         &implementation.params,
                         &call,
@@ -1102,7 +1130,7 @@ fn an_emit_failure_past_the_first_one_still_propagates() {
                     );
                     let counting = FailAt::counting(platform.as_ref());
                     let Some(Ok(_)) =
-                        lower_body(lower, &implementation.params, &call, &counting, &imports)
+                        lower_body(lower, &implementation.params, &call, &counting, &needs)
                     else {
                         continue;
                     };
@@ -1115,7 +1143,7 @@ fn an_emit_failure_past_the_first_one_still_propagates() {
                     for n in 0..calls {
                         let failing = FailAt::new(platform.as_ref(), n);
                         injected += 1;
-                        match lower_body(lower, &implementation.params, &call, &failing, &imports) {
+                        match lower_body(lower, &implementation.params, &call, &failing, &needs) {
                             Some(Err(message)) if message.contains(INJECTED) => {}
                             Some(Err(message)) => swallowed.push(format!(
                                 "{target} {call} call #{n}: a different refusal came \
@@ -1149,13 +1177,14 @@ fn an_emit_failure_past_the_first_one_still_propagates() {
     );
     // The row that keeps the rest honest: every assertion above holds against a
     // sweep that found no bodies at all.
-    // Measured at 710 bodies / 4,502 injections once the import fixpoint let the
-    // self-checking bodies through -- 331 / 1,997 before it, which is how much
-    // of this sweep was silently not happening. The bound is set well below so
-    // ordinary registry churn does not red it, and well above zero so the sweep
-    // going quiet does.
+    // Measured at 730 bodies / 4,577 injections. It was 331 / 1,997 when the
+    // sweep landed, and every step since has been a harness gap rather than a
+    // registry change: the import fixpoint took it to 710, and satisfying the
+    // string-literal and reserved-slot refusals took it here. The bound is set
+    // well below so ordinary registry churn does not red it, and well above
+    // zero so the sweep going quiet does.
     assert!(
-        swept > 600 && injected > 3500,
+        swept > 650 && injected > 4000,
         "only {swept} bodies and {injected} injected failures across five \
          backends -- the sweep stopped finding the bodies it is for"
     );
