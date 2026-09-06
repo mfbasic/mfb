@@ -53,6 +53,35 @@ UNION Shape
   Heavy
 END UNION
 
+' A union whose variant carries a field of a DIFFERENT data union. Defaulting
+' `Outer` asks whether `Wrap` is defaultable, which asks whether `Inner` is --
+' and `Inner` is not on the path yet, so the predicate walks its variants rather
+' than short-circuiting on the cycle. Every union in the tree until now was
+' either flat or self-referential, so that walk had never run: the arm was
+' entered and the cycle check returned false, every time.
+TYPE Small
+  n AS Integer
+END TYPE
+
+TYPE Large
+  s AS String
+END TYPE
+
+UNION Inner
+  Small
+  Large
+END UNION
+
+TYPE Wrap
+  held AS Inner
+  tag AS Integer
+END TYPE
+
+UNION Outer
+  Wrap
+  Small
+END UNION
+
 TYPE Tip
   n AS Integer
 END TYPE
@@ -93,6 +122,19 @@ END FUNC
 
 FUNC aHeavy(n AS Integer) AS Heavy
   RETURN Heavy[[n], "h", Leaf[n], Flag.On]
+END FUNC
+
+FUNC anOuter(n AS Integer) AS Outer
+  RETURN Wrap[Small[n], n]
+END FUNC
+
+FUNC showOuter(o AS Outer) AS String
+  MATCH o
+    CASE Wrap(w)
+      RETURN "Wrap(tag=" & toString(w.tag) & ")"
+    CASE Small(s)
+      RETURN "Small(" & toString(s.n) & ")"
+  END MATCH
 END FUNC
 
 FUNC aNest(n AS Integer) AS Nest
@@ -162,6 +204,15 @@ FUNC main() AS Integer
   END TRAP
   io::print("nested     ok=" & showShape(okNest.s) & "/" & toString(len(okNest.xs)) _
     & " bad=" & showShape(badNest.s) & "/" & toString(len(badNest.xs)))
+
+  ' A union whose variant holds ANOTHER union: the nested-defaultability walk.
+  LET okOuter AS Outer = anOuter(failing(4)) TRAP(e)
+    RECOVER Small[0]
+  END TRAP
+  LET badOuter AS Outer = anOuter(failing(0 - 4)) TRAP(e)
+    RECOVER Small[0]
+  END TRAP
+  io::print("nested un  ok=" & showOuter(okOuter) & " bad=" & showOuter(badOuter))
 
   ' The collection arm, and the proof that two defaults are two values: an
   ' emitter returning one shared empty list would have the first append show up

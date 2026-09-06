@@ -11,5 +11,6 @@ union      ok=Leaf(7) bad=Leaf(0)
 cycle      ok=Tip(5) bad=Tip(0)
 record     ok=1/h bad=0/r
 nested     ok=Leaf(2)/0 bad=Leaf(0)/0
+nested un  ok=Wrap(tag=4) bad=Small(0)
 collection one=3 two=0
 [exit 0]
