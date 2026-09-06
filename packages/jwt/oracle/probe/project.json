@@ -1,0 +1,15 @@
+{
+  "name": "jwtprobe",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Answers a JSON job file of sign and verify cases with packages/jwt, and writes one JSON document back in the same order, so the Node oracle can compare against it.",
+  "sources": [
+    { "root": "src", "role": "main", "include": ["**/*.mfb"] }
+  ],
+  "packages": [
+    { "name": "jwt", "version": "=0.1.0", "source": "file:packages/jwt.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

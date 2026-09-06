@@ -1,0 +1,4 @@
+# The probe's installed dependency and its build output. The root .gitignore
+# already covers node_modules/.
+probe/packages/
+probe/build/

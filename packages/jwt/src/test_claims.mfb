@@ -95,6 +95,13 @@ TESTING
       expectTrap(verify(token, [testKey()], WITH at(NOW) { maxAgeSeconds := 1800 }), 93130003)
     END TCASE
 
+    TCASE "an iat in the future has no measurable age"
+      LET token AS String = one("iat", seconds(NOW + 300))
+      expectNTrap(verify(token, [testKey()], at(NOW)))
+      expectTrap(verify(token, [testKey()], WITH at(NOW) { maxAgeSeconds := 60 }), 93130003)
+      expectNTrap(verify(token, [testKey()], WITH at(NOW) { maxAgeSeconds := 60, leewaySeconds := 600 }))
+    END TCASE
+
     TCASE "a maximum age makes iat mandatory"
       LET token AS String = one("sub", jsonString("user-1"))
       expectTrap(verify(token, [testKey()], WITH at(NOW) { maxAgeSeconds := 60 }), 93130003)
@@ -184,6 +191,33 @@ TESTING
     TCASE "a negative NumericDate is a date before 1970, not an error"
       expectNTrap(verify(one("nbf", seconds(-86400)), [testKey()], at(NOW)))
       expectTrap(verify(one("exp", seconds(-86400)), [testKey()], at(NOW)), 93130001)
+    END TCASE
+  END TGROUP
+
+  TGROUP "numericDate"
+    TCASE "a whole second count becomes the JSON number a time claim holds"
+      MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      fields = collections::set(fields, "exp", numericDate(NOW + 3600))
+      LET built AS String = sign(testKey(), jsonObject(fields))
+      expectNTrap(verify(built, [testKey()], at(NOW)))
+      expectTrap(verify(built, [testKey()], at(NOW + 3600)), 93130001)
+    END TCASE
+
+    TCASE "it round-trips through the reader that refuses a non-NumericDate"
+      ' The builder and the reader are the two halves of one rule, so a value
+      ' this writes must be a value that reads back -- including at the extremes
+      ' of the range and below the epoch.
+      FOR EACH seconds IN [0, 1, -1, -86400, 9007199254740992, -9007199254740992]
+        MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+        fields = collections::set(fields, "nbf", numericDate(seconds))
+        LET built AS json::Json = jsonObject(fields)
+        expectInteger(secondsMember(built, "nbf", "claims"), seconds)
+      NEXT
+    END TCASE
+
+    TCASE "a count past the exactly-representable range is refused"
+      expectTrap(numericDate(9007199254740993), 77050002)
+      expectTrap(numericDate(-9007199254740993), 77050002)
     END TCASE
   END TGROUP
 

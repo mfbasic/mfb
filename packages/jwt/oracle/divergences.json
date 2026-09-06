@@ -1,0 +1,9 @@
+{
+  "strict/padded-payload": "jose accepts `=` padding on a segment; RFC 7515 \u00a72 defines the JOSE encoding as the unpadded form, and a byte string with two spellings gives one token two texts. packages/jwt refuses.",
+  "strict/duplicate-alg": "jose reads the header with JSON.parse, which keeps the LAST of two same-named members; packages/jwt refuses a header that names one twice, because the two readers need not keep the same one.",
+  "strict/duplicate-exp": "As strict/duplicate-alg, on the claims set. jose accepts and reads the last `exp`; packages/jwt refuses.",
+  "strict/short-hmac-secret": "jose accepts an HMAC secret shorter than the digest; RFC 7518 \u00a73.2 requires at least the digest length, so packages/jwt refuses the key at import.",
+  "jwk/marked-for-encryption": "jose ignores `use` on import; packages/jwt refuses `use: \"enc\"` for a signature key.",
+  "claims/numericdate/fractional-exp": "jose compares a fractional `exp` numerically; RFC 7519 \u00a72 defines a NumericDate as a whole number of seconds, so packages/jwt refuses rather than choosing a rounding direction.",
+  "claims/numericdate/huge-exp": "jose compares an `exp` past 2^53 as the Float it rounded to; packages/jwt refuses, because the value that came back is not the value that was written."
+}

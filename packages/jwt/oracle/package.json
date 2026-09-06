@@ -1,0 +1,17 @@
+{
+  "name": "mfb-jwt-oracle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Differential oracle for packages/jwt: signs and verifies the same tokens with panva/jose, an independent JOSE implementation, and compares.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "oracle": "node oracle.mjs",
+    "diff": "node diff.mjs"
+  },
+  "dependencies": {
+    "jose": "^5.10.0"
+  }
+}

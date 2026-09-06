@@ -269,6 +269,16 @@ TESTING
       expectString(verify(sign(previous, simpleClaims()), keys, pinnedOptions(["EdDSA"])).kid, "2026-08")
     END TCASE
 
+    TCASE "a hand-built key with the wrong material is reported as such"
+      ' `Key` is exported, so a caller can bypass the constructors. The
+      ' verifier checks a candidate before using it, so the failure names the
+      ' key rather than whatever crypto:: makes of the bytes.
+      LET signing AS Key = generate("EdDSA", "Ed25519")
+      LET token AS String = sign(signing, simpleClaims())
+      LET short AS Key = Key[algorithm := "EdDSA", curve := "Ed25519", kid := "", secret := [], privateKey := [], publicKey := slice(publicHalf(signing), 0, 31)]
+      expectTrap(verify(token, [short], pinnedOptions(["EdDSA"])), 77050002)
+    END TCASE
+
     TCASE "a key without a kid is tried whatever the token asks for"
       LET signing AS Key = generate("EdDSA", "Ed25519")
       LET labelled AS String = sign(withKid(signing, "whatever"), simpleClaims())

@@ -41,10 +41,10 @@ DOC
 
     FUNC main() AS Integer
       LET key AS jwt::Key = jwt::generate("HS256", "")
-      MUT claims AS Map OF String TO json::Json = Map OF String TO json::Json {}
-      claims = collections::set(claims, "sub", json::JsonStr["user-1"])
-      claims = collections::set(claims, "exp", json::JsonNum[2000000000.0])
-      LET token AS String = jwt::sign(key, json::JsonObj[claims])
+      ' A claims set is an ordinary JSON object, so the shortest way to write a
+      ' fixed one is to parse it.
+      LET claims AS json::Json = json::parse("{\"sub\":\"user-1\",\"exp\":2000000000}")
+      LET token AS String = jwt::sign(key, claims)
 
       LET checked AS jwt::Token = jwt::verify(token, [key], jwt::options(["HS256"]))
       io::print(json::stringify(checked.claims))
@@ -143,10 +143,10 @@ END DOC
 ' Build one with `jwt::options`, which fills in every default, and change what
 ' you need with a record update:
 '
-'   LET choices AS jwt::Options = WITH jwt::options(["ES256"]) {
-'     issuer := "https://issuer.example",
-'     leewaySeconds := 30
-'   }
+'   LET choices AS jwt::Options = WITH jwt::options(["ES256"]) { issuer := "https://issuer.example", leewaySeconds := 30 }
+'
+' It goes on one line however wide it gets: MFBASIC has no line continuation,
+' so a record update is one statement.
 '
 ' There is deliberately no default for `algorithms`: see the package's security
 ' notes.
@@ -219,12 +219,7 @@ DOC
     IMPORT jwt
 
     FUNC choices() AS jwt::Options
-      RETURN WITH jwt::options(["ES256", "EdDSA"]) {
-        issuer := "https://issuer.example",
-        audience := "https://api.example",
-        requiredClaims := ["exp"],
-        leewaySeconds := 30
-      }
+      RETURN WITH jwt::options(["ES256", "EdDSA"]) { issuer := "https://issuer.example", audience := "https://api.example", requiredClaims := ["exp"], leewaySeconds := 30 }
     END FUNC
   END EXAMPLE
 END DOC
@@ -236,6 +231,45 @@ EXPORT FUNC options(algorithms AS List OF String) AS Options
     algorithmFamily(algorithm)
   NEXT
   RETURN Options[algorithms := algorithms, issuer := "", audience := "", subject := "", requiredClaims := [], leewaySeconds := 0, maxAgeSeconds := 0, typeHeader := "", fixedTime := FALSE, timeSeconds := 0]
+END FUNC
+
+DOC
+  FUNC numericDate
+  GROUP Signing
+  DESC Turn a whole number of seconds since the Unix epoch into the
+  DESC `json::Json` value a time claim holds.
+  DESC
+  DESC `exp`, `nbf` and `iat` are NumericDates (RFC 7519 §2): a JSON number of
+  DESC whole seconds. JSON numbers are `Float`, so writing one by hand means
+  DESC `json::JsonNum[toFloat(seconds)]` and then widening that record to
+  DESC `json::Json` before it can go in the claims map. This is that, named --
+  DESC and it is the same scale `datetime::Instant.seconds` reports, so
+  DESC `jwt::numericDate(datetime::now().seconds + 3600)` is an hour from now.
+  DESC
+  DESC `jwt::verify` reads a time claim back under the matching rule: a value
+  DESC carrying a fraction, or past the range a JSON number holds exactly, is
+  DESC rejected rather than rounded.
+  ARG seconds Whole seconds since 1970-01-01T00:00:00Z. May be negative, which is a date before 1970.
+  RET The claim value, as a `json::Json` number.
+  ERROR 77050002 `seconds` is outside the range a JSON number holds exactly, so it could not be compared against a clock.
+  EXAMPLE
+    IMPORT jwt
+    IMPORT json
+    IMPORT collections
+    IMPORT datetime
+
+    FUNC expiringIn(seconds AS Integer) AS json::Json
+      MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      fields = collections::set(fields, "exp", jwt::numericDate(datetime::now().seconds + seconds))
+      RETURN json::JsonObj[fields]
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC numericDate(seconds AS Integer) AS json::Json
+  IF seconds > 9007199254740992 OR seconds < -9007199254740992 THEN
+    FAIL error(ERR_ARGUMENT, "jwt: " & toString(seconds) & " is past the range a JSON number holds exactly, so a claim carrying it could not be compared against a clock")
+  END IF
+  RETURN jsonNumber(toFloat(seconds))
 END FUNC
 
 DOC
@@ -267,11 +301,15 @@ DOC
     FUNC main() AS Integer
       LET key AS jwt::Key = jwt::generate("EdDSA", "Ed25519")
       LET now AS Integer = datetime::now().seconds
+      ' Each value is widened to `json::Json` on the way in: the six member
+      ' types are records, and the map holds the union over them.
+      LET issuer AS json::Json = json::JsonStr["https://issuer.example"]
+      LET subject AS json::Json = json::JsonStr["user-1"]
       MUT claims AS Map OF String TO json::Json = Map OF String TO json::Json {}
-      claims = collections::set(claims, "iss", json::JsonStr["https://issuer.example"])
-      claims = collections::set(claims, "sub", json::JsonStr["user-1"])
-      claims = collections::set(claims, "iat", json::JsonNum[toFloat(now)])
-      claims = collections::set(claims, "exp", json::JsonNum[toFloat(now + 3600)])
+      claims = collections::set(claims, "iss", issuer)
+      claims = collections::set(claims, "sub", subject)
+      claims = collections::set(claims, "iat", jwt::numericDate(now))
+      claims = collections::set(claims, "exp", jwt::numericDate(now + 3600))
       io::print(jwt::sign(key, json::JsonObj[claims]))
       RETURN 0
     END FUNC
@@ -304,8 +342,9 @@ DOC
     IMPORT collections
 
     FUNC signed(key AS jwt::Key, claims AS json::Json) AS String
+      LET kind AS json::Json = json::JsonStr["at+jwt"]
       MUT extras AS Map OF String TO json::Json = Map OF String TO json::Json {}
-      extras = collections::set(extras, "typ", json::JsonStr["at+jwt"])
+      extras = collections::set(extras, "typ", kind)
       RETURN jwt::signWithHeader(key, extras, claims)
     END FUNC
   END EXAMPLE
@@ -342,7 +381,7 @@ DOC
   ARG choices What to accept and what to check -- see `jwt::options`.
   RET The header, the claims, the algorithm the signature was checked under, and the `kid` of the key that verified it.
   ERROR 77050003 The token is not a compact JWS: the wrong number of segments, a segment that is not canonical unpadded Base64url, a header or payload that is not a JSON object, a duplicate member name, or an ECDSA signature that is not a well-formed `(r, s)` pair.
-  ERROR 77050002 `choices` is not usable -- most often an empty allowlist.
+  ERROR 77050002 `choices` is not usable (most often an empty allowlist), or a candidate key cannot verify -- an `EdDSA` key holding only its seed has no public half to check against.
   ERROR 77050004 No key in `keys` carries the token's algorithm, or its `kid`.
   ERROR 77050007 The token names a JOSE algorithm this package does not implement.
   ERROR 77050016 The signature did not verify under any candidate key.
@@ -357,10 +396,7 @@ DOC
     IMPORT io
 
     FUNC subjectOf(token AS String, keys AS List OF jwt::Key) AS String
-      LET choices AS jwt::Options = WITH jwt::options(["ES256"]) {
-        issuer := "https://issuer.example",
-        requiredClaims := ["exp"]
-      }
+      LET choices AS jwt::Options = WITH jwt::options(["ES256"]) { issuer := "https://issuer.example", requiredClaims := ["exp"] }
       LET checked AS jwt::Token = jwt::verify(token, keys, choices) TRAP(problem)
         IF problem.code = jwt::expiredCode() THEN
           io::printError("that token has expired")
@@ -641,14 +677,15 @@ DOC
   ERROR 77050002 `key` is a MAC key, which has no public half, or an `EdDSA` key holding only its seed.
   EXAMPLE
     IMPORT jwt
+    IMPORT collections
     IMPORT io
 
     SUB publish(keys AS List OF jwt::Key)
-      MUT public AS List OF jwt::Key = []
+      MUT published AS List OF jwt::Key = []
       FOR EACH key IN keys
-        public = collections::append(public, jwt::publicKeyOf(key))
+        published = collections::append(published, jwt::publicKeyOf(key))
       NEXT
-      io::print(jwt::exportJwkSet(public, FALSE))
+      io::print(jwt::exportJwkSet(published, FALSE))
     END SUB
   END EXAMPLE
 END DOC
@@ -715,10 +752,12 @@ DOC
   EXAMPLE
     IMPORT jwt
     IMPORT http
+    IMPORT net
     IMPORT io
 
     FUNC keysFrom(url AS String) AS List OF jwt::Key
-      LET keys AS List OF jwt::Key = jwt::importJwkSet(http::getText(url))
+      LET response AS http::Response = http::read(net::toUrl(url))
+      LET keys AS List OF jwt::Key = jwt::importJwkSet(toString(response.body))
       io::print("usable keys: " & toString(len(keys)))
       RETURN keys
     END FUNC
@@ -822,18 +861,19 @@ DOC
   RET 93130001.
   EXAMPLE
     IMPORT jwt
+    IMPORT json
     IMPORT io
 
-    FUNC readable(token AS String, keys AS List OF jwt::Key) AS Boolean
+    SUB report(token AS String, keys AS List OF jwt::Key)
       LET checked AS jwt::Token = jwt::verify(token, keys, jwt::options(["HS256"])) TRAP(problem)
         IF problem.code = jwt::expiredCode() THEN
-          io::print("expired -- ask for a new one")
-          RECOVER FALSE
+          io::print("that token has expired -- ask for a new one")
+          EXIT SUB
         END IF
         PROPAGATE
       END TRAP
-      RETURN TRUE
-    END FUNC
+      io::print("subject: " & json::stringify(json::get(checked.claims, ["sub"])))
+    END SUB
   END EXAMPLE
 END DOC
 EXPORT FUNC expiredCode() AS Integer
@@ -911,6 +951,11 @@ PRIVATE FUNC candidateKeys(keys AS List OF Key, algorithm AS String, kid AS Stri
   FOR EACH key IN keys
     IF key.algorithm = algorithm THEN
       IF kid = "" OR key.kid = "" OR key.kid = kid THEN
+        ' `Key` is an exported record, so a caller can also build one field by
+        ' field and skip the constructors that check it. Checking here means a
+        ' key whose material is the wrong size is reported as that, rather than
+        ' as whatever `crypto::verify` makes of the bytes.
+        checkKey(key)
         candidates = collections::append(candidates, key)
       END IF
     END IF
@@ -988,6 +1033,13 @@ PRIVATE FUNC checkClaims(claims AS json::Json, choices AS Options) AS Nothing
     LET issued AS Integer = secondsMember(claims, "iat", "claims")
     IF currentTime - issued > choices.maxAgeSeconds + choices.leewaySeconds THEN
       FAIL error(ERR_CLAIM, "jwt: the token was issued at " & toString(issued) & ", which is " & toString(currentTime - issued) & " seconds ago, past the " & toString(choices.maxAgeSeconds) & "-second maximum")
+    END IF
+    IF issued - choices.leewaySeconds > currentTime THEN
+      ' A token whose `iat` is in the future has no measurable age, so the
+      ' bound the caller asked for cannot be applied to it. This is checked
+      ' only alongside `maxAgeSeconds` -- `iat` on its own carries no validity
+      ' rule in RFC 7519, and clocks disagree.
+      FAIL error(ERR_CLAIM, "jwt: the token says it was issued at " & toString(issued) & ", which is " & toString(issued - currentTime) & " seconds in the future, so its age cannot be bounded")
     END IF
   ELSEIF hasMember(claims, "iat") THEN
     ' Read it even when nothing compares it, so an `iat` that is not a
