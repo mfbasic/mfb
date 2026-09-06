@@ -323,3 +323,62 @@ fn appending_one_field_into_another_rebuilds() {
          grow b's bytes from a's and lose b's own: {cross:?}"
     );
 }
+
+/// The same in-place record append, over a VARIABLE-WIDTH element type.
+const WITH_STRING_FIELD: &str = "\
+IMPORT collections
+IMPORT io
+
+TYPE Bag
+  a AS Integer
+  b AS List OF String
+END TYPE
+
+FUNC main() AS Integer
+  MUT bag AS Bag = Bag[a := 1, b := []]
+  FOR i = 0 TO 20
+    bag = WITH bag { b := collections::append(bag.b, \"row\" & toString(i)) }
+  NEXT
+  io::print(toString(len(bag.b)))
+  RETURN 0
+END FUNC
+";
+
+/// A variable-width element type carries a lookup entry array; a fixed-width
+/// one does not, and the grow must copy exactly the one that exists.
+///
+/// A `List OF String`'s elements are not the same size, so the block keeps an
+/// entry array beside the data — offset and length per element — and growing it
+/// has to move both regions. A `List OF Integer` has no entry array at all
+/// (`entry_stride == 0`), and copying a zero-stride array would be a loop that
+/// walks the data region instead.
+///
+/// The failure if the entries are NOT copied is the quiet kind: the data moves
+/// to a new block and the entries still describe the old one, so every element
+/// read after the first grow returns bytes from wherever that address now is.
+#[test]
+fn a_variable_width_field_copies_its_entry_array_and_a_fixed_width_one_has_none() {
+    let variable = label_stems(WITH_STRING_FIELD);
+    assert!(
+        has_family(&variable, "inline_append"),
+        "a `List OF String` in the last field still grows in place: {variable:?}"
+    );
+    assert!(
+        variable
+            .iter()
+            .any(|stem| stem == "inline_append_grow_entries_wloop"),
+        "a variable-width element type keeps an entry array beside the data, and \
+         the grow must copy it: without that loop the entries describe the old \
+         block and every element read after the first grow returns bytes from \
+         wherever that address now is: {variable:?}"
+    );
+
+    let fixed = label_stems(WITH_LAST_FIELD);
+    assert!(
+        !fixed
+            .iter()
+            .any(|stem| stem == "inline_append_grow_entries_wloop"),
+        "a `List OF Integer` has no entry array (`entry_stride == 0`), so \
+         copying one would be a loop walking the data region instead: {fixed:?}"
+    );
+}
