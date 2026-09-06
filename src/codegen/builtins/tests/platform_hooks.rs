@@ -539,3 +539,85 @@ fn every_backend_reports_a_family_consistent_with_its_target() {
         );
     }
 }
+
+/// A backend with no app mode REFUSES an app-mode build of `io::is*Terminal`.
+///
+/// The counterpart to
+/// [`a_backend_that_overrides_nothing_declines_every_optional_hook`], one level
+/// up: that test proves the hook answers `None`, this one proves what the caller
+/// does with the `None`. `lower_is_terminal` branches on
+/// `ctx.build_mode.is_app()` before it looks at the platform, so a target
+/// without the hook has two things it could do with an app-mode build — refuse,
+/// or fall through to the console `isatty(fd)` body — and only one is right.
+/// `isatty` on a descriptor an app-mode program never opened answers FALSE, so
+/// the fall-through is a program whose `io::isInputTerminal()` is quietly wrong
+/// rather than a build that stopped.
+///
+/// Neither the refusal nor its message had a test: `io::app_unsupported` is the
+/// whole of `builtins/io/mod.rs`'s uncovered code, and the `ok_or_else` that
+/// calls it is the whole of `gen_is_terminal.rs`'s.
+///
+/// Driven through the REGISTRY rather than by naming the body, both because
+/// `gen_is_terminal` is private to its package and because the registry is how
+/// production reaches it — a member re-pointed at a different body would still
+/// be tested here. All three descriptors, because the three members share one
+/// body through `fd` and `text`, and a refusal wired to one would leave the
+/// other two falling through.
+#[test]
+fn an_app_build_on_a_backend_with_no_app_mode_refuses_the_terminal_predicates() {
+    use crate::codegen::registry::{registry, Body};
+
+    let platform = TestPlatform;
+    let harness = crate::codegen::engine::tests::test_support::BuilderHarness {
+        build_mode: crate::target::NativeBuildMode::MacApp,
+        ..Default::default()
+    };
+    let ctx = harness.abi_ctx(&platform);
+
+    let package = registry()
+        .packages()
+        .iter()
+        .find(|package| package.import_name() == "io")
+        .expect("the io package is registered");
+
+    let mut checked = 0;
+    for name in ["isInputTerminal", "isOutputTerminal", "isErrorTerminal"] {
+        let function = package
+            .functions()
+            .iter()
+            .find(|function| function.name == name)
+            .unwrap_or_else(|| panic!("io::{name} is registered"));
+        for implementation in function.implementations() {
+            let Body::AbiFunction { lower, .. } = implementation.body else {
+                panic!("io::{name} lowers through an abi_function body");
+            };
+            let mut builder = harness.builder("_mfb_rt_probe", &platform);
+            let message = match lower(&mut builder, &[], &ctx) {
+                Err(message) => message,
+                Ok(_) => panic!(
+                    "io::{name}: an app-mode build lowered on a backend with no \
+                     app-mode io hook. What it emitted is the console \
+                     `isatty` body, which answers FALSE for the window the \
+                     program is actually running in -- a wrong answer where a \
+                     refused build belongs"
+                ),
+            };
+            assert!(
+                message.contains("does not support app-mode io helpers"),
+                "io::{name}: the refusal must be the app-mode one; got {message:?}"
+            );
+            assert!(
+                message.contains(platform.target()),
+                "io::{name}: the refusal must NAME the target that cannot do it, \
+                 because that is the only part the author can act on; got \
+                 {message:?}"
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(
+        checked, 3,
+        "all three terminal predicates must have been driven; a member that \
+         stopped being an abi_function would otherwise skip silently"
+    );
+}
