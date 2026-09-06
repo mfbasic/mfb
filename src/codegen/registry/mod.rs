@@ -359,6 +359,24 @@ pub(crate) struct RegistryHelper {
     // helper declares an ordering edge, so nothing reads it yet.
     #[allow(dead_code)]
     pub(crate) import_name: Option<&'static str>,
+    /// Whether a native lowering branches to this helper by its bare reserved
+    /// symbol (`_mfb_ifn_<name>`) rather than through an IR call.
+    ///
+    /// Several `crypto` members dispatch on an enum ordinal at run time and hand
+    /// the chosen branch to an MFBASIC helper: `hash` to a SHA core, `seal`/`open`
+    /// to an AEAD core, and `sign`/`verify`/`generate` to a software-curve core.
+    /// Each of those lowerings is emitted once per unit as a standalone
+    /// `abi_function` body with no calling function in scope, so the symbol it
+    /// branches to is fixed — it cannot be the identity-prefixed name a merged
+    /// package's copy carries. Marking the helper here is what tells
+    /// `ir::merge_packages` to make sure the bare name is defined even when the
+    /// program itself never imported the package (bug-557).
+    ///
+    /// Forgetting the mark on a NEW natively-called helper is not silent: the
+    /// build of an executable importing a package that reaches it fails with
+    /// `internal relocation target '_mfb_ifn_<name>' is not defined`. That is the
+    /// symptom bug-557 was found by, and the fix is to add the mark here.
+    pub(crate) natively_called: bool,
 }
 
 impl RegistryHelper {
@@ -371,6 +389,20 @@ impl RegistryHelper {
             gate: HelperGate::Always,
             body: Some(body),
             import_name: None,
+            natively_called: false,
+        }
+    }
+
+    /// An [`Always`](HelperGate::Always) source chunk that a native lowering also
+    /// branches to by its bare reserved symbol — see
+    /// [`natively_called`](RegistryHelper::natively_called). Declared on the helper
+    /// rather than beside the lowering so the two cannot drift: the `func_*.rs`
+    /// that emits the branch and the `helper_*.rs` that carries the body sit in
+    /// the same package directory.
+    pub(crate) fn always_natively_called(name: &'static str, body: &'static str) -> Self {
+        RegistryHelper {
+            natively_called: true,
+            ..Self::always(name, body)
         }
     }
 }
@@ -2801,6 +2833,27 @@ pub(crate) fn abi_inline_lower(qualified: &str) -> Option<AbiInline> {
         }
     }
     None
+}
+
+/// Every helper a native lowering branches to by its bare reserved name, as the
+/// sigil name the IR knows it by (`#crypto_ed25519Sign`).
+///
+/// Collected from the [`RegistryHelper::always_natively_called`] declarations so
+/// the list cannot drift from the bodies. `ir::merge_packages` is the one
+/// consumer: a lowering emitted for a package's call still branches to the bare
+/// symbol, so the bare name has to be defined even in a program that never
+/// imported the package itself (bug-557).
+pub(crate) fn natively_called_helpers() -> Vec<String> {
+    let mut names: Vec<String> = registry()
+        .packages()
+        .iter()
+        .flat_map(|package| package.helpers())
+        .filter(|helper| helper.natively_called)
+        .map(|helper| format!("{}{}", crate::internal_name::INTERNAL_SIGIL, helper.name))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// The [`AbiFunction`] lowering for `qualified`, plus the member's parameter count (so

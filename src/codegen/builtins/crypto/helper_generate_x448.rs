@@ -20,5 +20,8 @@ r#"FUNC __crypto_generateX448() AS KeyPair
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    pkg.add_helper(RegistryHelper::always("crypto_generateX448", BODY));
+    pkg.add_helper(RegistryHelper::always_natively_called(
+        "crypto_generateX448",
+        BODY,
+    ));
 }

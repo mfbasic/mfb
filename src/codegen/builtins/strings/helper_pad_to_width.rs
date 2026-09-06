@@ -70,6 +70,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         gate: HelperGate::WhenUsed(PAD_TO_WIDTH_MEMBERS),
         body: Some(BODY),
         import_name: None,
+        natively_called: false,
     });
     // An injected `astrings` companion calls the seam through
     // `__astrings_padLeftToWidth`, and an `astrings`-only program never imports
@@ -83,5 +84,6 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         gate: HelperGate::WhenImported("astrings"),
         body: Some(BODY),
         import_name: None,
+        natively_called: false,
     });
 }

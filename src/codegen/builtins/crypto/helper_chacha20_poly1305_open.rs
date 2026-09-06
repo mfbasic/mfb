@@ -26,5 +26,8 @@ r#"FUNC __crypto_chacha20Poly1305Open(key AS List OF Byte, nonce AS List OF Byte
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    pkg.add_helper(RegistryHelper::always("crypto_chacha20Poly1305Open", BODY));
+    pkg.add_helper(RegistryHelper::always_natively_called(
+        "crypto_chacha20Poly1305Open",
+        BODY,
+    ));
 }

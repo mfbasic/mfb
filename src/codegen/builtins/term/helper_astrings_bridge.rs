@@ -162,5 +162,6 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         gate: HelperGate::WhenBothImported("term", "astrings"),
         body: Some(BODY),
         import_name: None,
+        natively_called: false,
     });
 }
