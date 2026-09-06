@@ -418,7 +418,8 @@ these files, and is not for `repository/src/**`).
 | after the `CSTRUCT` tail zeroing | 221 | 6,977 |
 | after the NIR reference-resolution refusals | 221 | 6,949 |
 | after the inline-TRAP short-circuit suite, the Linux ELF writers and the indirect-trap fixture | 219 | 6,440 |
-| after the decline fixtures, bug-548/549, the two validators and the dump writers | **215** | **5,886** |
+| after the decline fixtures, bug-548/549, the two validators and the dump writers | 215 | 5,886 |
+| after the platform-emit failure sweep | **198** | **5,577** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
@@ -1003,3 +1004,52 @@ that reaches it does not work.** A coverage report cannot distinguish "nobody
 wrote this program" from "this program does not compile", and the only way to
 tell is to write it. That is also why the plan forbids reaching for an exception
 first — an exception on any of these would have recorded a defect as a decision.
+
+### F9 — the `?` class is not one gap, it is two, and only one of them was closed
+
+The shape table calls `?` propagation "the hard residue — an error arm
+unreachable because the callee cannot fail for the inputs the type checker
+permits", and records that the registry sweeps closed "every instance that goes
+through a *platform* hook (an empty import list forces the failure)".
+
+That is true and it is half the story. An empty import list forces the FIRST
+`platform.emit_external_call(…)?` in a body to fail. A body is a sequence — open
+a socket, set it non-blocking, connect, read — and the first failure aborts the
+rest, so every `?` AFTER the first one in the same body stayed exactly as dead
+as it was. That residue is 931 lines across the files below the floor, 580 of
+them in `src/codegen/builtins`, and it is the largest identifiable class left:
+
+    80  tls/gen_openssl.rs           34  crypto/func_sign.rs
+    56  tls/gen_macos/server.rs      33  net/gen_ping.rs
+    50  tls/gen_macos/client.rs      32  crypto/func_generate.rs
+    43  runtime/thread/runtime_helpers_thread.rs
+    34  target/shared/validate/body.rs
+
+Closed for the `abi_function` bodies by `platform_failure.rs`: a generated
+delegating `CodegenPlatform` that fails its Nth fallible call, driven over each
+body's own call count. 331 bodies, 1,997 injections, five backends, 0.59s.
+
+**The trap in writing it, which is C10's again.** The first version failed the
+target call AND every call after it, which made the sweep insensitive to the
+defect it exists for: a body that swallows call #n runs on to #n+1, fails there,
+and returns the same `Err` the assertion was looking for. Proven by sabotage —
+`os/func_has_env.rs` with `let _ = …` in place of its `?` — which the first
+version passed and the fixed one catches on three backends by name. **An
+injection harness has to fail exactly one thing.**
+
+Measured effect: 215 files / 5,886 lines -> **198 / 5,577**, and the `?` count
+in `src/codegen/builtins` from 580 to 322.
+
+**Extending it to `abi_inline` was tried and gains nothing, which is itself the
+answer to what is left.** With a real platform and the imports granted, 240
+`abi_inline` bodies lower cleanly and make **zero** fallible platform calls
+between them — the sweep's body count was identical before and after (331). So
+the `?` sites in those bodies are not platform emits at all: they are `?` on
+BUILDER methods, whose failure needs a malformed input the front end cannot
+produce. The extension was reverted rather than left in as a no-op.
+
+That is also what the remaining 322 in `builtins` are, and the ~180 outside it
+(`codegen/engine` 85, `codegen/runtime` 61, `target/shared` 34). The next lever
+for this class is a failing BUILDER rather than a failing platform, and it is a
+harder seam: a platform is a trait behind a `&dyn`, and `CodeBuilder` is a
+concrete struct every emitter calls inherent methods on.
