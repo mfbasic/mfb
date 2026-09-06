@@ -20,7 +20,8 @@ use crate::target::shared::validate::validate_nir;
 use crate::target::NativeBuildMode::Console;
 use crate::testutil::{nir_for_src, CodeTarget};
 
-/// A program with TWO globals, a record, a union, an enum and two functions.
+/// A program with two globals, a record, a union, an enum and two functions —
+/// and, inside `main`, two binds, an assignment and a store to a global.
 ///
 /// Two of each of the things that must be unique, so a collision can be made by
 /// re-pointing the second at the first rather than by duplicating a row —
@@ -61,7 +62,10 @@ END FUNC
 
 FUNC main() AS Integer
   LET d AS Shape = Dot[counter]
-  io::print(label & describe(d))
+  MUT n AS Integer = 0
+  n = n + 1
+  counter = counter + n
+  io::print(label & describe(d) & toString(n))
   RETURN 0
 END FUNC
 ";
@@ -263,5 +267,109 @@ fn an_entry_that_names_no_function_is_refused() {
     assert!(
         refused.contains("_no_such_entry"),
         "the refusal must name the entry that did not resolve; it said {refused:?}"
+    );
+}
+
+/// The first `Bind` in `main`'s body, which every mutation below edits.
+///
+/// By position rather than by name: the lowering renames and introduces
+/// temporaries, and a test that hunted for `"d"` would go quiet the day one of
+/// them was renamed rather than failing.
+fn first_bind(module: &mut NirModule) -> &mut crate::target::shared::nir::NirOp {
+    let main = module
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "main")
+        .expect("the program declares `main`");
+    main.body
+        .iter_mut()
+        .find(|op| matches!(op, crate::target::shared::nir::NirOp::Bind { .. }))
+        .expect("`main` binds at least one local")
+}
+
+/// A body's own rules: a bind must be named and typed, a local declared once,
+/// an assignment must target something mutable, and a global store must name a
+/// global that exists.
+///
+/// These are `validate_body`'s refusals, one stage inside the name tables the
+/// rows above check. Each is a real miscompile if it gets through: a duplicate
+/// local makes the second bind silently shadow the first's slot, and an
+/// assignment to an immutable local writes storage the optimizer is entitled to
+/// have folded away.
+#[test]
+fn a_malformed_body_op_is_refused() {
+    use crate::target::shared::nir::NirOp;
+
+    let refused = refusal("a bind with no name", |m| {
+        if let NirOp::Bind { name, .. } = first_bind(m) {
+            name.clear();
+        }
+    });
+    assert!(
+        refused.contains("empty name or type"),
+        "a bind with no name must be refused; it said {refused:?}"
+    );
+
+    let refused = refusal("two locals with the same name", |m| {
+        // Re-point the SECOND bind at the first's name. Both are still
+        // well-typed, so this breaks exactly the uniqueness rule and nothing
+        // else.
+        let main = m
+            .functions
+            .iter_mut()
+            .find(|function| function.name == "main")
+            .expect("the program declares `main`");
+        let mut names = main.body.iter().filter_map(|op| match op {
+            NirOp::Bind { name, .. } => Some(name.clone()),
+            _ => None,
+        });
+        let (Some(first), Some(second)) = (names.next(), names.next()) else {
+            panic!("`main` must bind at least two locals for this row to mean anything");
+        };
+        assert_ne!(first, second, "the two binds must start out distinct");
+        for op in main.body.iter_mut() {
+            if let NirOp::Bind { name, .. } = op {
+                if *name == second {
+                    *name = first.clone();
+                    break;
+                }
+            }
+        }
+    });
+    assert!(
+        refused.contains("is declared more than once"),
+        "a duplicate local must be refused; it said {refused:?}"
+    );
+
+    let refused = refusal("an assignment to an immutable local", |m| {
+        let main = m
+            .functions
+            .iter_mut()
+            .find(|function| function.name == "main")
+            .expect("the program declares `main`");
+        // Make every bind immutable; `main` assigns to one of them.
+        for op in main.body.iter_mut() {
+            if let NirOp::Bind { mutable, .. } = op {
+                *mutable = false;
+            }
+        }
+    });
+    assert!(
+        refused.contains("targets immutable local"),
+        "an assignment to an immutable local must be refused; it said {refused:?}"
+    );
+
+    let refused = refusal("a global store naming no global", |m| {
+        for function in m.functions.iter_mut() {
+            for op in function.body.iter_mut() {
+                if let NirOp::StoreGlobal { name, .. } = op {
+                    *name = "$no_such_global".to_string();
+                }
+            }
+        }
+    });
+    assert!(
+        refused.contains("unknown global"),
+        "a store to a global that does not exist must be refused; it said {refused:?}"
     );
 }
