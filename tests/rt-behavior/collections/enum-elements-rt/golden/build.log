@@ -1,0 +1,23 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/enum-elements-rt
+Wrote AST to tests/rt-behavior/collections/enum-elements-rt/enum_elements_rt.ast
+Wrote IR to tests/rt-behavior/collections/enum-elements-rt/enum_elements_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/enum-elements-rt
+Wrote executable to tests/rt-behavior/collections/enum-elements-rt/build/enum_elements_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/enum-elements-rt/build/enum_elements_rt.out
+list       [Red Blue Green ] len=3
+get        Red Blue Green
+contains   Blue=TRUE Green=TRUE
+find       Blue=1 Green=2 Red=0
+find sub   1
+grown      [Green Red Blue Blue Green Red ]
+edited     [Green Blue Blue Green Red ]
+distinct   [Green Blue Red ]
+set        len=2 Red=TRUE Green=FALSE
+set edited len=2 Red=FALSE Green=TRUE
+map value  sky=Blue grass=Green
+map key    Red=1 Blue=2 Green=-1
+record     primary [Red Green Blue ]
+other enum len=2 Large=TRUE Small@1
+[exit 0]

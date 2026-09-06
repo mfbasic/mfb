@@ -1,0 +1,390 @@
+{
+  "project": "default_values_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 31 },
+    { "module": "io", "line": 32 }
+    ],
+    "items": [
+    {
+      "kind": "enum",
+      "visibility": "public",
+      "name": "Flag",
+      "line": 34,
+      "members": [
+      { "name": "Off", "line": 35 },
+      { "name": "On", "line": 35 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Leaf",
+      "line": 38,
+      "fields": [
+      { "visibility": null, "name": "n", "type": "Integer", "line": 39 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Heavy",
+      "line": 44,
+      "fields": [
+      { "visibility": null, "name": "items", "type": "List OF Integer", "line": 45 },
+      { "visibility": null, "name": "tag", "type": "String", "line": 46 },
+      { "visibility": null, "name": "inner", "type": "Leaf", "line": 47 },
+      { "visibility": null, "name": "f", "type": "Flag", "line": 48 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Shape",
+      "line": 51,
+      "includes": [],
+      "variants": [
+      { "name": "Leaf", "line": 52 },
+      { "name": "Heavy", "line": 53 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Tip",
+      "line": 56,
+      "fields": [
+      { "visibility": null, "name": "n", "type": "Integer", "line": 57 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Branch",
+      "line": 60,
+      "fields": [
+      { "visibility": null, "name": "child", "type": "Tree", "line": 61 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Tree",
+      "line": 64,
+      "includes": [],
+      "variants": [
+      { "name": "Tip", "line": 65 },
+      { "name": "Branch", "line": 66 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Nest",
+      "line": 71,
+      "fields": [
+      { "visibility": null, "name": "s", "type": "Shape", "line": 72 },
+      { "visibility": null, "name": "xs", "type": "List OF Shape", "line": 73 },
+      { "visibility": null, "name": "mm", "type": "Map OF String TO Shape", "line": 74 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "failing",
+      "line": 77,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 77 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 78,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050002" }, { "kind": "string", "value": "no" }] }, "line": 78 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 79 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "aFlag",
+      "line": 82,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 82 }
+      ],
+      "returnType": "Flag",
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Flag" }, "member": "On" }, "line": 83 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "aShape",
+      "line": 86,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 86 }
+      ],
+      "returnType": "Shape",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "identifier", "value": "n" }] }, "line": 87 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "aTree",
+      "line": 90,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 90 }
+      ],
+      "returnType": "Tree",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Tip", "arguments": [{ "kind": "identifier", "value": "n" }] }, "line": 91 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "aHeavy",
+      "line": 94,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 94 }
+      ],
+      "returnType": "Heavy",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Heavy", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "n" }] }, { "kind": "string", "value": "h" }, { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "identifier", "value": "n" }] }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Flag" }, "member": "On" }] }, "line": 95 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "aNest",
+      "line": 98,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 98 }
+      ],
+      "returnType": "Nest",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Nest", "arguments": [{ "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "identifier", "value": "n" }] }, { "kind": "list", "values": [] }, { "kind": "map", "keyType": "String", "valueType": "Shape", "entries": [] }] }, "line": 99 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "showShape",
+      "line": 102,
+      "params": [
+      { "name": "s", "type": "Shape", "default": null, "line": 102 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 103,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Leaf", "binding": "l" },
+          "guard": null,
+          "line": 104,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Leaf(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "n" }] } }, "right": { "kind": "string", "value": ")" } }, "line": 105 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Heavy", "binding": "h" },
+          "guard": null,
+          "line": 106,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Heavy(items=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "items" }] }] } }, "right": { "kind": "string", "value": " tag=[" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "tag" } }, "right": { "kind": "string", "value": "])" } }, "line": 107 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "showTree",
+      "line": 111,
+      "params": [
+      { "name": "t", "type": "Tree", "default": null, "line": 111 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "t" },
+        "line": 112,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Tip", "binding": "x" },
+          "guard": null,
+          "line": 113,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Tip(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "x" }, "member": "n" }] } }, "right": { "kind": "string", "value": ")" } }, "line": 114 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Branch", "binding": "b" },
+          "guard": null,
+          "line": 115,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "Branch" }, "line": 116 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 120,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "okFlag", "type": "Flag", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 124,
+        "expression": { "kind": "call", "callee": "aFlag", "arguments": [{ "kind": "call", "callee": "failing", "arguments": [{ "kind": "number", "value": "1" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Flag" }, "member": "Off" }, "line": 125 }
+        ]
+      }, "line": 124 },
+      { "kind": "binding", "mutable": false, "name": "badFlag", "type": "Flag", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 127,
+        "expression": { "kind": "call", "callee": "aFlag", "arguments": [{ "kind": "call", "callee": "failing", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Flag" }, "member": "Off" }, "line": 128 }
+        ]
+      }, "line": 127 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "enum       ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "okFlag" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Flag" }, "member": "On" } }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "badFlag" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Flag" }, "member": "Off" } }] } }] }, "line": 130 },
+      { "kind": "binding", "mutable": false, "name": "okShape", "type": "Shape", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 132,
+        "expression": { "kind": "call", "callee": "aShape", "arguments": [{ "kind": "call", "callee": "failing", "arguments": [{ "kind": "number", "value": "7" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 133 }
+        ]
+      }, "line": 132 },
+      { "kind": "binding", "mutable": false, "name": "badShape", "type": "Shape", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 135,
+        "expression": { "kind": "call", "callee": "aShape", "arguments": [{ "kind": "call", "callee": "failing", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 136 }
+        ]
+      }, "line": 135 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "union      ok=" }, "right": { "kind": "call", "callee": "showShape", "arguments": [{ "kind": "identifier", "value": "okShape" }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "showShape", "arguments": [{ "kind": "identifier", "value": "badShape" }] } }] }, "line": 138 },
+      { "kind": "binding", "mutable": false, "name": "okTree", "type": "Tree", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 140,
+        "expression": { "kind": "call", "callee": "aTree", "arguments": [{ "kind": "number", "value": "5" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Tip", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 141 }
+        ]
+      }, "line": 140 },
+      { "kind": "binding", "mutable": false, "name": "badTree", "type": "Tree", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 143,
+        "expression": { "kind": "call", "callee": "aTree", "arguments": [{ "kind": "call", "callee": "failing", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Tip", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 144 }
+        ]
+      }, "line": 143 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cycle      ok=" }, "right": { "kind": "call", "callee": "showTree", "arguments": [{ "kind": "identifier", "value": "okTree" }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "showTree", "arguments": [{ "kind": "identifier", "value": "badTree" }] } }] }, "line": 146 },
+      { "kind": "binding", "mutable": false, "name": "okHeavy", "type": "Heavy", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 148,
+        "expression": { "kind": "call", "callee": "aHeavy", "arguments": [{ "kind": "call", "callee": "failing", "arguments": [{ "kind": "number", "value": "3" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Heavy", "arguments": [{ "kind": "list", "values": [] }, { "kind": "string", "value": "r" }, { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "number", "value": "0" }] }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Flag" }, "member": "Off" }] }, "line": 149 }
+        ]
+      }, "line": 148 },
+      { "kind": "binding", "mutable": false, "name": "badHeavy", "type": "Heavy", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 151,
+        "expression": { "kind": "call", "callee": "aHeavy", "arguments": [{ "kind": "call", "callee": "failing", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Heavy", "arguments": [{ "kind": "list", "values": [] }, { "kind": "string", "value": "r" }, { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "number", "value": "0" }] }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Flag" }, "member": "Off" }] }, "line": 152 }
+        ]
+      }, "line": 151 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "record     ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "okHeavy" }, "member": "items" }] }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "okHeavy" }, "member": "tag" } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "badHeavy" }, "member": "items" }] }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "badHeavy" }, "member": "tag" } }] }, "line": 154 },
+      { "kind": "binding", "mutable": false, "name": "okNest", "type": "Nest", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 157,
+        "expression": { "kind": "call", "callee": "aNest", "arguments": [{ "kind": "call", "callee": "failing", "arguments": [{ "kind": "number", "value": "2" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Nest", "arguments": [{ "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "number", "value": "0" }] }, { "kind": "list", "values": [] }, { "kind": "map", "keyType": "String", "valueType": "Shape", "entries": [] }] }, "line": 158 }
+        ]
+      }, "line": 157 },
+      { "kind": "binding", "mutable": false, "name": "badNest", "type": "Nest", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 160,
+        "expression": { "kind": "call", "callee": "aNest", "arguments": [{ "kind": "call", "callee": "failing", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Nest", "arguments": [{ "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "number", "value": "0" }] }, { "kind": "list", "values": [] }, { "kind": "map", "keyType": "String", "valueType": "Shape", "entries": [] }] }, "line": 161 }
+        ]
+      }, "line": 160 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nested     ok=" }, "right": { "kind": "call", "callee": "showShape", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "okNest" }, "member": "s" }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "okNest" }, "member": "xs" }] }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "showShape", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "badNest" }, "member": "s" }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "badNest" }, "member": "xs" }] }] } }] }, "line": 163 },
+      { "kind": "binding", "mutable": true, "name": "one", "type": "List OF Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 173,
+        "expression": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "0" }] }, { "kind": "call", "callee": "failing", "arguments": [{ "kind": "number", "value": "1" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "list", "values": [] }, "line": 174 }
+        ]
+      }, "line": 173 },
+      { "kind": "binding", "mutable": true, "name": "two", "type": "List OF Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 176,
+        "expression": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "0" }] }, { "kind": "call", "callee": "failing", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "list", "values": [] }, "line": 177 }
+        ]
+      }, "line": 176 },
+      { "kind": "assignment", "name": "one", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "one" }, { "kind": "number", "value": "9" }] }, "line": 179 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "collection one=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "one" }] }] } }, "right": { "kind": "string", "value": " two=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "two" }] }] } }] }, "line": 180 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 182 }
+      ]
+    }
+    ]
+  }
+  ]
+}

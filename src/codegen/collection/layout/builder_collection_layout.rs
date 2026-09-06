@@ -791,6 +791,25 @@ impl CodeBuilder<'_> {
         union_is_data(&self.type_model, type_)
     }
 
+    /// True when `type_` names a declared ENUM.
+    ///
+    /// An enum value IS its ordinal at run time — one word, like an `Integer`,
+    /// with no block and no inline data. Every classifier that asks "how wide
+    /// is this, how do I store it, how do I read it back" therefore wants the
+    /// same answer for an enum as for an `Integer`, and bug-549 was three of
+    /// them not asking at all.
+    ///
+    /// The table is keyed by `(enum type, member name)` because that is what a
+    /// member reference needs; asking whether a TYPE is an enum means scanning
+    /// for any member of it, which four call sites were open-coding before this
+    /// existed.
+    pub(crate) fn is_enum_type(&self, type_: &ParameterType) -> bool {
+        self.type_model
+            .enum_members
+            .keys()
+            .any(|(enum_type, _)| enum_type == type_)
+    }
+
     /// Total byte size of a data union into `out_slot`: the `size` word at `+8`
     /// (plan-02 §4.3). `ptr_slot` holds the union pointer. Clobbers a scratch vreg.
     pub(crate) fn emit_data_union_size_to_slot(&mut self, ptr_slot: usize, out_slot: usize) {
@@ -1816,6 +1835,13 @@ impl CodeBuilder<'_> {
             | ParameterType::Money => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "8"));
             }
+            // bug-549: an enum member is its ordinal, one word wide. Without
+            // this arm `List OF <enum>` type-checks — the spec lists enum types
+            // as comparable, right beside the primitives — and then dies at
+            // lowering on "packed payload does not support type".
+            other if self.is_enum_type(other) => {
+                self.emit(abi::move_immediate(&scratch8, "Integer", "8"));
+            }
             // A function value is a single 8-byte closure pointer, stored by
             // reference exactly like a pointer payload (bug-73).
             other if matches!(other, ParameterType::Func(..)) => {
@@ -1941,6 +1967,15 @@ impl CodeBuilder<'_> {
             | ParameterType::Float
             | ParameterType::Fixed
             | ParameterType::Money => {
+                self.emit(abi::load_u64(
+                    &scratch12,
+                    abi::stack_pointer(),
+                    payload.slot,
+                ));
+                self.emit(abi::store_u64(&scratch12, &scratch10, 0));
+            }
+            // bug-549: an enum ordinal is stored as the word it is.
+            other if self.is_enum_type(other) => {
                 self.emit(abi::load_u64(
                     &scratch12,
                     abi::stack_pointer(),
@@ -2251,6 +2286,12 @@ impl CodeBuilder<'_> {
             | ParameterType::Float
             | ParameterType::Fixed
             | ParameterType::Money => {
+                let result = self.allocate_register();
+                self.emit(abi::load_u64(&result, &data, 0));
+                Ok(result)
+            }
+            // bug-549: and read back as one.
+            other if self.is_enum_type(other) => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
                 Ok(result)

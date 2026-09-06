@@ -13,10 +13,10 @@
 //! loaded with `load_u8`, and reading eight instead would compare the seven
 //! bytes that follow them.
 //!
-//! The enum arm is still uncovered and cannot be reached from here: writing the
-//! program that should reach it turned up **bug-549** — `List OF <enum>`
-//! type-checks and then fails to build. The row is written out in the table
-//! below, commented, so it goes in the day that builds.
+//! The enum arm is here now. Writing the program that should reach it turned up
+//! **bug-549** — `List OF <enum>` type-checked and then failed to build, from a
+//! payload classifier three steps before the comparator — and the row went in
+//! with the fix.
 //!
 //! Comparison is where `.ai/collections.md`'s rule bites: a collection block is
 //! not byte-comparable, because the entry fields around the payload are
@@ -44,16 +44,16 @@ const ELEMENT_TYPES: &[(&str, &str, &str)] = &[
         "Set OF Integer",
         "Set OF Integer { 1, 2, 3 }",
     ),
-    // An ENUM member belongs here and cannot be added yet: `List OF Colour`
-    // type-checks and then fails to build -- "native collection packed payload
-    // does not support type 'Colour'" (bug-549). The comparator HAS an enum arm
-    // and the payload classifier refuses the element type before it is reached,
-    // so the row goes in the day that builds:
-    //
-    //     ("an enum member", "List OF Colour", "[Colour.Red, Colour.Blue]"),
-    //
-    // and the needle is `Colour.Blue`. The `ENUM Colour` declaration is already
-    // in every program below, so nothing else has to change.
+    // bug-549, now fixed: `List OF Colour` used to type-check and then fail to
+    // build -- "native collection packed payload does not support type
+    // 'Colour'". The comparator always HAD an enum arm; the payload classifier
+    // refused the element type three steps earlier, so the arm could not be
+    // reached from a collection at all.
+    (
+        "an enum member",
+        "List OF Colour",
+        "[Colour.Red, Colour.Blue]",
+    ),
 ];
 
 /// The needle for each of the above, in the same order.
@@ -65,6 +65,7 @@ const NEEDLES: &[&str] = &[
     "toFixed(2.5)",
     "\"bb\"",
     "2",
+    "Colour.Blue",
 ];
 
 fn program(type_name: &str, literal: &str, needle: &str) -> String {

@@ -183,12 +183,7 @@ impl CodeBuilder<'_> {
                     text: "default String".to_string(),
                 })
             }
-            _ if self
-                .type_model
-                .enum_members
-                .keys()
-                .any(|(enum_type, _)| enum_type == type_) =>
-            {
+            _ if self.is_enum_type(type_) => {
                 // An enum value IS its ordinal at run time, so its default is
                 // ordinal 0 — the first declared variant — exactly as `Integer`'s
                 // default is 0. Without this arm, ANY enum-typed binding reached

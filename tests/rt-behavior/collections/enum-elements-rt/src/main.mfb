@@ -1,0 +1,127 @@
+' bug-549: a collection may hold an enum.
+'
+' `mfb spec language types` lists what is comparable in one sentence:
+' "Integer, Float, Fixed, Money, Boolean, String, Byte, Scalar, Nothing, ENUM
+' TYPES, and records whose fields are all comparable" -- and lists what a
+' collection may not hold in the same place, where enums do not appear. So
+' `List OF <enum>` is a valid program.
+'
+' It did not build. The front end accepted it and lowering died with
+'
+'   error: native collection packed payload does not support type 'Colour'
+'
+' -- an internal message, no rule code, naming a concept an author cannot act
+' on. Three classifiers in `builder_collection_layout.rs` (how wide, how to
+' store, how to read back) and three in `builder_collection_compare.rs` had an
+' arm for every fixed-width scalar and none for an enum, even though an enum
+' value IS its ordinal: one word, exactly like an Integer. The record-field
+' comparator already knew that and compared two enum fields as two words; a
+' collection ELEMENT could never reach any comparator, because the payload
+' classifier refused the type first.
+'
+' Every assertion below is a VALUE, not a length. A width or stride that were
+' wrong would build and then read the neighbouring element -- the failure this
+' would have had, once the build stopped failing.
+IMPORT collections
+IMPORT io
+
+ENUM Colour
+  Red, Green, Blue
+END ENUM
+
+ENUM Size
+  Small, Large
+END ENUM
+
+TYPE Bag
+  name AS String
+  cs AS List OF Colour
+END TYPE
+
+FUNC show(c AS Colour) AS String
+  MATCH c
+    CASE Colour.Red
+      RETURN "Red"
+    CASE Colour.Green
+      RETURN "Green"
+    CASE Colour.Blue
+      RETURN "Blue"
+  END MATCH
+END FUNC
+
+FUNC showAll(cs AS List OF Colour) AS String
+  MUT s AS String = ""
+  FOR EACH c IN cs
+    s = s & show(c) & " "
+  NEXT
+  RETURN "[" & s & "]"
+END FUNC
+
+FUNC main() AS Integer
+  ' ---- LIST: build, read back, and walk ---------------------------------
+  MUT cs AS List OF Colour = [Colour.Red, Colour.Blue, Colour.Green]
+  io::print("list       " & showAll(cs) & " len=" & toString(len(cs)))
+  io::print("get        " & show(collections::get(cs, 0)) _
+    & " " & show(collections::get(cs, 1)) _
+    & " " & show(collections::get(cs, 2)))
+
+  ' ---- the comparison entry points --------------------------------------
+  io::print("contains   Blue=" & toString(collections::contains(cs, Colour.Blue)) _
+    & " Green=" & toString(collections::contains(cs, Colour.Green)))
+  io::print("find       Blue=" & toString(collections::find(cs, Colour.Blue)) _
+    & " Green=" & toString(collections::find(cs, Colour.Green)) _
+    & " Red=" & toString(collections::find(cs, Colour.Red)))
+  ' A sublist search compares two packed runs against each other, which is a
+  ' third emitter again.
+  io::print("find sub   " & toString(collections::find(cs, [Colour.Blue, Colour.Green])))
+
+  ' ---- mutation: the element stride under append/insert/removeAt ---------
+  cs = collections::append(cs, Colour.Red)
+  cs = collections::prepend(cs, Colour.Green)
+  cs = collections::insert(cs, 2, Colour.Blue)
+  io::print("grown      " & showAll(cs))
+  cs = collections::removeAt(cs, 0)
+  cs = collections::set(cs, 0, Colour.Green)
+  io::print("edited     " & showAll(cs))
+  io::print("distinct   " & showAll(collections::distinct(cs)))
+
+  ' ---- SET: membership over a hashed enum -------------------------------
+  MUT seen AS Set OF Colour = Set OF Colour { Colour.Red, Colour.Blue }
+  io::print("set        len=" & toString(len(seen)) _
+    & " Red=" & toString(collections::contains(seen, Colour.Red)) _
+    & " Green=" & toString(collections::contains(seen, Colour.Green)))
+  seen = collections::add(seen, Colour.Green)
+  seen = collections::remove(seen, Colour.Red)
+  io::print("set edited len=" & toString(len(seen)) _
+    & " Red=" & toString(collections::contains(seen, Colour.Red)) _
+    & " Green=" & toString(collections::contains(seen, Colour.Green)))
+
+  ' ---- MAP: an enum as a VALUE, and as a KEY ----------------------------
+  MUT byName AS Map OF String TO Colour = Map OF String TO Colour { "sky" := Colour.Blue }
+  byName = collections::set(byName, "grass", Colour.Green)
+  io::print("map value  sky=" & show(collections::getOr(byName, "sky", Colour.Red)) _
+    & " grass=" & show(collections::getOr(byName, "grass", Colour.Red)))
+
+  MUT counts AS Map OF Colour TO Integer = Map OF Colour TO Integer { Colour.Red := 1 }
+  counts = collections::set(counts, Colour.Blue, 2)
+  io::print("map key    Red=" & toString(collections::getOr(counts, Colour.Red, 0 - 1)) _
+    & " Blue=" & toString(collections::getOr(counts, Colour.Blue, 0 - 1)) _
+    & " Green=" & toString(collections::getOr(counts, Colour.Green, 0 - 1)))
+
+  ' ---- a list of enums in a RECORD FIELD --------------------------------
+  MUT bag AS Bag = Bag["primary", [Colour.Red, Colour.Green]]
+  bag = WITH bag { cs := collections::append(bag.cs, Colour.Blue) }
+  io::print("record     " & bag.name & " " & showAll(bag.cs))
+
+  ' ---- two different enums do not share a table -------------------------
+  ' Both are ordinals from 0, so a classifier that keyed on "is a word" rather
+  ' than on the type would still work; this is here because the lookup is by
+  ' TYPE and a wrong one would silently succeed on ordinals that happen to
+  ' match.
+  LET sizes AS List OF Size = [Size.Large, Size.Small]
+  io::print("other enum len=" & toString(len(sizes)) _
+    & " Large=" & toString(collections::contains(sizes, Size.Large)) _
+    & " Small@" & toString(collections::find(sizes, Size.Small)))
+
+  RETURN 0
+END FUNC

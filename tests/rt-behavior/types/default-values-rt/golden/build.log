@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/types/default-values-rt
+Wrote AST to tests/rt-behavior/types/default-values-rt/default_values_rt.ast
+Wrote IR to tests/rt-behavior/types/default-values-rt/default_values_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/types/default-values-rt
+Wrote executable to tests/rt-behavior/types/default-values-rt/build/default_values_rt.out
+[exit 0]
+$ tests/rt-behavior/types/default-values-rt/build/default_values_rt.out
+enum       ok=TRUE bad=TRUE
+union      ok=Leaf(7) bad=Leaf(0)
+cycle      ok=Tip(5) bad=Tip(0)
+record     ok=1/h bad=0/r
+nested     ok=Leaf(2)/0 bad=Leaf(0)/0
+collection one=3 two=0
+[exit 0]

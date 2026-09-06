@@ -226,13 +226,7 @@ impl CodeBuilder<'_> {
                 }
                 self.emit(abi::branch(equal_label));
             }
-            other
-                if self
-                    .type_model
-                    .enum_members
-                    .keys()
-                    .any(|(enum_type, _)| enum_type == other) =>
-            {
+            other if self.is_enum_type(other) => {
                 self.emit(abi::load_u64(lval, abi::stack_pointer(), left_slot));
                 self.emit(abi::load_u64(rval, abi::stack_pointer(), right_slot));
                 self.emit(abi::compare_registers(lval, rval));
@@ -289,6 +283,17 @@ impl CodeBuilder<'_> {
             | ParameterType::Float
             | ParameterType::Fixed
             | ParameterType::Money => {
+                let candidate = self.allocate_register();
+                self.emit(abi::load_u64(&candidate, &data, 0));
+                self.emit(abi::compare_registers(&candidate, value.clone()));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            // bug-549: two enum ordinals compare as two words. The comparator
+            // for a RECORD FIELD of enum type already did this; a collection
+            // ELEMENT of enum type could not reach any comparator, because the
+            // payload classifier refused the type first.
+            other if self.is_enum_type(other) => {
                 let candidate = self.allocate_register();
                 self.emit(abi::load_u64(&candidate, &data, 0));
                 self.emit(abi::compare_registers(&candidate, value.clone()));
@@ -429,6 +434,13 @@ impl CodeBuilder<'_> {
                     not_equal_label,
                 );
             }
+            // bug-549: an enum element, as the word it is.
+            other if self.is_enum_type(other) => {
+                self.emit(abi::load_u64(cval, cur, 0));
+                self.emit(abi::compare_registers(cval, value.clone()));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
             other if self.is_pointer_collection_payload_type(other) => {
                 self.emit(abi::load_u64(cval, cur, 0));
                 self.emit(abi::compare_registers(cval, value.clone()));
@@ -524,6 +536,14 @@ impl CodeBuilder<'_> {
             | ParameterType::Float
             | ParameterType::Fixed
             | ParameterType::Money => {
+                self.emit(abi::load_u64(lval, lcur, 0));
+                self.emit(abi::load_u64(rval, rcur, 0));
+                self.emit(abi::compare_registers(lval, rval));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            // bug-549: two enum elements, pairwise.
+            other if self.is_enum_type(other) => {
                 self.emit(abi::load_u64(lval, lcur, 0));
                 self.emit(abi::load_u64(rval, rcur, 0));
                 self.emit(abi::compare_registers(lval, rval));

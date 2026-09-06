@@ -1,0 +1,183 @@
+' The default value codegen materializes for an inline TRAP's staging slot.
+'
+' An inline `TRAP` binds its result before it knows whether the expression
+' succeeded, so codegen materializes a DEFAULT of the bound type to hold the
+' slot -- superseded by the `RECOVER` value on the taken error path, so no
+' program ever observes it. It still has to be buildable, and
+' `builder_value_semantics.rs::lower_default_value_inner` is what builds it.
+'
+' `MUT x AS T` with no initializer will not do: the front end has its own,
+' STRICTER defaultability rule (`TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE`) that
+' rejects an enum, a data union, and any record carrying one. Those are exactly
+' the types whose codegen default arms were unexecuted, so the inline TRAP is
+' the only door to them -- which is why no fixture had opened it.
+'
+' The interesting one is the DATA UNION. It has no single obvious default, so
+' the emitter picks a variant, and `default_value_materializable` is the static
+' mirror that decides which ones it may pick. The two have to agree exactly:
+' choosing a variant the emitter then cannot build is a codegen failure with no
+' source to blame it on.
+'
+' And the arm that makes the predicate more than a type switch is the CYCLE.
+' `Tree` is `Tip | Branch` and `Branch` holds a `Tree`, so defaulting through
+' `Branch` would default a `Tree` to default a `Branch`, forever. The predicate
+' carries the unions already on the path and answers false for one it meets
+' twice, leaving `Tip` as the only choice.
+'
+' Every line below asserts the RECOVER value, which is what the program is
+' allowed to see. The default is asserted only by the program building and
+' running at all -- an unbuildable one is a compile error, and a wrongly shaped
+' one is a slot the RECOVER value is written into.
+IMPORT collections
+IMPORT io
+
+ENUM Flag
+  Off, On
+END ENUM
+
+TYPE Leaf
+  n AS Integer
+END TYPE
+
+' Defaultable only because every field is: a collection, a String, a nested
+' record and an enum, each a different arm of the predicate.
+TYPE Heavy
+  items AS List OF Integer
+  tag AS String
+  inner AS Leaf
+  f AS Flag
+END TYPE
+
+UNION Shape
+  Leaf
+  Heavy
+END UNION
+
+TYPE Tip
+  n AS Integer
+END TYPE
+
+TYPE Branch
+  child AS Tree
+END TYPE
+
+UNION Tree
+  Tip
+  Branch
+END UNION
+
+' bug-434's shape: a collection's default is the empty one whatever it holds, so
+' a non-defaultable element type must not cascade into the record.
+TYPE Nest
+  s AS Shape
+  xs AS List OF Shape
+  mm AS Map OF String TO Shape
+END TYPE
+
+FUNC failing(n AS Integer) AS Integer
+  IF n < 0 THEN FAIL error(77050002, "no")
+  RETURN n
+END FUNC
+
+FUNC aFlag(n AS Integer) AS Flag
+  RETURN Flag.On
+END FUNC
+
+FUNC aShape(n AS Integer) AS Shape
+  RETURN Leaf[n]
+END FUNC
+
+FUNC aTree(n AS Integer) AS Tree
+  RETURN Tip[n]
+END FUNC
+
+FUNC aHeavy(n AS Integer) AS Heavy
+  RETURN Heavy[[n], "h", Leaf[n], Flag.On]
+END FUNC
+
+FUNC aNest(n AS Integer) AS Nest
+  RETURN Nest[Leaf[n], [], Map OF String TO Shape { }]
+END FUNC
+
+FUNC showShape(s AS Shape) AS String
+  MATCH s
+    CASE Leaf(l)
+      RETURN "Leaf(" & toString(l.n) & ")"
+    CASE Heavy(h)
+      RETURN "Heavy(items=" & toString(len(h.items)) & " tag=[" & h.tag & "])"
+  END MATCH
+END FUNC
+
+FUNC showTree(t AS Tree) AS String
+  MATCH t
+    CASE Tip(x)
+      RETURN "Tip(" & toString(x.n) & ")"
+    CASE Branch(b)
+      RETURN "Branch"
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  ' Both directions for each type: the handler runs, and it does not. A default
+  ' the emitter got wrong could still look right on the error path alone, where
+  ' the RECOVER value overwrites it.
+  LET okFlag AS Flag = aFlag(failing(1)) TRAP(e)
+    RECOVER Flag.Off
+  END TRAP
+  LET badFlag AS Flag = aFlag(failing(0 - 1)) TRAP(e)
+    RECOVER Flag.Off
+  END TRAP
+  io::print("enum       ok=" & toString(okFlag = Flag.On) & " bad=" & toString(badFlag = Flag.Off))
+
+  LET okShape AS Shape = aShape(failing(7)) TRAP(e)
+    RECOVER Leaf[0]
+  END TRAP
+  LET badShape AS Shape = aShape(failing(0 - 1)) TRAP(e)
+    RECOVER Leaf[0]
+  END TRAP
+  io::print("union      ok=" & showShape(okShape) & " bad=" & showShape(badShape))
+
+  LET okTree AS Tree = aTree(5) TRAP(e)
+    RECOVER Tip[0]
+  END TRAP
+  LET badTree AS Tree = aTree(failing(0 - 1)) TRAP(e)
+    RECOVER Tip[0]
+  END TRAP
+  io::print("cycle      ok=" & showTree(okTree) & " bad=" & showTree(badTree))
+
+  LET okHeavy AS Heavy = aHeavy(failing(3)) TRAP(e)
+    RECOVER Heavy[[], "r", Leaf[0], Flag.Off]
+  END TRAP
+  LET badHeavy AS Heavy = aHeavy(failing(0 - 1)) TRAP(e)
+    RECOVER Heavy[[], "r", Leaf[0], Flag.Off]
+  END TRAP
+  io::print("record     ok=" & toString(len(okHeavy.items)) & "/" & okHeavy.tag _
+    & " bad=" & toString(len(badHeavy.items)) & "/" & badHeavy.tag)
+
+  LET okNest AS Nest = aNest(failing(2)) TRAP(e)
+    RECOVER Nest[Leaf[0], [], Map OF String TO Shape { }]
+  END TRAP
+  LET badNest AS Nest = aNest(failing(0 - 1)) TRAP(e)
+    RECOVER Nest[Leaf[0], [], Map OF String TO Shape { }]
+  END TRAP
+  io::print("nested     ok=" & showShape(okNest.s) & "/" & toString(len(okNest.xs)) _
+    & " bad=" & showShape(badNest.s) & "/" & toString(len(badNest.xs)))
+
+  ' The collection arm, and the proof that two defaults are two values: an
+  ' emitter returning one shared empty list would have the first append show up
+  ' in the second.
+  '
+  ' The source list is [0] rather than []: appending to an untyped empty
+  ' literal is refused at lowering ("native collection list item must be
+  ' Unknown, got Integer"), which is bug-550 and not this fixture's subject.
+  MUT one AS List OF Integer = collections::append([0], failing(1)) TRAP(e)
+    RECOVER []
+  END TRAP
+  MUT two AS List OF Integer = collections::append([0], failing(0 - 1)) TRAP(e)
+    RECOVER []
+  END TRAP
+  one = collections::append(one, 9)
+  io::print("collection one=" & toString(len(one)) & " two=" & toString(len(two)))
+
+  RETURN 0
+END FUNC
