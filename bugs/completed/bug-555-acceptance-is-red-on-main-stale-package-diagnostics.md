@@ -5,7 +5,7 @@ Effort: small (decide which side is right, then one golden edit or one diagnosti
 Severity: MEDIUM (a red harness that every later branch inherits, and whose obvious "fix" is to re-baseline)
 Class: Stale golden / diagnostic regression
 
-Status: Open — **needs the `8f0ebfeb8` author's call** on which side is right
+Status: **FIXED** (2026-09-05, `93b72b92a` — by a peer session, not this one)
 
 ## The finding
 
