@@ -1,12 +1,17 @@
 # bug-456: `MFB_OPT>1` acceptance sweeps can never pass — full-text `.ncode` goldens are level-variant by design, so 7 fixed mismatches mask real failures
 
-Last updated: 2026-08-25
+Last updated: 2026-09-06
 Effort: small (<1h)
 Severity: LOW
 Class: Footgun (verification harness; no miscompile)
 
-Status: Open
-Regression Test: — (Phase 1: `MFB_OPT=3 test-accept` on a clean tree must exit 0)
+Status: **FIXED** (2026-09-06) — the harness skips the per-target native dumps
+at any non-default `-O` level and counts them in the summary; a healthy tree
+exits 0 at `-O0`, `-O2` and `-O3`, and `MFB_OPT=1` and the default run still
+compare everything.
+Regression Test: `scripts/test-accept-selftest.sh` check 6 — six level
+decisions, sixteen kind decisions, and four probes of the compare seam, each
+extracted from the shipping scripts rather than restated.
 
 plan-100 gave `scripts/test-accept.sh` the `MFB_OPT` switch so the whole
 1271-fixture suite can run at a chosen dial level — now the standing
@@ -137,6 +142,56 @@ predicate this document rightly asks for should be "emitted after the `-O`-gated
 passes", not a path list — the count moved from 7 to 9 the moment two fixtures
 gained a `.mir` golden.
 
+### That answer's `.nir`/`.nplan` half is WRONG — re-measured 2026-09-06
+
+The prescription above ("`.ncode` + `.mir` as measured") is the right shape and
+the wrong population, and the document's own warning is why: a count read off
+today's corpus decays. Re-measured on `496bc0e71` with a release binary built
+from that tip, uncontended, scoped to all 22 fixtures that carry any native
+golden (57 fixtures ran):
+
+```
+$ MFB_OPT=3 bash scripts/test-accept.sh target/release/mfb /tmp/acc456-o3 \
+    control-flow-if parser-hello-world control-flow-match 'macos-app-mode-*' \
+    sub-template-valid 'project-entry-*' func_map_getor_hash_probe \
+    list-ops-codegen-rt
+acceptance tests failed: 11 mismatch(es) (57 test(s) ran)
+```
+
+**Eleven, not nine.** The two the 2026-08-31 sweep did not see are
+
+```
+syntax/app/macos-app-mode-term/macos_app_mode_term.macos-aarch64.app.nir
+syntax/app/macos-app-mode-term/macos_app_mode_term.macos-aarch64.app.nplan
+```
+
+and the diff is loop rotation — a `"op": "while"` becoming a guarded
+`"op": "doUntil"` inside `#color_hexValue`. So `.nir` is **not** level-invariant;
+it is the first place the dial's effect appears, and everything downstream of it
+inherits that. The earlier null result was a property of the corpus: no fixture
+that carried a `.nir` golden contained a loop for rotation to rewrite until
+`macos-app-mode-term` did. `.nobj` still does not move, and would be recorded as
+"level-invariant" by exactly the same faulty method.
+
+The pipeline settles it without reference to any corpus: `build_nir_module` runs
+`optimizer::opt1::optimize_nir(module, active_opt_level())`
+(`src/target/shared/lower.rs:79`) and is the **sole** `NirModule` producer, so
+every per-target dump — `.nir` and the `.nplan`/`.nobj`/`.ncode`/`.mir` derived
+from it — is emitted downstream of the dial. The host kinds (`.ast`, `.ir`,
+`.hex`) are produced before native lowering and are invariant; measured, none of
+them moved at `-O3`.
+
+So the predicate is **`ARTIFACT_NATIVE_KINDS` membership**, and it must not be
+narrowed to the kinds observed to drift. That is what
+`artifact_kind_is_level_variant` (`scripts/artifact-kinds.sh`) implements.
+
+Also corrected: `.ncodesum` is not reachable from this harness for a different
+reason than the one recorded above. `test-accept.sh` **does** run the 27
+`tests/byte-identity/*` fixtures — they each have a `project.json` and the loop
+finds every one — but no compare list in the harness names the `.ncodesum`
+extension, so none is ever read. Nothing to skip, and nothing compares an
+`.ncodesum` at a non-default level on any path.
+
 ## Failing Reproduction
 
 On a tree where the default-level suite is fully green:
@@ -201,30 +256,56 @@ sweep).
 
 ### Phase 1 — failing reproduction pinned
 
-- [ ] Record the exit-1/7-mismatch behavior on a green tree (this file);
-      confirm all 7 are `.ncode`-family and their `.run`/build.log matched.
+- [x] Record the exit-1 behavior on a green tree (this file). Re-measured
+      2026-09-06: **11** mismatches, not 7 or 9 — 7 `.ncode`, 2 `.mir`, and
+      `macos-app-mode-term`'s `.app.nir` + `.app.nplan`. Every fixture's
+      `.run`/build.log/`.ast`/`.ir` matched; the same 57-fixture scope at the
+      default level and at `MFB_OPT=1` exited 0.
 
-Acceptance: reproduction documented as above.
-Commit: —
+Acceptance: reproduction documented above, and the prior measurement corrected.
+Commit: (this change)
 
 ### Phase 2 — the fix
 
-- [ ] Harness skip + skip-count in the summary for `MFB_OPT>1`.
+- [x] `artifact_kind_is_level_variant` in `scripts/artifact-kinds.sh` (the
+      derived predicate, keyed to the kind family and documented from the
+      pipeline, not from observed drift).
+- [x] `level_variant_skip_for` + `compare_native_output` in
+      `scripts/test-accept.sh`, and the skip count in the summary line.
+- [x] `scripts/test-accept-selftest.sh` check 6 — the RED test and the positive
+      pins, extracting both decisions and the compare seam from the shipping
+      scripts.
 
-Acceptance: `MFB_OPT=3` sweep exits 0 on a green tree with
-`7 level-variant golden(s) skipped`; seeding a deliberate `.run` corruption
-still fails it; default run unchanged (byte-identical harness behavior with
-`MFB_OPT` unset, proven by an ordinary full run).
-Commit: —
+Acceptance: met. Scoped 57-fixture matrix on the fix:
+
+```
+MFB_OPT unset  exit 0   acceptance tests passed (57 test(s) ran)
+MFB_OPT=0      exit 0   ... (57 test(s) ran, 69 level-variant golden(s) skipped at -O0)
+MFB_OPT=1      exit 0   acceptance tests passed (57 test(s) ran)
+MFB_OPT=2      exit 0   ... (57 test(s) ran, 69 level-variant golden(s) skipped at -O2)
+MFB_OPT=3      exit 0   ... (57 test(s) ran, 69 level-variant golden(s) skipped at -O3)
+```
+
+Positive pin, same tree: appending one line to
+`rt-behavior/control-flow/control-flow-if/golden/build.log` and re-running that
+fixture at `MFB_OPT=3` gives
+`acceptance tests failed: 1 mismatch(es) (1 test(s) ran, 5 level-variant golden(s) skipped at -O3)`
+— the sweep still catches a real runtime deviation while skipping the dumps.
+Commit: (this change)
 
 ### Phase 3 — full validation
 
-- [ ] Default `test-accept.sh` full run (harness change must be inert there).
-- [ ] `MFB_OPT=1` run — still compares everything (the plan-100 gate intact).
-- [ ] `MFB_OPT=3` run — exit 0.
+- [x] Default `test-accept.sh` full run (harness change is inert there).
+- [x] `MFB_OPT=1` run — still compares everything (the plan-100 gate intact).
+- [x] `MFB_OPT=3` run — no native-dump mismatch remains.
 
-Acceptance: all three runs behave per their contracts.
-Commit: —
+Acceptance: all three runs behave per their contracts. See the commit message
+for the full-tree numbers; note this tree carries 4 pre-existing mismatches on
+`syntax/packages/package-comparable-import-invalid` and
+`package-unknown-member-invalid`, stale since `8f0ebfeb8` and unrelated to this
+change, so "exit 0" is proven at the 57-fixture scope and the tree-wide claim is
+"the `-O3` mismatch set equals the default mismatch set".
+Commit: (this change)
 
 ## Validation Plan
 
@@ -237,8 +318,12 @@ Commit: —
 
 ## Open Decisions
 
-- Skip keyed on `MFB_OPT != ""` vs `MFB_OPT > 1`: recommended `> 1`, so the
-  `MFB_OPT=1` byte-identity gate keeps its full compare set.
+- ~~Skip keyed on `MFB_OPT != ""` vs `MFB_OPT > 1`~~ — **settled: keyed to
+  "the level differs from the default", and the default is `-O1`.** `MFB_OPT=1`
+  keeps its full compare set, which is what the recommendation was protecting.
+  `MFB_OPT=0` skips as well, and `> 1` would have got that wrong: `-O0` turns
+  gated passes OFF, so it drifts the same dumps `-O3` does (measured: 69
+  goldens skipped, exit 0, on the 57-fixture scope).
 
 ## Summary
 

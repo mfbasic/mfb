@@ -18,7 +18,9 @@ unintentionally) across a refactor.
 - **artifact-kinds.sh** — Shared data table (not executable) listing every
   execution-free codegen dump `mfb build -<flag>` emits and how to produce it.
   Sourced by both `test-accept.sh` and `artifact-gate.sh` so the two can't drift
-  about which dump kinds exist.
+  about which dump kinds exist. Also owns `artifact_kind_is_level_variant`, which
+  says whether a kind is emitted downstream of the `-O` dial (every per-target
+  native dump is) and so cannot be compared against a default-level golden.
 - **bug387-gate.sh** — Byte-identity gate for the bug-387 output-preserving
   refactor: compares the app-mode `-ncode` of the three app fixtures (and
   optionally the full exe-oracle corpus) across four targets against a
@@ -55,10 +57,16 @@ Build fixture programs, run them, and diff their behavior against goldens.
 - **test-accept.sh** — The full acceptance harness: builds and runs every
   fixture under `tests/`, comparing produced artifacts and program output against
   committed goldens. Refuses to run concurrently with another copy. Usage:
-  `test-accept.sh <mfb-exe> <actual-output-dir> [name-glob ...]`.
+  `test-accept.sh <mfb-exe> <actual-output-dir> [name-glob ...]`. `MFB_OPT=<n>`
+  re-runs the suite at optimizer level `n`; at any level other than the default
+  `1` the per-target native dumps are skipped (and counted in the summary line),
+  so a healthy tree exits 0 at every level.
 - **test-accept-selftest.sh** — Self-test for the harness's own per-fixture
   watchdog (bug-320): exercises the timeout helper directly so a program that
-  blocks forever fails *that* fixture instead of wedging the whole suite.
+  blocks forever fails *that* fixture instead of wedging the whole suite. Also
+  covers the rival-process guard (bug-455) and the `MFB_OPT` level-variant golden
+  skip (bug-456), extracting each decision from the shipping scripts rather than
+  restating it.
 - **sync-goldens.sh** — Regenerates existing golden files in place by running the
   harness and copying each freshly produced "actual" over its golden. Never
   creates new goldens; forwards a name-glob so a single-fixture sync only runs

@@ -115,6 +115,35 @@ ever shows a *behavior* mismatch, that is a real bug, not an expected difference
 `src/codegen/compiler/opt/`, pinned by `rt-behavior/arithmetic/float-fma-fusion`
 plus `rt-error/arithmetic/arithmetic-float-fma-observed-rt`.)
 
+**A non-default `MFB_OPT` skips the per-target native dumps (bug-456).** Every
+`ARTIFACT_NATIVE_KINDS` golden — `.nir`, `.nplan`, `.nobj`, `.ncode`, `.mir` —
+is emitted downstream of the `-O`-gated passes: `build_nir_module` runs
+`optimizer::opt1::optimize_nir(module, active_opt_level())`
+(`src/target/shared/lower.rs:79`) and is the sole `NirModule` producer. Goldens
+were recorded at the default, so at any other level the dial rewrites them and
+they mismatch by design. The harness therefore compares none of them when
+`MFB_OPT` is a level other than `1`, and reports how many it skipped
+(`… , 69 level-variant golden(s) skipped at -O3`) — the sweep's real signal is
+`.run`/build.log, and burying it in a fixed list of expected mismatches is what
+made a healthy `MFB_OPT=3` run indistinguishable from a broken one. **A healthy
+tree now exits 0 at every level.** `MFB_OPT=1` still compares everything: the
+flagless build IS `-O1`, so that run is the "explicit `-O1` == default"
+byte-identity gate.
+
+The predicate is `artifact_kind_is_level_variant` in `scripts/artifact-kinds.sh`
+and it is keyed to the *kind family*, not to observed drift. That distinction is
+load-bearing: measured at `-O3` on 2026-09-06 only `.ncode`, `.mir` and
+`macos-app-mode-term`'s `.app.nir`/`.app.nplan` actually differ, and `.nobj`
+never does — but a 2026-08-31 measurement saw `.nir`/`.nplan` hold still too,
+and they moved when the fixture set changed (loop rotation only shows up in a
+fixture that has a loop). Which goldens drift is a property of the corpus; which
+kinds *can* is a property of the pipeline.
+
+`.ncodesum` is not in this picture. `test-accept.sh` compares no `.ncodesum` on
+any path — the `tests/byte-identity` fixtures do run, but nothing in the harness
+reads that extension — and `artifact-gate.sh` has no `MFB_OPT` switch. So no
+harness compares an `.ncodesum` at a non-default level at all.
+
 **The fixture count is a signal.** The summary line is `acceptance tests passed
 (N test(s) ran)`. If `N` moves between two runs of the same tree, the harness is
 losing fixtures, whatever the pass/fail says — that is how a stdin bug that had
