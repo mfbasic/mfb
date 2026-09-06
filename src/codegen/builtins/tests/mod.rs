@@ -40,6 +40,7 @@ mod fixture_projects;
 mod harness;
 mod imported_types;
 mod inplace;
+mod inplace_fields;
 mod link;
 mod math;
 mod nir_json;
