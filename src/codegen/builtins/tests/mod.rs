@@ -55,6 +55,7 @@ mod registry_bodies;
 mod resource_union_default;
 mod strings_fold;
 mod term_read;
+mod thread_send_scalar;
 mod threads;
 mod validation;
 mod vector;
