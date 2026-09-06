@@ -1,0 +1,155 @@
+' A higher-order collection helper whose CALLBACK fails, under an inline TRAP.
+'
+' `mfb man collections partition`: "an error raised inside predicate is not
+' absorbed by partition: it propagates out of the collections::partition call to
+' the caller, ABANDONING THE PARTIALLY BUILT RESULT."
+'
+' Abandoning it is the interesting half. The helper has appended to two lists by
+' the time element 3 raises, and those blocks belong to nobody -- so each helper
+' emits a raw-result capture that saves the error registers, drops the
+' partially-built collection, and then re-raises. In
+' `builtins/collections/func_partition.rs` that is the whole `Some(capture)`
+' arm, and it was unexecuted; the same shape sits in every other helper here.
+'
+' Nothing in the tree failed a callback under an inline TRAP. A failing callback
+' under a FUNCTION-level trap propagates by a different mechanism and does not
+' build the capture at all, which is why "there are HOF fixtures" was not the
+' same as "this is covered".
+'
+' Every case is run twice -- a list that does not contain the failing element,
+' and one that does -- because the capture is on the error path only, and a
+' helper that took it always would still produce the recovered value on the
+' failing run.
+IMPORT collections
+IMPORT io
+
+FUNC doubleOrBoom(n AS Integer) AS Integer
+  IF n = 3 THEN FAIL error(77050002, "boom at " & toString(n))
+  RETURN n * 2
+END FUNC
+
+FUNC evenOrBoom(n AS Integer) AS Boolean
+  IF n = 3 THEN FAIL error(77050002, "boom at " & toString(n))
+  RETURN n MOD 2 = 0
+END FUNC
+
+FUNC keyOrBoom(n AS Integer) AS String
+  IF n = 3 THEN FAIL error(77050002, "boom at " & toString(n))
+  RETURN "k" & toString(n MOD 2)
+END FUNC
+
+FUNC identity(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC addOrBoom(acc AS Integer, n AS Integer) AS Integer
+  IF n = 3 THEN FAIL error(77050002, "boom at " & toString(n))
+  RETURN acc + n
+END FUNC
+
+FUNC main() AS Integer
+  ' `safe` never reaches the failing element; `risky` does, at index 2.
+  LET safe AS List OF Integer = [1, 2, 4, 5]
+  LET risky AS List OF Integer = [1, 2, 3, 4, 5]
+
+  ' ---- transform: builds one list ---------------------------------------
+  LET tOk AS Integer = len(collections::transform(safe, doubleOrBoom)) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  LET tBad AS Integer = len(collections::transform(risky, doubleOrBoom)) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("transform  ok=" & toString(tOk) & " bad=" & toString(tBad))
+
+  ' ---- filter: builds one list, and skips some elements ------------------
+  LET fOk AS Integer = len(collections::filter(safe, evenOrBoom)) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  LET fBad AS Integer = len(collections::filter(risky, evenOrBoom)) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("filter     ok=" & toString(fOk) & " bad=" & toString(fBad))
+
+  ' ---- partition: builds TWO lists, both abandoned -----------------------
+  LET pOk AS Integer = len(collections::partition(safe, evenOrBoom).matched) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  LET pBad AS Integer = len(collections::partition(risky, evenOrBoom).matched) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("partition  ok=" & toString(pOk) & " bad=" & toString(pBad))
+
+  ' ---- groupBy: builds a map OF lists ------------------------------------
+  ' `groupBy` takes THREE arguments: V appears only in the return type, so a
+  ' `valFn` has to determine it (documented, `mfb man collections groupBy`).
+  ' Both projections run over the WHOLE list up front, via transform, before
+  ' any bucket is written -- so the failure here abandons two projected lists
+  ' and no map at all.
+  LET gOk AS Map OF String TO List OF Integer = collections::groupBy(safe, keyOrBoom, identity) TRAP(e)
+    RECOVER Map OF String TO List OF Integer { }
+  END TRAP
+  LET gBad AS Map OF String TO List OF Integer = collections::groupBy(risky, keyOrBoom, identity) TRAP(e)
+    RECOVER Map OF String TO List OF Integer { }
+  END TRAP
+  io::print("groupBy    ok=" & toString(len(gOk)) & " bad=" & toString(len(gBad)))
+
+  ' ---- sortBy: builds a list, and reorders it ----------------------------
+  LET sOk AS Integer = len(collections::sortBy(safe, keyOrBoom)) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  LET sBad AS Integer = len(collections::sortBy(risky, keyOrBoom)) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("sortBy     ok=" & toString(sOk) & " bad=" & toString(sBad))
+
+  ' ---- reduce: no collection to abandon, an accumulator to discard -------
+  LET rOk AS Integer = collections::reduce(safe, 0, addOrBoom) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  LET rBad AS Integer = collections::reduce(risky, 0, addOrBoom) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("reduce     ok=" & toString(rOk) & " bad=" & toString(rBad))
+
+  ' ---- any / all: SHORT-CIRCUITING, so where the failure sits matters ----
+  ' `any` stops at the first TRUE. Element 2 is even, so it returns before
+  ' reaching 3 and never fails -- which is the documented behaviour and the
+  ' reason this row is not simply "bad=FALSE".
+  LET aOk AS Boolean = collections::any(safe, evenOrBoom) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  LET aBad AS Boolean = collections::any(risky, evenOrBoom) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  io::print("any        ok=" & toString(aOk) & " bad=" & toString(aBad))
+
+  ' `all` stops at the first FALSE, which is element 1 -- so it too returns
+  ' before the failure. Both are here because a helper that DID run its
+  ' callback over every element would show up as a recovered -1 rather than
+  ' as the right answer.
+  LET lOk AS Boolean = collections::all(safe, evenOrBoom) TRAP(e)
+    RECOVER TRUE
+  END TRAP
+  LET lBad AS Boolean = collections::all(risky, evenOrBoom) TRAP(e)
+    RECOVER TRUE
+  END TRAP
+  io::print("all        ok=" & toString(lOk) & " bad=" & toString(lBad))
+
+  ' ---- the whole point: the arena survives it ----------------------------
+  ' Run the failing partition many times. Each one abandons two partly-built
+  ' lists; a capture that dropped the wrong block, or none, shows up here as a
+  ' crash or as a wrong answer from the work that follows it.
+  MUT churn AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 200
+    LET one AS Integer = len(collections::partition(risky, evenOrBoom).matched) TRAP(e)
+      RECOVER 1
+    END TRAP
+    churn = churn + one
+    i = i + 1
+  END WHILE
+  io::print("churn      " & toString(churn))
+  io::print("after      " & toString(len(collections::transform(safe, doubleOrBoom))))
+
+  RETURN 0
+END FUNC

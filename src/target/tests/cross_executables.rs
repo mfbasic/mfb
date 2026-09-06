@@ -399,21 +399,20 @@ fn every_dump_kind_writes_on_every_target_that_advertises_it() {
             let ir = crate::testutil::named_ir_for_src(SRC, "dumpprog");
             let written = write(&scratch.0, &ir, &target, &[], NativeBuildMode::Console);
 
-            if !gated_on(&capabilities) {
-                // A target that does not advertise the capability must be
-                // refused by the dispatcher, not attempted by the backend.
-                assert!(
-                    written
-                        .as_ref()
-                        .err()
-                        .is_some_and(|err| err.contains("does not support")),
-                    "{} advertises no {extension} capability, so the dispatcher \
-                     must refuse it rather than call a backend that cannot \
-                     deliver; it said {written:?}",
-                    target.name()
-                );
-                continue;
-            }
+            // Every registered backend advertises every dump capability today,
+            // asserted here rather than assumed: it is what makes the loop
+            // below an assertion about all five rather than about whichever
+            // subset happens to be capable, and it is why the dispatchers'
+            // six "does not support X yet" refusals are unreachable -- the
+            // only lines left uncovered in `src/target.rs`.
+            assert!(
+                gated_on(&capabilities),
+                "{} does not advertise -{extension}. That is allowed, and this \
+                 test then has to grow the other half: the dispatcher must \
+                 REFUSE it (\"does not support\") rather than call a backend \
+                 that cannot deliver.",
+                target.name()
+            );
 
             let path =
                 written.unwrap_or_else(|err| panic!("{} -{extension}: {err}", target.name()));
