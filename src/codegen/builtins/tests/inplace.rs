@@ -20,6 +20,19 @@
 //! over one element on the hottest path in the collection layer, and nothing
 //! behavioural would report either.
 //!
+//! There is a fourth, for a list held in a RECORD FIELD:
+//!
+//!   * `inline_append_*` — `rec = WITH rec { f := append(rec.f, x) }`, which
+//!     grows the field's bytes inside the record's own block instead of
+//!     rebuilding the record.
+//!
+//! That one has a condition the other three do not, and it is the interesting
+//! part of this file: **the field must be the LAST inlined one**. A record's
+//! variable-width fields live end to end in a trailing data region, so growing
+//! any but the last would move every byte after it — the `inline_append_prefix_*`
+//! loop exists to copy the bytes BEFORE the grown field precisely because there
+//! must be nothing after it to move.
+//!
 //! The three families are named by their emitted labels, which is what makes
 //! this a test rather than a line-toucher: a rewrite that quietly routed the
 //! single-element case through the general insert would still print the right
@@ -198,4 +211,115 @@ fn every_append_shape_is_emitted_into_its_caller() {
              must call no out-of-line append helper; it called {calls:?}"
         );
     }
+}
+
+/// `WITH rec { b := append(rec.b, x) }` where `b` is the LAST inlined field.
+const WITH_LAST_FIELD: &str = "\
+IMPORT collections
+IMPORT io
+
+TYPE Bag
+  a AS List OF Integer
+  b AS List OF Integer
+END TYPE
+
+FUNC main() AS Integer
+  MUT bag AS Bag = Bag[a := [1, 2, 3], b := []]
+  FOR i = 0 TO 20
+    bag = WITH bag { b := collections::append(bag.b, i) }
+  NEXT
+  io::print(toString(len(bag.b)))
+  RETURN 0
+END FUNC
+";
+
+/// The same append, on the field that is NOT last.
+const WITH_FIRST_FIELD: &str = "\
+IMPORT collections
+IMPORT io
+
+TYPE Bag
+  a AS List OF Integer
+  b AS List OF Integer
+END TYPE
+
+FUNC main() AS Integer
+  MUT bag AS Bag = Bag[a := [], b := [1, 2, 3]]
+  FOR i = 0 TO 20
+    bag = WITH bag { a := collections::append(bag.a, i) }
+  NEXT
+  io::print(toString(len(bag.a)))
+  RETURN 0
+END FUNC
+";
+
+/// `a := append(rec.b, …)` — grows a's buffer from b's, which is G18's case.
+const WITH_CROSS_FIELD: &str = "\
+IMPORT collections
+IMPORT io
+
+TYPE Bag
+  a AS List OF Integer
+  b AS List OF Integer
+END TYPE
+
+FUNC main() AS Integer
+  MUT bag AS Bag = Bag[a := [], b := [1, 2, 3]]
+  FOR i = 0 TO 20
+    bag = WITH bag { b := collections::append(bag.a, i) }
+  NEXT
+  io::print(toString(len(bag.b)))
+  RETURN 0
+END FUNC
+";
+
+/// A record field grows in place only when it is the LAST inlined field.
+///
+/// A record's variable-width fields live end to end in a trailing data region.
+/// Growing the last one extends the block; growing any other would have to shift
+/// every byte after it, and the record is rebuilt instead. The
+/// `inline_append_prefix_*` copy loop — the bytes BEFORE the grown field — is
+/// the shape that only makes sense for the last one.
+#[test]
+fn a_record_field_grows_in_place_only_when_it_is_the_last_one() {
+    let last = label_stems(WITH_LAST_FIELD);
+    assert!(
+        has_family(&last, "inline_append"),
+        "`WITH bag {{ b := append(bag.b, i) }}` on the LAST inlined field is the \
+         shape the record-field in-place path exists for: {last:?}"
+    );
+    assert!(
+        last.iter().any(|stem| stem == "inline_append_prefix_wloop"),
+        "the in-place record append must copy the bytes BEFORE the grown field; \
+         without that loop the field's new bytes land on top of the ones ahead \
+         of it: {last:?}"
+    );
+
+    let first = label_stems(WITH_FIRST_FIELD);
+    assert!(
+        !has_family(&first, "inline_append"),
+        "`a` is not the last inlined field, so growing it in place would move \
+         every byte of `b` that follows it; the record must be rebuilt: {first:?}"
+    );
+    assert!(
+        has_family(&first, "list_insert"),
+        "the declining case must still append -- through the general insert, \
+         which rebuilds: {first:?}"
+    );
+}
+
+/// G18: `b := append(rec.a, …)` writes b's buffer from a's, so it rebuilds.
+///
+/// The two fields are different blocks. Taking the in-place path here would
+/// grow `b` in place while reading `a`, which is not the self-append the fast
+/// path is written for — and `b`'s own contents would be dropped rather than
+/// appended to.
+#[test]
+fn appending_one_field_into_another_rebuilds() {
+    let cross = label_stems(WITH_CROSS_FIELD);
+    assert!(
+        !has_family(&cross, "inline_append"),
+        "`b := append(bag.a, i)` is not a self-append: the in-place path would \
+         grow b's bytes from a's and lose b's own: {cross:?}"
+    );
 }
