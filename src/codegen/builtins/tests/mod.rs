@@ -43,6 +43,7 @@ mod inplace;
 mod link;
 mod math;
 mod nir_json;
+mod nir_validation;
 mod optimizer;
 mod os;
 mod perf;
