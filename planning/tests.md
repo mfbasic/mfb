@@ -422,7 +422,8 @@ these files, and is not for `repository/src/**`).
 | after the platform-emit failure sweep | 198 | 5,577 |
 | after the optimizer-globals and OUT-width suites | 198 | 5,509 |
 | after the checker suites (coercion, shape refusals, Money) | 198 | 5,451 |
-| after the op-kind validator rows and the by-ref fixture | **198** | **5,414** |
+| after the op-kind validator rows and the by-ref fixture | 198 | 5,414 |
+| after the sweep's import fixpoint (331 bodies -> 710) | **189** | **5,106** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
