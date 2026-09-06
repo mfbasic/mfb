@@ -636,6 +636,37 @@ signatures and type defs to the harness. Note the caution in
 stale, so the loader should prefer building the package from source where the
 fixture ships it.
 
+### F8 — the widest dead functions left are the executable WRITERS, and they are the existing exception's class
+
+With the ranking corrected (F6) the list is flat, and its top is one cluster:
+
+    84 lines  src/target/linux_x86_64/mod.rs::write_executable
+    81 lines  src/target/linux_aarch64/mod.rs::write_executable
+    64 lines  src/target/linux_riscv64/mod.rs::write_executable
+    29 + 27 + 27 lines   their neighbours in the same three files
+
+~310 lines across six functions. `write_executable` takes a project directory
+and produces files: it lowers the module, then links, then writes an executable
+per libc world, spawning the system linker (and on macOS `codesign`). It cannot
+run in this process, and it is exactly what `scripts/coverage-exceptions.txt`
+already excuses for `src/target.rs`:
+
+    src/target.rs  # write_executable/nir/plan/object dispatchers invoke per-OS
+                   # backends that spawn linkers/codesign over a full IrProject
+
+The per-backend files were never added to that entry because until C8 they were
+not in the denominator at all — `src/target/**` matched the `IGNORE` regex. They
+are now, and the three of them sit at 24.65%, 24.77% and 36.41%.
+
+**Not excepted here, and deliberately.** The plan forbids bulk exceptions, and
+these three files are not only their writers: they also hold each backend's
+`write_native_plan` / `write_nir` / `write_object` dispatchers, which the new
+`-nir` and `-nplan` suites DO reach. Excepting the file would excuse the parts a
+test can close along with the parts it cannot. The honest next step is to close
+what is reachable first and see what the residual actually is — and if it turns
+out to be only the linker-spawning writers, the entry to add says so and names
+them, rather than naming three files.
+
 ## Corrections
 ### C1 — "the coverage job is the only red job in CI" is false; `fmt` is red too
 
