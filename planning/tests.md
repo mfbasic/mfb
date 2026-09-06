@@ -308,6 +308,19 @@ The per-file ledger is generated from the Phase 0 baseline; see
       a variable-width element type carries a lookup entry array the grow must
       copy, and a concatenation must REBASE the copied entries' offsets or every
       appended element reads from the source's data region.
+- [x] **The corpus goes 424 -> 620.** The list was generated with a cap of four
+      fixtures per family, which left 285 of the 575 rt-behavior fixtures out;
+      196 of them lower from a source string and are in now. The other 24 needed
+      their PROJECT (a `libraries` section, a non-`main` entry, a second source
+      file) and moved to `fixture_projects.rs`, which is therefore no longer
+      "the package-bearing fixtures" but "the ones that need their project".
+      `no_corpus_function_lowers_to_an_empty_body` collects every failure now
+      instead of panicking on the first -- with 620 entries, one bad row hiding
+      the rest is the difference between an afternoon and a minute, and it is
+      how those 24 were found in one run.
+- [x] The comparison entry points, the resource-union default (bug-429), the
+      scalar `thread::send`, the vector-promotion path and the `CSTRUCT` tail
+      zeroing.
 - [ ] The remaining `src/**` files below the floor, worst first. Regenerate
       the ranking with `python3 scripts/coverage-src-gaps.py <report.json>`,
       which sorts by LINES SHORT rather than by percentage,
@@ -379,7 +392,9 @@ these files, and is not for `repository/src/**`).
 | after the dump writers, the NIR validator and the package decoder | 224 | 7,414 |
 | after the code stage sees the packages | 224 | 7,370 |
 | after the remaining `-nir` op/value/resource shapes | 224 | 7,290 |
-| after the record-field collection mutators | **223** | **7,077** |
+| after the record-field collection mutators | 223 | 7,077 |
+| after the comparison entry points and the resource-union default | 222 | 7,011 |
+| after the corpus expansion (424 -> 620 fixtures) | **221** | **6,982** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
