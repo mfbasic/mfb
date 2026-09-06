@@ -333,11 +333,12 @@ fn try_code_for_src_with(
             }));
             std::panic::set_hook(hook);
             lowered.map_err(|payload| {
-                payload
+                let message = payload
                     .downcast_ref::<String>()
                     .cloned()
                     .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
-                    .unwrap_or_else(|| "lowering panicked with no message".to_string())
+                    .unwrap_or_else(|| "lowering panicked with no message".to_string());
+                explain_lowering_failure(&source, &message)
             })
         })
         .expect("spawn the lowering thread")
@@ -402,6 +403,7 @@ pub fn code_for_src_with(
     // not as a harness limit. A real build never hits it: `mfb` compiles on the
     // process main thread, whose stack is 8 MiB.
     let source = source.to_string();
+    let source_for_report = source.clone();
     std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
         .name(format!("code_for_src({})", target.name()))
@@ -417,8 +419,33 @@ pub fn code_for_src_with(
                 .cloned()
                 .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
                 .unwrap_or_else(|| "the lowering thread panicked".to_string());
-            panic!("{message}")
+            panic!("{}", explain_lowering_failure(&source_for_report, &message))
         })
+}
+
+/// Append the source diagnostics to a lowering failure, when there are any.
+///
+/// The harness lowers straight from the concrete HIR and never runs the build's
+/// source checkers, so a program with a name the language does not have reaches
+/// codegen and fails there — reporting the SYMBOL as an undefined relocation
+/// (`internal relocation target 'canvas.rgb' is not defined`) rather than as the
+/// unresolved identifier it is. That reads as a codegen bug in a file nobody
+/// touched, and the actual cause (a member that moved packages) is invisible.
+///
+/// Running the checkers on the FAILURE path only keeps the happy path free —
+/// the corpus lowers hundreds of programs across five backends per run, and
+/// `collect_diagnostics` on every one of them is not free.
+fn explain_lowering_failure(source: &str, message: &str) -> String {
+    let rules = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check_src(source)))
+        .unwrap_or_default();
+    if rules.is_empty() {
+        return message.to_string();
+    }
+    format!(
+        "{message}\n  \
+         ...but this program does not pass the source checkers, so the lowering \
+         failure above is a consequence, not the cause. Rules: {rules:?}"
+    )
 }
 
 fn code_for_src_inner(
