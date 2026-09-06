@@ -262,6 +262,8 @@ const CORPUS: &[&str] = &[
     "func_typesystem_result_pattern_valid",
     "function-value-error-propagates-rt",
     "indirect-inline-trap-rt",
+    "inplace-decline-aliasing-rt",
+    "state-scalar-inplace-decline-rt",
     "overload-sub-valid",
     "user-function-default-args-result-valid",
     "user-function-stack-args-valid",
@@ -918,7 +920,7 @@ fn every_backend_lowers_the_corpus_to_the_same_program() {
 #[test]
 fn no_corpus_function_lowers_to_an_empty_body() {
     assert!(
-        CORPUS.len() >= 611,
+        CORPUS.len() >= 613,
         "the corpus is {} fixtures; it was generated at 421 across 88 families, then grew to 620 with the rest of tests/rt-behavior, \
          and a list that shrinks silently is a gate that stops measuring",
         CORPUS.len()

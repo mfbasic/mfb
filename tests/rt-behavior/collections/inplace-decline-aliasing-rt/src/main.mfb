@@ -1,0 +1,158 @@
+' `collections` helpers do not mutate their arguments -- including when the
+' result lands somewhere else.
+'
+' `mfb man collections`: "These helpers do not mutate their arguments. A
+' function that changes a collection returns a new value and leaves the original
+' unchanged."
+'
+' Codegen recognises `xs = collections::append(xs, v)` and mutates the block in
+' place, which is a large win and is only correct when the destination IS the
+' argument. Every recogniser in `collection/assign/builder_inplace_assign.rs`
+' therefore opens with a chain of rejections, and two of them are what stands
+' between the optimisation and a silent aliasing bug:
+'
+'   - `arg0 != name`  -- `dst = append(src, v)` must leave `src` alone.
+'   - the argument is a FOR EACH iterable -- mutating the collection being
+'     walked would change what the walk sees, or not terminate.
+'
+' None of those rejections had ever executed. A recogniser that dropped the
+' first one does not fail to build and does not crash: it writes through an
+' alias, and the only way to see it is to read the source collection back after
+' the assignment. That is what every line below does.
+'
+' The accepting shape is asserted alongside each rejection, because a "fix" that
+' declined everything would pass a fixture made only of rejections while
+' deleting the optimisation.
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+TYPE Holder
+  xs AS List OF Integer
+  st AS Set OF Integer
+  mp AS Map OF String TO Integer
+END TYPE
+
+FUNC ints(a AS List OF Integer) AS String
+  MUT s AS String = ""
+  FOR EACH v IN a
+    s = s & toString(v) & " "
+  NEXT
+  RETURN "[" & s & "]"
+END FUNC
+
+FUNC setInts(a AS Set OF Integer) AS String
+  RETURN ints(collections::sort(collections::toList(a)))
+END FUNC
+
+FUNC mapInts(a AS Map OF String TO Integer) AS String
+  MUT s AS String = ""
+  FOR EACH k IN collections::sort(collections::keys(a))
+    s = s & k & "=" & toString(collections::getOr(a, k, 0 - 1)) & " "
+  NEXT
+  RETURN "{" & s & "}"
+END FUNC
+
+FUNC main() AS Integer
+  ' ---- LIST, plain locals: the result goes somewhere else ---------------
+  MUT src AS List OF Integer = [1, 2, 3]
+  MUT dst AS List OF Integer = [0]
+
+  dst = collections::append(src, 9)
+  io::print("append     src=" & ints(src) & " dst=" & ints(dst))
+  dst = collections::prepend(src, 9)
+  io::print("prepend    src=" & ints(src) & " dst=" & ints(dst))
+  dst = collections::insert(src, 1, 9)
+  io::print("insert     src=" & ints(src) & " dst=" & ints(dst))
+  dst = collections::removeAt(src, 1)
+  io::print("removeAt   src=" & ints(src) & " dst=" & ints(dst))
+  dst = collections::set(src, 0, 9)
+  io::print("set        src=" & ints(src) & " dst=" & ints(dst))
+  dst = collections::append(src, [7, 8])
+  io::print("bulk       src=" & ints(src) & " dst=" & ints(dst))
+
+  ' ---- LIST, plain local: the accepting shape ---------------------------
+  MUT own AS List OF Integer = [1, 2, 3]
+  own = collections::append(own, 9)
+  own = collections::prepend(own, 0)
+  own = collections::insert(own, 2, 5)
+  own = collections::set(own, 0, 4)
+  own = collections::removeAt(own, 1)
+  own = collections::append(own, [7, 8])
+  io::print("own        own=" & ints(own))
+
+  ' ---- SET and MAP, plain locals ----------------------------------------
+  MUT ssrc AS Set OF Integer = Set OF Integer { 1, 2, 3 }
+  MUT sdst AS Set OF Integer = Set OF Integer { 0 }
+  sdst = collections::add(ssrc, 9)
+  io::print("add        src=" & setInts(ssrc) & " dst=" & setInts(sdst))
+  sdst = collections::remove(ssrc, 2)
+  io::print("remove     src=" & setInts(ssrc) & " dst=" & setInts(sdst))
+  MUT sown AS Set OF Integer = Set OF Integer { 1, 2, 3 }
+  sown = collections::add(sown, 9)
+  sown = collections::remove(sown, 2)
+  io::print("sown       own=" & setInts(sown))
+
+  MUT msrc AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1, "b" := 2 }
+  MUT mdst AS Map OF String TO Integer = Map OF String TO Integer { "z" := 0 }
+  mdst = collections::set(msrc, "c", 3)
+  io::print("mapSet     src=" & mapInts(msrc) & " dst=" & mapInts(mdst))
+  mdst = collections::removeKey(msrc, "a")
+  io::print("removeKey  src=" & mapInts(msrc) & " dst=" & mapInts(mdst))
+  MUT mown AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1, "b" := 2 }
+  mown = collections::set(mown, "c", 3)
+  mown = collections::removeKey(mown, "a")
+  io::print("mown       own=" & mapInts(mown))
+
+  ' ---- the FOR EACH iterable -------------------------------------------
+  ' Appending to the list being walked. The walk is over the collection as it
+  ' was; an in-place append would extend what the loop is reading from under
+  ' it -- three elements in, six or more out, or no termination at all.
+  MUT walked AS List OF Integer = [1, 2, 3]
+  MUT seen AS Integer = 0
+  FOR EACH v IN walked
+    seen = seen + 1
+    walked = collections::append(walked, v * 10)
+  NEXT
+  io::print("foreach    seen=" & toString(seen) & " walked=" & ints(walked))
+
+  ' ---- RECORD FIELDS: the same question one level in ---------------------
+  MUT a AS Holder = Holder[[1, 2, 3], Set OF Integer { 1, 2 }, Map OF String TO Integer { "a" := 1 }]
+  MUT b AS Holder = Holder[[0], Set OF Integer { 0 }, Map OF String TO Integer { "z" := 0 }]
+
+  ' A record field is written with WITH, and the recogniser matches
+  ' `r = WITH r { f := op(r.f, v) }` -- so the rejection here is the field
+  ' belonging to a DIFFERENT record than the one being rebuilt.
+  b = WITH b { xs := collections::append(a.xs, 9) }
+  io::print("f-append   a=" & ints(a.xs) & " b=" & ints(b.xs))
+  b = WITH b { xs := collections::removeAt(a.xs, 0) }
+  io::print("f-removeAt a=" & ints(a.xs) & " b=" & ints(b.xs))
+  b = WITH b { st := collections::add(a.st, 9) }
+  io::print("f-add      a=" & setInts(a.st) & " b=" & setInts(b.st))
+  b = WITH b { mp := collections::set(a.mp, "c", 3) }
+  io::print("f-mapSet   a=" & mapInts(a.mp) & " b=" & mapInts(b.mp))
+
+  a = WITH a { xs := collections::append(a.xs, 9) }
+  a = WITH a { st := collections::add(a.st, 9) }
+  a = WITH a { mp := collections::set(a.mp, "c", 3) }
+  io::print("f-own      xs=" & ints(a.xs) & " st=" & setInts(a.st) & " mp=" & mapInts(a.mp))
+
+  ' ---- RES ... STATE: the third home -------------------------------------
+  LET path AS String = "tests/rt-behavior/collections/inplace-decline-aliasing-rt/src/main.mfb"
+  RES f AS fs::File STATE Holder = fs::openFile(path)
+  f.state = Holder[[1, 2, 3], Set OF Integer { 1, 2 }, Map OF String TO Integer { "a" := 1 }]
+  MUT out AS List OF Integer = [0]
+
+  out = collections::append(f.state.xs, 9)
+  io::print("s-append   st=" & ints(f.state.xs) & " out=" & ints(out))
+  out = collections::removeAt(f.state.xs, 0)
+  io::print("s-removeAt st=" & ints(f.state.xs) & " out=" & ints(out))
+
+  f.state.xs = collections::append(f.state.xs, 9)
+  f.state.st = collections::add(f.state.st, 9)
+  f.state.mp = collections::set(f.state.mp, "c", 3)
+  io::print("s-own      xs=" & ints(f.state.xs) & " st=" & setInts(f.state.st) & " mp=" & mapInts(f.state.mp))
+  fs::close(f)
+
+  RETURN 0
+END FUNC

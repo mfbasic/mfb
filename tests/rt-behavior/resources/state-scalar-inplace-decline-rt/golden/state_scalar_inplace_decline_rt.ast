@@ -1,0 +1,197 @@
+{
+  "project": "state_scalar_inplace_decline_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 20 },
+    { "module": "fs", "line": 21 },
+    { "module": "io", "line": 22 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Leaf",
+      "line": 24,
+      "fields": [
+      { "visibility": null, "name": "v", "type": "Integer", "line": 25 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Mixed",
+      "line": 28,
+      "fields": [
+      { "visibility": null, "name": "count", "type": "Integer", "line": 29 },
+      { "visibility": null, "name": "flag", "type": "Boolean", "line": 30 },
+      { "visibility": null, "name": "tag", "type": "String", "line": 31 },
+      { "visibility": null, "name": "items", "type": "List OF Integer", "line": 32 },
+      { "visibility": null, "name": "inner", "type": "Leaf", "line": 33 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "setCount",
+      "line": 39,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 39 },
+      { "name": "v", "type": "Integer", "default": null, "line": 39 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "count", "value": { "kind": "identifier", "value": "v" } }] }, "line": 40 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "setFlag",
+      "line": 43,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 43 },
+      { "name": "v", "type": "Boolean", "default": null, "line": 43 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "flag", "value": { "kind": "identifier", "value": "v" } }] }, "line": 44 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "setTag",
+      "line": 47,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 47 },
+      { "name": "v", "type": "String", "default": null, "line": 47 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "tag", "value": { "kind": "identifier", "value": "v" } }] }, "line": 48 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "setItems",
+      "line": 51,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 51 },
+      { "name": "v", "type": "List OF Integer", "default": null, "line": 51 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "items", "value": { "kind": "identifier", "value": "v" } }] }, "line": 52 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "setInner",
+      "line": 55,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 55 },
+      { "name": "v", "type": "Leaf", "default": null, "line": 55 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "inner", "value": { "kind": "identifier", "value": "v" } }] }, "line": 56 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "setCountAndTag",
+      "line": 62,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 62 },
+      { "name": "n", "type": "Integer", "default": null, "line": 62 },
+      { "name": "v", "type": "String", "default": null, "line": 62 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "count", "value": { "kind": "identifier", "value": "n" } }, { "field": "tag", "value": { "kind": "identifier", "value": "v" } }] }, "line": 63 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "setCountAndFlag",
+      "line": 68,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 68 },
+      { "name": "n", "type": "Integer", "default": null, "line": 68 },
+      { "name": "b", "type": "Boolean", "default": null, "line": 68 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "count", "value": { "kind": "identifier", "value": "n" } }, { "field": "flag", "value": { "kind": "identifier", "value": "b" } }] }, "line": 69 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 72,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 72 },
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 72 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " count=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "count" }] } }, "right": { "kind": "string", "value": " flag=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "flag" }] } }, "right": { "kind": "string", "value": " tag=" } }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "tag" } }, "right": { "kind": "string", "value": " items=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "items" }] }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "items" }, { "kind": "number", "value": "0" }] }] } }, "right": { "kind": "string", "value": " inner=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "inner" }, "member": "v" }] } }] }, "line": 73 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 82,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "tests/rt-behavior/resources/state-scalar-inplace-decline-rt/data/input.txt" }, "line": 83 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Mixed", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 84 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "constructor", "type": "Mixed", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "boolean", "value": true }, { "kind": "string", "value": "alpha" }, { "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] }, { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "number", "value": "7" }] }] }, "line": 86 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "start        " }, { "kind": "identifier", "value": "f" }] }, "line": 87 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "setCount", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "2" }] }, "line": 90 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "count        " }, { "kind": "identifier", "value": "f" }] }, "line": 91 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "setFlag", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "boolean", "value": false }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "flag         " }, { "kind": "identifier", "value": "f" }] }, "line": 93 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "setCountAndFlag", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "3" }, { "kind": "boolean", "value": true }] }, "line": 94 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "count+flag   " }, { "kind": "identifier", "value": "f" }] }, "line": 95 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "setTag", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "a considerably longer tag than the first" }] }, "line": 100 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "tag longer   " }, { "kind": "identifier", "value": "f" }] }, "line": 101 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "setTag", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "b" }] }, "line": 103 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "tag shorter  " }, { "kind": "identifier", "value": "f" }] }, "line": 104 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "setItems", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "list", "values": [{ "kind": "number", "value": "40" }, { "kind": "number", "value": "50" }, { "kind": "number", "value": "60" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "80" }, { "kind": "number", "value": "90" }] }] }, "line": 107 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "items longer " }, { "kind": "identifier", "value": "f" }] }, "line": 108 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "setItems", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "list", "values": [{ "kind": "number", "value": "99" }] }] }, "line": 109 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "items shorter" }, { "kind": "identifier", "value": "f" }] }, "line": 110 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "setInner", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "number", "value": "123" }] }] }, "line": 113 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "inner        " }, { "kind": "identifier", "value": "f" }] }, "line": 114 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "setCountAndTag", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "gamma" }] }, "line": 117 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "count+tag    " }, { "kind": "identifier", "value": "f" }] }, "line": 118 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "setCount", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "5" }] }, "line": 122 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "count again  " }, { "kind": "identifier", "value": "f" }] }, "line": 123 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 125 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 126 }
+      ]
+    }
+    ]
+  }
+  ]
+}

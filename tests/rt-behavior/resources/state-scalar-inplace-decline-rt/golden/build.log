@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/state-scalar-inplace-decline-rt
+Wrote AST to tests/rt-behavior/resources/state-scalar-inplace-decline-rt/state_scalar_inplace_decline_rt.ast
+Wrote IR to tests/rt-behavior/resources/state-scalar-inplace-decline-rt/state_scalar_inplace_decline_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/state-scalar-inplace-decline-rt
+Wrote executable to tests/rt-behavior/resources/state-scalar-inplace-decline-rt/build/state_scalar_inplace_decline_rt.out
+[exit 0]
+$ tests/rt-behavior/resources/state-scalar-inplace-decline-rt/build/state_scalar_inplace_decline_rt.out
+start         count=1 flag=TRUE tag=alpha items=3/10 inner=7
+count         count=2 flag=TRUE tag=alpha items=3/10 inner=7
+flag          count=2 flag=FALSE tag=alpha items=3/10 inner=7
+count+flag    count=3 flag=TRUE tag=alpha items=3/10 inner=7
+tag longer    count=3 flag=TRUE tag=a considerably longer tag than the first items=3/10 inner=7
+tag shorter   count=3 flag=TRUE tag=b items=3/10 inner=7
+items longer  count=3 flag=TRUE tag=b items=6/40 inner=7
+items shorter count=3 flag=TRUE tag=b items=1/99 inner=7
+inner         count=3 flag=TRUE tag=b items=1/99 inner=123
+count+tag     count=4 flag=TRUE tag=gamma items=1/99 inner=123
+count again   count=5 flag=TRUE tag=gamma items=1/99 inner=123
+[exit 0]

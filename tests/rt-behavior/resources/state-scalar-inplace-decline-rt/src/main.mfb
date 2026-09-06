@@ -1,0 +1,127 @@
+' When the in-place STATE scalar store must DECLINE, and stay correct.
+'
+' bug-424 Layer 1 (`builder_control.rs::try_inplace_state_scalar_assign`)
+' recognises `s.state.field = <scalar>` and stores the new value straight into
+' the existing STATE block at that field's slot -- no whole-record rebuild, so a
+' large inlined String or List sibling is not re-copied on every scalar write.
+'
+' It is only safe for a PLAIN scalar. An inlined field (String, a flat
+' collection, a nested record) holds a block-relative OFFSET into the trailing
+' data region, not a value, so overwriting it at a fixed slot writes an address
+' where an offset belongs and corrupts everything after it. Those must fall
+' through to the whole-record replace.
+'
+' Every one of the recogniser's rejections was unexecuted: no fixture in the
+' tree wrote a non-scalar STATE field. A green artifact gate says nothing about
+' a guard that never fires -- so this fixture is the rejections, and every
+' assertion reads back EVERY OTHER FIELD as well as the one that changed. That
+' is the shape of the failure: a store at the wrong slot does not crash, it
+' scrambles a sibling.
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+TYPE Leaf
+  v AS Integer
+END TYPE
+
+TYPE Mixed
+  count AS Integer
+  flag  AS Boolean
+  tag   AS String
+  items AS List OF Integer
+  inner AS Leaf
+END TYPE
+
+' Every mutation goes through a `RES` parameter -- the alias shape. The owner
+' must observe all of them, which is what republishing the STATE pointer buys
+' when a decline relays the block somewhere else.
+FUNC setCount(RES f AS fs::File STATE Mixed, v AS Integer) AS Nothing
+  f.state.count = v
+END FUNC
+
+FUNC setFlag(RES f AS fs::File STATE Mixed, v AS Boolean) AS Nothing
+  f.state.flag = v
+END FUNC
+
+FUNC setTag(RES f AS fs::File STATE Mixed, v AS String) AS Nothing
+  f.state.tag = v
+END FUNC
+
+FUNC setItems(RES f AS fs::File STATE Mixed, v AS List OF Integer) AS Nothing
+  f.state.items = v
+END FUNC
+
+FUNC setInner(RES f AS fs::File STATE Mixed, v AS Leaf) AS Nothing
+  f.state.inner = v
+END FUNC
+
+' A multi-field update mixing an eligible scalar with an inlined String. One
+' ineligible field disqualifies the WHOLE update -- the recogniser cannot store
+' half of it in place and rebuild the rest.
+FUNC setCountAndTag(RES f AS fs::File STATE Mixed, n AS Integer, v AS String) AS Nothing
+  f.state = WITH f.state { count := n, tag := v }
+END FUNC
+
+' Both fields eligible: this one IS handled in place, and is here so the
+' fixture covers the accept as well as the rejections.
+FUNC setCountAndFlag(RES f AS fs::File STATE Mixed, n AS Integer, b AS Boolean) AS Nothing
+  f.state = WITH f.state { count := n, flag := b }
+END FUNC
+
+FUNC show(label AS String, RES f AS fs::File STATE Mixed) AS Nothing
+  io::print(label _
+    & " count=" & toString(f.state.count) _
+    & " flag=" & toString(f.state.flag) _
+    & " tag=" & f.state.tag _
+    & " items=" & toString(len(f.state.items)) _
+    & "/" & toString(collections::get(f.state.items, 0)) _
+    & " inner=" & toString(f.state.inner.v))
+END FUNC
+
+FUNC main() AS Integer
+  LET path AS String = "tests/rt-behavior/resources/state-scalar-inplace-decline-rt/data/input.txt"
+  RES f AS fs::File STATE Mixed = fs::openFile(path)
+
+  f.state = Mixed[1, TRUE, "alpha", [10, 20, 30], Leaf[7]]
+  show("start        ", f)
+
+  ' --- the ACCEPTED shapes: a plain scalar, stored in place --------------
+  setCount(f, 2)
+  show("count        ", f)
+  setFlag(f, FALSE)
+  show("flag         ", f)
+  setCountAndFlag(f, 3, TRUE)
+  show("count+flag   ", f)
+
+  ' --- the DECLINED shapes -----------------------------------------------
+  ' A String longer than the one it replaces cannot fit the old inline run, so
+  ' the block is relaid; every sibling must come back intact from the new one.
+  setTag(f, "a considerably longer tag than the first")
+  show("tag longer   ", f)
+  ' And a shorter one, which could fit and still must not be written in place.
+  setTag(f, "b")
+  show("tag shorter  ", f)
+
+  ' A collection field: longer, then shorter.
+  setItems(f, [40, 50, 60, 70, 80, 90])
+  show("items longer ", f)
+  setItems(f, [99])
+  show("items shorter", f)
+
+  ' A nested record field.
+  setInner(f, Leaf[123])
+  show("inner        ", f)
+
+  ' One ineligible field disqualifies the whole multi-field update.
+  setCountAndTag(f, 4, "gamma")
+  show("count+tag    ", f)
+
+  ' A plain scalar store AFTER all that relaying still lands in the right slot
+  ' of whichever block the state now lives in.
+  setCount(f, 5)
+  show("count again  ", f)
+
+  fs::close(f)
+  RETURN 0
+END FUNC

@@ -409,6 +409,7 @@ these files, and is not for `repository/src/**`).
 | after the corpus expansion (424 -> 620 fixtures) | 221 | 6,982 |
 | after the `CSTRUCT` tail zeroing | 221 | 6,977 |
 | after the NIR reference-resolution refusals | 221 | 6,949 |
+| after the inline-TRAP short-circuit suite, the Linux ELF writers and the indirect-trap fixture | **219** | **6,440** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
