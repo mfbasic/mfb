@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: Footgun (verification harness; no miscompile)
 
-Status: **FIXED** (2026-09-06) — the harness skips the per-target native dumps
+Status: **FIXED** (2026-09-05, `854c99fdd`)
 at any non-default `-O` level and counts them in the summary; a healthy tree
 exits 0 at `-O0`, `-O2` and `-O3`, and `MFB_OPT=1` and the default run still
 compare everything.

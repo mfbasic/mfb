@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: Footgun
 
-Status: **FIXED** (2026-09-06) — the note is on `mfb man crypto generate`, with
+Status: **FIXED** (2026-09-05, `246cb077c`)
 both `openssl` directions executed against OpenSSL 3.6.2 and a signature checked
 across the boundary each way; `sign` and `verify` cross-reference it, and the
 spec's own "accepted ... by OpenSSL/pyca" claim, which was false for the private
