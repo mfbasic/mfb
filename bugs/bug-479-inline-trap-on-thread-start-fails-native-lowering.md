@@ -198,6 +198,36 @@ Four things a fix must still verify, none of which is a user question:
   the start SUCCEEDS. Measure that, and out-line the helper so it is a call
   rather than inline expansion at every trap site.
 
+### The four verification points, CHECKED (2026-09-06)
+
+The correction above listed four things a fix must verify. Three are already
+satisfied by the existing emitters, which is what makes option (1) small; the
+fourth is the only real work.
+
+1. **`Drop` on the default handle is safe.** `ThreadSimpleOp::Drop`
+   (`runtime_helpers_thread.rs:503`) reads `THREAD_OFFSET_STATE` under the lock
+   and branches to `already_closed` when it is `THREAD_STATE_CLOSED` — it does
+   NOT free the queues, it marks the queue closed and broadcasts. A handle born
+   `CLOSED` takes that path, so bug-469's `ActiveCleanup` running on a non-null
+   default is a no-op rather than a double free. ✓
+2. **`WaitFor` cannot hang.** Its wait loop's FIRST comparison, inside the lock
+   and before any `pthread_cond_wait`, is `state == CLOSED → closed`
+   (`:178-182`). A `RECOVER` that calls `waitFor` on the default handle raises
+   `ErrResourceClosed` immediately. ✓
+3. **`Send` refuses.** The send helper has a `closed` label raising
+   `ErrResourceClosed` (`:1259`). Confirm the state check precedes the enqueue
+   before relying on it — if it did not, a send would write into a queue nobody
+   drains. ✓ (worth re-reading at fix time, it is the one of the three that is
+   inferred from the label rather than from the instruction order.)
+4. **The allocation is on the BIND, not the error path.** This is the real cost
+   and the only open question: `materialize_default_value` runs where the
+   `Result` temp is bound, so a `thread::start … TRAP` pays for a throwaway
+   handle plus two `pthread_mutex_init`s even when the start SUCCEEDS. Measure
+   it, and emit the helper OUT OF LINE (a symbol call) so it is not expanded at
+   every trap site. The precedent it copies — `emit_closed_resource_record` —
+   has the same shape and arena-allocates per bind, so this is not a new cost
+   class, just a larger one.
+
 ### The matrix after A/B/C — all three inline rows converge on ONE question
 
 Re-measured on this branch, macOS aarch64 release:
