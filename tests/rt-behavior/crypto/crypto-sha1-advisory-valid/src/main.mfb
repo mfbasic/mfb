@@ -1,11 +1,27 @@
-' `Hash.SHA1` is the registry's enum-value advisory (plan-109-A): every user-source
-' occurrence — a plain expression AND a MATCH literal — reports exactly one
-' CRYPTO_SHA1_INSECURE warning (2-203-0136, warn, non-fatal), the program still
-' builds and runs, and the digest is the standard FIPS 180-4 value. A non-advisory
-' value (`Hash.SHA2_256`) in the same contexts reports nothing.
+' `Hash.SHA1` is the registry's enum-value advisory (plan-109-A), scoped to the
+' USE since bug-517 (the owner's ruling, 2026-09-05, reversing plan-109-A's
+' "regardless of which public function consumes the selector").
+'
+' What this fixture pins, and the build.log golden is the assertion:
+'
+'   * `crypto::hash(Hash.SHA1, …)` WARNS — a bare digest's whole security claim
+'     is collision resistance, which SHA-1 does not have.
+'   * a MATCH literal WARNS — it is not a selector argument, and the checker
+'     cannot see what the value will be used for.
+'   * `hmac`/`hkdf`/`pbkdf2` with `Hash.SHA1` directly as the selector report
+'     NOTHING — none of those rests on collision resistance (HMAC's proof needs
+'     the compression function to be a PRF), so HMAC-SHA1 for RFC 6238 TOTP or
+'     WPA2 is sound, not a legacy concession.
+'   * suppression is FAIL-CLOSED: the same value bound to a local first and then
+'     passed to `hmac` still WARNS, because the occurrence no longer names its
+'     consumer. A false positive is a warning on a sound use; a false negative is
+'     silence on a broken one.
+'
+' A non-advisory value (`Hash.SHA2_256`) reports nothing anywhere.
 IMPORT crypto
 IMPORT encoding
 IMPORT io
+IMPORT strings
 
 FUNC label(h AS crypto::Hash) AS String
   MATCH h
@@ -23,4 +39,18 @@ SUB main()
   LET modern AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, "abc")
   io::print(label(crypto::Hash.SHA2_256) & "=" & encoding::hexEncode(modern))
   io::print("legacy=" & encoding::hexEncode(legacy))
+
+  ' bug-517: the three sound uses. No warning on any of these lines.
+  LET key AS List OF Byte = strings::toBytes("k")
+  LET msg AS List OF Byte = strings::toBytes("m")
+  LET mac AS List OF Byte = crypto::hmac(crypto::Hash.SHA1, key, msg)
+  LET okm AS List OF Byte = crypto::hkdf(crypto::Hash.SHA1, msg, key, msg, 16)
+  LET dk AS List OF Byte = crypto::pbkdf2(crypto::Hash.SHA1, msg, key, 1, 16)
+  io::print("sound=" & toString(len(mac)) & "," & toString(len(okm)) & "," & toString(len(dk)))
+
+  ' bug-517: fail-closed. The selector is bound first, so this line WARNS even
+  ' though the consumer is sound — the occurrence cannot see it.
+  LET indirect AS crypto::Hash = crypto::Hash.SHA1
+  LET viaLocal AS List OF Byte = crypto::hmac(indirect, key, msg)
+  io::print("indirect=" & toString(len(viaLocal)))
 END SUB

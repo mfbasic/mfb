@@ -19,8 +19,10 @@ by `type` — a `crypto::Hash`: `SHA1`, `SHA2_224`/`SHA2_256`/`SHA2_384`/`SHA2_5
 or `SHA3_224`/`SHA3_256`/`SHA3_384`/`SHA3_512`. The result is returned as a raw
 `List OF Byte` of exactly `length`
 bytes. This one call is the package's single PBKDF2 surface. (PBKDF2-HMAC-SHA1 is
-the RFC 8018 / WPA2 legacy profile; `crypto::Hash.SHA1` reports the `CRYPTO_SHA1_INSECURE`
-advisory, so select it only for compatibility with an existing deployment.)
+the RFC 8018 / WPA2 profile; it is built on HMAC, which does not rely on collision
+resistance, so `crypto::Hash.SHA1` as this call's `type` reports NO advisory.
+Select it for compatibility with an existing deployment; prefer `SHA2_256` for a
+new one.)
 
 PBKDF2 applies the underlying HMAC `iterations` times per output block, chaining the
 salted password through repeated hashing so that each derived byte costs about

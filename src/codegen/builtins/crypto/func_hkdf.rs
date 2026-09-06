@@ -18,8 +18,9 @@ Extract-then-Expand construction over the hash selected by `type` — a
 `crypto::Hash`: `SHA1`, `SHA2_224`/`SHA2_256`/`SHA2_384`/`SHA2_512`, or
 `SHA3_224`/`SHA3_256`/`SHA3_384`/`SHA3_512`. The
 result is returned as a raw `List OF Byte` of exactly `length` bytes. This one call
-is the package's single HKDF surface. (`crypto::Hash.SHA1` reports the `CRYPTO_SHA1_INSECURE`
-advisory; prefer `SHA2_256` unless a peer requires HKDF-SHA1.)
+is the package's single HKDF surface. (HKDF is built on HMAC, which does not rely
+on collision resistance, so `crypto::Hash.SHA1` as this call's `type` reports NO
+advisory. Prefer `SHA2_256` for a new design.)
 
 HKDF first *extracts* a fixed-length pseudorandom key from `ikm` and `salt` (one
 HMAC), then *expands* it under `info` into the requested output length. `salt` is an

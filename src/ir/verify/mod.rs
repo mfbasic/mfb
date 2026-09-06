@@ -602,6 +602,18 @@ struct TypeEnv {
     /// a value-less SUB call is legal (the former source checker's `allow_value_less_call`).
     /// Consumed (reset) by the first Call node checked.
     allow_sub_call: Cell<bool>,
+    /// bug-517: set for exactly one recursion — the hash-selector argument of a
+    /// call whose use of SHA-1 is sound — and consumed by the `MemberAccess` arm,
+    /// which is what suppresses `CRYPTO_SHA1_INSECURE` there.
+    ///
+    /// One-shot, like [`Self::allow_sub_call`] beside it and for the same reason
+    /// that field documents: the walker descends into arguments BEFORE the
+    /// wrapping node's own rule, so a flag left set would leak into a nested
+    /// expression. Every node replaces it with `false` on entry, so only a
+    /// DIRECT `crypto::Hash.SHA1` in the selector position is suppressed —
+    /// `crypto::hmac(pickHash(crypto::Hash.SHA1), …)` still warns, because there
+    /// the value is that inner call's argument, not hmac's selector.
+    sound_hash_selector: Cell<bool>,
     /// The RES-declared binding names of the function currently being checked
     /// (its `resource_owners` table), for the RES ownership-axis rules.
     current_owners: RefCell<HashSet<String>>,
@@ -827,6 +839,7 @@ impl TypeEnv {
             checking_state_assign: Cell::new(false),
             loop_stack: RefCell::new(Vec::new()),
             allow_sub_call: Cell::new(false),
+            sound_hash_selector: Cell::new(false),
             current_owners: RefCell::new(HashSet::new()),
             current_opaque_params: RefCell::new(HashSet::new()),
             type_decl_info,

@@ -188,13 +188,18 @@ pub(crate) fn register(r: &mut Registry) {
     // `SHA1` carries the registry's enum-value advisory: every user-source use
     // reports `CRYPTO_SHA1_INSECURE` (warn, non-fatal) — the digest itself is the
     // standard FIPS 180-4 value and stays usable for legacy interoperability.
+    //
+    // bug-517: the advisory is USE-scoped since 2026-09-05 (the owner's ruling,
+    // reversing plan-109-A). `ir::verify::values::hash_selector_use_is_sound`
+    // holds the list of members it does not fire for; keep this description and
+    // that predicate in step.
     pkg.add_enum(RegistryEnum {
         name: "Hash",
         export: true,
         variants: vec![
             EnumVariant {
                 name: "SHA1",
-                description: "SHA-1 (FIPS 180-4, 160-bit digest). Not collision-resistant: every source use reports the `CRYPTO_SHA1_INSECURE` warning; select it only for legacy interoperability, never for new designs.",
+                description: "SHA-1 (FIPS 180-4, 160-bit digest). Not collision-resistant, so `crypto::hash` with it reports the `CRYPTO_SHA1_INSECURE` warning — select it there only for legacy interoperability, never for new designs. As the hash selector of `hmac`, `hkdf` or `pbkdf2` it reports nothing: none of those relies on collision resistance, so HMAC-SHA1 (RFC 6238 TOTP, WPA2) is a sound choice.",
                 advisory: Some(EnumAdvisory {
                     rule: "CRYPTO_SHA1_INSECURE",
                     detail: "`crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.",

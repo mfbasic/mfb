@@ -24,10 +24,10 @@ const DESC: &str = r#"`crypto::hmac(type, key, data)` computes the keyed-hash me
 `SHA3_224`/`SHA3_256`/`SHA3_384`/`SHA3_512`. It returns the MAC as a raw
 `List OF Byte` whose length is the digest length of `type`: 20 bytes for `SHA1`
 and 28/32/48/64 for the 224/256/384/512-bit widths of SHA-2 or SHA-3. This one
-call is the package's single HMAC surface. (HMAC-SHA1
-remains cryptographically sound — HMAC does not rely on collision resistance — but
-`crypto::Hash.SHA1` still reports the `CRYPTO_SHA1_INSECURE` advisory; prefer `SHA2_256`
-unless a peer requires SHA-1.)
+call is the package's single HMAC surface. (HMAC-SHA1 is cryptographically
+sound — HMAC does not rely on collision resistance — so `crypto::Hash.SHA1` as
+this call's `type` reports NO advisory. Use it where a peer specifies HMAC-SHA1,
+such as RFC 6238 TOTP or WPA2; prefer `SHA2_256` for a new design.)
 
 A key of any length is accepted. Following the HMAC construction, a key longer than
 the hash's block size (64 bytes for `SHA1`/`SHA2_224`/`SHA2_256`, 128 bytes for

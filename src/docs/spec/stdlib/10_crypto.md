@@ -67,12 +67,16 @@ extensions); computation is portable-arithmetic only, identical across targets.
   `SHA3_384`, `SHA3_512` (FIPS 202; the Keccak-f[1600] sponge at rate
   1152/1088/832/576 bits, domain suffix `0x06`, `pad10*1`; 28/32/48/64 bytes).
   The family prefix is part of every spelling;
-  there are no bare `SHA256`-style aliases. Every user-source occurrence of
-  `Hash.SHA1` (an expression or a `MATCH` literal) reports the non-fatal
+  there are no bare `SHA256`-style aliases. `Hash.SHA1` reports the non-fatal
   `CRYPTO_SHA1_INSECURE` warning (`2-203-0136`, see
   `./mfb spec diagnostics rule-codes`) — SHA-1 is not collision-resistant, so it
   exists only for interoperability with systems that require it; the program
-  still builds and the digest is the standard value.
+  still builds and the digest is the standard value. The warning is scoped to the
+  **use**: `Hash.SHA1` written directly as the hash selector of `hmac`, `hkdf` or
+  `pbkdf2` reports nothing, because none of those rests on collision resistance
+  (HMAC's security follows from the compression function behaving as a PRF), so
+  HMAC-SHA1 for RFC 6238 TOTP or WPA2 is a sound choice rather than a legacy
+  concession. Every other occurrence reports, `hash` included.
   [[src/codegen/builtins/crypto/mod.rs:CRYPTO]]
 - **XOF** — `shake256(data, length)`: SHAKE256 (FIPS 202 §6.2; the same sponge
   at rate 1088 with domain suffix `0x1f`) squeezed to any `length ≥ 1`; a shorter

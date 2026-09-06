@@ -41,10 +41,13 @@ impl TypeEnv {
         if !matches!(value, IrValue::Call { .. } | IrValue::CallResult { .. }) {
             self.allow_sub_call.set(false);
         }
+        // bug-517: consumed here, by EVERY node, so the flag reaches only the one
+        // value it was set for. See `TypeEnv::sound_hash_selector`.
+        let sound_hash_selector = self.sound_hash_selector.replace(false);
         match value {
             IrValue::MemberAccess { target, member, .. } => {
                 self.check_value_depth(target, locals, depth + 1);
-                self.check_member_access(target, member, locals);
+                self.check_member_access(target, member, locals, sound_hash_selector);
                 self.check_member_access_type(target, member, value, locals);
             }
             IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
@@ -64,9 +67,15 @@ impl TypeEnv {
                         ),
                     );
                 }
-                for arg in args {
+                for (index, arg) in args.iter().enumerate() {
+                    // bug-517: `Hash.SHA1` in the selector position of a member
+                    // whose security does not rest on collision resistance is a
+                    // sound use, so it is not advised against there.
+                    self.sound_hash_selector
+                        .set(index == 0 && Self::hash_selector_use_is_sound(target));
                     self.check_value_depth(arg, locals, depth + 1);
                 }
+                self.sound_hash_selector.set(false);
                 self.check_call_arity(target, args.len(), locals);
                 self.check_call_argument_types(target, args, locals);
                 self.check_builtin_call_args(target, args, locals);
@@ -627,6 +636,44 @@ impl TypeEnv {
     // 4. Member access + visibility
     // ===========================================================================
 
+    /// Whether a hash-selector argument to `target` is a use whose security does NOT
+    /// rest on the selected digest being collision-resistant — so `crypto::Hash.SHA1`
+    /// there is sound and carries no advisory (bug-517).
+    ///
+    /// **This reverses a recorded decision, on the owner's ruling (2026-09-05).**
+    /// `planning/completed/plan-109-A-hash-api-sha1-warning.md:92` chose the opposite
+    /// — "the warning applies regardless of which public function consumes the
+    /// selector" — and the spec stated it twice. The reversal is deliberate: the
+    /// advisory's own text is "SHA-1 is not collision-resistant", and for these three
+    /// members that is not the property being relied on. HMAC's security proof rests
+    /// on the compression function behaving as a PRF, not on collision resistance;
+    /// HKDF and PBKDF2 are built on HMAC. Warning there told authors of RFC 6238
+    /// TOTP, WPA2 and TLS-era interop to switch away from an algorithm their peer
+    /// specifies, giving a reason that does not apply.
+    ///
+    /// `crypto::hash` is deliberately absent: collision resistance is exactly the
+    /// claim a bare digest makes, so SHA-1 there IS the broken use the advisory is
+    /// for.
+    ///
+    /// **Suppression is fail-closed.** It applies only to a DIRECT selector argument;
+    /// anything else — a bare occurrence, a `MATCH` literal, a value bound to a local
+    /// and passed on, a `Hash.SHA1` nested deeper inside the argument — still warns.
+    /// A false positive here is a warning on a sound use; a false negative is silence
+    /// on a broken one, so the ambiguous cases keep warning.
+    /// **Two spellings, and only one of them is obvious.** A `crypto::hash(…)` call
+    /// reaches the IR as the dotted `crypto.hash`, but `hmac`/`hkdf`/`pbkdf2` are
+    /// `.mfb`-bodied and arrive as their package-internal sigil form —
+    /// `#crypto_hmac`, i.e. `internal_name::internalize("__crypto_hmac")`. Matching
+    /// only the dotted names looked right and suppressed NOTHING; the spike still
+    /// emitted all three warnings. Both forms are accepted, via the mangling
+    /// contract rather than a hardcoded `#` literal.
+    fn hash_selector_use_is_sound(target: &str) -> bool {
+        let member = crate::internal_name::strip_sigil(target)
+            .and_then(|name| name.strip_prefix("crypto_"))
+            .or_else(|| target.strip_prefix("crypto."));
+        matches!(member, Some("hmac" | "hkdf" | "pbkdf2"))
+    }
+
     /// A registry enum value may carry a compile-time advisory
     /// (`EnumVariant::advisory`, plan-109-A — `Hash.SHA1` → CRYPTO_SHA1_INSECURE):
     /// report it once per user-authored occurrence. An expression and a `MATCH`
@@ -637,8 +684,13 @@ impl TypeEnv {
     /// advisory is for the author writing the value). The enum must be a builtin
     /// package's — declared in the injected `builtins/<pkg>.mfb` — so a user enum
     /// sharing a builtin's name never resolves here.
-    fn check_enum_member_advisory(&self, enum_name: &str, member: &str) {
+    fn check_enum_member_advisory(&self, enum_name: &str, member: &str, sound_hash_selector: bool) {
         if !self.source_path.get() || self.current_file.borrow().starts_with("builtins/") {
+            return;
+        }
+        // bug-517: the advisory is USE-scoped, not value-scoped. See
+        // `hash_selector_use_is_sound` for which uses are sound and why.
+        if sound_hash_selector {
             return;
         }
         let Some((owner_file, _)) = self.type_decl_info.get(&ParameterType::declared(enum_name))
@@ -673,6 +725,7 @@ impl TypeEnv {
         target: &IrValue,
         member: &str,
         locals: &HashMap<String, ParameterType>,
+        sound_hash_selector: bool,
     ) {
         // `Enum.Member` selection: the target is the bare enum TYPE name (no
         // local shadows it), so the member must be one of the enum's declared
@@ -687,7 +740,7 @@ impl TypeEnv {
                             format!("ENUM `{name}` has no member `{member}`."),
                         );
                     } else {
-                        self.check_enum_member_advisory(name, member);
+                        self.check_enum_member_advisory(name, member, sound_hash_selector);
                     }
                     return;
                 }

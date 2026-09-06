@@ -5,11 +5,14 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: BLOCKED — needs an owner decision. The behaviour reproduces exactly as
-reported, but it is not a defect: the code, the spec, the man pages and a
-completed plan all agree with each other, and the change this bug asks for
-reverses a recorded design decision. See "Verdict" below.
-Regression Test: `src/ir/tests.rs` — the existing `CRYPTO_SHA1_INSECURE` filter test, extended
+Status: **FIXED** (2026-09-05). The owner ruled on the question this document
+was blocked on: the advisory is **use-scoped** — `hash` warns, `hmac`/`hkdf`/
+`pbkdf2` do not. That reverses `plan-109-A`'s recorded decision; see "The owner's
+ruling" below for what the reversal cost and what it deliberately did not change.
+Regression Test: `src/ir/tests.rs` —
+`the_sha1_advisory_fires_on_hash_and_not_on_hmac_hkdf_or_pbkdf2` and
+`the_sha1_advisory_suppression_is_fail_closed`; plus the extended behavioural
+fixture `tests/rt-behavior/crypto/crypto-sha1-advisory-valid`.
 
 `crypto::Hash.SHA1` carries a compile-time advisory that fires wherever the enum
 member is *written*, not where it is *used*. Every one of these gets the same
@@ -78,6 +81,62 @@ can be context-sensitive.
 | --- | --- | --- |
 | macOS | aarch64, release | fails ✗ |
 | Linux / Windows | — | front-end diagnostic, target-independent; expected identical |
+
+## The owner's ruling (2026-09-05) — use-scoped, and what that cost
+
+Asked directly, the owner answered: **"`hash` but not `hmac`/`hkdf`/`pbkdf2`."**
+So the Verdict below is superseded on its one open question — the analysis that
+produced it stands, and is kept because it is the record of what the reversal
+overturned.
+
+### Implemented as SUPPRESSION at the sound consumers, not "fire only at hash"
+
+The ruling names the members that should not warn, and there are two ways to
+honour it. Firing only where the consumer is provably `crypto::hash` makes
+silence the default; suppressing only where the consumer is provably one of the
+three keeps *warning* the default. The second is implemented, because the two
+failure directions are not symmetric: a false positive is a warning on a sound
+use, a false negative is silence on a broken one.
+
+Concretely, all of these still warn — the checker cannot see a sound consumer
+from the occurrence, so it does not assume one:
+
+| shape | why it still warns |
+| --- | --- |
+| `crypto::hash(Hash.SHA1, m)` | the broken use; the point of the advisory |
+| `LET h = Hash.SHA1` then `hmac(h, …)` | the occurrence does not name its consumer; this is not a dataflow analysis |
+| `CASE crypto::Hash.SHA1` | a `MATCH` literal is not a selector argument |
+| `hmac(same(Hash.SHA1), …)` | nested INSIDE the argument, so not hmac's selector |
+
+Pinned by `the_sha1_advisory_suppression_is_fail_closed`.
+
+### The obvious implementation suppressed nothing
+
+Matching the call target `"crypto.hmac"` looked correct and changed no behaviour
+at all — the spike still emitted all three warnings. `crypto::hash` reaches IR
+verification as the dotted `crypto.hash`, but `hmac`/`hkdf`/`pbkdf2` are
+`.mfb`-bodied and arrive as **`#crypto_hmac`** — `internal_name::internalize` of
+the package's own `__crypto_hmac`. `hash_selector_use_is_sound` now accepts both
+forms through the mangling contract rather than a hardcoded `#` literal. Only
+running the spike caught this.
+
+### What the reversal cost, measured
+
+Exactly what this document predicted, plus one page it did not:
+
+- two spec paragraphs (`diagnostics/01_rule-codes.md`, `stdlib/10_crypto.md`);
+- the `SHA1` variant `description`;
+- **four** member pages, not three — `func_hash.rs` also needed rewriting, to say
+  the advisory is scoped to the use and that it fires *here above all*;
+- behavioural goldens: `crypto-sha1-advisory-valid` (extended) and
+  `crypto-kat-valid` (**6 advisory blocks removed, 0 added, no program output
+  changed**). `crypto-kdf-invalid` did not move at all, contrary to the estimate.
+
+### `plan-109-A` is not edited
+
+It is a completed plan and stays a true record of what was decided then. The
+reversal is recorded here and in the code
+(`ir::verify::values::hash_selector_use_is_sound`), which cites it.
 
 ## Verdict (2026-09-05) — reproduced, root-caused, and BLOCKED on a product decision
 
