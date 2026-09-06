@@ -16,9 +16,19 @@ r#"' plan-120-C: `/` is NOT escaped. RFC 8259 permits `\/` but never requires it
 ' `/` needs no arm of its own to fall through: it is U+002F = 47, so the C0
 ' arms below cannot match it and `__json_isRawControlChar` (single scalar < 32)
 ' answers FALSE, leaving the ELSE pass-through.
+'
+' The walk is over CODE POINTS, not graphemes. JSON escaping is defined per
+' code point (RFC 8259 requires every character below U+0020 to be escaped),
+' and the two units disagree on exactly the input everyone has: CR followed by
+' LF is ONE extended grapheme cluster (UAX #29 rule GB3). A grapheme walk was
+' handed "\r\n" whole, matched neither the "\r" arm nor the "\n" arm, got FALSE
+' from `__json_isRawControlChar` because the cluster holds two scalars, and
+' emitted both control bytes RAW -- so every string carrying a Windows line
+' ending stringified into a document no JSON parser would read back.
 FUNC __json_escapeString(value AS String) AS String
   MUT out AS String = ""
-  FOR EACH ch IN strings::graphemes(value)
+  FOR EACH codePoint IN encoding::utf32Encode(value)
+    LET ch AS String = __json_codePointToString(codePoint)
     IF ch = "\"" THEN
       out = out & "\\\""
     ELSEIF ch = "\\" THEN
