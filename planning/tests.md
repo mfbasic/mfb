@@ -1099,3 +1099,39 @@ The lesson is the process one: **a commit message that names a file has to be
 checked against that file in the next report.** Both of these read as plausible
 and both were wrong, and the total moved anyway — 5,886 -> 5,577 -> 5,509 —
 which is exactly how a wrong per-file claim hides.
+
+### F10 — a type-confusion sweep does not converge on a contract, and the reason is worth knowing
+
+The codegen counterpart of F9's platform-failure sweep looked obvious: codegen is
+full of `other => return Err("… does not support type '{other}'")` arms, one per
+type-keyed decision (how wide is this, which comparison, which storage class),
+and none of them run because the type checker has already agreed with the
+lowering about every type in the module. Break the agreement and they should
+fire.
+
+Built and measured, then deleted. A module from the probe program has 14 `Bind`
+ops in `main`; retyping each in turn to `$NoSuchType` — a name nothing declares
+and source cannot spell — and lowering the result:
+
+    6 of 14  refused (by `validate_nir` or by codegen)
+    8 of 14  lowered CLEANLY: i:Integer f:Float x:Fixed b:Boolean s:String
+             c:Colour u:Shape $match0:Shape
+
+The eight are not a bug on their face. A binding's declared type is metadata;
+most decisions are driven by the VALUE, and for a word-sized slot the declared
+type is genuinely not consulted. So "a bogus type must not lower cleanly" is not
+a property this compiler has, and asserting it would have been asserting a
+change rather than a contract. Asserting the 6/8 SPLIT instead would be a
+change-detector with no meaning.
+
+What the numbers do say, and what a future reader might want: **neither
+`validate_nir` nor codegen checks that a `Bind`'s declared type names anything.**
+A lowering bug that produced one would go undetected for at least those eight
+shapes. That is a validator gap rather than a miscompile of any valid program,
+and it is recorded here rather than filed, because nothing produces such a
+module today.
+
+The lever that DID work for this class is F9's, and its limit is stated there:
+the residue goes through builder methods rather than platform hooks, and a
+failing builder is a harder seam than a failing platform because `CodeBuilder`
+is a concrete struct with inherent methods rather than a trait behind a `&dyn`.
