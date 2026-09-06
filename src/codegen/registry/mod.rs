@@ -3798,6 +3798,54 @@ mod qualification_tests {
 mod tests {
     use super::*;
 
+    /// **A member's descriptor declares at least as many forms as its injected
+    /// source defines.**
+    ///
+    /// bug-530: `encoding::utf8Encode` has TWO `__encoding_utf8Encode` bodies —
+    /// `AS List OF Byte` and `AS List OF Integer`, the language's only return-type
+    /// overload — and its descriptor carried ONE `Implementation`. Nothing failed:
+    /// overload selection happens over the source bodies in the monomorphizer, so
+    /// the only consumer that noticed was `mfb man`, which rendered a single
+    /// `Declaration` ending `AS List OF Byte` and hid the other form from the two
+    /// places a reader looks for a signature.
+    ///
+    /// The check is one-directional on purpose. A descriptor may legitimately
+    /// declare MORE rows than there are same-named bodies — an overload routed to
+    /// its own differently-named body (`http::handleRequest`'s `__http_handleRequestSSL`)
+    /// or to a native seam has no `__pkg_member` `FUNC` at all. What is never right
+    /// is the reverse: a form that exists in the source and not on the page.
+    #[test]
+    fn no_member_defines_more_source_forms_than_its_descriptor_declares() {
+        let mut checked = 0usize;
+        for package in registry().packages() {
+            let source = package.get_mfb();
+            if source.is_empty() {
+                continue;
+            }
+            for function in package.functions() {
+                let needle = format!("FUNC __{}_{}(", package.import_name(), function.name);
+                let defined = source.matches(&needle).count();
+                if defined == 0 {
+                    continue;
+                }
+                checked += 1;
+                assert!(
+                    defined <= function.implementations.len(),
+                    "{}.{}: the package source defines {defined} `{needle}` form(s) but \
+                     the descriptor declares {} implementation(s), so `mfb man` cannot \
+                     show them all",
+                    package.import_name(),
+                    function.name,
+                    function.implementations.len(),
+                );
+            }
+        }
+        assert!(
+            checked > 100,
+            "the census matched only {checked} members against their source"
+        );
+    }
+
     /// **Every `add_consuming_parameter` names a real member and a real parameter of
     /// it.**
     ///

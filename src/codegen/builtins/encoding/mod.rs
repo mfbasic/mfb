@@ -333,7 +333,21 @@ mod tests {
             registry::resolve_call("encoding.hexDecode", &s(&["String"]), false),
             Some("List OF Byte".to_string())
         );
-        // utf8Encode default (pre-monomorph) return is List OF Byte.
+        // utf8Encode default (pre-monomorph) return is List OF Byte — and it stays
+        // that way now that BOTH return-type forms are registered (bug-530): the two
+        // rows share a parameter list, and overload selection takes the first row
+        // that unifies, so registering the `List OF Integer` form for the man page
+        // did not move what the registry answers. The call's expected type still
+        // picks the form, in the monomorphizer.
+        assert_eq!(
+            registry()
+                .resolve_func("encoding.utf8Encode")
+                .unwrap()
+                .function
+                .implementations()
+                .len(),
+            2
+        );
         assert_eq!(
             registry::resolve_call("encoding.utf8Encode", &s(&["String"]), false),
             Some("List OF Byte".to_string())

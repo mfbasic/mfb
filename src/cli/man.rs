@@ -485,6 +485,35 @@ fn public_type_name(ty: &crate::types::ParameterType) -> String {
     ty.name().replace('.', "::")
 }
 
+/// Whether `function`'s forms differ ONLY by return type — every implementation
+/// spells the same parameter list, so no argument can select between them and the
+/// call's expected (contextual) type has to. `encoding::utf8Encode` is the one
+/// such member in the language today; the test is written on the descriptor
+/// rather than on that name so a second one renders the same note (bug-530).
+fn is_return_type_overload_set(function: &RegistryFunction) -> bool {
+    let mut implementations = function.implementations.iter();
+    let Some(first) = implementations.next() else {
+        return false;
+    };
+    let mut any_other = false;
+    for other in implementations {
+        any_other = true;
+        if other.params.len() != first.params.len() {
+            return false;
+        }
+        let same = other.params.iter().zip(first.params.iter()).all(|(a, b)| {
+            a.name == b.name
+                && a.ty == b.ty
+                && matches!(a.default, DefaultValue::None)
+                    == matches!(b.default, DefaultValue::None)
+        });
+        if !same {
+            return false;
+        }
+    }
+    any_other
+}
+
 /// The union of every parameter across all overloads, de-duplicated by name (first
 /// occurrence wins, declaration order preserved), so the Parameters table covers every
 /// argument any overload accepts.
@@ -523,6 +552,18 @@ fn render_function_markdown(package: &RegistryPackage, function: &RegistryFuncti
                 "**{}**\n\n",
                 render_declaration(pkg, function.name, implementation)
             ));
+        }
+        // A set whose forms share one parameter list cannot be told apart from the
+        // arguments, so the reader needs the contextual-type rule HERE — beside the
+        // signatures — rather than several paragraphs down (bug-530).
+        if is_return_type_overload_set(function) {
+            md.push_str(
+                "These overloads take the same arguments and differ only by what they \
+                 return, so a call needs an expected type to choose one — a \
+                 `LET … AS` annotation, a typed parameter slot, or the enclosing \
+                 function's return type. A call with no expected type is a \
+                 compile-time error.\n\n",
+            );
         }
     } else if let Some(implementation) = function.implementations.first() {
         md.push_str("## Declaration\n\n");
@@ -1262,6 +1303,109 @@ mod tests {
         assert!(show_man(&s(&["csv", "nope"]))
             .unwrap_err()
             .contains("unknown csv function"));
+    }
+
+    /// The Overloads/Declaration block of a rendered page — everything between
+    /// that heading and the next one.
+    fn signature_section(md: &str) -> &str {
+        let start = match md
+            .find("## Overloads\n")
+            .or_else(|| md.find("## Declaration\n"))
+        {
+            Some(start) => start,
+            None => return "",
+        };
+        let rest = &md[start + 3..];
+        match rest.find("\n## ") {
+            Some(end) => &rest[..end],
+            None => rest,
+        }
+    }
+
+    /// bug-530: `encoding::utf8Encode` is the language's one RETURN-TYPE overload
+    /// — the same `String` argument yields either a `List OF Byte` or a
+    /// `List OF Integer`, chosen by the expected type at the call site — and its
+    /// page rendered a single `Declaration` ending `AS List OF Byte`. The second
+    /// form was invisible in both places a reader looks for a signature, so an
+    /// ordinary-looking unannotated call failed to compile with nothing on the
+    /// page predicting it.
+    #[test]
+    fn a_return_type_overload_renders_every_form() {
+        let package = registry().resolve_package("encoding").unwrap();
+        let function = package.function("utf8Encode").unwrap();
+        let md = render_function_markdown(package, function);
+        assert!(
+            md.contains("## Overloads"),
+            "a two-form member renders an Overloads block, not a Declaration:\n{md}"
+        );
+        assert!(!md.contains("## Declaration"));
+        assert!(
+            md.contains("`encoding::utf8Encode(value AS String) AS List OF Byte`"),
+            "the byte form must render:\n{md}"
+        );
+        assert!(
+            md.contains("`encoding::utf8Encode(value AS String) AS List OF Integer`"),
+            "the integer form must render:\n{md}"
+        );
+        // The contextual-type requirement belongs in the signature area, not only
+        // in the third paragraph of the description.
+        assert!(
+            md.contains("differ only by what they return"),
+            "the signature area must state that an expected type is required:\n{md}"
+        );
+    }
+
+    /// The positive half of the bug-530 pin: the note is emitted for a
+    /// return-type overload set and for NOTHING else. `encoding::utf8Decode` is
+    /// the neighbouring two-form member selected by its PARAMETER type, and
+    /// `csv::parse` has one form; neither may grow the note.
+    #[test]
+    fn only_a_return_type_overload_gets_the_expected_type_note() {
+        let encoding = registry().resolve_package("encoding").unwrap();
+        let decode = render_function_markdown(encoding, encoding.function("utf8Decode").unwrap());
+        assert!(decode.contains("## Overloads"));
+        assert!(
+            !decode.contains("differ only by what they return"),
+            "utf8Decode's overloads differ by PARAMETER type; the note must not fire:\n{decode}"
+        );
+
+        let csv = registry().resolve_package("csv").unwrap();
+        let parse = render_function_markdown(csv, csv.function("parse").unwrap());
+        assert!(parse.contains("## Declaration"));
+        assert!(!parse.contains("differ only by what they return"));
+    }
+
+    /// The general pin bug-530 asks for: **every** registered form reaches the
+    /// page. A renderer that de-duplicated, collapsed or dropped a form would
+    /// print fewer declarations than the member has implementations, which is
+    /// exactly how the second `utf8Encode` form could go missing again.
+    #[test]
+    fn every_member_renders_one_declaration_per_implementation() {
+        let mut checked = 0usize;
+        for package in registry().packages() {
+            let pkg = package.import_name();
+            for function in package.functions() {
+                if function.internal_only {
+                    continue;
+                }
+                let md = render_function_markdown(package, function);
+                // Count declarations in the SIGNATURE SECTION only — the
+                // description and examples quote calls too, and those are prose.
+                let signatures = signature_section(&md);
+                let needle = format!("`{pkg}::{}(", function.name);
+                let rendered = signatures.matches(&needle).count();
+                assert_eq!(
+                    rendered,
+                    function.implementations.len(),
+                    "{pkg}::{} registers {} implementation(s) but its page renders \
+                     {rendered} declaration(s)",
+                    function.name,
+                    function.implementations.len()
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 400, "the census walked only {checked} members");
     }
 
     #[test]

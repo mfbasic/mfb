@@ -1,12 +1,15 @@
 # bug-530: `encoding::utf8Encode` is a return-type overload whose second form does not appear in its rendered signature
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/` — a renderer pin asserting a multi-overload member never renders a single `Declaration`
+Status: FIXED — the DESCRIPTOR was the defect (hypothesis 2), not the renderer
+Regression Test: `src/cli/man.rs` — `a_return_type_overload_renders_every_form`,
+`only_a_return_type_overload_gets_the_expected_type_note`,
+`every_member_renders_one_declaration_per_implementation`; `src/codegen/registry/mod.rs`
+— `no_member_defines_more_source_forms_than_its_descriptor_declares`
 
 `encoding::utf8Encode` is the only return-type overload in the language: the
 same `String` argument produces either a `List OF Byte` or a `List OF Integer`,
@@ -90,7 +93,34 @@ Contrast cases, correct today:
 
 ## Root Cause
 
-Hypotheses, to be resolved in Phase 1 by reading `src/cli/man.rs`:
+**RESOLVED (2026-09-05): hypothesis 2. The renderer was innocent.**
+
+`render_function_markdown` (`src/cli/man.rs`) does not de-duplicate anything — it
+renders one declaration per `Implementation` and picks `## Overloads` over
+`## Declaration` purely on `function.implementations.len() > 1`. The defect was
+in the descriptor: `func_utf8_encode.rs` registered **one** `Implementation`
+returning `List OF Byte` for a member whose injected source defines **two**
+`__encoding_utf8Encode` bodies. Overload selection never noticed, because it
+happens over the source bodies in the monomorphizer; the registry row is what
+`mfb man` reads, and it under-reported the member.
+
+The census that establishes the scope was run over the injected sources rather
+than over prose:
+
+```
+for d in src/codegen/builtins/*/; do
+  grep -rhoE 'FUNC [A-Za-z_][A-Za-z0-9_]*\([^)]*\) AS [^"]*$' $d | sort -u |
+  awk -F') AS ' '{sig=$1")"; if (sig in seen) { if (seen[sig]!=$2) print sig, seen[sig], $2 } else seen[sig]=$2}'
+done
+```
+
+One hit in the whole tree: `FUNC __encoding_utf8Encode(value AS String)` with
+`List OF Byte` AND `List OF Integer`. `utf8Encode` really is the language's only
+return-type overload, and no member renders fewer declarations than it registers
+(the new `every_member_renders_one_declaration_per_implementation` pin walks all
+of them).
+
+The original hypotheses, for the record:
 
 1. **Most likely.** The renderer chooses `Overloads` vs. `Declaration` by
    comparing *parameter lists*. `utf8Encode`'s two forms have identical
@@ -175,38 +205,45 @@ actually reads.
 
 ### Phase 1 — failing test + root cause (no behavior change)
 
-- [ ] Land `spikes/api-review/bug-530-utf8encode-return-overload/` (done).
-- [ ] Read `src/cli/man.rs` and determine which hypothesis holds. Record it.
-- [ ] Add a renderer test asserting `mfb man encoding utf8Encode` contains both
-      `AS List OF Byte` and `AS List OF Integer`. Confirm it fails.
-- [ ] Walk the registry for any other member whose `Implementation` count
-      exceeds its rendered signature count; record the list.
-
-Acceptance: the root cause is established by reading the renderer, not guessed;
-the test fails; the registry-wide census is complete.
-Commit: —
+- [x] Land `spikes/api-review/bug-530-utf8encode-return-overload/` (done).
+- [x] Read `src/cli/man.rs` and determine which hypothesis holds. Recorded above:
+      **hypothesis 2**, the descriptor.
+- [x] Renderer test `a_return_type_overload_renders_every_form` — RED before the
+      fix ("a two-form member renders an Overloads block, not a Declaration").
+- [x] Registry-wide census (above): `utf8Encode` is the only member whose source
+      defines more forms than its descriptor declares.
 
 ### Phase 2 — the fix
 
-- [ ] Fix the renderer (or the descriptor, per Phase 1) so both forms render.
-- [ ] Emit the contextual-type requirement in the signature area.
-- [ ] Fix any sibling found in Phase 1.
-
-Acceptance: the Phase 1 test passes; single-form members still render a
-`Declaration`, not a one-entry `Overloads` block.
-Commit: —
+- [x] `func_utf8_encode.rs` registers BOTH forms. Selection is unchanged:
+      the two rows share a parameter list and `match_overload` takes the first
+      row that unifies, so `resolve_call("encoding.utf8Encode", ["String"])` is
+      still `List OF Byte` and the expected type still picks the form in the
+      monomorphizer. `expected_arguments` is now the hand-authored `"String"`,
+      because a multi-implementation member yields no per-position render and
+      the argument-mismatch clause would otherwise read "no arguments".
+- [x] The renderer emits the contextual-type requirement in the signature area
+      whenever a set's forms share one parameter list
+      (`is_return_type_overload_set`), so a second such member gets it for free.
+- [x] No sibling to fix.
 
 ### Phase 3 — the general pin + validation
 
-- [ ] Add the pin: rendered signature count equals `Implementation` count, for
-      every registry member.
-- [ ] `cargo test --no-fail-fast`; `cargo check --all-targets`.
-- [ ] `scripts/test-accept.sh` — any golden containing rendered man output
-      shifts; confirm the delta is only added overload lines.
-- [ ] `scripts/man-run-examples.sh encoding --run`.
-
-Acceptance: full suite green; the pin catches a deliberately-broken descriptor.
-Commit: —
+- [x] `every_member_renders_one_declaration_per_implementation` — one rendered
+      declaration per registered form, for every member (>400 walked).
+- [x] `no_member_defines_more_source_forms_than_its_descriptor_declares` — the
+      pin that would have caught THIS bug; verified RED against the one-row
+      descriptor ("the package source defines 2 `FUNC __encoding_utf8Encode(`
+      form(s) but the descriptor declares 1").
+- [x] `only_a_return_type_overload_gets_the_expected_type_note` — the positive
+      pin: `utf8Decode` (a PARAMETER overload) and `csv::parse` (one form) must
+      not grow the note.
+- [x] `cargo test --release --no-fail-fast`: 4837 passed, 0 failed, cargo exit 0.
+- [x] `scripts/test-accept.sh`: **1410 ran**, passed, exit 0 — no golden moved,
+      as predicted: a `Body::Intrinsic` row injects no source and prose fields
+      are `&'static str` no gate reads.
+- [x] `scripts/man-run-examples.sh encoding --run`: 62 examples, 62 built, 62 ran,
+      0 failed. `scripts/man-census.sh --memory-scope encoding`: 0 unclassified.
 
 ## Validation Plan
 
