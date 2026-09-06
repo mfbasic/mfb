@@ -1,11 +1,16 @@
 # bug-548: two paths in `builder_values.rs::lower_value` are reached by no program in the tree
 
-Last updated: 2026-09-05 (second path added)
+> One of the two turned out to be reachable — an inline `TRAP` over an indirect
+> call. See "RESOLVED" below. The union-variant path is what remains.
+
+Last updated: 2026-09-05 (second path RESOLVED — reachable; union path still open)
 Effort: small (30m–1h) to decide; medium if it turns out reachable
 Severity: LOW
 Class: Dead code (suspected) / Coverage
 
-Status: **OPEN — both measured dead, neither proven unreachable.** Filed rather
+Status: **PARTIALLY RESOLVED.** The `CallResult`-on-a-`FUNC`-local path is
+reachable and now has a fixture (see below). The union-variant path is still
+measured dead and not proven unreachable. Filed rather
 than deleted: the sweeps agree nothing reaches either, but "no committed program
 reaches it" and "no valid program can reach it" are different claims, and only
 the second justifies deleting ~175 lines of codegen.
@@ -117,11 +122,46 @@ function called through a FUNC-typed VALUE must propagate to the caller's TRAP"
 call reaches codegen as something other than a `CallResult` naming its callable,
 and this branch is waiting for a shape the front end does not produce.
 
-Same disposition as the union path above: measured dead, not proven unreachable,
-and the same two ways to settle it. If a shape does produce it, that fixture is
-the place to look for why it does not today; if none can, ninety lines go, and
-whatever DOES lower `function-value-error-propagates-rt` becomes the single
-documented path.
+### RESOLVED 2026-09-05 — it is reachable, and the missing ingredient was the
+### TRAP's SCOPE
+
+Not dead. The shape that produces it is an **inline** `TRAP` over an indirect
+call:
+
+```basic
+FUNC indirectInt(f AS FUNC(Integer) AS Integer, v AS Integer) AS String
+  LET n = f(v) TRAP(e)
+    RECOVER 0 - e.code
+  END TRAP
+  RETURN "n=" & toString(n)
+END FUNC
+```
+
+The same `eprintln!` probe, over that program: `PROBE-CALLRESULT-FUNC-LOCAL f`,
+five times — once per backend. The `if let` binds and the ninety lines run.
+
+Why the sweep missed it, and why the reasoning above pointed the wrong way:
+`function-value-error-propagates-rt` was read as "precisely this shape" because
+it calls a `FUNC`-typed value that fails. It uses a **function-level** `TRAP`.
+Only the *inline* form lifts a fallible call into a `NirValue::CallResult`
+naming its callable (`ir::lower::lower_inline_trap`); the function-level form
+propagates through an entirely different mechanism and never builds that node.
+So the two are not the same shape at all, and the fixture that looked like a
+disproof was evidence about the other scope.
+
+No program in the tree had the combination. That is why a path bug-448 fixed —
+a real SIGSEGV, the inline-TRAP machinery dereferencing a raw success value as
+a `Result` object — had no regression fixture, and why the sweep over ~700
+committed projects came back empty.
+
+Closed by `tests/rt-behavior/functions/indirect-inline-trap-rt`, which asserts
+the recovery for the three return shapes that behave differently (a scalar, a
+record, a List — the last two are the pointer shapes that segfaulted), each
+against its direct-call twin, plus the success path so a fix that always took
+the error branch is caught. It is in the in-process corpus, so all five backends
+lower it on every `cargo test`.
+
+**The union-variant path above is untouched by this** and remains open.
 
 ## How it was found
 

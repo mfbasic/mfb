@@ -1,0 +1,106 @@
+' An inline TRAP over a call made THROUGH a FUNC-typed value.
+'
+' The sibling fixture `function-value-error-propagates-rt` covers the same
+' indirect call under a FUNCTION-level TRAP. This is the other scope, and it is
+' a different code path: an inline TRAP lifts the call into a `CallResult` node,
+' and lowering a `CallResult` whose target names a FUNC-typed LOCAL is its own
+' arm of `builder_values.rs::lower_value` -- the one bug-448 fixed.
+'
+' What bug-448 was: the inline-TRAP machinery consumes a boxed Result
+' (tag / value / message / source). The indirect arm returned the raw success
+' VALUE instead, which the machinery then dereferenced as a Result-object
+' pointer. For an Integer that is a wild address; for a record or a List the
+' error path reads fields off it. It segfaulted.
+'
+' Nothing in the tree exercised it. A sweep for bug-548 built every project
+' under tests/ and examples/ -- around 700 -- with the arm instrumented, and no
+' program reached it, which is how a fixed path came to have no fixture.
+'
+' Every case is asserted for BOTH call forms. The direct form was always
+' correct, so a test that checked only the indirect one would pass equally
+' against a fix that broke the direct one.
+IMPORT collections
+IMPORT io
+
+FUNC boomInt(v AS Integer) AS Integer
+  FAIL error(77050002, "boom-int")
+END FUNC
+
+FUNC okInt(v AS Integer) AS Integer
+  RETURN v + 1
+END FUNC
+
+TYPE Box
+  value AS Integer
+END TYPE
+
+FUNC boomBox(v AS Integer) AS Box
+  FAIL error(77050003, "boom-box")
+END FUNC
+
+FUNC okBox(v AS Integer) AS Box
+  RETURN Box[v + 1]
+END FUNC
+
+FUNC boomList(v AS Integer) AS List OF Integer
+  FAIL error(77050004, "boom-list")
+END FUNC
+
+FUNC okList(v AS Integer) AS List OF Integer
+  RETURN [v, v + 1]
+END FUNC
+
+' --- Integer: the scalar shape -------------------------------------------
+FUNC directInt(v AS Integer) AS String
+  LET n = boomInt(v) TRAP(e)
+    RECOVER 0 - e.code
+  END TRAP
+  RETURN "n=" & toString(n)
+END FUNC
+
+FUNC indirectInt(f AS FUNC(Integer) AS Integer, v AS Integer) AS String
+  LET n = f(v) TRAP(e)
+    RECOVER 0 - e.code
+  END TRAP
+  RETURN "n=" & toString(n)
+END FUNC
+
+' --- Record: the pointer shape that segfaulted ----------------------------
+FUNC directBox(v AS Integer) AS String
+  LET b AS Box = boomBox(v) TRAP(e)
+    RECOVER Box[0 - e.code]
+  END TRAP
+  RETURN "b=" & toString(b.value)
+END FUNC
+
+FUNC indirectBox(f AS FUNC(Integer) AS Box, v AS Integer) AS String
+  LET b AS Box = f(v) TRAP(e)
+    RECOVER Box[0 - e.code]
+  END TRAP
+  RETURN "b=" & toString(b.value)
+END FUNC
+
+' --- Collection: the other pointer shape ----------------------------------
+FUNC indirectList(f AS FUNC(Integer) AS List OF Integer, v AS Integer) AS String
+  LET items AS List OF Integer = f(v) TRAP(e)
+    RECOVER [0 - e.code]
+  END TRAP
+  RETURN "len=" & toString(len(items)) & " head=" & toString(collections::get(items, 0))
+END FUNC
+
+FUNC main() AS Integer
+  ' The handler runs and the recovered value is the one the RECOVER named.
+  io::print("direct-int-fail    " & directInt(1))
+  io::print("indirect-int-fail  " & indirectInt(boomInt, 1))
+  io::print("direct-box-fail    " & directBox(1))
+  io::print("indirect-box-fail  " & indirectBox(boomBox, 1))
+  io::print("indirect-list-fail " & indirectList(boomList, 1))
+
+  ' The success path is untouched by the tag check: the value comes back, the
+  ' handler does not run. A fix that always took the error branch would still
+  ' pass every assertion above.
+  io::print("indirect-int-ok    " & indirectInt(okInt, 41))
+  io::print("indirect-box-ok    " & indirectBox(okBox, 41))
+  io::print("indirect-list-ok   " & indirectList(okList, 7))
+  RETURN 0
+END FUNC
