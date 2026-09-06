@@ -75,6 +75,26 @@ fn each_parse_refusal_names_its_rule() {
             "IMPORT io\n\nio::print(\"hello\")\n\nFUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
         ),
         (
+            // An `EXAMPLE` with no `END EXAMPLE` swallows the `END DOC` that
+            // follows it -- the example scan takes it as body text -- so what
+            // the author gets is DOC_UNTERMINATED for the block, not
+            // DOC_EXAMPLE_UNTERMINATED for the example. Recorded as the parser
+            // says it: reaching for the more specific rule and finding this one
+            // is the measurement, and DOC_EXAMPLE_UNTERMINATED needs a shape
+            // where the block ends some other way.
+            "an EXAMPLE with no END EXAMPLE, which eats the END DOC",
+            "DOC_UNTERMINATED",
+            "DOC\nFUNC helper()\nEXAMPLE\n  a\nEND DOC\nFUNC helper() AS Integer\n  RETURN 7\nEND FUNC\n\nFUNC main() AS Integer\n  RETURN helper()\nEND FUNC\n",
+        ),
+        (
+            // bug-171 finding E: an unterminated `(` leaves the scan treating
+            // the whole remainder as the parameter list, so the header is
+            // refused rather than silently rendered wrong.
+            "a DOC header signature missing its `)`",
+            "DOC_BAD_HEADER",
+            "DOC\nFUNC helper(a AS Integer\nEND DOC\nFUNC helper(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\n\nFUNC main() AS Integer\n  RETURN helper(1)\nEND FUNC\n",
+        ),
+        (
             "a record field written with `=`",
             "MFB_PARSE_RECORD_FIELD_ASSIGNMENT",
             "TYPE P\n  x AS Integer\nEND TYPE\n\nFUNC main() AS Integer\n  MUT p AS P = P[1]\n  p.x = 2\n  RETURN 0\nEND FUNC\n",
