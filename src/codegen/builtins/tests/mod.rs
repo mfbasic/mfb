@@ -58,3 +58,4 @@ mod term_read;
 mod threads;
 mod validation;
 mod vector;
+mod vector_promotion;
