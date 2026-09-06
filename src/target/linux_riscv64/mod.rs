@@ -205,8 +205,15 @@ fn write_executable(
         native_plan.validate()?;
         os::linux::validate_native_object_plan(&native_plan)?;
         progress("emitting native code");
-        let native_code = code::lower_module(&module, &native_plan, packages, flavor)?;
+        let mut native_code = code::lower_module(&module, &native_plan, packages, flavor)?;
         native_code.validate()?;
+        // bug-453: relax any `jal` whose target is farther than the rv64 imm20
+        // ±1 MiB reach into a chain of register-free `jal zero` hops, so a large
+        // function compiles instead of being rejected by the encoder. Covers both
+        // `b` and the `jal` inside `rv.br`'s long form. A no-op for every function
+        // whose jumps already fit (i.e. every realistic program), so every existing
+        // linux-riscv64 golden is byte-identical.
+        arch::riscv64::encode::relax_rv64_branches(&mut native_code)?;
         progress("encoding image");
         let mut image = arch::riscv64::encode::encode(&native_code)?;
         image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());

@@ -1,12 +1,18 @@
 # bug-453: riscv64 backend rejects large functions — `jal` to a trap stub exceeds ±1 MiB and nothing relaxes it (bug-445's un-fixed twin)
 
-Last updated: 2026-08-25
+Last updated: 2026-09-05
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness (valid source rejected by codegen)
 
-Status: Open
-Regression Test: — (Phase 1 adds an encoder-level test in `src/arch/riscv64/encode/`, mirroring bug-445's `relax.rs` tests)
+Status: Fixed — awaiting archive
+Regression Test: `src/arch/riscv64/encode/relax.rs` `#[cfg(test)] mod tests` (8 tests):
+`far_b_is_rejected_without_relaxation`, `far_rv_br_is_rejected_without_relaxation`
+(pre-fix pins), `relaxation_makes_a_far_b_encode`,
+`relaxation_makes_a_far_rv_br_encode`, `a_multi_hop_chain_walks_to_the_target`,
+`every_island_is_jumped_over` (the RED four), and the positive pins
+`in_range_jumps_are_left_untouched` (byte-identity) and
+`an_unresolved_target_is_left_to_the_encoder`.
 
 Cross-compiling a big-but-valid project to `linux-riscv64` fails at encode
 time: a `jal` from user code to a shared in-function trap stub (`trap_0`) sits
@@ -153,6 +159,77 @@ that makes the scratch-register route dangerous, since that `jal` is emitted
 mid-expansion where `t0`–`t2` liveness is not obvious; the chained-hop route is
 immune to that question entirely, because it clobbers nothing.
 
+## Corrections from the fix session (2026-09-05)
+
+**The document's reproduction is STALE — both named projects have stopped
+demonstrating the bug, for two different reasons.** Measured at `c88230dfe` with
+a freshly built `target/release/mfb`:
+
+* `mfb build --target linux-riscv64 -q examples/ai_chat` now **succeeds** (writes
+  `ai_chat-glibc.out` and `ai_chat-musl.out`, exit 0). The example shrank below
+  the threshold at some point after the report was filed.
+* `mfb build --target linux-riscv64 -q examples/browser/app` fails for an
+  unrelated reason — `IMPORT_PACKAGE_NOT_INSTALLED` for `display`/`dom`/`fetch`,
+  because the example's three `.mfp` packages are not built in a clean checkout.
+  It never reaches the encoder.
+
+**The defect itself is real and unchanged** — `patch_labels`
+(`src/arch/riscv64/encode/emitter.rs`) still hard-errors on an out-of-range `jal`
+and no relaxation stage existed. Replacement reproduction, self-contained and
+~4 s to build (generator in the fix commit's message):
+
+```
+# a single FUNC with 200 blocks of {acc arithmetic; s = s & strings::left(...);
+# IF …}, an early `strings::mid("ab",0,5)` raise, and a TRAP handler
+target/release/mfb build --target linux-riscv64 -q /tmp/r453rt
+```
+- Observed at `c88230dfe`: `error: rv64 jal displacement 2548808 to 'trap_0'
+  exceeds ±1 MiB`, exit 1, no artifact.
+- Expected: two riscv64 executables, as for every other target.
+
+**Confirmed: the coordinator's "both sites overflow" warning was right, and it is
+now pinned.** `far_rv_br_is_rejected_without_relaxation` shows a `rv.br` whose
+target is 1 MiB + 64 bytes away failing with the identical
+`exceeds ±1 MiB` message through the other emitter path, so a `b`-only fix would
+have left half the bug in place.
+
+**Correction to the Fix Design and Open Decisions: the `auipc`+`jalr` option is
+dead, and no scratch register is used.** The landed pass
+(`src/arch/riscv64/encode/relax.rs`) is the coordinator's chained-hop design.
+`.ai/arch-abi.md` now carries the reasoning under "riscv64 branch relaxation".
+
+**Correction to the chain design's cost model.** The doc's per-branch chain
+("bound the hop count per branch by ceil(distance / 1 MiB)") is correct as
+arithmetic and catastrophic as an implementation: a large function reaches *one*
+trap stub from thousands of sites, so a private chain per site inserts millions of
+islands, and `Vec::splice` per island is quadratic. The first implementation of
+exactly that design did not finish a 50 MiB function in **10 minutes**. The landed
+pass instead shares **one island ladder per (target, side)** and applies all
+insertions in a single rebuild; the same class of function now builds in seconds.
+
+### Found while fixing this — a quadratic in the linux-riscv64 linker, previously unreachable
+
+Unblocking the encoder exposed the next bottleneck, and it is superlinear.
+`paired_auipc_offset` (`src/os/linux/link/mod.rs`) resolves each
+`riscv_pcrel_lo12` / `riscv_got_lo12` relocation by **scanning the whole
+relocation list** for the nearest preceding `*_hi20` of the same target, so
+linking is O(R²) in the relocation count. Until this bug was fixed, a function
+big enough to notice was rejected at encode time, so the cost was unreachable.
+
+Measured with `mfb build --target linux-riscv64 -vv` (both libc flavors, one
+generated single-function project per row):
+
+| function text | `relax rv64 branches` | `encoding image` | `linking executable` |
+| --- | --- | --- | --- |
+| 2.5 MiB | 0.50 s | 0.50 s | 0.55 s |
+| 12.6 MiB (5×) | 2.67 s (5.3×) | 2.42 s (4.8×) | 11.9 s (**21.6×**) |
+
+The relaxation pass and the encoder are linear; the linker is not. A 50 MiB
+single function still links, but in minutes rather than seconds. This is a
+**performance defect in a different subsystem** — the output is correct — so it is
+not fixed here; it wants its own bug, and the fix is an index (`target → sorted
+hi offsets`) instead of the scan.
+
 ## Failing Reproduction
 
 ```
@@ -238,36 +315,45 @@ branch).
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Encoder-level test synthesizing a function with >1 MiB of padding between
-      a `jal` and its label: assert today's hard error (pins the pre-fix
-      behavior, flips to relaxed-encoding assertions in Phase 2).
-- [ ] Audit `RvBr`/`beq`-family reach handling and document the scratch
-      register's liveness guarantee.
+- [x] Encoder-level tests synthesizing a function with >1 MiB of padding between
+      a `jal` and its label: `far_b_is_rejected_without_relaxation` and
+      `far_rv_br_is_rejected_without_relaxation` pin today's hard error for
+      **both** emitter paths.
+- [x] Audit `RvBr`/`beq`-family reach handling: `emit_rv_br` never emits a bare
+      B-type, so the ±4 KiB range is structurally unreachable; its long form's
+      escape hatch is a `jal`, which is why the two paths share one threshold.
+      **No scratch register is used** — the relaxation is register-free, so the
+      liveness guarantee the phase asked for is not needed.
 
-Acceptance: test fails (errors) for the documented reason; audit verdicts
-written above.
-Commit: —
+Acceptance: met — the four relaxation tests fail with
+`rv64 jal displacement … exceeds ±1 MiB` when the pass is disabled.
 
 ### Phase 2 — the fix
 
-- [ ] `src/arch/riscv64/encode/relax.rs` (new): fixpoint relaxation for `jal`
-      and `RvBr`, wired into `src/target/linux_riscv64` before `encode`.
-- [ ] Flip the Phase 1 test to assert the relaxed sequence + byte-identity for
-      in-range branches.
+- [x] `src/arch/riscv64/encode/relax.rs` (new): fixpoint hop-ladder relaxation
+      for `b` and `rv.br`, wired into `src/target/linux_riscv64` before `encode`.
+- [x] `relaxation_makes_a_far_b_encode`, `relaxation_makes_a_far_rv_br_encode`,
+      `a_multi_hop_chain_walks_to_the_target`, `every_island_is_jumped_over`
+      assert the relaxed sequence; `in_range_jumps_are_left_untouched` asserts
+      byte-identity for in-range branches.
 
-Acceptance: Phase 1 test passes; in-range-branch byte-identity test passes.
-Commit: —
+Acceptance: met — 8/8 green with the pass, 4/8 red without it.
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `artifact-gate.sh all` — expect **0 diffs** (relaxation is a no-op in
-      range; any diff is a bug in the pass, not regen material).
-- [ ] `cargo test --no-fail-fast`; full `test-accept.sh`.
-- [ ] Rebuild `examples/ai_chat` + `examples/browser/app` for `linux-riscv64`;
-      if a riscv64 runner is available (`.ai/remote_systems.md`), execute one.
+- [x] `artifact-gate.sh all` — **1930 goldens, 0 diffs**, byte-for-byte equal to
+      the same command on unmodified `c88230dfe` (1930 / 0). No golden was
+      regenerated; the relaxation is a strict no-op in range.
+- [x] `test-accept.sh` — 1412 ran (baseline).
+- [x] `cargo test --release --no-fail-fast`.
+- [x] Runtime proof on **box 2229** (Alpine riscv64, real hardware): the
+      replacement reproduction, whose `trap_0` jump needs a five-rung hop ladder
+      (displacement 2 548 808 bytes), runs and exits **0** — meaning the early
+      raise reached the TRAP handler *through* the relaxed chain and the
+      non-raising call still returned normally. The same source is rejected at
+      `c88230dfe`. A cross-build alone would have proved nothing.
 
-Acceptance: suite green, gate 0 diffs, both examples build for riscv64.
-Commit: —
+Acceptance: met.
 
 ## Validation Plan
 

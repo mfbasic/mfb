@@ -18,7 +18,10 @@
 //! AArch64 (a conditional branch reaches only ±4 KiB, versus AArch64's ±1 MiB),
 //! the conditional-branch op [`CodeOp::RvBr`] is always emitted in its 8-byte
 //! long form (`b<inverse> rs1, rs2, +8; jal zero, target`) so its size is
-//! deterministic and it reaches ±1 MiB — no branch-relaxation pass is needed.
+//! deterministic and it reaches ±1 MiB. That escape hatch is itself a `jal`, so
+//! both `CodeOp::Branch` and `CodeOp::RvBr` overflow at the same ±1 MiB threshold
+//! in a large enough function; [`relax_rv64_branches`] (bug-453) relaxes either
+//! into a chain of register-free `jal zero` hops before `encode` runs.
 
 use std::collections::HashMap;
 
@@ -34,12 +37,17 @@ pub(crate) use crate::arch::image::{EncodedImage, EncodedRelocation, EncodedSymb
 
 mod emitter;
 mod operand;
+mod relax;
 mod sizing;
 
 #[cfg(test)]
 mod tests;
 
 use emitter::Encoder;
+
+// bug-453: the branch-relaxation pass the linux-riscv64 target runs on the code
+// plan before `encode`.
+pub(crate) use relax::relax_rv64_branches;
 
 /// Encode a plan into a linkable image via the shared two-pass driver
 /// (bug-341-B1); this backend supplies the RV64 `Encoder` (its

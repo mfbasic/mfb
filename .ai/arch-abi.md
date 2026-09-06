@@ -323,6 +323,39 @@ Two-profile runtime proof for a linux-riscv64 binary (cross-compiled on the Mac,
 
 Verified with a `getauxval(AT_HWCAP)` probe: native hwcap=0x112d (V=0), `v=true` hwcap=0x20112d (V=1). `gcc` (native riscv64) is present on 2232 for building reference probes.
 
+### riscv64 branch relaxation — `jal` is the widest jump there is (bug-453)
+
+`rv.br`'s 8-byte long form dodges the ±4 KiB B-type by *emitting a `jal`*, so
+**both** `CodeOp::Branch` and `CodeOp::RvBr` die at the same ±1 MiB `jal` reach in
+a large enough function — two emitter paths, one threshold. Relaxing only the
+standalone `b` (the shape bug-453 was filed as) would leave the conditional half
+rejecting functions of identical size, and the bug would read as fixed.
+
+Do **not** reach for `auipc`+`jalr`: it needs a destination register that is dead
+at the rewrite site and rv64 has none (`t0`–`t2` are lowering scratch, `gp` is the
+plan-99 flag register, `tp` faults a dynamically-linked binary through TLS, and
+shrinking `INT_ALLOCATABLE` trips the allocator fault below). The `RvBr` case is
+decisive: its `jal` sits *inside* an expansion where `t0`–`t2` liveness is not
+knowable at the relaxation site.
+
+`src/arch/riscv64/encode/relax.rs` instead chains **register-free hops**:
+`jal zero, over; hop: jal zero, onward; over:`, spliced *between* source and
+target at ≤ half-reach intervals. bug-445's AArch64 shape does not port — an
+*adjacent* trampoline works there only because the veneer's `b` (imm26) is wider
+than the branch it replaces; rv64 has nothing wider, so an adjacent island is
+exactly as far out of range as the original jump. Relaxing never resizes the
+branch itself (only its `target` field is rewritten), so the pass is a strict
+no-op in range and every existing rv64 golden is byte-identical.
+
+Two traps that cost real time here: (1) **share one island ladder per target per
+side.** A large function reaches one trap stub from thousands of sites; a private
+chain per site inserts millions of islands and `Vec::splice` per island is
+quadratic — a 50 MiB function did not finish in 10 minutes. (2) **A green
+cross-build is not proof.** Verify on 2229 with a program that actually *takes*
+the relaxed jump (an early `TRAP` raise in a >2 MiB function reaches `trap_0`
+through the chain); a build that merely encodes proves only that the displacement
+fit.
+
 ### riscv64 flag-emulation reserved slots
 
 The flagless riscv64 backend (`select_riscv64`) emulates condition flags: a bare (non-fused) `cmp` whose flag-reading branch is not adjacent must keep BOTH compared *values* live from compare to branch. `gp` (x3) holds the lhs. There is **no free second register** for the rhs, so it goes to memory:

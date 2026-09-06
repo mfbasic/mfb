@@ -54,8 +54,20 @@ Because RISC-V has fixed-width instructions but a tighter branch reach than
 AArch64 (a native conditional branch reaches only ±4 KiB versus ±1 MiB), the
 flagless compare-and-branch is **always** emitted in an 8-byte long form (an
 inverted short branch over an unconditional `jal`) so its size is deterministic
-and it reaches ±1 MiB — no branch-relaxation pass is needed.
-[[src/arch/riscv64/encode/mod.rs:1]]
+and it reaches ±1 MiB. [[src/arch/riscv64/encode/mod.rs:1]]
+
+That long form's escape hatch is itself a `jal`, so both the unconditional `b`
+and the compare-and-branch stop at the same ±1 MiB `jal` reach, and `jal` is the
+widest single-instruction jump the base ISA has. A **branch-relaxation pass**
+therefore runs over the code plan before encoding: any `jal` whose target is out
+of reach is rewritten to hop through a chain of *islands* placed between it and
+its target, each at most half the reach apart, so a function of any size encodes.
+An island is `jal zero, over; hop: jal zero, onward; over:` — it writes no link
+register, so it needs no scratch register (RISC-V has none free here) and clobbers
+nothing; the leading jump carries fall-through control over it. Every far jump to
+the same label from the same side shares one ladder of islands. The pass is a
+strict no-op when every jump already fits, so in-range code is byte-identical.
+[[src/arch/riscv64/encode/relax.rs:relax_rv64_branches]]
 
 Operands are decoded by small helpers. Integer registers are named by their lp64d
 ABI roles (`zero`, `ra`, `sp`, `gp`, `tp`, `t0`–`t6`, `s0`/`fp`, `s1`–`s11`,
@@ -348,7 +360,8 @@ the second pass. Intra-function branches (`b`, `branch_self`, and the inner `jal
 of a compare-and-branch) are emitted as a placeholder `jal` word and patched once
 the function's label offsets are known; the patcher preserves the destination-
 register field and re-encodes the J immediate. A displacement beyond ±1 MiB is a
-hard error rather than a silent truncation, and duplicate label names in one
+hard error rather than a silent truncation — the relaxation pass above is what
+keeps a large function from reaching it — and duplicate label names in one
 function are rejected. [[src/arch/riscv64/encode/emitter.rs:patch_labels]]
 [[src/arch/riscv64/encode/mod.rs:encode]]
 
