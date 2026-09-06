@@ -165,6 +165,86 @@ FUNC main() AS Integer
 END FUNC
 "#;
 
+/// The second probe: everything the first one has no home for.
+///
+/// A corruption only reaches a builder path some value in the tree took, so the
+/// reach of this sweep is the reach of its programs. The first is an ordinary
+/// one. This is the one whose values live in the two places a plain local's do
+/// not - a `RES ... STATE` payload and a record field - because
+/// `collection/assign/builder_inplace_assign.rs` has a separate recogniser for
+/// each (`try_inplace_state_*`, `try_inplace_record_field_*`), each with its own
+/// refusals, and neither reads a plain local's values.
+///
+/// Every in-place op on both, plus a sort with a key lambda, a `FOR EACH` over
+/// records, and a string built by accumulation.
+const STATEFUL_SRC: &str = r#"IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT strings
+
+TYPE Holder
+  xs AS List OF Integer
+  st AS Set OF Integer
+  mp AS Map OF String TO Integer
+  note AS String
+END TYPE
+
+TYPE Item
+  id AS Integer
+  name AS String
+END TYPE
+
+FUNC render(items AS List OF Item) AS String
+  MUT out AS String = ""
+  FOR EACH it IN items
+    out = out & it.name & "=" & toString(it.id) & ";"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Integer
+  RES f AS fs::File STATE Holder = fs::createTempFile()
+  f.state = Holder[[1, 2, 3], Set OF Integer { 1, 2 }, Map OF String TO Integer { "a" := 1 }, "n"]
+
+  f.state.xs = collections::append(f.state.xs, 4)
+  f.state.xs = collections::set(f.state.xs, 0, 9)
+  f.state.xs = collections::insert(f.state.xs, 1, 7)
+  f.state.xs = collections::removeAt(f.state.xs, 0)
+  f.state.xs = collections::prepend(f.state.xs, 0)
+  f.state.st = collections::add(f.state.st, 5)
+  f.state.st = collections::remove(f.state.st, 1)
+  f.state.mp = collections::set(f.state.mp, "b", 2)
+  f.state.mp = collections::removeKey(f.state.mp, "a")
+  io::print("state=" & toString(len(f.state.xs)) & f.state.note)
+
+  MUT h AS Holder = Holder[[1], Set OF Integer { 9 }, Map OF String TO Integer { "z" := 0 }, "h"]
+  h = WITH h { xs := collections::append(h.xs, 2) }
+  h = WITH h { xs := collections::set(h.xs, 0, 5) }
+  h = WITH h { xs := collections::insert(h.xs, 0, 4) }
+  h = WITH h { xs := collections::removeAt(h.xs, 0) }
+  h = WITH h { xs := collections::prepend(h.xs, 3) }
+  h = WITH h { st := collections::add(h.st, 8) }
+  h = WITH h { st := collections::remove(h.st, 9) }
+  h = WITH h { mp := collections::set(h.mp, "y", 1) }
+  h = WITH h { mp := collections::removeKey(h.mp, "z") }
+  io::print("h=" & toString(len(h.xs)))
+
+  LET items AS List OF Item = [Item[1, "a"], Item[2, "b"]]
+  io::print(render(collections::sortBy(items, LAMBDA(i AS Item) -> i.name)))
+  LET ids AS List OF Integer = collections::transform(items, LAMBDA(i AS Item) -> i.id)
+  io::print(toString(collections::contains(ids, 2)))
+
+  MUT s AS String = ""
+  FOR i = 1 TO 5
+    s = s & toString(i)
+  NEXT
+  io::print(strings::upper(s) & strings::trim("  x  "))
+
+  fs::close(f)
+  RETURN 0
+END FUNC
+"#;
+
 /// Corrupt `value` if it is a shape this knows how to corrupt.
 ///
 /// Deliberately narrow. A corruption has to be one the stage before codegen
@@ -413,28 +493,34 @@ fn sweep() {
     let mut refused = 0usize;
     let mut panicked = Vec::new();
 
-    for target in CodeTarget::ALL {
-        let mut module = nir_for_src(SRC, target, Console).expect("the probe program must lower");
-        let pristine = snapshot(&module);
+    for (which, source) in [("plain", SRC), ("stateful", STATEFUL_SRC)] {
+        for target in CodeTarget::ALL {
+            let mut module =
+                nir_for_src(source, target, Console).expect("the probe program must lower");
+            let pristine = snapshot(&module);
 
-        // The unmutated module must lower, or every refusal below is a refusal
-        // of something else and the sweep measures nothing.
-        code_for_nir(&module, target).unwrap_or_else(|err| {
-            panic!("the probe program must lower on {}: {err}", target.name())
-        });
+            // The unmutated module must lower, or every refusal below is a refusal
+            // of something else and the sweep measures nothing.
+            code_for_nir(&module, target).unwrap_or_else(|err| {
+                panic!(
+                    "the {which} probe program must lower on {}: {err}",
+                    target.name()
+                )
+            });
 
-        for index in 0.. {
-            restore(&mut module, &pristine);
-            if !corrupt_nth(&mut module, index) {
-                break;
-            }
-            swept += 1;
-            match code_for_nir(&module, target) {
-                Ok(_) => {}
-                Err(message) if message.starts_with("panicked: ") => {
-                    panicked.push(format!("{} #{index}: {message}", target.name()));
+            for index in 0.. {
+                restore(&mut module, &pristine);
+                if !corrupt_nth(&mut module, index) {
+                    break;
                 }
-                Err(_) => refused += 1,
+                swept += 1;
+                match code_for_nir(&module, target) {
+                    Ok(_) => {}
+                    Err(message) if message.starts_with("panicked: ") => {
+                        panicked.push(format!("{which} {} #{index}: {message}", target.name()));
+                    }
+                    Err(_) => refused += 1,
+                }
             }
         }
     }
@@ -459,16 +545,16 @@ fn sweep() {
     // the exception, and is a ratio rather than "all of them" because a `Const`
     // type is advisory in some positions and claiming otherwise would be false.
     assert!(
-        swept > 900,
-        "the sweep corrupted only {swept} values across five backends; the probe \
-         program measured 1,000 (200 corruptible values x 5 backends), and a \
-         walker that stopped descending would show up here rather than as a \
-         green run over nothing"
+        swept > 2400,
+        "the sweep corrupted only {swept} values; it measured 2,500 (two probe \
+         programs x their corruptible values x five backends), and a walker that \
+         stopped descending would show up here rather than as a green run over \
+         nothing"
     );
     assert!(
         refused * 4 > swept * 3,
         "only {refused} of {swept} corrupted modules were refused; it measured \
-         785, and a builder that stopped checking its inputs shows up here as \
+         2,125, and a builder that stopped checking its inputs shows up here as \
          this ratio falling"
     );
 }
