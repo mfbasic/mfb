@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Footgun
 
-Status: FIXED — all four phases landed on branch `bugs/534-regex-surface`
+Status: **FIXED** (2026-09-05, `fe7903170`)
 Regression Test: `tests/rt-behavior/regex/regex-surface-parity-rt`
 
 **Two claims in this document were wrong and are corrected below where they
