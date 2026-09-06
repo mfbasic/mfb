@@ -72,6 +72,24 @@ prepare_browser() {
 
 prepare_browser
 
+# The yaml-json example imports the reusable `yaml` package that lives OUTSIDE
+# examples/ (packages/yaml, examples/yaml-json/README.md "Building and
+# running"), so that package has to be built to a .mfp and installed at
+# examples/yaml-json/packages/yaml.mfp first. Like the browser packages, a .mfp
+# carries portable IR, so this runs once ahead of the per-target app builds.
+prepare_yaml_json() {
+  local app="$EXAMPLES_DIR/yaml-json"
+  [[ -d "$app" ]] || return 0
+
+  echo "==> Preparing yaml-json packages (packages/yaml -> yaml-json)"
+
+  "$MFB" build -q "$ROOT/packages/yaml"
+  mkdir -p "$app/packages"
+  cp "$ROOT/packages/yaml/yaml.mfp" "$app/packages/yaml.mfp"
+}
+
+prepare_yaml_json
+
 # Fresh staging tree.
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"

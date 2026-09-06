@@ -1,0 +1,49 @@
+# A configuration file that exercises most of the supported subset.
+%YAML 1.2
+---
+name: yamljson
+version: 0.1.0
+enabled: true
+retries: 3
+timeoutSeconds: 1.5
+
+# 1.2 Core Schema: these are STRINGS, not booleans. YAML 1.1 disagreed.
+featureFlags:
+  darkMode: yes
+  betaBanner: off
+
+tags: [cli, converter, yaml]
+
+server:
+  host: localhost
+  port: 8080
+  tls:
+    enabled: false
+    ciphers:
+      - TLS_AES_128_GCM_SHA256
+      - TLS_AES_256_GCM_SHA384
+
+# An anchor and two aliases: the reader expands them into copies.
+defaults: &defaults
+  restart: on-failure
+  logLevel: info
+
+services:
+  - name: api
+    settings: *defaults
+  - name: worker
+    settings: *defaults
+
+# A literal block scalar keeps its line breaks; a folded one joins them.
+banner: |
+  yamljson
+  ========
+
+summary: >
+  This paragraph is written across
+  several source lines and arrives
+  as one long line.
+
+# A colon glued to the next character does not separate a key.
+homepage: https://example.com/yamljson
+startsAt: 12:30
