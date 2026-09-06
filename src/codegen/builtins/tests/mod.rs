@@ -44,6 +44,7 @@ mod math;
 mod optimizer;
 mod os;
 mod perf;
+mod platform_hooks;
 mod registry_bodies;
 mod threads;
 mod vector;
