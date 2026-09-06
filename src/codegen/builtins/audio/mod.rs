@@ -413,9 +413,7 @@ pub(crate) fn register(r: &mut Registry) {
         // slots here would imply an audit that has not happened -- opting one in
         // means doing that audit and filling this list, not flipping the bit.
         live_slots: &[],
-        unsendable_reason: Some(
-            "a capture stream is driven from the thread that opened it",
-        ),
+        unsendable_reason: Some("a capture stream is driven from the thread that opened it"),
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
@@ -431,9 +429,7 @@ pub(crate) fn register(r: &mut Registry) {
         // As the capture stream above: live tail state, deliberately unaudited
         // and out of bug-464's scope.
         live_slots: &[],
-        unsendable_reason: Some(
-            "a playback stream waits for room from the thread that opened it",
-        ),
+        unsendable_reason: Some("a playback stream waits for room from the thread that opened it"),
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

@@ -440,9 +440,7 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
             md.push_str(resource.description);
             md.push_str("\n\n");
             if resource.sendable {
-                md.push_str(
-                    "May be handed to another thread with `thread::transfer`.\n\n",
-                );
+                md.push_str("May be handed to another thread with `thread::transfer`.\n\n");
             } else {
                 match resource.unsendable_reason {
                     Some(reason) => md.push_str(&format!(
