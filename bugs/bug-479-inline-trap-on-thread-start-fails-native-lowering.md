@@ -128,6 +128,76 @@ non-goal that the idiom must work; (3) leave the binding unusable after
 Option (1) is a new runtime contract across every `thread` member with a
 user-visible error code, so it is not a codegen arm and should not be guessed.
 
+### CORRECTION (2026-09-06) — defect D is NOT a product decision
+
+The section above says option (1) is "a new runtime contract across every
+`thread` member with a user-visible error code, so it is not a codegen arm and
+should not be guessed." **The contract already exists**, so the question the user
+was being asked is already answered:
+
+    $ grep -c ErrResourceClosed src/codegen/runtime/thread/runtime_helpers_thread.rs
+    6
+
+Every `ThreadSimpleOp` — `IsRunning` (`:151`), `WaitFor` (`:270`), `Cancel`
+(`:467`), `Poll` (`:767`), and the two send/receive helpers (`:1259`, `:1586`) —
+already raises **`ErrResourceClosed`** when it reads `THREAD_STATE_CLOSED`, and
+the message is already in `data_objects.rs`. So "what does `waitFor`/`isRunning`/
+`send` do on a handle whose `start` failed?" has one answer that invents nothing:
+*the same thing they already do on a closed thread.* There is no error code to
+pick and no member-by-member semantics to decide.
+
+What is left is engineering, and the sub-choice is narrow:
+
+**The blocker is ORDERING, not semantics.** Every op begins
+
+    load  %v9, [arg0 + THREAD_OFFSET_OUTBOUND_QUEUE]
+    mov   arg0, %v9
+    call  pthread_mutex_lock
+
+and only reads `THREAD_OFFSET_STATE` after the lock is held
+(`runtime_helpers_thread.rs:105-121` for `IsRunning`; the same two-instruction
+preamble opens all five). A zeroed block therefore locks a null mutex before it
+can ever notice it is closed.
+
+Two ways out, and the first is smaller AND closer to the existing precedent:
+
+1. **Give the closed handle real, empty queues.** `emit_thread_queue_alloc`
+   (`runtime_helpers.rs:349`) already allocates a queue block and runs
+   `pthread_mutex_init`/`pthread_cond_init` on it; a closed-handle helper can
+   call it twice. Then every op works UNCHANGED: it locks a valid mutex, reads
+   `CLOSED`, unlocks, raises `ErrResourceClosed`. Zero changes to any op.
+   This is exactly the shape bug-372 set for resources — `emit_closed_resource_record`
+   (`builder_value_semantics.rs:80`) arena-allocates a zeroed record per bind and
+   sets the closed flag; the thread version is the same idea with two mutexes
+   that must be initialized rather than zeroed.
+2. Hoist the `CLOSED` compare above the queue load in all five ops. Sound (`CLOSED`
+   is terminal — the only writers are init-to-`RUNNING` at creation
+   `runtime_helpers.rs:659`, `COMPLETED` by the worker `:1352`, and `CLOSED` at
+   `runtime_helpers_thread.rs:227,529` — so an unlocked read that sees `CLOSED`
+   is right forever, and one that does not falls through to the existing locked
+   re-check). But it edits five emitters instead of adding one.
+
+**Recommended: (1), emitted as a runtime helper, not inline in the builder.**
+`materialize_default_value` runs in the builder (`self.emit`), while
+`emit_thread_queue_alloc` needs an `EmitCtx` with a raw instruction/relocation
+list — different emission machinery, and porting an emitter across that seam is
+the mistake `.ai/codegen-invariants.md` records. Add one helper symbol in
+`runtime_helpers_thread.rs` and have the new `Thread` arm in
+`materialize_default_value` call it with `emit_symbol_call`.
+
+Four things a fix must still verify, none of which is a user question:
+
+- `close`/`Drop` on the default handle must not double-free or free a queue it
+  did not allocate. bug-469 null-guarded the `ActiveCleanup` path and zero-inits
+  the `Thread` slot; a NON-null default now makes that cleanup actually run.
+- `Send` must check `CLOSED` before it enqueues, or a send into the default
+  handle writes into a queue nobody drains.
+- `WaitFor` must check `CLOSED` before it waits, or a `RECOVER` that calls
+  `waitFor` hangs forever instead of raising.
+- The allocation is on the bind, so a `thread::start … TRAP` pays it even when
+  the start SUCCEEDS. Measure that, and out-line the helper so it is a call
+  rather than inline expansion at every trap site.
+
 ### The matrix after A/B/C — all three inline rows converge on ONE question
 
 Re-measured on this branch, macOS aarch64 release:
