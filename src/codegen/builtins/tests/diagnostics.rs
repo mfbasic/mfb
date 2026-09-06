@@ -27,7 +27,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::testutil::{check_src, fixture_dir, fixture_src};
+use crate::testutil::{check_fixture_project, check_src, fixture_dir, fixture_src};
 
 /// The rule codes a golden `build.log` records, in order.
 ///
@@ -501,6 +501,99 @@ fn the_syntax_corpus_reproduces_its_goldens_in_process() {
         "{} fixture(s) emit a diagnostic their golden does not record:\n  {}",
         mismatched.len(),
         mismatched.join("\n  ")
+    );
+}
+
+/// The package-bearing fixtures, which need a different entry point.
+///
+/// `check_src` builds a project from ONE source string, so a fixture whose
+/// `project.json` declares `packages` reaches the two passes without their
+/// signatures, type tables or resource-closer rows — and reports codes that are
+/// not the ones its golden records. 38 fixtures under `tests/syntax/**` carry a
+/// `packages/` directory; 30 of them were outside this corpus for that reason
+/// alone.
+///
+/// `check_fixture_project` runs the same two passes over the fixture's
+/// DIRECTORY, the way `cli/build` does, so they see the packages.
+///
+/// Seven are excluded BY NAME rather than skipped at run time, for the same
+/// reason the corpus above excludes its parse-error fixtures: they are rejected
+/// at RESOLVE, before either pass runs, so their goldens record resolver codes
+/// and these two passes have nothing to say about them. Four are package-format
+/// fixtures — `pkg-01-tampered-signature`, `pkg-04-type-cycle`,
+/// `pkg-05-alloc-count`, `pkg-06-duplicate-section`, whose `.mfp` is
+/// deliberately corrupt — and three name a member the package does not export
+/// (`thread::sleep` was removed).
+const PACKAGE_DIAGNOSTIC_CORPUS: &[&str] = &[
+    "func_thread_cancel_valid",
+    "func_thread_emit_valid",
+    "func_thread_isCancelled_valid",
+    "func_thread_isRunning_valid",
+    "func_thread_poll_valid",
+    "func_thread_read_valid",
+    "func_thread_receive_valid",
+    "func_thread_result_invalid",
+    "func_thread_send_valid",
+    "func_thread_start_valid",
+    "func_thread_transfer_invalid",
+    "func_thread_waitFor_valid",
+    "pkg-02-type-confusion",
+    "pkg-02b-computed-confusion",
+    "pkg-02c-operator-confusion",
+    "pkg-03-decode-depth",
+    "pkg-07-need-overflow",
+    "thread-start-input-not-sendable",
+    "thread-transfer-state-mismatch",
+];
+
+/// The package-bearing fixtures reproduce their goldens too.
+///
+/// Same rule as the corpus above, and the same direction: a code produced here
+/// and absent from the golden is a diagnostic the compiler has started emitting
+/// that nobody reviewed.
+#[test]
+fn the_package_bearing_syntax_fixtures_reproduce_their_goldens() {
+    let mut mismatched = Vec::new();
+    let mut silent = Vec::new();
+    for fixture in PACKAGE_DIAGNOSTIC_CORPUS {
+        let produced = match check_fixture_project(fixture) {
+            Ok(rules) => rules,
+            Err(err) => {
+                mismatched.push(format!("{fixture}: {err}"));
+                continue;
+            }
+        };
+        let expected = golden_rules(fixture);
+        if produced.is_empty() {
+            // A `*_valid` fixture is SUPPOSED to be silent, and several of these
+            // are. Recorded rather than asserted either way: what would be wrong
+            // is a fixture whose golden records a rule going quiet, and that is
+            // the check below.
+            if !expected.is_empty() {
+                silent.push(format!("{fixture}: golden records {expected:?}"));
+            }
+            continue;
+        }
+        let missing: Vec<&String> = produced.iter().filter(|r| !expected.contains(r)).collect();
+        if !missing.is_empty() {
+            mismatched.push(format!(
+                "{fixture}: unrecorded {missing:?} (golden has {expected:?})"
+            ));
+        }
+    }
+    assert!(
+        mismatched.is_empty(),
+        "{} package-bearing fixture(s) emit a diagnostic their golden does not \
+         record, or do not load:\n  {}",
+        mismatched.len(),
+        mismatched.join("\n  ")
+    );
+    assert!(
+        silent.is_empty(),
+        "{} package-bearing fixture(s) produced NOTHING while their golden \
+         records a rule -- the program is now accepted:\n  {}",
+        silent.len(),
+        silent.join("\n  ")
     );
 }
 

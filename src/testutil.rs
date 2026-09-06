@@ -770,28 +770,30 @@ END FUNC
 
 // --- lowering a fixture from its PROJECT, not from one source string ---------
 
-/// Lower a fixture **from its project directory**, resolving the packages its
-/// `project.json` declares.
+/// Everything `cli/build`'s front end produces for one fixture project.
 ///
-/// [`fixture_src`] reads `src/main.mfb` and nothing else, which is enough for
-/// the great majority of fixtures and wrong for every one that imports a
-/// `.mfp`. A qualified name from such a package resolves through
-/// `imported_signatures`, which a single-source project never populates — so
-/// `thread::start(worker::entry, …)` reports "thread.start entry point must
-/// name an ISOLATED FUNC", and the fixture is unlowerable in process for a
-/// reason that has nothing to do with threads or with any backend. `corpus.rs`
-/// excludes two fixtures for exactly this.
-///
-/// This runs `cli/build`'s own front end instead — `parse_project` (which
-/// collects the manifest's source files, appends the prelude and runs the
-/// `collections` augmentation), `resolve_project` against the real directory
-/// and manifest, then augment / elaborate / monomorphize — and hands
-/// `lower_augmented_project` the signatures and type defs read off the `.mfp`s.
-pub fn try_code_for_fixture_project(
-    name: &str,
-    target: CodeTarget,
-    build_mode: crate::target::NativeBuildMode,
-) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
+/// Shared by the lowering entry point and the diagnostic one. They consume the
+/// same four things, and building them twice is how the two would come to
+/// disagree about what the project IS.
+pub struct FixtureProject {
+    pub dir: std::path::PathBuf,
+    pub manifest: HashMap<String, tinyjson::JsonValue>,
+    pub concrete: crate::hir::HirProject,
+    pub packages: Vec<PathBuf>,
+    pub signatures: HashMap<String, crate::ir::ExternalSignature>,
+    pub imported_types: Vec<crate::ir::ImportedTypeDef>,
+    /// The `RESOURCE_TABLE` rows imported packages declare. `ir::verify`'s
+    /// resource rules cannot see that an imported type IS a resource without
+    /// them, so a package-bearing fixture reports different codes when they are
+    /// missing — which is the whole reason these fixtures could not be checked
+    /// in process. `ir::shape` wants the same fact as bare NAMES, so both
+    /// spellings are carried rather than re-derived at each use.
+    pub imported_resources: Vec<crate::ir::ImportedResource>,
+    pub imported_resource_types: Vec<String>,
+}
+
+/// Run `cli/build`'s front end over a fixture's project directory.
+pub fn fixture_project(name: &str) -> Result<FixtureProject, String> {
     let dir = fixture_dir(name);
     let manifest_path = dir.join("project.json");
     let text = std::fs::read_to_string(&manifest_path)
@@ -814,10 +816,86 @@ pub fn try_code_for_fixture_project(
 
     let packages = crate::manifest::package::installed_package_files(&dir, &manifest)
         .map_err(|err| format!("{name}: {err}"))?;
-    let imported_types = crate::manifest::package::imported_type_defs_from_files(&packages);
-    let signatures =
-        crate::manifest::package::external_package_function_types_from_files(&packages)
-            .map_err(|err| format!("{name}: {err}"))?;
+    let imported_resources = crate::manifest::package::imported_resource_closers(&dir, &manifest);
+    Ok(FixtureProject {
+        imported_types: crate::manifest::package::imported_type_defs_from_files(&packages),
+        signatures: crate::manifest::package::external_package_function_types_from_files(&packages)
+            .map_err(|err| format!("{name}: {err}"))?,
+        imported_resource_types: imported_resources
+            .iter()
+            .map(|resource| resource.type_name.clone())
+            .collect(),
+        imported_resources,
+        packages,
+        concrete,
+        manifest,
+        dir,
+    })
+}
+
+/// [`check_src`] for a fixture that has packages.
+///
+/// The two source passes need the packages' signatures, type tables AND
+/// resource-closer rows: without the last, `ir::verify`'s resource rules cannot
+/// see that an imported type is a resource, so the fixture reports codes that
+/// are not the ones its golden records. 38 fixtures under `tests/syntax/**`
+/// carry a `packages/` directory and only 8 were in the diagnostic corpus.
+pub fn check_fixture_project(name: &str) -> Result<Vec<String>, String> {
+    let project = fixture_project(name)?;
+    let mut diagnostics = crate::ir::shape::collect_diagnostics(
+        &project.dir,
+        &project.concrete,
+        &project.imported_types,
+        &project.signatures,
+        &project.imported_resource_types,
+    );
+    let lowered = crate::ir::lower_augmented_project(
+        &project.concrete,
+        None,
+        &project.signatures,
+        &project.imported_types,
+    );
+    let link_spans = crate::ir::link_spans(&project.concrete);
+    diagnostics.extend(crate::ir::verify_source_diagnostics(
+        &lowered,
+        &project.dir,
+        &project.imported_resources,
+        &link_spans,
+    ));
+    Ok(diagnostics.into_iter().map(|d| d.rule).collect())
+}
+
+/// Lower a fixture **from its project directory**, resolving the packages its
+/// `project.json` declares.
+///
+/// [`fixture_src`] reads `src/main.mfb` and nothing else, which is enough for
+/// the great majority of fixtures and wrong for every one that imports a
+/// `.mfp`. A qualified name from such a package resolves through
+/// `imported_signatures`, which a single-source project never populates — so
+/// `thread::start(worker::entry, …)` reports "thread.start entry point must
+/// name an ISOLATED FUNC", and the fixture is unlowerable in process for a
+/// reason that has nothing to do with threads or with any backend. `corpus.rs`
+/// excludes two fixtures for exactly this.
+///
+/// This runs `cli/build`'s own front end instead — `parse_project` (which
+/// collects the manifest's source files, appends the prelude and runs the
+/// `collections` augmentation), `resolve_project` against the real directory
+/// and manifest, then augment / elaborate / monomorphize — and hands
+/// `lower_augmented_project` the signatures and type defs read off the `.mfp`s.
+pub fn try_code_for_fixture_project(
+    name: &str,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
+    let FixtureProject {
+        dir,
+        manifest,
+        concrete,
+        packages,
+        signatures,
+        imported_types,
+        ..
+    } = fixture_project(name)?;
 
     let entry = manifest
         .get("entry")
