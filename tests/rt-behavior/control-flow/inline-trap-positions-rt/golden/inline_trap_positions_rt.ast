@@ -1,0 +1,354 @@
+{
+  "project": "inline_trap_positions_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 24 },
+    { "module": "fs", "line": 25 },
+    { "module": "io", "line": 26 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Dot",
+      "line": 28,
+      "fields": [
+      { "visibility": null, "name": "n", "type": "Integer", "line": 29 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Tag",
+      "line": 32,
+      "fields": [
+      { "visibility": null, "name": "s", "type": "String", "line": 33 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Shape",
+      "line": 36,
+      "includes": [],
+      "variants": [
+      { "name": "Dot", "line": 37 },
+      { "name": "Tag", "line": 38 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Counter",
+      "line": 41,
+      "fields": [
+      { "visibility": null, "name": "n", "type": "Integer", "line": 42 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "risky",
+      "line": 45,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 45 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 46,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050002" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "risky " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] } }] }, "line": 46 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } }, "line": 47 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "shout",
+      "line": 50,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 50 }
+      ],
+      "returnType": null,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 51,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050003" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "shout " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] } }] }, "line": 51 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  shouted " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] } }] }, "line": 52 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "apply",
+      "line": 55,
+      "params": [
+      { "name": "f", "type": "FUNC(Integer) AS Integer", "default": null, "line": 55 },
+      { "name": "n", "type": "Integer", "default": null, "line": 55 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "n" }] }, "line": 56 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "shapeOf",
+      "line": 59,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 59 }
+      ],
+      "returnType": "Shape",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 60,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050004" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "shape " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] } }] }, "line": 60 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "constructor", "type": "Dot", "arguments": [{ "kind": "identifier", "value": "n" }] }, "line": 61 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "nameOf",
+      "line": 64,
+      "params": [
+      { "name": "s", "type": "Shape", "default": null, "line": 64 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 65,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Dot", "binding": "d" },
+          "guard": null,
+          "line": 66,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Dot(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "n" }] } }, "right": { "kind": "string", "value": ")" } }, "line": 67 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Tag", "binding": "t" },
+          "guard": null,
+          "line": 68,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Tag(" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "s" } }, "right": { "kind": "string", "value": ")" } }, "line": 69 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 73,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bOk", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 75,
+        "expression": { "kind": "call", "callee": "risky", "arguments": [{ "kind": "number", "value": "4" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 76 }
+        ]
+      }, "line": 75 },
+      { "kind": "binding", "mutable": false, "name": "bBad", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 78,
+        "expression": { "kind": "call", "callee": "risky", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "4" } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 79 }
+        ]
+      }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bind       ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bOk" }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bBad" }] } }] }, "line": 81 },
+      { "kind": "binding", "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 84 },
+      { "kind": "assignment", "name": "a", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 85,
+        "expression": { "kind": "call", "callee": "risky", "arguments": [{ "kind": "number", "value": "5" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 86 }
+        ]
+      }, "line": 85 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "assign ok  " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 88 },
+      { "kind": "assignment", "name": "a", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 89,
+        "expression": { "kind": "call", "callee": "risky", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "5" } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 90 }
+        ]
+      }, "line": 89 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "assign bad " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 92 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 97,
+        "expression": { "kind": "call", "callee": "shout", "arguments": [{ "kind": "number", "value": "6" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 98 },
+        { "kind": "recover", "value": null, "line": 99 }
+        ]
+      }, "line": 97 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 101,
+        "expression": { "kind": "call", "callee": "shout", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "6" } }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 102 },
+        { "kind": "recover", "value": null, "line": 103 }
+        ]
+      }, "line": 101 },
+      { "kind": "binding", "mutable": true, "name": "z", "type": "Integer", "value": { "kind": "number", "value": "5" }, "line": 115 },
+      { "kind": "binding", "mutable": false, "name": "dOk", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 116,
+        "expression": { "kind": "binary", "operator": "/", "left": { "kind": "call", "callee": "risky", "arguments": [{ "kind": "number", "value": "50" }] }, "right": { "kind": "identifier", "value": "z" } },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 117 }
+        ]
+      }, "line": 116 },
+      { "kind": "assignment", "name": "z", "value": { "kind": "number", "value": "0" }, "line": 119 },
+      { "kind": "binding", "mutable": false, "name": "dBad", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 120,
+        "expression": { "kind": "binary", "operator": "/", "left": { "kind": "call", "callee": "risky", "arguments": [{ "kind": "number", "value": "50" }] }, "right": { "kind": "identifier", "value": "z" } },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 121 }
+        ]
+      }, "line": 120 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "divide     ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "dOk" }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "dBad" }] } }] }, "line": 123 },
+      { "kind": "binding", "mutable": false, "name": "bump", "type": "Integer", "value": { "kind": "number", "value": "10" }, "line": 128 },
+      { "kind": "binding", "mutable": false, "name": "cOk", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 129,
+        "expression": { "kind": "call", "callee": "apply", "arguments": [{ "kind": "lambda", "params": [
+{ "name": "v", "type": "Integer", "default": null, "line": 129 }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "identifier", "value": "bump" } } }, { "kind": "call", "callee": "risky", "arguments": [{ "kind": "number", "value": "1" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 130 }
+        ]
+      }, "line": 129 },
+      { "kind": "binding", "mutable": false, "name": "cBad", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 132,
+        "expression": { "kind": "call", "callee": "apply", "arguments": [{ "kind": "lambda", "params": [
+{ "name": "v", "type": "Integer", "default": null, "line": 132 }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "identifier", "value": "bump" } } }, { "kind": "call", "callee": "risky", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 133 }
+        ]
+      }, "line": 132 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "closure    ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "cOk" }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "cBad" }] } }] }, "line": 135 },
+      { "kind": "binding", "mutable": false, "name": "uOk", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 140,
+        "expression": { "kind": "call", "callee": "nameOf", "arguments": [{ "kind": "call", "callee": "shapeOf", "arguments": [{ "kind": "number", "value": "7" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "string", "value": "recovered" }, "line": 141 }
+        ]
+      }, "line": 140 },
+      { "kind": "binding", "mutable": false, "name": "uBad", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 143,
+        "expression": { "kind": "call", "callee": "nameOf", "arguments": [{ "kind": "call", "callee": "shapeOf", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "7" } }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "string", "value": "recovered" }, "line": 144 }
+        ]
+      }, "line": 143 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "union      ok=" }, "right": { "kind": "identifier", "value": "uOk" } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "identifier", "value": "uBad" } }] }, "line": 146 },
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "tests/rt-behavior/control-flow/inline-trap-positions-rt/data/input.txt" }, "line": 149 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Counter", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 150 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "constructor", "type": "Counter", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 151 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": {
+  "kind": "trapped",
+  "binding": "e",
+  "line": 152,
+  "expression": { "kind": "call", "callee": "risky", "arguments": [{ "kind": "number", "value": "8" }] },
+  "handler": [
+  { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 153 }
+  ]
+} }] }, "line": 152 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "state ok   " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "n" }] } }] }, "line": 155 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": {
+  "kind": "trapped",
+  "binding": "e",
+  "line": 156,
+  "expression": { "kind": "call", "callee": "risky", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "8" } }] },
+  "handler": [
+  { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 157 }
+  ]
+} }] }, "line": 156 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "state bad  " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "n" }] } }] }, "line": 159 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 160 },
+      { "kind": "binding", "mutable": false, "name": "lOk", "type": "List OF Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 163,
+        "expression": { "kind": "list", "values": [{ "kind": "call", "callee": "risky", "arguments": [{ "kind": "number", "value": "1" }] }, { "kind": "call", "callee": "risky", "arguments": [{ "kind": "number", "value": "2" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "list", "values": [] }, "line": 164 }
+        ]
+      }, "line": 163 },
+      { "kind": "binding", "mutable": false, "name": "lBad", "type": "List OF Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 166,
+        "expression": { "kind": "list", "values": [{ "kind": "call", "callee": "risky", "arguments": [{ "kind": "number", "value": "1" }] }, { "kind": "call", "callee": "risky", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "2" } }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "list", "values": [] }, "line": 167 }
+        ]
+      }, "line": 166 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "list       ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "lOk" }] }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "lBad" }] }] } }] }, "line": 169 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 171 }
+      ]
+    }
+    ]
+  }
+  ]
+}

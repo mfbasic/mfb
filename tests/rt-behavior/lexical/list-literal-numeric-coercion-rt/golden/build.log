@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/lexical/list-literal-numeric-coercion-rt
+Wrote AST to tests/rt-behavior/lexical/list-literal-numeric-coercion-rt/list_literal_numeric_coercion_rt.ast
+Wrote IR to tests/rt-behavior/lexical/list-literal-numeric-coercion-rt/list_literal_numeric_coercion_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/lexical/list-literal-numeric-coercion-rt
+Wrote executable to tests/rt-behavior/lexical/list-literal-numeric-coercion-rt/build/list_literal_numeric_coercion_rt.out
+[exit 0]
+$ tests/rt-behavior/lexical/list-literal-numeric-coercion-rt/build/list_literal_numeric_coercion_rt.out
+fixed      2.00 1.25 -1.25
+money      3.00 0.25 -0.25
+byte       0 255
+list fixed 6.00 4.00 4.00
+list money 3.00 1.00 4.00
+negated    -2.00 0.50
+[exit 0]

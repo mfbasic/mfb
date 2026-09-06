@@ -975,3 +975,31 @@ that asserts an instruction EXISTS in a plan is asserting about the whole
 program, not about the code under test. If a construct is common enough to
 appear incidentally — and a sub-word store is — the assertion has to name where
 it came from.
+
+### C11 — writing coverage fixtures found three compiler defects, which is the plan working
+
+The task is a coverage gate, and the plan's rule is "prefer a real test". Three
+times now, writing the program that should reach an uncovered path has turned up
+a defect instead — which is the mechanism the rule exists for, and worth naming
+so the next reader expects it rather than treating it as scope creep.
+
+  bug-549  `List OF <enum>` type-checked and failed to build. FIXED: six
+           classifiers had an arm for every fixed-width scalar and none for an
+           enum, though an enum value IS its ordinal.
+  bug-550  `collections::append([], 1)` type-checks and fails to build — the
+           declared binding type never reaches the empty literal. OPEN; found
+           writing `default-values-rt`, attributed to `main`.
+  bug-551  an inline `TRAP` on a `RES … STATE` write PANICKED the compiler
+           (`unreachable!("inline TRAP must be lowered as a statement value")`).
+           FIXED: a state write is a fourth statement position carrying a trap
+           and `lower_statement` had arms for three. Found writing
+           `inline-trap-positions-rt`, on its first build.
+
+And bug-548's second half turned out to be reachable rather than dead, from the
+same kind of program.
+
+The pattern in all four: **the uncovered line was uncovered because the shape
+that reaches it does not work.** A coverage report cannot distinguish "nobody
+wrote this program" from "this program does not compile", and the only way to
+tell is to write it. That is also why the plan forbids reaching for an exception
+first — an exception on any of these would have recorded a defect as a decision.

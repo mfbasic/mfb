@@ -1,0 +1,83 @@
+' The literal coercions a CONSTANT ARGUMENT enjoys.
+'
+' `ir::shape::expression_compatible` accepts three things `compatible` does not,
+' and only for a literal written at the call site:
+'
+'   - an in-range integer literal where a `Byte` is expected
+'   - a numeric literal, NEGATED OR NOT, where a `Fixed` or `Money` is expected
+'   - a LIST LITERAL of such literals where a list of them is expected
+'
+' The last one classifies each element with `numeric_literal_type`, whose four
+' arms are Integer, Float, Fixed and Money, plus a fifth for a negated literal
+' -- a `Unary` node wrapping a `Number`, not a `Number` at all.
+'
+' Only the Integer and Float arms had ever run. `Fixed` and `Money` literals
+' exist in the tree (`lexical-literals` asserts `typeName(2F)` is `Fixed`) but
+' never inside a list literal in argument position, and the negation arm never
+' at all.
+'
+' A missed arm is a REFUSAL, not a miscompile: `expression_compatible` returning
+' false is TYPE_CALL_ARGUMENT_MISMATCH on a program the language accepts. It is
+' worth a value check anyway, because `Fixed` and `Money` are scaled integers
+' and coercing to the wrong scale is bug-367's family -- a number that is off by
+' a factor of ten thousand rather than absent.
+IMPORT collections
+IMPORT io
+
+FUNC totalFixed(xs AS List OF Fixed) AS Fixed
+  RETURN collections::sum(xs)
+END FUNC
+
+' Summed by hand: `collections::sum` takes Integer, Float or Fixed lists and
+' not a Money one, which is beside the point here -- what is under test is the
+' coercion at the CALL, not the fold.
+FUNC totalMoney(xs AS List OF Money) AS Money
+  MUT total AS Money = 0m
+  FOR EACH x IN xs
+    total = total + x
+  NEXT
+  RETURN total
+END FUNC
+
+FUNC oneFixed(x AS Fixed) AS Fixed
+  RETURN x
+END FUNC
+
+FUNC oneMoney(x AS Money) AS Money
+  RETURN x
+END FUNC
+
+FUNC oneByte(b AS Byte) AS Integer
+  RETURN toInt(b)
+END FUNC
+
+FUNC main() AS Integer
+  ' ---- a bare literal into Fixed / Money, both signs ---------------------
+  io::print("fixed      " & toString(oneFixed(2)) _
+    & " " & toString(oneFixed(1.25)) _
+    & " " & toString(oneFixed(-1.25)))
+  io::print("money      " & toString(oneMoney(3)) _
+    & " " & toString(oneMoney(0.25)) _
+    & " " & toString(oneMoney(-0.25)))
+
+  ' ---- an integer literal into Byte, at the top of its range -------------
+  io::print("byte       " & toString(oneByte(0)) & " " & toString(oneByte(255)))
+
+  ' ---- a LIST literal of numeric literals into a list of Fixed / Money ---
+  ' Each element is classified on its own, so a list may mix the literal
+  ' spellings that all coerce to the same element type.
+  io::print("list fixed " & toString(totalFixed([1, 2, 3])) _
+    & " " & toString(totalFixed([1.5, 2.5])) _
+    & " " & toString(totalFixed([1.25F, 2.75F])))
+  io::print("list money " & toString(totalMoney([1, 2])) _
+    & " " & toString(totalMoney([0.25, 0.75])) _
+    & " " & toString(totalMoney([1.25m, 2.75M])))
+
+  ' ---- and the negation arm inside a list --------------------------------
+  ' `-1.25` in an element position is a `Unary` over a `Number`; a classifier
+  ' that only recognised `Number` would refuse the whole list.
+  io::print("negated    " & toString(totalFixed([-1.25, 1.25, -2])) _
+    & " " & toString(totalMoney([-0.25, 0.75])))
+
+  RETURN 0
+END FUNC

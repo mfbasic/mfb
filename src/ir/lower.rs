@@ -984,6 +984,76 @@ fn lower_statement_inner(
         HirStatement::StateAssign {
             resource, value, ..
         } => {
+            // bug-551, the `resource.state = <expr> TRAP …` form: the trap
+            // covers the whole replacement, so `RECOVER` supplies a STATE
+            // record and the assignment happens once, after the branch.
+            if let HirExpression::Trapped {
+                expression: inner,
+                binding,
+                handler,
+                ..
+            } = value
+            {
+                return lower_inline_trap(
+                    inner,
+                    binding,
+                    handler,
+                    InlineTrapTarget::StateAssign {
+                        resource: resource.clone(),
+                    },
+                    locals,
+                    context,
+                );
+            }
+            // And the `resource.state.field = <expr> TRAP …` form, which
+            // `ast::stmt` has already turned into a single-field `WITH` update
+            // with the trap still on the field's value. The trap covers what the
+            // author wrote -- the FIELD's expression -- so its result is bound to
+            // a temporary and the update is applied to that. Recovering into the
+            // field rather than into a rebuilt state record is the whole reason
+            // the trap is not hoisted at parse time.
+            if let HirExpression::WithUpdate { target, updates } = value {
+                if let [update] = updates.as_slice() {
+                    if let HirExpression::Trapped {
+                        expression: inner,
+                        binding,
+                        handler,
+                        ..
+                    } = &update.value
+                    {
+                        let field_type = expression_type(inner, locals, context)
+                            .unwrap_or(ParameterType::Unknown);
+                        let temp = make_temp_local_name(context, "trap_state_field");
+                        let mut ops = lower_inline_trap(
+                            inner,
+                            binding,
+                            handler,
+                            InlineTrapTarget::Bind {
+                                mutable: false,
+                                name: temp.clone(),
+                                type_: field_type,
+                                explicit_type: false,
+                            },
+                            locals,
+                            context,
+                        );
+                        let updated = HirExpression::WithUpdate {
+                            target: target.clone(),
+                            updates: vec![crate::hir::HirRecordUpdate {
+                                field: update.field.clone(),
+                                value: HirExpression::Identifier(temp),
+                                line: update.line,
+                            }],
+                        };
+                        ops.push(IrOp::StateAssign {
+                            resource: resource.clone(),
+                            value: lower_expression(&updated, locals, context),
+                            loc,
+                        });
+                        return ops;
+                    }
+                }
+            }
             let resource_type = locals
                 .get(resource)
                 .or_else(|| context.binding_types.get(resource))
@@ -1260,6 +1330,16 @@ enum InlineTrapTarget {
     },
     /// `name = <call> TRAP(e) …`
     Assign { name: String },
+    /// `resource.state = <call> TRAP(e) …`, and the `resource.state.field =`
+    /// form the parser desugars into a single-field `WITH` update over it.
+    ///
+    /// bug-551: this variant did not exist and `HirStatement::StateAssign` did
+    /// not look for a `Trapped` value, so a trap in either position reached
+    /// value lowering and hit `unreachable!("inline TRAP must be lowered as a
+    /// statement value")` — a compiler panic on a program the parser had
+    /// already accepted, and one it accepted deliberately: `ast::stmt` skips the
+    /// statement terminator for exactly this shape.
+    StateAssign { resource: String },
     /// `<call> TRAP(e) …` as a bare statement (value discarded).
     Discard,
 }
@@ -1473,7 +1553,9 @@ fn lower_inline_trap(
     // A shared slot carries the value on both the Ok and RECOVER paths so the
     // target binding/assignment is produced exactly once after the branch.
     let slot = match &target {
-        InlineTrapTarget::Bind { .. } | InlineTrapTarget::Assign { .. } => {
+        InlineTrapTarget::Bind { .. }
+        | InlineTrapTarget::Assign { .. }
+        | InlineTrapTarget::StateAssign { .. } => {
             let val_name = make_temp_local_name(context, "trap_val");
             locals.insert(val_name.clone(), success_type.clone());
             Some(val_name)
@@ -1769,6 +1851,13 @@ fn lower_inline_trap(
                     loc: stmt_loc,
                 });
             }
+        }
+        InlineTrapTarget::StateAssign { resource } => {
+            ops.push(IrOp::StateAssign {
+                resource,
+                value: IrValue::Local(slot.expect("state-assign target has a value slot")),
+                loc: stmt_loc,
+            });
         }
         InlineTrapTarget::Discard => {}
     }

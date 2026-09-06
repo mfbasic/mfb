@@ -264,6 +264,9 @@ const CORPUS: &[&str] = &[
     "indirect-inline-trap-rt",
     "enum-elements-rt",
     "hof-callback-failure-rt",
+    "inline-trap-positions-rt",
+    "list-literal-numeric-coercion-rt",
+    "comparable-records-rt",
     "inplace-decline-aliasing-rt",
     "state-scalar-inplace-decline-rt",
     "default-values-rt",
@@ -923,7 +926,7 @@ fn every_backend_lowers_the_corpus_to_the_same_program() {
 #[test]
 fn no_corpus_function_lowers_to_an_empty_body() {
     assert!(
-        CORPUS.len() >= 616,
+        CORPUS.len() >= 619,
         "the corpus is {} fixtures; it was generated at 421 across 88 families, then grew to 620 with the rest of tests/rt-behavior, \
          and a list that shrinks silently is a gate that stops measuring",
         CORPUS.len()

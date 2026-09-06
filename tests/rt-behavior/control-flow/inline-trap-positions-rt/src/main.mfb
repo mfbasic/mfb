@@ -1,0 +1,172 @@
+' An inline TRAP in every position it is legal in, over every expression shape
+' the lift has to walk.
+'
+' `ir::lower::lower_inline_trap` desugars a trapped expression by lifting each
+' fallible node out ahead of it. Which nodes it finds is `scan_trap_call`'s
+' walk, and what it produces depends on where the trap is attached:
+'
+'   a binding      -> Bind, with the value staged in a slot
+'   an assignment  -> Assign
+'   a state write  -> StateAssign
+'   a bare call    -> Eval, because there is no destination to write
+'
+' The last one and several of the walk's arms -- a closure, a union wrap, a
+' union extract, a `Checked` root operator -- were unexecuted. `mfb spec
+' language error-model` 8.4 scopes an inline TRAP to the whole expression and
+' draws no distinction between these, so a shape the walk misses is an error
+' that escapes the handler: exactly bug-457 and bug-471, in a position nobody
+' had written.
+'
+' Each case is run both ways. The failing run proves the handler is reached; the
+' succeeding one proves the lift did not put the program on the error path
+' permanently, which a mis-staged `Checked` can do without anything else looking
+' wrong.
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+TYPE Dot
+  n AS Integer
+END TYPE
+
+TYPE Tag
+  s AS String
+END TYPE
+
+UNION Shape
+  Dot
+  Tag
+END UNION
+
+TYPE Counter
+  n AS Integer
+END TYPE
+
+FUNC risky(n AS Integer) AS Integer
+  IF n < 0 THEN FAIL error(77050002, "risky " & toString(n))
+  RETURN n * 2
+END FUNC
+
+SUB shout(n AS Integer)
+  IF n < 0 THEN FAIL error(77050003, "shout " & toString(n))
+  io::print("  shouted " & toString(n))
+END SUB
+
+FUNC apply(f AS FUNC(Integer) AS Integer, n AS Integer) AS Integer
+  RETURN f(n)
+END FUNC
+
+FUNC shapeOf(n AS Integer) AS Shape
+  IF n < 0 THEN FAIL error(77050004, "shape " & toString(n))
+  RETURN Dot[n]
+END FUNC
+
+FUNC nameOf(s AS Shape) AS String
+  MATCH s
+    CASE Dot(d)
+      RETURN "Dot(" & toString(d.n) & ")"
+    CASE Tag(t)
+      RETURN "Tag(" & t.s & ")"
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  ' ---- BINDING position, the ordinary one --------------------------------
+  LET bOk AS Integer = risky(4) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  LET bBad AS Integer = risky(0 - 4) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("bind       ok=" & toString(bOk) & " bad=" & toString(bBad))
+
+  ' ---- ASSIGNMENT position ------------------------------------------------
+  MUT a AS Integer = 0
+  a = risky(5) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("assign ok  " & toString(a))
+  a = risky(0 - 5) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("assign bad " & toString(a))
+
+  ' ---- BARE STATEMENT position: no destination, so the lift produces an
+  '      Eval rather than a Bind or an Assign. The value is discarded either
+  '      way; what must not be discarded is the error.
+  shout(6) TRAP(e)
+    io::print("  trapped " & toString(e.code))
+    RECOVER
+  END TRAP
+  shout(0 - 6) TRAP(e)
+    io::print("  trapped " & toString(e.code))
+    RECOVER
+  END TRAP
+
+  ' ---- a raising OPERATOR at the ROOT of the expression -------------------
+  ' Not a call: the lift wraps it in a `Checked` bind of its own. Division by
+  ' zero is the error the handler exists for, and before bug-471 it propagated
+  ' straight past one.
+  '
+  ' An inline TRAP requires a CALL somewhere in the expression
+  ' (TYPE_INLINE_TRAP_REQUIRES_FALLIBLE), so the dividend is one -- which is
+  ' also the realistic shape: the operator is at the ROOT, above the call the
+  ' trap was written for.
+  MUT z AS Integer = 5
+  LET dOk AS Integer = risky(50) / z TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  z = 0
+  LET dBad AS Integer = risky(50) / z TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("divide     ok=" & toString(dOk) & " bad=" & toString(dBad))
+
+  ' ---- a CLOSURE inside the trapped expression ----------------------------
+  ' The lambda captures `bump`, so it lowers to a Closure node with captures --
+  ' its own arm of the walk, separate from a bare function reference.
+  LET bump AS Integer = 10
+  LET cOk AS Integer = apply(LAMBDA(v AS Integer) -> v + bump, risky(1)) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  LET cBad AS Integer = apply(LAMBDA(v AS Integer) -> v + bump, risky(0 - 1)) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("closure    ok=" & toString(cOk) & " bad=" & toString(cBad))
+
+  ' ---- a UNION value inside the trapped expression ------------------------
+  ' `shapeOf` returns a Shape, so the trapped expression carries a union wrap;
+  ' `nameOf` matches on it, which is an extract.
+  LET uOk AS String = nameOf(shapeOf(7)) TRAP(e)
+    RECOVER "recovered"
+  END TRAP
+  LET uBad AS String = nameOf(shapeOf(0 - 7)) TRAP(e)
+    RECOVER "recovered"
+  END TRAP
+  io::print("union      ok=" & uOk & " bad=" & uBad)
+
+  ' ---- STATE-WRITE position ----------------------------------------------
+  LET path AS String = "tests/rt-behavior/control-flow/inline-trap-positions-rt/data/input.txt"
+  RES f AS fs::File STATE Counter = fs::openFile(path)
+  f.state = Counter[0]
+  f.state.n = risky(8) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("state ok   " & toString(f.state.n))
+  f.state.n = risky(0 - 8) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("state bad  " & toString(f.state.n))
+  fs::close(f)
+
+  ' ---- a COLLECTION element built by a trapped expression -----------------
+  LET lOk AS List OF Integer = [risky(1), risky(2)] TRAP(e)
+    RECOVER []
+  END TRAP
+  LET lBad AS List OF Integer = [risky(1), risky(0 - 2)] TRAP(e)
+    RECOVER []
+  END TRAP
+  io::print("list       ok=" & toString(len(lOk)) & " bad=" & toString(len(lBad)))
+
+  RETURN 0
+END FUNC

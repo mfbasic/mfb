@@ -278,6 +278,15 @@ impl<'a> FileParser<'a> {
                 }
                 // Desugar the nested-field form into a single-field `WITH` update
                 // over the current state.
+                //
+                // bug-551: a postfix trap attached to the VALUE stays ON THE
+                // VALUE, inside the update. It is the expression the author
+                // wrote, and its type is what `RECOVER` has to supply -- hoisting
+                // the trap out to cover the whole `WITH` would make `RECOVER`
+                // owe a whole STATE RECORD for a program that only ever named one
+                // field, which is the desugar leaking into the surface language.
+                // `ir::lower`'s `StateAssign` arm recognises the buried trap and
+                // binds its result before the update.
                 let value = match field {
                     Some(field) => Expression::WithUpdate {
                         target: Box::new(Expression::MemberAccess {

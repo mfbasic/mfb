@@ -1,0 +1,93 @@
+' Two records compared field by field, for every field type that is comparable.
+'
+' `mfb spec language types`: "Comparable types are Integer, Float, Fixed, Money,
+' Boolean, String, Byte, Scalar, Nothing, enum types, and records whose fields
+' are all comparable."
+'
+' `builder_collection_compare.rs::emit_comparable_values_match_branch` is that
+' sentence as a `match` over the field type, and each arm knows how that type's
+' bytes sit in the record. It runs for `=` between two records, and for a
+' `contains` over a `List OF <record>` -- where the element is a POINTER payload
+' and the comparison walks the two blocks rather than comparing two words.
+'
+' The arms a realistic corpus does not contain were unexecuted: `Nothing` (which
+' compares equal unconditionally, and emits a branch and nothing else), `Byte`
+' and `Boolean` (one byte in the record slot, not eight), `Scalar` (four), and
+' an enum field.
+'
+' A wrong arm here does not fail to build. It returns the wrong ANSWER from `=`
+' or `contains` -- reading seven bytes of the next field as part of a Boolean,
+' or comparing a `Nothing` slot that holds whatever the arena left. Every
+' assertion is therefore a comparison whose expected result is known, and each
+' comes in a matching pair and a differing pair, because an arm that always said
+' "equal" would pass a fixture made only of the first.
+IMPORT collections
+IMPORT io
+
+ENUM Colour
+  Red, Blue
+END ENUM
+
+TYPE Inner
+  n AS Integer
+END TYPE
+
+TYPE Wide
+  i AS Integer
+  f AS Float
+  x AS Fixed
+  m AS Money
+  b AS Boolean
+  y AS Byte
+  s AS String
+  c AS Colour
+  nested AS Inner
+END TYPE
+
+FUNC wide(i AS Integer, b AS Boolean, y AS Byte, s AS String, c AS Colour, n AS Integer) AS Wide
+  RETURN Wide[i, 1.5, 2.25F, 3.5m, b, y, s, c, Inner[n]]
+END FUNC
+
+FUNC main() AS Integer
+  LET base AS Wide = wide(1, TRUE, toByte(7), "tag", Colour.Red, 9)
+  LET same AS Wide = wide(1, TRUE, toByte(7), "tag", Colour.Red, 9)
+  io::print("identical  " & toString(base = same))
+
+  ' One field different at a time. A comparison that read the wrong width, or
+  ' skipped a field, comes back TRUE for one of these.
+  io::print("integer    " & toString(base = wide(2, TRUE, toByte(7), "tag", Colour.Red, 9)))
+  io::print("boolean    " & toString(base = wide(1, FALSE, toByte(7), "tag", Colour.Red, 9)))
+  io::print("byte       " & toString(base = wide(1, TRUE, toByte(8), "tag", Colour.Red, 9)))
+  io::print("string     " & toString(base = wide(1, TRUE, toByte(7), "other", Colour.Red, 9)))
+  io::print("enum       " & toString(base = wide(1, TRUE, toByte(7), "tag", Colour.Blue, 9)))
+  io::print("nested     " & toString(base = wide(1, TRUE, toByte(7), "tag", Colour.Red, 8)))
+
+  ' A one-byte field differing in its LOW byte only, next to a field whose
+  ' bytes follow it in the record: an eight-byte compare of `y` reads `s`'s
+  ' slot as well and can disagree for the wrong reason -- or agree.
+  LET lowByte AS Wide = wide(1, TRUE, toByte(255), "tag", Colour.Red, 9)
+  io::print("byte high  " & toString(base = lowByte))
+
+  ' ---- the same comparator through a COLLECTION -------------------------
+  ' A `List OF <record>` element is a pointer payload, so `contains` walks the
+  ' two blocks rather than comparing two words.
+  LET rows AS List OF Wide = [base, wide(2, FALSE, toByte(8), "other", Colour.Blue, 8)]
+  io::print("contains   self=" & toString(collections::contains(rows, same)) _
+    & " absent=" & toString(collections::contains(rows, lowByte)))
+  ' `find` RAISES ErrNotFound rather than returning a sentinel when the element
+  ' is absent, so the absent case is a trapped one -- and the raise is itself
+  ' the comparator having run over every element and matched none.
+  LET absent AS Integer = collections::find(rows, lowByte) TRAP(e)
+    RECOVER 0 - e.code
+  END TRAP
+  io::print("find       self=" & toString(collections::find(rows, same)) _
+    & " absent=" & toString(absent))
+
+  ' A list is NOT itself comparable (TYPE_REQUIRES_COMPARABLE), so `rows = copy`
+  ' is not a program; a SUBLIST search is the pairwise-payload comparison, and
+  ' it is reachable.
+  LET pair AS List OF Wide = [wide(2, FALSE, toByte(8), "other", Colour.Blue, 8)]
+  io::print("find sub   " & toString(collections::find(rows, pair)))
+
+  RETURN 0
+END FUNC
