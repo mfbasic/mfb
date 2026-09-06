@@ -1174,3 +1174,33 @@ not is entirely whether I looked before writing the sentence.
 **A story about why a line must be dead is not evidence that it is.** The story
 here — "no fixture captures by reference, so the by_ref guards must be dead" —
 was coherent, checkable in one command, and false.
+
+### C14 — three of the four new parse rows moved nothing, and were dropped before the commit
+
+Applying the rule above BEFORE the commit rather than after it, for once. Four
+things were written against the parse-time refusal surface; the m38→m39 per-file
+numbers say only one of them earned its place:
+
+| row | file it aimed at | m38 | m39 |
+|---|---|---|---|
+| `STATE` on a non-`RES` field | `src/ast/items.rs` | 25 short | **18 short** (404–411 covered) |
+| `ISOLATED SUB` | `src/ast/items.rs` | — | 0 lines; the parser answers `MFB_PARSE_UNEXPECTED_STATEMENT`, already covered |
+| an unterminated scalar literal | `src/lexer.rs` | 30 short | 30 short |
+| 400 nested parentheses | `src/ast/expr.rs` | 27 short | 27 short |
+
+The depth test was the most expensive of the four and the emptiest. It needed a
+32 MiB thread of its own — libtest's 2 MiB overflows on 256 levels of ~9 debug
+frames each, `has overflowed its stack` — and `src/ast/expr.rs` did not move one
+line, because `tests/cli_parse_expression_tree_depth.rs` already drives the real
+binary through every hostile shape bug-501 found. Duplicating an integration
+test in process is worth doing when the integration test's coverage lands in a
+child process (Finding F1); it is worth nothing when the lines are already
+covered by something else in this binary.
+
+Worth recording separately, since it was the one thing the depth test did
+establish: the cap is not too high for the smallest stack the compiler runs on.
+`ulimit -s 1024; target/release/mfb build` on the 400-deep program prints
+`MFB_PARSE_UNEXPECTED_TOKEN / Expression nesting is too deep.` and exits — so 256
+levels fit inside even the 1 MiB Windows main stack once the frames are
+release-sized, and the debug-thread overflow is a property of the harness, not of
+the product.

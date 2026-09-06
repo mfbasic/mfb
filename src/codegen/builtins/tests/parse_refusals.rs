@@ -95,6 +95,17 @@ fn each_parse_refusal_names_its_rule() {
             "DOC\nFUNC helper(a AS Integer\nEND DOC\nFUNC helper(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\n\nFUNC main() AS Integer\n  RETURN helper(1)\nEND FUNC\n",
         ),
         (
+            // `STATE` follows a `RES` field and nothing else, so on a plain
+            // `AS Integer` field it is a token that cannot continue the
+            // declaration. Refused in the grammar rather than left to the
+            // checkers because by then the clause has nowhere to have been
+            // attached, and the author would be told about a type that does
+            // not exist instead of about the word they wrote.
+            "a STATE clause on a field that is not RES",
+            "MFB_PARSE_UNEXPECTED_TOKEN",
+            "IMPORT io\n\nTYPE Info\n  n AS Integer\nEND TYPE\n\nTYPE Holder\n  plain AS Integer STATE Info\nEND TYPE\n\nFUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
+        ),
+        (
             "a record field written with `=`",
             "MFB_PARSE_RECORD_FIELD_ASSIGNMENT",
             "TYPE P\n  x AS Integer\nEND TYPE\n\nFUNC main() AS Integer\n  MUT p AS P = P[1]\n  p.x = 2\n  RETURN 0\nEND FUNC\n",
