@@ -8,9 +8,23 @@
 #
 # --- IGNORE ---------------------------------------------------------------
 # Excluded from the coverage denominator:
-#   - target/ and tests/          : build artifacts + the integration harness
-#                                   (also matches repository/target/ and
-#                                   repository/tests/)
+#   - target/<profile>/           : build artifacts, at the repo root and in
+#                                   repository/. ANCHORED ON THE PROFILE
+#                                   DIRECTORY, and that is not cosmetic: a bare
+#                                   `(^|/)target/` also matches `src/target/`,
+#                                   which is the per-backend codegen layer --
+#                                   31,897 lines and 51 files of ISA/ABI
+#                                   emission that were silently outside the
+#                                   gate. See Corrections C8 in
+#                                   planning/tests.md.
+#   - tests/                      : the integration harness, at the repo root
+#                                   and in repository/ -- AND, deliberately,
+#                                   `src/**/tests/`. The in-process suites live
+#                                   in directories named `tests/` for exactly
+#                                   this reason: a `#[cfg(test)] mod` line makes
+#                                   its own file report far worse (Corrections
+#                                   C3), so the suites sit where the denominator
+#                                   cannot see them.
 #   - *_runtime_tables.rs         : generated Unicode data tables (accessors are
 #                                   covered by unicode_backend.rs tests)
 #   - code/private/unicode.rs     : generated Unicode lookup arrays
@@ -23,7 +37,7 @@
 #
 # This regex used to be hand-duplicated in three files; bug-347 collapsed them,
 # because an edit to one copy would silently diverge the local gate from CI's.
-IGNORE='(^|/)(target|tests)/|_runtime_tables\.rs$|/code/private/unicode\.rs$|/src/testutil\.rs$'
+IGNORE='(^|/)target/(debug|release|llvm-cov-target|coverage)/|(^|/)tests/|_runtime_tables\.rs$|/code/private/unicode\.rs$|/src/testutil\.rs$'
 
 # --- PKG_FLAGS ------------------------------------------------------------
 # `cargo llvm-cov report` accepts no --workspace flag (it is rejected as

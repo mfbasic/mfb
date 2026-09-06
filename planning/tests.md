@@ -688,3 +688,49 @@ covers and read as a catastrophic regression.
 One more trap on the way: the metadata target name is not the on-disk name.
 Cargo writes `mfb-repo` as `mfb_repo`, so globbing the metadata spelling matched
 nothing.
+
+### C8 — `(^|/)(target|tests)/` also matched `src/target/`, so the whole backend layer was outside the gate
+
+The `IGNORE` regex excludes build artifacts and the integration harness. Its
+`target` half was unanchored, and `src/target/` contains `/target/` — so
+**51 files and 31,897 lines of the per-backend codegen layer were silently
+outside the coverage denominator.** Not skipped with a reason, not excepted:
+absent. `src/testing/**` (6 files) is in the report, so the pattern was not
+excluding `src/` subdirectories in general — just the one named `target`.
+
+The comment above it says what was meant, and it is not this:
+
+    #   - target/ and tests/  : build artifacts + the integration harness
+    #                           (also matches repository/target/ and
+    #                           repository/tests/)
+
+It cost more than the count suggests, because that layer is where the per-arch
+ABI work lives (`.ai/arch-abi.md` is a whole document about it) and because it
+made this task's own numbers misleading: the platform-hook and `term::` suites
+land almost entirely in `src/target/**`, so their effect did not appear in any
+file count.
+
+**Fixed** by anchoring the artifact half on the profile directory —
+`(^|/)target/(debug|release|llvm-cov-target|coverage)/`. Measured on one profile,
+before and after:
+
+| | files below the floor | uncovered lines | overall |
+|---|---|---|---|
+| before | 197 | 6,468 | 96.21% |
+| after | 225 | 8,012 | 96.18% |
+
++28 files and +1,544 lines: real, bounded, and not a multiplication. The worst
+newly-visible rows are `target/shared/nir/json.rs` (430 short, 23.35%), the four
+`target/*/mod.rs` executable writers (162/161/131/66 short — these spawn the
+system linker, so they are the same class as the existing `src/target.rs`
+exception), and `target/shared/validate/body.rs` (142 short, 81.12%).
+
+**The `tests/` half is deliberately left unanchored, and must stay that way.**
+It matches `src/**/tests/` as well as the root harness, and that is
+load-bearing: every in-process suite this task added lives in a directory named
+`tests/` precisely so the denominator cannot see it (Corrections C3 — a
+`#[cfg(test)] mod` line makes its OWN file report far worse). Anchoring both
+halves the same way would put ~4,000 lines of test code into the gate and
+re-break every file C3 fixed. Checked after the change: `builtins/tests/`,
+`engine/tests/` and `src/testutil.rs` are all still absent from the report, and
+`llvm-cov-target/` still is too.
