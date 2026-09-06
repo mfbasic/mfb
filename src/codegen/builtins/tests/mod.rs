@@ -54,6 +54,7 @@ mod optimizer;
 mod optimizer_globals;
 mod os;
 mod package_format;
+mod parse_refusals;
 mod perf;
 mod plan_validation;
 mod platform_failure;

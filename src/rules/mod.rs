@@ -19,6 +19,37 @@ pub const MAX_RENDERED_DIAGNOSTICS: usize = 100;
 /// Located diagnostics handed to `show_diagnostic` so far in this process.
 static SEEN: AtomicUsize = AtomicUsize::new(0);
 
+#[cfg(test)]
+thread_local! {
+    /// Set by [`collecting_diagnostics`] for the duration of one closure.
+    static COLLECTED: std::cell::RefCell<Option<Vec<(String, String)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `body` with every located diagnostic COLLECTED instead of rendered, and
+/// return them alongside its result as `(rule name, detailed message)`.
+///
+/// The parse-time diagnostics have no other way to be asserted in process.
+/// `parse_source` returns `Result<AstFile, ()>` — the `()` means "diagnostics
+/// were printed" — and `testutil::check_src` panics outright on a program that
+/// does not parse, so the whole `src/ast/**` refusal surface is reachable today
+/// only through `test-accept.sh`, whose coverage lands in a child process
+/// (plan tests.md, Finding F1). A test can assert `is_err()` without this, but
+/// "it did not parse" is not the contract; WHICH rule fired is.
+///
+/// Thread-local and scoped, so one test collecting cannot silence another
+/// running beside it, and `#[cfg(test)]` so a release build has neither the
+/// slot nor the branch.
+#[cfg(test)]
+pub(crate) fn collecting_diagnostics<T>(body: impl FnOnce() -> T) -> (T, Vec<(String, String)>) {
+    COLLECTED.with(|slot| *slot.borrow_mut() = Some(Vec::new()));
+    let result = body();
+    let collected = COLLECTED
+        .with(|slot| slot.borrow_mut().take())
+        .unwrap_or_default();
+    (result, collected)
+}
+
 /// One source file, read once and indexed by line for every diagnostic that
 /// points into it. `show_diagnostic` used to re-read the whole file per
 /// diagnostic, which is what made the cost O(errors × filesize) (bug-505); now
@@ -192,6 +223,21 @@ pub fn show_diagnostic(
     start_pos: usize,
     end_pos: usize,
 ) {
+    // A test inside `collecting_diagnostics` takes the diagnostic instead of the
+    // terminal. Before the cap, deliberately: a collecting test wants all of
+    // them, and the cap is about not flooding a human's screen.
+    #[cfg(test)]
+    {
+        let taken = COLLECTED.with(|slot| {
+            slot.borrow_mut().as_mut().map(|collected| {
+                collected.push((rule_name.to_string(), detailed_message.to_string()));
+            })
+        });
+        if taken.is_some() {
+            return;
+        }
+    }
+
     let rule = rule_for(rule_name);
 
     // bug-505: past the cap, count instead of render. The `SEEN` total is what
