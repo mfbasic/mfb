@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/os/func_os_resourcePath_reads_resource
+Wrote AST to tests/rt-behavior/os/func_os_resourcePath_reads_resource/func_os_resourcePath_reads_resource.ast
+Wrote IR to tests/rt-behavior/os/func_os_resourcePath_reads_resource/func_os_resourcePath_reads_resource.ir
+[exit 0]
+$ mfb build tests/rt-behavior/os/func_os_resourcePath_reads_resource
+Wrote executable to tests/rt-behavior/os/func_os_resourcePath_reads_resource/build/func_os_resourcePath_reads_resource.out
+[exit 0]
+$ tests/rt-behavior/os/func_os_resourcePath_reads_resource/build/func_os_resourcePath_reads_resource.out
+TRUE
+TRUE
+hello from a resource
+77030002
+TRUE
+[exit 0]

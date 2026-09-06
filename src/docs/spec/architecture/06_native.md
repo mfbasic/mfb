@@ -79,7 +79,8 @@ All four backends declare the same set of supported native runtime calls:
   signing, and verification calls
 - All `os.*` calls: `os.getEnv`, `os.getEnvOr`, `os.hasEnv`, `os.setEnv`,
   `os.unsetEnv`, `os.environ`, `os.args`, `os.pid`, `os.executablePath`,
-  `os.name`, `os.arch`, `os.hostName`, `os.userName`, `os.cpuCount`
+  `os.resourcePath`, `os.name`, `os.arch`, `os.hostName`, `os.userName`,
+  `os.cpuCount`
 - All `io.*` calls: `io.print`, `io.write`, `io.flush`, `io.isBuffered`,
   `io.setBuffered`, `io.printError`, `io.writeError`, `io.input`, `io.readLine`,
   `io.readChar`, `io.readByte`, `io.pollInput`, `io.isInputTerminal`,

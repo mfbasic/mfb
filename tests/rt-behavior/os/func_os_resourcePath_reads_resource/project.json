@@ -1,0 +1,10 @@
+{
+  "name": "func_os_resourcePath_reads_resource",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"],
+  "resources": [{ "src": "data/greeting.txt", "dst": "./" }]
+}

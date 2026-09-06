@@ -19,24 +19,27 @@
 //! `helper_for_call` but appears in no backend's `runtime_calls`, so collecting it
 //! would fail every program that traps a conversion.
 //!
-//! `windows-x86_64` is the vehicle because it advertises a strict subset of the
-//! macOS surface, so a real, non-hypothetical gap exists to test against. Which
-//! call plays that role is incidental and changes as the Windows backend fills
-//! in: it was `process.shell` until plan-119-B implemented it, and is now
-//! `os.resourcePath`. What this test guards is the GATE, not any particular call
-//! — so when the current vehicle gains an implementation, re-point it at another
-//! genuine gap rather than weakening an assertion. The premise assertions below
-//! exist to make that hand-off loud: they FAIL the moment the vehicle becomes
-//! supported, instead of passing vacuously.
+//! **The rejection half of this test no longer lives here.** `windows-x86_64`
+//! used to advertise a strict subset of the macOS surface, so a real gap existed
+//! to aim at: `process.shell` until plan-119-B implemented it, then
+//! `os.resourcePath`. bug-454 implemented that one too, and it was the LAST —
+//! `windows-x86_64` now advertises a superset of `macos-aarch64` and `linux-*`,
+//! so **no** call reachable from MFB source is refused by any shipping backend's
+//! list. The premise assertions here were written to fail loudly rather than
+//! pass vacuously when that happened, and they did.
 //!
-//! A vehicle must be a call the capability list *decides*. The four-argument
-//! `process::spawn` looked like a candidate when plan-119-B went looking for a
-//! replacement and is not one: `validate_capabilities` sees the base
-//! `process.spawn`, which Windows advertises, so the alias
-//! `process.spawnEnv` sails past the gate and dies much later as
-//! `internal relocation target '_mfb_rt_process_process_spawnEnv' is not defined`.
-//! That is a link failure, not a capability diagnostic, and the second premise
-//! assertion is what caught it.
+//! Rather than weaken them, the rejection case moved to
+//! `validate::tests::a_trapped_runtime_call_is_capability_checked_like_a_bare_one`,
+//! which builds the capability set by hand and so does not depend on a backend
+//! having a gap. If a future target ever ships with one again, a build-level
+//! case belongs back here.
+//!
+//! What stays here is the half that still needs a real build: a trapped call the
+//! backend DOES advertise must build, and a trapped bare-named `general` builtin
+//! must not be capability-gated at all. Both are the over-broad-fix guards — the
+//! `general` family answers to `helper_for_call` but appears in no backend's
+//! `runtime_calls`, so collecting it would fail every program that traps a
+//! conversion.
 
 mod common;
 
@@ -98,51 +101,5 @@ fn a_trapped_general_builtin_is_not_capability_gated() {
     assert!(
         ok,
         "a trapped general-family builtin is not capability-gated:\n{log}"
-    );
-}
-
-/// The regression itself. `os::resourcePath` is advertised on macOS but **not** on
-/// Windows, so a Windows build has a genuinely unsupported call to aim at. Pairing
-/// the bare and trapped forms is the point: before the fix they disagreed, and only
-/// the bare one was rejected.
-#[test]
-fn a_trapped_unsupported_call_is_rejected_like_a_bare_one() {
-    const TARGET: &str = "windows-x86_64";
-    const BARE: &str = "IMPORT os\n\
-         FUNC main AS Integer\n\
-        \x20 LET p AS String = os::resourcePath(\"data.txt\")\n\
-        \x20 RETURN len(p)\n\
-         END FUNC\n";
-    const TRAPPED: &str = "IMPORT os\n\
-         FUNC main AS Integer\n\
-        \x20 LET p AS String = os::resourcePath(\"data.txt\") TRAP(err)\n\
-        \x20   RETURN 1\n\
-        \x20 END TRAP\n\
-        \x20 RETURN len(p)\n\
-         END FUNC\n";
-
-    let (bare_ok, bare_log) = build("trap_gate_bare", BARE, TARGET);
-    let (trapped_ok, trapped_log) = build("trap_gate_trapped", TRAPPED, TARGET);
-
-    // A vacuous pass would be worse than a failure here: if the bare form built,
-    // the call is supported and this test proves nothing. Assert the premise.
-    assert!(
-        !bare_ok,
-        "{TARGET} unexpectedly supports os::resourcePath, so this test no longer \
-         covers an unsupported call; re-point it at another genuine gap:\n{bare_log}"
-    );
-    assert!(
-        bare_log.contains("does not support runtime call"),
-        "the premise is a CAPABILITY rejection, not some other error:\n{bare_log}"
-    );
-    assert!(
-        !trapped_ok,
-        "TRAPPING an unsupported call must not smuggle it past capability \
-         validation — the bare form was correctly rejected:\n{trapped_log}"
-    );
-    assert!(
-        trapped_log.contains("does not support runtime call"),
-        "the trapped form must fail with the capability diagnostic, not something \
-         incidental:\n{trapped_log}"
     );
 }

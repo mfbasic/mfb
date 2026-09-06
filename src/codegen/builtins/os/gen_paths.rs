@@ -6,11 +6,17 @@ use crate::codegen::engine::util::*;
 use crate::target::shared::abi;
 /// Emit the platform acquisition of the running executable's absolute path into
 /// the function frame (plan-55-B §4.1). macOS uses `_NSGetExecutablePath(buf,
-/// &size)`; Linux reads the `/proc/self/exe` symlink with `readlink`. Returns the
-/// buffer pointer in a fresh vreg, plus — on Linux only — the byte count
-/// `readlink` reported (the buffer is not NUL-terminated). macOS leaves the buffer
-/// NUL-terminated and reports no count (callers needing a length scan for the NUL).
-/// Branches to `fail` on acquisition error.
+/// &size)`; Linux reads the `/proc/self/exe` symlink with `readlink`; Windows
+/// runs `GetModuleFileNameW` and marshals UTF-16→UTF-8 into an arena buffer
+/// (bug-454). Returns the buffer pointer in a fresh vreg, plus — on Linux only —
+/// the byte count `readlink` reported (the buffer is not NUL-terminated). macOS
+/// and Windows leave the buffer NUL-terminated and report no count (callers
+/// needing a length scan for the NUL). Branches to `fail` on acquisition error.
+///
+/// **The path bytes carry the PLATFORM separator.** macOS/Linux return `/`;
+/// Windows returns `\` (`C:\dir\app.exe`) — `GetModuleFileNameW` normalizes to
+/// backslash. A caller that walks the result must compare against the right byte
+/// (the same split `fs::isWithin`'s `within_sep` makes).
 ///
 /// Callers must reserve at least `EXE_PATH_FRAME_LOCALS` frame locals and invoke
 /// this FIRST, before allocating any other vreg, so `os::executablePath` keeps the
@@ -87,17 +93,47 @@ pub(crate) fn emit_executable_path_into(
             ]);
             Ok((buf, Some(count)))
         }
-        // Windows acquires its executable path through the UTF-16 wide-string
-        // helper (`lower_os_wide_string_windows`), not this raw-buffer routine, so
-        // `lower_executable_path` early-returns for Windows before reaching here.
-        // `lower_resource_path` calls this unconditionally but `os.resourcePath`
-        // is gated out of `win_x86_64`'s `RUNTIME_CALLS`; return a diagnostic
-        // rather than panicking so that opening that gate before a real Windows
-        // resource-path implementation degrades to a compile error, not an ICE.
-        PlatformFamily::Windows => Err(format!(
-            "{symbol}: executable-path acquisition via the raw-buffer helper is \
-             not implemented for Windows"
-        )),
+        // Windows has no raw-byte executable-path syscall to mirror: the path is
+        // UTF-16 and must be marshalled. `CodegenPlatform::emit_os_wide_string`
+        // is exactly that acquisition FRAGMENT (`GetModuleFileNameW(NULL, wide,
+        // 2048)` + `WideCharToMultiByte` into an arena buffer), and it leaves a
+        // NUL-terminated UTF-8 C-string pointer in the return register, 0 on
+        // failure — the same shape the macOS arm produces. So callers take the
+        // `None` branch and scan for the NUL, and nothing here duplicates the
+        // Win32 call `lower_executable_path` already makes (bug-454).
+        //
+        // HAZARD for callers. The helper brackets its body with
+        // `subtract_stack(0x60)` … `add_stack(0x60)`; every spill slot on this
+        // backend is addressed `[rsp + offset]`
+        // (`X86_64RegisterModel::emit_spill`), and `finalize_frame`'s
+        // `adjust_stack_instruction_offsets` deliberately leaves accesses inside
+        // such a window UNSHIFTED. So a spill written before the `sub_sp` and
+        // reloaded inside it would be read 0x60 bytes away from where it was
+        // stored. Nothing here enforces the absence of that: it holds because the
+        // helper's body names only physical ABI registers and its own frame
+        // slots, so the allocator has no vreg operand to place inside the window.
+        // `lower_resource_path` DOES keep its `String` argument live across this
+        // call and is safe for exactly that reason — measured, not assumed, and
+        // pinned by `tests/codegen_win64_resource_path.rs`
+        // (`nothing_addresses_outside_the_windows_acquisition_frame`). See
+        // `.ai/arch-abi.md`, "A platform hook that moves `sp` mid-body".
+        PlatformFamily::Windows => {
+            platform.emit_os_wide_string(
+                "executablePath",
+                symbol,
+                platform_imports,
+                ctx.instructions,
+                ctx.relocations,
+            )?;
+            ctx.instructions.extend([
+                abi::move_register(&buf, abi::return_register()),
+                abi::compare_immediate(&buf, "0"),
+                abi::branch_ne(&ok),
+                abi::branch(fail),
+                abi::label(&ok),
+            ]);
+            Ok((buf, None))
+        }
     }
 }
 
@@ -112,6 +148,13 @@ pub(crate) fn emit_executable_path_into(
 /// | console       | `…/build/<name>`          | 1     | ``             | `…/build`              |
 /// | macos `--app` | `…/Contents/MacOS/<name>` | 2     | `Resources`    | `…/Contents/Resources` |
 /// | linux `--app` | `…/usr/bin/<name>`        | 2     | `share/<name>` | `…/usr/share/<name>`   |
+/// | win `--app`   | `…\build\<name>.exe`      | 1     | ``             | `…\build`              |
+///
+/// bug-454 corrected the bug report's claim that a Windows row was missing: the
+/// Windows `--app` `.exe` is a single file beside its resources, exactly like a
+/// console build, so it shares the `Console` arm (plan-66-I/J). The `strip`
+/// count is in path COMPONENTS, so the separator byte the caller scans for does
+/// not change it.
 pub(crate) fn resource_base_offset(
     build_mode: crate::target::NativeBuildMode,
     module_name: &str,
@@ -169,6 +212,13 @@ mod resource_path_tests {
         assert_eq!(
             resource_base_offset(NativeBuildMode::LinuxApp, "myprog"),
             (2, "share/myprog".to_string())
+        );
+        // bug-454: the Windows `--app` row was the one this test never named,
+        // which is why the bug report could claim it was missing. A Windows app
+        // is a bare `.exe` in `build/` beside its resources — the console shape.
+        assert_eq!(
+            resource_base_offset(NativeBuildMode::WindowsApp, "app"),
+            (1, String::new())
         );
     }
 }

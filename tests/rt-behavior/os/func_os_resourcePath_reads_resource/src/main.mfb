@@ -1,0 +1,32 @@
+' os::resourcePath is only useful if the path it returns OPENS. This reads the
+' resource the build copied beside the executable, which pins the whole chain:
+' the base derived from the running binary's own path, the `<base>/<relative>`
+' join, and `fs::` accepting the result. bug-454 made the same source lower for
+' windows-x86_64, where the base carries `\` separators and the join stays `/`
+' (the byte `fs::pathJoin` uses on every target) — so `endsWith` below holds on
+' every target, which is the point of asserting it rather than the whole path.
+IMPORT os
+IMPORT fs
+IMPORT io
+IMPORT strings
+
+FUNC main AS Integer
+  LET p AS String = os::resourcePath("greeting.txt")
+  io::print(toString(strings::startsWith(p, "/")))
+  io::print(toString(strings::endsWith(p, "/greeting.txt")))
+  io::print(strings::trim(fs::readText(p)))
+  ' A `.`/`..` component is still refused, and a valid nested relative path is
+  ' still accepted — the guard must not have grown teeth it should not have.
+  MUT bad AS Integer = 0
+  resolve("../secret") TRAP(e)
+    bad = e.code
+    RECOVER ""
+  END TRAP
+  io::print(toString(bad))
+  io::print(toString(strings::endsWith(resolve("a/b.txt"), "/a/b.txt")))
+  RETURN 0
+END FUNC
+
+FUNC resolve(rel AS String) AS String
+  RETURN os::resourcePath(rel)
+END FUNC

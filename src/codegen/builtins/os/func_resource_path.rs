@@ -13,6 +13,7 @@ use super::gen_shared::{
     EXE_PATH_FRAME_LOCALS,
 };
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::PlatformFamily;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
@@ -32,6 +33,30 @@ pub(crate) fn lower_resource_path(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
+    // bug-454. Two of this body's three separator decisions are platform-
+    // dependent, and they are dependent for DIFFERENT reasons:
+    //
+    // * The `.`/`..` component validation walks the caller's `relative`
+    //   argument. On Windows `\` is a directory separator to every Win32 path
+    //   API, so `..\secret` navigates out of the base exactly as `../secret`
+    //   does — the thing this check exists to refuse. Splitting on `/` alone
+    //   would wave it through as one component that is not all-dots. Accepting
+    //   BOTH bytes there rejects strictly more traversal and nothing valid: a
+    //   Windows filename cannot contain `\`, and only a whole `.`/`..`
+    //   component is refused either way.
+    // * The backward scan walks the OS-produced executable path.
+    //   `GetModuleFileNameW` returns `C:\dir\app.exe` — no `/` at all — so
+    //   scanning for `/` runs the cursor to 0 and raises `ErrUnsupported`
+    //   however good the acquisition is. That site takes the platform byte
+    //   ALONE, the same call `fs::isWithin`'s `within_sep` makes for the
+    //   `realpath`-produced bytes it compares.
+    //
+    // The third decision, the byte this body JOINS with, is deliberately NOT
+    // platform-dependent: `/` on every target, matching `fs::pathJoin`'s
+    // `SEP = 47`, which is `/` on Windows too. Portable MFB path strings are
+    // `/`-delimited everywhere; only OS-produced bytes carry the native
+    // separator. Win32 accepts `/` in every path it parses.
+    let windows = ctx.platform.family() == PlatformFamily::Windows;
     let (strip, suffix) = resource_base_offset(ctx.build_mode, ctx.module_name);
     let suffix_bytes = suffix.into_bytes();
     let fail = format!("{symbol}_fail");
@@ -76,9 +101,14 @@ pub(crate) fn lower_resource_path(
         abi::load_u8(&scan_byte, &scan_byte, 0),
         abi::compare_immediate(&scan_byte, "47"), // '/'
         abi::branch_eq(&validate_slash),
-        abi::branch(&validate_char),
-        abi::label(&validate_slash),
     ]);
+    if windows {
+        instructions.extend([
+            abi::compare_immediate(&scan_byte, "92"), // '\' — also a separator on Windows
+            abi::branch_eq(&validate_slash),
+        ]);
+    }
+    instructions.extend([abi::branch(&validate_char), abi::label(&validate_slash)]);
     emit_reject_dot_component(
         &comp_len,
         &comp_all_dots,
@@ -163,7 +193,10 @@ pub(crate) fn lower_resource_path(
         abi::subtract_immediate(&slash_scan, &slash_scan, 1),
         abi::add_registers(&slash_byte, &buf, &slash_scan),
         abi::load_u8(&slash_byte, &slash_byte, 0),
-        abi::compare_immediate(&slash_byte, "47"), // '/'
+        // The platform separator of the OS-produced executable path: `/` (47) on
+        // POSIX, `\` (92) on Windows (`GetModuleFileNameW` normalizes to
+        // backslash), per the note at the head of this function.
+        abi::compare_immediate(&slash_byte, if windows { "92" } else { "47" }),
         abi::branch_eq(&slash_found),
         abi::branch(&slash_loop),
         abi::label(&slash_found),
@@ -275,18 +308,30 @@ correctly for every build shape:
 | console | `…/build/<name>` | `…/build` |
 | macOS `--app` | `…/Contents/MacOS/<name>` | `…/Contents/Resources` |
 | Linux `--app` | `…/usr/bin/<name>` | `…/usr/share/<name>` |
+| Windows `--app` | `…\build\<name>.exe` | `…\build` |
+
+Every native target resolves the call, `windows-x86_64` included. Resolution
+reads only the executable's own path — `/proc/self/exe` on Linux,
+`_NSGetExecutablePath` on macOS, `GetModuleFileNameW` on Windows — and never
+consults `$APPDIR` or any other environment variable.
 
 The result is absolute and contains no `..` segments, so it opens with `fs::open`
 regardless of the working directory — including a macOS `.app` launched from
-Finder or a mounted `.AppImage`. Resolution reads only the executable's own path
-(`/proc/self/exe` on Linux, `_NSGetExecutablePath` on macOS) and never consults
-`$APPDIR` or any other environment variable.
+Finder or a mounted `.AppImage`.
+
+The base carries the separator the host produced (`/` on macOS and Linux, `\` on
+Windows), and the base and `relative` are joined with `/` on every target — the
+same byte `fs::pathJoin` uses. So a Windows result reads
+`C:\proj\build/song.ogg`, which every Win32 path API accepts, and
+`strings::endsWith(path, "/song.ogg")` is true on every target.
 
 A `relative` containing a `.` or `..` **path component** raises `ErrInvalidPath`
 — a resource path must not navigate out of the base. A dot *inside* a filename
 (`song.ogg`, `..foo`, `a..b`) is fine; only a whole component that is exactly `.`
-or `..` is rejected. A leading `/` is left as-is (it collapses under the base). If
-the host cannot determine the executable path, `os::resourcePath` raises
+or `..` is rejected. A component ends at `/` on every target, and on Windows also
+at `\`, which separates directories there too — so `..\secret` is refused as
+well. A leading `/` is left as-is (it collapses under the base). If the host
+cannot determine the executable path, `os::resourcePath` raises
 `ErrUnsupported`. It reads host state only and has no side effects."#;
 const EX: &str = r#"Open a resource shipped beside the program:
 
@@ -318,7 +363,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            // bug-454: both are raised by `lower_resource_path` (through
+            // `raise_error_into`) and were undeclared, so the rendered page had no
+            // Errors section at all. `raise_error_into` runs no declaration check,
+            // and the static `every_raise_error_site_is_declared_in_its_descriptor`
+            // scan only reads two-string-literal call sites of the CodeBuilder
+            // method — so nothing caught it. (That scan is textual: do not spell
+            // its anchor followed by two quoted strings in prose, or it flags the
+            // comment.)
+            errors: vec!["ErrUnsupported", "ErrInvalidPath"],
             body: Body::abi_function(lower_resource_path),
         }],
     });

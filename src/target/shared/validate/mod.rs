@@ -678,6 +678,82 @@ mod tests {
         );
     }
 
+    /// bug-454 hand-off from `tests/rt_trapped_call_capability_gate.rs`.
+    ///
+    /// A **trapped** runtime call must be capability-validated exactly like a
+    /// bare one: the TRAP desugar produces `NirValue::CallResult`, not
+    /// `NirValue::RuntimeCall`, and the collector once walked a `CallResult`'s
+    /// arguments only — never its target. That let the ordinary way of writing
+    /// fallible code smuggle an unimplemented call into a binary.
+    ///
+    /// This lived as a cross-build of `os::resourcePath` for `windows-x86_64`
+    /// while that call was the one genuine gap in the target matrix. bug-454
+    /// implemented it, and it was the LAST one: `windows-x86_64` now advertises
+    /// a superset of `macos-aarch64` and `linux-*`, so no call reachable from
+    /// MFB source is refused by any shipping backend's list, and the integration
+    /// test had no vehicle left to re-point at. Asserting it here against a
+    /// hand-built capability set keeps the guarantee and stops it from decaying
+    /// into a vacuous pass. The two sibling cases that DO still need a real
+    /// build — a trapped *supported* call, and a trapped bare-named `general`
+    /// builtin — stay in the integration test.
+    #[test]
+    fn a_trapped_runtime_call_is_capability_checked_like_a_bare_one() {
+        let call = |target: &str| NirValue::Const {
+            type_: ParameterType::String,
+            value: target.to_string(),
+        };
+        let bare = NirOp::Eval {
+            value: NirValue::RuntimeCall {
+                helper: RuntimeHelper::Os,
+                target: "os.resourcePath".to_string(),
+                args: vec![call("data.txt")],
+                loc: NirSourceLoc::default(),
+            },
+        };
+        let trapped = NirOp::Eval {
+            value: NirValue::CallResult {
+                target: "os.resourcePath".to_string(),
+                args: vec![call("data.txt")],
+                loc: NirSourceLoc::default(),
+            },
+        };
+        // `io.print` (from `module()`) is advertised; `os.resourcePath` is not.
+        let capabilities = test_capabilities(&["io.print"]);
+        for (shape, op) in [("bare", bare), ("trapped", trapped)] {
+            let mut nir = module(vec![RuntimeHelper::Io, RuntimeHelper::Os]);
+            nir.functions[0].body.push(op);
+            let Err(err) = validate_capabilities(&nir, &capabilities) else {
+                panic!("the {shape} form must be rejected");
+            };
+            assert_eq!(
+                err, "native backend does not support runtime call 'os.resourcePath'",
+                "the {shape} form must fail with the capability diagnostic"
+            );
+        }
+    }
+
+    /// The other half of the same guarantee: an over-broad fix that collected
+    /// every `CallResult` target would reject a trapped *bare-named* builtin.
+    /// `toInt` answers to `helper_for_call` (the `general` family) but appears in
+    /// no backend's `runtime_calls`, so collecting it fails valid programs.
+    #[test]
+    fn a_trapped_bare_named_builtin_is_not_capability_gated() {
+        let mut nir = module(vec![RuntimeHelper::Io]);
+        nir.functions[0].body.push(NirOp::Eval {
+            value: NirValue::CallResult {
+                target: "toInt".to_string(),
+                args: vec![NirValue::Const {
+                    type_: ParameterType::String,
+                    value: "12".to_string(),
+                }],
+                loc: NirSourceLoc::default(),
+            },
+        });
+        if let Err(err) = validate_capabilities(&nir, &test_capabilities(&["io.print"])) {
+            panic!("a trapped conversion must build: {err}");
+        }
+    }
+
     #[test]
     fn collects_resource_union_bind_inside_for_each() {
         let module = module_with_union_bind(vec![NirOp::ForEach {
