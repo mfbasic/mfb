@@ -5,7 +5,7 @@ Effort: small-to-medium (the element inference already exists for a binding; it 
 Severity: MEDIUM (a specified type rule is silently skipped; the same program is accepted or rejected purely on whether the list was given a name)
 Class: Type inference gap / silently-skipped rule
 
-Status: Open
+Status: **FIXED** (2026-09-06, `4de04cbe3`)
 
 ## The finding
 
