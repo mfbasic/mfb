@@ -78,6 +78,33 @@ pub(super) struct LowerContext<'a> {
 /// tolerated by `getOr`/`len` but not by `collections::keys`/`values`, which need
 /// the element type. Built-in packages need no entry here: their source is folded
 /// into the AST by `augmented_project`, so their types are already in `TypeIndex`.
+/// An exported top-level `LET`/`MUT` of an imported (non-builtin) package,
+/// decoded from its `.mfp` GLOBAL table (bug-551).
+///
+/// `mfb spec language modules-and-packages` §13 makes an `EXPORT LET`/`EXPORT
+/// MUT` importer-visible and covers it by the qualified-name rule ("variables
+/// and constants" heads its list of name kinds). The symbol half already worked
+/// — `resolver::packages::install_package_type_names` unions the GLOBAL table
+/// into the package's visible surface — but nothing carried the declared TYPE,
+/// so `pkg::Answer` typed as `Unknown` and died at its use site with
+/// `TYPE_UNKNOWN_VALUE`, or reached an unrelated call as an `(Unknown)`
+/// argument.
+///
+/// `name` is the spelling a CONSUMER writes it by: `package.Name`, which is
+/// exactly what `ir::package::package_qualified_reference_names` collects and
+/// `apply_package_identity` rewrites to the merged `<id>.package.Name`. So a
+/// read lowered against this name needs no further lowering support — the merge
+/// already re-points it at the definition.
+#[derive(Clone)]
+pub struct ImportedGlobal {
+    pub name: String,
+    pub type_: ParameterType,
+    /// `EXPORT MUT` (assignable) rather than `EXPORT LET`. Carried so
+    /// `ir::verify` refuses an importer's write to a constant with the same rule
+    /// it applies to the project's own bindings.
+    pub mutable: bool,
+}
+
 #[derive(Clone)]
 pub struct ImportedTypeDef {
     pub name: String,
@@ -122,6 +149,7 @@ pub fn lower_project_with_external_functions(
     entry: Option<EntryPoint>,
     external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
+    imported_globals: &[ImportedGlobal],
 ) -> IrProject {
     let augmented = crate::codegen::registry::registry()
         .augment_project(ast)
@@ -170,6 +198,7 @@ pub fn lower_project_with_external_functions(
         entry,
         external_signatures,
         imported_types,
+        imported_globals,
     );
     // Docs come from the source AST this wrapper owns (the lowering path holds
     // only HIR); the build's package path likewise collects from its original AST.
@@ -196,10 +225,17 @@ pub fn lower_monomorphized_project(
     entry: Option<EntryPoint>,
     external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
+    imported_globals: &[ImportedGlobal],
 ) -> IrProject {
     let augmented =
         crate::resolver::augment_hir_project(concrete).expect("built-in package source must parse");
-    let mut ir = lower_augmented_project(&augmented, entry, external_signatures, imported_types);
+    let mut ir = lower_augmented_project(
+        &augmented,
+        entry,
+        external_signatures,
+        imported_types,
+        imported_globals,
+    );
     ir.docs = collect_project_docs(
         &crate::resolver::augment_project(source).expect("built-in package source must parse"),
     );
@@ -215,10 +251,11 @@ pub fn lower_augmented_project(
     entry: Option<EntryPoint>,
     external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
+    imported_globals: &[ImportedGlobal],
 ) -> IrProject {
     let mut types = Vec::new();
     let mut functions = Vec::new();
-    let facts = lower_facts(hir, external_signatures, imported_types);
+    let facts = lower_facts(hir, external_signatures, imported_types, imported_globals);
     let type_index = &facts.type_index;
     let mut context = facts.context();
     let bindings = lower_bindings(hir, &mut context);
@@ -311,7 +348,12 @@ impl LowerContext<'_> {
     /// The declared or inferred type of a top-level binding, for the shape
     /// pass's call rules (a global of FUNC type is callable like a local).
     pub(super) fn binding_type(&self, name: &str) -> Option<&ParameterType> {
-        self.binding_types.get(name)
+        self.binding_types
+            .get(name)
+            // bug-551: an imported package's exported globals are keyed by the
+            // canonical `package.Name`, so an `IMPORT pkg AS p` write target
+            // (`p.Name`) has to resolve the alias before it is called unknown.
+            .or_else(|| self.binding_types.get(&canonical_import_name(name, self)))
     }
 
     /// Whether a call to `target` can raise an error its caller must handle
@@ -359,11 +401,22 @@ pub(super) fn lower_facts(
     hir: &crate::hir::HirProject,
     external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
+    imported_globals: &[ImportedGlobal],
 ) -> LowerFacts {
     let mut function_returns = function_returns(hir);
     let mut function_types = function_types(hir);
     let mut function_params = function_params(hir);
-    let binding_types = declared_binding_types(hir);
+    let mut binding_types = declared_binding_types(hir);
+    // bug-551: the imported packages' exported globals, under the `package.Name`
+    // spelling a consumer reads them by. The project's own declarations win — an
+    // importer never overrides a binding it can see the source of — and a
+    // package name cannot collide with a local binding anyway, since a local
+    // name has no dot in it.
+    for global in imported_globals {
+        binding_types
+            .entry(global.name.clone())
+            .or_insert_with(|| global.type_.clone());
+    }
     // Imported-package signatures arrive TYPED (plan-105-A): the return type and
     // the parameter list are read straight off `ExternalSignature` instead of being
     // re-split out of a formatted `FUNC(…) AS R` string. plan-106-A closed the last
@@ -962,20 +1015,33 @@ fn lower_statement_inner(
                     context,
                 );
             }
+            // bug-551: an assignment to an imported package's `EXPORT MUT` is
+            // written `pkg::Name` and reaches here as `pkg.Name`; under
+            // `IMPORT pkg AS p` it reaches here as `p.Name`. The CANONICAL
+            // spelling is what `ir::package::apply_package_identity` rewrites to
+            // the merged definition, so resolve the alias before emitting.
+            let canonical_name = canonical_import_name(name, context);
+            let target = if locals.contains_key(name) || context.binding_types.contains_key(name) {
+                name.clone()
+            } else if context.binding_types.contains_key(&canonical_name) {
+                canonical_name
+            } else {
+                name.clone()
+            };
             let expected = locals
-                .get(name)
-                .or_else(|| context.binding_types.get(name))
+                .get(&target)
+                .or_else(|| context.binding_types.get(&target))
                 .cloned();
             let lowered = lower_expression_with_expected(value, expected.as_ref(), locals, context);
-            if locals.contains_key(name) {
+            if locals.contains_key(&target) {
                 vec![IrOp::Assign {
-                    name: name.clone(),
+                    name: target,
                     value: lowered,
                     loc,
                 }]
             } else {
                 vec![IrOp::AssignGlobal {
-                    name: name.clone(),
+                    name: target,
                     value: lowered,
                     loc,
                 }]
@@ -3340,6 +3406,10 @@ pub(super) fn expression_type(
                     .get(value)
                     .cloned()
                     .or_else(|| context.binding_types.get(value).cloned())
+                    // bug-551: an imported package's exported global is keyed by
+                    // the CANONICAL `package.Name`, so an aliased `IMPORT cst AS
+                    // c` reaches it through `c.Answer` too.
+                    .or_else(|| context.binding_types.get(&canonical_value).cloned())
                     .or_else(|| context.function_types.get(value).cloned())
                     .or_else(|| context.function_types.get(&canonical_value).cloned())
             }
@@ -4139,6 +4209,13 @@ fn lower_expression_with_expected(
                 }
             } else if context.binding_types.contains_key(value) {
                 IrValue::Global(value.clone())
+            } else if context.binding_types.contains_key(&canonical_value) {
+                // bug-551: a read of an imported package's exported global. The
+                // CANONICAL `package.Name` is what
+                // `ir::package::apply_package_identity` rewrites to the merged
+                // `<id>.package.Name` definition, so an aliased import must
+                // lower to the canonical spelling, not the one written.
+                IrValue::Global(canonical_value.clone())
             } else if let Some(type_) = expected.and_then(|expected| {
                 // A general built-in predicate in a value position (bug-368).
                 // These are lowered inline at a direct call site and so have no

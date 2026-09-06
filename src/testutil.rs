@@ -67,7 +67,7 @@ pub fn project_from_src(source: &str) -> AstProject {
 /// exercising lowering, serialization, and codegen on hand-written programs.
 pub fn lower_src(source: &str) -> IrProject {
     let project = project_from_src(source);
-    ir::lower_project_with_external_functions(&project, None, &HashMap::new(), &[])
+    ir::lower_project_with_external_functions(&project, None, &HashMap::new(), &[], &[])
 }
 
 /// Run the build path's two checkers over `src` and return the emitted
@@ -94,13 +94,20 @@ pub fn check_src(source: &str) -> Vec<String> {
         crate::monomorph::monomorphize_project(project_dir, &crate::hir::elaborate(&augmented))
             .expect("test source must monomorphize");
     let no_signatures = HashMap::new();
-    let mut diagnostics =
-        crate::ir::shape::collect_diagnostics(project_dir, &concrete, &[], &no_signatures, &[]);
-    let lowered = crate::ir::lower_augmented_project(&concrete, None, &no_signatures, &[]);
+    let mut diagnostics = crate::ir::shape::collect_diagnostics(
+        project_dir,
+        &concrete,
+        &[],
+        &[],
+        &no_signatures,
+        &[],
+    );
+    let lowered = crate::ir::lower_augmented_project(&concrete, None, &no_signatures, &[], &[]);
     let link_spans = crate::ir::link_spans(&concrete);
     diagnostics.extend(crate::ir::verify_source_diagnostics(
         &lowered,
         project_dir,
+        &[],
         &[],
         &[],
         &link_spans,

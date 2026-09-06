@@ -122,6 +122,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         false,
         &[],
         &[],
+        &[],
         &crate::ir::LinkSpans::default(),
         false,
     )
@@ -152,6 +153,7 @@ fn collect_diagnostics_with(
     imported_types_unknown: bool,
     imported_resources: &[ImportedResource],
     imported_types: &[crate::ir::ImportedTypeDef],
+    imported_globals: &[crate::ir::ImportedGlobal],
     link_spans: &crate::ir::LinkSpans,
     source_path: bool,
 ) -> Vec<Diagnostic> {
@@ -245,6 +247,21 @@ fn collect_diagnostics_with(
                 }
             }
         }
+    }
+    // bug-551: seed the imported packages' exported GLOBALS, under the
+    // `package.Name` spelling lowering emits an `IrValue::Global` for. Without
+    // them `infer_type` answers `None` for the read (so every use of an imported
+    // constant is an `Unknown`), and `global_muts` has no row, so an assignment
+    // to an imported `EXPORT LET` would not be caught by the rule that refuses a
+    // write to a local one. The project's own bindings win, and cannot collide:
+    // a local binding name has no dot in it.
+    for global in imported_globals {
+        env.globals
+            .entry(global.name.clone())
+            .or_insert_with(|| global.type_.clone());
+        env.global_muts
+            .entry(global.name.clone())
+            .or_insert(global.mutable);
     }
     // bug-377: seed the imported packages' `RESOURCE_TABLE` rows. The project's
     // own `native_resources` win — an importer never overrides a declaration it
@@ -567,6 +584,7 @@ pub fn collect_source_diagnostics(
     project_dir: &Path,
     imported_resources: &[ImportedResource],
     imported_types: &[crate::ir::ImportedTypeDef],
+    imported_globals: &[crate::ir::ImportedGlobal],
     link_spans: &crate::ir::LinkSpans,
 ) -> Vec<crate::rules::PendingDiagnostic> {
     collect_diagnostics_with(
@@ -574,6 +592,7 @@ pub fn collect_source_diagnostics(
         true,
         imported_resources,
         imported_types,
+        imported_globals,
         link_spans,
         true,
     )

@@ -1,11 +1,20 @@
 # bug-551: an `EXPORT LET` package constant is visible to an importer but has no type — `pkg::Name` dies with `TYPE_UNKNOWN_VALUE`
 
-Last updated: 2026-09-05
+Last updated: 2026-09-06
 Effort: medium (front end + IR merge; the wire format already carries what is needed)
 Severity: MEDIUM (a specified language feature is unusable; every package must work around it)
 Class: Unimplemented spec surface
 
-Status: Open
+Status: FIXED (branch `fix-pkg-symbol-resolution`). Point 3 — the initialization
+order this was filed rather than fixed over — was measured first and holds; see
+"Point 3, measured" below. Points 1, 2 and 4 are all implemented.
+Regression Test: `tests/rt_imported_package_global.rs` — 5 positive (read of an
+`EXPORT LET`, the initialization-order measurement, the `EXPORT MUT` write/read
+round trip through the package's OWN accessor, an aliased `IMPORT … AS`, and `=`
+still being equality in expression position) and 5 negative (a write to an
+`EXPORT LET`, a wrong-typed write, a wrong-typed read, a `PRIVATE` global, an
+unexported name), all confirmed RED against `8a7735c85`'s binary via
+`MFB_TEST_EXE`.
 
 ## The finding
 
@@ -156,3 +165,76 @@ substitution.
   a constant the package exports itself**." That second option is the one this
   bug removes.
 - bug-480 — the same `visible` set, which is why the *symbol* half already works.
+
+## Point 3, measured (2026-09-06) — the initializers DO run
+
+The report was right to gate on this. Measured before writing any of the fix, at
+main `8a7735c85`, with a package exporting `MUT Counter AS Integer = 7` and a
+`bump()` SUB of its own:
+
+    $ ./build/capp.out
+    7
+    9
+
+The consumer binary sees the declared `7` before `main`, and two `cst::bump()`
+calls take it to `9` — so an imported package's global is a real, initialized,
+shared slot in the consumer, not a zeroed one. The naive fix's failure mode does
+not exist, and this is a type-installation fix, not a lowering one.
+
+## What the fix is
+
+1. **Type installation.** `manifest::package::imported_global_defs` decodes the
+   `.mfp` GLOBAL table into `ir::ImportedGlobal { name, type_, mutable }`, keyed
+   by the `package.Name` spelling a consumer reads it by. Filtered to
+   `visibility == "export"`: `PRIVATE`/`PUBLIC` rows are in the same table (the
+   writer records visibility in the entry flags rather than omitting the row).
+   The list is threaded to the shape pass, lowering and `ir::verify` beside
+   `imported_types`, and seeds `binding_types` / `globals` / `global_muts`.
+2. **Lowering.** None was needed beyond naming: `ir::package::apply_package_identity`
+   already rewrites both a `Global` read and an `AssignGlobal` naming
+   `package.Name` to the merged `<id>.package.Name` definition. The read lowers
+   under the CANONICAL name so `IMPORT pkg AS p` reaches the same slot.
+4. **`EXPORT MUT` too — and a consumer's write IS visible to the package.**
+   `an_exported_package_mut_is_one_shared_slot` writes `limits::Counter = 99`
+   and reads it back through the package's own `limits::counter()`, which
+   returns `99`. That round trip is the answer to the report's open question:
+   there is one slot. An `EXPORT LET` is refused by the existing
+   `TYPE_ASSIGN_REQUIRES_MUT` rule, which now has the mutability bit to read.
+
+## A second bug this uncovered — `pkg::Name = value` was a discarded comparison
+
+MFBASIC spells assignment and equality both `=`. `bug-468` closed the
+statement-position hole for the dotted `a.b = c` spelling, but `::` is its own
+token (`TokenKind::DoubleColon`), so `pkg::Name = value` matched neither that
+guard nor the plain-identifier assignment arm and fell through to
+`parse_expression`, where the `=` binds as EQUALITY. Before this fix the
+resulting comparison could not lower (`error: NIR local reference 'cst.Counter'
+does not resolve`), which accidentally hid it; typing the read would have turned
+that loud internal error into a **write that compiles and silently vanishes**.
+`src/ast/stmt.rs` now parses the form as an assignment, unconditionally — the
+parser cannot know whether the name is a global, and a bare comparison in
+statement position is never useful (bug-468's own reasoning). A name that is not
+an assignable imported binding is then reported by name resolution or by the
+immutable-assignment rule, both of which say what is wrong.
+
+## Relationship to bug-554 and bug-555 — three separate causes
+
+Reproduced all three at main `8a7735c85` before theorising. They share a
+*subject* (what an importer can see of a package's exports) and nothing else:
+
+- **bug-555** was `normalize_qualified_type_name` over-applying in a TYPE
+  position (fixed on main by `93b72b92a`).
+- **bug-554** is two missing membership tables plus an unqualified enum-member
+  lookup in a VALUE position.
+- **bug-551** is a missing global TYPE table.
+
+Each needed its own seed or lookup; none of the three fixes makes either of the
+others pass. Bisected rather than assumed: built `8f0ebfeb8^` and reproduced this
+bug against it unchanged — `cst::Answer` still `TYPE_UNKNOWN_VALUE`, the write
+still `error: NIR local reference 'cst.Counter' does not resolve` — so
+`8f0ebfeb8` is not its ancestor either. The report's own guess that bug-554's enum-member failure was "the
+same missing lookup" as this bug is disproved in bug-554's doc: the BARE enum
+member already worked, so that one is about qualification, and this one is not.
+
+Gates: full `cargo test --release --no-fail-fast` green; full
+`scripts/test-accept.sh` 1416 ran / 0 mismatches; `artifact-gate.sh all` 0 diffs.

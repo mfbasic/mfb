@@ -620,6 +620,50 @@ pub(crate) fn imported_type_names(
     names
 }
 
+/// The exported top-level `LET`/`MUT` bindings of every imported (non-builtin)
+/// package, keyed by the `package.Name` spelling a consumer reads them by
+/// (bug-551). Read from the same installed `.mfp`s as [`imported_type_defs`],
+/// and lossy in the same way — a package whose metadata cannot be read
+/// contributes nothing, which leaves its names untyped rather than guessing.
+pub(crate) fn imported_global_defs(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> Vec<ir::ImportedGlobal> {
+    let Ok(packages) = installed_package_files(project_dir, manifest) else {
+        return Vec::new();
+    };
+    imported_global_defs_from_files(&packages)
+}
+
+pub(crate) fn imported_global_defs_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedGlobal> {
+    let mut defs = Vec::new();
+    for package in packages {
+        let Ok(info) = binary_repr::read_package_info(package) else {
+            continue;
+        };
+        for global in info.globals {
+            // Only `EXPORT` crosses a package boundary. `PRIVATE`/`PUBLIC`
+            // bindings are in the same table (the writer records visibility in
+            // the entry flags rather than omitting the row), and a `PRIVATE`
+            // one additionally reaches here under its mangled
+            // `#<identity>$Name` spelling — so filtering on the recorded
+            // visibility is the rule, not the mangling.
+            if global.visibility != "export" {
+                continue;
+            }
+            defs.push(ir::ImportedGlobal {
+                name: format!("{}.{}", info.manifest_name, global.name),
+                // The `.mfp` GLOBAL table renders the declared type as text;
+                // this is where it stops being one, the same boundary
+                // `imported_type_field` crosses for a record field.
+                type_: crate::types::ParameterType::parse(&global.type_),
+                mutable: global.mutable,
+            });
+        }
+    }
+    defs
+}
+
 pub(crate) fn imported_type_defs_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedTypeDef> {
     let mut defs = Vec::new();
     for package in packages {

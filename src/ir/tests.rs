@@ -74,6 +74,7 @@ pub(crate) mod helpers {
                 None,
                 &std::collections::HashMap::new(),
                 &[],
+                &[],
             ))
         })();
         let _ = std::fs::remove_dir_all(&dir);
@@ -197,6 +198,7 @@ mod lowering_totality_tests {
                 &ast,
                 None,
                 &std::collections::HashMap::new(),
+                &[],
                 &[],
             );
         }));
@@ -2433,7 +2435,7 @@ mod lower_tests {
                 sub: false,
             },
         );
-        let ir = lower_project_with_external_functions(&project, None, &signatures, &[]);
+        let ir = lower_project_with_external_functions(&project, None, &signatures, &[], &[]);
         // The call to the external function types as Integer (from the external
         // return-type table).
         let call_ty = function(&ir, "run").body.iter().find_map(|op| match op {
@@ -5453,8 +5455,14 @@ END FUNC
             returns: crate::types::ParameterType::parse("Integer"),
             accepts_args: false,
         });
-        let ir =
-            crate::ir::lower_monomorphized_project(&concrete, &ast, entry, &ext_signatures, &[]);
+        let ir = crate::ir::lower_monomorphized_project(
+            &concrete,
+            &ast,
+            entry,
+            &ext_signatures,
+            &[],
+            &[],
+        );
         assert_eq!(ir.entry.as_ref().unwrap().name, "main");
     }
 
