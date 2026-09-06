@@ -1,8 +1,8 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-05
-Open bugs: **17** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 14 MEDIUM · 2 LOW/other** (re-derived 2026-09-05)
+Open bugs: **18** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 15 MEDIUM · 2 LOW/other** (re-derived 2026-09-05)
 each open bug's `Severity:` line on 2026-09-05; several rows carry a
 parenthetical qualifier after the word, so grep for the leading word, not the
 whole line)
@@ -203,17 +203,42 @@ so adding a curve fails until it is covered.
 489 (response terminal injection) · 490 (client redirect credential leak) ·
 491 (`pkg install` not bound to the lock)
 
-**Older carryover**: 453 (riscv64 jal range) · 454 (win64 `os::resourcePath`) ·
-479 (inline TRAP on thread start — **memory gate**; **three of its four defects
-are landed** in `a4a9d59dc`, and it is now ONE decision: the `TRAP` error path
-has no safe default `Thread` value. A resource gets a CLOSED record so operations
-short-circuit; `simple_thread_handle_helper` `pthread_mutex_lock`s the queue
-pointer off the handle with no null guard, so a null handle AND a zeroed block
-both fault, and `THREAD_STATE_CLOSED` cannot help because the lock precedes the
-state read. Answering it means a runtime contract across every `thread` member
-with a user-visible error code — a product decision, not a codegen arm) · 483 (tls write error code
-per backend) · 484 (`picture::drawItem` never renders) · 487 (state-mutating
-operand UAF — **memory gate**) · 527 (range parameter naming, large)
+**Older carryover**: **453, 454 and 483 are landed** (`f332f18e6`, `94b2ec1e1`,
+`7b0ab81be`). Remaining: 479 (inline TRAP on thread start — one decision left,
+see Tier 2) · 484 (`picture::drawItem` never renders — x-large, sequenced AFTER
+plan-116-I) · 487 (state-mutating operand UAF — **memory gate**) · 527 (range
+parameter naming, large) · 515 (memory-hard password KDF) · 520 (named zones,
+huge) · 472 (man examples never compiled — **blocked on a user decision**
+recorded in plan-108-A) · 543 (spawn fd parity — **the owner has ruled**; Linux
+is settled, the macOS mechanism is the open question) · 488 (deliberately open
+pending a long clean period).
+
+**Newly filed today, all found while fixing something else — none is a
+regression:** 550 (55 `debug_assert!`s that never run, because CI builds
+release) · 552 (riscv64 linker quadratic, unreachable until 453 removed the
+ceiling above it) · 553 (28 `tls`/`tcp` members declare `errors: vec![]`).
+
+**The lesson the cross-platform cluster paid for: name the instrument.** All
+three needed something the artifact gate structurally is not.
+- **453** — the gate reported 1930/0, *identical to the untouched baseline*, and
+  that zero IS the containment proof, because relaxation is a no-op in range. It
+  says nothing about execution; only **box 2229** (real riscv64) shows a relaxed
+  five-rung chain runs.
+- **454** — proved by a **negative control** on box 2230: with the separator left
+  POSIX, cross-build and gate stay GREEN while the program fails on Windows.
+  That demonstrates the instrument gap instead of asserting it, and is the
+  cheapest way to prove a per-platform fix is the fix.
+- **483** — the Windows row of its matrix had only ever been READ from source;
+  measuring it changed the answer. Its own doc's proposed macOS design turned out
+  to be a use-after-free, found by running it, not by reading it.
+
+**And the gate lock (bug-470) refused one of MY runs**, correctly: a subagent's
+`test-accept.sh` held the tree lock, my gate exited 98 having checked nothing,
+and `DIFFS=0` next to a refusal would have read as success if refusal shared exit
+code 1 with "found diffs". The distinct code is what made it detectable. The same
+collision hit the agent minutes earlier as 4 phantom mismatches in fixtures the
+bug does not touch — same cause, one unmistakable outcome and one plausible wrong
+one.
 
 **Resource bookkeeping holes found by bug-535's sweep** (both hidden by the same
 "any other call into the package" condition, both reproduce on `4d56f1a1a`):
