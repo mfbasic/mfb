@@ -5,7 +5,7 @@ Effort: medium (the audit is the work — 28 members' real raise sets)
 Severity: MEDIUM (documentation correctness; NOT a miscompile risk today — see "Why this is not urgent")
 Class: Registry metadata / documentation correctness
 
-Status: Fixed (pending archive)
+Status: **FIXED** (2026-09-06, `0fbccd28d`)
 
 ## The finding
 
