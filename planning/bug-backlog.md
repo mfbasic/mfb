@@ -1,15 +1,47 @@
 # Open bug backlog — triage and work order
 
-Last updated: 2026-09-05
-Open bugs: **18** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 15 MEDIUM · 2 LOW/other** (re-derived 2026-09-05)
-each open bug's `Severity:` line on 2026-09-05; several rows carry a
-parenthetical qualifier after the word, so grep for the leading word, not the
-whole line)
+Last updated: 2026-09-06
+Open bugs: **11** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 8 MEDIUM · 2 LOW–MEDIUM** (re-derived
+2026-09-06 from each open bug's own `Severity:` line; several carry a
+parenthetical qualifier after the word, so read the leading word, not the line)
 
 The audit-3 security pass (goal-08) is **complete**: all 20 of its
-CRITICAL/HIGH findings are landed and archived — 499, 504 and 510 were the last
-three and are all in `bugs/completed/`.
+CRITICAL/HIGH findings are landed and archived.
+
+## 2026-09-06 — what landed, and what it changes about the order
+
+Archived on 2026-09-06 (`git log --since=2026-09-06 --diff-filter=R --name-status`):
+**456, 487, 516, 551, 552, 553, 554, 555, 556**, plus **488** closed on evidence
+rather than a fix (75 clean unfiltered runs since the pin; the 7.6% pre-fix rate
+makes "unchanged" a 1-in-300 proposition). **557** landed the same day from a
+peer. **550** is gated green and awaiting its merge at the time of writing.
+
+Four blocked decisions were put to the user and are now ANSWERED **in the bug
+docs themselves** — read the "USER DECISION" section before dispatching any of
+them, because each ruling carries consequences a fix gets wrong:
+
+| bug | ruling | the consequence that bites |
+|---|---|---|
+| 543 | `posix_spawn` + `POSIX_SPAWN_CLOEXEC_DEFAULT` on macOS | leaving fork/exec removes the "between" where the ignored-signal reset lives; it must move into `POSIX_SPAWN_SETSIGDEF` |
+| 550 | promote the load-bearing asserts, **no** CI axis | an expensive predicate is not a candidate — `assert!` in release is on every user's compile |
+| 527 | negative index is out of range, language-wide | `findLastIndex` loses its `-1` default, and its OWN man example is a source break to be rewritten |
+| 515 | both spellings, profile calls the explicit one | one validation site, one use site; the profile constants are the only retunable thing |
+
+**bug-479 is unblocked.** Its "defect D is a product decision" is corrected in
+the doc: all five `ThreadSimpleOp`s already raise `ErrResourceClosed` on
+`THREAD_STATE_CLOSED`, so there is no error code to pick. What blocks it is
+ORDERING — every op locks the queue before reading the state — and the
+recommended fix (give the closed handle real empty queues via the existing
+`emit_thread_queue_alloc`) leaves all five op emitters untouched.
+
+**New:** 558 — `mfb man` merges every overload's errors into one table, so
+`tcp::poll`'s page tells scalar callers to handle an error that overload cannot
+raise. 8 members affected.
+
+Still genuinely blocked, and not a bug fix: **536 shape C** (recursive-type
+values are never freed) needs recursive copy-insertion, which does not exist.
+Do not dispatch it as a bug.
 
 ## Working rules for this pass
 
