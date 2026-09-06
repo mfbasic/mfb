@@ -38,8 +38,7 @@ frame; use `io::write` for flowing text with newline handling. The run is shown 
 the next `term::sync`.
 
 The call is gated: while TUI mode is off it does nothing and reports no
-error (in a Linux or Windows `mfb build --app` build the gate is
-not enforced — see `mfb man term`).
+error.
 
 **One app-mode gap applies to this call** (see `mfb man term`): a **Windows**
 `--app` build draws it but does not cluster — it stamps one grid position per

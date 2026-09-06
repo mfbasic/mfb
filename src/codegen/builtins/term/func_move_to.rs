@@ -41,8 +41,7 @@ the next row, a carriage return moves to column 0 of the same row, and
 cursor to (0, 0).
 
 The call is gated: while TUI mode is off it does nothing and reports no
-error (in a Linux or Windows `mfb build --app` build the gate is
-not enforced — see `mfb man term`)."#;
+error."#;
 
 const EX: &str = r#"Draw at the top-left corner:
 

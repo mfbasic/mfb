@@ -30,8 +30,7 @@ flag rather than a toggle.
 
 The flag persists until `term::showCursor` or the next `term::on`, which resets
 the cursor to visible; `term::off` also makes the cursor visible again as part of
-restoring the terminal. The call is gated: while TUI mode is off it does nothing (in a Linux or Windows `mfb build --app` build the gate is
-not enforced — see `mfb man term`)
+restoring the terminal. The call is gated: while TUI mode is off it does nothing
 and reports no error."#;
 
 const EX: &str = r#"Draw a full-screen frame with no blinking cursor:

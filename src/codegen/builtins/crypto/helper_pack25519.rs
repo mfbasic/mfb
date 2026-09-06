@@ -1,5 +1,13 @@
 //! `__crypto_pack25519` — shared private helper for the `crypto` package.
 //!
+//! Canonical 32-byte little-endian encoding of a GF(2^255-19) element: three
+//! carry passes, then two passes of a conditional subtraction of `p` applied with
+//! a branch-free `__crypto_sel25519` on the final borrow. That select used to be
+//! `IF b = 0 THEN t = m END IF` (bug-511). The predicate is a function of the
+//! value being packed, and one of the values packed here is the X25519 shared
+//! secret, so the branch leaked whether the secret needed reduction. This is the
+//! same shape `__crypto_gf448Pack` already used for the 448 field.
+//!
 //! Registered via `add_helper`; renders in the helper section of the assembled
 //! source (before the member bodies), in the order `mod.rs` calls the helpers.
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
@@ -30,9 +38,7 @@ r#"FUNC __crypto_pack25519(n AS List OF Integer) AS List OF Byte
     m = collections::append(m, m15)
     LET b AS Integer = bits::band(bits::sra(m15, 16), 1)
     m = collections::set(m, 14, bits::band(collections::get(m, 14), 65535))
-    IF b = 0 THEN
-      t = m
-    END IF
+    t = __crypto_sel25519(m, t, 0 - b)
     pass2 = pass2 + 1
   END WHILE
   MUT out AS List OF Byte = []

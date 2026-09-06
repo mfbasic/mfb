@@ -69,12 +69,16 @@ bytes for the 224/256/384/512-bit widths of either family. This one call is the
 package's single fixed-digest hashing surface (the variable-length SHAKE256 XOF is
 `crypto::shake256`).
 
-**`SHA1` is a legacy algorithm.** SHA-1 is not collision-resistant (practical
-collisions have been public since 2017), so every source occurrence of `crypto::Hash.SHA1`
-reports the non-fatal `CRYPTO_SHA1_INSECURE` warning (`2-203-0136`) — the program
-still builds and runs, and the digest is the standard FIPS 180-4 value. Select it
-only to interoperate with a system that requires SHA-1; use `SHA2_256` or stronger
-for anything new.
+**`SHA1` is a legacy algorithm — here above all.** A bare digest's whole security
+claim IS collision resistance, and SHA-1 has none (practical collisions have been
+public since 2017), so `crypto::Hash.SHA1` in THIS call reports the non-fatal
+`CRYPTO_SHA1_INSECURE` warning (`2-203-0136`) — the program still builds and runs,
+and the digest is the standard FIPS 180-4 value. Select it only to interoperate
+with a system that requires SHA-1; use `SHA2_256` or stronger for anything new.
+
+The warning is scoped to the use. `Hash.SHA1` as the hash selector of
+`crypto::hmac`, `crypto::hkdf` or `crypto::pbkdf2` reports nothing, because none
+of those rests on collision resistance.
 
 The digest is a deterministic, one-way function of the message alone: the same
 `type` and `data` always produce the same bytes, with no key, salt, or randomness.

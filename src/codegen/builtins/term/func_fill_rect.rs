@@ -32,14 +32,8 @@ cursor.
 `Dark` (▓), and the two quadrant patterns `Checker` (▚) and `CheckerAlt` (▞). The
 shade variants read as translucent overlays at a glance; the solid block is opaque.
 
-**One app-mode gap applies to this call** (see `mfb man term`): in a **Windows**
-`--app` build it fills the region but ignores `fill`, painting the current
-background colour instead of the block or shade glyph. The console backend on
-every platform, and macOS and Linux app mode, honour the style.
-
 The call is gated: while TUI mode is off it does nothing and reports no
-error (in a Linux or Windows `mfb build --app` build the gate is
-not enforced — see `mfb man term`)."#;
+error."#;
 
 const EX: &str = r#"Paint a solid panel, then a lighter band inside it:
 

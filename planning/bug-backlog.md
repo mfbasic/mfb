@@ -1,8 +1,8 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-05
-Open bugs: **23** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 20 MEDIUM · 2 LOW/other** (re-derived from
+Open bugs: **20** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 17 MEDIUM · 2 LOW/other** (re-derived from
 each open bug's `Severity:` line on 2026-09-05; several rows carry a
 parenthetical qualifier after the word, so grep for the leading word, not the
 whole line)
@@ -134,15 +134,69 @@ not compile. A registry-wide renderer pin now fails any rendered signature whose
 collection element is an unmarked resource; it found exactly one violation, so
 the sibling census is complete.
 
-**App backends** (one agent): 540 (Win app term reduced) ·
-541 (backends do not enforce the inactive-term gate)
+**App backends**: **541 is landed (`0ba90b19f`)** — all three gates, with a real
+runtime RED on box 2230 (`gate01=size80` -> `gate01=raised` against the console
+oracle). **540 is PARTIAL (`a02bd12df`)**: WIN-01 and WIN-05 landed, WIN-02/03/04
+remain and are root-caused in the doc. WIN-05 was a NEW find while fixing 541 —
+Windows `term::on` reset 3 fields where every other backend resets 7.
+
+**WIN-02/03 are blocked on an INSTRUMENT, not on work.** Headless Windows never
+reaches `WM_SIZE`, so proving a resize needs a `term::` twin of
+`MFB_CANVAS_RESIZE_W/_H`. That adds test-only surface to the product, so it is an
+Open Decision. WIN-04's correct fix is sharing `emit_app_io_write`'s ~430-line
+cluster walk, whose labels are untagged and would collide.
+
+**A THIRD bug was found here and it is the one worth remembering.**
+`scripts/test-winapp.sh` named `canvas::rgb`, which plan-122-D's canvas migration
+removed the same day. Under `set -e` that is a hard stop at the BUILD, so 17
+assertions — the canvas frame, the entire Vulkan section, both resize runs —
+exited "passing" without executing. This is the ONLY instrument in the repo that
+runs a Windows binary at all, so its silence removed the sole runtime coverage
+for a whole platform. Verified independently: `canvas::rgb` does not exist.
+
+That makes three findings this session of the same shape — **a harness and the
+code it exercises drift, and the harness reports success**: bug-470's guards
+covered 3 of 11 writers; `curve448_secret_paths_are_branch_free` covered one of
+two fields; this script covered one of two halves of itself. None FAILED. Each
+passed while checking less. When a rename lands, grep `scripts/` for the old
+spelling — nothing else will tell you.
 
 **datetime**: 520 (no named zones — huge; carries interaction notes from the
 three landed siblings). 518, 519 and 521 are landed.
 
-**crypto**: 515 (no memory-hard password KDF) ·
-517 (SHA-1 advisory cannot tell hashing from HMAC) ·
-511 (X25519 secret-dependent branch)
+**crypto**: 515 (no memory-hard password KDF) is the only one left. **511 is
+landed (`e24914d5d`)** and **517 is landed (`5c2024f71`)**.
+
+**517 was the one backlog item blocked on a ruling, and the owner gave it**: the
+SHA-1 advisory is scoped to the USE — `hash` warns, `hmac`/`hkdf`/`pbkdf2` do
+not. That reverses `plan-109-A:92` ("regardless of which public function consumes
+the selector"), so the plan is left unedited as a record of what was decided
+then and the reversal lives in the bug doc and in
+`ir::verify::values::hash_selector_use_is_sound`.
+
+Two things from it that generalize:
+
+- **Suppression is fail-closed, and that was a choice inside the ruling.** The
+  ruling names members that should not warn; implementing it as "fire only at
+  `hash`" would make silence the default. Implemented the other way round, so a
+  local-bound selector, a `MATCH` literal, a bare occurrence and a value nested
+  inside the argument all still warn.
+- **A builtin member has TWO call-target spellings in IR** and only one is
+  obvious. `crypto::hash` arrives dotted (`crypto.hash`); the `.mfb`-bodied
+  `hmac`/`hkdf`/`pbkdf2` arrive as `#crypto_hmac`, the `internal_name::internalize`
+  form of the package's own `__crypto_hmac`. Matching only the dotted name
+  suppressed NOTHING and looked correct. Any future predicate keyed on a call
+  target must accept both, via the mangling contract.
+
+**511 left a follow-up worth doing** (a test-coverage gap, not a defect). The
+report named ONE secret-dependent branch; there were two —
+`__crypto_pack25519` also branched on the borrow out of its trial subtraction,
+and one of the values packed there is the X25519 shared secret. It survived
+because `curve448_secret_paths_are_branch_free` enforced the property **for the
+448 field only**, while the constant-time primitive and its packer already
+existed. Same "two lists" shape as bug-470 and bug-533. The durable fix is a test
+that ENUMERATES the curve fields and asserts a branch-free secret path for each,
+so adding a curve fails until it is covered.
 
 **registry / supply chain** (audit-3 MEDIUM carryover):
 489 (response terminal injection) · 490 (client redirect credential leak) ·

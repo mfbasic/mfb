@@ -33,8 +33,7 @@ back with `term::getBold`. Setting the same value twice is harmless — the stat
 a flag, not a toggle.
 
 The call is gated: while TUI mode is off it does nothing and reports no
-error (in a Linux or Windows `mfb build --app` build the gate is
-not enforced — see `mfb man term`)."#;
+error."#;
 
 const EX: &str = r#"Draw a bold heading above plain body text:
 

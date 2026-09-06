@@ -281,9 +281,18 @@ registry's only `info`, and `2-200-0009` one of exactly nine `warn` rules
 `2-203-0117 NATIVE_LIBRARY_UNUSED`, and
 `2-203-0136 CRYPTO_SHA1_INSECURE`); every other rule is `error`.
 `CRYPTO_SHA1_INSECURE` is the registry's enum-value advisory: a builtin enum
-variant may carry an `EnumVariant::advisory`, and every user-source occurrence
-of that value — an expression or a `MATCH` literal — reports it once, while the
+variant may carry an `EnumVariant::advisory`, and a user-source occurrence of
+that value — an expression or a `MATCH` literal — reports it once, while the
 program still compiles and runs. Injected builtin source is exempt.
+
+The advisory is scoped to the **use**, not the value. `Hash.SHA1` written
+directly as the hash-selector argument of `crypto::hmac`, `crypto::hkdf` or
+`crypto::pbkdf2` reports nothing: those constructions do not rely on the digest
+being collision-resistant, which is what the advisory's text asserts. Every other
+occurrence reports — including `crypto::hash`, a `MATCH` literal, a bare
+expression, and a value bound to a local before being passed on. Suppression
+requires seeing the sound consumer at the occurrence itself; it is not a dataflow
+analysis, and the ambiguous cases warn.
 [[src/codegen/registry/mod.rs:EnumAdvisory]]
 [[src/ir/verify/values.rs:check_enum_member_advisory]]
 [[src/rules/table.rs:RULES]]

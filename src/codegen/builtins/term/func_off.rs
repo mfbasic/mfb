@@ -13,10 +13,8 @@ const INTRO: &str = r#"Leave TUI mode: present the final frame and restore the t
 
 const DESC: &str = r#"`term::off` tears down the TUI surface entered by `term::on` and returns the
 terminal to the state it had before. It takes no arguments and is gated: while
-TUI mode is already off the call does nothing at all and reports success. (In a
-Linux or Windows `mfb build --app` build that idle-off case is not fully inert —
-it still asks the window to restore itself — which is harmless but is why the
-package overview lists the app-mode gate as a known gap.)
+TUI mode is already off the call does nothing at all and reports success — on
+every backend, in a terminal and in an `mfb build --app` window alike.
 
 When TUI mode is on, the teardown runs in this order.
 

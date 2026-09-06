@@ -2533,6 +2533,106 @@ END FUNC
         );
     }
 
+    /// bug-517: the advisory is scoped to the USE, not the value — the owner's
+    /// ruling (2026-09-05), reversing `plan-109-A`'s "regardless of which public
+    /// function consumes the selector".
+    ///
+    /// `crypto::hash` relies on collision resistance and still warns.
+    /// `hmac`/`hkdf`/`pbkdf2` do not — HMAC's proof rests on the compression
+    /// function as a PRF — so SHA-1 there is a sound legacy-interop choice
+    /// (RFC 6238 TOTP, WPA2) and is not advised against.
+    #[test]
+    fn the_sha1_advisory_fires_on_hash_and_not_on_hmac_hkdf_or_pbkdf2() {
+        let count = |src: &str| {
+            crate::testutil::check_src(src)
+                .iter()
+                .filter(|r| *r == "CRYPTO_SHA1_INSECURE")
+                .count()
+        };
+        let program = |body: &str| {
+            format!(
+                "IMPORT crypto\nIMPORT strings\nFUNC main AS Integer\n                   LET k AS List OF Byte = strings::toBytes(\"k\")\n                   LET m AS List OF Byte = strings::toBytes(\"m\")\n{body}  RETURN 0\nEND FUNC\n"
+            )
+        };
+
+        // The broken use: a bare digest's whole claim IS collision resistance.
+        assert_eq!(
+            count(&program(
+                "  LET d AS List OF Byte = crypto::hash(crypto::Hash.SHA1, \"x\")\n"
+            )),
+            1,
+            "crypto::hash(SHA1) must still warn"
+        );
+
+        // The three sound uses.
+        for call in [
+            "crypto::hmac(crypto::Hash.SHA1, k, m)",
+            "crypto::hkdf(crypto::Hash.SHA1, m, k, m, 16)",
+            "crypto::pbkdf2(crypto::Hash.SHA1, m, k, 1, 16)",
+        ] {
+            assert_eq!(
+                count(&program(&format!("  LET d AS List OF Byte = {call}\n"))),
+                0,
+                "{call} must not warn: SHA-1 is sound there"
+            );
+        }
+    }
+
+    /// The other half, and the one that matters more: suppression is FAIL-CLOSED.
+    /// It applies to a DIRECT selector argument only, so every shape where the
+    /// checker cannot see that the consumer is sound keeps warning. A false
+    /// positive is a warning on a sound use; a false negative is silence on a
+    /// broken one.
+    #[test]
+    fn the_sha1_advisory_suppression_is_fail_closed() {
+        let count = |src: &str| {
+            crate::testutil::check_src(src)
+                .iter()
+                .filter(|r| *r == "CRYPTO_SHA1_INSECURE")
+                .count()
+        };
+
+        // Bound to a local first, then passed on: the checker cannot see the
+        // consumer from the occurrence, so it warns.
+        assert_eq!(
+            count(
+                "IMPORT crypto\nIMPORT strings\nFUNC main AS Integer\n                   LET h AS crypto::Hash = crypto::Hash.SHA1\n                   LET k AS List OF Byte = strings::toBytes(\"k\")\n                   LET d AS List OF Byte = crypto::hmac(h, k, k)\n  RETURN 0\nEND FUNC\n"
+            ),
+            1,
+            "an indirect selector must still warn — suppression is not dataflow"
+        );
+
+        // A bare occurrence consumed by nothing.
+        assert_eq!(
+            count(
+                "IMPORT crypto\nFUNC pick() AS crypto::Hash\n                   RETURN crypto::Hash.SHA1\nEND FUNC\n\
+                 FUNC main AS Integer\n  LET h AS crypto::Hash = pick()\n  RETURN 0\nEND FUNC\n"
+            ),
+            1,
+            "a bare occurrence must still warn"
+        );
+
+        // A `MATCH` literal is not a selector argument.
+        assert_eq!(
+            count(
+                "IMPORT crypto\nFUNC pick(h AS crypto::Hash) AS Integer\n                   MATCH h\n    CASE crypto::Hash.SHA1\n      RETURN 1\n                     CASE ELSE\n      RETURN 0\n  END MATCH\nEND FUNC\n\
+                 FUNC main AS Integer\n  RETURN pick(crypto::Hash.SHA2_256)\nEND FUNC\n"
+            ),
+            1,
+            "a MATCH literal must still warn"
+        );
+
+        // Nested inside the selector argument rather than being it.
+        assert_eq!(
+            count(
+                "IMPORT crypto\nIMPORT strings\nFUNC same(h AS crypto::Hash) AS crypto::Hash\n                   RETURN h\nEND FUNC\n\
+                 FUNC main AS Integer\n  LET k AS List OF Byte = strings::toBytes(\"k\")\n                   LET d AS List OF Byte = crypto::hmac(same(crypto::Hash.SHA1), k, k)\n                   RETURN 0\nEND FUNC\n"
+            ),
+            1,
+            "a value nested inside the argument is not hmac's selector — must warn"
+        );
+    }
+
     #[test]
     fn builtin_enum_without_advisory_never_warns() {
         let src = "\

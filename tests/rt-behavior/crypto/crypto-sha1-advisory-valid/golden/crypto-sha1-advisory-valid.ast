@@ -4,9 +4,10 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "crypto", "line": 6 },
-    { "module": "encoding", "line": 7 },
-    { "module": "io", "line": 8 }
+    { "module": "crypto", "line": 21 },
+    { "module": "encoding", "line": 22 },
+    { "module": "io", "line": 23 },
+    { "module": "strings", "line": 24 }
     ],
     "items": [
     {
@@ -14,39 +15,39 @@
       "visibility": "public",
       "isolated": false,
       "name": "label",
-      "line": 10,
+      "line": 26,
       "params": [
-      { "name": "h", "type": "crypto.Hash", "default": null, "line": 10 }
+      { "name": "h", "type": "crypto.Hash", "default": null, "line": 26 }
       ],
       "returnType": "String",
       "body": [
       {
         "kind": "match",
         "expression": { "kind": "identifier", "value": "h" },
-        "line": 11,
+        "line": 27,
         "cases": [
         {
           "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA1" } },
           "guard": null,
-          "line": 12,
+          "line": 28,
           "body": [
-          { "kind": "return", "value": { "kind": "string", "value": "sha1" }, "line": 13 }
+          { "kind": "return", "value": { "kind": "string", "value": "sha1" }, "line": 29 }
           ]
         },
         {
           "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA2_256" } },
           "guard": null,
-          "line": 14,
+          "line": 30,
           "body": [
-          { "kind": "return", "value": { "kind": "string", "value": "sha256" }, "line": 15 }
+          { "kind": "return", "value": { "kind": "string", "value": "sha256" }, "line": 31 }
           ]
         },
         {
           "pattern": { "kind": "else" },
           "guard": null,
-          "line": 16,
+          "line": 32,
           "body": [
-          { "kind": "return", "value": { "kind": "string", "value": "other" }, "line": 17 }
+          { "kind": "return", "value": { "kind": "string", "value": "other" }, "line": 33 }
           ]
         }
         ]
@@ -58,15 +59,24 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 21,
+      "line": 37,
       "params": [
       ],
       "returnType": null,
       "body": [
-      { "kind": "binding", "mutable": false, "name": "legacy", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA1" }, { "kind": "string", "value": "abc" }] }, "line": 22 },
-      { "kind": "binding", "mutable": false, "name": "modern", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA2_256" }, { "kind": "string", "value": "abc" }] }, "line": 23 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "label", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA2_256" }] }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "modern" }] } }] }, "line": 24 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "legacy=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "legacy" }] } }] }, "line": 25 }
+      { "kind": "binding", "mutable": false, "name": "legacy", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA1" }, { "kind": "string", "value": "abc" }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "modern", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA2_256" }, { "kind": "string", "value": "abc" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "label", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA2_256" }] }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "modern" }] } }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "legacy=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "legacy" }] } }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "key", "type": "List OF Byte", "value": { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "k" }] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "msg", "type": "List OF Byte", "value": { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "m" }] }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "mac", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hmac", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA1" }, { "kind": "identifier", "value": "key" }, { "kind": "identifier", "value": "msg" }] }, "line": 46 },
+      { "kind": "binding", "mutable": false, "name": "okm", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hkdf", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA1" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "key" }, { "kind": "identifier", "value": "msg" }, { "kind": "number", "value": "16" }] }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "dk", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.pbkdf2", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA1" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "key" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "16" }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sound=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "mac" }] }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "okm" }] }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "dk" }] }] } }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "name": "indirect", "type": "crypto.Hash", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA1" }, "line": 53 },
+      { "kind": "binding", "mutable": false, "name": "viaLocal", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hmac", "arguments": [{ "kind": "identifier", "value": "indirect" }, { "kind": "identifier", "value": "key" }, { "kind": "identifier", "value": "msg" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "indirect=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "viaLocal" }] }] } }] }, "line": 55 }
       ]
     }
     ]

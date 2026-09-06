@@ -5,15 +5,19 @@ drawing surface that is swapped in as the window content view while TUI mode is
 active. This documents the cell model, the grid-state memory layout, the
 content-view swap, and how the GUI `term::` helpers keep the **same** term-state
 global that the console backend uses, so `term::isOn` and auto-restore read the
-same flag everywhere. **The inactive no-op gate is NOT uniform**: the console and
-macOS bodies test the shared `active` slot, the GTK bodies test it for every
-member except `term::off`, and the Windows bodies test the live `TUI_MEMDC`
-handle instead — which `emit_term_off` never clears — so after `term::off` a
-Windows `term::` call still reaches the memDC, and `emit_term_size` still answers
-with the fixed grid rather than raising `ErrUnsupported`. Closing that is
-tracked as a gap, not a property this topic can be read as guaranteeing.
-[[src/target/win_x86_64/app/mod.rs:emit_term_off]]
-[[src/target/linux_gtk/app_io.rs:emit_app_term_off]] Per-function semantics (`term::on`,
+same flag everywhere. **The inactive no-op gate is uniform, and it is the shared
+`active` slot that every backend tests** — never a surface handle. The
+distinction is normative because the two are not the same lifetime: `term::off`
+clears the `active` slot but deliberately leaves the Windows `TUI_MEMDC` live
+(a program may leave `Console` for `Canvas` and come back), so a body gated on
+the handle still runs after `term::off`. That was the Windows shape until
+bug-541; the memDC test remains, but as the "was a surface ever built" guard it
+always was, with the mode gate in front of it. `term::off` is itself gated on
+every backend, so a redundant `term::off` schedules nothing.
+[[src/codegen/term/core/term.rs:emit_gate_inactive]]
+[[src/target/macos_aarch64/app/app_io.rs:emit_term_active_gate]]
+[[src/target/linux_gtk/app_io.rs:emit_gtk_term_active_gate]]
+[[src/target/win_x86_64/app/mod.rs:emit_win_term_active_gate]] Per-function semantics (`term::on`,
 `term::moveTo`, …) are owned by `mfb man`; this topic is the rendering/cell-model
 contract a reimplementer rebuilds against.
 
@@ -31,11 +35,11 @@ actually serves:
 | Member | console (all platforms) | macOS app | Linux GTK app | Windows app |
 |--------|-------------------------|-----------|---------------|-------------|
 | `moveTo`, `clear`, `sync`, colour/attr/cursor | yes | yes | yes | yes |
-| `terminalSize` | live terminal size | live view size | live view size | **fixed 80x25** (`TUI_COLS`/`TUI_ROWS`) |
+| `terminalSize` | live terminal size | live view size | live view size | **fixed 80x25** (`TUI_COLS`/`TUI_ROWS`); raises `ErrUnsupported` while inactive like the rest |
 | `didResize` | latches a terminal resize | latches a view resize | latches a view resize | **always `FALSE`** — no dispatcher arm and nothing sets the flag |
-| `drawHLine`, `drawVLine` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | draws, **`LineStyle` ignored** (always Light) |
-| `drawBox` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | draws, **`LineStyle` ignored** |
-| `fillRect` | yes, per `FillStyle` | yes, per `FillStyle` | yes, per `FillStyle` | draws, **`FillStyle` ignored** (background wash) |
+| `drawHLine`, `drawVLine` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` |
+| `drawBox` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` |
+| `fillRect` | yes, per `FillStyle` | yes, per `FillStyle` | yes, per `FillStyle` | yes, per `FillStyle` |
 | `drawText`, `drawGlyph` | yes | yes | yes | yes |
 
 The Linux column read "**no**" until bug-539. Returning `None` from the app
@@ -49,6 +53,21 @@ helper that stamps the cell arrays directly.
 [[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
 [[src/target/linux_gtk/term_draw.rs:emit_term_stamp_helper]]
 [[src/target/win_x86_64/app/mod.rs:emit_term_draw_box]]
+
+The Windows column read "draws, **style ignored**" on those three rows until
+bug-540: the bodies wrote the glyph as a literal (`9472`, `9474`, the four Light
+corners, and a space for every fill), so the `LineStyle`/`FillStyle` ordinal
+arrived in `ARG[0]` and was never read. All four backends now index the same
+`TERM_*_CODEPOINTS` tables by that ordinal — which is also where the dash/dot
+corner fallback lives, since Unicode has no dashed corner glyph.
+[[src/target/win_x86_64/app/mod.rs:emit_win_select_codepoint]]
+[[src/codegen/error/constants/error_constants.rs:TERM_CORNER_TL_CODEPOINTS]]
+
+**`term::on` resets the shared term-state on every backend** — `active`,
+`fg`, `bg`, `bold`, `underline`, `cursorVisible` and the pending-resize flag —
+so entering TUI mode always starts from the documented defaults. The Windows body
+reset only the first three until bug-540, which made bold, underline and a hidden
+cursor survive a `term::off` + `term::on` there and nowhere else.
 
 `term::setForeground`/`setBackground` take a `color::Color` and
 `term::getForeground`/`getBackground` return one. **The term-state slot itself is

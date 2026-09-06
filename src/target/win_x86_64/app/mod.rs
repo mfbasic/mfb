@@ -36,6 +36,7 @@ use crate::codegen::engine::types::RelocIntent;
 use crate::codegen::error::constants::ARENA_ALLOC_SYMBOL;
 use crate::codegen::error::constants::ARENA_STATE_REGISTER;
 use crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL;
+use crate::codegen::error::constants::RESULT_ERROR_MESSAGE_REGISTER;
 use crate::codegen::error::constants::RESULT_OK_TAG;
 use crate::codegen::error::constants::RESULT_TAG_REGISTER;
 use crate::codegen::error::constants::RESULT_VALUE_REGISTER;
@@ -2406,8 +2407,8 @@ pub(super) fn emit_app_term_helper(
     match call {
         "term.on" => emit_term_on(symbol, tso, instructions, relocations),
         "term.off" => emit_term_off(symbol, tso, instructions, relocations),
-        "term.clear" => emit_term_clear(symbol, instructions, relocations),
-        "term.moveTo" => emit_term_move_to(symbol, instructions, relocations),
+        "term.clear" => emit_term_clear(symbol, tso, instructions, relocations),
+        "term.moveTo" => emit_term_move_to(symbol, tso, instructions, relocations),
         "term.setForeground" => {
             emit_term_set_color(tso, TERM_STATE_FG_OFFSET, instructions, relocations)
         }
@@ -2422,8 +2423,8 @@ pub(super) fn emit_app_term_helper(
         }
         "term.showCursor" => emit_term_cursor_visible(tso, "1", instructions, relocations),
         "term.hideCursor" => emit_term_cursor_visible(tso, "0", instructions, relocations),
-        "term.sync" => emit_term_sync(symbol, instructions, relocations),
-        "term.terminalSize" => emit_term_size(symbol, instructions, relocations),
+        "term.sync" => emit_term_sync(symbol, tso, instructions, relocations),
+        "term.terminalSize" => emit_term_size(symbol, tso, instructions, relocations),
         "term.drawHLine" => emit_term_draw_line(symbol, tso, true, instructions, relocations),
         "term.drawVLine" => emit_term_draw_line(symbol, tso, false, instructions, relocations),
         "term.drawBox" => emit_term_draw_box(symbol, tso, instructions, relocations),
@@ -2558,6 +2559,93 @@ fn win_guard_on_grid(ins: &mut Vec<CodeInstruction>, off: usize, max: usize, ski
     ins.push(abi::branch_gt(skip));
 }
 
+/// bug-540 WIN-01: `glyph_off = table[ord_off]`, a select-by-ordinal chain that
+/// falls back to entry 0 for an out-of-range ordinal. `tag` uniquifies the labels.
+/// Clobbers ARG[0..1].
+///
+/// The tables are `crate::codegen::error::constants::TERM_*_CODEPOINTS`, the same
+/// arrays the console (`emit_select_glyph`), macOS (`emit_app_select_unichar`) and
+/// GTK (`emit_select_packed_glyph`) backends index. This backend used to write the
+/// glyph as a literal — `9472` for every horizontal rule, `9474` for every vertical
+/// one, `9484`/`9488`/`9492`/`9496` for the four corners and `32` for every fill —
+/// so `term::LineStyle` and `term::FillStyle` arrived in ARG[0] and were never
+/// read. Reading the shared table is the point: a fifth backend cannot then
+/// disagree about which glyph a style means.
+///
+/// Every entry in every one of these tables is BMP, so a selected code point is
+/// always a single UTF-16 unit and [`win_stamp_bmp`] can stamp it directly.
+fn emit_win_select_codepoint(
+    ins: &mut Vec<CodeInstruction>,
+    ord_off: usize,
+    glyph_off: usize,
+    table: &[u32],
+    tag: &str,
+) {
+    let done = format!("{tag}_sel");
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        ord_off,
+    ));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        &table[0].to_string(),
+    ));
+    for (ordinal, codepoint) in table.iter().enumerate().skip(1) {
+        let next = format!("{tag}_sel{ordinal}");
+        ins.push(abi::compare_immediate(
+            abi::mfb_arg(0),
+            &ordinal.to_string(),
+        ));
+        ins.push(abi::branch_ne(&next));
+        ins.push(abi::move_immediate(
+            abi::mfb_arg(1),
+            "Integer",
+            &codepoint.to_string(),
+        ));
+        ins.push(abi::branch(&done));
+        ins.push(abi::label(&next));
+    }
+    ins.push(abi::label(&done));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        glyph_off,
+    ));
+}
+
+/// bug-541: branch to `inactive` while TUI mode is off — the §4.2.1 no-op gate,
+/// read from the same shared arena term-state `active` slot the console
+/// (`emit_gate_inactive`), macOS (`emit_term_active_gate`) and GTK
+/// (`emit_gtk_term_active_gate`) backends read.
+///
+/// **The memDC null test is not this gate and never was.** It answers "was a
+/// surface ever built", and the surface deliberately outlives TUI mode:
+/// `emit_term_off` clears the `active` slot but leaves `TUI_MEMDC_SYM` live, so a
+/// program that leaves `Console` for `Canvas` and comes back keeps its grid (the
+/// `WM_PAINT` arm gates the *present* on the canvas window instead). Every
+/// memDC-gated body therefore still ran after `term::off`. Both tests stay: this
+/// one for the mode, the memDC one for the surface.
+///
+/// **The scratch register.** MFB argument 6 (`rax` under Win64) — not ARG[0],
+/// which this file's other bodies use as scratch only *after* parking the
+/// incoming arguments. The gate has to run first to be a gate, and ARG[0] carries
+/// the `LineStyle`/`FillStyle` ordinal, the row, or the boolean on nine of the
+/// twelve members. ARG[6] is never an incoming argument here — the widest `term::`
+/// members take five parameters and the Win64 lowering passes the fifth on the
+/// incoming stack tail — and `rax` is caller-saved under both x86-64 ABIs, so
+/// nothing can be live in it at entry.
+fn emit_win_term_active_gate(ins: &mut Vec<CodeInstruction>, tso: usize, inactive: &str) {
+    ins.push(abi::load_u64(
+        abi::mfb_arg(6),
+        ARENA_STATE_REGISTER,
+        tso + TERM_STATE_ACTIVE_OFFSET,
+    ));
+    ins.push(abi::compare_immediate(abi::mfb_arg(6), "0"));
+    ins.push(abi::branch_eq(inactive));
+}
+
 /// plan-70-F: `SetTextColor`/`SetBkColor` on the memDC (stack slot `memdc_off`) from
 /// the current term state colours.
 fn win_set_colors(
@@ -2670,6 +2758,8 @@ fn emit_term_draw_glyph_at(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    // bug-541: inert while TUI mode is off, before anything is read or stamped.
+    emit_win_term_active_gate(&mut ins, tso, "dg_inactive");
     // `drawGlyph(row, column, codepoint)` — the point is row-first.
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), SX));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), SY));
@@ -2758,6 +2848,9 @@ fn emit_term_draw_glyph_at(
     call_external(from, "TextOutW", GDI32, &mut ins, &mut rel);
     ins.push(abi::label("dg_done"));
     invalidate_main(from, &mut ins, &mut rel);
+    // The inactive branch lands PAST the repaint request: a gated call that still
+    // asked the window to redraw would not be a no-op.
+    ins.push(abi::label("dg_inactive"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -2786,6 +2879,7 @@ fn emit_term_draw_line(
     const POS: usize = 0x48; // running a..b
     const ENDV: usize = 0x50;
     const GLYPH: usize = 0x58;
+    const ORD: usize = 0x60; // bug-540 WIN-01: the incoming LineStyle ordinal
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
@@ -2793,6 +2887,11 @@ fn emit_term_draw_line(
     // the fixed row in arg 1, `drawVLine(line, rowA, column, rowB)` the fixed column
     // in arg 2.
     let (fixed_arg, pos_arg, end_arg) = if horizontal { (1, 2, 3) } else { (2, 1, 3) };
+    // bug-541: inert while TUI mode is off.
+    emit_win_term_active_gate(&mut ins, tso, "dln_inactive");
+    // bug-540 WIN-01: ARG[0] is the `LineStyle` ordinal. Parked first, because the
+    // clipping helpers below use ARG[0..2] as scratch.
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), ORD));
     ins.push(abi::store_u64(
         abi::mfb_arg(fixed_arg),
         abi::stack_pointer(),
@@ -2819,13 +2918,19 @@ fn emit_term_draw_line(
     win_guard_on_grid(&mut ins, FIXED, fixed_max, "dln_done");
     win_normalize_pair(&mut ins, "dln", POS, ENDV);
     win_clip_span(&mut ins, "dln", POS, ENDV, span_max, "dln_done");
-    // glyph = ─ (9472) for H, │ (9474) for V.
-    ins.push(abi::move_immediate(
-        abi::mfb_arg(0),
-        "Integer",
-        if horizontal { "9472" } else { "9474" },
-    ));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
+    // bug-540 WIN-01: the glyph comes from the shared table, indexed by the style
+    // ordinal — not the Light literal this backend used for every style.
+    emit_win_select_codepoint(
+        &mut ins,
+        ORD,
+        GLYPH,
+        if horizontal {
+            &crate::codegen::error::constants::TERM_HLINE_CODEPOINTS
+        } else {
+            &crate::codegen::error::constants::TERM_VLINE_CODEPOINTS
+        },
+        "dln",
+    );
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
@@ -2852,6 +2957,7 @@ fn emit_term_draw_line(
     ins.push(abi::branch("dln_loop"));
     ins.push(abi::label("dln_done"));
     invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::label("dln_inactive"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -2895,9 +3001,19 @@ fn emit_term_draw_box(
     const CY1: usize = 0x78;
     const CX2: usize = 0x80;
     const CY2: usize = 0x88;
+    // bug-540 WIN-01: the LineStyle ordinal and the two edge glyphs it selects. The
+    // edges are selected ONCE and stamped from their own slots, so the four edge
+    // loops share one chain each instead of re-deriving the glyph per edge.
+    const ORD: usize = 0x90;
+    const HGLYPH: usize = 0x98;
+    const VGLYPH: usize = 0xA0;
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    // bug-541: inert while TUI mode is off.
+    emit_win_term_active_gate(&mut ins, tso, "dbx_inactive");
+    // bug-540 WIN-01: ARG[0] is the `LineStyle` ordinal.
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), ORD));
     // Corners arrive as `(rowA, columnA, rowB, columnB)` — every `term::` point is
     // written row before column.
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), Y1));
@@ -2926,65 +3042,102 @@ fn emit_term_draw_box(
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
     ins.push(abi::branch_eq("dbx_done"));
     win_set_colors(&mut ins, &mut rel, from, tso, MEMDC);
-    // Top + bottom edges (─) across x1..x2 at y1 / y2. An edge whose row is off the
+    // bug-540 WIN-01: both edge glyphs, from the same tables the rules use.
+    emit_win_select_codepoint(
+        &mut ins,
+        ORD,
+        HGLYPH,
+        &crate::codegen::error::constants::TERM_HLINE_CODEPOINTS,
+        "dbx_h",
+    );
+    emit_win_select_codepoint(
+        &mut ins,
+        ORD,
+        VGLYPH,
+        &crate::codegen::error::constants::TERM_VLINE_CODEPOINTS,
+        "dbx_v",
+    );
+    // Top + bottom edges across x1..x2 at y1 / y2. An edge whose row is off the
     // grid is skipped entirely (the clamped X range still bounds the loop).
     for (yslot, cyslot, tag) in [(Y1, CY1, "dbx_top"), (Y2, CY2, "dbx_bot")] {
         win_guard_on_grid(&mut ins, cyslot, TUI_ROWS - 1, &format!("{tag}_done"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), X1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
-        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "9472")); // ─
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
         ins.push(abi::label(&format!("{tag}_loop")));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), X2));
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_gt(&format!("{tag}_done")));
-        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, POS, yslot, GLYPH, WCH);
+        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, POS, yslot, HGLYPH, WCH);
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::branch(&format!("{tag}_loop")));
         ins.push(abi::label(&format!("{tag}_done")));
     }
-    // Left + right edges (│) down y1..y2 at x1 / x2. Skipped when the column is off
+    // Left + right edges down y1..y2 at x1 / x2. Skipped when the column is off
     // the grid.
     for (xslot, cxslot, tag) in [(X1, CX1, "dbx_left"), (X2, CX2, "dbx_right")] {
         win_guard_on_grid(&mut ins, cxslot, TUI_COLS - 1, &format!("{tag}_done"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), Y1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
-        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "9474")); // │
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
         ins.push(abi::label(&format!("{tag}_loop")));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), Y2));
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_gt(&format!("{tag}_done")));
-        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, xslot, POS, GLYPH, WCH);
+        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, xslot, POS, VGLYPH, WCH);
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::branch(&format!("{tag}_loop")));
         ins.push(abi::label(&format!("{tag}_done")));
     }
-    // Corners: ┌ x1y1, ┐ x2y1, └ x1y2, ┘ x2y2 — each stamped only when its own cell
-    // is on the grid, read from the unclamped copies so a corner off the rim is
+    // Corners: TL x1y1, TR x2y1, BL x1y2, BR x2y2 — each stamped only when its own
+    // cell is on the grid, read from the unclamped copies so a corner off the rim is
     // skipped rather than slid onto it.
-    for (xslot, yslot, cp, tag) in [
-        (CX1, CY1, "9484", "tl"),
-        (CX2, CY1, "9488", "tr"),
-        (CX1, CY2, "9492", "bl"),
-        (CX2, CY2, "9496", "br"),
+    //
+    // bug-540 WIN-01: each corner comes from its own shared table, which is also
+    // where the dash/dot fallback lives — `LightDash`/`LightDot` reuse the Light
+    // corner and `HeavyDash`/`HeavyDot` the Heavy one, because Unicode has no dashed
+    // corner glyph. Reading the table is what gets that fallback for free; a
+    // hand-written weight chain here would be a second place to get it wrong.
+    for (xslot, yslot, table, tag) in [
+        (
+            CX1,
+            CY1,
+            &crate::codegen::error::constants::TERM_CORNER_TL_CODEPOINTS,
+            "tl",
+        ),
+        (
+            CX2,
+            CY1,
+            &crate::codegen::error::constants::TERM_CORNER_TR_CODEPOINTS,
+            "tr",
+        ),
+        (
+            CX1,
+            CY2,
+            &crate::codegen::error::constants::TERM_CORNER_BL_CODEPOINTS,
+            "bl",
+        ),
+        (
+            CX2,
+            CY2,
+            &crate::codegen::error::constants::TERM_CORNER_BR_CODEPOINTS,
+            "br",
+        ),
     ] {
         let skip = format!("dbx_c{tag}_skip");
         win_guard_on_grid(&mut ins, xslot, TUI_COLS - 1, &skip);
         win_guard_on_grid(&mut ins, yslot, TUI_ROWS - 1, &skip);
-        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", cp));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
+        emit_win_select_codepoint(&mut ins, ORD, GLYPH, table, &format!("dbx_c{tag}"));
         win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, xslot, yslot, GLYPH, WCH);
         ins.push(abi::label(&skip));
     }
     ins.push(abi::label("dbx_done"));
     invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::label("dbx_inactive"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -3016,9 +3169,14 @@ fn emit_term_fill_rect(
     const CX: usize = 0x60;
     const CY: usize = 0x68;
     const GLYPH: usize = 0x70;
+    const ORD: usize = 0x78; // bug-540 WIN-01: the incoming FillStyle ordinal
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    // bug-541: inert while TUI mode is off.
+    emit_win_term_active_gate(&mut ins, tso, "dfr_inactive");
+    // bug-540 WIN-01: ARG[0] is the `FillStyle` ordinal.
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), ORD));
     // Corners arrive as `(rowA, columnA, rowB, columnB)` — row before column.
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), Y1));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), X1));
@@ -3031,8 +3189,17 @@ fn emit_term_fill_rect(
     win_normalize_pair(&mut ins, "dfr_y", Y1, Y2);
     win_clip_span(&mut ins, "dfr_x", X1, X2, TUI_COLS - 1, "dfr_done");
     win_clip_span(&mut ins, "dfr_y", Y1, Y2, TUI_ROWS - 1, "dfr_done");
-    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "32")); // space (paints bg)
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
+    // bug-540 WIN-01: the block/shade glyph for the requested `FillStyle`, from the
+    // shared table. This backend stamped a space and let the background colour make
+    // the region visible, which renders `Filled`, `Light`, `Medium`, `Dark`,
+    // `Checker` and `CheckerAlt` identically — the whole point of the enum.
+    emit_win_select_codepoint(
+        &mut ins,
+        ORD,
+        GLYPH,
+        &crate::codegen::error::constants::TERM_FILL_CODEPOINTS,
+        "dfr",
+    );
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
@@ -3065,6 +3232,7 @@ fn emit_term_fill_rect(
     ins.push(abi::branch("dfr_row"));
     ins.push(abi::label("dfr_done"));
     invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::label("dfr_inactive"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -3101,6 +3269,8 @@ fn emit_term_draw_text_at(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    // bug-541: inert while TUI mode is off.
+    emit_win_term_active_gate(&mut ins, tso, "dt_inactive");
     // `drawText(row, column, text)` — the point is row-first.
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), SX));
     ins.push(abi::store_u64(
@@ -3308,6 +3478,7 @@ fn emit_term_draw_text_at(
     ins.push(abi::branch("dt_loop"));
     ins.push(abi::label("dt_done"));
     invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::label("dt_inactive"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -3460,10 +3631,25 @@ fn emit_term_on(
         ARENA_STATE_REGISTER,
         tso + TERM_STATE_FG_OFFSET,
     ));
+    // bug-540 WIN-05: `term::on` resets ALL `term::` state to its defaults, not just
+    // the colours — `mfb man term` states it, and the console (`emit_on`), macOS
+    // (`emit_app_term_on_helper`) and GTK (`emit_app_term_on`) bodies all do it.
+    // This body reset only `active`/`fg`/`bg`, so bold, underline and a hidden
+    // cursor survived a `term::off` + `term::on` on Windows alone, and a stale
+    // `didResize` was reported as a resize that never happened.
+    for field in [
+        TERM_STATE_BG_OFFSET,
+        TERM_STATE_BOLD_OFFSET,
+        TERM_STATE_UNDERLINE_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_DID_RESIZE_OFFSET,
+    ] {
+        ins.push(abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, tso + field));
+    }
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "1"));
     ins.push(abi::store_u64(
-        abi::ZERO,
+        abi::mfb_arg(0),
         ARENA_STATE_REGISTER,
-        tso + TERM_STATE_BG_OFFSET,
+        tso + TERM_STATE_CURSOR_VISIBLE_OFFSET,
     ));
     // Hide the transcript EDIT, then invalidate the window to present the grid.
     load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
@@ -3515,6 +3701,7 @@ fn emit_term_off(
 /// `term::clear()`: black out the grid and home the cursor.
 fn emit_term_clear(
     symbol: &str,
+    tso: usize,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
@@ -3523,6 +3710,9 @@ fn emit_term_clear(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    // bug-541: inert while TUI mode is off. `clear_done` requests no repaint, so it
+    // is already the complete no-op exit.
+    emit_win_term_active_gate(&mut ins, tso, "clear_done");
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
@@ -3569,6 +3759,7 @@ fn emit_term_clear(
 /// past-the-edge device coordinate.
 fn emit_term_move_to(
     symbol: &str,
+    tso: usize,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
@@ -3576,12 +3767,18 @@ fn emit_term_move_to(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    // bug-541: this body had no gate of ANY kind — not even the memDC test the
+    // drawing bodies used — so a `term::moveTo` after `term::off` parked the grid
+    // cursor and the next `io::write` stamped from there. The done label is
+    // introduced with the gate; there was no return path to share before.
+    emit_win_term_active_gate(&mut ins, tso, "mt_done");
     win_clamp_register(&mut ins, "mt_row", abi::mfb_arg(0), TUI_ROWS - 1);
     win_clamp_register(&mut ins, "mt_col", abi::mfb_arg(1), TUI_COLS - 1);
     load_addr(abi::mfb_arg(2), TUI_ROW_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // row
     load_addr(abi::mfb_arg(2), TUI_COL_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(2), 0)); // column
+    ins.push(abi::label("mt_done"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -3602,6 +3799,10 @@ fn emit_term_set_color(
 ) {
     // Append shape (plan-101): no own frame — the finalizer builds it (call-free/leaf).
     let mut ins: Vec<CodeInstruction> = Vec::new();
+    // bug-541: inert while TUI mode is off — the console and macOS setters both
+    // gate, and an ungated one mutates state the getters report the moment TUI
+    // mode comes back.
+    emit_win_term_active_gate(&mut ins, tso, "sc_done");
     ins.push(abi::shift_left_immediate(
         abi::mfb_arg(1),
         abi::mfb_arg(1),
@@ -3627,6 +3828,7 @@ fn emit_term_set_color(
         ARENA_STATE_REGISTER,
         tso + field,
     ));
+    ins.push(abi::label("sc_done"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -3645,11 +3847,14 @@ fn emit_term_set_flag(
 ) {
     // Append shape (plan-101): no own frame — the finalizer builds it (call-free/leaf).
     let mut ins: Vec<CodeInstruction> = Vec::new();
+    // bug-541: inert while TUI mode is off.
+    emit_win_term_active_gate(&mut ins, tso, "sa_done");
     ins.push(abi::store_u64(
         abi::mfb_arg(0),
         ARENA_STATE_REGISTER,
         tso + field,
     ));
+    ins.push(abi::label("sa_done"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -3668,12 +3873,15 @@ fn emit_term_cursor_visible(
 ) {
     // Append shape (plan-101): no own frame — the finalizer builds it (call-free/leaf).
     let mut ins: Vec<CodeInstruction> = Vec::new();
+    // bug-541: inert while TUI mode is off.
+    emit_win_term_active_gate(&mut ins, tso, "cur_done");
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", value));
     ins.push(abi::store_u64(
         abi::mfb_arg(0),
         ARENA_STATE_REGISTER,
         tso + TERM_STATE_CURSOR_VISIBLE_OFFSET,
     ));
+    ins.push(abi::label("cur_done"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -3687,6 +3895,7 @@ fn emit_term_cursor_visible(
 /// WndProc BitBlts the memory DC.
 fn emit_term_sync(
     symbol: &str,
+    tso: usize,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
@@ -3694,10 +3903,15 @@ fn emit_term_sync(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    // bug-541: presenting while TUI mode is off is exactly the case the gate is
+    // for — the macOS and GTK `sync` bodies both open with it, and the console
+    // present is a no-op on a null grid.
+    emit_win_term_active_gate(&mut ins, tso, "sync_done");
     invalidate_main(from, &mut ins, &mut rel);
     load_addr(abi::mfb_arg(0), MAIN_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     call_external(from, "UpdateWindow", USER32, &mut ins, &mut rel);
+    ins.push(abi::label("sync_done"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -3934,8 +4148,16 @@ pub(super) fn emit_reconcile_seam(
 
 /// `term::terminalSize()`: return `{ columns, rows }` (the fixed grid dims) as an
 /// arena-allocated 16-byte record. Result value = record ptr, tag = OK.
+///
+/// bug-541 GATE-01: while TUI mode is off this **raises** `ErrUnsupported` rather
+/// than reporting a size, which is what `mfb man term terminalSize` promises and
+/// what the console, macOS and GTK bodies all do. It is the one difference in this
+/// bug a correct program can observe: code written as `TRY term::terminalSize()`
+/// with a fallback never took the fallback here, and code using the raise to
+/// detect "TUI not entered" got a plausible-looking 80x25 instead.
 fn emit_term_size(
     symbol: &str,
+    tso: usize,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
@@ -3943,6 +4165,7 @@ fn emit_term_size(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    emit_win_term_active_gate(&mut ins, tso, "ts_unsupported");
     // record = _mfb_arena_alloc(16, align 8) → RET[1] = ptr.
     ins.push(abi::move_immediate(abi::return_register(), "Integer", "16"));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "8"));
@@ -3971,6 +4194,28 @@ fn emit_term_size(
         "Integer",
         RESULT_OK_TAG,
     )); // RET[1]=ptr survives
+    ins.push(abi::branch("ts_done"));
+    // The inactive branch: `ErrUnsupported`'s code and message symbol come from the
+    // shared `errorCode` registry (the same pair macOS's `emit_app_terminal_size`
+    // and GTK's `emit_app_term_terminal_size` load), never restated here.
+    let (unsupported_code, unsupported_symbol) =
+        crate::codegen::registry::runtime_error_emission("ErrUnsupported")
+            .expect("ErrUnsupported is an errorCode constant");
+    ins.push(abi::label("ts_unsupported"));
+    ins.push(abi::move_immediate(
+        RESULT_VALUE_REGISTER,
+        "Integer",
+        unsupported_code,
+    ));
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", "1")); // ERR tag
+    load_addr(
+        RESULT_ERROR_MESSAGE_REGISTER,
+        unsupported_symbol,
+        from,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::label("ts_done"));
     ins.push(abi::return_());
     instructions.extend(ins);
     relocations.extend(rel);

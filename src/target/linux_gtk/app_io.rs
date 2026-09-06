@@ -395,6 +395,14 @@ fn emit_app_term_off(
     // Append shape (plan-101): the finalizer builds the frame and saves lr across
     // the two g_idle_add calls; all state stores precede them, so no vreg is needed.
     let mut asm = Asm::new(symbol);
+    // bug-541 GATE-03: `term::off` while TUI mode is already off is a complete
+    // no-op. This was the one member in this file without the §4.2.1 gate its
+    // siblings all open with, so a redundant `term::off` still scheduled the
+    // present and hide idles and asked the window to restore itself. The console
+    // (`emit_off`) and macOS (`emit_app_term_off_helper`) bodies both open with
+    // the same test; the gate covers the input-mode restore too, exactly as
+    // theirs do — while TUI mode is off the transcript is already in line-echo.
+    emit_gtk_term_active_gate(&mut asm, "off_inactive");
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
     asm.store_state(abi::SCRATCH[1], ST_TERM_ACTIVE);
     asm.push(abi::store_u64(
@@ -420,6 +428,7 @@ fn emit_app_term_off(
     asm.local_address(abi::c_arg(0), TERM_HIDE_IDLE_SYMBOL);
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
+    asm.push(abi::label("off_inactive"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
     instructions.extend(asm.ins);

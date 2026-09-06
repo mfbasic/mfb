@@ -29,8 +29,7 @@ scalar (for example `9731` for `☃`, or `65` for `A`). The glyph is shown on th
 next `term::sync`.
 
 The call is gated: while TUI mode is off it does nothing and reports no
-error (in a Linux or Windows `mfb build --app` build the gate is
-not enforced — see `mfb man term`).
+error.
 
 A Linux terminal and all three app backends — macOS, Linux and Windows — draw
 this call."#;

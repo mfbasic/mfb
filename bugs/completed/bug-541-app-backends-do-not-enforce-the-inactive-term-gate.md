@@ -1,12 +1,16 @@
 # bug-541: the "does nothing while TUI mode is off" gate is not enforced by the Linux or Windows app backends
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: — (none exists; Phase 1 adds one)
+Status: **FIXED** (2026-09-05, `0ba90b19f`)
+Regression Test: `tests/cli_app_term_inactive_gate.rs` (four cases: the Windows
+gate census, the `terminalSize` raise, the GTK `term::off` no-op, and the
+positive pin that `on`/`isOn`/`didResize` stay ungated on all three app
+backends), `tests/rt-behavior/term/func_term_inactive_gate_valid` (the console
+oracle), and the `term::` case added to `scripts/test-winapp.sh` (box 2230).
 
 `term::` has one module-wide rule: while TUI mode is off, every call except
 `term::on`, `term::isOn` and `term::didResize` short-circuits — the setters and
@@ -72,6 +76,56 @@ nothing. Two consequences for this bug:
 
 GATE-01 was likewise unaffected — `term::terminalSize` is a Windows arm bug and
 the GTK arm already raises `ErrUnsupported` while inactive.
+
+## Corrections to this report (2026-09-05, while fixing it)
+
+Two things in the sections below are wrong as written; both are recorded rather
+than silently edited, because the fix was designed against what the code does.
+
+1. **The reproduction does not compile.** It is written with `TRY` / `CATCH e` /
+   `END TRY`, and MFBASIC has none of those — `mfb man errors` states plainly
+   that "there is no `TRY`, no `GOTO`". A raise is observed with a postfix or
+   function-level `TRAP(e)`. The reproduction that actually runs is the program
+   now committed as `tests/rt-behavior/term/func_term_inactive_gate_valid`, which
+   probes the raise through a helper with a function-level `TRAP`. It is also the
+   program `scripts/test-winapp.sh` ships to 2230.
+2. **GATE-02 is not observable from a program**, on any backend, and the
+   "Observed, Windows app (2230)" line claiming the "AFTER OFF" text appears is
+   not something this report's author could have seen: after `term::off` the
+   transcript `EDIT` child is re-shown over the client area, so the memDC the
+   leaked drawing calls write is not what the window presents. The leak is real —
+   `term::moveTo` had no gate of any kind and the setters mutated the shared
+   term-state slots — but the *readers* of that state (`term::getBold` and
+   friends) are gated too, so a correct program cannot see the difference. The
+   measured runtime delta on 2230 is GATE-01 only, and the rest of GATE-02 is
+   pinned structurally (`tests/cli_app_term_inactive_gate.rs`) rather than
+   claimed as a runtime observation.
+
+**A sixth thing, found by trying to run the proof: `scripts/test-winapp.sh` had
+not run past its first section in some time.** Its canvas program names
+`canvas::rgb`, which the package no longer exports (`canvas::fill` takes a
+`color::Color`), and the script is `set -e`, so the build failed and killed the
+run. Seventeen assertions — the whole canvas frame check, the entire Vulkan
+section, and both resize runs — had silently not executed since that rename.
+Repaired in this commit, because it is what makes this bug's runtime proof
+possible; with it fixed the harness is green end to end, 28 assertions.
+
+Measured on box 2230, headless, same program built by the compiler before and
+after the fix:
+
+```
+pre-fix : gate01=size80;ungated=FALSE,FALSE;gate01b=size80;afteroff=ok;isOn=FALSE;bold=FALSE
+post-fix: gate01=raised;ungated=FALSE,FALSE;gate01b=raised;afteroff=ok;isOn=FALSE;bold=FALSE
+console : gate01=raised;ungated=FALSE,FALSE;gate01b=raised;afteroff=ok;isOn=FALSE;bold=FALSE
+```
+
+**A fifth defect was found in the same file and is NOT fixed here.** Windows
+`emit_term_on` resets only `active`, `fg` and `bg` in the shared term-state,
+where the console (`emit_on`), macOS (`emit_app_term_on_helper`) and GTK
+(`emit_app_term_on`) bodies all also reset `bold`, `underline`,
+`cursorVisible` and `didResize` — which `mfb man term` promises ("`term::on` …
+resets all `term::` state to its defaults"). It is a *reduced implementation*,
+not a gate, so it is recorded on bug-540 as WIN-05 rather than folded in here.
 
 ## Failing Reproduction
 
@@ -262,47 +316,102 @@ by then. Confirm the delta is only the added gate instructions.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add the reproduction as an end-to-end case in `scripts/test-winapp.sh`
-      (2230) and the Linux app harness (2228), asserting the `GATE-01 ok` line
-      and that nothing paints after `term::off`. Confirm it fails today.
-- [ ] Add a console rt-behavior fixture pinning the same three behaviours, so the
-      oracle is a committed test rather than a reading of the emitters.
-- [ ] Walk every arm of all four `emit_app_term_helper`s and record, in this
-      file, which members gate on what — the table above is the audit's output.
+- [x] Added the reproduction as an end-to-end case in `scripts/test-winapp.sh`
+      (box 2230). It is headless: the whole observable is what the program
+      computes, not what the window shows. Confirmed RED on 2230 against a
+      compiler built at `8d87e06b7` (`gate01=size80`, `gate01b=size80`).
+      The Linux half is NOT an end-to-end case — GATE-03's runtime effect is a
+      redundant idle nobody can photograph — it is the codegen-inspection test
+      below.
+- [x] Added `tests/rt-behavior/term/func_term_inactive_gate_valid`, the console
+      oracle, as a committed fixture with all four goldens. It never calls
+      `term::on`: everything this bug is about happens while TUI mode is off, and
+      the alternate-screen present would make the golden depend on the host
+      terminal's size.
+- [x] Added `tests/cli_app_term_inactive_gate.rs`. Three RED cases plus one
+      positive pin that was already green and had to stay green. RED confirmed
+      before the fix: the two Windows cases and the GTK `term::off` case failed
+      for the documented reasons, `the_three_ungated_term_members_stay_ungated_on_every_app_backend`
+      passed.
+- [x] Walked every arm of all four `emit_app_term_helper`s. Corrections to the
+      audit as filed: the Windows dispatcher has no `term.isOn` and no
+      `term.didResize` arm (both fall through to the console emitter reading the
+      shared arena slot, which is why they were already correct), and
+      `emit_term_sync` was ungated as well — it is in the list below.
 
-Acceptance: the end-to-end cases fail for the documented reasons; the per-member
-gate table is complete for all four backends.
+Acceptance: met. RED reproduced on hardware, not inferred.
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] GATE-03: add `emit_gtk_term_active_gate` to
-      `src/target/linux_gtk/app_io.rs:emit_app_term_off`.
-- [ ] GATE-02: add `emit_win_term_active_gate` and call it first in every
-      Windows `term::` body except `on`, `isOn`, `didResize`; give
-      `emit_term_move_to` a done label.
-- [ ] GATE-01: emit the `ErrUnsupported` raise on
-      `emit_term_size`'s inactive branch, following
-      `src/target/macos_aarch64/app/app_io.rs:emit_app_terminal_size`.
+- [x] GATE-03: `src/target/linux_gtk/app_io.rs:emit_app_term_off` opens with
+      `emit_gtk_term_active_gate` and its `off_inactive` label sits after both
+      `g_idle_add`s, so a redundant `term::off` schedules nothing. The gate
+      covers the `ST_INPUT_MODE` restore too, exactly as the console and macOS
+      bodies' gates do.
+- [x] GATE-02: `emit_win_term_active_gate` added and called FIRST in twelve
+      bodies — `clear`, `moveTo`, `sync`, `setForeground`, `setBackground`,
+      `setBold`, `setUnderline`, `showCursor`, `hideCursor`, `drawHLine`,
+      `drawVLine`, `drawBox`, `fillRect`, `drawText`, `drawGlyph` (fifteen call
+      sites across twelve emitters). `emit_term_move_to` gained its done label
+      with the gate.
+      **Two design points the plan did not anticipate.** (a) The gate cannot
+      branch to the drawing bodies' existing `*_done` labels, because those sit
+      *before* an unconditional `invalidate_main` — a gated call that still asked
+      the window to repaint would not be a no-op. Each drawing body gained a
+      second label after the repaint request. (b) The scratch register is MFB
+      argument 6 (`rax` on Win64), not ARG[0]: the gate has to run before the
+      incoming arguments are parked to be a gate at all, and ARG[0] carries the
+      style ordinal, the row, or the boolean on nine of the twelve. ARG[6] is
+      never an incoming argument here (the widest members take five parameters
+      and Win64 passes the fifth on the incoming stack tail) and `rax` is
+      caller-saved under both x86-64 ABIs.
+- [x] GATE-01: `emit_term_size` raises on the inactive branch, taking the code
+      and message symbol from `runtime_error_emission("ErrUnsupported")` — the
+      same registry pair macOS and GTK load, never restated.
 
-Acceptance: the Phase 1 cases pass on 2230 and 2228; the console fixture is
-unchanged; the three ungated members still answer while off.
+Acceptance: met. On 2230 the post-fix program prints the console oracle's line
+character for character; the three ungated members still answer while off
+(`ungated=FALSE,FALSE`), and the positive pin is green on all three app targets.
 Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `scripts/regen-ncodesum.sh`; confirm the delta is only the added gate
-      instructions in the app bodies.
-- [ ] Delete gap 3 from the `mfb man term` overview, the app-mode caveat on
-      `mfb man term off`, the "both counts" Windows exception on
-      `mfb man term terminalSize`, and the standard-gated-sentence caveat added
-      to 14 member pages by `fc1860141`; correct the spec's opening paragraph.
-- [ ] `cargo test --release --no-fail-fast`, `scripts/test-accept.sh`,
-      `scripts/artifact-gate.sh all`, `scripts/man-census.sh --fill term`.
-- [ ] Re-run the reproduction on 2230 and 2228.
+- [x] `scripts/regen-outside-ncode.sh` (NOT `regen-ncodesum.sh`, which sweeps
+      only `tests/byte-identity/*/golden/`). **Exactly three of the six committed
+      app `.ncodesum` goldens moved**, and the three that did not are the
+      containment argument:
 
-Acceptance: full suite green; the docs state the gate as a promise again rather
-than disclosing an exception; the reproduction passes on every backend.
+      | fixture | target | verdict |
+      | --- | --- | --- |
+      | `macos-app-mode-term` | `windows-x86_64.app` | MOVED — the Windows gate |
+      | `macos-app-mode-term` | `linux-x86_64.app` | MOVED — the GTK `term::off` gate |
+      | `macos-app-mode-term` | `linux-aarch64.app` | MOVED — same |
+      | `macos-app-mode-term` | `macos-aarch64.app` | SAME — macOS was untouched |
+      | `macos-app-mode-io` | `windows-x86_64.app` | SAME — no `term::` import |
+      | `macos-app-mode-plumbing` | `windows-x86_64.app` | SAME — no `term::` import |
+
+      The last two are the interesting ones: they are Windows app builds that
+      moved not at all, which is what says the change is confined to the `term::`
+      bodies rather than to shared app plumbing.
+- [x] Deleted the gate disclosures: item 2 of the `mfb man term` overview's
+      app-mode gaps (the overview now lists ONE gap, bug-540's, and says so), the
+      idle-off caveat on `mfb man term off`, the "exception on both counts"
+      sentence on `mfb man term terminalSize` (now "the exception to the size,
+      not to the raise"), and the identical parenthetical caveat on **14** member
+      pages. The spec's opening paragraph now states the gate as a property and
+      cites all four backends' gate helpers.
+- [x] `cargo test --release --no-fail-fast`, `scripts/test-accept.sh`
+      (**1410 ran**, baseline 1409 + this bug's fixture),
+      `scripts/artifact-gate.sh all` (**1926 goldens, 0 diffs**, baseline 1924 +
+      the new fixture's `.ast`/`.ir`), `scripts/man-census.sh --fill term`.
+- [x] Re-ran on 2230 (`scripts/test-winapp.sh`). 2228 was not needed: the GTK
+      half is GATE-03, whose entire runtime effect is a redundant GLib idle
+      source, and no instrument on that box can distinguish it from its absence.
+      It is pinned by codegen inspection and by the `linux-*.app.ncodesum`
+      goldens instead — stated plainly rather than implied.
+
+Acceptance: met.
 Commit: —
 
 ## Validation Plan
@@ -319,14 +428,16 @@ Commit: —
 
 ## Open Decisions
 
-- GATE-01 changes Windows app mode's `term::terminalSize` from
-  always-returning to sometimes-raising. That is the documented contract and the
-  behaviour of every other backend, but it can turn a working Windows app program
-  into one that traps if it calls `terminalSize` outside TUI mode. Recommended:
-  make the change and note it — the raise is the contract, and a program relying
-  on the current answer is relying on a documented gap.
-- Whether to land GATE-03 alone first. It is one line and independent of the
-  Windows work; splitting it lets the GTK half close without waiting on 2230.
+- **Resolved by making the change.** GATE-01 turns Windows app mode's
+  `term::terminalSize` from always-returning into sometimes-raising. A Windows
+  app program that called it outside TUI mode and never handled the failure now
+  propagates one. That is the documented contract on every other backend, and the
+  man page disclosed the Windows answer as a gap rather than promising it, so a
+  program depending on it was depending on a gap. Recorded here because it is a
+  breaking change on one platform, not because it is in doubt.
+- GATE-03 was not landed separately: all three gates are one commit, because the
+  three of them together are what makes the module rule true, and a half-gated
+  backend is the state this bug records.
 
 ## Summary
 

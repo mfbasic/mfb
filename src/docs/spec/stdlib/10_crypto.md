@@ -67,12 +67,16 @@ extensions); computation is portable-arithmetic only, identical across targets.
   `SHA3_384`, `SHA3_512` (FIPS 202; the Keccak-f[1600] sponge at rate
   1152/1088/832/576 bits, domain suffix `0x06`, `pad10*1`; 28/32/48/64 bytes).
   The family prefix is part of every spelling;
-  there are no bare `SHA256`-style aliases. Every user-source occurrence of
-  `Hash.SHA1` (an expression or a `MATCH` literal) reports the non-fatal
+  there are no bare `SHA256`-style aliases. `Hash.SHA1` reports the non-fatal
   `CRYPTO_SHA1_INSECURE` warning (`2-203-0136`, see
   `./mfb spec diagnostics rule-codes`) — SHA-1 is not collision-resistant, so it
   exists only for interoperability with systems that require it; the program
-  still builds and the digest is the standard value.
+  still builds and the digest is the standard value. The warning is scoped to the
+  **use**: `Hash.SHA1` written directly as the hash selector of `hmac`, `hkdf` or
+  `pbkdf2` reports nothing, because none of those rests on collision resistance
+  (HMAC's security follows from the compression function behaving as a PRF), so
+  HMAC-SHA1 for RFC 6238 TOTP or WPA2 is a sound choice rather than a legacy
+  concession. Every other occurrence reports, `hash` included.
   [[src/codegen/builtins/crypto/mod.rs:CRYPTO]]
 - **XOF** — `shake256(data, length)`: SHAKE256 (FIPS 202 §6.2; the same sponge
   at rate 1088 with domain suffix `0x1f`) squeezed to any `length ≥ 1`; a shorter
@@ -125,13 +129,22 @@ extensions); computation is portable-arithmetic only, identical across targets.
   [[src/codegen/builtins/crypto/helper_hpke_profile.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_hpke_seal_with.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_hpke_key_schedule.rs:BODY]]
-- **Key agreement** — `Certificate.X25519` (RFC 7748, 32-byte keys) and
-  `Certificate.X448` (RFC 7748, 56-byte keys; a 16 × 28-bit-limb
-  GF(2^448−2^224−1) field and a 448-step ladder with a branch-free select swap)
-  through `exchange(type, privateKey, publicKey)`, which **fails closed** with
-  `ErrInvalidArgument` on a signing certificate, a wrong key length, or an
-  all-zero shared secret (a low-order peer point, RFC 7748 §6.1). `sign`/`verify`
-  reject both. [[src/codegen/builtins/crypto/helper_x448.rs:BODY]]
+- **Key agreement** — `Certificate.X25519` (RFC 7748, 32-byte keys; a 255-step
+  ladder over the 16 × 16-bit-limb GF(2^255−19) field) and `Certificate.X448`
+  (RFC 7748, 56-byte keys; a 448-step ladder over a 16 × 28-bit-limb
+  GF(2^448−2^224−1) field) through `exchange(type, privateKey, publicKey)`,
+  which **fails closed** with `ErrInvalidArgument` on a signing certificate, a
+  wrong key length, or an all-zero shared secret (a low-order peer point, RFC
+  7748 §6.1; the all-zero test scans the whole secret with no early exit).
+  **Both** ladders run a fixed number of iterations and swap their state with a
+  branch-free masked select — `__crypto_sel25519` and `__crypto_gf448Select`,
+  each computing `a XOR (mask AND (a XOR b))` per limb under a `0 − bit` mask —
+  so no control flow depends on the private scalar. Each curve's canonical
+  packer reduces mod `p` through the same select on the borrow, so the shared
+  secret's representative is chosen without a branch either. `sign`/`verify`
+  reject both. [[src/codegen/builtins/crypto/helper_x25519.rs:BODY]]
+  [[src/codegen/builtins/crypto/helper_sel25519.rs:BODY]]
+  [[src/codegen/builtins/crypto/helper_x448.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_exchange.rs:BODY]]
 - **Key conversion** — `convert(KeyConvert.Ed25519ToX25519, keys)` (libsodium's
   `crypto_sign_ed25519_{pk,sk}_to_curve25519` maps) and
