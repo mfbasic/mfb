@@ -1,0 +1,381 @@
+' ---------------------------------------------------------------------------
+' jwt/core.mfb — the vocabulary every other file is built on: the error codes,
+' the size limits, strict Base64url, and the JSON accessors the JOSE header and
+' the claims set are read through.
+'
+' Two decisions here shape the whole package.
+'
+' The first is that Base64url is decoded STRICTLY, by this file rather than by
+' `encoding::base64UrlDecode`. The built-in decoder is deliberately lenient: it
+' accepts `=` padding, and it discards the leftover bits of a final group rather
+' than requiring them to be zero (`mfb man encoding base64UrlDecode`). Both are
+' reasonable for a general codec and wrong for a JWS, where the signature covers
+' the TEXT of the first two segments: if two different texts decode to the same
+' bytes, a token has more than one spelling, and anything that keys on the text
+' -- a replay cache, a revocation list, a log line -- can be desynchronised from
+' anything that keys on the claims. RFC 7515 §2 defines Base64url encoding here
+' as the unpadded form, so a padded or non-canonical segment is not a JWS
+' segment at all.
+'
+' The second is that ENCODING goes through `encoding::base64UrlEncode`, which
+' already emits the unpadded RFC 4648 §5 form this needs. There is no second
+' implementation of the easy direction.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT encoding
+
+' ---------------------------------------------------------------------------
+' Error codes. Registry codes are used wherever one carries the right meaning
+' (`mfb spec diagnostics error-codes`). Five failures have no registry
+' equivalent -- a token that is well-formed and correctly signed but that the
+' caller's POLICY refuses -- so they take generator-9 (user-defined) codes,
+' which the package exports by name so a caller can match on them.
+' ---------------------------------------------------------------------------
+
+' 7-705-0003 errorCode::ErrInvalidFormat — the token is not a token: the wrong
+' number of segments, a segment that is not canonical unpadded Base64url, a
+' segment that is not a JSON object, or a signature that is not the shape the
+' algorithm produces.
+PUBLIC LET ERR_FORMAT AS Integer = 77050003
+' 7-705-0002 errorCode::ErrInvalidArgument — a caller-side mistake: a key whose
+' material is the wrong size for its curve, a JWK that is not a JWK, or an
+' `Options` with an empty algorithm allowlist.
+PUBLIC LET ERR_ARGUMENT AS Integer = 77050002
+' 7-705-0004 errorCode::ErrNotFound — no supplied key can verify this token,
+' because none carries the token's `alg` (or its `kid`).
+PUBLIC LET ERR_NO_KEY AS Integer = 77050004
+' 7-705-0007 errorCode::ErrUnsupported — a real JOSE algorithm this package
+' does not implement (`RS256`, `PS256`, ...), or a JWK key type it cannot hold.
+PUBLIC LET ERR_UNSUPPORTED AS Integer = 77050007
+' 7-705-0016 errorCode::ErrAuthenticationFailed — the signature did not verify
+' under any candidate key. The same code `crypto::open` raises when an AEAD tag
+' does not verify, and for the same reason: the message is not authentic.
+PUBLIC LET ERR_SIGNATURE AS Integer = 77050016
+
+' 9-313-0001: the token's `exp` has passed.
+PUBLIC LET ERR_EXPIRED AS Integer = 93130001
+' 9-313-0002: the token's `nbf` has not yet arrived.
+PUBLIC LET ERR_NOT_YET_VALID AS Integer = 93130002
+' 9-313-0003: a registered-claim check the caller asked for failed --
+' `iss`, `aud`, `sub`, a required claim that is absent, or `maxAgeSeconds`.
+PUBLIC LET ERR_CLAIM AS Integer = 93130003
+' 9-313-0004: the token's `alg` is not in the caller's allowlist, is `none`, or
+' does not match the key that was offered for it.
+PUBLIC LET ERR_ALGORITHM AS Integer = 93130004
+' 9-313-0005: the token, or one of its segments, is larger than this package
+' will read.
+PUBLIC LET ERR_TOO_LARGE AS Integer = 93130005
+
+' ---------------------------------------------------------------------------
+' Size limits. A JWT arrives from the network, so its size is chosen by whoever
+' sent it. Both limits are far above any real token -- a large OIDC id_token
+' with a dozen claims is a few kilobytes -- and far below the point where
+' decoding one costs anything worth noticing.
+' ---------------------------------------------------------------------------
+
+' The longest token, in UTF-8 bytes, `jwt::verify` will look at.
+PUBLIC LET MAX_TOKEN_BYTES AS Integer = 1048576
+' The longest single segment, in Base64url characters.
+PUBLIC LET MAX_SEGMENT_BYTES AS Integer = 262144
+
+' ---------------------------------------------------------------------------
+' Byte primitives.
+' ---------------------------------------------------------------------------
+
+' The byte at `i`, or -1 when `i` is outside `bytes`. A sentinel rather than a
+' failure so a scanner can write one bounds-free loop condition.
+PUBLIC FUNC byteAt(bytes AS List OF Byte, i AS Integer) AS Integer
+  IF i < 0 OR i >= len(bytes) THEN RETURN -1
+  RETURN toInt(collections::get(bytes, i))
+END FUNC
+
+' `count` bytes of `bytes` starting at `start`.
+PUBLIC FUNC slice(bytes AS List OF Byte, start AS Integer, count AS Integer) AS List OF Byte
+  IF count <= 0 THEN RETURN []
+  RETURN collections::mid(bytes, start, count)
+END FUNC
+
+' `left` followed by `right`.
+PUBLIC FUNC concat(left AS List OF Byte, right AS List OF Byte) AS List OF Byte
+  RETURN collections::append(left, right)
+END FUNC
+
+' A run of `count` zero bytes.
+PUBLIC FUNC zeros(count AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR i = 1 TO count
+    out = collections::append(out, toByte(0))
+  NEXT
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Base64url (RFC 4648 §5), unpadded, as RFC 7515 §2 defines it for JOSE.
+' ---------------------------------------------------------------------------
+
+' The 6-bit value of one Base64url character, or -1 when it is not one. The
+' alphabet is ASCII, so a byte >= 128 -- any byte of a multi-byte scalar --
+' lands here as "not one" without a separate check.
+PRIVATE FUNC symbolValue(code AS Integer) AS Integer
+  IF code >= 65 AND code <= 90 THEN RETURN code - 65
+  IF code >= 97 AND code <= 122 THEN RETURN code - 71
+  IF code >= 48 AND code <= 57 THEN RETURN code + 4
+  IF code = 45 THEN RETURN 62
+  IF code = 95 THEN RETURN 63
+  RETURN -1
+END FUNC
+
+' Encode `bytes` as unpadded Base64url.
+PUBLIC FUNC encodeSegment(bytes AS List OF Byte) AS String
+  RETURN encoding::base64UrlEncode(bytes)
+END FUNC
+
+' Decode one Base64url segment, refusing everything a JWS segment may not be.
+'
+' `what` names the segment in the failure message ("header", "payload",
+' "signature", or a JWK member name), because by the time a token is rejected
+' the only useful thing to say is WHICH part of it was wrong.
+'
+' Three refusals beyond the alphabet, all of them cases the built-in decoder
+' accepts:
+'
+'   * `=` padding. RFC 7515 §2 defines the JOSE encoding as the unpadded form.
+'   * a symbol count of 4k+1, which no group of 6-bit symbols can produce.
+'   * a final group whose leftover bits are not zero -- `QQE` and `QQA` both
+'     carry the byte 0x41, and only `QQ` is its canonical spelling.
+PUBLIC FUNC decodeSegment(text AS String, what AS String) AS List OF Byte
+  LET chars AS List OF Byte = strings::toBytes(text)
+  LET count AS Integer = len(chars)
+  IF count > MAX_SEGMENT_BYTES THEN
+    FAIL error(ERR_TOO_LARGE, "jwt: the " & what & " segment is " & toString(count) & " characters, past the " & toString(MAX_SEGMENT_BYTES) & "-character limit")
+  END IF
+  IF count MOD 4 = 1 THEN
+    FAIL error(ERR_FORMAT, "jwt: the " & what & " segment is " & toString(count) & " Base64url characters, and no group of 6-bit symbols has that length")
+  END IF
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < count
+    MUT take AS Integer = count - i
+    IF take > 4 THEN take = 4
+    MUT accumulator AS Integer = 0
+    FOR j = 0 TO take - 1
+      LET code AS Integer = toInt(collections::get(chars, i + j))
+      LET value AS Integer = symbolValue(code)
+      IF value < 0 THEN
+        IF code = 61 THEN
+          FAIL error(ERR_FORMAT, "jwt: the " & what & " segment carries `=` padding, which the JOSE Base64url encoding does not use")
+        END IF
+        IF code = 43 OR code = 47 THEN
+          FAIL error(ERR_FORMAT, "jwt: the " & what & " segment uses the standard Base64 alphabet (`+`, `/`) rather than the URL-safe one (`-`, `_`)")
+        END IF
+        FAIL error(ERR_FORMAT, "jwt: the " & what & " segment holds a character that is not Base64url, at position " & toString(i + j))
+      END IF
+      accumulator = accumulator * 64 + value
+    NEXT
+    IF take = 4 THEN
+      out = collections::append(out, toByte((accumulator / 65536) MOD 256))
+      out = collections::append(out, toByte((accumulator / 256) MOD 256))
+      out = collections::append(out, toByte(accumulator MOD 256))
+    ELSEIF take = 3 THEN
+      IF accumulator MOD 4 <> 0 THEN
+        FAIL error(ERR_FORMAT, "jwt: the " & what & " segment ends in a non-canonical group -- its final symbol carries bits that belong to no byte")
+      END IF
+      accumulator = accumulator / 4
+      out = collections::append(out, toByte(accumulator / 256))
+      out = collections::append(out, toByte(accumulator MOD 256))
+    ELSE
+      ' `take` is 2 here and can be nothing else: a count of 4k+1 was refused
+      ' above, so a trailing group holds 2, 3 or 4 symbols.
+      IF accumulator MOD 16 <> 0 THEN
+        FAIL error(ERR_FORMAT, "jwt: the " & what & " segment ends in a non-canonical group -- its final symbol carries bits that belong to no byte")
+      END IF
+      out = collections::append(out, toByte(accumulator / 16))
+    END IF
+    i = i + 4
+  END WHILE
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Reading a JOSE object.
+'
+' The header and the claims set are both JSON objects, and both arrive from the
+' network, so every read of one goes through these: a value of the wrong JSON
+' type is a malformed token, not a missing member.
+' ---------------------------------------------------------------------------
+
+' Parse `bytes` as a JSON object, refusing a document that is anything else.
+'
+' The duplicate-member check is the reason this is one function rather than a
+' call to `json::parse`. JSON does not forbid `{"alg":"HS256","alg":"none"}`,
+' and a parser that keeps one member cannot report the other; but the two
+' readers of a token need not keep the SAME one, and a token whose `alg` or
+' `exp` depends on which parser reads it is a token with two meanings. Counting
+' the member names in the text and comparing that against the number of members
+' the parse produced finds the collision without a second JSON parser: the
+' names are compared after unescaping, because `json::parse` already did that.
+PUBLIC FUNC parseObject(bytes AS List OF Byte, what AS String) AS json::Json
+  LET text AS String = encoding::utf8Decode(bytes) TRAP(problem)
+    FAIL error(ERR_FORMAT, "jwt: the " & what & " is not UTF-8 text")
+  END TRAP
+  LET value AS json::Json = json::parse(text) TRAP(problem)
+    FAIL error(ERR_FORMAT, "jwt: the " & what & " is not JSON: " & problem.message)
+  END TRAP
+  MATCH value
+    CASE json::JsonObj(object)
+      LET written AS Integer = memberNameCount(text)
+      IF written > len(object.fields) THEN
+        FAIL error(ERR_FORMAT, "jwt: the " & what & " names " & toString(written) & " members but holds only " & toString(len(object.fields)) & " -- a duplicate member name has two readings and so no meaning")
+      END IF
+      RETURN value
+    CASE ELSE
+      FAIL error(ERR_FORMAT, "jwt: the " & what & " is a JSON " & jsonKind(value) & ", and both a JOSE header and a JWT claims set are objects")
+  END MATCH
+END FUNC
+
+' How many member names the top level of `text` writes, counting repeats.
+'
+' `text` has already parsed, so this walks it rather than validating it: a
+' string token at nesting depth 1 that is followed by `:` is a member name of
+' the root object. Nothing else needs recognising -- brackets and braces move
+' the depth, and every other byte is passed over.
+PRIVATE FUNC memberNameCount(text AS String) AS Integer
+  LET bytes AS List OF Byte = strings::toBytes(text)
+  LET count AS Integer = len(bytes)
+  MUT names AS Integer = 0
+  MUT depth AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < count
+    LET code AS Integer = byteAt(bytes, i)
+    IF code = 34 THEN
+      MUT j AS Integer = i + 1
+      MUT closed AS Boolean = FALSE
+      WHILE j < count AND NOT closed
+        LET inner AS Integer = byteAt(bytes, j)
+        IF inner = 92 THEN
+          j = j + 2
+        ELSEIF inner = 34 THEN
+          closed = TRUE
+          j = j + 1
+        ELSE
+          j = j + 1
+        END IF
+      END WHILE
+      IF depth = 1 THEN
+        MUT k AS Integer = j
+        WHILE k < count AND isJsonSpace(byteAt(bytes, k))
+          k = k + 1
+        END WHILE
+        IF byteAt(bytes, k) = 58 THEN names = names + 1
+      END IF
+      i = j
+    ELSEIF code = 123 OR code = 91 THEN
+      depth = depth + 1
+      i = i + 1
+    ELSEIF code = 125 OR code = 93 THEN
+      depth = depth - 1
+      i = i + 1
+    ELSE
+      i = i + 1
+    END IF
+  END WHILE
+  RETURN names
+END FUNC
+
+' The four bytes JSON allows between tokens.
+PRIVATE FUNC isJsonSpace(code AS Integer) AS Boolean
+  RETURN code = 32 OR code = 9 OR code = 10 OR code = 13
+END FUNC
+
+' The JSON type name of `value`, for a failure message.
+PUBLIC FUNC jsonKind(value AS json::Json) AS String
+  MATCH value
+    CASE json::JsonNull(n) : RETURN "null"
+    CASE json::JsonBool(b) : RETURN "boolean"
+    CASE json::JsonNum(m) : RETURN "number"
+    CASE json::JsonStr(s) : RETURN "string"
+    CASE json::JsonArr(a) : RETURN "array"
+    CASE json::JsonObj(o) : RETURN "object"
+  END MATCH
+END FUNC
+
+' The members of `value`, which the caller already knows is an object.
+PUBLIC FUNC fieldsOf(value AS json::Json) AS Map OF String TO json::Json
+  MATCH value
+    CASE json::JsonObj(object) : RETURN object.fields
+    CASE ELSE : FAIL error(ERR_FORMAT, "jwt: expected a JSON object, found a " & jsonKind(value))
+  END MATCH
+END FUNC
+
+' Whether `value` names `member`.
+PUBLIC FUNC hasMember(value AS json::Json, member AS String) AS Boolean
+  RETURN collections::hasKey(fieldsOf(value), member)
+END FUNC
+
+' The string `member` of `value`, or "" when it is absent.
+'
+' A member that is PRESENT and is not a string fails: a JOSE header whose `kid`
+' is a number is malformed, and treating it as absent would let a token opt out
+' of a check by writing the member with the wrong type.
+PUBLIC FUNC stringMember(value AS json::Json, member AS String, what AS String) AS String
+  LET fields AS Map OF String TO json::Json = fieldsOf(value)
+  IF NOT collections::hasKey(fields, member) THEN RETURN ""
+  LET held AS json::Json = collections::get(fields, member)
+  MATCH held
+    CASE json::JsonStr(text) : RETURN text.value
+    CASE ELSE
+      FAIL error(ERR_FORMAT, "jwt: the " & what & " member `" & member & "` is a JSON " & jsonKind(held) & ", and it must be a string")
+  END MATCH
+END FUNC
+
+' The member `member` of `value` read as a whole number of seconds.
+'
+' JSON numbers are `Float` (`json::JsonNum` holds one), so a claim carrying a
+' fraction or a magnitude past the range binary64 represents exactly is not a
+' NumericDate: RFC 7519 §2 defines one as a count of seconds, and a value that
+' cannot be compared exactly against a clock cannot decide whether a token has
+' expired. Both are refused rather than rounded.
+PUBLIC FUNC secondsMember(value AS json::Json, member AS String, what AS String) AS Integer
+  LET held AS json::Json = collections::get(fieldsOf(value), member)
+  MATCH held
+    CASE json::JsonNum(number)
+      LET seconds AS Float = number.value
+      IF seconds MOD 1.0 <> 0.0 THEN
+        FAIL error(ERR_FORMAT, "jwt: the " & what & " claim `" & member & "` is " & toString(seconds) & ", and a NumericDate is a whole number of seconds")
+      END IF
+      IF seconds > 9007199254740992.0 OR seconds < -9007199254740992.0 THEN
+        FAIL error(ERR_FORMAT, "jwt: the " & what & " claim `" & member & "` is " & toString(seconds) & ", which is past the range a JSON number holds exactly")
+      END IF
+      RETURN toInt(seconds)
+    CASE ELSE
+      FAIL error(ERR_FORMAT, "jwt: the " & what & " claim `" & member & "` is a JSON " & jsonKind(held) & ", and a NumericDate is a number")
+  END MATCH
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Building a JSON value.
+'
+' A `json::JsonStr` is a record, and `json::Json` is the union over the six of
+' them, so every value placed in a `Map OF String TO json::Json` has to be
+' widened to the union first. These four are that widening, named once so the
+' builders elsewhere read as the object they are assembling.
+' ---------------------------------------------------------------------------
+
+PUBLIC FUNC jsonString(text AS String) AS json::Json
+  RETURN json::JsonStr[text]
+END FUNC
+
+PUBLIC FUNC jsonNumber(value AS Float) AS json::Json
+  RETURN json::JsonNum[value]
+END FUNC
+
+PUBLIC FUNC jsonObject(fields AS Map OF String TO json::Json) AS json::Json
+  RETURN json::JsonObj[fields]
+END FUNC
+
+PUBLIC FUNC jsonArray(items AS List OF json::Json) AS json::Json
+  RETURN json::JsonArr[items]
+END FUNC

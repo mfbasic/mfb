@@ -1,0 +1,213 @@
+' ---------------------------------------------------------------------------
+' Tests: sign then verify, for every algorithm the package implements, and the
+' key handling that surrounds it.
+'
+' A round trip is the weakest useful test -- an implementation can round-trip
+' its own mistakes -- so it is here to pin the SHAPE (three segments, the header
+' the package writes, the claims coming back unchanged) and the oracle in
+' `oracle/` is what checks the bytes against another implementation.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT crypto
+
+' Every algorithm/curve pair the package signs with.
+PRIVATE FUNC everyAlgorithm() AS List OF String
+  RETURN ["HS256:", "HS384:", "HS512:", "EdDSA:Ed25519", "EdDSA:Ed448", "ES256:", "ES384:", "ES512:"]
+END FUNC
+
+PRIVATE FUNC keyFor(spec AS String) AS Key
+  LET halves AS List OF String = strings::split(spec, ":")
+  RETURN generate(collections::get(halves, 0), collections::get(halves, 1))
+END FUNC
+
+PRIVATE FUNC algorithmOf(spec AS String) AS String
+  RETURN collections::get(strings::split(spec, ":"), 0)
+END FUNC
+
+' A small claims set with one string and one NumericDate.
+PRIVATE FUNC sampleClaims() AS json::Json
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  fields = collections::set(fields, "iss", jsonString("https://issuer.example"))
+  fields = collections::set(fields, "sub", jsonString("user-1"))
+  fields = collections::set(fields, "exp", jsonNumber(2000000000.0))
+  RETURN jsonObject(fields)
+END FUNC
+
+' An `Options` pinned to an instant well before the sample `exp`, so a test of
+' a signature never becomes a test of the wall clock.
+PRIVATE FUNC pinned(algorithms AS List OF String) AS Options
+  RETURN WITH options(algorithms) { fixedTime := TRUE, timeSeconds := 1700000000 }
+END FUNC
+
+TESTING
+  TGROUP "round trip"
+    TCASE "every algorithm signs a token its own verifier accepts"
+      FOR EACH spec IN everyAlgorithm()
+        LET key AS Key = keyFor(spec)
+        LET token AS String = sign(key, sampleClaims())
+        LET checked AS Token = verify(token, [key], pinned([algorithmOf(spec)]))
+        expectString(json::stringify(checked.claims), json::stringify(sampleClaims()))
+        expectString(checked.algorithm, algorithmOf(spec))
+      NEXT
+    END TCASE
+
+    TCASE "a token is three dot-separated segments"
+      LET key AS Key = keyFor("HS256:")
+      LET token AS String = sign(key, sampleClaims())
+      expectInteger(len(strings::split(token, ".")), 3)
+    END TCASE
+
+    TCASE "the header names the key's algorithm and typ JWT"
+      FOR EACH spec IN everyAlgorithm()
+        LET key AS Key = keyFor(spec)
+        LET header AS json::Json = unverifiedHeader(sign(key, sampleClaims()))
+        expectString(stringMember(header, "alg", "header"), algorithmOf(spec))
+        expectString(stringMember(header, "typ", "header"), "JWT")
+      NEXT
+    END TCASE
+
+    TCASE "the public half alone verifies what the private half signed"
+      FOR EACH spec IN ["EdDSA:Ed25519", "EdDSA:Ed448", "ES256:", "ES384:", "ES512:"]
+        LET key AS Key = keyFor(spec)
+        LET token AS String = sign(key, sampleClaims())
+        LET checked AS Token = verify(token, [publicKeyOf(key)], pinned([algorithmOf(spec)]))
+        expectString(checked.algorithm, algorithmOf(spec))
+      NEXT
+    END TCASE
+
+    TCASE "a verification-only key cannot sign"
+      LET key AS Key = keyFor("EdDSA:Ed25519")
+      expectTrap(sign(publicKeyOf(key), sampleClaims()), 77050002)
+    END TCASE
+
+    TCASE "an ECDSA signature is exactly two coordinate widths"
+      ' The one place the package converts what `crypto::sign` returns: DER is
+      ' variable-length, and RFC 7518 §3.4 fixes the JWS form at 2 * the field
+      ' size. Signing repeatedly also exercises the conversion against the
+      ' varying leading-zero counts a randomized ECDSA produces.
+      FOR EACH spec IN ["ES256:", "ES384:", "ES512:"]
+        LET key AS Key = keyFor(spec)
+        LET wanted AS Integer = signatureSize(key.curve)
+        FOR attempt = 1 TO 12
+          LET token AS String = sign(key, sampleClaims())
+          LET segments AS List OF String = strings::split(token, ".")
+          LET signature AS List OF Byte = decodeSegment(collections::get(segments, 2), "signature")
+          expectInteger(len(signature), wanted)
+        NEXT
+      NEXT
+    END TCASE
+
+    TCASE "an EdDSA signature is the raw form crypto already returns"
+      expectInteger(len(decodeSegment(collections::get(strings::split(sign(keyFor("EdDSA:Ed25519"), sampleClaims()), "."), 2), "signature")), 64)
+      expectInteger(len(decodeSegment(collections::get(strings::split(sign(keyFor("EdDSA:Ed448"), sampleClaims()), "."), 2), "signature")), 114)
+    END TCASE
+
+    TCASE "signing is deterministic for HMAC and EdDSA"
+      ' HMAC and RFC 8032 EdDSA are both deterministic functions of key and
+      ' message, so two signatures of one claims set are the same token. ECDSA
+      ' is randomized and is deliberately not in this list.
+      FOR EACH spec IN ["HS256:", "HS384:", "HS512:", "EdDSA:Ed25519", "EdDSA:Ed448"]
+        LET key AS Key = keyFor(spec)
+        expectString(sign(key, sampleClaims()), sign(key, sampleClaims()))
+      NEXT
+    END TCASE
+  END TGROUP
+
+  TGROUP "keys"
+    TCASE "a JWK round-trips through import and export"
+      FOR EACH spec IN everyAlgorithm()
+        LET key AS Key = withKid(keyFor(spec), "k-1")
+        LET jwk AS String = exportJwk(key, TRUE)
+        LET back AS Key = importJwk(jwk)
+        expectString(back.algorithm, key.algorithm)
+        expectString(back.curve, key.curve)
+        expectString(back.kid, "k-1")
+        expectString(exportJwk(back, TRUE), jwk)
+      NEXT
+    END TCASE
+
+    TCASE "an imported public JWK verifies a token the private one signed"
+      FOR EACH spec IN ["EdDSA:Ed25519", "EdDSA:Ed448", "ES256:", "ES384:", "ES512:"]
+        LET key AS Key = keyFor(spec)
+        LET token AS String = sign(key, sampleClaims())
+        LET published AS Key = importJwk(exportJwk(publicKeyOf(key), FALSE))
+        LET checked AS Token = verify(token, [published], pinned([algorithmOf(spec)]))
+        expectString(checked.algorithm, algorithmOf(spec))
+      NEXT
+    END TCASE
+
+    TCASE "a MAC key has no public form to publish"
+      expectTrap(publicKeyOf(keyFor("HS256:")), 77050002)
+      expectTrap(exportJwk(keyFor("HS256:"), FALSE), 77050002)
+    END TCASE
+
+    TCASE "a MAC secret shorter than the digest is refused"
+      expectTrap(macKey("HS256", crypto::randomBytes(31)), 77050002)
+      expectTrap(macKey("HS384", crypto::randomBytes(47)), 77050002)
+      expectTrap(macKey("HS512", crypto::randomBytes(63)), 77050002)
+      expectNTrap(macKey("HS256", crypto::randomBytes(32)))
+    END TCASE
+
+    TCASE "an oct JWK must name its alg"
+      expectTrap(importJwk("{\"kty\":\"oct\",\"k\":\"" & encodeSegment(crypto::randomBytes(32)) & "\"}"), 77050002)
+    END TCASE
+
+    TCASE "a JWK whose alg disagrees with its curve is refused"
+      LET key AS Key = keyFor("ES256:")
+      expectTrap(importJwk(strings::replace(exportJwk(key, FALSE), "\"alg\":\"ES256\"", "\"alg\":\"ES384\"")), 77050002)
+    END TCASE
+
+    TCASE "a coordinate of the wrong length is refused"
+      ' `x` is one byte short: 31 bytes on P-256. RFC 7518 §6.2.1.2 fixes the
+      ' length at the field size, so this is a different key rather than a
+      ' small number, and padding it would build one that verifies nothing.
+      LET short AS String = encodeSegment(crypto::randomBytes(31))
+      LET full AS String = encodeSegment(crypto::randomBytes(32))
+      expectTrap(importJwk("{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" & short & "\",\"y\":\"" & full & "\"}"), 77050002)
+    END TCASE
+
+    TCASE "an RSA JWK is unsupported rather than malformed"
+      expectTrap(importJwk("{\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\"}"), 77050007)
+    END TCASE
+
+    TCASE "a JWK marked for encryption is refused"
+      LET key AS Key = keyFor("ES256:")
+      expectTrap(importJwk(strings::replace(exportJwk(key, FALSE), "\"use\":\"sig\"", "\"use\":\"enc\"")), 77050002)
+    END TCASE
+
+    TCASE "a JWK Set keeps the keys it can hold and skips the ones it cannot"
+      LET first AS Key = withKid(keyFor("ES256:"), "a")
+      LET second AS Key = withKid(keyFor("EdDSA:Ed25519"), "b")
+      LET set AS String = exportJwkSet([publicKeyOf(first), publicKeyOf(second)], FALSE)
+      LET back AS List OF Key = importJwkSet(set)
+      expectInteger(len(back), 2)
+      expectString(collections::get(back, 0).kid, "a")
+      expectString(collections::get(back, 1).kid, "b")
+
+      LET withRsa AS String = "{\"keys\":[{\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\"}," & exportJwk(publicKeyOf(first), FALSE) & "]}"
+      LET usable AS List OF Key = importJwkSet(withRsa)
+      expectInteger(len(usable), 1)
+      expectString(collections::get(usable, 0).kid, "a")
+    END TCASE
+
+    TCASE "keyFromPair needs the curve the pair is actually on"
+      LET pair AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
+      expectNTrap(keyFromPair("ES256", "P-256", pair))
+      ' P-384 material is a different size, so the mix-up is caught.
+      expectTrap(keyFromPair("ES384", "P-384", pair), 77050002)
+      ' ES256 is defined over P-256 and nothing else.
+      expectTrap(keyFromPair("ES256", "P-384", pair), 77050002)
+    END TCASE
+
+    TCASE "generate refuses a curve the algorithm is not defined over"
+      expectTrap(generate("EdDSA", ""), 77050002)
+      expectTrap(generate("ES256", "P-384"), 77050002)
+      expectTrap(generate("HS256", "Ed25519"), 77050002)
+      expectTrap(generate("RS256", ""), 77050007)
+      expectTrap(generate("none", ""), 93130004)
+    END TCASE
+  END TGROUP
+END TESTING

@@ -1,0 +1,236 @@
+' ---------------------------------------------------------------------------
+' jwt/ecdsa.mfb — the one seam between what `crypto::sign` produces and what a
+' JWS carries.
+'
+' `crypto::sign(crypto::Certificate.P256, ...)` returns an ASN.1 DER
+' `Ecdsa-Sig-Value` -- `SEQUENCE { INTEGER r, INTEGER s }`, minimally encoded,
+' so its length varies from token to token (`mfb man crypto sign`). RFC 7518
+' §3.4 defines `ES256` as the fixed-width concatenation `R || S`, each half
+' exactly the byte length of the curve's field: 32, 48 and 66 bytes for P-256,
+' P-384 and P-521. Neither form can be handed to the other side, so this file
+' converts both ways.
+'
+' It is the most security-sensitive code in the package, for a reason that is
+' easy to miss: the DER parser reads a signature an ATTACKER wrote. A lenient
+' one turns a single logical signature into many spellings -- a leading zero
+' byte here, a long-form length there -- and any of them verifies. That gives a
+' token more than one text, which is the same hazard non-canonical Base64url
+' has one layer up, and it is why every length and every INTEGER below is
+' checked for minimal encoding rather than merely parsed.
+'
+' `r` and `s` are also range-checked against the curve order `n`. FIPS 186-4
+' requires 1 <= r, s <= n-1, and the platform verifier enforces it too, but
+' doing it here makes the refusal the package's own rather than a property of
+' whichever of SecKey, OpenSSL or CNG is underneath.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT encoding
+
+' The DER tags this file reads and writes. Nothing else is legal in an
+' `Ecdsa-Sig-Value`, so nothing else is recognised.
+PRIVATE LET TAG_SEQUENCE AS Integer = 48
+PRIVATE LET TAG_INTEGER AS Integer = 2
+
+' A value read out of a DER encoding, together with the offset just past it.
+' MFBASIC has no tuple, and every reader here needs both.
+PRIVATE TYPE Read
+  bytes AS List OF Byte
+  after AS Integer
+END TYPE
+
+PRIVATE TYPE ReadLength
+  value AS Integer
+  after AS Integer
+END TYPE
+
+' The byte length of one coordinate on `curve` -- half the length of a JWS
+' `ES*` signature, and the exact length of a JWK `x`, `y` or `d`.
+'
+' P-521 is 66 rather than 65 because its field is 521 bits: ceil(521/8) = 66.
+PUBLIC FUNC coordinateSize(curve AS String) AS Integer
+  IF curve = "P-256" THEN RETURN 32
+  IF curve = "P-384" THEN RETURN 48
+  IF curve = "P-521" THEN RETURN 66
+  FAIL error(ERR_UNSUPPORTED, "jwt: `" & curve & "` is not an elliptic curve this package holds")
+END FUNC
+
+' The order `n` of the base point of `curve`, big-endian, padded to the
+' coordinate size.
+'
+' The three values are the ones FIPS 186-4 D.1.2 and SEC 2 §2 fix for the
+' curves; they are written as hex here so they can be read against the standard
+' without decoding arithmetic in the way.
+PUBLIC FUNC curveOrder(curve AS String) AS List OF Byte
+  IF curve = "P-256" THEN
+    RETURN encoding::hexDecode("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551")
+  END IF
+  IF curve = "P-384" THEN
+    RETURN encoding::hexDecode("ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973")
+  END IF
+  IF curve = "P-521" THEN
+    RETURN encoding::hexDecode("01fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409")
+  END IF
+  FAIL error(ERR_UNSUPPORTED, "jwt: `" & curve & "` is not an elliptic curve this package holds")
+END FUNC
+
+' Whether `value` -- big-endian, the same length as `order` -- is in the range
+' FIPS 186-4 requires of an ECDSA `r` or `s`: 1 <= value <= order - 1.
+'
+' The comparison walks both from the most significant byte and returns at the
+' first difference. It is not constant-time and does not need to be: `r`, `s`
+' and `n` are all public.
+PUBLIC FUNC inSignatureRange(value AS List OF Byte, order AS List OF Byte) AS Boolean
+  MUT nonZero AS Boolean = FALSE
+  FOR EACH digit IN value
+    IF toInt(digit) <> 0 THEN
+      nonZero = TRUE
+      EXIT FOR
+    END IF
+  NEXT
+  IF NOT nonZero THEN RETURN FALSE
+  FOR i = 0 TO len(order) - 1
+    LET left AS Integer = byteAt(value, i)
+    LET right AS Integer = byteAt(order, i)
+    IF left < right THEN RETURN TRUE
+    IF left > right THEN RETURN FALSE
+  NEXT
+  ' Equal to the order, which is one past the largest legal value.
+  RETURN FALSE
+END FUNC
+
+' ---------------------------------------------------------------------------
+' DER -> the JWS fixed-width form
+' ---------------------------------------------------------------------------
+
+' Convert an ASN.1 DER `Ecdsa-Sig-Value` into the `R || S` form RFC 7518 §3.4
+' defines, each half `size` bytes.
+PUBLIC FUNC derToRaw(der AS List OF Byte, curve AS String) AS List OF Byte
+  LET size AS Integer = coordinateSize(curve)
+  IF byteAt(der, 0) <> TAG_SEQUENCE THEN
+    FAIL error(ERR_FORMAT, "jwt: an ECDSA signature must be a DER SEQUENCE, and this one starts with " & toString(byteAt(der, 0)))
+  END IF
+  LET header AS ReadLength = readLength(der, 1)
+  IF header.value <> len(der) - header.after THEN
+    FAIL error(ERR_FORMAT, "jwt: the DER SEQUENCE declares " & toString(header.value) & " content bytes but the signature holds " & toString(len(der) - header.after))
+  END IF
+  LET r AS Read = readInteger(der, header.after, "r")
+  LET s AS Read = readInteger(der, r.after, "s")
+  IF s.after <> len(der) THEN
+    FAIL error(ERR_FORMAT, "jwt: the DER signature carries " & toString(len(der) - s.after) & " trailing byte(s) after `s`")
+  END IF
+  LET order AS List OF Byte = curveOrder(curve)
+  RETURN concat(fitCoordinate(r.bytes, size, order, "r"), fitCoordinate(s.bytes, size, order, "s"))
+END FUNC
+
+' Left-pad one DER INTEGER's magnitude to `size` bytes and range-check it.
+PRIVATE FUNC fitCoordinate(magnitude AS List OF Byte, size AS Integer, order AS List OF Byte, name AS String) AS List OF Byte
+  MUT trimmed AS List OF Byte = magnitude
+  WHILE len(trimmed) > 0 AND byteAt(trimmed, 0) = 0
+    trimmed = slice(trimmed, 1, len(trimmed) - 1)
+  END WHILE
+  IF len(trimmed) > size THEN
+    FAIL error(ERR_FORMAT, "jwt: the ECDSA signature's `" & name & "` is " & toString(len(trimmed)) & " bytes, larger than the " & toString(size) & "-byte curve field")
+  END IF
+  LET padded AS List OF Byte = concat(zeros(size - len(trimmed)), trimmed)
+  IF NOT inSignatureRange(padded, order) THEN
+    FAIL error(ERR_FORMAT, "jwt: the ECDSA signature's `" & name & "` is zero or at least the curve order, and FIPS 186-4 requires 1 <= " & name & " <= n-1")
+  END IF
+  RETURN padded
+END FUNC
+
+' Read a DER length at `at`, refusing every non-minimal encoding.
+'
+' Short form for anything under 128, and long form only for the byte counts an
+' `Ecdsa-Sig-Value` can actually reach: a P-521 signature's content is at most
+' 2 * (2 + 1 + 66) = 138 bytes, so one length byte is always enough and a
+' two-byte long form would itself be non-minimal.
+PRIVATE FUNC readLength(der AS List OF Byte, at AS Integer) AS ReadLength
+  LET first AS Integer = byteAt(der, at)
+  IF first < 0 THEN
+    FAIL error(ERR_FORMAT, "jwt: the DER signature ends where a length was expected")
+  END IF
+  IF first < 128 THEN
+    RETURN ReadLength[value := first, after := at + 1]
+  END IF
+  IF first <> 129 THEN
+    FAIL error(ERR_FORMAT, "jwt: the DER signature uses a " & toString(first - 128) & "-byte length, which no ECDSA signature needs and DER therefore forbids here")
+  END IF
+  LET value AS Integer = byteAt(der, at + 1)
+  IF value < 128 THEN
+    FAIL error(ERR_FORMAT, "jwt: the DER signature writes the length " & toString(value) & " in long form, and DER requires the shortest encoding")
+  END IF
+  RETURN ReadLength[value := value, after := at + 2]
+END FUNC
+
+' Read one DER INTEGER at `at`, refusing every encoding DER does not produce.
+PRIVATE FUNC readInteger(der AS List OF Byte, at AS Integer, name AS String) AS Read
+  IF byteAt(der, at) <> TAG_INTEGER THEN
+    FAIL error(ERR_FORMAT, "jwt: expected a DER INTEGER for the ECDSA signature's `" & name & "`")
+  END IF
+  LET size AS ReadLength = readLength(der, at + 1)
+  IF size.value = 0 THEN
+    FAIL error(ERR_FORMAT, "jwt: the ECDSA signature's `" & name & "` is an empty DER INTEGER, which encodes no value")
+  END IF
+  IF size.after + size.value > len(der) THEN
+    FAIL error(ERR_FORMAT, "jwt: the ECDSA signature's `" & name & "` declares " & toString(size.value) & " bytes but the signature ends first")
+  END IF
+  LET first AS Integer = byteAt(der, size.after)
+  IF first >= 128 THEN
+    FAIL error(ERR_FORMAT, "jwt: the ECDSA signature's `" & name & "` is a negative DER INTEGER, and r and s are positive")
+  END IF
+  IF first = 0 AND size.value > 1 AND byteAt(der, size.after + 1) < 128 THEN
+    FAIL error(ERR_FORMAT, "jwt: the ECDSA signature's `" & name & "` carries a redundant leading zero byte, and DER requires the shortest encoding")
+  END IF
+  RETURN Read[bytes := slice(der, size.after, size.value), after := size.after + size.value]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The JWS fixed-width form -> DER
+' ---------------------------------------------------------------------------
+
+' Convert a JWS `R || S` signature into the ASN.1 DER `Ecdsa-Sig-Value` that
+' `crypto::verify` reads.
+'
+' The length check is the load-bearing one. A JWS ECDSA signature is exactly
+' two coordinate widths, so a signature of any other length is not a signature
+' for this curve -- and accepting a short one, padded, would let `ES512` bytes
+' be replayed as `ES256`.
+PUBLIC FUNC rawToDer(raw AS List OF Byte, curve AS String) AS List OF Byte
+  LET size AS Integer = coordinateSize(curve)
+  IF len(raw) <> size * 2 THEN
+    FAIL error(ERR_FORMAT, "jwt: an " & curve & " signature is " & toString(size * 2) & " bytes, and this one is " & toString(len(raw)))
+  END IF
+  LET order AS List OF Byte = curveOrder(curve)
+  LET r AS List OF Byte = slice(raw, 0, size)
+  LET s AS List OF Byte = slice(raw, size, size)
+  IF NOT inSignatureRange(r, order) THEN
+    FAIL error(ERR_FORMAT, "jwt: the ECDSA signature's `r` is zero or at least the curve order, and FIPS 186-4 requires 1 <= r <= n-1")
+  END IF
+  IF NOT inSignatureRange(s, order) THEN
+    FAIL error(ERR_FORMAT, "jwt: the ECDSA signature's `s` is zero or at least the curve order, and FIPS 186-4 requires 1 <= s <= n-1")
+  END IF
+  LET content AS List OF Byte = concat(derInteger(r), derInteger(s))
+  MUT out AS List OF Byte = [toByte(TAG_SEQUENCE)]
+  IF len(content) < 128 THEN
+    out = collections::append(out, toByte(len(content)))
+  ELSE
+    out = collections::append(out, toByte(129))
+    out = collections::append(out, toByte(len(content)))
+  END IF
+  RETURN concat(out, content)
+END FUNC
+
+' One coordinate as a minimally-encoded DER INTEGER.
+PRIVATE FUNC derInteger(coordinate AS List OF Byte) AS List OF Byte
+  MUT magnitude AS List OF Byte = coordinate
+  WHILE len(magnitude) > 1 AND byteAt(magnitude, 0) = 0
+    magnitude = slice(magnitude, 1, len(magnitude) - 1)
+  END WHILE
+  IF byteAt(magnitude, 0) >= 128 THEN
+    ' DER INTEGERs are signed, so a magnitude whose top bit is set takes a
+    ' leading zero byte to stay positive.
+    magnitude = concat([toByte(0)], magnitude)
+  END IF
+  RETURN concat([toByte(TAG_INTEGER), toByte(len(magnitude))], magnitude)
+END FUNC

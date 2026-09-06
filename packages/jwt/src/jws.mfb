@@ -1,0 +1,164 @@
+' ---------------------------------------------------------------------------
+' jwt/jws.mfb — the compact JWS serialization (RFC 7515 §3.1): splitting a
+' token into its three segments, producing a signature over the signing input,
+' and checking one.
+'
+' The signing input is the TEXT `BASE64URL(header) || "." || BASE64URL(claims)`,
+' not the bytes those segments decode to. That is why `signToken` builds the
+' two segments once and signs the string it built rather than re-encoding the
+' values: a signature over a re-encoding is a signature over a document that
+' may not be the one that was sent.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT encoding
+IMPORT crypto
+
+' The three segments of a compact JWS, as text.
+PUBLIC TYPE Parts
+  header AS String
+  payload AS String
+  signature AS String
+  ' `header || "." || payload` -- the exact bytes the signature covers.
+  signingInput AS String
+END TYPE
+
+' Split a compact JWS into its segments.
+'
+' A compact JWS has exactly three segments and therefore exactly two dots. Both
+' of the near misses are refused by name, because they are the two an
+' implementation is most likely to be fed by accident: a JWE is five segments,
+' and an unsecured JWS is three segments whose last one is empty.
+PUBLIC FUNC splitToken(token AS String) AS Parts
+  LET size AS Integer = strings::byteLen(token)
+  IF size > MAX_TOKEN_BYTES THEN
+    FAIL error(ERR_TOO_LARGE, "jwt: the token is " & toString(size) & " bytes, past the " & toString(MAX_TOKEN_BYTES) & "-byte limit")
+  END IF
+  LET segments AS List OF String = strings::split(token, ".")
+  IF len(segments) = 5 THEN
+    FAIL error(ERR_FORMAT, "jwt: the token has five segments, which is a JWE (an encrypted token) rather than a signed JWT -- this package reads the compact JWS serialization")
+  END IF
+  IF len(segments) <> 3 THEN
+    FAIL error(ERR_FORMAT, "jwt: the token has " & toString(len(segments)) & " `.`-separated segments, and a compact JWS has exactly three")
+  END IF
+  LET header AS String = collections::get(segments, 0)
+  LET payload AS String = collections::get(segments, 1)
+  LET signature AS String = collections::get(segments, 2)
+  IF header = "" THEN
+    FAIL error(ERR_FORMAT, "jwt: the token's header segment is empty")
+  END IF
+  IF payload = "" THEN
+    FAIL error(ERR_FORMAT, "jwt: the token's payload segment is empty")
+  END IF
+  IF signature = "" THEN
+    FAIL error(ERR_FORMAT, "jwt: the token's signature segment is empty, which is the shape of an unsecured `alg: \"none\"` JWS -- nothing about it can be verified")
+  END IF
+  RETURN Parts[header := header, payload := payload, signature := signature, signingInput := header & "." & payload]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Producing and checking a signature.
+' ---------------------------------------------------------------------------
+
+' The JWS signature over `message` under `key`, in the form RFC 7518 defines
+' for the key's algorithm.
+'
+' The `ES*` case is the only one that converts: `crypto::sign` returns ASN.1
+' DER for a NIST curve, and a JWS carries the fixed-width `R || S`. Ed25519 and
+' Ed448 already return the raw form JWS wants (`mfb man crypto sign`), so
+' `EdDSA` passes straight through.
+PUBLIC FUNC signMessage(key AS Key, message AS List OF Byte) AS List OF Byte
+  LET family AS String = algorithmFamily(key.algorithm)
+  IF family = "MAC" THEN
+    RETURN crypto::hmac(macHash(key.algorithm), key.secret, message)
+  END IF
+  IF len(key.privateKey) = 0 THEN
+    FAIL error(ERR_ARGUMENT, "jwt: this " & key.algorithm & " key holds only its public half, so it can verify but not sign")
+  END IF
+  LET produced AS List OF Byte = crypto::sign(certificateFor(key.curve), key.privateKey, message)
+  IF family = "ECDSA" THEN
+    RETURN derToRaw(produced, key.curve)
+  END IF
+  RETURN produced
+END FUNC
+
+' Whether `signature` is a valid JWS signature over `message` under `key`.
+'
+' A signature of the wrong length for this key is FALSE rather than a failure,
+' because "wrong length" is how an Ed25519 key answers an Ed448 token: the two
+' share the `EdDSA` algorithm name and are told apart only by their sizes, so a
+' verifier handed both keys must be able to try each one and move on.
+'
+' A signature of the RIGHT length whose contents are not a well-formed ECDSA
+' `(r, s)` pair is a different thing and does fail: the curve is fixed by the
+' algorithm, so no other key could read those bytes either, and saying which
+' rule the signature broke is more useful than "did not verify".
+PUBLIC FUNC verifyMessage(key AS Key, message AS List OF Byte, signature AS List OF Byte) AS Boolean
+  LET family AS String = algorithmFamily(key.algorithm)
+  IF family = "MAC" THEN
+    RETURN crypto::constantTimeEqual(signature, crypto::hmac(macHash(key.algorithm), key.secret, message))
+  END IF
+  IF len(signature) <> signatureSize(key.curve) THEN RETURN FALSE
+  LET publicKey AS List OF Byte = publicHalf(key)
+  IF family = "ECDSA" THEN
+    RETURN crypto::verify(certificateFor(key.curve), publicKey, message, rawToDer(signature, key.curve))
+  END IF
+  RETURN crypto::verify(certificateFor(key.curve), publicKey, message, signature)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Building a token.
+' ---------------------------------------------------------------------------
+
+' Serialize `header` and `claims` as a compact JWS signed with `key`.
+PUBLIC FUNC buildToken(key AS Key, header AS json::Json, claims AS json::Json) AS String
+  LET headerSegment AS String = encodeSegment(encoding::utf8Encode(json::stringify(header)))
+  LET payloadSegment AS String = encodeSegment(encoding::utf8Encode(json::stringify(claims)))
+  LET signingInput AS String = headerSegment & "." & payloadSegment
+  LET signature AS List OF Byte = signMessage(key, encoding::utf8Encode(signingInput))
+  RETURN signingInput & "." & encodeSegment(signature)
+END FUNC
+
+' The protected header `jwt::sign` writes: the key's algorithm, `typ`, the
+' key's `kid` when it has one, and whatever else the caller asked for.
+'
+' `alg` is written by the package and never by the caller, so a header cannot
+' claim one algorithm while the signature is produced by another. A caller that
+' writes a matching `alg` is allowed -- it is redundant, not wrong -- and one
+' that writes a different one is refused rather than silently overwritten.
+PUBLIC FUNC buildHeader(key AS Key, extras AS Map OF String TO json::Json) AS json::Json
+  IF collections::hasKey(extras, "alg") THEN
+    LET declared AS json::Json = collections::get(extras, "alg")
+    MATCH declared
+      CASE json::JsonStr(text)
+        IF text.value <> key.algorithm THEN
+          FAIL error(ERR_ARGUMENT, "jwt: the header asks for `alg: \"" & text.value & "\"` but the key signs " & key.algorithm & " -- the header's `alg` is written from the key, so the two cannot disagree")
+        END IF
+      CASE ELSE
+        FAIL error(ERR_ARGUMENT, "jwt: a header `alg` is a string")
+    END MATCH
+  END IF
+  IF collections::hasKey(extras, "crit") THEN
+    FAIL error(ERR_ARGUMENT, "jwt: `crit` names header parameters a verifier MUST understand or reject (RFC 7515 §4.1.11), and this package implements no extension to name there -- a token carrying one would be rejected by its own verifier")
+  END IF
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  fields = collections::set(fields, "alg", jsonString(key.algorithm))
+  IF collections::hasKey(extras, "typ") THEN
+    fields = collections::set(fields, "typ", collections::get(extras, "typ"))
+  ELSE
+    fields = collections::set(fields, "typ", jsonString("JWT"))
+  END IF
+  IF collections::hasKey(extras, "kid") THEN
+    fields = collections::set(fields, "kid", collections::get(extras, "kid"))
+  ELSEIF key.kid <> "" THEN
+    fields = collections::set(fields, "kid", jsonString(key.kid))
+  END IF
+  FOR EACH entry IN extras
+    IF entry.key <> "alg" AND entry.key <> "typ" AND entry.key <> "kid" THEN
+      fields = collections::set(fields, entry.key, entry.value)
+    END IF
+  NEXT
+  RETURN jsonObject(fields)
+END FUNC

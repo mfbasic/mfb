@@ -1,0 +1,323 @@
+' ---------------------------------------------------------------------------
+' Tests: everything `jwt::verify` refuses.
+'
+' Each case here is a token that is well-formed enough to reach the check it is
+' testing, so a rule that stops being enforced fails LOUDLY -- as an acceptance
+' -- rather than being masked by an earlier rejection for a different reason.
+' `craftSigned` is what makes that possible: it signs an arbitrary header and
+' payload TEXT, so a test of the duplicate-member rule is not also a test of the
+' signature.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT encoding
+IMPORT crypto
+
+PRIVATE FUNC macKeyFor(algorithm AS String) AS Key
+  RETURN macKey(algorithm, crypto::hash(crypto::Hash.SHA2_512, "a fixed test secret"))
+END FUNC
+
+PRIVATE FUNC pinnedOptions(algorithms AS List OF String) AS Options
+  RETURN WITH options(algorithms) { fixedTime := TRUE, timeSeconds := 1700000000 }
+END FUNC
+
+' A token whose header and payload are exactly the text given, signed for real.
+PRIVATE FUNC craftSigned(key AS Key, headerJson AS String, payloadJson AS String) AS String
+  LET input AS String = encodeSegment(strings::toBytes(headerJson)) & "." & encodeSegment(strings::toBytes(payloadJson))
+  RETURN input & "." & encodeSegment(signMessage(key, encoding::utf8Encode(input)))
+END FUNC
+
+PRIVATE FUNC simpleClaims() AS json::Json
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  fields = collections::set(fields, "sub", jsonString("user-1"))
+  RETURN jsonObject(fields)
+END FUNC
+
+' Replace one segment of a token, keeping the other two.
+PRIVATE FUNC withSegment(token AS String, index AS Integer, replacement AS String) AS String
+  MUT segments AS List OF String = strings::split(token, ".")
+  segments = collections::set(segments, index, replacement)
+  RETURN strings::join(segments, ".")
+END FUNC
+
+TESTING
+  TGROUP "token shape"
+    TCASE "a token has exactly three segments"
+      LET key AS Key = macKeyFor("HS256")
+      LET token AS String = sign(key, simpleClaims())
+      LET options AS Options = pinnedOptions(["HS256"])
+      expectTrap(verify("", [key], options), 77050003)
+      expectTrap(verify("a.b", [key], options), 77050003)
+      expectTrap(verify(token & ".extra", [key], options), 77050003)
+    END TCASE
+
+    TCASE "a five-segment token is named as a JWE rather than counted"
+      LET key AS Key = macKeyFor("HS256")
+      expectTrap(verify("a.b.c.d.e", [key], pinnedOptions(["HS256"])), 77050003)
+    END TCASE
+
+    TCASE "an empty segment is refused"
+      LET key AS Key = macKeyFor("HS256")
+      LET token AS String = sign(key, simpleClaims())
+      LET options AS Options = pinnedOptions(["HS256"])
+      expectTrap(verify(withSegment(token, 0, ""), [key], options), 77050003)
+      expectTrap(verify(withSegment(token, 1, ""), [key], options), 77050003)
+      expectTrap(verify(withSegment(token, 2, ""), [key], options), 77050003)
+    END TCASE
+
+    TCASE "a header that is not a JSON object is refused"
+      LET key AS Key = macKeyFor("HS256")
+      LET options AS Options = pinnedOptions(["HS256"])
+      expectTrap(verify(craftSigned(key, "[\"HS256\"]", "{}"), [key], options), 77050003)
+      expectTrap(verify(craftSigned(key, "\"HS256\"", "{}"), [key], options), 77050003)
+      expectTrap(verify(craftSigned(key, "not json", "{}"), [key], options), 77050003)
+    END TCASE
+
+    TCASE "a payload that is not a JSON object is refused"
+      LET key AS Key = macKeyFor("HS256")
+      LET options AS Options = pinnedOptions(["HS256"])
+      expectTrap(verify(craftSigned(key, "{\"alg\":\"HS256\"}", "[1,2,3]"), [key], options), 77050003)
+      expectTrap(verify(craftSigned(key, "{\"alg\":\"HS256\"}", "42"), [key], options), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "Base64url canonicality"
+    TCASE "padding is refused"
+      ' `{}` is two bytes, so its segment is three symbols and a padded
+      ' spelling adds one `=`. RFC 7515 §2 defines the JOSE encoding as the
+      ' unpadded form, so the padded text is not a JWS segment.
+      LET key AS Key = macKeyFor("HS256")
+      LET token AS String = craftSigned(key, "{\"alg\":\"HS256\"}", "{}")
+      LET padded AS String = withSegment(token, 1, collections::get(strings::split(token, "."), 1) & "=")
+      expectTrap(verify(padded, [key], pinnedOptions(["HS256"])), 77050003)
+    END TCASE
+
+    TCASE "a non-canonical final group is refused"
+      ' A two-symbol group carries 12 bits and yields one byte, so its last
+      ' four bits belong to no byte and must be zero: `QQ` is the canonical
+      ' spelling of 0x41 and `QR` is a second spelling of the same byte. A
+      ' three-symbol group has two such bits over its two bytes. Accepting the
+      ' non-canonical spelling would give one byte string several texts, and so
+      ' one token several texts -- while the signature covers the text.
+      expectString(encoding::hexEncode(decodeSegment("QQ", "test")), "41")
+      expectTrap(decodeSegment("QR", "test"), 77050003)
+      expectString(encoding::hexEncode(decodeSegment("QQA", "test")), "4100")
+      expectTrap(decodeSegment("QQB", "test"), 77050003)
+      ' A four-symbol group is 24 bits and fills three bytes exactly, so it has
+      ' no leftover bits to be wrong about.
+      expectNTrap(decodeSegment("QQQB", "test"))
+    END TCASE
+
+    TCASE "the standard Base64 alphabet is refused"
+      expectTrap(decodeSegment("a+b/", "test"), 77050003)
+    END TCASE
+
+    TCASE "a symbol count of 4k+1 is refused"
+      expectTrap(decodeSegment("A", "test"), 77050003)
+      expectTrap(decodeSegment("AAAAA", "test"), 77050003)
+    END TCASE
+
+    TCASE "a character outside the alphabet is refused"
+      expectTrap(decodeSegment("ab c", "test"), 77050003)
+      expectTrap(decodeSegment("ab\nc", "test"), 77050003)
+      expectTrap(decodeSegment("ab.c", "test"), 77050003)
+      expectTrap(decodeSegment("caf\u{00e9}", "test"), 77050003)
+    END TCASE
+
+    TCASE "the encoder and the strict decoder round-trip every length"
+      FOR size = 0 TO 40
+        LET bytes AS List OF Byte = crypto::randomBytes(size)
+        expectString(encoding::hexEncode(decodeSegment(encodeSegment(bytes), "test")), encoding::hexEncode(bytes))
+      NEXT
+    END TCASE
+  END TGROUP
+
+  TGROUP "algorithm"
+    TCASE "alg none is refused however it is dressed up"
+      LET key AS Key = macKeyFor("HS256")
+      ' The classic shape: three segments, the third empty.
+      LET input AS String = encodeSegment(strings::toBytes("{\"alg\":\"none\"}")) & "." & encodeSegment(strings::toBytes("{\"sub\":\"admin\"}"))
+      expectTrap(verify(input & ".", [key], pinnedOptions(["HS256"])), 77050003)
+      ' And with a signature attached, so the empty-segment rule is not what
+      ' catches it.
+      expectTrap(verify(craftSigned(key, "{\"alg\":\"none\"}", "{\"sub\":\"admin\"}"), [key], pinnedOptions(["HS256"])), 93130004)
+    END TCASE
+
+    TCASE "an algorithm outside the allowlist is refused before any key is tried"
+      LET key AS Key = macKeyFor("HS256")
+      LET token AS String = sign(key, simpleClaims())
+      expectTrap(verify(token, [key], pinnedOptions(["HS384"])), 93130004)
+      expectTrap(verify(token, [key], pinnedOptions(["EdDSA"])), 93130004)
+    END TCASE
+
+    TCASE "an algorithm the package does not implement is refused at the allowlist"
+      expectTrap(options(["RS256"]), 77050007)
+      expectTrap(options(["PS512"]), 77050007)
+      expectTrap(options(["none"]), 93130004)
+      expectTrap(options([]), 77050002)
+    END TCASE
+
+    TCASE "an ES256 public key never verifies an HS256 token"
+      ' The algorithm-confusion attack: a token that names HS256 keyed by the
+      ' public key everyone already has. Two rules stop it independently -- the
+      ' allowlist, and the fact that a key carries its own algorithm.
+      LET signing AS Key = generate("ES256", "")
+      LET published AS Key = publicKeyOf(signing)
+      LET forged AS Key = macKey("HS256", publicHalf(signing))
+      LET token AS String = sign(forged, simpleClaims())
+      expectTrap(verify(token, [published], pinnedOptions(["ES256"])), 93130004)
+      expectTrap(verify(token, [published], pinnedOptions(["HS256"])), 77050004)
+    END TCASE
+
+    TCASE "a header naming no alg is refused"
+      LET key AS Key = macKeyFor("HS256")
+      expectTrap(verify(craftSigned(key, "{\"typ\":\"JWT\"}", "{}"), [key], pinnedOptions(["HS256"])), 77050003)
+    END TCASE
+
+    TCASE "a header whose alg is not a string is refused"
+      LET key AS Key = macKeyFor("HS256")
+      expectTrap(verify(craftSigned(key, "{\"alg\":256}", "{}"), [key], pinnedOptions(["HS256"])), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "duplicate members"
+    TCASE "a header naming alg twice is refused"
+      ' JSON allows it and a parser keeps one, but two parsers need not keep
+      ' the same one -- so this token means one thing here and another there.
+      LET key AS Key = macKeyFor("HS256")
+      expectTrap(verify(craftSigned(key, "{\"alg\":\"HS256\",\"alg\":\"none\"}", "{}"), [key], pinnedOptions(["HS256"])), 77050003)
+    END TCASE
+
+    TCASE "a claims set naming exp twice is refused"
+      LET key AS Key = macKeyFor("HS256")
+      expectTrap(verify(craftSigned(key, "{\"alg\":\"HS256\"}", "{\"exp\":1,\"exp\":9999999999}"), [key], pinnedOptions(["HS256"])), 77050003)
+    END TCASE
+
+    TCASE "a duplicate that differs only by escaping is still a duplicate"
+      LET key AS Key = macKeyFor("HS256")
+      expectTrap(verify(craftSigned(key, "{\"alg\":\"HS256\",\"\\u0061lg\":\"none\"}", "{}"), [key], pinnedOptions(["HS256"])), 77050003)
+    END TCASE
+
+    TCASE "a repeated name inside a nested object is not a top-level duplicate"
+      ' The rule is about the members the header and the claims set themselves
+      ' name. A nested object with its own `alg` is ordinary data.
+      LET key AS Key = macKeyFor("HS256")
+      expectNTrap(verify(craftSigned(key, "{\"alg\":\"HS256\"}", "{\"a\":{\"alg\":1},\"b\":{\"alg\":2}}"), [key], pinnedOptions(["HS256"])))
+    END TCASE
+
+    TCASE "a colon inside a string value is not a member name"
+      LET key AS Key = macKeyFor("HS256")
+      expectNTrap(verify(craftSigned(key, "{\"alg\":\"HS256\"}", "{\"a\":\"x\\\":1,\\\"a\",\"b\":2}"), [key], pinnedOptions(["HS256"])))
+    END TCASE
+  END TGROUP
+
+  TGROUP "signature"
+    TCASE "a tampered payload does not verify"
+      LET key AS Key = macKeyFor("HS256")
+      LET token AS String = craftSigned(key, "{\"alg\":\"HS256\"}", "{\"admin\":false}")
+      LET tampered AS String = withSegment(token, 1, encodeSegment(strings::toBytes("{\"admin\":true}")))
+      expectTrap(verify(tampered, [key], pinnedOptions(["HS256"])), 77050016)
+    END TCASE
+
+    TCASE "another key's token does not verify"
+      LET mine AS Key = macKeyFor("HS256")
+      LET theirs AS Key = macKey("HS256", crypto::randomBytes(32))
+      expectTrap(verify(sign(theirs, simpleClaims()), [mine], pinnedOptions(["HS256"])), 77050016)
+    END TCASE
+
+    TCASE "a signature of the wrong length does not verify"
+      FOR EACH key IN [generate("ES256", ""), generate("EdDSA", "Ed25519")]
+        LET token AS String = sign(key, simpleClaims())
+        LET truncated AS String = withSegment(token, 2, encodeSegment(slice(decodeSegment(collections::get(strings::split(token, "."), 2), "signature"), 0, 20)))
+        expectTrap(verify(truncated, [key], pinnedOptions([key.algorithm])), 77050016)
+      NEXT
+    END TCASE
+
+    TCASE "an Ed25519 key and an Ed448 key can both be offered for EdDSA"
+      ' `EdDSA` names two curves and the header does not say which, so a
+      ' verifier holding both must try each. The wrong-length signature is what
+      ' tells them apart, and it must be a miss rather than a failure.
+      LET small AS Key = generate("EdDSA", "Ed25519")
+      LET large AS Key = generate("EdDSA", "Ed448")
+      LET options AS Options = pinnedOptions(["EdDSA"])
+      expectString(verify(sign(small, simpleClaims()), [large, small], options).algorithm, "EdDSA")
+      expectString(verify(sign(large, simpleClaims()), [small, large], options).algorithm, "EdDSA")
+    END TCASE
+  END TGROUP
+
+  TGROUP "key selection"
+    TCASE "no key for the token's algorithm is ErrNotFound"
+      LET mac AS Key = macKeyFor("HS256")
+      LET edwards AS Key = generate("EdDSA", "Ed25519")
+      expectTrap(verify(sign(edwards, simpleClaims()), [mac], pinnedOptions(["EdDSA"])), 77050004)
+      expectTrap(verify(sign(edwards, simpleClaims()), [], pinnedOptions(["EdDSA"])), 77050004)
+    END TCASE
+
+    TCASE "a kid the caller does not hold is ErrNotFound"
+      LET signing AS Key = withKid(generate("EdDSA", "Ed25519"), "2026-09")
+      LET other AS Key = withKid(generate("EdDSA", "Ed25519"), "2026-08")
+      expectTrap(verify(sign(signing, simpleClaims()), [other], pinnedOptions(["EdDSA"])), 77050004)
+    END TCASE
+
+    TCASE "a kid picks the matching key out of a set"
+      LET current AS Key = withKid(generate("EdDSA", "Ed25519"), "2026-09")
+      LET previous AS Key = withKid(generate("EdDSA", "Ed25519"), "2026-08")
+      LET keys AS List OF Key = [previous, current]
+      expectString(verify(sign(current, simpleClaims()), keys, pinnedOptions(["EdDSA"])).kid, "2026-09")
+      expectString(verify(sign(previous, simpleClaims()), keys, pinnedOptions(["EdDSA"])).kid, "2026-08")
+    END TCASE
+
+    TCASE "a key without a kid is tried whatever the token asks for"
+      LET signing AS Key = generate("EdDSA", "Ed25519")
+      LET labelled AS String = sign(withKid(signing, "whatever"), simpleClaims())
+      expectString(verify(labelled, [signing], pinnedOptions(["EdDSA"])).kid, "")
+    END TCASE
+  END TGROUP
+
+  TGROUP "header parameters"
+    TCASE "crit is refused"
+      LET key AS Key = macKeyFor("HS256")
+      expectTrap(verify(craftSigned(key, "{\"alg\":\"HS256\",\"crit\":[\"exp\"]}", "{}"), [key], pinnedOptions(["HS256"])), 77050007)
+      MUT extras AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      extras = collections::set(extras, "crit", jsonArray([jsonString("exp")]))
+      expectTrap(signWithHeader(key, extras, simpleClaims()), 77050002)
+    END TCASE
+
+    TCASE "a header alg that disagrees with the key is refused at signing"
+      LET key AS Key = macKeyFor("HS256")
+      MUT extras AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      extras = collections::set(extras, "alg", jsonString("HS512"))
+      expectTrap(signWithHeader(key, extras, simpleClaims()), 77050002)
+      expectNTrap(signWithHeader(key, Map OF String TO json::Json {}, simpleClaims()))
+    END TCASE
+
+    TCASE "typ is unchecked unless asked for, and then it ignores case and application/"
+      LET key AS Key = macKeyFor("HS256")
+      MUT extras AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      extras = collections::set(extras, "typ", jsonString("at+jwt"))
+      LET token AS String = signWithHeader(key, extras, simpleClaims())
+      expectNTrap(verify(token, [key], pinnedOptions(["HS256"])))
+      expectNTrap(verify(token, [key], WITH pinnedOptions(["HS256"]) { typeHeader := "AT+JWT" }))
+      expectNTrap(verify(token, [key], WITH pinnedOptions(["HS256"]) { typeHeader := "application/at+jwt" }))
+      expectTrap(verify(token, [key], WITH pinnedOptions(["HS256"]) { typeHeader := "JWT" }), 93130003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "unverified reads"
+    TCASE "the unverified readers do not check the signature"
+      LET key AS Key = macKeyFor("HS256")
+      LET token AS String = craftSigned(key, "{\"alg\":\"HS256\",\"kid\":\"k-1\"}", "{\"sub\":\"user-1\"}")
+      LET forged AS String = withSegment(token, 2, encodeSegment(crypto::randomBytes(32)))
+      expectString(stringMember(unverifiedHeader(forged), "kid", "header"), "k-1")
+      expectString(stringMember(unverifiedClaims(forged), "sub", "claims"), "user-1")
+      expectTrap(verify(forged, [key], pinnedOptions(["HS256"])), 77050016)
+    END TCASE
+
+    TCASE "the unverified readers still enforce the token's shape"
+      expectTrap(unverifiedHeader("nope"), 77050003)
+      expectTrap(unverifiedClaims("a.b.c"), 77050003)
+    END TCASE
+  END TGROUP
+END TESTING

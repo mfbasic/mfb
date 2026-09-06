@@ -1,0 +1,207 @@
+' ---------------------------------------------------------------------------
+' Tests: the DER <-> fixed-width conversion an `ES*` signature goes through.
+'
+' These reach past the public API on purpose. `jwt::verify` cannot construct a
+' non-minimal DER length or a redundant leading zero -- it only ever sees what
+' `crypto::sign` produced, which is well-formed -- so a test that went through
+' the public API could not tell a strict parser from a lenient one. The lenient
+' one is the bug: every extra spelling of one signature is another text for one
+' token.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+IMPORT encoding
+IMPORT crypto
+
+' A DER `Ecdsa-Sig-Value` written by hand from the hex of its two INTEGERs.
+PRIVATE FUNC der(rHex AS String, sHex AS String) AS List OF Byte
+  LET r AS List OF Byte = encoding::hexDecode(rHex)
+  LET s AS List OF Byte = encoding::hexDecode(sHex)
+  MUT content AS List OF Byte = [toByte(2), toByte(len(r))]
+  content = concat(content, r)
+  content = concat(content, [toByte(2), toByte(len(s))])
+  content = concat(content, s)
+  RETURN concat([toByte(48), toByte(len(content))], content)
+END FUNC
+
+' 32 bytes whose value is 1, and 32 bytes whose value is 2 -- both far below
+' the P-256 order, so a rejection is never about the range.
+PRIVATE FUNC oneHex() AS String
+  RETURN "0000000000000000000000000000000000000000000000000000000000000001"
+END FUNC
+
+PRIVATE FUNC twoHex() AS String
+  RETURN "0000000000000000000000000000000000000000000000000000000000000002"
+END FUNC
+
+PRIVATE FUNC rawOf(rHex AS String, sHex AS String) AS List OF Byte
+  RETURN concat(encoding::hexDecode(rHex), encoding::hexDecode(sHex))
+END FUNC
+
+TESTING
+  TGROUP "DER round trip"
+    TCASE "a real signature survives both directions unchanged"
+      ' `crypto::sign` is randomized for ECDSA, so repeating this reaches
+      ' signatures with and without a leading zero byte in r and in s -- the
+      ' case the fixed-width padding exists for.
+      FOR EACH curve IN ["P-256", "P-384", "P-521"]
+        LET pair AS crypto::KeyPair = crypto::generate(certificateFor(curve))
+        FOR attempt = 1 TO 20
+          LET signature AS List OF Byte = crypto::sign(certificateFor(curve), pair.privateKey, strings::toBytes("message"))
+          LET raw AS List OF Byte = derToRaw(signature, curve)
+          expectInteger(len(raw), coordinateSize(curve) * 2)
+          expectString(encoding::hexEncode(rawToDer(raw, curve)), encoding::hexEncode(signature))
+        NEXT
+      NEXT
+    END TCASE
+
+    TCASE "a coordinate smaller than the field is left-padded, not shortened"
+      ' DER writes the value 1 as one byte and the JWS form writes it as 32,
+      ' so the conversion pads on the way in and trims on the way out. Getting
+      ' the padding side wrong would put the digits at the wrong end of the
+      ' coordinate, which verifies nothing.
+      LET raw AS List OF Byte = derToRaw(der("01", "02"), "P-256")
+      expectString(encoding::hexEncode(raw), oneHex() & twoHex())
+      expectString(encoding::hexEncode(rawToDer(raw, "P-256")), "3006020101020102")
+    END TCASE
+
+    TCASE "a coordinate whose top bit is set takes a leading zero in DER"
+      ' DER INTEGERs are signed, so `0xff...` must be written `00 ff...` to
+      ' stay positive. The value is below the P-256 order, so nothing else
+      ' rejects it.
+      LET highBit AS String = "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      LET raw AS List OF Byte = rawOf(highBit, oneHex())
+      LET encoded AS List OF Byte = rawToDer(raw, "P-256")
+      expectString(encoding::hexEncode(derToRaw(encoded, "P-256")), highBit & oneHex())
+      ' 0x7f does not set the top bit, so no padding byte is added.
+      expectInteger(byteAt(encoded, 4), 127)
+    END TCASE
+  END TGROUP
+
+  TGROUP "DER strictness"
+    TCASE "a redundant leading zero is refused"
+      ' `00 00 ... 01` and `01` are the same number, and DER writes only the
+      ' second. Accepting both would give one signature two encodings.
+      LET padded AS List OF Byte = der("000001", twoHex())
+      expectTrap(derToRaw(padded, "P-256"), 77050003)
+    END TCASE
+
+    TCASE "a negative INTEGER is refused"
+      ' A leading byte of 0x80 or more is a negative DER INTEGER, and r and s
+      ' are positive by definition.
+      expectTrap(derToRaw(der("ff01", twoHex()), "P-256"), 77050003)
+      expectTrap(derToRaw(der(oneHex(), "80"), "P-256"), 77050003)
+    END TCASE
+
+    TCASE "an empty INTEGER is refused"
+      expectTrap(derToRaw(der("", twoHex()), "P-256"), 77050003)
+    END TCASE
+
+    TCASE "a long-form length that fits in the short form is refused"
+      ' `81 06` says "six content bytes, written the long way". DER requires
+      ' the shortest encoding, so only `06` is legal.
+      MUT sneaky AS List OF Byte = [toByte(48), toByte(129), toByte(6)]
+      sneaky = concat(sneaky, [toByte(2), toByte(1), toByte(1), toByte(2), toByte(1), toByte(2)])
+      expectTrap(derToRaw(sneaky, "P-256"), 77050003)
+      ' The same content with a short-form length is fine.
+      expectNTrap(derToRaw(der("01", "02"), "P-256"))
+    END TCASE
+
+    TCASE "a multi-byte length is refused"
+      ' No ECDSA signature needs one: a P-521 SEQUENCE's content is at most
+      ' 138 bytes, which one length byte covers.
+      MUT wide AS List OF Byte = [toByte(48), toByte(130), toByte(0), toByte(6)]
+      wide = concat(wide, [toByte(2), toByte(1), toByte(1), toByte(2), toByte(1), toByte(2)])
+      expectTrap(derToRaw(wide, "P-256"), 77050003)
+    END TCASE
+
+    TCASE "a declared length that does not match the content is refused"
+      MUT wrong AS List OF Byte = [toByte(48), toByte(7)]
+      wrong = concat(wrong, [toByte(2), toByte(1), toByte(1), toByte(2), toByte(1), toByte(2)])
+      expectTrap(derToRaw(wrong, "P-256"), 77050003)
+    END TCASE
+
+    TCASE "trailing bytes after s are refused"
+      LET trailing AS List OF Byte = concat(der("01", "02"), [toByte(0)])
+      expectTrap(derToRaw(trailing, "P-256"), 77050003)
+    END TCASE
+
+    TCASE "a tag that is not SEQUENCE or INTEGER is refused"
+      LET notSequence AS List OF Byte = concat([toByte(49)], slice(der("01", "02"), 1, 7))
+      expectTrap(derToRaw(notSequence, "P-256"), 77050003)
+      ' A BIT STRING (0x03) where the first INTEGER should be.
+      MUT notInteger AS List OF Byte = [toByte(48), toByte(6)]
+      notInteger = concat(notInteger, [toByte(3), toByte(1), toByte(1), toByte(2), toByte(1), toByte(2)])
+      expectTrap(derToRaw(notInteger, "P-256"), 77050003)
+    END TCASE
+
+    TCASE "a truncated encoding is refused rather than read past its end"
+      expectTrap(derToRaw([], "P-256"), 77050003)
+      expectTrap(derToRaw([toByte(48)], "P-256"), 77050003)
+      expectTrap(derToRaw([toByte(48), toByte(4), toByte(2), toByte(8), toByte(1)], "P-256"), 77050003)
+    END TCASE
+
+    TCASE "a coordinate larger than the field is refused"
+      ' 33 significant bytes on a 32-byte curve.
+      expectTrap(derToRaw(der("01" & oneHex(), twoHex()), "P-256"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "signature range"
+    TCASE "zero is refused on either side"
+      LET zero AS String = strings::repeat("00", 32)
+      expectTrap(rawToDer(rawOf(zero, oneHex()), "P-256"), 77050003)
+      expectTrap(rawToDer(rawOf(oneHex(), zero), "P-256"), 77050003)
+      expectTrap(derToRaw(der("00", "02"), "P-256"), 77050003)
+    END TCASE
+
+    TCASE "the curve order itself is refused"
+      ' FIPS 186-4 requires 1 <= r, s <= n-1, so n is one past the top.
+      FOR EACH curve IN ["P-256", "P-384", "P-521"]
+        LET order AS List OF Byte = curveOrder(curve)
+        LET size AS Integer = coordinateSize(curve)
+        expectTrap(rawToDer(concat(order, concat(zeros(size - 1), [toByte(1)])), curve), 77050003)
+        expectTrap(rawToDer(concat(concat(zeros(size - 1), [toByte(1)]), order), curve), 77050003)
+        ' One below the order is the largest legal value.
+        MUT below AS List OF Byte = collections::set(order, size - 1, toByte(byteAt(order, size - 1) - 1))
+        expectNTrap(rawToDer(concat(below, below), curve))
+      NEXT
+    END TCASE
+
+    TCASE "the order is the one FIPS 186-4 fixes"
+      ' Pinned as hex so a transcription error in the constant is a failing
+      ' test rather than a curve nobody can sign on.
+      expectString(encoding::hexEncode(curveOrder("P-256")), "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551")
+      expectInteger(len(curveOrder("P-256")), 32)
+      expectInteger(len(curveOrder("P-384")), 48)
+      expectInteger(len(curveOrder("P-521")), 66)
+    END TCASE
+  END TGROUP
+
+  TGROUP "fixed-width strictness"
+    TCASE "a raw signature must be exactly two coordinate widths"
+      FOR EACH curve IN ["P-256", "P-384", "P-521"]
+        LET size AS Integer = coordinateSize(curve)
+        expectTrap(rawToDer(zeros(size * 2 - 1), curve), 77050003)
+        expectTrap(rawToDer(zeros(size * 2 + 1), curve), 77050003)
+        expectTrap(rawToDer([], curve), 77050003)
+      NEXT
+    END TCASE
+
+    TCASE "a P-256 signature is not a short P-384 one"
+      ' The length check is what stops one curve's signature from being read on
+      ' another: without it, padding would make an ES256 signature into a
+      ' well-formed ES384 one.
+      LET pair AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
+      LET raw AS List OF Byte = derToRaw(crypto::sign(crypto::Certificate.P256, pair.privateKey, strings::toBytes("m")), "P-256")
+      expectInteger(len(raw), 64)
+      expectTrap(rawToDer(raw, "P-384"), 77050003)
+    END TCASE
+
+    TCASE "an unknown curve is unsupported"
+      expectTrap(coordinateSize("P-192"), 77050007)
+      expectTrap(curveOrder("secp256k1"), 77050007)
+    END TCASE
+  END TGROUP
+END TESTING
