@@ -47,4 +47,5 @@ mod perf;
 mod platform_hooks;
 mod registry_bodies;
 mod threads;
+mod validation;
 mod vector;
