@@ -52,6 +52,7 @@ mod package_format;
 mod perf;
 mod platform_hooks;
 mod registry_bodies;
+mod resource_union_default;
 mod strings_fold;
 mod term_read;
 mod threads;
