@@ -169,6 +169,46 @@ mod tests {
         assert!(matches!(value, NirValue::Binary { op, .. } if *op == BinaryOp::Add));
     }
 
+    /// A constant condition that is not a Boolean literal is left alone.
+    ///
+    /// `constant_condition` reads a `Const` and then asks two questions the
+    /// happy path never fails: is its type `Boolean`, and is its text one of the
+    /// two literals. Both refusals had never run, and both are what stops the
+    /// fold from firing on something it has not actually proved. An `IF` whose
+    /// condition is an Integer constant is not a program the checkers admit --
+    /// but a lowering bug that produced one, folded on the truthiness of `1`,
+    /// would silently delete the else-arm of a program that should not have
+    /// compiled at all. The pass declines instead, and the IF survives to be
+    /// caught by something that reports.
+    #[test]
+    fn a_constant_condition_that_is_not_a_boolean_literal_is_not_folded() {
+        for (what, condition) in [
+            (
+                "an Integer constant",
+                typed_const(ParameterType::Integer, "1"),
+            ),
+            (
+                "a Boolean-typed constant with text neither literal",
+                typed_const(ParameterType::Boolean, "maybe"),
+            ),
+        ] {
+            let body = run(
+                vec![NirOp::If {
+                    condition,
+                    then_body: vec![eval(binary(BinaryOp::Add, local("a"), local("b")))],
+                    else_body: vec![],
+                }],
+                2,
+            );
+            assert!(
+                matches!(body.as_slice(), [NirOp::If { .. }]),
+                "{what} is not a Boolean the pass can fold on; the IF must \
+                 survive, and it became {}",
+                body.len()
+            );
+        }
+    }
+
     /// `IF FALSE` keeps the else-arm; an empty else-arm means the whole IF
     /// vanishes.
     #[test]
