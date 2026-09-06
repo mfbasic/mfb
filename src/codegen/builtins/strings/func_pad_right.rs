@@ -106,7 +106,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec![],
+            // The lowering raises `ErrInvalidArgument` — a negative count/width, a
+            // `padChar` that is not exactly one scalar, or a result size that does
+            // not fit in 64 bits. Declaring it is not just the Errors table: an
+            // undeclared error makes the member read as INFALLIBLE to the
+            // inline-`TRAP` census, which elides a LIVE handler.
+            errors: vec!["ErrInvalidArgument"],
             body: Body::abi_inline(lower),
         }],
     });

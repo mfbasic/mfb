@@ -1088,6 +1088,63 @@ mod tests {
     /// front-end warned `TYPE_INLINE_TRAP_DEAD_HANDLER` on a LIVE handler, elided
     /// it, and the guarded call aborted the program instead of recovering.
     ///
+    /// The four `strings` members that RAISE `ErrInvalidArgument` and used to
+    /// declare no error at all.
+    ///
+    /// `strings::left`/`right` (negative `count`) and `padLeft`/`padRight`
+    /// (negative `width`, a `padChar` that is not exactly one scalar, an
+    /// unrepresentable result size) all raise through `raise_error_bare`, which
+    /// skips the "declares what it raises" assertion. Their descriptors said
+    /// `errors: vec![]`, so `native_member_declares_error` answered `Some(false)`
+    /// and the front-end proved the call infallible — eliding a LIVE inline
+    /// `TRAP` handler and letting `77050002` abort the program. Same shape as
+    /// bug-486 (`toString`) and bug-533 (`replace`).
+    ///
+    /// The verdict is registry-derived, so declaring the error is the whole fix:
+    /// it makes the member fallible AND raw-supported through the same
+    /// `native_member_declares_error` query, and `try_abi_inline_lower` already
+    /// runs an `abi_inline` body under the raw capture.
+    #[test]
+    fn the_raising_strings_members_are_not_infallible() {
+        for name in [
+            "strings.left",
+            "strings.right",
+            "strings.padLeft",
+            "strings.padRight",
+        ] {
+            assert!(
+                !inline_builtin_is_infallible(name, &[]),
+                "{name} raises ErrInvalidArgument; an infallible verdict elides a live handler"
+            );
+            assert!(
+                inline_builtin_raw_supported(name, &[]),
+                "{name} is fallible, so an inline TRAP needs a raw lowering"
+            );
+            assert!(!inline_trap_unsupported(name, &[]));
+            // The verdict does not depend on the argument types, so a consumer
+            // that skips typing them still gets the fallible answer.
+            assert!(!inline_builtin_fallibility_depends_on_args(name));
+        }
+
+        // The POSITIVE half: the neighbours that genuinely cannot fail keep their
+        // infallible verdict. A fix that made every `strings` member fallible
+        // would pass the assertions above and fail here.
+        for name in [
+            "strings.upper",
+            "strings.lower",
+            "strings.trim",
+            "strings.byteLen",
+            "strings.contains",
+            "strings.displayWidth",
+        ] {
+            assert!(
+                inline_builtin_is_infallible(name, &[]),
+                "{name} raises nothing trappable and must stay infallible"
+            );
+            assert!(!inline_builtin_raw_supported(name, &[]));
+        }
+    }
+
     /// The rule fails CLOSED: only a provable `List` first argument is
     /// infallible. Over-approximating keeps a handler that could not have run;
     /// the other direction is the miscompile above.

@@ -1,0 +1,88 @@
+' strings::left / right / padLeft / padRight raise ErrInvalidArgument, and their
+' descriptors used to declare `errors: vec![]`. An undeclared error makes the
+' member read as INFALLIBLE to the inline-TRAP census, so the front-end warned
+' TYPE_INLINE_TRAP_DEAD_HANDLER, DELETED the live handler, and the program died
+' with an unhandled 7-705-0002 instead of recovering. Same shape as bug-486
+' (toString) and bug-533 (replace).
+'
+' A FUNCTION-level TRAP cannot see this bug: every guarded call below is written
+' in the INLINE form on purpose.
+
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  io::print("-- an inline TRAP on an invalid call RUNS its handler --")
+
+  LET a AS String = strings::left("abc", -1) TRAP(err)
+    io::print("left       ran code=" & toString(err.code))
+    RECOVER "recovered"
+  END TRAP
+  io::print("left       result=" & a)
+
+  LET b AS String = strings::right("abc", -1) TRAP(err)
+    io::print("right      ran code=" & toString(err.code))
+    RECOVER "recovered"
+  END TRAP
+  io::print("right      result=" & b)
+
+  LET c AS String = strings::padLeft("x", -1) TRAP(err)
+    io::print("padLeft    ran code=" & toString(err.code))
+    RECOVER "recovered"
+  END TRAP
+  io::print("padLeft    result=" & c)
+
+  LET d AS String = strings::padRight("x", 5, "ab") TRAP(err)
+    io::print("padRight   ran code=" & toString(err.code))
+    RECOVER "recovered"
+  END TRAP
+  io::print("padRight   result=" & d)
+
+  io::print("")
+  io::print("-- the positive half: a VALID call under the same inline TRAP --")
+
+  LET e AS String = strings::left("abcdef", 3) TRAP(err)
+    io::print("left       UNEXPECTED handler code=" & toString(err.code))
+    RECOVER "unexpected"
+  END TRAP
+  io::print("left       valid=" & e)
+
+  LET f AS String = strings::right("abcdef", 3) TRAP(err)
+    io::print("right      UNEXPECTED handler code=" & toString(err.code))
+    RECOVER "unexpected"
+  END TRAP
+  io::print("right      valid=" & f)
+
+  LET g AS String = strings::padLeft("42", 5, "0") TRAP(err)
+    io::print("padLeft    UNEXPECTED handler code=" & toString(err.code))
+    RECOVER "unexpected"
+  END TRAP
+  io::print("padLeft    valid=" & g)
+
+  LET h AS String = strings::padRight("42", 5, "0") TRAP(err)
+    io::print("padRight   UNEXPECTED handler code=" & toString(err.code))
+    RECOVER "unexpected"
+  END TRAP
+  io::print("padRight   valid=" & h)
+
+  io::print("")
+  io::print("-- and the ordinary (untrapped) call path is unchanged --")
+  io::print("left       plain=" & strings::left("abcdef", 3))
+  io::print("right      plain=" & strings::right("abcdef", 3))
+  io::print("padLeft    plain=[" & strings::padLeft("42", 5) & "]")
+  io::print("padRight   plain=[" & strings::padRight("42", 5) & "]")
+
+  io::print("")
+  io::print("-- a member that really cannot fail is STILL infallible --")
+  ' `strings::upper` declares no error and raises none, so this handler IS dead
+  ' code and the build log below carries its TYPE_INLINE_TRAP_DEAD_HANDLER
+  ' warning. That warning is the proof the fix is narrow: it did not make every
+  ' strings member fallible.
+  LET i AS String = strings::upper("ok") TRAP(err)
+    io::print("upper      UNEXPECTED handler code=" & toString(err.code))
+    RECOVER "unexpected"
+  END TRAP
+  io::print("upper      valid=" & i)
+
+  RETURN 0
+END FUNC

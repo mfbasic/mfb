@@ -20,6 +20,11 @@ pub(crate) fn lower_strings_pad(
     let scratch14 = builder.temporary_vreg();
     let scratch16 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
+    let label = if right {
+        "strings.padRight"
+    } else {
+        "strings.padLeft"
+    };
     let value = args[0].clone();
     builder.require_string("strings.pad value", &value)?;
     let value_slot = builder.spill_to_slot("strings_pad_value", &value.location);
@@ -274,13 +279,14 @@ pub(crate) fn lower_strings_pad(
     let after = builder.label("strings_pad_after");
     builder.emit(abi::branch(&after));
     builder.emit(abi::label(&invalid));
-    builder.raise_error_bare("ErrInvalidArgument")?;
+    // `raise_error` rather than `raise_error_bare`: the bare form skips the
+    // "this member declares the error it raises" assertion, and that gap is what
+    // let `padLeft`/`padRight` raise `ErrInvalidArgument` while their descriptors
+    // declared `errors: vec![]`. An undeclared error makes the member read as
+    // INFALLIBLE to `inline_builtin_is_infallible`, which elides a live inline
+    // `TRAP` handler — the bug-486/bug-533 miscompile.
+    builder.raise_error(label, "ErrInvalidArgument")?;
     builder.emit(abi::label(&after));
-    let label = if right {
-        "strings.padRight"
-    } else {
-        "strings.padLeft"
-    };
     // bug-536 shape B: the padded String is this lowering's own
     // `emit_arena_alloc_call` block (`result_slot`). The interior one-byte
     // padChar materialized above is a DIFFERENT vreg, so it stays opted out —

@@ -1,0 +1,45 @@
+$ mfb build -ast -ir tests/rt-behavior/strings/strings-inline-trap-fallible-rt
+  79 |   ' warning. That warning is the proof the fix is narrow: it did not make every
+  80 |   ' strings member fallible.
+  81 |   LET i AS String = strings::upper("ok") TRAP(err)
+     | ^
+tests/rt-behavior/strings/strings-inline-trap-fallible-rt/src/main.mfb:81 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
+               Inline TRAP handler is unreachable — `strings.upper` cannot fail, so the handler is dead code.
+Wrote AST to tests/rt-behavior/strings/strings-inline-trap-fallible-rt/strings_inline_trap_fallible_rt.ast
+Wrote IR to tests/rt-behavior/strings/strings-inline-trap-fallible-rt/strings_inline_trap_fallible_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/strings/strings-inline-trap-fallible-rt
+  79 |   ' warning. That warning is the proof the fix is narrow: it did not make every
+  80 |   ' strings member fallible.
+  81 |   LET i AS String = strings::upper("ok") TRAP(err)
+     | ^
+tests/rt-behavior/strings/strings-inline-trap-fallible-rt/src/main.mfb:81 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
+               Inline TRAP handler is unreachable — `strings.upper` cannot fail, so the handler is dead code.
+Wrote executable to tests/rt-behavior/strings/strings-inline-trap-fallible-rt/build/strings_inline_trap_fallible_rt.out
+[exit 0]
+$ tests/rt-behavior/strings/strings-inline-trap-fallible-rt/build/strings_inline_trap_fallible_rt.out
+-- an inline TRAP on an invalid call RUNS its handler --
+left       ran code=77050002
+left       result=recovered
+right      ran code=77050002
+right      result=recovered
+padLeft    ran code=77050002
+padLeft    result=recovered
+padRight   ran code=77050002
+padRight   result=recovered
+
+-- the positive half: a VALID call under the same inline TRAP --
+left       valid=abc
+right      valid=def
+padLeft    valid=00042
+padRight   valid=42000
+
+-- and the ordinary (untrapped) call path is unchanged --
+left       plain=abc
+right      plain=def
+padLeft    plain=[   42]
+padRight   plain=[42   ]
+
+-- a member that really cannot fail is STILL infallible --
+upper      valid=OK
+[exit 0]
