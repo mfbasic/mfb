@@ -48,6 +48,7 @@ mod math;
 mod nir_json;
 mod nir_validation;
 mod optimizer;
+mod optimizer_globals;
 mod os;
 mod package_format;
 mod perf;
