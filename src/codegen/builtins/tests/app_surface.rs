@@ -152,6 +152,63 @@ fn a_term_program_lowers_in_both_build_modes_on_every_backend() {
     );
 }
 
+/// The `io::` members that route to the app transcript window instead of a tty.
+///
+/// `mfb man io`: "in app mode all of them are routed to the application
+/// transcript window, which is treated as an interactive terminal". That
+/// routing is a whole second arm of `gen_is_terminal` and `func_flush` -- in
+/// console mode they call `isatty(fd)` and drain the stdout buffer through
+/// `write()`; in `-app` mode they ask the platform to append a hook into the
+/// body instead. Every fixture the corpus runs is a console build, so the app
+/// arm of both had never lowered on any backend.
+const APP_IO_SURFACE: &str = "\
+IMPORT app
+IMPORT io
+
+FUNC main() AS Integer
+  app::setMode(app::Mode.Canvas)
+  io::flush()
+  MUT n AS Integer = 0
+  IF io::isInputTerminal() THEN
+    n = n + 1
+  END IF
+  IF io::isOutputTerminal() THEN
+    n = n + 2
+  END IF
+  IF io::isErrorTerminal() THEN
+    n = n + 4
+  END IF
+  io::print(\"io=\" & toString(n))
+  RETURN 0
+END FUNC
+";
+
+/// The app-mode `io::` arm lowers on every backend that has an app mode.
+///
+/// A backend whose app surface does not implement one of these hooks refuses by
+/// NAME (`native target '<t>' does not support app-mode io helpers`) rather than
+/// emitting a body that silently does nothing -- which is the failure this asserts
+/// against, because a `flush` that lowered to no instructions in app mode would
+/// lose buffered output with nothing to read in the build log.
+#[test]
+fn the_app_mode_io_helpers_lower_on_every_app_capable_backend() {
+    let source = APP_IO_SURFACE.to_string();
+    let mut lowered = 0;
+    for target in CodeTarget::ALL {
+        let Some(_) = target.app_mode() else {
+            continue;
+        };
+        let app = app_code_cached(&source, target);
+        assert!(
+            !runtime_members(app, "runtime.io.").is_empty(),
+            "{}: an -app io program must still emit io runtime members",
+            target.name()
+        );
+        lowered += 1;
+    }
+    assert_eq!(lowered, 4, "four -app builds (riscv64 is console-only)");
+}
+
 fn runtime_members(plan: &NativeCodePlan, prefix: &str) -> Vec<String> {
     let mut names: Vec<String> = plan
         .functions
