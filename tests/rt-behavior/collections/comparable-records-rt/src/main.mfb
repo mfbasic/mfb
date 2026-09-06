@@ -32,6 +32,11 @@ TYPE Inner
   n AS Integer
 END TYPE
 
+' `n AS Nothing` and `sc AS Scalar` are the two field kinds a realistic record
+' does not have and the comparator has arms for anyway: a `Nothing` compares
+' equal unconditionally (it emits a branch and nothing else, so an arm that
+' compared its slot would be reading whatever the arena left there), and a
+' `Scalar` is FOUR bytes, not eight.
 TYPE Wide
   i AS Integer
   f AS Float
@@ -41,37 +46,40 @@ TYPE Wide
   y AS Byte
   s AS String
   c AS Colour
+  n AS Nothing
+  sc AS Scalar
   nested AS Inner
 END TYPE
 
-FUNC wide(i AS Integer, b AS Boolean, y AS Byte, s AS String, c AS Colour, n AS Integer) AS Wide
-  RETURN Wide[i, 1.5, 2.25F, 3.5m, b, y, s, c, Inner[n]]
+FUNC wide(i AS Integer, b AS Boolean, y AS Byte, s AS String, c AS Colour, n AS Integer, sc AS Scalar) AS Wide
+  RETURN Wide[i, 1.5, 2.25F, 3.5m, b, y, s, c, NOTHING, sc, Inner[n]]
 END FUNC
 
 FUNC main() AS Integer
-  LET base AS Wide = wide(1, TRUE, toByte(7), "tag", Colour.Red, 9)
-  LET same AS Wide = wide(1, TRUE, toByte(7), "tag", Colour.Red, 9)
+  LET base AS Wide = wide(1, TRUE, toByte(7), "tag", Colour.Red, 9, toScalar("a"))
+  LET same AS Wide = wide(1, TRUE, toByte(7), "tag", Colour.Red, 9, toScalar("a"))
   io::print("identical  " & toString(base = same))
 
   ' One field different at a time. A comparison that read the wrong width, or
   ' skipped a field, comes back TRUE for one of these.
-  io::print("integer    " & toString(base = wide(2, TRUE, toByte(7), "tag", Colour.Red, 9)))
-  io::print("boolean    " & toString(base = wide(1, FALSE, toByte(7), "tag", Colour.Red, 9)))
-  io::print("byte       " & toString(base = wide(1, TRUE, toByte(8), "tag", Colour.Red, 9)))
-  io::print("string     " & toString(base = wide(1, TRUE, toByte(7), "other", Colour.Red, 9)))
-  io::print("enum       " & toString(base = wide(1, TRUE, toByte(7), "tag", Colour.Blue, 9)))
-  io::print("nested     " & toString(base = wide(1, TRUE, toByte(7), "tag", Colour.Red, 8)))
+  io::print("integer    " & toString(base = wide(2, TRUE, toByte(7), "tag", Colour.Red, 9, toScalar("a"))))
+  io::print("boolean    " & toString(base = wide(1, FALSE, toByte(7), "tag", Colour.Red, 9, toScalar("a"))))
+  io::print("byte       " & toString(base = wide(1, TRUE, toByte(8), "tag", Colour.Red, 9, toScalar("a"))))
+  io::print("string     " & toString(base = wide(1, TRUE, toByte(7), "other", Colour.Red, 9, toScalar("a"))))
+  io::print("enum       " & toString(base = wide(1, TRUE, toByte(7), "tag", Colour.Blue, 9, toScalar("a"))))
+  io::print("nested     " & toString(base = wide(1, TRUE, toByte(7), "tag", Colour.Red, 8, toScalar("a"))))
+  io::print("scalar     " & toString(base = wide(1, TRUE, toByte(7), "tag", Colour.Red, 9, toScalar("z"))))
 
   ' A one-byte field differing in its LOW byte only, next to a field whose
   ' bytes follow it in the record: an eight-byte compare of `y` reads `s`'s
   ' slot as well and can disagree for the wrong reason -- or agree.
-  LET lowByte AS Wide = wide(1, TRUE, toByte(255), "tag", Colour.Red, 9)
+  LET lowByte AS Wide = wide(1, TRUE, toByte(255), "tag", Colour.Red, 9, toScalar("a"))
   io::print("byte high  " & toString(base = lowByte))
 
   ' ---- the same comparator through a COLLECTION -------------------------
   ' A `List OF <record>` element is a pointer payload, so `contains` walks the
   ' two blocks rather than comparing two words.
-  LET rows AS List OF Wide = [base, wide(2, FALSE, toByte(8), "other", Colour.Blue, 8)]
+  LET rows AS List OF Wide = [base, wide(2, FALSE, toByte(8), "other", Colour.Blue, 8, toScalar("z"))]
   io::print("contains   self=" & toString(collections::contains(rows, same)) _
     & " absent=" & toString(collections::contains(rows, lowByte)))
   ' `find` RAISES ErrNotFound rather than returning a sentinel when the element
@@ -83,10 +91,17 @@ FUNC main() AS Integer
   io::print("find       self=" & toString(collections::find(rows, same)) _
     & " absent=" & toString(absent))
 
+  ' A Scalar element is FOUR bytes in a collection block, not eight: an arm
+  ' that read a word would compare the four bytes of the NEXT element too.
+  LET marks AS List OF Scalar = [toScalar("a"), toScalar("b"), toScalar("c")]
+  io::print("scalar list contains=" & toString(collections::contains(marks, toScalar("b"))) _
+    & " absent=" & toString(collections::contains(marks, toScalar("z"))) _
+    & " at=" & toString(collections::find(marks, toScalar("c"))))
+
   ' A list is NOT itself comparable (TYPE_REQUIRES_COMPARABLE), so `rows = copy`
   ' is not a program; a SUBLIST search is the pairwise-payload comparison, and
   ' it is reachable.
-  LET pair AS List OF Wide = [wide(2, FALSE, toByte(8), "other", Colour.Blue, 8)]
+  LET pair AS List OF Wide = [wide(2, FALSE, toByte(8), "other", Colour.Blue, 8, toScalar("z"))]
   io::print("find sub   " & toString(collections::find(rows, pair)))
 
   RETURN 0

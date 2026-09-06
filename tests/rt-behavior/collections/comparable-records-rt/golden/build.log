@@ -13,8 +13,10 @@ byte       FALSE
 string     FALSE
 enum       FALSE
 nested     FALSE
+scalar     FALSE
 byte high  FALSE
 contains   self=TRUE absent=FALSE
 find       self=0 absent=-77050004
+scalar list contains=TRUE absent=FALSE at=2
 find sub   1
 [exit 0]
