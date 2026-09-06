@@ -1,6 +1,8 @@
 use super::*;
 use crate::types::ParameterType;
 
+mod inline_trap_short_circuit;
+
 /// Shared source-driven test helpers (plan-12 IR coverage). These write a
 /// throwaway project to a temp dir and run the real front-end pipeline
 /// (parse → resolve → monomorph → **lower**) so tests can assert on the

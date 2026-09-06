@@ -163,10 +163,16 @@ pub fn check_src_with_imports(
     diagnostics.into_iter().map(|d| d.rule).collect()
 }
 
-/// Run the build path's two checkers over `src` and return the emitted
-/// diagnostic rule codes (in stream order). An empty vector means the program
-/// is accepted.
-pub fn check_src(source: &str) -> Vec<String> {
+/// Run the build path's two checkers over `src` and return the diagnostics
+/// whole — rule, detail and line — in stream order.
+///
+/// [`check_src`] keeps only the rule codes, which is the right default: for
+/// most rules the code IS the contract. It is not enough for a rule whose job
+/// is to name something. `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` tells the author
+/// *which* call or operator cannot be lifted, and a test that asserted only the
+/// code would still pass if the message named the wrong node — which is the
+/// entire value of the diagnostic to the person reading it.
+pub fn check_src_details(source: &str) -> Vec<crate::rules::PendingDiagnostic> {
     // One source-diagnostic oracle for a pipeline-level test (plan-107):
     // `ir::shape` over the concrete HIR, then `ir::verify` over the lowered IR -
     // exactly the build's order.
@@ -183,7 +189,17 @@ pub fn check_src(source: &str) -> Vec<String> {
         &[],
         &link_spans,
     ));
-    diagnostics.into_iter().map(|d| d.rule).collect()
+    diagnostics
+}
+
+/// Run the build path's two checkers over `src` and return the emitted
+/// diagnostic rule codes (in stream order). An empty vector means the program
+/// is accepted.
+pub fn check_src(source: &str) -> Vec<String> {
+    check_src_details(source)
+        .into_iter()
+        .map(|d| d.rule)
+        .collect()
 }
 
 /// True when the pipeline accepts `src` with zero diagnostics.
