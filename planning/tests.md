@@ -250,6 +250,21 @@ The per-file ledger is generated from the Phase 0 baseline; see
 - [x] `builder_inplace_assign.rs`: which of the three `append` lowerings a
       program gets (`append_inplace_*` / `bulk_append_*` / `list_insert_*`),
       mutually exclusive — e2293ef98.
+- [x] The gate itself: `drop_never_executed_binaries` — d8231ae71. The plain
+      binaries nothing executes were 43 files and 16,020 lines of the reported
+      gap, and their contribution swings with unrelated code changes. See the
+      rewritten C6; this is why the count below drops without a test being
+      written.
+- [x] The `abi_function` import guard on all FIVE backends rather than one —
+      bb72f57f5. The guard is per-ARM: a body that branches win/posix has one
+      `emit_external_call` in each, so a single-platform sweep left the other
+      arm's `?` dead in ~40 `func_*.rs` files. 205 files -> 199.
+- [x] The four `strings::` compile-time folds, and what folding BUYS: a folded
+      program carries no Unicode mapping table — 90eebd84f.
+- [x] Audit every line of `scripts/coverage-exceptions.txt` against a report —
+      7dedf6723. One entry (`src/syntaxcheck/resources.rs`) named a file that no
+      longer exists, so it excused nothing and showed up nowhere; the other 15
+      all still name a real file that is still below the floor.
 - [ ] The remaining `src/**` files below the floor, worst first. Regenerate
       the ranking with `python3 scripts/coverage-src-gaps.py <report.json>`,
       which sorts by LINES SHORT rather than by percentage,
@@ -259,24 +274,39 @@ The per-file ledger is generated from the Phase 0 baseline; see
       which file; nothing said which lines, and reconstructing that by eye from
       a 3,000-line file is where the time went.
 
-### What the remaining 7,126 lines ARE
+### What the remaining 6,746 lines ARE
 
-Classified by the shape of the uncovered line, so the next session picks a
-lever rather than a file:
+Re-measured after the merge and after `drop_never_executed_binaries`, with
+`scripts/coverage-src-shapes.py`, which reads the source text of every uncovered
+region-entry line. 5,216 region-entry lines across the 199 files — fewer than
+the 6,746 the summary counts, because one region can span several lines.
 
-| shape | lines | files |
+| shape | lines | share |
 |---|---|---|
-| ordinary code (a branch or statement no program reaches) | ~4,300 | 180 |
-| `?` propagation on a call that cannot fail in practice | ~2,400 | 145 |
-| a `panic!`/`unreachable!` arm | ~113 | 57 |
+| ordinary code — a branch or statement no program reaches | 2,840 | 54.4% |
+| `?` propagation on a call | 924 | 17.7% |
+| a `match` arm | 543 | 10.4% |
+| a closing brace / `else` | 426 | 8.2% |
+| `return Err(...)` | 179 | 3.4% |
+| `continue` / `break` | 94 | 1.8% |
+| an `if` / let-else guard | 86 | 1.6% |
+| `panic!` / `.expect(` | 57 | 1.1% |
+| `unreachable!` / `todo!` / `unimplemented!` | 34 | 0.7% |
+| a `None` / `Ok(None)` tail | 19 | 0.4% |
+| an `Err(...)` tail | 14 | 0.3% |
 
 The first group is the real remaining work and needs programs: each is a shape
-the 421-fixture corpus does not contain. The second is the hard residue — a `?`
-whose error arm is unreachable because the callee cannot fail for the inputs the
-type checker permits. The registry sweeps closed every instance of it that goes
-through a *platform* hook (an empty import list forces the failure); what is
-left goes through *builder* methods, whose failure needs a malformed input the
-front end cannot produce.
+the 424-fixture corpus does not contain. The `?` group is the hard residue — an
+error arm unreachable because the callee cannot fail for the inputs the type
+checker permits. The registry sweeps closed every instance that goes through a
+*platform* hook (an empty import list forces the failure, on all five backends
+since bb72f57f5); what is left goes through *builder* methods, whose failure
+needs a malformed input the front end cannot produce.
+
+The two smallest rows are the ones to read carefully, because they are the only
+ones that could justify an exception rather than a test, and together they are
+91 lines — 1.7%. There is no bulk-exception case hiding in this table.
+
 - [ ] Re-run the FULL `sh scripts/coverage.sh` at the end: `src/**` is settled by
       `--bins` (Findings F1) but `repository/src/**` is not, and only the full
       run measures it.
@@ -299,7 +329,18 @@ these files, and is not for `repository/src/**`).
 | after the near-miss batch | 246 | 10,717 |
 | after the LINK / corpus / optimizer-level suites | 231 | 7,747 |
 | after the per-argument sweep and the script fix | 212 | 7,316 |
-| after the data-layout, imported-type and app-surface suites | **207** | **7,126** |
+| after the data-layout, imported-type and app-surface suites | 207 | 7,126 |
+| after merging main (48 commits) + the append/platform-hook/validation suites | 205 | 6,863 |
+| after `drop_never_executed_binaries` — see C6, a MEASUREMENT fix | 205 | 6,863 |
+| after the five-backend `abi_function` sweep and the strings folds | **199** | **6,746** |
+
+The `drop_never_executed_binaries` row is the one that needs reading twice. It
+changed no test and closed no file *as measured against the row above it*, which
+already had the fix applied — but against a report taken WITHOUT it, on the same
+profile, the same tree reads 248 files / 22,883 lines. That 43-file, 16,020-line
+difference is the never-executed plain binaries, and it is why the two rows
+above it are not comparable with the CI baseline this task was written from. See
+C6.
 
 The uncovered-line count moves less than the file count in the later rows, and
 that is the shape of the remaining work rather than a stall: the sweeps closed
