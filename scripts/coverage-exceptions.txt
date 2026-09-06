@@ -20,7 +20,15 @@ src/cli/dispatch.rs   # ex-src/main.rs top-level router (bug-340 B1, c565abda8):
 src/cli/build/signing.rs  # load_build_signing_info (signing.rs:47-158) calls mfb_repository::client::request_attestation against a live HTTP registry and reads the machine's registered ident-key files; its pure helpers (signing_ident/apply_signing_metadata/executable_signing_metadata_json) are unit-covered. bug-327 T2-10 (19a95d448) split this out of the now-deleted src/cli/build.rs, whose stale exception this replaces
 src/cli/repo.rs       # register/auth/link/trust perform live HTTP + key-store mutation; Usage/arg validation is unit-covered
 src/main.rs           # process entry point: fn main only forwards to cli::dispatch::run() (the excepted dispatch body moved to src/cli/dispatch.rs by bug-340 B1); fn main is never invoked by a unit test
-src/target.rs         # write_executable/nir/plan/object dispatchers invoke per-OS backends that spawn linkers/codesign over a full IrProject; BuildTarget/NativeBuildMode parsing is unit-covered
+# `src/target.rs` had an exception here on the premise that its
+# write_executable/nir/plan/object dispatchers "invoke per-OS backends that
+# spawn linkers/codesign". They do not. There is no `Command::new` in any
+# production file under `src/os/` — the only one is the AppImage sealer's
+# `mkfifo`, and every other hit in that tree is inside a `tests.rs`. MFB writes
+# its own ELF, Mach-O and PE and signs the Mach-O itself. All five dispatchers
+# are called from `src/target/tests/cross_executables.rs` on every registered
+# target, on this host, in process. Removed rather than repointed: nothing about
+# the original reason survived (plan tests.md, C9).
 
 # `src/syntaxcheck/resources.rs` had an exception here for its
 # required-for-exhaustiveness `Type::Result` arms. The whole `src/syntaxcheck/`

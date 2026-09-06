@@ -20,6 +20,7 @@
 //! kernel will exec. The file existing proves nothing; its header does.
 
 use super::*;
+use crate::ir::IrProject;
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::NativeBuildMode;
 
@@ -343,5 +344,176 @@ fn write_executable_announces_each_stage() {
             LinuxFlavor::ALL.len(),
             "{stage:?} runs once per libc world: {seen:?}"
         );
+    }
+}
+
+/// Every diagnostic dump, on every registered target, through the dispatchers
+/// the CLI calls.
+///
+/// `-nir`, `-nplan`, `-nobj`, `-ncode` and `-mir` are the compiler's own
+/// windows into what it is about to emit, and they are what an ABI or codegen
+/// question gets answered with. Nothing in process had ever called them: the
+/// five module-level dispatchers in `src/target.rs`, each backend's five
+/// forwarders, and the five shared writers in `target/linux_common/mod.rs` were
+/// all unexecuted, and `linux_common/mod.rs` sat at 22.62% because of it.
+///
+/// They go through `crate::target::write_*` rather than the backend directly,
+/// because the dispatcher is where the CAPABILITY gate lives — "native
+/// executable output does not support X yet" — and a test that skipped it would
+/// leave the refusal untested along with the gate that produces it.
+///
+/// The assertion is that each dump lands at `<name>.<ext>` and is non-empty.
+/// Which is not much on its own, and is not meant to be: the CONTENT of the NIR
+/// and plan dumps is asserted by `nir_json.rs`, `nir_validation.rs` and
+/// `plan_validation.rs`. What this pins is the plumbing — the extension, the
+/// destination, and that a target advertising a capability can actually deliver
+/// it. A backend whose forwarder wrote to the wrong path, or whose capability
+/// flag disagreed with its implementation, is invisible to every one of those
+/// other suites.
+#[test]
+fn every_dump_kind_writes_on_every_target_that_advertises_it() {
+    use crate::target::{
+        write_mir, write_native_code_plan, write_native_object_plan, write_native_plan, write_nir,
+    };
+
+    type Writer =
+        fn(&Path, &IrProject, &BuildTarget, &[PathBuf], NativeBuildMode) -> Result<PathBuf, String>;
+
+    // (extension, writer, the capability that gates it)
+    let kinds: &[(&str, Writer, fn(&BackendCapabilities) -> bool)] = &[
+        ("nir", write_nir, |c| c.native_ir),
+        ("nplan", write_native_plan, |c| c.native_plan),
+        ("nobj", write_native_object_plan, |c| c.native_object_plan),
+        ("ncode", write_native_code_plan, |c| c.native_code_plan),
+        // `-mir` shares the code-plan capability: same lowering, captured
+        // before register allocation and instruction selection.
+        ("mir", write_mir, |c| c.native_code_plan),
+    ];
+
+    for target in registered_targets() {
+        let capabilities = backend_for(&target)
+            .unwrap_or_else(|err| panic!("{}: {err}", target.name()))
+            .capabilities();
+        for (extension, write, gated_on) in kinds {
+            let scratch = Scratch::new(&format!("dump_{}_{extension}", target.arch));
+            let ir = crate::testutil::named_ir_for_src(SRC, "dumpprog");
+            let written = write(&scratch.0, &ir, &target, &[], NativeBuildMode::Console);
+
+            if !gated_on(&capabilities) {
+                // A target that does not advertise the capability must be
+                // refused by the dispatcher, not attempted by the backend.
+                assert!(
+                    written
+                        .as_ref()
+                        .err()
+                        .is_some_and(|err| err.contains("does not support")),
+                    "{} advertises no {extension} capability, so the dispatcher \
+                     must refuse it rather than call a backend that cannot \
+                     deliver; it said {written:?}",
+                    target.name()
+                );
+                continue;
+            }
+
+            let path =
+                written.unwrap_or_else(|err| panic!("{} -{extension}: {err}", target.name()));
+            assert_eq!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some(format!("dumpprog.{extension}").as_str()),
+                "{} -{extension}: the dump is named after the project",
+                target.name()
+            );
+            let bytes = std::fs::metadata(&path)
+                .unwrap_or_else(|err| {
+                    panic!("{} -{extension}: {}: {err}", target.name(), path.display())
+                })
+                .len();
+            assert!(
+                bytes > 0,
+                "{} -{extension}: an empty dump is a writer that ran and \
+                 described nothing",
+                target.name()
+            );
+        }
+    }
+}
+
+/// Every target that advertises `executable` writes one, through the
+/// dispatcher, with the right image magic for its OS.
+///
+/// The Linux tests above call the backend directly, which is right for what
+/// they assert (one artifact per libc world, `e_machine`, the flavors
+/// differing). This one goes through `crate::target::write_executable`, and
+/// covers the two backends the Linux tests cannot reach at all: macOS, which
+/// writes a Mach-O and signs it — in process, with no `codesign` — and Windows,
+/// which writes a PE.
+///
+/// The magic number is the assertion because it is the one thing a loader reads
+/// first and a build cannot fake. A backend wired to the wrong encoder writes a
+/// file of a plausible size, in the right place, under the right name, that no
+/// kernel on any of the three systems will exec.
+#[test]
+fn every_executable_target_writes_an_image_its_os_can_load() {
+    // (os, the first bytes of a loadable image on it)
+    const MAGIC: &[(&str, &[u8])] = &[
+        // Mach-O 64-bit, little-endian: 0xFEEDFACF.
+        ("macos", &[0xCF, 0xFA, 0xED, 0xFE]),
+        ("linux", b"\x7fELF"),
+        // A PE opens with the DOS stub's "MZ"; the PE header itself is at the
+        // offset that stub points at.
+        ("windows", b"MZ"),
+    ];
+
+    for target in registered_targets() {
+        let capabilities = backend_for(&target)
+            .unwrap_or_else(|err| panic!("{}: {err}", target.name()))
+            .capabilities();
+        if !capabilities.executable {
+            continue;
+        }
+        let (_, magic) = MAGIC
+            .iter()
+            .find(|(os, _)| *os == target.os)
+            .unwrap_or_else(|| panic!("{}: no image magic recorded for this OS", target.name()));
+
+        let scratch = Scratch::new(&format!("exe_{}_{}", target.os, target.arch));
+        let ir = crate::testutil::named_ir_for_src(SRC, "exeprog");
+        let written = crate::target::write_executable(
+            &scratch.0,
+            &ir,
+            &target,
+            &[],
+            None,
+            NativeBuildMode::Console,
+            None,
+            None,
+            false,
+            None,
+            &|_| {},
+        )
+        .unwrap_or_else(|err| panic!("{}: {err}", target.name()));
+
+        assert!(
+            !written.is_empty(),
+            "{}: a backend advertising `executable` must write at least one",
+            target.name()
+        );
+        for path in &written {
+            let bytes = std::fs::read(path)
+                .unwrap_or_else(|err| panic!("{}: {}: {err}", target.name(), path.display()));
+            assert!(
+                bytes.len() > magic.len(),
+                "{}: {} is too short to be an image",
+                target.name(),
+                path.display()
+            );
+            assert_eq!(
+                &bytes[..magic.len()],
+                *magic,
+                "{}: {} does not open with its OS's image magic",
+                target.name(),
+                path.display()
+            );
+        }
     }
 }
