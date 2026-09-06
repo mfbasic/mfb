@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM (constrained)
 Class: security (supply-chain integrity)
 
-Status: Open (found in audit-3, Surface 9 SUP-04; `planning/completed/audit-3-supply-chain.md`)
+Status: **FIXED** (2026-09-05, `0f5256342`)
 
 Regression Test: none yet — add one asserting install rejects a blob whose header ident/version/name differs from the lock.
 
