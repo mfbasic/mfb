@@ -382,3 +382,61 @@ fn a_variable_width_field_copies_its_entry_array_and_a_fixed_width_one_has_none(
          copying one would be a loop walking the data region instead: {fixed:?}"
     );
 }
+
+/// The record-field append again, CONCATENATING rather than adding one element.
+const WITH_BULK_FIELD: &str = "\
+IMPORT collections
+IMPORT io
+
+TYPE Bag
+  a AS Integer
+  b AS List OF String
+END TYPE
+
+FUNC main() AS Integer
+  LET more AS List OF String = [\"x\", \"y\"]
+  MUT bag AS Bag = Bag[a := 1, b := []]
+  FOR i = 0 TO 20
+    bag = WITH bag { b := collections::append(bag.b, more) }
+  NEXT
+  io::print(toString(len(bag.b)))
+  RETURN 0
+END FUNC
+";
+
+/// Concatenating into a record field REBASES the copied entries' offsets.
+///
+/// A fifth family, `inline_bulk_*`: the in-place record append has a bulk form
+/// for `WITH rec { f := append(rec.f, otherList) }`, distinct from the
+/// single-element `inline_append_*` because it copies a whole payload rather
+/// than writing one slot.
+///
+/// The offsets are the reason it cannot just memcpy. Each entry in the source
+/// list holds an offset **relative to the source's own data region**; copied
+/// verbatim into the destination they would all point into the source's bytes,
+/// so `inline_bulk_entries_fixup_loop` walks the appended span and rebases every
+/// one. Without it the concatenated elements read from a block the program no
+/// longer owns — and they read *something*, because that block is still mapped,
+/// which is what makes it the quiet kind of wrong.
+#[test]
+fn concatenating_into_a_record_field_rebases_the_copied_entries() {
+    let bulk = label_stems(WITH_BULK_FIELD);
+    assert!(
+        has_family(&bulk, "inline_bulk"),
+        "`WITH bag {{ b := append(bag.b, more) }}` is the record-field \
+         concatenation, and it has its own family: {bulk:?}"
+    );
+    assert!(
+        bulk.iter()
+            .any(|stem| stem == "inline_bulk_entries_fixup_loop"),
+        "each copied entry's offset is relative to the SOURCE's data region, so \
+         the appended span must be rebased; without the fixup every \
+         concatenated element reads from a block the program no longer owns: \
+         {bulk:?}"
+    );
+    assert!(
+        !has_family(&bulk, "inline_append"),
+        "the single-element and bulk record appends are different lowerings and \
+         must not both fire: {bulk:?}"
+    );
+}
