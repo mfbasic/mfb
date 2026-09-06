@@ -1,0 +1,200 @@
+' ---------------------------------------------------------------------------
+' Tests: the ECMA-262 to MFBASIC regular-expression translation.
+'
+' Two kinds of case. The first asserts a MEANING -- the pattern matches this
+' text and not that one -- which is what a schema author cares about. The
+' second asserts a REFUSAL, and matters just as much: every construct listed
+' here is one whose ECMA-262 meaning the `regex` dialect would silently change,
+' so a translation that started letting one through would be a schema quietly
+' validating against something other than what it says.
+'
+' A pattern is written twice-escaped in these cases: MFBASIC's own string
+' escapes are applied first, so `"\\\\d"` is the four-character source for the
+' two-character pattern `\d`.
+' ---------------------------------------------------------------------------
+
+IMPORT regex
+
+PRIVATE FUNC matches(pattern AS String, text AS String) AS Boolean
+  RETURN regex::match(text, toMfbPattern(pattern))
+END FUNC
+
+TESTING
+  TGROUP "shorthands are ASCII, as ECMA-262 defines them"
+    TCASE "\\d is [0-9] and not every Unicode digit"
+      expectEqual(matches("\\d", "5"), TRUE)
+      ' ARABIC-INDIC DIGIT ZERO is category Nd, and is not an ECMA-262 \d.
+      expectEqual(matches("\\d", "\u{0660}"), FALSE)
+      ' FULLWIDTH DIGIT ONE, likewise.
+      expectEqual(matches("\\d", "\u{ff11}"), FALSE)
+      expectEqual(matches("\\D", "5"), FALSE)
+      expectEqual(matches("\\D", "\u{0660}"), TRUE)
+    END TCASE
+
+    TCASE "\\w is [A-Za-z0-9_]"
+      expectEqual(matches("\\w", "a"), TRUE)
+      expectEqual(matches("\\w", "_"), TRUE)
+      expectEqual(matches("\\w", "-"), FALSE)
+      expectEqual(matches("\\w", "\u{00e9}"), FALSE)
+      expectEqual(matches("\\W", "\u{00e9}"), TRUE)
+    END TCASE
+
+    TCASE "\\s is the ECMA-262 whitespace set"
+      expectEqual(matches("\\s", " "), TRUE)
+      expectEqual(matches("\\s", "\t"), TRUE)
+      expectEqual(matches("\\s", "\u{00a0}"), TRUE)
+      expectEqual(matches("\\s", "\u{feff}"), TRUE)
+      expectEqual(matches("\\s", "x"), FALSE)
+      expectEqual(matches("\\S", "x"), TRUE)
+    END TCASE
+
+    TCASE "inside a class the positive shorthands expand"
+      expectEqual(matches("[\\d]", "5"), TRUE)
+      expectEqual(matches("[\\d]", "\u{0660}"), FALSE)
+      expectEqual(matches("[\\w-]", "-"), TRUE)
+      expectEqual(matches("[\\s]", "\u{00a0}"), TRUE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "the dot"
+    TCASE "`.` excludes every line terminator, not just \\n"
+      expectEqual(matches(".", "a"), TRUE)
+      expectEqual(matches("^.$", "\n"), FALSE)
+      expectEqual(matches("^.$", "\r"), FALSE)
+      expectEqual(matches("^.$", "\u{2028}"), FALSE)
+      expectEqual(matches("^.$", "\u{2029}"), FALSE)
+      expectEqual(matches("^.$", " "), TRUE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "character classes"
+    TCASE "an empty class is legal and matches nothing"
+      expectEqual(matches("[]", "a"), FALSE)
+      expectEqual(matches("[]", ""), FALSE)
+      expectEqual(matches("[^]", "a"), TRUE)
+      expectEqual(matches("[^]", "\n"), TRUE)
+    END TCASE
+
+    TCASE "a double ampersand is two literal ampersands"
+      expectEqual(matches("[a&&b]", "&"), TRUE)
+      expectEqual(matches("[a&&b]", "a"), TRUE)
+      expectEqual(matches("[a&&b]", "c"), FALSE)
+    END TCASE
+
+    TCASE "a POSIX-looking class is an ordinary set of characters"
+      ' `[[:alpha:]` is the class and the trailing `]` is a lone bracket, which
+      ' ECMA-262 refuses under the `u` flag.
+      expectTrap(matches("[[:alpha:]]", "a"), ERR_SCHEMA)
+      expectEqual(matches("[[:al]", ":"), TRUE)
+      expectEqual(matches("[[:al]", "z"), FALSE)
+    END TCASE
+
+    TCASE "an escaped endpoint still forms a range"
+      expectEqual(matches("[a\\-z]", "-"), TRUE)
+      expectEqual(matches("[a\\-z]", "b"), FALSE)
+      expectEqual(matches("[a-z]", "b"), TRUE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "escapes"
+    TCASE "code-point escapes translate"
+      expectEqual(matches("\\u0041", "A"), TRUE)
+      expectEqual(matches("\\x41", "A"), TRUE)
+      expectEqual(matches("\\u{1F600}", "\u{1F600}"), TRUE)
+      expectEqual(matches("\\cA", "\u{1}"), TRUE)
+      ' A surrogate PAIR is one code point.
+      expectEqual(matches("\\ud83d\\ude00", "\u{1F600}"), TRUE)
+    END TCASE
+
+    TCASE "an identity escape is limited to the syntax characters"
+      expectEqual(matches("\\.", "."), TRUE)
+      expectEqual(matches("\\.", "a"), FALSE)
+      expectEqual(matches("\\/", "/"), TRUE)
+      ' `\a` is BEL in the regex dialect and a syntax error in ECMA-262, so it
+      ' must not be passed through.
+      expectTrap(matches("\\a", "a"), ERR_SCHEMA)
+      expectTrap(matches("\\e", "e"), ERR_SCHEMA)
+      expectTrap(matches("\\A", "a"), ERR_SCHEMA)
+      expectTrap(matches("\\z", "a"), ERR_SCHEMA)
+      ' `\-` is an identity escape only INSIDE a class.
+      expectTrap(matches("\\-", "-"), ERR_SCHEMA)
+    END TCASE
+  END TGROUP
+
+  TGROUP "unicode property escapes"
+    TCASE "a general category carries over, by whichever name"
+      expectEqual(matches("\\p{L}", "a"), TRUE)
+      expectEqual(matches("\\p{L}", "1"), FALSE)
+      expectEqual(matches("\\p{Letter}", "\u{03c0}"), TRUE)
+      expectEqual(matches("\\p{Lu}", "A"), TRUE)
+      expectEqual(matches("\\p{Lu}", "a"), FALSE)
+      expectEqual(matches("\\p{Uppercase_Letter}", "A"), TRUE)
+      expectEqual(matches("\\p{gc=Nd}", "5"), TRUE)
+      expectEqual(matches("\\P{L}", "1"), TRUE)
+      expectEqual(matches("[\\p{L}]", "a"), TRUE)
+    END TCASE
+
+    TCASE "a script carries over"
+      expectEqual(matches("\\p{Script=Greek}", "\u{03c0}"), TRUE)
+      expectEqual(matches("\\p{Script=Greek}", "a"), FALSE)
+      expectEqual(matches("\\p{sc=Latin}", "a"), TRUE)
+    END TCASE
+
+    TCASE "a property this cannot carry over exactly is refused"
+      expectTrap(matches("\\p{ASCII}", "a"), ERR_UNSUPPORTED)
+      expectTrap(matches("\\p{Cased_Letter}", "a"), ERR_UNSUPPORTED)
+      expectTrap(matches("\\p{Script_Extensions=Greek}", "a"), ERR_UNSUPPORTED)
+      ' ECMA-262 under the `u` flag has no one-letter `\pL` form.
+      expectTrap(matches("\\pL", "a"), ERR_SCHEMA)
+    END TCASE
+  END TGROUP
+
+  TGROUP "refusals"
+    TCASE "lookaround and backreferences"
+      expectTrap(matches("a(?=b)", "ab"), ERR_UNSUPPORTED)
+      expectTrap(matches("a(?!b)", "ac"), ERR_UNSUPPORTED)
+      expectTrap(matches("(?<=a)b", "ab"), ERR_UNSUPPORTED)
+      expectTrap(matches("(?<!a)b", "cb"), ERR_UNSUPPORTED)
+      expectTrap(matches("(a)\\1", "aa"), ERR_UNSUPPORTED)
+      expectTrap(matches("\\k<n>", "a"), ERR_UNSUPPORTED)
+    END TCASE
+
+    TCASE "a negated shorthand inside a class"
+      ' `[a\D]` is a union with a negated set, which a class of positive items
+      ' cannot express.
+      expectTrap(matches("[\\D]", "a"), ERR_UNSUPPORTED)
+      expectTrap(matches("[a\\W]", "a"), ERR_UNSUPPORTED)
+    END TCASE
+
+    TCASE "syntax ECMA-262 itself rejects under the u flag"
+      expectTrap(matches("a}", "a}"), ERR_SCHEMA)
+      expectTrap(matches("a]", "a]"), ERR_SCHEMA)
+      expectTrap(matches("a{", "a{"), ERR_SCHEMA)
+      expectTrap(matches("\\01", "a"), ERR_SCHEMA)
+      expectTrap(matches("(?i)a", "A"), ERR_SCHEMA)
+      expectTrap(matches("a\\", "a"), ERR_SCHEMA)
+      expectTrap(matches("[a", "a"), ERR_SCHEMA)
+    END TCASE
+  END TGROUP
+
+  TGROUP "ordinary patterns are unchanged in meaning"
+    TCASE "anchors, groups, alternation and quantifiers"
+      expectEqual(matches("^[0-9]{3}-[0-9]{4}$", "555-1234"), TRUE)
+      expectEqual(matches("^[0-9]{3}-[0-9]{4}$", "5551234"), FALSE)
+      expectEqual(matches("(ab)+", "abab"), TRUE)
+      expectEqual(matches("(?:ab)+", "abab"), TRUE)
+      expectEqual(matches("a|b", "b"), TRUE)
+      expectEqual(matches("a{2,}", "aaa"), TRUE)
+      expectEqual(matches("a{2,}", "a"), FALSE)
+      ' A named group keeps its meaning; only its NAME is dropped, and nothing
+      ' here can observe a capture.
+      expectEqual(matches("(?<n>a)b", "ab"), TRUE)
+    END TCASE
+
+    TCASE "a search is unanchored"
+      expectEqual(matches("a", "cat"), TRUE)
+      expectEqual(matches("^a", "cat"), FALSE)
+      expectEqual(matches("t$", "cat"), TRUE)
+    END TCASE
+  END TGROUP
+END TESTING

@@ -1,0 +1,445 @@
+' ---------------------------------------------------------------------------
+' json_schema/core.mfb — the vocabulary every other file is built on: the
+' error codes, the evaluation limits, the JSON value primitives (kind, deep
+' equality, number classification), and JSON Pointer.
+'
+' A schema is an ordinary `json::Json` value, because in JSON Schema a schema
+' IS a JSON document: `{"type": "string"}` read by `json::parse` is already the
+' schema. Nothing here invents a second tree to hold one.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' ---------------------------------------------------------------------------
+' Limits. A schema may reference itself, and an instance may nest, so both
+' sides of the evaluation can recurse. Each limit turns an unbounded walk into
+' an ordinary catchable failure rather than a stack overflow or a hang.
+' ---------------------------------------------------------------------------
+
+' Maximum evaluation depth: one level per subschema entered. Each level costs
+' several native frames with no tail-call optimisation, so this is stack depth.
+' json::parse caps its own nesting at 256, so no instance this reader is handed
+' can be deeper than that on its own; the budget is here for the SCHEMA side,
+' where a `$ref` cycle over a growing instance path can descend without bound.
+PUBLIC LET DEPTH_LIMIT AS Integer = 200
+
+' The evaluation budget, as a constant plus an allowance per instance node.
+'
+' A FIXED total would be the wrong shape twice over: too small and a large but
+' perfectly ordinary document stops validating, too large and a one-byte
+' instance can still be made to cost minutes. What needs bounding is the RATIO
+' of work to input -- nested `anyOf`s multiply, so ten nested two-branch ones
+' cost 2^10 evaluations of the innermost schema from a schema a few hundred
+' bytes long, and a schema is untrusted input in exactly the way an instance
+' is. Charging per instance node makes the total linear in what the caller
+' handed in, which is work they already paid for once at `json::parse`.
+'
+' The same shape the regex engine uses for its own budget (`mfb spec stdlib
+' regex`, "Cost Budgets"): a call-wide allowance plus so much per unit of
+' subject.
+PUBLIC LET STEP_BASE AS Integer = 10000
+PUBLIC LET STEP_PER_NODE AS Integer = 100
+
+' Maximum number of schema resources (`$id`-bearing subschemas, plus the root)
+' one document may declare, and the maximum number of nodes `compile` will walk
+' while indexing them.
+PUBLIC LET INDEX_NODE_LIMIT AS Integer = 200000
+
+' ---------------------------------------------------------------------------
+' Error codes. Registry codes are used wherever one carries the right meaning
+' (`mfb spec diagnostics error-codes`). Two failures have no registry
+' equivalent -- blowing an evaluation budget, and a `$ref` that closes a loop
+' with no instance progress -- so they take generator-9 (user-defined) codes,
+' which the package exports by name so a caller can match on them.
+' ---------------------------------------------------------------------------
+
+' 7-705-0003 errorCode::ErrInvalidFormat — the schema document is not a
+' schema: a keyword holds the wrong JSON type, a `$ref` is not a string, or a
+' `pattern` is not a valid regular expression.
+PUBLIC LET ERR_SCHEMA AS Integer = 77050003
+' 7-705-0007 errorCode::ErrUnsupported — a well-formed Draft 2020-12 construct
+' that is outside this implementation's documented subset.
+PUBLIC LET ERR_UNSUPPORTED AS Integer = 77050007
+' 7-705-0004 errorCode::ErrNotFound — a `$ref` naming nothing in the document.
+PUBLIC LET ERR_REF AS Integer = 77050004
+' 7-705-0002 errorCode::ErrInvalidArgument — a caller-side mistake, such as a
+' JSON Pointer that is not a JSON Pointer.
+PUBLIC LET ERR_ARGUMENT AS Integer = 77050002
+' 7-705-0024 errorCode::ErrDepthExceeded — evaluation nested past DEPTH_LIMIT.
+PUBLIC LET ERR_DEPTH AS Integer = 77050024
+
+' 9-312-0001: evaluation exceeded STEP_LIMIT or INDEX_NODE_LIMIT. No
+' errorCode:: value models "this evaluation costs too much", so this is a
+' generator-9 code per the encoding rule.
+PUBLIC LET ERR_BUDGET AS Integer = 93120001
+' 9-312-0003: an instance is not valid against its schema. Only `check`
+' raises it; `validate` returns the same information as data.
+PUBLIC LET ERR_INVALID AS Integer = 93120003
+' 9-312-0002: a `$ref` re-entered the same subschema at the same instance
+' location, so the evaluation cannot terminate. Distinct from ERR_BUDGET: the
+' loop is proven, not merely expensive.
+PUBLIC LET ERR_REF_CYCLE AS Integer = 93120002
+
+' The `$schema` this implementation validates against.
+PUBLIC LET DIALECT AS String = "https://json-schema.org/draft/2020-12/schema"
+
+' ---------------------------------------------------------------------------
+' JSON value primitives.
+' ---------------------------------------------------------------------------
+
+' The JSON Schema type name of a value: one of null, boolean, number, string,
+' array, object. This is the `type` keyword's vocabulary minus "integer",
+' which is a predicate over "number" rather than a seventh kind -- see
+' isIntegral.
+PUBLIC FUNC kindOf(value AS json::Json) AS String
+  MATCH value
+    CASE json::JsonNull(n) : RETURN "null"
+    CASE json::JsonBool(b) : RETURN "boolean"
+    CASE json::JsonNum(m) : RETURN "number"
+    CASE json::JsonStr(s) : RETURN "string"
+    CASE json::JsonArr(a) : RETURN "array"
+    CASE json::JsonObj(o) : RETURN "object"
+  END MATCH
+END FUNC
+
+' TRUE when a number has no fractional part, which is what Draft 2020-12 means
+' by "integer": 1.0 is an integer and 1.5 is not. Numbers are carried as Float
+' (`mfb man json`), so this is a property of the VALUE, never of how the source
+' text spelled it -- 1.0, 1, and 1e0 are one value and all three are integers.
+'
+' The remainder, not `math::floor`: floor returns an INTEGER (`mfb man math
+' floor`), so asking it about 1e21 -- a perfectly ordinary JSON number, and a
+' whole one -- narrows past Integer's range and raises ErrOverflow instead of
+' answering. `value MOD 1.0` stays in Float throughout and is exact for every
+' finite value, including the ones above 2^53 that have no fractional bits left.
+PUBLIC FUNC isIntegral(value AS Float) AS Boolean
+  RETURN value MOD 1.0 = 0.0
+END FUNC
+
+' A number as JSON renders it, for an error message: `4` rather than `4.00`,
+' and `1e+21` rather than a screenful of zeroes. `toString(Float)` is the
+' language's own rendering and is not JSON's, and every number in a message
+' here came out of a JSON document, so it is shown the way it was written.
+PUBLIC FUNC showNumber(value AS Float) AS String
+  RETURN json::stringify(json::JsonNum[value])
+END FUNC
+
+' The Float behind a number, or a failure when the value is not a number.
+PUBLIC FUNC numberOf(value AS json::Json) AS Float
+  MATCH value
+    CASE json::JsonNum(m) : RETURN m.value
+    CASE json::JsonNull(n) : FAIL error(ERR_SCHEMA, "json_schema: expected a number")
+    CASE json::JsonBool(b) : FAIL error(ERR_SCHEMA, "json_schema: expected a number")
+    CASE json::JsonStr(s) : FAIL error(ERR_SCHEMA, "json_schema: expected a number")
+    CASE json::JsonArr(a) : FAIL error(ERR_SCHEMA, "json_schema: expected a number")
+    CASE json::JsonObj(o) : FAIL error(ERR_SCHEMA, "json_schema: expected a number")
+  END MATCH
+END FUNC
+
+' The String behind a string value, or a failure when it is not one.
+PUBLIC FUNC stringOf(value AS json::Json) AS String
+  MATCH value
+    CASE json::JsonStr(s) : RETURN s.value
+    CASE json::JsonNull(n) : FAIL error(ERR_SCHEMA, "json_schema: expected a string")
+    CASE json::JsonBool(b) : FAIL error(ERR_SCHEMA, "json_schema: expected a string")
+    CASE json::JsonNum(m) : FAIL error(ERR_SCHEMA, "json_schema: expected a string")
+    CASE json::JsonArr(a) : FAIL error(ERR_SCHEMA, "json_schema: expected a string")
+    CASE json::JsonObj(o) : FAIL error(ERR_SCHEMA, "json_schema: expected a string")
+  END MATCH
+END FUNC
+
+' The items behind an array value, or a failure when it is not one.
+PUBLIC FUNC itemsOf(value AS json::Json) AS List OF json::Json
+  MATCH value
+    CASE json::JsonArr(a) : RETURN a.items
+    CASE json::JsonNull(n) : FAIL error(ERR_SCHEMA, "json_schema: expected an array")
+    CASE json::JsonBool(b) : FAIL error(ERR_SCHEMA, "json_schema: expected an array")
+    CASE json::JsonNum(m) : FAIL error(ERR_SCHEMA, "json_schema: expected an array")
+    CASE json::JsonStr(s) : FAIL error(ERR_SCHEMA, "json_schema: expected an array")
+    CASE json::JsonObj(o) : FAIL error(ERR_SCHEMA, "json_schema: expected an array")
+  END MATCH
+END FUNC
+
+' The members behind an object value, or a failure when it is not one.
+PUBLIC FUNC fieldsOf(value AS json::Json) AS Map OF String TO json::Json
+  MATCH value
+    CASE json::JsonObj(o) : RETURN o.fields
+    CASE json::JsonNull(n) : FAIL error(ERR_SCHEMA, "json_schema: expected an object")
+    CASE json::JsonBool(b) : FAIL error(ERR_SCHEMA, "json_schema: expected an object")
+    CASE json::JsonNum(m) : FAIL error(ERR_SCHEMA, "json_schema: expected an object")
+    CASE json::JsonStr(s) : FAIL error(ERR_SCHEMA, "json_schema: expected an object")
+    CASE json::JsonArr(a) : FAIL error(ERR_SCHEMA, "json_schema: expected an object")
+  END MATCH
+END FUNC
+
+' TRUE when the value is a JSON object.
+PUBLIC FUNC isObject(value AS json::Json) AS Boolean
+  RETURN kindOf(value) = "object"
+END FUNC
+
+' TRUE when the value is a JSON array.
+PUBLIC FUNC isArray(value AS json::Json) AS Boolean
+  RETURN kindOf(value) = "array"
+END FUNC
+
+' TRUE when the value is a JSON string.
+PUBLIC FUNC isString(value AS json::Json) AS Boolean
+  RETURN kindOf(value) = "string"
+END FUNC
+
+' Read an object member, or fail when the value is not an object or has no
+' such member. Callers that tolerate absence use `member` with `hasMember`.
+PUBLIC FUNC member(value AS json::Json, name AS String) AS json::Json
+  LET fields AS Map OF String TO json::Json = fieldsOf(value)
+  RETURN collections::get(fields, name)
+END FUNC
+
+' TRUE when `value` is an object carrying a member called `name`.
+PUBLIC FUNC hasMember(value AS json::Json, name AS String) AS Boolean
+  IF NOT isObject(value) THEN RETURN FALSE
+  LET fields AS Map OF String TO json::Json = fieldsOf(value)
+  RETURN collections::hasKey(fields, name)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Deep equality.
+'
+' `const`, `enum`, `uniqueItems` and `dependentSchemas`' sibling rules all rest
+' on JSON Schema's equality, which is structural: numbers compare by NUMERIC
+' VALUE (1 and 1.0 are the same instance), strings by their scalars, arrays
+' elementwise and in order, objects by having the same member names with equal
+' values, order irrelevant. Values of different kinds are never equal, so no
+' JSON value equals a value of another type.
+'
+' This cannot be the language's `=`: a UNION is not comparable (`mfb spec
+' language types` §4.11), so json::Json has no `=` at all.
+' ---------------------------------------------------------------------------
+
+PUBLIC FUNC deepEqual(left AS json::Json, right AS json::Json) AS Boolean
+  LET leftKind AS String = kindOf(left)
+  IF leftKind <> kindOf(right) THEN RETURN FALSE
+  IF leftKind = "null" THEN RETURN TRUE
+  IF leftKind = "boolean" THEN
+    MATCH left
+      CASE json::JsonBool(a)
+        MATCH right
+          CASE json::JsonBool(b) : RETURN a.value = b.value
+          CASE ELSE : RETURN FALSE
+        END MATCH
+      CASE ELSE : RETURN FALSE
+    END MATCH
+  END IF
+  IF leftKind = "number" THEN RETURN numberOf(left) = numberOf(right)
+  IF leftKind = "string" THEN RETURN stringOf(left) = stringOf(right)
+  IF leftKind = "array" THEN RETURN equalArrays(itemsOf(left), itemsOf(right))
+  RETURN equalObjects(fieldsOf(left), fieldsOf(right))
+END FUNC
+
+PRIVATE FUNC equalArrays(left AS List OF json::Json, right AS List OF json::Json) AS Boolean
+  IF len(left) <> len(right) THEN RETURN FALSE
+  MUT i AS Integer = 0
+  WHILE i < len(left)
+    IF NOT deepEqual(collections::get(left, i), collections::get(right, i)) THEN RETURN FALSE
+    i = i + 1
+  END WHILE
+  RETURN TRUE
+END FUNC
+
+PRIVATE FUNC equalObjects(left AS Map OF String TO json::Json, right AS Map OF String TO json::Json) AS Boolean
+  IF len(left) <> len(right) THEN RETURN FALSE
+  FOR EACH entry IN left
+    IF NOT collections::hasKey(right, entry.key) THEN RETURN FALSE
+    IF NOT deepEqual(entry.value, collections::get(right, entry.key)) THEN RETURN FALSE
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' ---------------------------------------------------------------------------
+' JSON Pointer (RFC 6901).
+'
+' A pointer is the empty string (the whole document) or a sequence of
+' "/"-prefixed reference tokens, in which "~1" spells "/" and "~0" spells "~".
+' Pointers are how this package names a location: `ValidationError` carries one
+' for the instance and one for the schema, and a `$ref` fragment beginning with
+' "/" is one.
+' ---------------------------------------------------------------------------
+
+' Escape one reference token for inclusion in a pointer. The "~" substitution
+' runs FIRST: doing "/" first would turn a literal "/" into "~1" and then the
+' "~" pass would corrupt it into "~01".
+PUBLIC FUNC escapeToken(token AS String) AS String
+  LET tildes AS String = strings::replace(token, "~", "~0")
+  RETURN strings::replace(tildes, "/", "~1")
+END FUNC
+
+' Undo escapeToken. The order inverts for the same reason: "~01" must become
+' "~1" and not "/".
+PUBLIC FUNC unescapeToken(token AS String) AS String
+  LET slashes AS String = strings::replace(token, "~1", "/")
+  RETURN strings::replace(slashes, "~0", "~")
+END FUNC
+
+' Extend a pointer with one more reference token.
+PUBLIC FUNC pointerAppend(pointer AS String, token AS String) AS String
+  RETURN pointer & "/" & escapeToken(token)
+END FUNC
+
+' Extend a pointer with an array index.
+PUBLIC FUNC pointerIndex(pointer AS String, index AS Integer) AS String
+  RETURN pointer & "/" & toString(index)
+END FUNC
+
+' Split a pointer into its unescaped reference tokens. The empty pointer has
+' none. A non-empty pointer must begin with "/" -- anything else is a caller
+' mistake rather than a lookup miss, so it fails rather than returning nothing.
+PUBLIC FUNC pointerTokens(pointer AS String) AS List OF String
+  MUT tokens AS List OF String = []
+  IF pointer = "" THEN RETURN tokens
+  IF NOT strings::startsWith(pointer, "/") THEN
+    FAIL error(ERR_ARGUMENT, "json_schema: `" & pointer & "` is not a JSON Pointer -- it must be empty or begin with /")
+  END IF
+  LET parts AS List OF String = strings::split(strings::mid(pointer, 1, len(pointer) - 1), "/")
+  FOR EACH part IN parts
+    tokens = collections::append(tokens, unescapeToken(part))
+  NEXT
+  RETURN tokens
+END FUNC
+
+' TRUE when `token` is the canonical decimal spelling of an array index: a run
+' of digits with no sign, no leading zero (except "0" itself) and no other
+' character. RFC 6901 admits only this spelling, so "01" and " 1" name no
+' array element even where 1 would.
+PUBLIC FUNC isIndexToken(token AS String) AS Boolean
+  IF token = "" THEN RETURN FALSE
+  IF token = "0" THEN RETURN TRUE
+  LET scalars AS List OF Scalar = strings::toScalars(token)
+  MUT i AS Integer = 0
+  WHILE i < len(scalars)
+    LET code AS Integer = toInt(collections::get(scalars, i))
+    IF code < 48 OR code > 57 THEN RETURN FALSE
+    IF i = 0 AND code = 48 THEN RETURN FALSE
+    i = i + 1
+  END WHILE
+  RETURN TRUE
+END FUNC
+
+' Resolve a JSON Pointer against a document, failing with ERR_REF when any step
+' finds nothing. Array steps take the canonical decimal spelling above; object
+' steps take a member name verbatim, so a member literally called "0" is
+' reachable on an object and an index is reachable on an array, with no
+' ambiguity between them because the two never apply to the same value.
+PUBLIC FUNC resolvePointer(document AS json::Json, pointer AS String) AS json::Json
+  MUT current AS json::Json = document
+  MUT walked AS String = ""
+  FOR EACH token IN pointerTokens(pointer)
+    IF isObject(current) THEN
+      IF NOT hasMember(current, token) THEN
+        FAIL error(ERR_REF, "json_schema: JSON Pointer `" & pointer & "` has no member `" & token & "` at `" & walked & "`")
+      END IF
+      current = member(current, token)
+    ELSEIF isArray(current) THEN
+      LET items AS List OF json::Json = itemsOf(current)
+      IF NOT isIndexToken(token) THEN
+        FAIL error(ERR_REF, "json_schema: JSON Pointer `" & pointer & "` uses `" & token & "` as an array index at `" & walked & "`")
+      END IF
+      LET index AS Integer = toInt(token)
+      IF index >= len(items) THEN
+        FAIL error(ERR_REF, "json_schema: JSON Pointer `" & pointer & "` indexes past the end of the array at `" & walked & "`")
+      END IF
+      current = collections::get(items, index)
+    ELSE
+      FAIL error(ERR_REF, "json_schema: JSON Pointer `" & pointer & "` descends into a " & kindOf(current) & " at `" & walked & "`")
+    END IF
+    walked = pointerAppend(walked, token)
+  NEXT
+  RETURN current
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Budgets.
+' ---------------------------------------------------------------------------
+
+' Charge one unit against a budget, failing when it runs out.
+PUBLIC FUNC charge(spent AS Integer, limit AS Integer, what AS String) AS Integer
+  LET total AS Integer = spent + 1
+  IF total > limit THEN
+    FAIL error(ERR_BUDGET, "json_schema: " & what & " exceeded the " & toString(limit) & "-step limit")
+  END IF
+  RETURN total
+END FUNC
+
+' Spend one subschema evaluation from what is left of the budget.
+'
+' The evaluator carries the REMAINING budget rather than the amount spent, so
+' the limit itself does not have to be threaded through every call beside it.
+PUBLIC FUNC spend(remaining AS Integer) AS Integer
+  IF remaining <= 0 THEN
+    FAIL error(ERR_BUDGET, "json_schema: this schema demands more subschema evaluations than the instance's size allows (" & toString(STEP_BASE) & " plus " & toString(STEP_PER_NODE) & " per instance node), so evaluating it is not bounded by the work the instance itself represents")
+  END IF
+  RETURN remaining - 1
+END FUNC
+
+' The number of JSON values in a tree, counting itself. The evaluation budget
+' is derived from this, so it is walked once per `validate` call rather than
+' estimated.
+PUBLIC FUNC countNodes(value AS json::Json) AS Integer
+  MUT total AS Integer = 1
+  MATCH value
+    CASE json::JsonArr(a)
+      FOR EACH item IN a.items
+        total = total + countNodes(item)
+      NEXT
+    CASE json::JsonObj(o)
+      FOR EACH entry IN o.fields
+        total = total + countNodes(entry.value)
+      NEXT
+    CASE ELSE
+      total = 1
+  END MATCH
+  RETURN total
+END FUNC
+
+' Refuse nesting past DEPTH_LIMIT.
+PUBLIC FUNC checkDepth(depth AS Integer) AS Nothing
+  IF depth > DEPTH_LIMIT THEN
+    FAIL error(ERR_DEPTH, "json_schema: evaluation nested past the " & toString(DEPTH_LIMIT) & "-level depth limit")
+  END IF
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Text helpers.
+'
+' `strings::find` reports absence by RAISING ErrNotFound and `strings::mid`
+' raises when the requested run runs off the end (`mfb man strings find`,
+' `mfb man strings mid`). Both are the right contract for a caller that expects
+' a hit; the URI and pattern scanners here expect misses constantly, so they
+' work through these two sentinel-and-clamp wrappers instead of writing a TRAP
+' at every step.
+' ---------------------------------------------------------------------------
+
+' The scalar index of the first `needle` in `value`, or -1 when there is none.
+PUBLIC FUNC indexOf(value AS String, needle AS String) AS Integer
+  LET at AS Integer = strings::find(value, needle) TRAP
+    RECOVER -1
+  END TRAP
+  RETURN at
+END FUNC
+
+' The scalars of `value` from `from` up to but not including `stop`, clamped to
+' the string on both ends. An empty or inverted range yields "".
+PUBLIC FUNC slice(value AS String, from AS Integer, stop AS Integer) AS String
+  LET total AS Integer = len(value)
+  MUT lo AS Integer = from
+  MUT hi AS Integer = stop
+  IF lo < 0 THEN lo = 0
+  IF hi > total THEN hi = total
+  IF lo >= hi THEN RETURN ""
+  RETURN strings::mid(value, lo, hi - lo)
+END FUNC
+
+' The scalars of `value` from `from` to its end, clamped.
+PUBLIC FUNC sliceFrom(value AS String, from AS Integer) AS String
+  RETURN slice(value, from, len(value))
+END FUNC

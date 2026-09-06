@@ -1,0 +1,155 @@
+' ---------------------------------------------------------------------------
+' Tests: the refusals -- a schema that is not a schema, and a schema or
+' instance that costs more than the evaluator will spend.
+'
+' A schema is untrusted input in exactly the way an instance is, so these
+' bounds are the difference between a catchable failure and a hung process.
+' Each case builds its input rather than writing it out, because the inputs
+' that reach a bound are too large to write.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+PRIVATE FUNC compileOnly(schemaText AS String) AS String
+  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  RETURN compiled.id
+END FUNC
+
+PRIVATE FUNC ok(schemaText AS String, instanceText AS String) AS Boolean
+  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  RETURN len(runValidation(compiled, json::parse(instanceText))) = 0
+END FUNC
+
+' An array nested `depth` levels with a null at the bottom.
+PRIVATE FUNC nestedArray(depth AS Integer) AS String
+  MUT out AS String = "null"
+  MUT i AS Integer = 0
+  WHILE i < depth
+    out = "[" & out & "]"
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' A schema that walks such an array: every level costs several subschema
+' evaluations, so a deep enough instance passes DEPTH_LIMIT.
+PRIVATE FUNC nestedArraySchema() AS String
+  MUT out AS String = "{\"$defs\":{\"n\":{\"anyOf\":[{\"type\":\"null\"},"
+  out = out & "{\"type\":\"array\",\"items\":{\"$ref\":\"#/$defs/n\"}}]}},"
+  out = out & "\"$ref\":\"#/$defs/n\"}"
+  RETURN out
+END FUNC
+
+' `levels` definitions, each branching into two references to the next, and the
+' last accepting anything. Evaluating it costs 2^levels subschema evaluations,
+' from a schema whose TEXT grows linearly -- which is the shape a schema-side
+' denial of service takes.
+PRIVATE FUNC doublingSchema(levels AS Integer) AS String
+  MUT defs AS List OF String = []
+  MUT i AS Integer = 0
+  WHILE i < levels
+    LET here AS String = "\"a" & toString(i) & "\":"
+    LET target AS String = "{\"$ref\":\"#/$defs/a" & toString(i + 1) & "\"}"
+    defs = collections::append(defs, here & "{\"anyOf\":[" & target & "," & target & "]}")
+    i = i + 1
+  END WHILE
+  defs = collections::append(defs, "\"a" & toString(levels) & "\":{\"type\":\"null\"}")
+  RETURN "{\"$defs\":{" & strings::join(defs, ",") & "},\"$ref\":\"#/$defs/a0\"}"
+END FUNC
+
+TESTING
+  TGROUP "a schema that is not a schema"
+    TCASE "a schema must be an object or a boolean"
+      expectTrap(compileOnly("1"), ERR_SCHEMA)
+      expectTrap(compileOnly("\"x\""), ERR_SCHEMA)
+      expectTrap(compileOnly("[]"), ERR_SCHEMA)
+      expectTrap(compileOnly("null"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"properties\":{\"a\":1}}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "a keyword holding the wrong JSON type is refused, not ignored"
+      expectTrap(compileOnly("{\"type\":1}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"required\":\"a\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"properties\":[]}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"allOf\":{}}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"enum\":1}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"maximum\":\"1\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"uniqueItems\":\"yes\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"pattern\":1}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"$ref\":1}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"title\":1}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "a type name must be one of the seven"
+      expectTrap(compileOnly("{\"type\":\"int\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"type\":[]}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"type\":[\"string\",\"string\"]}"), ERR_SCHEMA)
+      expectString(compileOnly("{\"type\":[\"string\",\"null\"]}"), "")
+    END TCASE
+
+    TCASE "a count must be a non-negative integer"
+      expectTrap(compileOnly("{\"minLength\":-1}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"minLength\":1.5}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"multipleOf\":0}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"multipleOf\":-2}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "required and dependentRequired take distinct strings"
+      expectTrap(compileOnly("{\"required\":[1]}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"required\":[\"a\",\"a\"]}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"dependentRequired\":{\"a\":\"b\"}}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "an applicator list must hold at least one subschema"
+      expectTrap(compileOnly("{\"allOf\":[]}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"prefixItems\":[]}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "a pattern that is not a regular expression is refused at compile time"
+      expectTrap(compileOnly("{\"pattern\":\"[\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"patternProperties\":{\"a(?=b)\":true}}"), ERR_UNSUPPORTED)
+    END TCASE
+
+    TCASE "another dialect is refused rather than guessed at"
+      expectTrap(compileOnly("{\"$schema\":\"http://json-schema.org/draft-07/schema#\"}"), ERR_UNSUPPORTED)
+      expectString(compileOnly("{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\"}"), "")
+    END TCASE
+  END TGROUP
+
+  TGROUP "bounds"
+    TCASE "a shallow instance is validated normally"
+      expectEqual(ok(nestedArraySchema(), nestedArray(10)), TRUE)
+      expectEqual(ok(nestedArraySchema(), nestedArray(30)), TRUE)
+    END TCASE
+
+    TCASE "an instance deeper than the evaluator will descend is refused"
+      expectTrap(ok(nestedArraySchema(), nestedArray(120)), ERR_DEPTH)
+    END TCASE
+
+    TCASE "a schema that branches within budget is evaluated"
+      expectEqual(ok(doublingSchema(10), "null"), TRUE)
+    END TCASE
+
+    TCASE "a schema that branches past the budget is refused"
+      ' 2^30 evaluations demanded by a schema a few hundred bytes long, against
+      ' a ONE-NODE instance. The budget is what that instance is worth, so this
+      ' costs a bounded amount rather than the amount the schema asked for.
+      expectTrap(ok(doublingSchema(30), "null"), ERR_BUDGET)
+    END TCASE
+
+    TCASE "the budget grows with the instance, so a large document still validates"
+      ' 20000 items, each costing several evaluations -- far past the constant
+      ' part of the budget, and well within the per-node part.
+      MUT items AS List OF String = []
+      MUT i AS Integer = 0
+      WHILE i < 20000
+        items = collections::append(items, toString(i))
+        i = i + 1
+      END WHILE
+      LET instance AS String = "[" & strings::join(items, ",") & "]"
+      expectEqual(ok("{\"items\":{\"anyOf\":[{\"type\":\"integer\"},{\"type\":\"string\"}]}}", instance), TRUE)
+    END TCASE
+  END TGROUP
+END TESTING

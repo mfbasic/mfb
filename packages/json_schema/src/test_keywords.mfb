@@ -1,0 +1,249 @@
+' ---------------------------------------------------------------------------
+' Tests: the assertion keywords, asked the way a caller asks them -- schema
+' text in, verdict out. Each case names the keyword it expects to do the
+' rejecting, so a schema that fails for the wrong reason still fails the test.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' "valid", or the keywords that rejected the instance, in the order found.
+PRIVATE FUNC verdict(schemaText AS String, instanceText AS String) AS String
+  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  LET problems AS List OF ValidationError = runValidation(compiled, json::parse(instanceText))
+  IF len(problems) = 0 THEN RETURN "valid"
+  MUT keywords AS List OF String = []
+  FOR EACH problem IN problems
+    keywords = collections::append(keywords, problem.keyword)
+  NEXT
+  RETURN strings::join(keywords, ",")
+END FUNC
+
+TESTING
+  TGROUP "boolean schemas"
+    TCASE "true accepts everything and false rejects everything"
+      expectString(verdict("true", "null"), "valid")
+      expectString(verdict("true", "{\"a\":[1]}"), "valid")
+      expectString(verdict("false", "null"), "false")
+      expectString(verdict("false", "1"), "false")
+      expectString(verdict("{}", "1"), "valid")
+    END TCASE
+  END TGROUP
+
+  TGROUP "type"
+    TCASE "each name matches its own kind"
+      expectString(verdict("{\"type\":\"string\"}", "\"x\""), "valid")
+      expectString(verdict("{\"type\":\"string\"}", "1"), "type")
+      expectString(verdict("{\"type\":\"null\"}", "null"), "valid")
+      expectString(verdict("{\"type\":\"boolean\"}", "false"), "valid")
+      expectString(verdict("{\"type\":\"array\"}", "[]"), "valid")
+      expectString(verdict("{\"type\":\"object\"}", "{}"), "valid")
+    END TCASE
+
+    TCASE "integer is number without a fractional part"
+      expectString(verdict("{\"type\":\"integer\"}", "1"), "valid")
+      expectString(verdict("{\"type\":\"integer\"}", "1.0"), "valid")
+      expectString(verdict("{\"type\":\"integer\"}", "-2"), "valid")
+      expectString(verdict("{\"type\":\"integer\"}", "1.5"), "type")
+      expectString(verdict("{\"type\":\"integer\"}", "\"1\""), "type")
+      expectString(verdict("{\"type\":\"number\"}", "1.5"), "valid")
+    END TCASE
+
+    TCASE "a boolean is not a number and a number is not a boolean"
+      expectString(verdict("{\"type\":\"number\"}", "true"), "type")
+      expectString(verdict("{\"type\":\"boolean\"}", "1"), "type")
+    END TCASE
+
+    TCASE "a list of names accepts any one of them"
+      expectString(verdict("{\"type\":[\"string\",\"null\"]}", "\"x\""), "valid")
+      expectString(verdict("{\"type\":[\"string\",\"null\"]}", "null"), "valid")
+      expectString(verdict("{\"type\":[\"string\",\"null\"]}", "1"), "type")
+    END TCASE
+  END TGROUP
+
+  TGROUP "const and enum"
+    TCASE "const compares structurally"
+      expectString(verdict("{\"const\":1}", "1"), "valid")
+      expectString(verdict("{\"const\":1}", "1.0"), "valid")
+      expectString(verdict("{\"const\":1}", "\"1\""), "const")
+      expectString(verdict("{\"const\":{\"a\":[1,2]}}", "{\"a\":[1,2]}"), "valid")
+      expectString(verdict("{\"const\":{\"a\":[1,2]}}", "{\"a\":[2,1]}"), "const")
+      expectString(verdict("{\"const\":null}", "null"), "valid")
+      expectString(verdict("{\"const\":false}", "0"), "const")
+    END TCASE
+
+    TCASE "enum accepts any listed value"
+      expectString(verdict("{\"enum\":[1,\"a\",null]}", "\"a\""), "valid")
+      expectString(verdict("{\"enum\":[1,\"a\",null]}", "null"), "valid")
+      expectString(verdict("{\"enum\":[1,\"a\",null]}", "2"), "enum")
+      expectString(verdict("{\"enum\":[[1],{\"a\":1}]}", "[1]"), "valid")
+    END TCASE
+
+    TCASE "an empty enum accepts nothing, and is a legal schema"
+      ' The 2020-12 metaschema puts no minimum length on `enum`.
+      expectString(verdict("{\"enum\":[]}", "1"), "enum")
+      expectString(verdict("{\"enum\":[]}", "null"), "enum")
+    END TCASE
+  END TGROUP
+
+  TGROUP "numbers"
+    TCASE "bounds, inclusive and exclusive"
+      expectString(verdict("{\"maximum\":10}", "10"), "valid")
+      expectString(verdict("{\"maximum\":10}", "11"), "maximum")
+      expectString(verdict("{\"exclusiveMaximum\":10}", "10"), "exclusiveMaximum")
+      expectString(verdict("{\"minimum\":0}", "0"), "valid")
+      expectString(verdict("{\"minimum\":0}", "-1"), "minimum")
+      expectString(verdict("{\"exclusiveMinimum\":0}", "0"), "exclusiveMinimum")
+    END TCASE
+
+    TCASE "a bound does not apply to a non-number"
+      expectString(verdict("{\"maximum\":1}", "\"zzz\""), "valid")
+      expectString(verdict("{\"minimum\":1}", "[]"), "valid")
+    END TCASE
+
+    TCASE "multipleOf"
+      expectString(verdict("{\"multipleOf\":2}", "4"), "valid")
+      expectString(verdict("{\"multipleOf\":2}", "0"), "valid")
+      expectString(verdict("{\"multipleOf\":2}", "3"), "multipleOf")
+      expectString(verdict("{\"multipleOf\":0.5}", "1.5"), "valid")
+      expectString(verdict("{\"multipleOf\":0.5}", "1.25"), "multipleOf")
+    END TCASE
+
+    TCASE "a number beyond Integer's range is validated, not refused"
+      expectString(verdict("{\"type\":\"integer\"}", "1e21"), "valid")
+      expectString(verdict("{\"minimum\":0}", "1e21"), "valid")
+      expectString(verdict("{\"maximum\":0}", "1e21"), "maximum")
+    END TCASE
+  END TGROUP
+
+  TGROUP "strings"
+    TCASE "length is counted in code points"
+      expectString(verdict("{\"minLength\":2}", "\"ab\""), "valid")
+      expectString(verdict("{\"minLength\":2}", "\"a\""), "minLength")
+      expectString(verdict("{\"maxLength\":2}", "\"abc\""), "maxLength")
+      ' One astral character is ONE code point, not two UTF-16 units and not
+      ' four UTF-8 bytes.
+      expectString(verdict("{\"maxLength\":1}", "\"\\ud83d\\ude00\""), "valid")
+      expectString(verdict("{\"minLength\":2}", "\"\\ud83d\\ude00\""), "minLength")
+    END TCASE
+
+    TCASE "a length bound does not apply to a non-string"
+      expectString(verdict("{\"minLength\":5}", "1"), "valid")
+      expectString(verdict("{\"maxLength\":0}", "[1,2,3]"), "valid")
+    END TCASE
+
+    TCASE "pattern searches, it does not anchor"
+      expectString(verdict("{\"pattern\":\"a\"}", "\"cat\""), "valid")
+      expectString(verdict("{\"pattern\":\"a\"}", "\"dog\""), "pattern")
+      expectString(verdict("{\"pattern\":\"^a\"}", "\"cat\""), "pattern")
+      expectString(verdict("{\"pattern\":\"^a\"}", "\"at\""), "valid")
+    END TCASE
+  END TGROUP
+
+  TGROUP "arrays"
+    TCASE "size bounds"
+      expectString(verdict("{\"minItems\":2}", "[1,2]"), "valid")
+      expectString(verdict("{\"minItems\":2}", "[1]"), "minItems")
+      expectString(verdict("{\"maxItems\":1}", "[1,2]"), "maxItems")
+      expectString(verdict("{\"minItems\":2}", "\"ab\""), "valid")
+    END TCASE
+
+    TCASE "uniqueItems compares structurally"
+      expectString(verdict("{\"uniqueItems\":true}", "[1,2]"), "valid")
+      expectString(verdict("{\"uniqueItems\":true}", "[1,1]"), "uniqueItems")
+      expectString(verdict("{\"uniqueItems\":true}", "[1,1.0]"), "uniqueItems")
+      expectString(verdict("{\"uniqueItems\":true}", "[0,false]"), "valid")
+      expectString(verdict("{\"uniqueItems\":true}", "[{\"a\":1},{\"a\":1}]"), "uniqueItems")
+      expectString(verdict("{\"uniqueItems\":false}", "[1,1]"), "valid")
+    END TCASE
+
+    TCASE "prefixItems and items divide the array between them"
+      expectString(verdict("{\"prefixItems\":[{\"type\":\"integer\"}]}", "[1,\"x\"]"), "valid")
+      expectString(verdict("{\"prefixItems\":[{\"type\":\"integer\"}]}", "[\"x\"]"), "type")
+      expectString(verdict("{\"prefixItems\":[{\"type\":\"integer\"}],\"items\":false}", "[1]"), "valid")
+      expectString(verdict("{\"prefixItems\":[{\"type\":\"integer\"}],\"items\":false}", "[1,2]"), "false")
+      expectString(verdict("{\"items\":{\"type\":\"integer\"}}", "[1,2]"), "valid")
+      expectString(verdict("{\"items\":{\"type\":\"integer\"}}", "[1,\"x\"]"), "type")
+    END TCASE
+
+    TCASE "contains counts matches"
+      expectString(verdict("{\"contains\":{\"type\":\"integer\"}}", "[\"a\",1]"), "valid")
+      expectString(verdict("{\"contains\":{\"type\":\"integer\"}}", "[\"a\"]"), "contains")
+      expectString(verdict("{\"contains\":{\"type\":\"integer\"}}", "[]"), "contains")
+      expectString(verdict("{\"contains\":{\"type\":\"integer\"},\"minContains\":2}", "[1]"), "contains")
+      expectString(verdict("{\"contains\":{\"type\":\"integer\"},\"minContains\":2}", "[1,2]"), "valid")
+      expectString(verdict("{\"contains\":{\"type\":\"integer\"},\"maxContains\":1}", "[1,2]"), "maxContains")
+    END TCASE
+
+    TCASE "minContains of zero makes contains non-assertive"
+      expectString(verdict("{\"contains\":false,\"minContains\":0}", "[]"), "valid")
+      expectString(verdict("{\"contains\":false}", "[]"), "contains")
+      expectString(verdict("{\"contains\":false}", "[1]"), "contains")
+    END TCASE
+  END TGROUP
+
+  TGROUP "objects"
+    TCASE "required and size bounds"
+      expectString(verdict("{\"required\":[\"a\"]}", "{\"a\":1}"), "valid")
+      expectString(verdict("{\"required\":[\"a\"]}", "{}"), "required")
+      expectString(verdict("{\"required\":[\"a\"]}", "[]"), "valid")
+      expectString(verdict("{\"minProperties\":1}", "{}"), "minProperties")
+      expectString(verdict("{\"maxProperties\":1}", "{\"a\":1,\"b\":2}"), "maxProperties")
+    END TCASE
+
+    TCASE "properties, patternProperties and additionalProperties"
+      expectString(verdict("{\"properties\":{\"a\":{\"type\":\"integer\"}}}", "{\"a\":1}"), "valid")
+      expectString(verdict("{\"properties\":{\"a\":{\"type\":\"integer\"}}}", "{\"a\":\"x\"}"), "type")
+      expectString(verdict("{\"properties\":{\"a\":true},\"additionalProperties\":false}", "{\"a\":1}"), "valid")
+      expectString(verdict("{\"properties\":{\"a\":true},\"additionalProperties\":false}", "{\"b\":1}"), "false")
+      expectString(verdict("{\"patternProperties\":{\"^x\":{\"type\":\"integer\"}}}", "{\"xa\":1}"), "valid")
+      expectString(verdict("{\"patternProperties\":{\"^x\":{\"type\":\"integer\"}}}", "{\"xa\":\"s\"}"), "type")
+      expectString(verdict("{\"patternProperties\":{\"^x\":true},\"additionalProperties\":false}", "{\"xa\":1}"), "valid")
+    END TCASE
+
+    TCASE "propertyNames applies to the names"
+      expectString(verdict("{\"propertyNames\":{\"maxLength\":2}}", "{\"ab\":1}"), "valid")
+      expectString(verdict("{\"propertyNames\":{\"maxLength\":2}}", "{\"abc\":1}"), "maxLength")
+    END TCASE
+
+    TCASE "dependent keywords fire only when the trigger is present"
+      expectString(verdict("{\"dependentRequired\":{\"a\":[\"b\"]}}", "{}"), "valid")
+      expectString(verdict("{\"dependentRequired\":{\"a\":[\"b\"]}}", "{\"a\":1}"), "dependentRequired")
+      expectString(verdict("{\"dependentRequired\":{\"a\":[\"b\"]}}", "{\"a\":1,\"b\":2}"), "valid")
+      expectString(verdict("{\"dependentSchemas\":{\"a\":{\"required\":[\"b\"]}}}", "{\"a\":1}"), "required")
+      expectString(verdict("{\"dependentSchemas\":{\"a\":{\"required\":[\"b\"]}}}", "{}"), "valid")
+    END TCASE
+  END TGROUP
+
+  TGROUP "annotations"
+    TCASE "an annotation never rejects anything"
+      expectString(verdict("{\"title\":\"t\",\"description\":\"d\",\"default\":5,\"deprecated\":true}", "1"), "valid")
+      expectString(verdict("{\"examples\":[1],\"$comment\":\"c\"}", "\"x\""), "valid")
+      ' `format` is an annotation by default in Draft 2020-12, which is what
+      ' every other validator does unless a format vocabulary is switched on.
+      expectString(verdict("{\"format\":\"email\"}", "\"not-an-email\""), "valid")
+      expectString(verdict("{\"contentEncoding\":\"base64\"}", "\"!!!\""), "valid")
+    END TCASE
+
+    TCASE "an unrecognised keyword is an annotation, not a schema"
+      expectString(verdict("{\"madeUp\":{\"type\":\"integer\"}}", "\"x\""), "valid")
+    END TCASE
+  END TGROUP
+
+  TGROUP "error reporting"
+    TCASE "every reason is reported, not just the first"
+      expectString(verdict("{\"type\":\"integer\",\"minimum\":5}", "1.5"), "type,minimum")
+    END TCASE
+
+    TCASE "an error points at the instance and at the schema"
+      LET compiled AS Schema = compileSchema(json::parse("{\"properties\":{\"a\":{\"minLength\":2}}}"))
+      LET problems AS List OF ValidationError = runValidation(compiled, json::parse("{\"a\":\"x\"}"))
+      expectInteger(len(problems), 1)
+      LET problem AS ValidationError = collections::get(problems, 0)
+      expectString(problem.keyword, "minLength")
+      expectString(problem.instancePath, "/a")
+      expectString(problem.schemaPath, "/properties/a/minLength")
+    END TCASE
+  END TGROUP
+END TESTING

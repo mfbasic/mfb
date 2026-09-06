@@ -1,0 +1,13 @@
+{
+  "name": "json-schema-oracle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Differential-test packages/json_schema against ajv, an independent ECMA-262/Draft 2020-12 implementation.",
+  "scripts": {
+    "oracle": "node oracle.mjs"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  }
+}

@@ -1,0 +1,263 @@
+' ---------------------------------------------------------------------------
+' json_schema/uri.mfb — URI-reference resolution (RFC 3986 §5).
+'
+' JSON Schema identifies schema resources with URIs and points at them with
+' URI REFERENCES, which are usually relative: `$id: "child.json"` inside a
+' document identified as `https://example.com/root.json` names
+' `https://example.com/child.json`, and `$ref: "#/$defs/name"` names a fragment
+' of whatever the current base happens to be. Getting that arithmetic right is
+' what makes `$ref` resolution match every other implementation.
+'
+' This is string arithmetic on the five URI components, deliberately NOT
+' `net::toUrl`: that call parses an absolute HTTP(S) URL and rejects everything
+' else, while a `$id` is any URI reference at all -- `urn:example:root`, a bare
+' `child.json`, an empty string. Nothing here dereferences a URI; resolution is
+' name arithmetic and the package never retrieves anything (see README).
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+IMPORT encoding
+
+' The five components of RFC 3986 §3, each with the "is it present at all"
+' flag the resolution algorithm branches on -- an ABSENT query and an EMPTY
+' query are different references ("a" versus "a?"), and the difference decides
+' which side of §5.2.2 a reference falls on.
+PUBLIC TYPE UriParts
+  scheme AS String
+  hasScheme AS Boolean
+  authority AS String
+  hasAuthority AS Boolean
+  path AS String
+  query AS String
+  hasQuery AS Boolean
+  fragment AS String
+  hasFragment AS Boolean
+END TYPE
+
+' TRUE when `code` is an ASCII letter.
+PRIVATE FUNC isAlpha(code AS Integer) AS Boolean
+  IF code >= 65 AND code <= 90 THEN RETURN TRUE
+  RETURN code >= 97 AND code <= 122
+END FUNC
+
+' TRUE when `code` may continue a URI scheme after its first letter:
+' ALPHA / DIGIT / "+" / "-" / "."
+PRIVATE FUNC isSchemeCont(code AS Integer) AS Boolean
+  IF isAlpha(code) THEN RETURN TRUE
+  IF code >= 48 AND code <= 57 THEN RETURN TRUE
+  RETURN code = 43 OR code = 45 OR code = 46
+END FUNC
+
+' The length of the leading `scheme:` in `text`, or 0 when it has none.
+'
+' A scheme is only a scheme when the colon comes before any "/", "?" or "#":
+' `a/b:c` is a relative path whose second segment contains a colon, not a
+' reference in scheme `a/b`.
+PRIVATE FUNC schemeLength(text AS String) AS Integer
+  LET scalars AS List OF Scalar = strings::toScalars(text)
+  IF len(scalars) = 0 THEN RETURN 0
+  IF NOT isAlpha(toInt(collections::get(scalars, 0))) THEN RETURN 0
+  MUT i AS Integer = 1
+  WHILE i < len(scalars)
+    LET code AS Integer = toInt(collections::get(scalars, i))
+    IF code = 58 THEN RETURN i + 1
+    IF NOT isSchemeCont(code) THEN RETURN 0
+    i = i + 1
+  END WHILE
+  RETURN 0
+END FUNC
+
+' Split a URI reference into its components. Every reference parses -- the
+' grammar has no failure case once the scheme test above has decided whether
+' the leading text is a scheme -- so this never fails.
+PUBLIC FUNC parseUri(reference AS String) AS UriParts
+  MUT rest AS String = reference
+  MUT scheme AS String = ""
+  MUT hasScheme AS Boolean = FALSE
+  MUT authority AS String = ""
+  MUT hasAuthority AS Boolean = FALSE
+  MUT query AS String = ""
+  MUT hasQuery AS Boolean = FALSE
+  MUT fragment AS String = ""
+  MUT hasFragment AS Boolean = FALSE
+
+  LET schemeEnd AS Integer = schemeLength(rest)
+  IF schemeEnd > 0 THEN
+    scheme = slice(rest, 0, schemeEnd - 1)
+    hasScheme = TRUE
+    rest = sliceFrom(rest, schemeEnd)
+  END IF
+
+  ' The fragment comes off first: a "#" ends every other component, and a "?"
+  ' or "/" after it belongs to the fragment rather than to the query or path.
+  LET hash AS Integer = indexOf(rest, "#")
+  IF hash >= 0 THEN
+    fragment = sliceFrom(rest, hash + 1)
+    hasFragment = TRUE
+    rest = slice(rest, 0, hash)
+  END IF
+
+  LET mark AS Integer = indexOf(rest, "?")
+  IF mark >= 0 THEN
+    query = sliceFrom(rest, mark + 1)
+    hasQuery = TRUE
+    rest = slice(rest, 0, mark)
+  END IF
+
+  IF strings::startsWith(rest, "//") THEN
+    LET tail AS String = sliceFrom(rest, 2)
+    LET slash AS Integer = indexOf(tail, "/")
+    hasAuthority = TRUE
+    IF slash >= 0 THEN
+      authority = slice(tail, 0, slash)
+      rest = sliceFrom(tail, slash)
+    ELSE
+      authority = tail
+      rest = ""
+    END IF
+  END IF
+
+  RETURN UriParts[scheme := scheme, hasScheme := hasScheme, authority := authority, hasAuthority := hasAuthority, path := rest, query := query, hasQuery := hasQuery, fragment := fragment, hasFragment := hasFragment]
+END FUNC
+
+' Reassemble components into a reference (RFC 3986 §5.3).
+PUBLIC FUNC formatUri(parts AS UriParts) AS String
+  MUT out AS String = ""
+  IF parts.hasScheme THEN out = out & parts.scheme & ":"
+  IF parts.hasAuthority THEN out = out & "//" & parts.authority
+  out = out & parts.path
+  IF parts.hasQuery THEN out = out & "?" & parts.query
+  IF parts.hasFragment THEN out = out & "#" & parts.fragment
+  RETURN out
+END FUNC
+
+' RFC 3986 §5.2.4 remove_dot_segments: fold "." and ".." out of a path.
+'
+' The output buffer is a List OF String of whole segments including their
+' leading "/", which is what makes ".." a single `removeAt` rather than a
+' backwards scan for the previous slash.
+PUBLIC FUNC removeDotSegments(path AS String) AS String
+  MUT input AS String = path
+  MUT out AS List OF String = []
+  WHILE input <> ""
+    IF strings::startsWith(input, "../") THEN
+      input = sliceFrom(input, 3)
+    ELSEIF strings::startsWith(input, "./") THEN
+      input = sliceFrom(input, 2)
+    ELSEIF strings::startsWith(input, "/./") THEN
+      input = "/" & sliceFrom(input, 3)
+    ELSEIF input = "/." THEN
+      input = "/"
+    ELSEIF strings::startsWith(input, "/../") THEN
+      input = "/" & sliceFrom(input, 4)
+      IF len(out) > 0 THEN out = collections::removeAt(out, len(out) - 1)
+    ELSEIF input = "/.." THEN
+      input = "/"
+      IF len(out) > 0 THEN out = collections::removeAt(out, len(out) - 1)
+    ELSEIF input = "." OR input = ".." THEN
+      input = ""
+    ELSE
+      ' Move the first path segment -- the leading "/" if there is one, plus
+      ' everything up to but not including the next "/" -- to the output.
+      MUT cut AS Integer = 0
+      IF strings::startsWith(input, "/") THEN cut = 1
+      LET nextSlash AS Integer = indexOf(sliceFrom(input, cut), "/")
+      IF nextSlash < 0 THEN
+        out = collections::append(out, input)
+        input = ""
+      ELSE
+        out = collections::append(out, slice(input, 0, cut + nextSlash))
+        input = sliceFrom(input, cut + nextSlash)
+      END IF
+    END IF
+  END WHILE
+  RETURN strings::join(out, "")
+END FUNC
+
+' RFC 3986 §5.3 merge: splice a relative path onto a base.
+PRIVATE FUNC mergePaths(base AS UriParts, path AS String) AS String
+  IF base.hasAuthority AND base.path = "" THEN RETURN "/" & path
+  LET cut AS Integer = lastSlash(base.path)
+  IF cut < 0 THEN RETURN path
+  RETURN slice(base.path, 0, cut + 1) & path
+END FUNC
+
+' The index of the last "/" in `text`, or -1.
+PRIVATE FUNC lastSlash(text AS String) AS Integer
+  MUT at AS Integer = -1
+  MUT i AS Integer = 0
+  WHILE i < len(text)
+    IF slice(text, i, i + 1) = "/" THEN at = i
+    i = i + 1
+  END WHILE
+  RETURN at
+END FUNC
+
+' Resolve a URI reference against a base URI (RFC 3986 §5.2.2, strict form --
+' a reference carrying the base's own scheme is still treated as absolute).
+'
+' Resolving against an EMPTY base is meaningful and common: a schema with no
+' `$id` has no identity, so `$ref: "#/$defs/x"` under it resolves to
+' "#/$defs/x" and names a fragment of the anonymous root.
+PUBLIC FUNC resolveUri(base AS String, reference AS String) AS String
+  LET ref AS UriParts = parseUri(reference)
+  LET bas AS UriParts = parseUri(base)
+
+  IF ref.hasScheme THEN
+    RETURN formatUri(WITH ref { path := removeDotSegments(ref.path) })
+  END IF
+
+  IF ref.hasAuthority THEN
+    RETURN formatUri(WITH ref { scheme := bas.scheme, hasScheme := bas.hasScheme, path := removeDotSegments(ref.path) })
+  END IF
+
+  MUT path AS String = ""
+  MUT query AS String = ref.query
+  MUT hasQuery AS Boolean = ref.hasQuery
+  IF ref.path = "" THEN
+    path = bas.path
+    IF NOT ref.hasQuery THEN
+      query = bas.query
+      hasQuery = bas.hasQuery
+    END IF
+  ELSEIF strings::startsWith(ref.path, "/") THEN
+    path = removeDotSegments(ref.path)
+  ELSE
+    path = removeDotSegments(mergePaths(bas, ref.path))
+  END IF
+
+  RETURN formatUri(UriParts[scheme := bas.scheme, hasScheme := bas.hasScheme, authority := bas.authority, hasAuthority := bas.hasAuthority, path := path, query := query, hasQuery := hasQuery, fragment := ref.fragment, hasFragment := ref.hasFragment])
+END FUNC
+
+' The URI with its fragment removed -- the identity of the schema RESOURCE a
+' reference points into, as opposed to the location inside it.
+PUBLIC FUNC withoutFragment(uri AS String) AS String
+  LET parts AS UriParts = parseUri(uri)
+  RETURN formatUri(WITH parts { fragment := "", hasFragment := FALSE })
+END FUNC
+
+' The fragment of a URI, without its "#" and with its percent escapes undone.
+' A URI with no fragment and a URI with an empty one both yield "", which is
+' correct here: both name the resource's root.
+'
+' The decode is what lets `$ref: "#/$defs/a~1b"` and
+' `$ref: "#/$defs/a%7E1b"` name the same subschema, and it is why a fragment
+' is decoded ONCE, here, rather than at each use.
+PUBLIC FUNC fragmentOf(uri AS String) AS String
+  LET parts AS UriParts = parseUri(uri)
+  IF NOT parts.hasFragment THEN RETURN ""
+  IF NOT strings::contains(parts.fragment, "%") THEN RETURN parts.fragment
+  LET decoded AS String = encoding::percentDecode(parts.fragment) TRAP(problem)
+    FAIL error(ERR_ARGUMENT, "json_schema: `" & uri & "` has a malformed percent escape in its fragment: " & problem.message)
+  END TRAP
+  RETURN decoded
+END FUNC
+
+' TRUE when `uri` carries a scheme, i.e. is an absolute-URI rather than a
+' relative reference. A `$id` that is not absolute is legal and resolves
+' against its parent, but only an absolute one can be the base of a document
+' that has no parent.
+PUBLIC FUNC isAbsolute(uri AS String) AS Boolean
+  RETURN schemeLength(uri) > 0
+END FUNC

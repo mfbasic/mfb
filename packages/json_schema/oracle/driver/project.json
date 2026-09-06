@@ -1,0 +1,13 @@
+{
+  "name": "jsvalidate",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Validate a JSON instance against a JSON Schema Draft 2020-12 document, and answer batches of the same question for the Node oracle in packages/json_schema/oracle.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "json_schema", "version": "=0.1.0", "source": "file:../.." }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

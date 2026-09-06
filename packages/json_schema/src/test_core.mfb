@@ -1,0 +1,176 @@
+' ---------------------------------------------------------------------------
+' Tests: the value primitives every keyword rests on -- JSON kinds, structural
+' equality, JSON Pointer, and URI-reference resolution.
+'
+' These are the parts with no schema in the way, so a failure here localises
+' immediately instead of surfacing as a wrong verdict three layers up.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+
+PRIVATE FUNC same(left AS String, right AS String) AS Boolean
+  RETURN deepEqual(json::parse(left), json::parse(right))
+END FUNC
+
+PRIVATE FUNC kind(text AS String) AS String
+  RETURN kindOf(json::parse(text))
+END FUNC
+
+PRIVATE FUNC at(document AS String, pointer AS String) AS String
+  RETURN json::stringify(resolvePointer(json::parse(document), pointer))
+END FUNC
+
+TESTING
+  TGROUP "json kinds"
+    TCASE "every JSON form has exactly one kind"
+      expectString(kind("null"), "null")
+      expectString(kind("true"), "boolean")
+      expectString(kind("1"), "number")
+      expectString(kind("1.5"), "number")
+      expectString(kind("\"x\""), "string")
+      expectString(kind("[]"), "array")
+      expectString(kind("{}"), "object")
+    END TCASE
+
+    TCASE "integer is a property of a number, not a seventh kind"
+      expectEqual(isIntegral(1.0), TRUE)
+      expectEqual(isIntegral(-2.0), TRUE)
+      expectEqual(isIntegral(0.0), TRUE)
+      expectEqual(isIntegral(1.5), FALSE)
+      expectEqual(isIntegral(-0.5), FALSE)
+    END TCASE
+
+    TCASE "a number too large for Integer is still a whole number"
+      ' `math::floor` returns an Integer, so asking it about 1e21 would
+      ' overflow rather than answer. The remainder form does not.
+      expectEqual(isIntegral(1e21), TRUE)
+      expectEqual(isIntegral(-1e21), TRUE)
+      expectEqual(isIntegral(5e-324), FALSE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "structural equality"
+    TCASE "scalars compare by value"
+      expectEqual(same("1", "1.0"), TRUE)
+      expectEqual(same("1", "2"), FALSE)
+      expectEqual(same("\"a\"", "\"a\""), TRUE)
+      expectEqual(same("true", "true"), TRUE)
+      expectEqual(same("null", "null"), TRUE)
+    END TCASE
+
+    TCASE "different kinds are never equal"
+      expectEqual(same("1", "\"1\""), FALSE)
+      expectEqual(same("0", "false"), FALSE)
+      expectEqual(same("null", "false"), FALSE)
+      expectEqual(same("[]", "{}"), FALSE)
+    END TCASE
+
+    TCASE "arrays compare elementwise and in order"
+      expectEqual(same("[1,2]", "[1,2]"), TRUE)
+      expectEqual(same("[1,2]", "[2,1]"), FALSE)
+      expectEqual(same("[1]", "[1,2]"), FALSE)
+      expectEqual(same("[[1],[2]]", "[[1],[2]]"), TRUE)
+    END TCASE
+
+    TCASE "objects compare by member, and member order does not matter"
+      expectEqual(same("{\"a\":1,\"b\":2}", "{\"b\":2,\"a\":1}"), TRUE)
+      expectEqual(same("{\"a\":1}", "{\"a\":1,\"b\":2}"), FALSE)
+      expectEqual(same("{\"a\":1}", "{\"b\":1}"), FALSE)
+      expectEqual(same("{\"a\":{\"b\":[1]}}", "{\"a\":{\"b\":[1]}}"), TRUE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "json pointer"
+    TCASE "the empty pointer is the whole document"
+      expectString(at("{\"a\":1}", ""), "{\"a\":1}")
+    END TCASE
+
+    TCASE "object and array steps"
+      expectString(at("{\"a\":{\"b\":7}}", "/a/b"), "7")
+      expectString(at("[10,20,30]", "/1"), "20")
+      expectString(at("{\"a\":[{\"b\":1}]}", "/a/0/b"), "1")
+    END TCASE
+
+    TCASE "escapes"
+      expectString(escapeToken("a/b"), "a~1b")
+      expectString(escapeToken("a~b"), "a~0b")
+      ' "~" is substituted first, so a literal "/" cannot be corrupted into
+      ' "~01" on the way out.
+      expectString(escapeToken("~/"), "~0~1")
+      expectString(unescapeToken("~0~1"), "~/")
+      expectString(at("{\"a/b\":1}", "/a~1b"), "1")
+      expectString(at("{\"a~b\":1}", "/a~0b"), "1")
+    END TCASE
+
+    TCASE "only the canonical decimal spelling is an array index"
+      expectEqual(isIndexToken("0"), TRUE)
+      expectEqual(isIndexToken("12"), TRUE)
+      expectEqual(isIndexToken("01"), FALSE)
+      expectEqual(isIndexToken("-1"), FALSE)
+      expectEqual(isIndexToken(""), FALSE)
+      expectEqual(isIndexToken("1a"), FALSE)
+    END TCASE
+
+    TCASE "a step that finds nothing fails"
+      expectTrap(at("{\"a\":1}", "/b"), ERR_REF)
+      expectTrap(at("[1]", "/5"), ERR_REF)
+      expectTrap(at("[1]", "/x"), ERR_REF)
+      expectTrap(at("1", "/a"), ERR_REF)
+    END TCASE
+
+    TCASE "a pointer that is not a pointer is a caller mistake"
+      expectTrap(at("{}", "a/b"), ERR_ARGUMENT)
+    END TCASE
+  END TGROUP
+
+  TGROUP "uri references"
+    TCASE "an absolute reference replaces the base"
+      expectString(resolveUri("https://a.example/x/y", "https://b.example/z"), "https://b.example/z")
+      expectString(resolveUri("", "urn:example:root"), "urn:example:root")
+    END TCASE
+
+    TCASE "a relative path merges into the base's directory"
+      expectString(resolveUri("https://a.example/x/y", "z"), "https://a.example/x/z")
+      expectString(resolveUri("https://a.example/x/y", "./z"), "https://a.example/x/z")
+      expectString(resolveUri("https://a.example/x/y", "../z"), "https://a.example/z")
+      expectString(resolveUri("https://a.example/x/", "z"), "https://a.example/x/z")
+    END TCASE
+
+    TCASE "an absolute path replaces the base's path"
+      expectString(resolveUri("https://a.example/x/y", "/z"), "https://a.example/z")
+    END TCASE
+
+    TCASE "a fragment-only reference keeps everything else"
+      expectString(resolveUri("https://a.example/x?q=1", "#f"), "https://a.example/x?q=1#f")
+      expectString(resolveUri("", "#/$defs/a"), "#/$defs/a")
+    END TCASE
+
+    TCASE "an authority-only reference keeps the scheme"
+      expectString(resolveUri("https://a.example/x", "//b.example/z"), "https://b.example/z")
+    END TCASE
+
+    TCASE "dot segments are folded out"
+      expectString(removeDotSegments("/a/b/../c"), "/a/c")
+      expectString(removeDotSegments("/a/./b"), "/a/b")
+      expectString(removeDotSegments("/a/b/.."), "/a/")
+      expectString(removeDotSegments("/../a"), "/a")
+    END TCASE
+
+    TCASE "a colon after a slash is not a scheme"
+      ' `a/b:c` is a relative path whose second segment contains a colon.
+      expectEqual(isAbsolute("a/b:c"), FALSE)
+      expectEqual(isAbsolute("urn:x"), TRUE)
+      expectEqual(isAbsolute("HTTPS://a.example"), TRUE)
+      expectEqual(isAbsolute("//a.example/x"), FALSE)
+      expectEqual(isAbsolute("#f"), FALSE)
+    END TCASE
+
+    TCASE "a fragment is percent-decoded once, here"
+      expectString(fragmentOf("#/$defs/a~1b"), "/$defs/a~1b")
+      expectString(fragmentOf("#/$defs/a%7E1b"), "/$defs/a~1b")
+      expectString(fragmentOf("https://a.example/x"), "")
+      expectString(fragmentOf("https://a.example/x#"), "")
+    END TCASE
+  END TGROUP
+END TESTING

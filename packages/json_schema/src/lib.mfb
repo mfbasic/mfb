@@ -1,0 +1,501 @@
+' ---------------------------------------------------------------------------
+' json_schema/lib.mfb — the package's public API.
+'
+' Two steps, always in this order: `compile` turns a schema DOCUMENT into a
+' `Schema`, and `validate` measures an instance against it. The split is not
+' bookkeeping -- it is where the two kinds of failure are separated. A broken
+' SCHEMA is a program error and fails `compile`; an invalid INSTANCE is data
+' and comes back from `validate` as a list you can read, count, and report.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT regex
+
+DOC
+  PACKAGE
+  DESC Validate `json::Json` values against a JSON Schema Draft 2020-12
+  DESC document.
+  DESC
+  DESC `json_schema::compile` reads a schema -- itself an ordinary
+  DESC `json::Json` value, because a JSON Schema is a JSON document -- and
+  DESC returns a `json_schema::Schema`. `json_schema::validate` then measures
+  DESC any number of instances against it and returns a
+  DESC `List OF json_schema::ValidationError`, one entry per reason the
+  DESC instance was rejected, each carrying a JSON Pointer into the instance
+  DESC and a JSON Pointer into the schema.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET schema AS json_schema::Schema = json_schema::compileText("{\"type\":\"object\",\"required\":[\"name\"],\"properties\":{\"name\":{\"type\":\"string\",\"minLength\":1}}}")
+      FOR EACH problem IN json_schema::validate(schema, json::parse("{\"name\":\"\"}"))
+        io::print(json_schema::describe(problem))
+      NEXT
+      ' /name: expected at least 1 characters, found 0 (minLength)
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+  DESC
+  DESC Why compiling is a separate step
+  DESC
+  DESC Everything that can be wrong with a schema on its own is found once, by
+  DESC `compile`, before any instance is seen: a keyword holding the wrong JSON
+  DESC type, a `$ref` that names nothing, a `pattern` that is not a valid
+  DESC regular expression, a construct outside the supported subset. `compile`
+  DESC fails for those. `validate` never fails at all for a schema reason --
+  DESC every outcome it has is a list of validation errors, empty when the
+  DESC instance is valid.
+  DESC
+  DESC What it implements
+  DESC
+  DESC The Core and Validation vocabularies of Draft 2020-12, together with the
+  DESC applicator, unevaluated, and content vocabularies' assertion behaviour:
+  INFO Applicators: `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/`else`,
+  INFO `dependentSchemas`, `properties`, `patternProperties`,
+  INFO `additionalProperties`, `propertyNames`, `prefixItems`, `items`,
+  INFO `contains`, `unevaluatedProperties` and `unevaluatedItems`.
+  INFO Assertions: `type`, `enum`, `const`, `multipleOf`, `maximum`,
+  INFO `exclusiveMaximum`, `minimum`, `exclusiveMinimum`, `maxLength`,
+  INFO `minLength`, `pattern`, `maxItems`, `minItems`, `uniqueItems`,
+  INFO `maxContains`, `minContains`, `maxProperties`, `minProperties`,
+  INFO `required` and `dependentRequired`.
+  INFO Identifiers and references: `$id`, `$anchor`, `$defs`, `$ref` and
+  INFO `$schema`, with full RFC 3986 URI-reference resolution, so a relative
+  INFO `$id` rebases every reference beneath it.
+  INFO Annotations, which are read for shape and otherwise ignored: `title`,
+  INFO `description`, `default`, `examples`, `deprecated`, `readOnly`,
+  INFO `writeOnly`, `$comment`, `format`, `contentEncoding`,
+  INFO `contentMediaType` and `contentSchema`.
+  DESC
+  DESC Deliberate limits
+  DESC
+  DESC Each of these fails `compile` rather than being approximated, so a
+  DESC schema is never validated against something other than what it says:
+  INFO Nothing is retrieved. A `$ref` must resolve inside the document being
+  INFO compiled; one naming an external resource fails with
+  INFO `errorCode::ErrNotFound`. Fetching a URL named by untrusted input is a
+  INFO server-side request forgery, so this package never does it. Compose
+  INFO documents yourself and compile the result.
+  INFO `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef` and `$recursiveAnchor`
+  INFO fail with `errorCode::ErrUnsupported`.
+  INFO `format` is an annotation, not an assertion. That is the Draft 2020-12
+  INFO default, and it is what every other validator does unless a format
+  INFO vocabulary is switched on.
+  INFO A `pattern` is translated from ECMA-262 into the `regex` package's
+  INFO dialect, exactly, or refused. `\d`, `\w`, `\s` and `.` are rewritten so
+  INFO they mean what ECMA-262 says rather than what the `regex` dialect says,
+  INFO `\uHHHH` and `\cX` become `\x{...}`, an empty class becomes an explicit
+  INFO one, and a `\p{...}` naming a general category or a script is rewritten
+  INFO to that name's `regex` spelling. Lookarounds, backreferences,
+  INFO `Script_Extensions`, a binary property the engine does not implement,
+  INFO and a negated shorthand inside a class are refused with
+  INFO `errorCode::ErrUnsupported`. `\b` and `\B` are the one carried
+  INFO construct: their word-character test is Unicode-aware here and
+  INFO ASCII-only in ECMA-262.
+  INFO Numbers are `Float`, because `json::JsonNum` is (`mfb man json`). An
+  INFO integer beyond 2^53 and a decimal with more digits than binary64 holds
+  INFO are rounded at parse time, so `const`, `enum`, `multipleOf` and
+  INFO `uniqueItems` compare the rounded values. This is JavaScript's model
+  INFO exactly, which is what the reference validators use.
+  DESC
+  DESC Bounds
+  DESC
+  DESC Evaluation nests at most 200 levels, and a `$ref` that re-enters the
+  DESC same subschema at the same instance location is refused rather than
+  DESC followed. The work budget is 10000 subschema evaluations plus 100 per
+  DESC value in the INSTANCE, so the total is linear in what the caller handed
+  DESC in: an ordinary large document validates, and a schema built to multiply
+  DESC -- ten nested two-branch `anyOf`s demand 2^10 evaluations from a few
+  DESC hundred bytes -- cannot buy more work than the instance is worth. A
+  DESC schema is untrusted input in exactly the way an instance is, and none of
+  DESC these bounds is reachable by a schema that terminates.
+END DOC
+
+DOC
+  FUNC compile
+  GROUP Compiling
+  DESC Check, index and prepare a schema document, returning the
+  DESC `json_schema::Schema` that `json_schema::validate` measures instances
+  DESC against.
+  DESC
+  DESC Compiling walks the whole document twice: once to record every `$id` and
+  DESC `$anchor`, and once to resolve every `$ref` against them, check every
+  DESC keyword's shape, and translate every regular expression. A schema that
+  DESC survives has no remaining way to fail for its own reasons, which is why
+  DESC `json_schema::validate` returns errors rather than raising them.
+  ARG document The schema, as a `json::Json` value. `TRUE` and `FALSE` are schemas: one accepts every instance and the other rejects every instance.
+  RET The compiled schema. Compile once and validate many instances against it; nothing in the result depends on any instance.
+  ERROR 77050003 The document is not a valid Draft 2020-12 schema: a keyword holds the wrong JSON type, `type` names something that is not a JSON type, `multipleOf` is not positive, `$anchor` is not a valid anchor name, or a `pattern` is not a valid ECMA-262 regular expression.
+  ERROR 77050007 The document uses a construct outside the supported subset: `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef`, `$recursiveAnchor`, a `$schema` naming another dialect, or a regular expression this validator cannot translate exactly -- a lookaround, a backreference, a `Script_Extensions` or binary property escape, or a negated shorthand inside a character class.
+  ERROR 77050004 A `$ref` resolves to nothing in this document. Nothing is retrieved, so a reference to an external resource reports this too.
+  ERROR 77050024 The document nests more than 200 levels deep.
+  ERROR 93120001 The document has more parts than the compiler will index.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET document AS json::Json = json::parse("{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}")
+      LET schema AS json_schema::Schema = json_schema::compile(document)
+      IF json_schema::isValid(schema, json::parse("[1,2,3]")) THEN io::print("valid")
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC compile(document AS json::Json) AS Schema
+  RETURN compileSchema(document)
+END FUNC
+
+DOC
+  FUNC compileText
+  GROUP Compiling
+  DESC Parse schema text and compile it, which is `json_schema::compile` of
+  DESC `json::parse`.
+  ARG text The schema as JSON text. Reading a file is the caller's job: pass `fs::readText(path)`.
+  RET The compiled schema.
+  ERROR 77050003 The text is not valid JSON, or the document it holds is not a valid Draft 2020-12 schema.
+  ERROR 77050007 The document uses a construct outside the supported subset.
+  ERROR 77050004 A `$ref` resolves to nothing in this document.
+  ERROR 77050024 The text or the document nests too deep.
+  ERROR 93120001 The document has more parts than the compiler will index.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET schema AS json_schema::Schema = json_schema::compileText("{\"type\":\"string\"}")
+      io::print(toString(len(json_schema::validate(schema, json::parse("42")))))
+      ' 1
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC compileText(text AS String) AS Schema
+  RETURN compileSchema(json::parse(text))
+END FUNC
+
+DOC
+  FUNC validate
+  GROUP Validating
+  DESC Measure `instance` against a compiled schema and return every reason it
+  DESC was rejected.
+  DESC
+  DESC An empty list means valid. The list is not truncated at the first
+  DESC problem: a form with three bad fields reports three errors, so a caller
+  DESC can show them all at once. Each entry carries the keyword that rejected
+  DESC the instance, a JSON Pointer into the instance, a JSON Pointer into the
+  DESC schema, and a sentence.
+  ARG compiled The schema, from `json_schema::compile`.
+  ARG instance The value to check. Any `json::Json` value is a legal instance, including `json::JsonNull`.
+  RET One `json_schema::ValidationError` per reason the instance was rejected, empty when it is valid.
+  ERROR 77050024 Evaluation nested more than 200 levels deep.
+  ERROR 93120001 Evaluation demanded more subschema evaluations than the instance's size allows.
+  ERROR 93120002 A `$ref` re-entered the same subschema at the same instance location, so evaluation could not terminate.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET schema AS json_schema::Schema = json_schema::compileText("{\"properties\":{\"age\":{\"type\":\"integer\",\"minimum\":0}}}")
+      LET problems AS List OF json_schema::ValidationError = json_schema::validate(schema, json::parse("{\"age\":-3}"))
+      FOR EACH problem IN problems
+        io::print(problem.instancePath & ": " & problem.message)
+      NEXT
+      ' /age: expected at least 0, found -3
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC validate(compiled AS Schema, instance AS json::Json) AS List OF ValidationError
+  RETURN runValidation(compiled, instance)
+END FUNC
+
+DOC
+  FUNC isValid
+  GROUP Validating
+  DESC Test whether `instance` satisfies a compiled schema.
+  DESC
+  DESC This is `len(json_schema::validate(...)) = 0` under a name that reads as
+  DESC the question being asked. It does no less work: every error is still
+  DESC found, it is simply not reported.
+  ARG compiled The schema, from `json_schema::compile`.
+  ARG instance The value to check.
+  RET `TRUE` when the instance is valid against the schema.
+  ERROR 77050024 Evaluation nested more than 200 levels deep.
+  ERROR 93120001 Evaluation demanded more subschema evaluations than the instance's size allows.
+  ERROR 93120002 A `$ref` re-entered the same subschema at the same instance location.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET schema AS json_schema::Schema = json_schema::compileText("{\"enum\":[\"red\",\"green\"]}")
+      IF json_schema::isValid(schema, json::parse("\"red\"")) THEN io::print("ok")
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC isValid(compiled AS Schema, instance AS json::Json) AS Boolean
+  RETURN len(runValidation(compiled, instance)) = 0
+END FUNC
+
+DOC
+  FUNC check
+  GROUP Validating
+  DESC Fail unless `instance` satisfies a compiled schema.
+  DESC
+  DESC For the caller who wants an invalid instance to stop the program rather
+  DESC than to be reported: the error's message is every problem
+  DESC `json_schema::validate` would have returned, one per line. Where the
+  DESC problems are to be shown to a person, call `json_schema::validate`
+  DESC instead and render them yourself.
+  ARG compiled The schema, from `json_schema::compile`.
+  ARG instance The value to check.
+  RET Nothing. Returning at all means the instance is valid.
+  ERROR 93120003 The instance is not valid. The message lists every problem, one per line.
+  ERROR 77050024 Evaluation nested more than 200 levels deep.
+  ERROR 93120001 Evaluation demanded more subschema evaluations than the instance's size allows.
+  ERROR 93120002 A `$ref` re-entered the same subschema at the same instance location.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET schema AS json_schema::Schema = json_schema::compileText("{\"type\":\"integer\"}")
+      json_schema::check(schema, json::parse("7"))
+      io::print("valid")
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC check(compiled AS Schema, instance AS json::Json) AS Nothing
+  LET problems AS List OF ValidationError = runValidation(compiled, instance)
+  IF len(problems) = 0 THEN RETURN NOTHING
+  MUT lines AS List OF String = []
+  FOR EACH problem IN problems
+    lines = collections::append(lines, describeError(problem))
+  NEXT
+  FAIL error(ERR_INVALID, "json_schema: the instance is not valid against the schema:\n" & strings::join(lines, "\n"))
+END FUNC
+
+DOC
+  FUNC describe
+  GROUP Reporting
+  DESC Render one validation error as a line of text: where in the instance,
+  DESC what went wrong, and which keyword said so.
+  ARG problem One error from `json_schema::validate`.
+  RET A single line, in the form `<instance pointer>: <message> (<keyword>)`. The root of the instance is shown as `<root>`.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET schema AS json_schema::Schema = json_schema::compileText("{\"required\":[\"id\"]}")
+      FOR EACH problem IN json_schema::validate(schema, json::parse("{}"))
+        io::print(json_schema::describe(problem))
+      NEXT
+      ' <root>: the required property `id` is missing (required)
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC describe(problem AS ValidationError) AS String
+  RETURN describeError(problem)
+END FUNC
+
+PUBLIC FUNC describeError(problem AS ValidationError) AS String
+  MUT where AS String = problem.instancePath
+  IF where = "" THEN where = "<root>"
+  RETURN where & ": " & problem.message & " (" & problem.keyword & ")"
+END FUNC
+
+DOC
+  FUNC dialect
+  GROUP Reporting
+  DESC The `$schema` value this package implements.
+  RET `https://json-schema.org/draft/2020-12/schema`.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT io
+
+    FUNC main() AS Integer
+      io::print(json_schema::dialect())
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC dialect() AS String
+  RETURN DIALECT
+END FUNC
+
+DOC
+  FUNC invalidCode
+  GROUP Reporting
+  DESC The error code `json_schema::check` raises when an instance is not
+  DESC valid: 93120003, written `9-312-0003`.
+  DESC
+  DESC "This data does not satisfy this schema" has no `errorCode::`
+  DESC equivalent, so it takes a code from generator 9, the range reserved for
+  DESC codes a package defines for itself. Generator-9 codes carry no registry
+  DESC meaning and are not globally unique: two unrelated packages may use this
+  DESC integer for unrelated failures. Match it only around a call you already
+  DESC know is this package's.
+  RET 93120003.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT io
+
+    FUNC load(schema AS json_schema::Schema, text AS String) AS Boolean
+      json_schema::check(schema, json::parse(text)) TRAP(problem)
+        IF problem.code = json_schema::invalidCode() THEN
+          io::printError(problem.message)
+          RECOVER
+        END IF
+        PROPAGATE
+      END TRAP
+      RETURN TRUE
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC invalidCode() AS Integer
+  RETURN ERR_INVALID
+END FUNC
+
+DOC
+  FUNC budgetCode
+  GROUP Reporting
+  DESC The error code raised when compiling or validating exceeds its work
+  DESC budget: 93120001, written `9-312-0001`.
+  DESC
+  DESC Reaching it means the schema was built to be expensive -- nested
+  DESC `anyOf`s multiply, and a schema is untrusted input in exactly the way an
+  DESC instance is. The budget is 10000 subschema evaluations plus 100 per
+  DESC value in the instance, so an ordinary large document never reaches it. It
+  DESC is a generator-9 code, with the same caveats as
+  DESC `json_schema::invalidCode`.
+  RET 93120001.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT io
+
+    FUNC safeIsValid(schema AS json_schema::Schema, instance AS json::Json) AS Boolean
+      LET answer AS Boolean = json_schema::isValid(schema, instance) TRAP(problem)
+        IF problem.code = json_schema::budgetCode() THEN
+          io::printError("that instance costs too much to validate")
+          RECOVER FALSE
+        END IF
+        PROPAGATE
+      END TRAP
+      RETURN answer
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC budgetCode() AS Integer
+  RETURN ERR_BUDGET
+END FUNC
+
+DOC
+  FUNC referenceCycleCode
+  GROUP Reporting
+  DESC The error code raised when a `$ref` re-enters the same subschema at the
+  DESC same instance location: 93120002, written `9-312-0002`.
+  DESC
+  DESC That is a loop with no progress on either side, so no amount of further
+  DESC work would settle it. It is distinct from the depth and budget failures
+  DESC because it is proven rather than merely suspected. It is a generator-9
+  DESC code, with the same caveats as `json_schema::invalidCode`.
+  RET 93120002.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET schema AS json_schema::Schema = json_schema::compileText("{\"$defs\":{\"loop\":{\"$ref\":\"#/$defs/loop\"}},\"$ref\":\"#/$defs/loop\"}")
+      LET answer AS Boolean = json_schema::isValid(schema, json::parse("1")) TRAP(problem)
+        IF problem.code = json_schema::referenceCycleCode() THEN
+          io::printError("that schema refers to itself forever")
+          RECOVER FALSE
+        END IF
+        PROPAGATE
+      END TRAP
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC referenceCycleCode() AS Integer
+  RETURN ERR_REF_CYCLE
+END FUNC
+
+DOC
+  FUNC patternMatches
+  GROUP Patterns
+  DESC Test whether an ECMA-262 regular expression matches anywhere in `text`,
+  DESC using exactly the translation `pattern` and `patternProperties` use.
+  DESC
+  DESC It answers the question a schema's `pattern` asks -- ECMA-262 defines
+  DESC the keyword against an unanchored search, so `"a"` matches `"cat"` --
+  DESC and it is the seam at which this package's regular-expression behaviour
+  DESC can be compared against another ECMA-262 engine without a schema in the
+  DESC way.
+  ARG pattern The ECMA-262 regular expression, with no delimiters and no flags. It is read as though compiled with the `u` flag, which is what a JSON Schema validator does.
+  ARG text The string to search.
+  RET `TRUE` when the expression matches anywhere in `text`.
+  ERROR 77050003 `pattern` is not a valid ECMA-262 regular expression.
+  ERROR 77050007 `pattern` uses a construct this validator cannot evaluate with matching ECMA-262 semantics: a lookaround, a backreference, a property escape whose name does not carry over, a negated shorthand inside a character class, or an escape naming a lone surrogate.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT io
+
+    FUNC main() AS Integer
+      IF json_schema::patternMatches("^[0-9]{3}$", "123") THEN io::print("yes")
+      IF json_schema::patternMatches("\\d", "5") THEN io::print("ascii digit")
+      IF NOT json_schema::patternMatches("\\d", "\u{0660}") THEN io::print("and only ascii digits")
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC patternMatches(pattern AS String, text AS String) AS Boolean
+  RETURN regex::match(text, toMfbPattern(pattern))
+END FUNC
+
+DOC
+  FUNC translatePattern
+  GROUP Patterns
+  DESC Return the `regex`-dialect spelling of an ECMA-262 regular expression --
+  DESC the exact pattern `json_schema::patternMatches` hands to `regex::match`.
+  DESC
+  DESC This is a diagnostic, not a step a caller has to take: `pattern` is
+  DESC translated by `json_schema::compile` already. It exists so that when two
+  DESC engines disagree about a pattern, the translation can be read rather
+  DESC than guessed at.
+  ARG pattern The ECMA-262 regular expression.
+  RET The equivalent pattern in the dialect `mfb spec stdlib regex` defines.
+  ERROR 77050003 `pattern` is not a valid ECMA-262 regular expression.
+  ERROR 77050007 `pattern` uses a construct that cannot be translated exactly.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT io
+
+    FUNC main() AS Integer
+      io::print(json_schema::translatePattern("\\d"))
+      ' [0-9]
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC translatePattern(pattern AS String) AS String
+  RETURN toMfbPattern(pattern)
+END FUNC
