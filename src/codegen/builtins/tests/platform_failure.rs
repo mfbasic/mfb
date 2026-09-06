@@ -979,6 +979,53 @@ fn os_seam_platforms() -> Vec<(&'static str, Box<dyn CodegenPlatform>)> {
     ]
 }
 
+/// The import list a clean lowering of this body needs, discovered by asking.
+///
+/// `FailAt` grants the symbol `emit_external_call` names, which is enough for a
+/// body that reaches libc through the platform. It is NOT enough for one that
+/// consults `ctx.platform_imports` ITSELF — every `audio.*` member does, and
+/// stopped at its first call with "runtime helper requires `_X` import", so the
+/// whole `gen_macos_*` family was swept zero times and this sweep silently did
+/// not cover it.
+///
+/// So: lower, read the symbol out of the refusal, grant it, lower again. It
+/// terminates because each round adds one symbol and a body names finitely many;
+/// the cap is a guard against a refusal whose wording changes, not against a
+/// real loop. This is the same list a real plan derives from the calls the body
+/// emits — discovered the same way, one call at a time.
+fn imports_a_clean_lowering_needs(
+    lower: crate::codegen::registry::AbiFunction,
+    params: &[crate::codegen::registry::Parameter],
+    call: &str,
+    platform: &dyn CodegenPlatform,
+) -> HashMap<String, String> {
+    let mut imports: HashMap<String, String> = HashMap::new();
+    for _ in 0..64 {
+        let counting = FailAt::counting(platform);
+        match lower_body(lower, params, call, &counting, &imports) {
+            Some(Err(message)) => {
+                let Some(symbol) = message
+                    .split("requires ")
+                    .nth(1)
+                    .and_then(|rest| rest.split(" import").next())
+                else {
+                    return imports;
+                };
+                if imports
+                    .insert(symbol.to_string(), "c".to_string())
+                    .is_some()
+                {
+                    // Asked for the same symbol twice: the refusal is not about
+                    // an import any more.
+                    return imports;
+                }
+            }
+            _ => return imports,
+        }
+    }
+    imports
+}
+
 /// Lower one `abi_function` body with `platform`, swallowing a panic.
 ///
 /// A body that PANICS is not a finding here: `AppSupport::require_gtk`
@@ -990,6 +1037,7 @@ fn lower_body(
     params: &[crate::codegen::registry::Parameter],
     call: &str,
     platform: &dyn CodegenPlatform,
+    imports: &HashMap<String, String>,
 ) -> Option<Result<ValueResult, String>> {
     let mut vregs = Vregs::new();
     let args: Vec<ValueResult> = params
@@ -1001,7 +1049,10 @@ fn lower_body(
             origin: None,
         })
         .collect();
-    let harness = BuilderHarness::default();
+    let harness = BuilderHarness {
+        platform_imports: imports.clone(),
+        ..BuilderHarness::default()
+    };
     let mut builder = harness.builder("_mfb_rt_probe", platform);
     let base = harness.abi_ctx(platform);
     let ctx = AbiCtx { call, ..base };
@@ -1043,8 +1094,15 @@ fn an_emit_failure_past_the_first_one_still_propagates() {
                     // How many fallible platform calls a clean lowering makes.
                     // A body that refuses outright, or panics, contributes none:
                     // refusing is how a member says it is not implemented here.
+                    let imports = imports_a_clean_lowering_needs(
+                        lower,
+                        &implementation.params,
+                        &call,
+                        platform.as_ref(),
+                    );
                     let counting = FailAt::counting(platform.as_ref());
-                    let Some(Ok(_)) = lower_body(lower, &implementation.params, &call, &counting)
+                    let Some(Ok(_)) =
+                        lower_body(lower, &implementation.params, &call, &counting, &imports)
                     else {
                         continue;
                     };
@@ -1057,7 +1115,7 @@ fn an_emit_failure_past_the_first_one_still_propagates() {
                     for n in 0..calls {
                         let failing = FailAt::new(platform.as_ref(), n);
                         injected += 1;
-                        match lower_body(lower, &implementation.params, &call, &failing) {
+                        match lower_body(lower, &implementation.params, &call, &failing, &imports) {
                             Some(Err(message)) if message.contains(INJECTED) => {}
                             Some(Err(message)) => swallowed.push(format!(
                                 "{target} {call} call #{n}: a different refusal came \
@@ -1091,11 +1149,13 @@ fn an_emit_failure_past_the_first_one_still_propagates() {
     );
     // The row that keeps the rest honest: every assertion above holds against a
     // sweep that found no bodies at all.
-    // Measured at 331 bodies / 1,997 injections when this landed; the bound is
-    // set well below so ordinary registry churn does not red it, and well above
-    // zero so the sweep going quiet does.
+    // Measured at 710 bodies / 4,502 injections once the import fixpoint let the
+    // self-checking bodies through -- 331 / 1,997 before it, which is how much
+    // of this sweep was silently not happening. The bound is set well below so
+    // ordinary registry churn does not red it, and well above zero so the sweep
+    // going quiet does.
     assert!(
-        swept > 250 && injected > 1500,
+        swept > 600 && injected > 3500,
         "only {swept} bodies and {injected} injected failures across five \
          backends -- the sweep stopped finding the bodies it is for"
     );
