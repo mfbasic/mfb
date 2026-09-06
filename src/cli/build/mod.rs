@@ -615,6 +615,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             &source_ir,
             &options.location,
             &imported_resources,
+            &imported_types,
             &link_spans,
         )
     };

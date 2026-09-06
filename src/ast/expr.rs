@@ -105,6 +105,16 @@ impl<'a> FileParser<'a> {
     /// This is the type-position form deliberately: the plain qualified
     /// identifier `pkg::name` is far more often a FUNCTION or a constant, and
     /// de-qualifying that would rename the call target.
+    ///
+    /// The rewrite is gated on the package ACTUALLY EXPORTING the leaf
+    /// ([`package_exports_type`](Self::package_exports_type)). De-qualifying
+    /// unconditionally also swallowed `pkg::NoSuchType`, which then reached name
+    /// resolution as a bare `NoSuchType` and was reported as an unknown
+    /// top-level project type — naming neither the package nor the fact that it
+    /// was reached through an import, which is precisely the attribution bug-480
+    /// added (`tests/syntax/packages/package-unknown-member-invalid`). A name
+    /// the package does not export stays qualified, so
+    /// `resolve_package_qualified_name` reports it against the package.
     pub(super) fn normalize_qualified_type_name(&self, qualified: String) -> String {
         let normalized = self.normalize_qualified_builtin_type(qualified);
         let Some((binding, leaf)) = normalized.split_once('.') else {
@@ -117,10 +127,31 @@ impl<'a> FileParser<'a> {
             .unwrap_or(binding);
         if self.import_bindings.contains_key(binding)
             && !crate::codegen::builtins::is_builtin_import(package)
+            && self.package_exports_type(package, leaf)
         {
             return leaf.to_string();
         }
         normalized
+    }
+
+    /// Whether `package` exports `leaf` as a TYPE — a record, union, enum, union
+    /// variant, or resource type — according to the dependency `.mfp` index the
+    /// project parse path supplied (`package_type_names`).
+    ///
+    /// `leaf` is matched on its HEAD segment, because a type position may carry a
+    /// trailing selection (`pkg::Color.Red`): the package owns `Color`, and what
+    /// follows is resolved against it downstream.
+    ///
+    /// An absent package answers `false`. That is the direction that cannot
+    /// invent a resolution: with no index (every entry point but the project
+    /// parse) or an unreadable dependency, the qualified spelling survives and
+    /// name resolution reports it — the behaviour before the type-position
+    /// normalizer existed.
+    fn package_exports_type(&self, package: &str, leaf: &str) -> bool {
+        let head = leaf.split('.').next().unwrap_or(leaf);
+        self.package_type_names
+            .get(package)
+            .is_some_and(|names| names.contains(head))
     }
 
     /// Inside `builtins/<pkg>.mfb`, qualify a BARE name that `<pkg>` declares as

@@ -117,7 +117,14 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
     // The package path runs on merged IR, whose resource types are already in
     // `native_resources` or are the package's own, so it registers no extra rows;
     // and a decoded package has no source, so its LINK rules report unlocated.
-    collect_diagnostics_with(project, false, &[], &crate::ir::LinkSpans::default(), false)
+    collect_diagnostics_with(
+        project,
+        false,
+        &[],
+        &[],
+        &crate::ir::LinkSpans::default(),
+        false,
+    )
 }
 
 /// `collect_diagnostics`, with `imported_types_unknown` telling the checker which
@@ -133,6 +140,7 @@ fn collect_diagnostics_with(
     project: &IrProject,
     imported_types_unknown: bool,
     imported_resources: &[ImportedResource],
+    imported_types: &[crate::ir::ImportedTypeDef],
     link_spans: &crate::ir::LinkSpans,
     source_path: bool,
 ) -> Vec<Diagnostic> {
@@ -140,6 +148,38 @@ fn collect_diagnostics_with(
     env.imported_types_unknown = imported_types_unknown;
     env.link_spans = link_spans.clone();
     env.source_path.set(source_path);
+    // Seed the FIELD TYPES of every imported package's exported records.
+    //
+    // `TypeEnv::build` reads `project.types`, and on the source path that holds
+    // only the importer's own declarations — an imported record has no row, so
+    // `is_comparable_seen` fell through to its "unknown user type — permissive"
+    // tail and called it COMPARABLE whatever its fields were. A
+    // `Map OF pkg::Box TO V`, and a `collections::find` over a `List OF pkg::Box`,
+    // were therefore accepted for a `Box` holding a `List OF Integer`, while the
+    // byte-identical LOCAL record was refused with TYPE_REQUIRES_COMPARABLE
+    // (`tests/syntax/types/types-map-key-comparable-invalid` against
+    // `tests/syntax/packages/package-comparable-import-invalid`, which was
+    // written for exactly this and never reached it). The rule is about the
+    // type's FIELDS, so it cannot be answered without them.
+    //
+    // The package path passes none: its merged IR already carries every type.
+    // Only records are seeded, and only where the importer declares nothing of
+    // that name — an importer never overrides a declaration it can see the
+    // source of, the same precedence the `imported_resources` seed below uses.
+    for imported in imported_types {
+        if imported.kind != crate::ir::ImportedTypeKind::Record {
+            continue;
+        }
+        env.field_types
+            .entry(ParameterType::declared(&imported.name))
+            .or_insert_with(|| {
+                imported
+                    .fields
+                    .iter()
+                    .map(|field| (field.name.clone(), field.type_.clone()))
+                    .collect()
+            });
+    }
     // bug-377: seed the imported packages' `RESOURCE_TABLE` rows. The project's
     // own `native_resources` win — an importer never overrides a declaration it
     // can see the source of.
@@ -451,31 +491,44 @@ pub fn check(project: &IrProject) -> Result<(), String> {
 /// package's `RESOURCE_TABLE` (bug-377). A decoded package contributes no
 /// `native_resources`, so without them every resource rule is inert for an
 /// imported type — a double close of a package handle passed clean.
+///
+/// `imported_types` carries those packages' exported record layouts, for the
+/// same reason in the type domain: the source-path IR holds only the importer's
+/// own type table, so without them a rule about an imported record's FIELDS —
+/// comparability — has nothing to read and answers permissively.
 pub fn collect_source_diagnostics(
     project: &IrProject,
     project_dir: &Path,
     imported_resources: &[ImportedResource],
+    imported_types: &[crate::ir::ImportedTypeDef],
     link_spans: &crate::ir::LinkSpans,
 ) -> Vec<crate::rules::PendingDiagnostic> {
-    collect_diagnostics_with(project, true, imported_resources, link_spans, true)
-        .into_iter()
-        // The two structural rules are the package path's guard against a
-        // malformed decoded IR (`PACKAGE_BINARY_REPRESENTATION_VERIFY_*`, not
-        // in the source rule table): a source program's equivalent defect is
-        // reported by its source rule (e.g. TYPE_MATCH_PATTERN_MISMATCH beside
-        // a `CASE` naming a non-variant), so they would only duplicate it here.
-        .filter(|d| d.rule != VERIFY_TYPE && d.rule != VERIFY_MATCH)
-        .map(|d| crate::rules::PendingDiagnostic {
-            rule: d.rule,
-            detail: d.detail,
-            path: if d.file.is_empty() {
-                project_dir.join("<generated>")
-            } else {
-                project_dir.join(&d.file)
-            },
-            line: d.line as usize,
-        })
-        .collect()
+    collect_diagnostics_with(
+        project,
+        true,
+        imported_resources,
+        imported_types,
+        link_spans,
+        true,
+    )
+    .into_iter()
+    // The two structural rules are the package path's guard against a
+    // malformed decoded IR (`PACKAGE_BINARY_REPRESENTATION_VERIFY_*`, not
+    // in the source rule table): a source program's equivalent defect is
+    // reported by its source rule (e.g. TYPE_MATCH_PATTERN_MISMATCH beside
+    // a `CASE` naming a non-variant), so they would only duplicate it here.
+    .filter(|d| d.rule != VERIFY_TYPE && d.rule != VERIFY_MATCH)
+    .map(|d| crate::rules::PendingDiagnostic {
+        rule: d.rule,
+        detail: d.detail,
+        path: if d.file.is_empty() {
+            project_dir.join("<generated>")
+        } else {
+            project_dir.join(&d.file)
+        },
+        line: d.line as usize,
+    })
+    .collect()
 }
 
 /// Depth cap mirroring the decoder (`MAX_DECODE_DEPTH`). `check` may run on

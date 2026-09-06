@@ -947,7 +947,15 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // boundaries in the exact sense this class enumerates -- a name crossing into
     // the type domain at a table key -- not a decision made below the AST.
     ("declared_sites", "codegen", 52),
-    ("declared_sites", "ir", 47),
+    // 47 -> 48: `ir::verify` seeds an imported package's exported record layouts
+    // so a rule about an imported record's FIELDS -- comparability -- has a table
+    // to read (without them `Map OF pkg::Box TO V` was accepted for a `Box`
+    // holding a `List OF Integer`, while the identical LOCAL record was refused).
+    // The name comes off the `.mfp` type-export table and becomes a `field_types`
+    // KEY: a wire decode used as a table key, which is exactly what this class
+    // enumerates, and the same conversion `ir/shape.rs` already makes over the
+    // same `ImportedTypeDef` list.
+    ("declared_sites", "ir", 48),
     ("declared_sites", "manifest", 1),
     ("declared_sites", "monomorph", 8),
     ("declared_sites", "resolver", 8),

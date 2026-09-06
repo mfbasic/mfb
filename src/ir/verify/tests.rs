@@ -5123,6 +5123,7 @@ fn collect_source_diagnostics_maps_rules_to_pending() {
         &p,
         Path::new("/proj"),
         &[],
+        &[],
         &crate::ir::LinkSpans::default(),
     );
     assert!(diags
@@ -5142,6 +5143,7 @@ fn collect_source_diagnostics_generated_path_when_file_empty() {
     let diags = super::collect_source_diagnostics(
         &p,
         Path::new("/proj"),
+        &[],
         &[],
         &crate::ir::LinkSpans::default(),
     );

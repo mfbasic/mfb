@@ -561,6 +561,65 @@ pub(crate) fn imported_type_defs(
     imported_type_defs_from_files(&packages)
 }
 
+/// The TYPE names each imported (non-builtin) package exports, keyed by package
+/// name: every exported record/union/enum, every union variant, and every
+/// resource type. Read from the same installed `.mfp`s as
+/// [`imported_type_defs`], and lossy in the same way — a package whose metadata
+/// cannot be read contributes no names, which leaves a qualified spelling under
+/// it alone rather than guessing.
+///
+/// The parser consumes this to decide whether `pkg::Leaf` in a TYPE position is
+/// really one of `pkg`'s types (`FileParser::normalize_qualified_type_name`).
+/// Without it the parser de-qualified every `pkg::Leaf` it saw in a type
+/// position, so `pkg::NoSuchType` reached name resolution as the bare
+/// `NoSuchType` and was reported as an unknown project type — losing the
+/// package attribution bug-480 exists to give it.
+pub(crate) fn imported_type_names(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> HashMap<String, std::collections::HashSet<String>> {
+    let Ok(packages) = installed_package_files(project_dir, manifest) else {
+        return HashMap::new();
+    };
+    let mut names: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for package in &packages {
+        let Ok(decode) = binary_repr::BinaryReprPackageDecode::read(package) else {
+            continue;
+        };
+        let Ok(package_name) = decode.name() else {
+            continue;
+        };
+        let entry = names.entry(package_name).or_default();
+        if let Ok(exports) = decode.type_exports() {
+            for export in exports {
+                match export.kind {
+                    binary_repr::BinaryReprExportKind::Type
+                    | binary_repr::BinaryReprExportKind::Union
+                    | binary_repr::BinaryReprExportKind::Enum => {
+                        entry.insert(export.name);
+                        for variant in export.variants {
+                            entry.insert(variant.name);
+                        }
+                    }
+                    // A function or a sub is not a type; de-qualifying one would
+                    // rename the call target, which is the over-correction the
+                    // type-position normalizer exists to avoid.
+                    binary_repr::BinaryReprExportKind::Func
+                    | binary_repr::BinaryReprExportKind::Sub => {}
+                }
+            }
+        }
+        // A resource type is not in the export table (it has its own section),
+        // and `RES h AS pkg::Handle` is a type position like any other.
+        if let Ok(resources) = decode.resources() {
+            for resource in resources {
+                entry.insert(resource.type_name);
+            }
+        }
+    }
+    names
+}
+
 pub(crate) fn imported_type_defs_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedTypeDef> {
     let mut defs = Vec::new();
     for package in packages {

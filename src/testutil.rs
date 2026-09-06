@@ -102,6 +102,7 @@ pub fn check_src(source: &str) -> Vec<String> {
         &lowered,
         project_dir,
         &[],
+        &[],
         &link_spans,
     ));
     diagnostics.into_iter().map(|d| d.rule).collect()

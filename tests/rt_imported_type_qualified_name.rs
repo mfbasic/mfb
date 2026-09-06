@@ -33,6 +33,49 @@ use std::process::Command;
 /// A source package exporting one record, plus an importer with `source`, built
 /// and run. Returns the program's combined output.
 fn run_importer(name: &str, importer: &str) -> String {
+    let (root, app) = importer_project(name, importer);
+    let executable = build(&app);
+    let output = Command::new(&executable)
+        .output()
+        .expect("run the importer");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.status.success(),
+        "the importer exited {}:\n{combined}",
+        common::exit_description(&output.status)
+    );
+    let _ = fs::remove_dir_all(&root);
+    combined
+}
+
+/// The same scaffolding, for an importer the compiler must REJECT: returns
+/// `mfb build`'s combined output after asserting it failed.
+fn build_error(name: &str, importer: &str) -> String {
+    let (root, app) = importer_project(name, importer);
+    let output = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg(&app)
+        .output()
+        .expect("run mfb build");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !output.status.success(),
+        "the importer was accepted, but must be rejected:\n{combined}"
+    );
+    let _ = fs::remove_dir_all(&root);
+    combined
+}
+
+/// Write the package and the importer, and return `(project root, app dir)`.
+fn importer_project(name: &str, importer: &str) -> (PathBuf, PathBuf) {
     let root = std::env::temp_dir().join(format!("mfb_{name}_{}", common::unique_nonce()));
     let pkg = root.join("pkg");
     let app = root.join("app");
@@ -54,6 +97,10 @@ fn run_importer(name: &str, importer: &str) -> String {
         \x20 label AS String\n\
          END TYPE\n\
          \n\
+         EXPORT TYPE Bag\n\
+        \x20 items AS List OF Integer\n\
+         END TYPE\n\
+         \n\
          EXPORT FUNC notes() AS List OF Note\n\
         \x20 MUT out AS List OF Note = []\n\
         \x20 out = collections::append(out, Note[label := \"hello\"])\n\
@@ -73,22 +120,7 @@ fn run_importer(name: &str, importer: &str) -> String {
     .expect("write app manifest");
     fs::write(app.join("src/main.mfb"), importer).expect("write importer source");
 
-    let executable = build(&app);
-    let output = Command::new(&executable)
-        .output()
-        .expect("run the importer");
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        output.status.success(),
-        "the importer exited {}:\n{combined}",
-        common::exit_description(&output.status)
-    );
-    let _ = fs::remove_dir_all(&root);
-    combined
+    (root, app)
 }
 
 fn build(project: &Path) -> PathBuf {
@@ -199,5 +231,82 @@ fn a_qualified_builtin_value_type_is_unchanged() {
         stdout.lines().collect::<Vec<_>>(),
         vec!["b", "b"],
         "a built-in package's value type keeps its qualified identity:\n{stdout}"
+    );
+}
+
+/// A qualified name the package does NOT export must be reported against the
+/// package, at the line that writes it.
+///
+/// This is bug-480's contract, and de-qualifying a type-position `pkg::Leaf`
+/// unconditionally broke it: `notes::NoSuchType` reached name resolution as the
+/// bare `NoSuchType` and came back as `SYMBOL_UNKNOWN_TYPE` — "not a built-in or
+/// top-level project type" — which names neither the package nor the fact that
+/// the name was reached through an import. The rewrite is now gated on the
+/// package actually exporting the leaf, so an unexported one stays qualified and
+/// keeps its attribution.
+#[test]
+fn an_unexported_qualified_type_names_its_package() {
+    let output = build_error(
+        "unexported_qualified_type",
+        "IMPORT notes\n\
+         \n\
+         FUNC main() AS Integer\n\
+        \x20 LET bad AS notes::NoSuchType = 0\n\
+        \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert!(
+        output.contains("SYMBOL_UNKNOWN_IDENTIFIER"),
+        "an unexported member is an unknown IDENTIFIER, not an unknown project type:\n{output}"
+    );
+    assert!(
+        output.contains("Package `notes` does not export `NoSuchType`."),
+        "the diagnostic must name the package and the member:\n{output}"
+    );
+}
+
+/// An imported record is comparable exactly when a local record of the same
+/// shape is: `Bag` holds a `List OF Integer`, so it is not a legal `Map` key and
+/// not a legal `collections::find` needle.
+///
+/// The rule reads the type's FIELDS, and the source-path IR carries only the
+/// importer's own type table — so `is_comparable` found no row for `Bag`, fell
+/// through to its permissive "unknown user type" tail, and accepted both. The
+/// byte-identical LOCAL record was refused all along
+/// (`tests/syntax/types/types-map-key-comparable-invalid`), which is what makes
+/// this a boundary defect rather than a rule disagreement.
+///
+/// The list is BOUND rather than written inline at the call. A list literal
+/// lowers as `List OF Unknown` whatever its elements are, and
+/// `check_builtin_comparability` skips an `Unknown` element on purpose (never a
+/// false rejection) — so `collections::find([one], one)` is accepted for a local
+/// record too. That is a separate, import-independent gap in list-literal
+/// element inference; writing it that way here would test nothing.
+#[test]
+fn an_imported_record_is_no_more_comparable_than_a_local_one() {
+    let output = build_error(
+        "imported_record_comparable",
+        "IMPORT notes\n\
+         IMPORT collections\n\
+         \n\
+         FUNC main() AS Integer\n\
+        \x20 LET one AS notes::Bag = notes::Bag[[1, 2]]\n\
+        \x20 LET keyed = Map OF notes::Bag TO Integer { one := 1 }\n\
+        \x20 LET bags AS List OF notes::Bag = [one]\n\
+        \x20 LET found AS Integer = collections::find(bags, one)\n\
+        \x20 RETURN len(keyed) + found\n\
+         END FUNC\n",
+    );
+    assert!(
+        output.contains("TYPE_REQUIRES_COMPARABLE"),
+        "an imported record holding a List is not comparable:\n{output}"
+    );
+    assert!(
+        output.contains("Map key type requires a comparable type, got `Bag`."),
+        "the Map key must be refused:\n{output}"
+    );
+    assert!(
+        output.contains("Call to `collections.find` requires a comparable type, got `Bag`."),
+        "the `collections::find` needle must be refused:\n{output}"
     );
 }
