@@ -540,31 +540,37 @@ fn lower_ir_to_code(
     // defined symbol".
     let module = lower::lower_project(&ir, target.name().to_string(), packages, build_mode, None)
         .map_err(|err| format!("test source must lower to NIR: {err:?}"))?;
+    // `packages` reaches the CODE stage too, not just the NIR merge. The code
+    // stage reads each package's exported TYPES into the `TypeModel`
+    // (`add_package_type_export`) and its exported RESOURCES into
+    // `resource_closers`; handing it an empty list is how bug-374's sibling
+    // happened -- a lookup miss for every imported resource, so no cleanup was
+    // pushed and the handle leaked silently.
     match target {
         CodeTarget::MacosAarch64 => {
             let plan = crate::target::macos_aarch64::plan::lower_module(&module)
                 .expect("native plan (macos-aarch64)");
-            crate::target::macos_aarch64::code::lower_module(&module, &plan, &[])
+            crate::target::macos_aarch64::code::lower_module(&module, &plan, packages)
         }
         CodeTarget::LinuxAarch64 => {
             let plan = crate::target::linux_aarch64::plan::lower_module(&module, Glibc)
                 .expect("native plan (linux-aarch64)");
-            crate::target::linux_aarch64::code::lower_module(&module, &plan, &[], Glibc)
+            crate::target::linux_aarch64::code::lower_module(&module, &plan, packages, Glibc)
         }
         CodeTarget::LinuxX86_64 => {
             let plan = crate::target::linux_x86_64::plan::lower_module(&module, Glibc)
                 .expect("native plan (linux-x86_64)");
-            crate::target::linux_x86_64::code::lower_module(&module, &plan, &[], Glibc)
+            crate::target::linux_x86_64::code::lower_module(&module, &plan, packages, Glibc)
         }
         CodeTarget::LinuxRiscv64 => {
             let plan = crate::target::linux_riscv64::plan::lower_module(&module, Glibc)
                 .expect("native plan (linux-riscv64)");
-            crate::target::linux_riscv64::code::lower_module(&module, &plan, &[], Glibc)
+            crate::target::linux_riscv64::code::lower_module(&module, &plan, packages, Glibc)
         }
         CodeTarget::WindowsX86_64 => {
             let plan = crate::target::win_x86_64::plan::lower_module(&module)
                 .expect("native plan (windows-x86_64)");
-            crate::target::win_x86_64::code::lower_module(&module, &plan, &[])
+            crate::target::win_x86_64::code::lower_module(&module, &plan, packages)
         }
     }
 }
