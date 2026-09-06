@@ -131,6 +131,19 @@ Build fixture programs, run them, and diff their behavior against goldens.
 
 ## Packages
 
+- **yaml_oracle_diff.py** — Differential-tests `packages/yaml` against PyYAML as
+  a SECOND independent oracle; the first is `packages/yaml/oracle`, a Node project
+  on eemeli/yaml pinned to YAML 1.2 Core (see its README). Four modes: a
+  hand-written corpus covering the whole supported subset, random values dumped by
+  PyYAML and read by both, the `examples/yaml-json` emitter's output read by
+  PyYAML, and an emitter → reader round trip. Not a gate — it needs `pip install
+  pyyaml`, and `examples/yaml-json` built first. PyYAML is YAML **1.1** while the
+  package is YAML **1.2 Core**, so the inputs the two versions genuinely disagree
+  about are listed in the script's `EXPECTED` table and checked to disagree *for
+  the stated reason*; a case that stops diverging fails too. Two differently-wrong
+  references beat one — where the two oracles disagree with *each other* is where
+  the spec is worth re-reading. Usage:
+  `python3 scripts/yaml_oracle_diff.py [corpus|fuzz|emit|roundtrip]`.
 - **sync-package-mfp.sh** — Rebuilds every buildable package fixture from source
   and overwrites every committed copy of its `.mfp` (consumer and golden copies),
   which otherwise go stale when the binary-representation format changes. Skips the
