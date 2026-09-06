@@ -310,45 +310,40 @@ The per-file ledger is generated from the Phase 0 baseline; see
       which file; nothing said which lines, and reconstructing that by eye from
       a 3,000-line file is where the time went.
 
-### What the remaining 6,746 lines ARE
+### What the remaining 7,077 lines ARE
 
-Re-measured after the merge and after `drop_never_executed_binaries`, with
-`scripts/coverage-src-shapes.py`, which reads the source text of every uncovered
-region-entry line. 5,216 region-entry lines across the 199 files — fewer than
-the 6,746 the summary counts, because one region can span several lines.
+Re-measured with `scripts/coverage-src-shapes.py`, which reads the source text of
+every uncovered region-entry line. 5,369 region-entry lines across the 223 files
+— fewer than the 7,077 the summary counts, because one region can span several
+lines.
 
 | shape | lines | share |
 |---|---|---|
-| ordinary code — a branch or statement no program reaches | 2,840 | 54.4% |
-| `?` propagation on a call | 924 | 17.7% |
-| a `match` arm | 543 | 10.4% |
-| a closing brace / `else` | 426 | 8.2% |
-| `return Err(...)` | 179 | 3.4% |
-| `continue` / `break` | 94 | 1.8% |
-| an `if` / let-else guard | 86 | 1.6% |
-| `panic!` / `.expect(` | 57 | 1.1% |
-| `unreachable!` / `todo!` / `unimplemented!` | 34 | 0.7% |
-| a `None` / `Ok(None)` tail | 19 | 0.4% |
-| an `Err(...)` tail | 14 | 0.3% |
+| ordinary code — a branch or statement no program reaches | 2,798 | 52.1% |
+| `?` propagation on a call | 1,004 | 18.7% |
+| a `match` arm | 572 | 10.7% |
+| a closing brace / `else` | 470 | 8.8% |
+| `return Err(...)` | 225 | 4.2% |
+| `continue` / `break` | 92 | 1.7% |
+| an `if` / let-else guard | 88 | 1.6% |
+| `panic!` / `.expect(` | 59 | 1.1% |
+| `unreachable!` / `todo!` / `unimplemented!` | 33 | 0.6% |
+| an `Err(...)` tail | 17 | 0.3% |
+| a `None` / `Ok(None)` tail | 11 | 0.2% |
 
 The first group is the real remaining work and needs programs: each is a shape
-the 424-fixture corpus does not contain. The `?` group is the hard residue — an
-error arm unreachable because the callee cannot fail for the inputs the type
-checker permits. The registry sweeps closed every instance that goes through a
-*platform* hook (an empty import list forces the failure, on all five backends
-since bb72f57f5); what is left goes through *builder* methods, whose failure
-needs a malformed input the front end cannot produce.
+the corpus does not contain. The `?` group is the hard residue — an error arm
+unreachable because the callee cannot fail for the inputs the type checker
+permits. The registry sweeps closed every instance that goes through a *platform*
+hook (an empty import list forces the failure, on all five backends since
+bb72f57f5); what is left goes through *builder* methods, whose failure needs a
+malformed input the front end cannot produce.
 
-The two smallest rows are the ones to read carefully, because they are the only
-ones that could justify an exception rather than a test, and together they are
-91 lines — 1.7%. There is no bulk-exception case hiding in this table.
-
-- [ ] Re-run the FULL `sh scripts/coverage.sh` at the end: `src/**` is settled by
-      `--bins` (Findings F1) but `repository/src/**` is not, and only the full
-      run measures it.
-
-Acceptance: `sh scripts/coverage-check.sh` prints
-`All non-excepted files >= 98% line coverage.`
+The two smallest rows are the only ones that could justify an exception rather
+than a test, and together they are 92 lines — 1.7%. There is no bulk-exception
+case hiding in this table. The `return Err` row has grown (178 -> 225) because
+C8 brought in `src/target/shared/validate/**`, which is almost entirely
+refusals; the NIR-validator sweep is closing it.
 
 ### Where the count stands
 
@@ -798,6 +793,15 @@ covers and read as a catastrophic regression.
 One more trap on the way: the metadata target name is not the on-disk name.
 Cargo writes `mfb-repo` as `mfb_repo`, so globbing the metadata spelling matched
 nothing.
+
+### C7 — skipped
+
+No C7. The next correction was numbered C8 by a miscount, and by the time that
+surfaced the number was already cited by name in
+`scripts/coverage-common.sh`'s comment. Renumbering would leave that citation
+pointing at nothing, which is the failure mode
+`plan-line-citations-decay-silently` describes; a gap in the sequence with a line
+explaining it is the cheaper of the two.
 
 ### C8 — `(^|/)(target|tests)/` also matched `src/target/`, so the whole backend layer was outside the gate
 
