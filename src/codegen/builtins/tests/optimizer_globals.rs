@@ -27,7 +27,8 @@
 //! more than one value. Neither may be touched, at any level.
 
 use crate::optimizer::{with_opt_level, OptLevel};
-use crate::target::shared::nir::{NirModule, NirOp, NirValue};
+use crate::target::shared::nir::visit::{self, NirVisitor};
+use crate::target::shared::nir::{NirModule, NirValue};
 use crate::target::NativeBuildMode::Console;
 use crate::testutil::{nir_for_src, CodeTarget};
 
@@ -56,6 +57,19 @@ use crate::testutil::{nir_for_src, CodeTarget};
 const SRC: &str = "\
 IMPORT io
 
+TYPE Dot
+  n AS Integer
+END TYPE
+
+TYPE Tag
+  s AS String
+END TYPE
+
+UNION Shape
+  Dot
+  Tag
+END UNION
+
 PRIVATE LET LIMIT AS Integer = 7
 PRIVATE LET NEVER_NAMED AS Integer = 99
 PRIVATE MUT TABLE AS List OF Integer = [1, 2, 3]
@@ -83,7 +97,87 @@ FUNC describe(n AS Integer) AS String
   END MATCH
 END FUNC
 
+' Every CONTAINER shape a read of LIMIT can sit inside.
+'
+' `substitute_op`/`substitute_value` is a hand-written mutable walk -- the one
+' analysis the `nir::visit` seam cannot own, because the seam is immutable -- and
+' an arm it forgets is not a build failure. The read is simply not rewritten, so
+' the fold silently declines for programs written that way while every other
+' shape folds, and the global keeps storage the pass reported as collected. One
+' function per group of arms, each holding a read of LIMIT.
+FUNC shapes(n AS Integer) AS Integer
+  MUT total AS Integer = 0
+
+  ' Collection literals, a constructor, a member read and a `WITH` rebuild.
+  LET list AS List OF Integer = [LIMIT, 1]
+  LET set AS Set OF Integer = Set OF Integer { LIMIT }
+  LET map AS Map OF String TO Integer = Map OF String TO Integer { \"l\" := LIMIT }
+  LET dot AS Dot = Dot[LIMIT]
+  LET moved AS Dot = WITH dot { n := LIMIT }
+  total = total + len(list) + len(set) + len(map) + Dot[LIMIT].n + moved.n
+
+  ' A union wrap, at the binding's own conversion rather than an argument's.
+  LET wrapped AS Shape = Dot[LIMIT]
+  MATCH wrapped
+    CASE Dot(d)
+      total = total + d.n
+    CASE ELSE
+      total = total + 1
+  END MATCH
+
+  ' A closure's captures. The lambda captures a LOCAL rather than LIMIT
+  ' itself: a global needs no environment, so capturing one lowers to a bare
+  ' `functionRef` and the `Closure` arm is never entered at all (measured on
+  ' the `-nir` dump -- the first version of this program produced no `closure`
+  ' node anywhere).
+  LET base AS Integer = LIMIT
+  LET add AS FUNC(Integer) AS Integer = LAMBDA(v AS Integer) -> v + base
+  total = total + add(n)
+
+  ' A unary operand.
+  IF NOT (n > LIMIT) THEN
+    total = total + 1
+  END IF
+
+  ' `FOR` start, end AND step -- three separate visits.
+  FOR i = LIMIT TO LIMIT STEP LIMIT
+    total = total + i
+    EXIT FOR
+  NEXT
+
+  ' `FOR EACH` over a literal holding it.
+  FOR EACH item IN [LIMIT]
+    total = total + item
+  NEXT
+
+  ' A `DO ... LOOP UNTIL` condition, which the walk visits AFTER the body.
+  MUT spins AS Integer = 0
+  DO
+    spins = spins + 1
+  LOOP UNTIL spins >= LIMIT
+
+  ' A trapped call, whose lift stages the read behind a `Checked`.
+  LET guarded AS Integer = risky(LIMIT) TRAP(e)
+    RECOVER LIMIT
+  END TRAP
+
+  RETURN total + spins + guarded
+END FUNC
+
+FUNC risky(n AS Integer) AS Integer
+  IF n < 0 THEN FAIL error(77050002, \"risky\")
+  RETURN n
+END FUNC
+
+SUB halt(n AS Integer)
+  IF n < 0 THEN
+    EXIT PROGRAM LIMIT
+  END IF
+END SUB
+
 FUNC main() AS Integer
+  halt(1)
+  io::print(toString(shapes(1)))
   LET headroom AS Integer = LIMIT + len(TABLE)
   MUT i AS Integer = 0
   WHILE i < LIMIT
@@ -97,7 +191,7 @@ FUNC main() AS Integer
   RETURN 0
 
   TRAP(e)
-    io::print(\"trapped \" & toString(e.code))
+    io::print(\"trapped \" & toString(e.code) & \" \" & toString(LIMIT))
     RETURN 1
   END TRAP
 END FUNC
@@ -155,92 +249,43 @@ fn drop_the_global_initializer(module: &mut NirModule) {
 
 /// Whether any value anywhere in the module reads the global `name`.
 ///
-/// A whole-module walk rather than a look at the globals list: constification
-/// is about the READS, and a pass that cleared a flag without replacing them
-/// would leave the list looking right and the program still loading from
-/// storage.
+/// Through [`visit`], the NIR traversal seam, rather than a hand-written match.
+/// The recogniser and its measurer are two lists: this one used to end in
+/// `_ => false`, so for every container it had forgotten — a list literal, a map
+/// literal, a `WITH` rebuild, a closure's captures — it answered "nothing reads
+/// it" whether or not the pass had substituted anything. That is the one way an
+/// assertion here can pass while the pass is broken, and it is the same shape of
+/// gap as the one being asserted about: `substitute_value`'s own arms. `walk_*`
+/// is exhaustive with no `_` arm, so a new `NirValue` variant is a compile error
+/// here rather than a silent "no".
 fn reads_global(module: &NirModule, name: &str) -> bool {
-    fn in_value(value: &NirValue, name: &str) -> bool {
-        if matches!(value, NirValue::Global { name: n, .. } if n == name) {
-            return true;
-        }
-        match value {
-            NirValue::Call { args, .. }
-            | NirValue::CallResult { args, .. }
-            | NirValue::Constructor { args, .. }
-            | NirValue::RuntimeCall { args, .. } => args.iter().any(|a| in_value(a, name)),
-            NirValue::Binary { left, right, .. } => in_value(left, name) || in_value(right, name),
-            NirValue::Unary { operand, .. } => in_value(operand, name),
-            NirValue::UnionWrap { value, .. }
-            | NirValue::UnionExtract { value, .. }
-            | NirValue::Checked { value, .. }
-            | NirValue::ResultIsOk { value }
-            | NirValue::ResultValue { value }
-            | NirValue::ResultError { value } => in_value(value, name),
-            _ => false,
+    struct Search<'a> {
+        wanted: &'a str,
+        found: bool,
+    }
+
+    impl NirVisitor for Search<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if matches!(value, NirValue::Global { name, .. } if name == self.wanted) {
+                self.found = true;
+            }
+            visit::walk_value(self, value);
         }
     }
 
-    fn in_op(op: &NirOp, name: &str) -> bool {
-        match op {
-            NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } => {
-                value.as_ref().is_some_and(|v| in_value(v, name))
-            }
-            NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } => in_value(value, name),
-            NirOp::Return { value } => value.as_ref().is_some_and(|v| in_value(v, name)),
-            NirOp::Eval { value } => in_value(value, name),
-            NirOp::ExitProgram { code } => in_value(code, name),
-            NirOp::Fail { error } => in_value(error, name),
-            NirOp::If {
-                condition,
-                then_body,
-                else_body,
-            } => {
-                in_value(condition, name)
-                    || then_body.iter().any(|o| in_op(o, name))
-                    || else_body.iter().any(|o| in_op(o, name))
-            }
-            NirOp::Match { value, cases } => {
-                in_value(value, name)
-                    || cases.iter().any(|case| {
-                        case.guard.as_ref().is_some_and(|g| in_value(g, name))
-                            || case.body.iter().any(|o| in_op(o, name))
-                    })
-            }
-            NirOp::While {
-                condition, body, ..
-            }
-            | NirOp::DoUntil { condition, body } => {
-                in_value(condition, name) || body.iter().any(|o| in_op(o, name))
-            }
-            NirOp::For {
-                start,
-                end,
-                step,
-                body,
-                ..
-            } => {
-                in_value(start, name)
-                    || in_value(end, name)
-                    || in_value(step, name)
-                    || body.iter().any(|o| in_op(o, name))
-            }
-            NirOp::ForEach { iterable, body, .. } => {
-                in_value(iterable, name) || body.iter().any(|o| in_op(o, name))
-            }
-            NirOp::Trap { body, .. } => body.iter().any(|o| in_op(o, name)),
-            _ => false,
+    let mut search = Search {
+        wanted: name,
+        found: false,
+    };
+    for global in &module.globals {
+        if let Some(value) = &global.value {
+            search.visit_value(value);
         }
     }
-
-    module
-        .globals
-        .iter()
-        .any(|global| global.value.as_ref().is_some_and(|v| in_value(v, name)))
-        || module
-            .functions
-            .iter()
-            .any(|function| function.body.iter().any(|op| in_op(op, name)))
+    for function in &module.functions {
+        search.visit_ops(&function.body);
+    }
+    search.found
 }
 
 fn global<'a>(
