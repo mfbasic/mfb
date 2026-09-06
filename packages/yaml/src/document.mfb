@@ -1,0 +1,186 @@
+' ---------------------------------------------------------------------------
+' yaml/document.mfb — the stream layer: directives, the `---` and `...` markers
+' that divide a stream into documents, and the per-document driver.
+'
+' Splitting runs BEFORE any node is parsed, so every scanner below it is handed
+' a line range and a byte range it may not leave. That is what stops an
+' unterminated quoted scalar or flow collection in one document from swallowing
+' the next one: it fails at its own document's end instead.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' The documents found in one input. Three parallel lists rather than a list of
+' records, so the whole table is flat Integer storage.
+'
+'   bodyLines(i) — the line the document's node starts on
+'   bodyCols(i)  — the byte offset it starts at, or -1 to start at the first
+'                  content line at or after bodyLines(i)
+'   endLines(i)  — the line index the document ends before
+TYPE Documents
+  bodyLines AS List OF Integer
+  bodyCols AS List OF Integer
+  endLines AS List OF Integer
+END TYPE
+
+' TRUE when line `line` is a `---` or `...` marker: three of `code` at column
+' zero, followed by a space or the end of the line.
+FUNC isDocMarker(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, line AS Integer, code AS Integer) AS Boolean
+  IF collections::get(indents, line) <> 0 THEN RETURN FALSE
+  LET col AS Integer = collections::get(starts, line)
+  LET lineEnd AS Integer = collections::get(ends, line)
+  IF col + 3 > lineEnd THEN RETURN FALSE
+  IF byteAt(bytes, col) <> code THEN RETURN FALSE
+  IF byteAt(bytes, col + 1) <> code THEN RETURN FALSE
+  IF byteAt(bytes, col + 2) <> code THEN RETURN FALSE
+  RETURN isSpaceOrEnd(byteWithin(bytes, col + 3, lineEnd))
+END FUNC
+
+' Check one `%` directive line.
+'
+' Only `%YAML 1.2` is accepted. `%YAML 1.1` names a different language -- 1.1
+' resolves `yes` as a boolean and `012` as octal, which is exactly the schema
+' this reader does not implement -- so accepting it would mean reading the
+' document by rules its author did not write it under. `%TAG` declares a tag
+' handle, and tags are not supported. An unknown directive is rejected rather
+' than ignored, because ignoring one means guessing that it did not matter.
+FUNC checkDirective(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, line AS Integer) AS Nothing
+  LET col AS Integer = collections::get(starts, line)
+  LET lineEnd AS Integer = collections::get(ends, line)
+  LET nameEnd AS Integer = scanName(bytes, col + 1, lineEnd)
+  LET name AS String = textOf(bytes, col + 1, nameEnd)
+  IF name = "TAG" THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: the %TAG directive is not supported, because tags are not supported")
+  END IF
+  IF name <> "YAML" THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: unknown directive %" & name)
+  END IF
+  ' The version token ends at WHITESPACE, not at `scanName`'s wider stop set: a
+  ' `#` glued to the token is not a comment, so `%YAML 1.2#` declares the
+  ' version "1.2#" and must be refused rather than read as 1.2.
+  LET versionStart AS Integer = skipSpaces(bytes, nameEnd, lineEnd)
+  MUT versionEnd AS Integer = versionStart
+  WHILE versionEnd < lineEnd AND NOT isSpace(byteAt(bytes, versionEnd))
+    versionEnd = versionEnd + 1
+  END WHILE
+  LET version AS String = textOf(bytes, versionStart, versionEnd)
+  IF version <> "1.2" THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: this reader implements YAML 1.2, and the stream declares %YAML " & version)
+  END IF
+  requireLineEnd(bytes, starts, ends, line, versionEnd)
+  RETURN NOTHING
+END FUNC
+
+' Divide the input into documents.
+PUBLIC FUNC splitDocuments(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer) AS Documents
+  MUT bodyLines AS List OF Integer = []
+  MUT bodyCols AS List OF Integer = []
+  MUT endLines AS List OF Integer = []
+  LET total AS Integer = len(starts)
+  MUT openLine AS Integer = 0
+  MUT openCol AS Integer = -1
+  MUT open AS Boolean = FALSE
+  MUT terminated AS Boolean = FALSE
+  MUT pendingDirective AS Boolean = FALSE
+  MUT i AS Integer = 0
+  WHILE i < total
+    IF isSkippableLine(bytes, starts, ends, indents, i) THEN
+      i = i + 1
+    ELSE
+      LET indent AS Integer = collections::get(indents, i)
+      LET col AS Integer = collections::get(starts, i) + indent
+      IF indent = 0 AND byteAt(bytes, col) = B_PERCENT THEN
+        IF open THEN
+          FAIL error(ERR_FORMAT, "yaml: a directive may not appear inside a document (line " & toString(i + 1) & ")")
+        END IF
+        checkDirective(bytes, starts, ends, i)
+        pendingDirective = TRUE
+        terminated = FALSE
+        i = i + 1
+      ELSEIF isDocMarker(bytes, starts, ends, indents, i, B_DASH) THEN
+        IF open THEN
+          bodyLines = collections::append(bodyLines, openLine)
+          bodyCols = collections::append(bodyCols, openCol)
+          endLines = collections::append(endLines, i)
+        END IF
+        LET after AS Integer = skipSpaces(bytes, col + 3, collections::get(ends, i))
+        IF after < collections::get(ends, i) AND byteAt(bytes, after) <> B_HASH THEN
+          openLine = i
+          openCol = after
+        ELSE
+          openLine = i + 1
+          openCol = -1
+        END IF
+        open = TRUE
+        pendingDirective = FALSE
+        terminated = FALSE
+        i = i + 1
+      ELSEIF isDocMarker(bytes, starts, ends, indents, i, B_DOT) THEN
+        requireLineEnd(bytes, starts, ends, i, col + 3)
+        IF open THEN
+          bodyLines = collections::append(bodyLines, openLine)
+          bodyCols = collections::append(bodyCols, openCol)
+          endLines = collections::append(endLines, i)
+        END IF
+        open = FALSE
+        terminated = TRUE
+        i = i + 1
+      ELSE
+        IF terminated THEN
+          FAIL error(ERR_FORMAT, "yaml: content on line " & toString(i + 1) & " follows a `...` end marker; start a new document with `---`")
+        END IF
+        IF pendingDirective THEN
+          FAIL error(ERR_FORMAT, "yaml: a directive must be followed by a `---` document start (line " & toString(i + 1) & ")")
+        END IF
+        IF NOT open THEN
+          open = TRUE
+          openLine = i
+          openCol = -1
+        END IF
+        i = i + 1
+      END IF
+    END IF
+  END WHILE
+  IF pendingDirective THEN
+    FAIL error(ERR_FORMAT, "yaml: a directive must be followed by a `---` document start")
+  END IF
+  IF open THEN
+    bodyLines = collections::append(bodyLines, openLine)
+    bodyCols = collections::append(bodyCols, openCol)
+    endLines = collections::append(endLines, total)
+  END IF
+  RETURN Documents[bodyLines, bodyCols, endLines]
+END FUNC
+
+' Parse one document's node and require that the document holds nothing else.
+PUBLIC FUNC parseDocument(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, bodyLine AS Integer, bodyCol AS Integer, endLine AS Integer) AS json::Json
+  LET fresh AS State = emptyState()
+  MUT line AS Integer = bodyLine
+  MUT col AS Integer = bodyCol
+  IF col < 0 THEN
+    line = nextContentLine(bytes, starts, ends, indents, bodyLine, endLine)
+    IF line >= endLine THEN
+      ' `---` with an empty body is a document holding the empty node.
+      LET empty AS json::Json = json::JsonNull[NOTHING]
+      RETURN empty
+    END IF
+    col = collections::get(starts, line) + collections::get(indents, line)
+  END IF
+  ' The root has no owning construct, so `parentIndent` is -1: every column,
+  ' including column zero, is "indented past" it.
+  '
+  ' `allowCollectionInline` is FALSE exactly when the node was written on the
+  ' `---` line. A block collection may not start there -- `--- a: 1` and
+  ' `--- - a` are both rejected by YAML 1.2 (`l-bare-document` reaches a block
+  ' collection only through a line break), while `--- 5`, `--- [1, 2]` and
+  ' `--- |` are all fine. When the body starts on its own line instead, this is
+  ' an ordinary block position and the flag is TRUE.
+  LET node AS Node = parseNodeAt(bytes, starts, ends, indents, line, col, endLine, -1, FALSE, bodyCol < 0, 0, fresh)
+  LET leftover AS Integer = nextContentLine(bytes, starts, ends, indents, node.index, endLine)
+  IF leftover < endLine THEN
+    FAIL error(ERR_FORMAT, "yaml: line " & toString(leftover + 1) & " is not part of the document that precedes it; separate documents with `---`")
+  END IF
+  RETURN node.value
+END FUNC

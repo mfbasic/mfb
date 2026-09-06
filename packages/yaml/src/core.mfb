@@ -1,0 +1,438 @@
+' ---------------------------------------------------------------------------
+' yaml/core.mfb — limits, parser state, the shared node record, and the byte
+' and line primitives every other file in the package is built on.
+'
+' The reader works on the document's UTF-8 BYTES, never on a grapheme or scalar
+' list. Every YAML indicator (`-`, `:`, `#`, `[`, `]`, `{`, `}`, `'`, `"`, `&`,
+' `*`, `!`, `?`, `|`, `>`, `%`, `,`) and every character YAML treats as a break
+' or as indentation is ASCII, so a byte compare is exact and can never split a
+' multi-byte scalar: a byte >= 128 only ever occurs inside scalar content, which
+' is copied through verbatim. Indentation is counted in leading 0x20 bytes,
+' which is the same number YAML counts because no other character may indent.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' ---------------------------------------------------------------------------
+' Limits. These are the expansion-attack guards. A YAML alias may name a node
+' of any size, so a document a few hundred bytes long can name an exponentially
+' large tree ("billion laughs"): ten anchors, each a ten-element sequence of
+' aliases to the previous one, is 10^10 nodes. Counting every node the reader
+' materialises -- including every node an alias expansion copies in -- turns
+' that into an ordinary catchable failure instead of an out-of-memory kill.
+' ---------------------------------------------------------------------------
+
+' Maximum structural nesting. Each nested collection descends one native frame
+' group with no tail-call optimisation, so nesting depth is native stack depth;
+' this fails cleanly well before the stack runs out. json::parse caps at 256 for
+' the same reason -- YAML descends more frames per level, so this is lower.
+PUBLIC LET DEPTH_LIMIT AS Integer = 100
+
+' Maximum number of json::Json nodes one document may materialise, counting
+' every node produced by an alias expansion.
+PUBLIC LET NODE_LIMIT AS Integer = 1000000
+
+' Maximum number of alias expansions one document may perform.
+PUBLIC LET ALIAS_LIMIT AS Integer = 10000
+
+' ---------------------------------------------------------------------------
+' Error codes. Standard registry codes are used wherever one carries the right
+' meaning (`mfb spec diagnostics error-codes`); exactly one failure -- blowing
+' an expansion limit -- has no registry equivalent, so it takes a generator-9
+' code, which the package exports so a caller can match it by name.
+' ---------------------------------------------------------------------------
+
+' 9-311-0001: the document exceeded a parser expansion limit (total nodes or
+' alias expansions). No errorCode:: value models "this input expands too far",
+' so this is a generator-9 (user-defined) code, per the encoding rule.
+PUBLIC LET ERR_EXPANSION_LIMIT AS Integer = 93110001
+
+' 7-705-0003 errorCode::ErrInvalidFormat — malformed YAML.
+PUBLIC LET ERR_FORMAT AS Integer = 77050003
+' 7-705-0007 errorCode::ErrUnsupported — well-formed YAML outside the subset.
+PUBLIC LET ERR_UNSUPPORTED AS Integer = 77050007
+' 7-705-0004 errorCode::ErrNotFound — an alias naming no anchor.
+PUBLIC LET ERR_NOT_FOUND AS Integer = 77050004
+' 7-705-0005 errorCode::ErrAlreadyExists — a duplicate mapping key.
+PUBLIC LET ERR_DUPLICATE AS Integer = 77050005
+' 7-705-0024 errorCode::ErrDepthExceeded — nesting past DEPTH_LIMIT.
+PUBLIC LET ERR_DEPTH AS Integer = 77050024
+
+' ---------------------------------------------------------------------------
+' Byte constants. Named so the scanners read as YAML rather than as arithmetic.
+' ---------------------------------------------------------------------------
+
+PUBLIC LET B_TAB AS Integer = 9
+PUBLIC LET B_LF AS Integer = 10
+PUBLIC LET B_CR AS Integer = 13
+PUBLIC LET B_SPACE AS Integer = 32
+PUBLIC LET B_BANG AS Integer = 33
+PUBLIC LET B_DQUOTE AS Integer = 34
+PUBLIC LET B_HASH AS Integer = 35
+PUBLIC LET B_PERCENT AS Integer = 37
+PUBLIC LET B_AMP AS Integer = 38
+PUBLIC LET B_SQUOTE AS Integer = 39
+PUBLIC LET B_STAR AS Integer = 42
+PUBLIC LET B_PLUS AS Integer = 43
+PUBLIC LET B_COMMA AS Integer = 44
+PUBLIC LET B_DASH AS Integer = 45
+PUBLIC LET B_DOT AS Integer = 46
+PUBLIC LET B_ZERO AS Integer = 48
+PUBLIC LET B_NINE AS Integer = 57
+PUBLIC LET B_COLON AS Integer = 58
+PUBLIC LET B_LT AS Integer = 60
+PUBLIC LET B_GT AS Integer = 62
+PUBLIC LET B_QUESTION AS Integer = 63
+PUBLIC LET B_AT AS Integer = 64
+PUBLIC LET B_LBRACKET AS Integer = 91
+PUBLIC LET B_BACKSLASH AS Integer = 92
+PUBLIC LET B_RBRACKET AS Integer = 93
+PUBLIC LET B_BACKTICK AS Integer = 96
+PUBLIC LET B_LBRACE AS Integer = 123
+PUBLIC LET B_PIPE AS Integer = 124
+PUBLIC LET B_RBRACE AS Integer = 125
+
+' ---------------------------------------------------------------------------
+' Parser state, threaded through every parse function.
+'
+' It is threaded rather than held in module state so that two threads may parse
+' at once and a parse is re-entrant: `anchors` is the document's anchor table,
+' and `nodes`/`aliases` are the running expansion counters the limits above
+' bound. Each parse function rebuilds `State` once, on the way out, rather than
+' once per node, because rebuilding it copies `anchors`.
+' ---------------------------------------------------------------------------
+TYPE State
+  anchors AS Map OF String TO json::Json
+  nodes AS Integer
+  aliases AS Integer
+END TYPE
+
+' A parsed node together with the cursor position just past it. `index` is a
+' LINE index for the block parsers and a BYTE offset for the flow parsers --
+' each caller knows which of the two it asked for.
+TYPE Node
+  value AS json::Json
+  index AS Integer
+  state AS State
+END TYPE
+
+' The line table for one whole input: `starts(i)`/`ends(i)` are the byte offsets
+' bounding line i (the newline and any carriage return excluded), and
+' `indents(i)` is its count of leading spaces, or -1 when the line holds nothing
+' but spaces. Three parallel flat Integer lists rather than a list of records:
+' the parsers pass them down the recursion, where a flat list parameter is a
+' borrow of the caller's block and costs nothing to hand over.
+TYPE Lines
+  starts AS List OF Integer
+  ends AS List OF Integer
+  indents AS List OF Integer
+END TYPE
+
+PUBLIC FUNC emptyState() AS State
+  RETURN State[Map OF String TO json::Json {}, 0, 0]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Expansion accounting.
+' ---------------------------------------------------------------------------
+
+' Charge `n` newly materialised nodes against the node budget.
+PUBLIC FUNC chargeNodes(nodes AS Integer, n AS Integer) AS Integer
+  LET total AS Integer = nodes + n
+  IF total > NODE_LIMIT THEN
+    FAIL error(ERR_EXPANSION_LIMIT, "yaml: document expands past the " & toString(NODE_LIMIT) & "-node limit")
+  END IF
+  RETURN total
+END FUNC
+
+' Charge one alias expansion against the alias budget.
+PUBLIC FUNC chargeAlias(aliases AS Integer) AS Integer
+  LET total AS Integer = aliases + 1
+  IF total > ALIAS_LIMIT THEN
+    FAIL error(ERR_EXPANSION_LIMIT, "yaml: document expands past the " & toString(ALIAS_LIMIT) & "-alias limit")
+  END IF
+  RETURN total
+END FUNC
+
+' Reject nesting past DEPTH_LIMIT.
+PUBLIC FUNC checkDepth(depth AS Integer) AS Nothing
+  IF depth > DEPTH_LIMIT THEN
+    FAIL error(ERR_DEPTH, "yaml: nested past the " & toString(DEPTH_LIMIT) & "-level depth limit")
+  END IF
+END FUNC
+
+' How many json::Json nodes a value holds, counting itself. An alias expansion
+' charges this for the tree it copies in, which is what makes a chain of
+' aliases-of-aliases cost what it actually expands to rather than one node.
+PUBLIC FUNC countNodes(value AS json::Json) AS Integer
+  MUT total AS Integer = 1
+  MATCH value
+    CASE json::JsonArr(a)
+      FOR EACH item IN a.items
+        total = total + countNodes(item)
+      NEXT
+    CASE json::JsonObj(o)
+      FOR EACH entry IN o.fields
+        total = total + countNodes(entry.value)
+      NEXT
+    CASE json::JsonNull(n)
+      total = 1
+    CASE json::JsonBool(b)
+      total = 1
+    CASE json::JsonNum(m)
+      total = 1
+    CASE json::JsonStr(s)
+      total = 1
+  END MATCH
+  RETURN total
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Byte primitives.
+' ---------------------------------------------------------------------------
+
+' The byte at `i`, or -1 when `i` is outside the input. Returning a sentinel
+' rather than failing lets every scanner write one bounds-free loop condition.
+PUBLIC FUNC byteAt(bytes AS List OF Byte, i AS Integer) AS Integer
+  IF i < 0 OR i >= len(bytes) THEN RETURN -1
+  RETURN toInt(collections::get(bytes, i))
+END FUNC
+
+' The text of bytes [from, stop). Every slice this package takes is bounded by an
+' ASCII indicator or a line break, so it never splits a multi-byte scalar.
+PUBLIC FUNC textOf(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS String
+  IF stop <= from THEN RETURN ""
+  RETURN toString(collections::mid(bytes, from, stop - from))
+END FUNC
+
+' TRUE for the two characters YAML counts as separation space within a line.
+PUBLIC FUNC isSpace(code AS Integer) AS Boolean
+  RETURN code = B_SPACE OR code = B_TAB
+END FUNC
+
+PUBLIC FUNC isDigitByte(code AS Integer) AS Boolean
+  RETURN code >= B_ZERO AND code <= B_NINE
+END FUNC
+
+' The first offset at or after `from` (and before `stop`) that is not a space or
+' tab.
+PUBLIC FUNC skipSpaces(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Integer
+  MUT i AS Integer = from
+  WHILE i < stop AND isSpace(byteAt(bytes, i))
+    i = i + 1
+  END WHILE
+  RETURN i
+END FUNC
+
+' The offset just past the last non-space byte of [from, stop).
+PUBLIC FUNC trimEndAt(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Integer
+  MUT i AS Integer = stop
+  WHILE i > from AND isSpace(byteAt(bytes, i - 1))
+    i = i - 1
+  END WHILE
+  RETURN i
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The line table.
+' ---------------------------------------------------------------------------
+
+' Split `bytes` into lines and measure each one's indentation.
+'
+' A line ends at LF, at CR, or at CRLF, which is exactly YAML 1.2's `b-break ::=
+' ( b-carriage-return b-line-feed ) | b-carriage-return | b-line-feed`. CRLF
+' input therefore reads exactly as LF input does, and so does a file with the
+' old Mac line endings. Treating a lone CR as ORDINARY CONTENT instead -- which
+' this did until an oracle run caught it -- is the dangerous reading: `nested:`
+' CR `  c: [1, 2]` then has no line break in it at all, so the whole thing
+' becomes one line and one key named "nested:<CR>  c", silently.
+'
+' A tab anywhere in a line's indentation is rejected: YAML forbids it outright,
+' and accepting it would silently give the line an indentation this reader and
+' the writer disagree about.
+PUBLIC FUNC scanLines(bytes AS List OF Byte) AS Lines
+  MUT starts AS List OF Integer = []
+  MUT ends AS List OF Integer = []
+  MUT indents AS List OF Integer = []
+  LET total AS Integer = len(bytes)
+  MUT lineStart AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i <= total
+    LET code AS Integer = byteAt(bytes, i)
+    IF i = total OR code = B_LF OR code = B_CR THEN
+      LET lineEnd AS Integer = i
+      ' A trailing break ends the last line; it does not open an empty one.
+      IF i < total OR lineEnd > lineStart OR len(starts) = 0 THEN
+        MUT col AS Integer = lineStart
+        WHILE col < lineEnd AND byteAt(bytes, col) = B_SPACE
+          col = col + 1
+        END WHILE
+        IF col < lineEnd AND byteAt(bytes, col) = B_TAB THEN
+          FAIL error(ERR_FORMAT, "yaml: a tab may not be used to indent line " & toString(len(starts) + 1))
+        END IF
+        starts = collections::append(starts, lineStart)
+        ends = collections::append(ends, lineEnd)
+        IF col >= lineEnd THEN
+          indents = collections::append(indents, -1)
+        ELSE
+          indents = collections::append(indents, col - lineStart)
+        END IF
+      END IF
+      ' CRLF is ONE break, so step over the LF the CR introduced.
+      IF code = B_CR AND byteAt(bytes, i + 1) = B_LF THEN
+        i = i + 1
+      END IF
+      lineStart = i + 1
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN Lines[starts, ends, indents]
+END FUNC
+
+' TRUE when line `i` carries no content the parsers care about -- it is blank,
+' or its first non-space character starts a comment.
+PUBLIC FUNC isSkippableLine(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, i AS Integer) AS Boolean
+  LET indent AS Integer = collections::get(indents, i)
+  IF indent < 0 THEN RETURN TRUE
+  RETURN byteAt(bytes, collections::get(starts, i) + indent) = B_HASH
+END FUNC
+
+' The first line at or after `from`, and before `limit`, that carries content.
+' Returns `limit` when there is none.
+PUBLIC FUNC nextContentLine(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, from AS Integer, limit AS Integer) AS Integer
+  MUT i AS Integer = from
+  IF i < 0 THEN i = 0
+  WHILE i < limit
+    IF NOT isSkippableLine(bytes, starts, ends, indents, i) THEN RETURN i
+    i = i + 1
+  END WHILE
+  RETURN limit
+END FUNC
+
+' The line number a byte offset falls on, used to turn a flow collection's end
+' offset back into a line cursor for the block parser. Linear from `hint`, which
+' is always the line the flow collection started on, so it walks only the lines
+' the collection actually spanned.
+PUBLIC FUNC lineOfOffset(starts AS List OF Integer, ends AS List OF Integer, offset AS Integer, hint AS Integer) AS Integer
+  MUT i AS Integer = hint
+  WHILE i + 1 < len(starts) AND offset >= collections::get(starts, i + 1)
+    i = i + 1
+  END WHILE
+  RETURN i
+END FUNC
+
+' Reject anything but spaces and an optional comment between `from` and the end
+' of line `line`. Every construct that ends on its own line runs this, so stray
+' trailing content is a failure rather than silently ignored text.
+PUBLIC FUNC requireLineEnd(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, line AS Integer, from AS Integer) AS Nothing
+  LET lineEnd AS Integer = collections::get(ends, line)
+  LET at AS Integer = skipSpaces(bytes, from, lineEnd)
+  IF at >= lineEnd THEN RETURN NOTHING
+  IF byteAt(bytes, at) = B_HASH THEN RETURN NOTHING
+  FAIL error(ERR_FORMAT, "yaml: unexpected content after the value on line " & toString(line + 1) & ": " & textOf(bytes, at, lineEnd))
+END FUNC
+
+' The byte at `i`, or -1 when `i` is outside the input OR at/after `stop`.
+' Scanners that must not read past the end of the current document use this in
+' place of `byteAt`, so a lookahead can never see the next document's bytes.
+PUBLIC FUNC byteWithin(bytes AS List OF Byte, i AS Integer, stop AS Integer) AS Integer
+  IF i >= stop THEN RETURN -1
+  RETURN byteAt(bytes, i)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Anchors and aliases.
+'
+' An anchor is registered only once its node is FULLY parsed, so an alias can
+' only ever name a node that is already complete. That single rule is what
+' rejects a cyclic alias: `&a [ *a ]` reaches `*a` while `a` is still being
+' built, finds no anchor, and fails as an unknown alias rather than building a
+' value that refers to itself -- which `json::Json`, a tree, cannot represent
+' and `json::stringify` could not terminate on.
+' ---------------------------------------------------------------------------
+
+' Register `name` as an anchor for `value`. Re-anchoring a name is allowed and
+' the later definition wins for aliases that follow it, as YAML specifies.
+PUBLIC FUNC defineAnchor(name AS String, value AS json::Json, cur AS State) AS State
+  IF name = "" THEN
+    FAIL error(ERR_FORMAT, "yaml: an anchor must be named")
+  END IF
+  RETURN State[collections::set(cur.anchors, name, value), cur.nodes, cur.aliases]
+END FUNC
+
+' Expand `*name` into a copy of the anchored node, charging the expansion
+' against BOTH budgets: one alias, and every node the expansion materialises.
+' Charging the whole expanded size is what makes a chain of aliases-of-aliases
+' cost what it really expands to instead of one node each.
+PUBLIC FUNC expandAlias(name AS String, cur AS State) AS Node
+  IF NOT collections::hasKey(cur.anchors, name) THEN
+    FAIL error(ERR_NOT_FOUND, "yaml: alias *" & name & " names no anchor defined before it")
+  END IF
+  LET value AS json::Json = collections::get(cur.anchors, name)
+  LET aliases AS Integer = chargeAlias(cur.aliases)
+  LET nodes AS Integer = chargeNodes(cur.nodes, countNodes(value))
+  RETURN Node[value, 0, State[cur.anchors, nodes, aliases]]
+END FUNC
+
+' Scan an anchor or alias name: everything up to the first character YAML does
+' not allow in one (space, a line break, a flow indicator, or a comment).
+PUBLIC FUNC scanName(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Integer
+  MUT i AS Integer = from
+  WHILE i < stop
+    LET code AS Integer = byteAt(bytes, i)
+    IF isSpace(code) OR code = B_LF OR code = B_CR THEN EXIT WHILE
+    IF code = B_COMMA OR code = B_LBRACKET OR code = B_RBRACKET THEN EXIT WHILE
+    IF code = B_LBRACE OR code = B_RBRACE OR code = B_HASH THEN EXIT WHILE
+    i = i + 1
+  END WHILE
+  RETURN i
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Where a plain scalar may begin.
+' ---------------------------------------------------------------------------
+
+' TRUE when `code` may not be the first character of a plain (unquoted) scalar.
+'
+' YAML 1.2 §7.3.3 `ns-plain-first` excludes every `c-indicator` from that
+' position, because each one means the text after it is something other than
+' the scalar's own characters -- a tag, an alias, a collection, a comment, a
+' directive. A reader that lets them through does not merely accept invalid
+' YAML: it SILENTLY ABSORBS the indicator, so `!t: 2` becomes the key "!t" and
+' the tag disappears, which is the one thing this package promises never to do
+' with a tag.
+'
+' Three of the indicators are absent from the list on purpose:
+'
+'   `-`, `?` and `:` may begin a plain scalar when the next character is not a
+'   space (`-x` is the string "-x"), and each is dispatched as an indicator
+'   before this is consulted;
+'   `'` and `"` open a quoted scalar, which every caller dispatches before it
+'   ever reaches a plain one.
+PUBLIC FUNC forbidsPlainStart(code AS Integer) AS Boolean
+  IF code = B_COMMA OR code = B_LBRACKET OR code = B_RBRACKET THEN RETURN TRUE
+  IF code = B_LBRACE OR code = B_RBRACE OR code = B_HASH THEN RETURN TRUE
+  IF code = B_AMP OR code = B_STAR OR code = B_BANG THEN RETURN TRUE
+  IF code = B_PIPE OR code = B_GT THEN RETURN TRUE
+  IF code = B_PERCENT OR code = B_AT OR code = B_BACKTICK THEN RETURN TRUE
+  RETURN FALSE
+END FUNC
+
+' Reject a plain scalar that begins with an indicator. `stop` bounds the tag
+' name the message quotes back.
+PUBLIC FUNC rejectPlainStart(bytes AS List OF Byte, col AS Integer, stop AS Integer) AS Nothing
+  LET code AS Integer = byteAt(bytes, col)
+  IF NOT forbidsPlainStart(code) THEN RETURN NOTHING
+  IF code = B_BANG THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: tags are not supported (" & textOf(bytes, col, scanName(bytes, col, stop)) & ")")
+  END IF
+  IF code = B_STAR THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: an alias is not allowed here -- it may not be a mapping key, and text that merely looks like one must be quoted")
+  END IF
+  IF code = B_AMP THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: an anchor is not allowed here -- it may not be a mapping key, and text that merely looks like one must be quoted")
+  END IF
+  FAIL error(ERR_FORMAT, "yaml: `" & textOf(bytes, col, col + 1) & "` may not begin a plain scalar -- YAML reserves it as an indicator, so quote the text to use it literally")
+END FUNC

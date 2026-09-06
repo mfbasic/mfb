@@ -1,0 +1,258 @@
+' ---------------------------------------------------------------------------
+' yaml/lib.mfb — the package's public API: `parse` and `parseAll`.
+'
+' Both take a String and produce `json::Json`. Neither touches the filesystem:
+' read the text yourself (`fs::readText`) and hand it over, which is the same
+' split `csv::parse` and `json::parse` use.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+DOC
+  PACKAGE
+  DESC Read a JSON-compatible subset of YAML 1.2 into the `json::Json` value
+  DESC tree.
+  DESC
+  DESC `yaml::parse` turns one YAML document into a `json::Json` value and
+  DESC `yaml::parseAll` turns a multi-document stream into a
+  DESC `List OF json::Json`. The result is an ordinary `json::Json` tree, so
+  DESC `json::get`, `json::getOr` and `json::stringify` all work on it, and
+  DESC anything that already consumes JSON -- an HTTP body, a config reader --
+  DESC consumes YAML unchanged. Because the model is `json::Json`, an importer
+  DESC writes `IMPORT json` alongside `IMPORT yaml` to name the type.
+  DESC
+  DESC The package owns no filesystem access, exactly as `csv::parse` and
+  DESC `json::parse` own none: read the text and pass the `String`.
+  EXAMPLE
+    IMPORT yaml
+    IMPORT json
+    IMPORT fs
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET text AS String = fs::readText("config.yaml")
+      LET value AS json::Json = yaml::parse(text)
+      io::print(json::stringify(value))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+  DESC
+  DESC What the reader accepts
+  DESC
+  DESC Block mappings and block sequences; flow mappings and flow sequences
+  DESC (`{a: 1}`, `[1, 2]`), which makes every JSON document a valid input;
+  DESC plain, single-quoted and double-quoted scalars, including multi-line
+  DESC ones; literal (`|`) and folded (`>`) block scalars with indentation and
+  DESC chomping indicators; comments; `%YAML 1.2`; the `---` and `...` document
+  DESC markers; and anchors and aliases.
+  DESC
+  DESC Deliberate limits
+  DESC
+  DESC YAML models more than JSON does, so the constructs that cannot be
+  DESC carried faithfully are refused rather than converted into something that
+  DESC merely looks similar. Every one of these fails with an `Error`, and none
+  DESC of them silently changes the data:
+  INFO Mapping keys must be strings. A JSON object key is a string, so a plain
+  INFO key the schema types as anything else -- `12:`, `true:`, `null:`, an
+  INFO empty key -- is rejected with `errorCode::ErrUnsupported`. Quote it
+  INFO (`"12":`) to make it a string.
+  INFO
+  INFO Duplicate keys are rejected with `errorCode::ErrAlreadyExists`, rather
+  INFO than resolved last-wins. A duplicate key in a config file is a mistake
+  INFO worth hearing about.
+  INFO
+  INFO Multiple documents require `yaml::parseAll`. `yaml::parse` reads a
+  INFO stream holding exactly one document and fails with
+  INFO `errorCode::ErrInvalidFormat` on zero or on two.
+  INFO
+  INFO Tags and merge keys are rejected with `errorCode::ErrUnsupported`. That
+  INFO covers every `!` and `!!` tag, the `%TAG` directive, and `<<`. A tag
+  INFO selects a type outside the schema, and a merge key builds a mapping out
+  INFO of other mappings -- both change what the document means, so neither is
+  INFO guessed at.
+  INFO
+  INFO Aliases are expanded, and cyclic aliases are rejected. An anchor is
+  INFO registered only once its own node is complete, so `&a [*a]` fails with
+  INFO `errorCode::ErrNotFound` -- a cycle has no `json::Json` representation
+  INFO and `json::stringify` could not terminate on one.
+  INFO
+  INFO Scalars are typed by the YAML 1.2 Core Schema and nothing else. `true`
+  INFO and `false` are booleans; `null`, `~` and an empty value are null;
+  INFO `[-+]?[0-9]+`, `0x…` and `0o…` are integers; the usual decimal and
+  INFO exponent forms are floats; everything else is a string. In particular
+  INFO `yes`, `no`, `on`, `off`, `y` and `n` are STRINGS, because the schema
+  INFO that types them as booleans is YAML 1.1, which this reader does not
+  INFO implement -- and `%YAML 1.1` is refused rather than read under 1.2 rules.
+  INFO
+  INFO Values with no JSON equivalent are rejected, not converted. `.inf`,
+  INFO `-.inf` and `.nan` are numbers YAML can write and JSON cannot, so they
+  INFO fail with `errorCode::ErrUnsupported` instead of becoming a string, a
+  INFO null, or a zero.
+  SEC Parser depth, alias expansion, and total node count are all bounded, so
+  SEC untrusted YAML cannot exhaust memory or the stack. A document may nest
+  SEC 100 levels, perform 10000 alias expansions, and materialise 1000000
+  SEC nodes; passing any of those fails with the package's own
+  SEC `yaml::expansionLimitCode()` (93110001). The node budget counts what an
+  SEC alias EXPANDS TO rather than the one line that writes it, which is what
+  SEC bounds a "billion laughs" document -- a few hundred bytes of nested
+  SEC aliases that would otherwise name an exponentially large tree.
+  DESC
+  DESC Numbers are `json::JsonNum`, which holds a `Float`, exactly as
+  DESC `json::parse` produces. An integer with more digits than binary64 holds
+  DESC is rounded, and a magnitude too large for `Float` fails with
+  DESC `errorCode::ErrOverflow` -- the same two behaviours JSON has here.
+  DESC
+  DESC Errors
+  DESC
+  DESC `errorCode::ErrInvalidFormat` for malformed YAML,
+  DESC `errorCode::ErrUnsupported` for well-formed YAML outside the subset,
+  DESC `errorCode::ErrAlreadyExists` for a duplicate key,
+  DESC `errorCode::ErrNotFound` for an alias naming no anchor,
+  DESC `errorCode::ErrDepthExceeded` past 100 levels of nesting,
+  DESC `errorCode::ErrInvalidSurrogate` for a `\u` escape encoding an unpaired
+  DESC surrogate, `errorCode::ErrOverflow` for a number too large for `Float`,
+  DESC and `yaml::expansionLimitCode()` (93110001) past the alias or node
+  DESC budget. That last one is a generator-9 code, which is not globally
+  DESC unique, so match it only around a call you already know is this
+  DESC package's.
+END DOC
+
+DOC
+  FUNC parse
+  GROUP Reading
+  DESC Read one YAML document from `text` and return it as a `json::Json`
+  DESC value.
+  DESC
+  DESC The input must hold exactly one document. Zero documents -- an empty
+  DESC string, or nothing but comments -- and two or more both fail; use
+  DESC `yaml::parseAll` for a stream. A single `---` start marker is fine, and
+  DESC so is a trailing `...`.
+  ARG text The YAML text to read. Reading a file is the caller's job: pass `fs::readText(path)`.
+  RET The document's root node as a `json::Json` value. A document with an empty body is `json::JsonNull`.
+  ERROR 77050003 The YAML is malformed, or the input holds zero or more than one document.
+  ERROR 77050007 The document uses a construct outside the supported subset: a tag, a merge key, an explicit `?` key, a non-string mapping key, `%TAG`, a YAML version other than 1.2, or `.inf`/`.nan`.
+  ERROR 77050005 A mapping has a duplicate key.
+  ERROR 77050004 An alias names no anchor defined before it, which is also how a cyclic alias is reported.
+  ERROR 77050024 The document nests more than 100 levels deep.
+  ERROR 77050025 A `\u` escape in a double-quoted scalar encodes an unpaired surrogate.
+  ERROR 77050010 A number in the document is too large for a `Float`.
+  ERROR 93110001 The document expands past the alias-expansion or total-node limit.
+  EXAMPLE
+    IMPORT yaml
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET value AS json::Json = yaml::parse("name: mfb" & "\n" & "tags: [fast, small]" & "\n")
+      io::print(json::stringify(value))
+      ' {"name":"mfb","tags":["fast","small"]}
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC parse(text AS String) AS json::Json
+  LET bytes AS List OF Byte = strings::toBytes(text)
+  LET lines AS Lines = scanLines(bytes)
+  LET starts AS List OF Integer = lines.starts
+  LET ends AS List OF Integer = lines.ends
+  LET indents AS List OF Integer = lines.indents
+  LET documents AS Documents = splitDocuments(bytes, starts, ends, indents)
+  LET count AS Integer = len(documents.bodyLines)
+  IF count = 0 THEN
+    FAIL error(ERR_FORMAT, "yaml: the input holds no document, and yaml::parse reads exactly one")
+  END IF
+  IF count > 1 THEN
+    FAIL error(ERR_FORMAT, "yaml: the input holds " & toString(count) & " documents; yaml::parse reads exactly one -- use yaml::parseAll")
+  END IF
+  RETURN parseDocument(bytes, starts, ends, indents, collections::get(documents.bodyLines, 0), collections::get(documents.bodyCols, 0), collections::get(documents.endLines, 0))
+END FUNC
+
+DOC
+  FUNC parseAll
+  GROUP Reading
+  DESC Read every YAML document in `text` and return them in stream order.
+  DESC
+  DESC Documents are separated by a `---` start marker and may be closed by a
+  DESC `...` end marker. An input holding no document at all -- empty, or
+  DESC nothing but comments and blank lines -- yields an empty list rather than
+  DESC failing; that is the one place this differs from `yaml::parse`, which
+  DESC needs exactly one.
+  ARG text The YAML text to read. Reading a file is the caller's job: pass `fs::readText(path)`.
+  RET One `json::Json` value per document, in stream order. A document with an empty body is `json::JsonNull`.
+  ERROR 77050003 The YAML is malformed.
+  ERROR 77050007 A document uses a construct outside the supported subset: a tag, a merge key, an explicit `?` key, a non-string mapping key, `%TAG`, a YAML version other than 1.2, or `.inf`/`.nan`.
+  ERROR 77050005 A mapping has a duplicate key.
+  ERROR 77050004 An alias names no anchor defined before it, which is also how a cyclic alias is reported.
+  ERROR 77050024 A document nests more than 100 levels deep.
+  ERROR 77050025 A `\u` escape in a double-quoted scalar encodes an unpaired surrogate.
+  ERROR 77050010 A number in a document is too large for a `Float`.
+  ERROR 93110001 A document expands past the alias-expansion or total-node limit.
+  EXAMPLE
+    IMPORT yaml
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET stream AS String = "--- one" & "\n" & "--- two" & "\n"
+      FOR EACH document IN yaml::parseAll(stream)
+        io::print(json::stringify(document))
+      NEXT
+      ' "one"
+      ' "two"
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC parseAll(text AS String) AS List OF json::Json
+  LET bytes AS List OF Byte = strings::toBytes(text)
+  LET lines AS Lines = scanLines(bytes)
+  LET starts AS List OF Integer = lines.starts
+  LET ends AS List OF Integer = lines.ends
+  LET indents AS List OF Integer = lines.indents
+  LET documents AS Documents = splitDocuments(bytes, starts, ends, indents)
+  LET bodyLines AS List OF Integer = documents.bodyLines
+  LET bodyCols AS List OF Integer = documents.bodyCols
+  LET endLines AS List OF Integer = documents.endLines
+  MUT values AS List OF json::Json = []
+  FOR i = 0 TO len(bodyLines) - 1
+    values = collections::append(values, parseDocument(bytes, starts, ends, indents, collections::get(bodyLines, i), collections::get(bodyCols, i), collections::get(endLines, i)))
+  NEXT
+  RETURN values
+END FUNC
+
+DOC
+  FUNC expansionLimitCode
+  GROUP Reading
+  DESC The error code this package raises when a document expands past its
+  DESC alias-expansion or total-node budget: 93110001, written `9-311-0001`.
+  DESC
+  DESC It is the one failure here with no `errorCode::` equivalent -- the
+  DESC registry models no "this input expands too far" -- so it takes a code
+  DESC from generator 9, the range reserved for codes a package defines for
+  DESC itself. Generator-9 codes carry no registry meaning and are not globally
+  DESC unique: two unrelated packages may both use this integer for unrelated
+  DESC failures. Match it only around a call you already know is this
+  DESC package's, never across a broad block.
+  RET 93110001.
+  EXAMPLE
+    IMPORT yaml
+    IMPORT json
+    IMPORT io
+
+    FUNC readConfig(text AS String) AS json::Json
+      LET value AS json::Json = yaml::parse(text) TRAP(problem)
+        IF problem.code = yaml::expansionLimitCode() THEN
+          io::printError("that YAML expands too far to read")
+          RECOVER json::JsonObj[Map OF String TO json::Json {}]
+        END IF
+        PROPAGATE
+      END TRAP
+      RETURN value
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC expansionLimitCode() AS Integer
+  RETURN ERR_EXPANSION_LIMIT
+END FUNC

@@ -1,0 +1,83 @@
+' ---------------------------------------------------------------------------
+' Tests: the expansion-attack guards.
+'
+' These are the cases that make untrusted YAML safe to read, so each one builds
+' the hostile document rather than describing it, and asserts BOTH that the
+' limit fires and that a document just inside it still parses -- a guard that
+' rejects everything protects nothing.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' `depth` nested flow sequences: `[[[ ... ]]]`.
+PRIVATE FUNC nestedFlow(depth AS Integer) AS String
+  RETURN strings::repeat("[", depth) & strings::repeat("]", depth)
+END FUNC
+
+' `depth` nested block mappings, each one level further in.
+PRIVATE FUNC nestedBlock(depth AS Integer) AS String
+  MUT out AS String = ""
+  FOR level = 0 TO depth - 1
+    out = out & strings::repeat(" ", level * 2) & "k:\n"
+  NEXT
+  RETURN out
+END FUNC
+
+' A "billion laughs" document: each level is a sequence of ten aliases to the
+' level below it, so seven short lines name 10^7 nodes.
+PRIVATE FUNC billionLaughs(levels AS Integer) AS String
+  MUT out AS String = "l0: &l0 [x, x, x, x, x, x, x, x, x, x]\n"
+  FOR level = 1 TO levels - 1
+    LET previous AS String = "*l" & toString(level - 1)
+    MUT row AS String = "l" & toString(level) & ": &l" & toString(level) & " ["
+    FOR item = 0 TO 9
+      IF item > 0 THEN row = row & ", "
+      row = row & previous
+    NEXT
+    out = out & row & "]\n"
+  NEXT
+  RETURN out
+END FUNC
+
+' One flow sequence holding `count` aliases to a one-node anchor. The node
+' budget stays far away, so this isolates the ALIAS budget.
+PRIVATE FUNC manyAliases(count AS Integer) AS String
+  MUT out AS String = "a: &x 1\nb: ["
+  FOR item = 0 TO count - 1
+    IF item > 0 THEN out = out & ","
+    out = out & "*x"
+  NEXT
+  RETURN out & "]\n"
+END FUNC
+
+TESTING
+  TGROUP "expansion limits"
+    TCASE "nesting inside the depth limit parses"
+      expectString(json::stringify(parse(nestedFlow(50))), strings::repeat("[", 50) & strings::repeat("]", 50))
+      expectNTrap(parse(nestedBlock(50)))
+    END TCASE
+
+    TCASE "nesting past the depth limit fails as ErrDepthExceeded, not a crash"
+      expectTrap(parse(nestedFlow(150)), 77050024)
+      expectTrap(parse(nestedBlock(150)), 77050024)
+    END TCASE
+
+    TCASE "a billion-laughs document is refused by the node budget"
+      ' Six levels stay under a million nodes; seven do not.
+      expectNTrap(parse(billionLaughs(5)))
+      expectTrap(parse(billionLaughs(7)), ERR_EXPANSION_LIMIT)
+    END TCASE
+
+    TCASE "the alias budget bounds how many aliases one document may expand"
+      expectNTrap(parse(manyAliases(ALIAS_LIMIT)))
+      expectTrap(parse(manyAliases(ALIAS_LIMIT + 1)), ERR_EXPANSION_LIMIT)
+    END TCASE
+
+    TCASE "the exported code is the generator-9 value the docs name"
+      expectInteger(expansionLimitCode(), 93110001)
+      expectInteger(ERR_EXPANSION_LIMIT, 93110001)
+    END TCASE
+  END TGROUP
+END TESTING

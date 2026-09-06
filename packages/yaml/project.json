@@ -1,0 +1,14 @@
+{
+  "name": "yaml",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "A JSON-compatible YAML 1.2 subset reader. yaml::parse turns one YAML document into a json::Json value and yaml::parseAll turns a multi-document stream into a List OF json::Json, so YAML text flows straight into the same tree json::parse produces and json::stringify serializes. It owns no filesystem access: read the text with fs::readText and hand the String to yaml::parse, exactly as csv::parse and json::parse do.\n\nThe supported subset is the part of YAML 1.2 that maps faithfully onto JSON's six-variant model: block and flow mappings and sequences, plain/single-quoted/double-quoted scalars, literal and folded block scalars, comments, multiple documents, anchors and aliases, and the YAML 1.2 Core Schema for untagged scalar typing. Everything outside it -- tags, merge keys, non-string mapping keys, duplicate keys, cyclic aliases, and .inf/.nan -- is rejected rather than silently converted, and parser depth, alias-expansion, and total-node limits bound YAML expansion attacks.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": ["**/*.mfb"]
+    }
+  ]
+}

@@ -1,0 +1,592 @@
+' ---------------------------------------------------------------------------
+' yaml/block.mfb — block (indentation-structured) nodes: block mappings, block
+' sequences, literal/folded block scalars, and multi-line plain scalars.
+'
+' Everything here is driven by ONE rule: a node's content is the run of lines
+' indented more than the construct that owns it. `parentIndent` carries that
+' owning indentation down the recursion, and every loop stops the moment it sees
+' a content line at or below it -- which is what makes a nested collection end
+' without any closing token.
+'
+' The one exception YAML grants is a block sequence written at the SAME
+' indentation as the mapping key it belongs to:
+'
+'   key:
+'   - a
+'   - b
+'
+' `allowSeqAtParent` is that exception, and it is passed TRUE only from a
+' mapping value position. The separate `allowCollectionInline` carries the
+' opposite rule: a block collection may start mid-line after a `- ` entry, and
+' never after a `key:`.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' Scanned block content plus the line index just past it.
+TYPE Block
+  text AS String
+  line AS Integer
+END TYPE
+
+' The byte offset at which the document ending at line `limit` (exclusive)
+' ends. Quoted scalars and flow collections scan by byte and stop here, so they
+' can never read into the next document.
+PUBLIC FUNC docStopByte(ends AS List OF Integer, limit AS Integer) AS Integer
+  IF limit <= 0 THEN RETURN 0
+  RETURN collections::get(ends, limit - 1)
+END FUNC
+
+' The byte offset a flow collection (or a multi-line quoted scalar) written at
+' `line` may not read past.
+'
+' Flow is indentation-free INSIDE itself, but a flow collection sitting in a
+' block collection still has to keep its continuation lines indented past the
+' block that owns it (YAML 1.2 §7.4). Teaching the flow scanners about
+' indentation would undo the one thing that makes them simple, so instead the
+' rule is enforced from outside: the scan is bounded at the first line that
+' breaks it, and the flow parser's own "never closed" error does the rest.
+'
+' That is not pedantry. Without the bound,
+'
+'   a: [1,
+'   b: 2,
+'   c]
+'
+' reads as `a` holding three items -- one of them the mapping `{b: 2}` -- when
+' what the document has is an unclosed `[` and two more keys. With it, the
+' collection ends at the first line, is never closed, and says so.
+'
+' A line holding only a closing bracket is allowed to sit at the parent's own
+' indentation, because
+'
+'   a: [
+'     1,
+'   ]
+'
+' is how people write this and it opens nothing.
+FUNC flowLimitByte(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, line AS Integer, limit AS Integer, parentIndent AS Integer) AS Integer
+  MUT at AS Integer = line + 1
+  WHILE at < limit
+    LET indent AS Integer = collections::get(indents, at)
+    IF indent >= 0 AND indent <= parentIndent THEN
+      LET code AS Integer = byteAt(bytes, collections::get(starts, at) + indent)
+      IF code <> B_RBRACKET AND code <> B_RBRACE AND code <> B_HASH THEN
+        RETURN collections::get(ends, at - 1)
+      END IF
+    END IF
+    at = at + 1
+  END WHILE
+  RETURN docStopByte(ends, limit)
+END FUNC
+
+' TRUE when this byte ends a token: a space, a tab, or the end of the line.
+FUNC isSpaceOrEnd(code AS Integer) AS Boolean
+  RETURN code = -1 OR isSpace(code)
+END FUNC
+
+' TRUE when line `line` has a `- ` sequence-entry indicator at `col`.
+PUBLIC FUNC isSeqEntry(bytes AS List OF Byte, ends AS List OF Integer, line AS Integer, col AS Integer) AS Boolean
+  LET lineEnd AS Integer = collections::get(ends, line)
+  IF col >= lineEnd THEN RETURN FALSE
+  IF byteAt(bytes, col) <> B_DASH THEN RETURN FALSE
+  RETURN isSpaceOrEnd(byteWithin(bytes, col + 1, lineEnd))
+END FUNC
+
+' The byte offset of the `:` that makes the text at `col` on `line` a mapping
+' key, or -1 when this line does not open a mapping entry.
+'
+' A plain key ends at a `:` followed by a space or by the end of the line --
+' never at a `:` glued to the next character, which is why `time: 12:30` reads
+' the value as the string "12:30" and `url: http://x` is not two keys.
+PUBLIC FUNC findKeyColon(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, line AS Integer, col AS Integer) AS Integer
+  LET lineEnd AS Integer = collections::get(ends, line)
+  IF col >= lineEnd THEN RETURN -1
+  LET code AS Integer = byteAt(bytes, col)
+  IF code = B_SQUOTE OR code = B_DQUOTE THEN
+    ' A quoted key must open AND close on this one line to be a key; a quoted
+    ' scalar that runs on is a value, not a key.
+    MUT i AS Integer = col + 1
+    MUT closed AS Boolean = FALSE
+    WHILE i < lineEnd AND NOT closed
+      LET inner AS Integer = byteAt(bytes, i)
+      IF code = B_SQUOTE THEN
+        IF inner = B_SQUOTE THEN
+          IF byteWithin(bytes, i + 1, lineEnd) = B_SQUOTE THEN
+            i = i + 2
+          ELSE
+            closed = TRUE
+          END IF
+        ELSE
+          i = i + 1
+        END IF
+      ELSE
+        IF inner = B_BACKSLASH THEN
+          i = i + 2
+        ELSEIF inner = B_DQUOTE THEN
+          closed = TRUE
+        ELSE
+          i = i + 1
+        END IF
+      END IF
+    END WHILE
+    IF NOT closed THEN RETURN -1
+    LET afterQuote AS Integer = skipSpaces(bytes, i + 1, lineEnd)
+    IF afterQuote < lineEnd AND byteAt(bytes, afterQuote) = B_COLON THEN RETURN afterQuote
+    RETURN -1
+  END IF
+  MUT i AS Integer = col
+  WHILE i < lineEnd
+    LET inner AS Integer = byteAt(bytes, i)
+    IF inner = B_HASH AND i > col AND isSpace(byteAt(bytes, i - 1)) THEN RETURN -1
+    IF inner = B_COLON AND isSpaceOrEnd(byteWithin(bytes, i + 1, lineEnd)) THEN RETURN i
+    i = i + 1
+  END WHILE
+  RETURN -1
+END FUNC
+
+' Reject a mapping key that begins with a node indicator.
+'
+' `? ` opens an explicit key, and every other indicator is refused by
+' `rejectPlainStart`. Only the FIRST key of a mapping passes through
+' `parseNodeAt`, which dispatches the indicators itself; every later key reaches
+' the mapping loop directly, so the loop calls this.
+PUBLIC FUNC rejectKeyIndicator(bytes AS List OF Byte, ends AS List OF Integer, line AS Integer, col AS Integer) AS Nothing
+  LET lineEnd AS Integer = collections::get(ends, line)
+  IF byteAt(bytes, col) = B_QUESTION AND isSpaceOrEnd(byteWithin(bytes, col + 1, lineEnd)) THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: an explicit `?` key is not supported -- a mapping key must be a plain or quoted string")
+  END IF
+  rejectPlainStart(bytes, col, lineEnd)
+  RETURN NOTHING
+END FUNC
+
+' The empty node. A mapping key with no value, a `-` with nothing after it, and
+' an empty document all resolve to it.
+FUNC nullNode(line AS Integer, cur AS State) AS Node
+  LET empty AS json::Json = json::JsonNull[NOTHING]
+  RETURN Node[empty, line, State[cur.anchors, chargeNodes(cur.nodes, 1), cur.aliases]]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Multi-line plain scalars.
+' ---------------------------------------------------------------------------
+
+' TRUE when line `line` continues a plain scalar owned by a construct at
+' `minIndent`: it is indented further, and it opens no other construct.
+FUNC plainContinues(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, line AS Integer, limit AS Integer, minIndent AS Integer) AS Boolean
+  IF line >= limit THEN RETURN FALSE
+  LET indent AS Integer = collections::get(indents, line)
+  IF indent < 0 THEN RETURN FALSE
+  IF indent <= minIndent THEN RETURN FALSE
+  LET col AS Integer = collections::get(starts, line) + indent
+  IF byteAt(bytes, col) = B_HASH THEN RETURN FALSE
+  IF isSeqEntry(bytes, ends, line, col) THEN RETURN FALSE
+  IF findKeyColon(bytes, starts, ends, line, col) >= 0 THEN RETURN FALSE
+  RETURN TRUE
+END FUNC
+
+' The end of the plain scalar text on `line` starting at `col`: the line's end,
+' the start of a ` #` comment, or a `:` that would open a mapping entry.
+FUNC plainEndOnLine(bytes AS List OF Byte, ends AS List OF Integer, line AS Integer, col AS Integer) AS Integer
+  LET lineEnd AS Integer = collections::get(ends, line)
+  MUT i AS Integer = col
+  WHILE i < lineEnd
+    LET code AS Integer = byteAt(bytes, i)
+    IF code = B_HASH AND i > col AND isSpace(byteAt(bytes, i - 1)) THEN EXIT WHILE
+    IF code = B_COLON AND isSpaceOrEnd(byteWithin(bytes, i + 1, lineEnd)) THEN EXIT WHILE
+    i = i + 1
+  END WHILE
+  RETURN trimEndAt(bytes, col, i)
+END FUNC
+
+' TRUE when the plain scalar that ended at `from` on `line` was ended by a
+' COMMENT rather than by the line simply running out.
+'
+' That distinction decides whether the scalar may continue onto the next line.
+' A comment closes a plain scalar for good, so
+'
+'   a: 1 # note
+'     more
+'
+' is not the scalar "1 more" -- it is `a: 1`, followed by a line that belongs to
+' nothing, which is an error. Folding it in would quietly change the value.
+FUNC plainEndedAtComment(bytes AS List OF Byte, ends AS List OF Integer, line AS Integer, from AS Integer) AS Boolean
+  LET lineEnd AS Integer = collections::get(ends, line)
+  LET rest AS Integer = skipSpaces(bytes, from, lineEnd)
+  IF rest >= lineEnd THEN RETURN FALSE
+  RETURN byteAt(bytes, rest) = B_HASH
+END FUNC
+
+' Scan a plain scalar starting at `col` on `line`, taking in every following
+' line that continues it. Line breaks fold: one break is a space, and n breaks
+' become n-1 line feeds.
+PUBLIC FUNC scanPlainBlock(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, line AS Integer, col AS Integer, limit AS Integer, minIndent AS Integer) AS Block
+  LET firstEnd AS Integer = plainEndOnLine(bytes, ends, line, col)
+  MUT out AS String = textOf(bytes, col, firstEnd)
+  MUT at AS Integer = line + 1
+  MUT breaks AS Integer = 1
+  MUT last AS Integer = line + 1
+  MUT running AS Boolean = NOT plainEndedAtComment(bytes, ends, line, firstEnd)
+  WHILE running AND at < limit
+    LET indent AS Integer = collections::get(indents, at)
+    IF indent < 0 THEN
+      breaks = breaks + 1
+      at = at + 1
+    ELSEIF plainContinues(bytes, starts, ends, indents, at, limit, minIndent) THEN
+      LET from AS Integer = collections::get(starts, at) + indent
+      IF breaks <= 1 THEN
+        out = out & " "
+      ELSE
+        out = out & strings::repeat("\n", breaks - 1)
+      END IF
+      LET stopAt AS Integer = plainEndOnLine(bytes, ends, at, from)
+      out = out & textOf(bytes, from, stopAt)
+      running = NOT plainEndedAtComment(bytes, ends, at, stopAt)
+      breaks = 1
+      at = at + 1
+      last = at
+    ELSE
+      EXIT WHILE
+    END IF
+  END WHILE
+  RETURN Block[out, last]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Literal (`|`) and folded (`>`) block scalars.
+' ---------------------------------------------------------------------------
+
+' Parse a block scalar whose header (`|`, `>`, plus optional indentation and
+' chomping indicators) starts at `col` on `line`.
+PUBLIC FUNC parseBlockScalar(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, line AS Integer, col AS Integer, limit AS Integer, parentIndent AS Integer, cur AS State) AS Node
+  LET lineEnd AS Integer = collections::get(ends, line)
+  LET literal AS Boolean = byteAt(bytes, col) = B_PIPE
+  MUT i AS Integer = col + 1
+  MUT chomp AS Integer = 0
+  MUT sawChomp AS Boolean = FALSE
+  MUT explicit AS Integer = 0
+  MUT scanning AS Boolean = TRUE
+  WHILE scanning AND i < lineEnd
+    LET code AS Integer = byteAt(bytes, i)
+    IF code = B_DASH OR code = B_PLUS THEN
+      IF sawChomp THEN
+        FAIL error(ERR_FORMAT, "yaml: a block scalar takes at most one chomping indicator")
+      END IF
+      sawChomp = TRUE
+      IF code = B_DASH THEN
+        chomp = -1
+      ELSE
+        chomp = 1
+      END IF
+      i = i + 1
+    ELSEIF code > B_ZERO AND code <= B_NINE THEN
+      IF explicit > 0 THEN
+        FAIL error(ERR_FORMAT, "yaml: a block scalar takes at most one indentation indicator")
+      END IF
+      explicit = code - B_ZERO
+      i = i + 1
+    ELSE
+      scanning = FALSE
+    END IF
+  END WHILE
+  requireLineEnd(bytes, starts, ends, line, i)
+
+  ' The content indentation is either stated by the header or taken from the
+  ' first non-empty content line.
+  MUT contentIndent AS Integer = 0
+  IF explicit > 0 THEN
+    contentIndent = parentIndent + explicit
+  ELSE
+    MUT probe AS Integer = line + 1
+    WHILE probe < limit AND collections::get(indents, probe) < 0
+      probe = probe + 1
+    END WHILE
+    IF probe >= limit OR collections::get(indents, probe) <= parentIndent THEN
+      contentIndent = parentIndent + 1
+    ELSE
+      contentIndent = collections::get(indents, probe)
+    END IF
+  END IF
+
+  ' Collect the content lines. A blank line always belongs to the block; a
+  ' non-blank line does only while it is indented at least as far as the
+  ' content.
+  MUT texts AS List OF String = []
+  MUT deeper AS List OF Boolean = []
+  MUT at AS Integer = line + 1
+  MUT scanningLines AS Boolean = TRUE
+  WHILE scanningLines AND at < limit
+    LET indent AS Integer = collections::get(indents, at)
+    IF indent < 0 THEN
+      texts = collections::append(texts, "")
+      deeper = collections::append(deeper, FALSE)
+      at = at + 1
+    ELSEIF indent >= contentIndent THEN
+      LET from AS Integer = collections::get(starts, at) + contentIndent
+      texts = collections::append(texts, textOf(bytes, from, collections::get(ends, at)))
+      deeper = collections::append(deeper, indent > contentIndent)
+      at = at + 1
+    ELSE
+      scanningLines = FALSE
+    END IF
+  END WHILE
+  ' Blank lines after the last content line belong to the NEXT construct's
+  ' whitespace, not to this scalar's trailing breaks -- except that chomping
+  ' needs to know how many there were, which `trailing` records below.
+  MUT total AS Integer = len(texts)
+  MUT trailing AS Integer = 0
+  WHILE total > 0 AND collections::get(texts, total - 1) = ""
+    trailing = trailing + 1
+    total = total - 1
+  END WHILE
+
+  MUT out AS String = ""
+  MUT started AS Boolean = FALSE
+  MUT gap AS Integer = 0
+  MUT previousDeeper AS Boolean = FALSE
+  FOR index = 0 TO total - 1
+    LET text AS String = collections::get(texts, index)
+    LET isDeeper AS Boolean = collections::get(deeper, index)
+    IF text = "" THEN
+      gap = gap + 1
+    ELSE
+      IF NOT started THEN
+        out = strings::repeat("\n", gap) & text
+        started = TRUE
+      ELSEIF gap > 0 AND literal THEN
+        ' Literal style keeps every break: the one that ended the previous line
+        ' plus one per blank line.
+        out = out & strings::repeat("\n", gap + 1) & text
+      ELSEIF gap > 0 THEN
+        ' Folded style turns n breaks into n-1 line feeds, so k blank lines
+        ' between two content lines leave exactly k.
+        out = out & strings::repeat("\n", gap) & text
+      ELSEIF literal THEN
+        out = out & "\n" & text
+      ELSEIF isDeeper OR previousDeeper THEN
+        ' Folding never joins a more-indented line to its neighbour: that is
+        ' how `>` keeps a verbatim block inside a folded paragraph.
+        out = out & "\n" & text
+      ELSE
+        out = out & " " & text
+      END IF
+      previousDeeper = isDeeper
+      gap = 0
+    END IF
+  NEXT
+
+  IF started THEN
+    IF chomp > 0 THEN
+      out = out & strings::repeat("\n", 1 + gap + trailing)
+    ELSEIF chomp = 0 THEN
+      out = out & "\n"
+    END IF
+  ELSEIF chomp > 0 THEN
+    out = strings::repeat("\n", gap + trailing)
+  END IF
+
+  LET value AS json::Json = json::JsonStr[out]
+  RETURN Node[value, at, State[cur.anchors, chargeNodes(cur.nodes, 1), cur.aliases]]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Block nodes.
+' ---------------------------------------------------------------------------
+
+' Parse the node whose text begins at byte `col` on `line`.
+'
+' `parentIndent` is the indentation of the construct this node belongs to: when
+' nothing follows on `line`, the node is the block that follows, and it must be
+' indented past `parentIndent`. `allowSeqAtParent` additionally admits a block
+' sequence written at exactly `parentIndent`, which YAML allows only for a
+' mapping value.
+PUBLIC FUNC parseNodeAt(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, line AS Integer, col AS Integer, limit AS Integer, parentIndent AS Integer, allowSeqAtParent AS Boolean, allowCollectionInline AS Boolean, depth AS Integer, cur AS State) AS Node
+  checkDepth(depth)
+  LET lineEnd AS Integer = collections::get(ends, line)
+  LET at AS Integer = skipSpaces(bytes, col, lineEnd)
+  IF at >= lineEnd OR byteAt(bytes, at) = B_HASH THEN
+    RETURN parseBlockChild(bytes, starts, ends, indents, line + 1, limit, parentIndent, allowSeqAtParent, depth, cur)
+  END IF
+  LET code AS Integer = byteAt(bytes, at)
+  IF code = B_BANG THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: tags are not supported (" & textOf(bytes, at, scanName(bytes, at, lineEnd)) & ")")
+  END IF
+  IF code = B_QUESTION AND isSpaceOrEnd(byteWithin(bytes, at + 1, lineEnd)) THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: an explicit `?` key is not supported -- a mapping key must be a plain or quoted string")
+  END IF
+  IF code = B_AMP THEN
+    LET nameEnd AS Integer = scanName(bytes, at + 1, lineEnd)
+    LET name AS String = textOf(bytes, at + 1, nameEnd)
+    LET rest AS Integer = skipSpaces(bytes, nameEnd, lineEnd)
+    MUT anchored AS Node = nullNode(line, cur)
+    IF rest >= lineEnd OR byteAt(bytes, rest) = B_HASH THEN
+      anchored = parseBlockChild(bytes, starts, ends, indents, line + 1, limit, parentIndent, allowSeqAtParent, depth, cur)
+    ELSE
+      IF byteAt(bytes, rest) = B_AMP THEN
+        FAIL error(ERR_FORMAT, "yaml: a node may carry only one anchor")
+      END IF
+      anchored = parseNodeAt(bytes, starts, ends, indents, line, rest, limit, parentIndent, allowSeqAtParent, allowCollectionInline, depth, cur)
+    END IF
+    RETURN Node[anchored.value, anchored.index, defineAnchor(name, anchored.value, anchored.state)]
+  END IF
+  IF code = B_STAR THEN
+    LET nameEnd AS Integer = scanName(bytes, at + 1, lineEnd)
+    LET alias AS Node = expandAlias(textOf(bytes, at + 1, nameEnd), cur)
+    requireLineEnd(bytes, starts, ends, line, nameEnd)
+    RETURN Node[alias.value, line + 1, alias.state]
+  END IF
+  IF code = B_LBRACKET OR code = B_LBRACE THEN
+    LET flowStop AS Integer = flowLimitByte(bytes, starts, ends, indents, line, limit, parentIndent)
+    LET flow AS Node = parseFlowNode(bytes, at, flowStop, depth + 1, cur)
+    LET endLine AS Integer = lineOfOffset(starts, ends, flow.index, line)
+    requireLineEnd(bytes, starts, ends, endLine, flow.index)
+    RETURN Node[flow.value, endLine + 1, flow.state]
+  END IF
+  IF code = B_PIPE OR code = B_GT THEN
+    RETURN parseBlockScalar(bytes, starts, ends, indents, line, at, limit, parentIndent, cur)
+  END IF
+  ' A block collection may begin on the same line as an enclosing `- ` entry --
+  ' `- - a` is a sequence of sequences and `- a: 1` is the everyday shape of a
+  ' sequence of mappings -- but NEVER on the same line as the mapping key that
+  ' owns it. Neither `a: - b` nor `a: b: c` is YAML. Saying so is better than
+  ' the two readings a permissive reader would silently hand back instead: the
+  ' string "- b", and a nested mapping the document never asked for.
+  IF isSeqEntry(bytes, ends, line, at) THEN
+    IF NOT allowCollectionInline THEN
+      FAIL error(ERR_FORMAT, "yaml: a block sequence may not begin on the same line as the mapping key it belongs to -- start it on the next line (line " & toString(line + 1) & ")")
+    END IF
+    RETURN parseBlockSeq(bytes, starts, ends, indents, line, at, limit, depth, cur)
+  END IF
+  IF findKeyColon(bytes, starts, ends, line, at) >= 0 THEN
+    IF NOT allowCollectionInline THEN
+      FAIL error(ERR_FORMAT, "yaml: a block mapping may not begin on the same line as the mapping key it belongs to -- start it on the next line (line " & toString(line + 1) & ")")
+    END IF
+    RETURN parseBlockMap(bytes, starts, ends, indents, line, at, limit, depth, cur)
+  END IF
+  IF code = B_SQUOTE OR code = B_DQUOTE THEN
+    ' A multi-line quoted scalar is bounded the same way and for the same
+    ' reason: its continuation lines belong to it only while they stay indented
+    ' past the construct that owns it.
+    LET quoteStop AS Integer = flowLimitByte(bytes, starts, ends, indents, line, limit, parentIndent)
+    MUT quoted AS Scanned = Scanned["", at]
+    IF code = B_SQUOTE THEN
+      quoted = scanSingleQuoted(bytes, at + 1, quoteStop)
+    ELSE
+      quoted = scanDoubleQuoted(bytes, at + 1, quoteStop)
+    END IF
+    LET endLine AS Integer = lineOfOffset(starts, ends, quoted.index, line)
+    requireLineEnd(bytes, starts, ends, endLine, quoted.index)
+    LET text AS json::Json = json::JsonStr[quoted.text]
+    RETURN Node[text, endLine + 1, State[cur.anchors, chargeNodes(cur.nodes, 1), cur.aliases]]
+  END IF
+  rejectPlainStart(bytes, at, lineEnd)
+  LET plain AS Block = scanPlainBlock(bytes, starts, ends, indents, line, at, limit, parentIndent)
+  LET resolved AS json::Json = resolvePlain(plain.text)
+  RETURN Node[resolved, plain.line, State[cur.anchors, chargeNodes(cur.nodes, 1), cur.aliases]]
+END FUNC
+
+' Parse the block that follows a construct at `parentIndent`, starting the
+' search at `line`. When no line is indented far enough, the node is empty.
+PUBLIC FUNC parseBlockChild(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, line AS Integer, limit AS Integer, parentIndent AS Integer, allowSeqAtParent AS Boolean, depth AS Integer, cur AS State) AS Node
+  LET at AS Integer = nextContentLine(bytes, starts, ends, indents, line, limit)
+  IF at >= limit THEN RETURN nullNode(line, cur)
+  LET indent AS Integer = collections::get(indents, at)
+  LET col AS Integer = collections::get(starts, at) + indent
+  IF indent > parentIndent THEN
+    RETURN parseNodeAt(bytes, starts, ends, indents, at, col, limit, indent, FALSE, TRUE, depth + 1, cur)
+  END IF
+  IF allowSeqAtParent AND indent = parentIndent AND isSeqEntry(bytes, ends, at, col) THEN
+    RETURN parseBlockSeq(bytes, starts, ends, indents, at, col, limit, depth + 1, cur)
+  END IF
+  RETURN nullNode(line, cur)
+END FUNC
+
+' A block sequence: every `- ` entry at the indentation of the first one.
+PUBLIC FUNC parseBlockSeq(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, line AS Integer, col AS Integer, limit AS Integer, depth AS Integer, cur AS State) AS Node
+  checkDepth(depth)
+  LET seqIndent AS Integer = col - collections::get(starts, line)
+  MUT items AS List OF json::Json = []
+  MUT running AS State = cur
+  MUT at AS Integer = line
+  MUT entryCol AS Integer = col
+  MUT more AS Boolean = TRUE
+  WHILE more
+    LET item AS Node = parseNodeAt(bytes, starts, ends, indents, at, entryCol + 1, limit, seqIndent, FALSE, TRUE, depth + 1, running)
+    items = collections::append(items, item.value)
+    running = item.state
+    at = nextContentLine(bytes, starts, ends, indents, item.index, limit)
+    IF at >= limit THEN
+      more = FALSE
+    ELSE
+      LET indent AS Integer = collections::get(indents, at)
+      IF indent < seqIndent THEN
+        more = FALSE
+      ELSEIF indent > seqIndent THEN
+        FAIL error(ERR_FORMAT, "yaml: line " & toString(at + 1) & " is indented too far for the sequence it follows")
+      ELSE
+        entryCol = collections::get(starts, at) + indent
+        IF NOT isSeqEntry(bytes, ends, at, entryCol) THEN more = FALSE
+      END IF
+    END IF
+  END WHILE
+  LET value AS json::Json = json::JsonArr[items]
+  RETURN Node[value, at, State[running.anchors, chargeNodes(running.nodes, 1), running.aliases]]
+END FUNC
+
+' A block mapping: every `key:` entry at the indentation of the first one.
+PUBLIC FUNC parseBlockMap(bytes AS List OF Byte, starts AS List OF Integer, ends AS List OF Integer, indents AS List OF Integer, line AS Integer, col AS Integer, limit AS Integer, depth AS Integer, cur AS State) AS Node
+  checkDepth(depth)
+  LET mapIndent AS Integer = col - collections::get(starts, line)
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  MUT running AS State = cur
+  MUT at AS Integer = line
+  MUT keyCol AS Integer = col
+  MUT more AS Boolean = TRUE
+  WHILE more
+    LET lineEnd AS Integer = collections::get(ends, at)
+    rejectKeyIndicator(bytes, ends, at, keyCol)
+    LET code AS Integer = byteAt(bytes, keyCol)
+    LET colon AS Integer = findKeyColon(bytes, starts, ends, at, keyCol)
+    IF colon < 0 THEN
+      FAIL error(ERR_FORMAT, "yaml: line " & toString(at + 1) & " is not a `key: value` mapping entry")
+    END IF
+    MUT key AS String = ""
+    IF code = B_SQUOTE THEN
+      LET scanned AS Scanned = scanSingleQuoted(bytes, keyCol + 1, lineEnd)
+      key = scanned.text
+    ELSEIF code = B_DQUOTE THEN
+      LET scanned AS Scanned = scanDoubleQuoted(bytes, keyCol + 1, lineEnd)
+      key = scanned.text
+    ELSE
+      LET raw AS String = textOf(bytes, keyCol, trimEndAt(bytes, keyCol, colon))
+      IF raw = "<<" THEN
+        FAIL error(ERR_UNSUPPORTED, "yaml: the merge key `<<` is not supported")
+      END IF
+      key = resolveKey(raw)
+    END IF
+    IF collections::hasKey(fields, key) THEN
+      FAIL error(ERR_DUPLICATE, "yaml: duplicate mapping key `" & key & "`")
+    END IF
+    LET entry AS Node = parseNodeAt(bytes, starts, ends, indents, at, colon + 1, limit, mapIndent, TRUE, FALSE, depth + 1, running)
+    fields = collections::set(fields, key, entry.value)
+    running = entry.state
+    at = nextContentLine(bytes, starts, ends, indents, entry.index, limit)
+    IF at >= limit THEN
+      more = FALSE
+    ELSE
+      LET indent AS Integer = collections::get(indents, at)
+      IF indent < mapIndent THEN
+        more = FALSE
+      ELSEIF indent > mapIndent THEN
+        FAIL error(ERR_FORMAT, "yaml: line " & toString(at + 1) & " is indented too far for the mapping it follows")
+      ELSE
+        keyCol = collections::get(starts, at) + indent
+        IF isSeqEntry(bytes, ends, at, keyCol) THEN more = FALSE
+      END IF
+    END IF
+  END WHILE
+  LET value AS json::Json = json::JsonObj[fields]
+  RETURN Node[value, at, State[running.anchors, chargeNodes(running.nodes, 1), running.aliases]]
+END FUNC
