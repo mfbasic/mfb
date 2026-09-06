@@ -29,6 +29,7 @@ use crate::testutil::{nir_for_src, CodeTarget};
 /// production type so a test can duplicate a row would be the test changing the
 /// product to suit itself.
 const SRC: &str = "\
+IMPORT fs
 IMPORT io
 
 ENUM Color
@@ -41,6 +42,10 @@ END TYPE
 
 TYPE Tag
   name AS String
+END TYPE
+
+TYPE Counter
+  n AS Integer
 END TYPE
 
 UNION Shape
@@ -60,14 +65,36 @@ FUNC describe(s AS Shape) AS String
   END MATCH
 END FUNC
 
+SUB stopEarly(n AS Integer)
+  ' `EXIT PROGRAM` is the only thing that lowers to a `NirOp::ExitProgram`, and
+  ' nothing in the tree had one, so the validator's arm for it was unreached
+  ' along with the `?` that carries a bad exit code back out.
+  IF n < 0 THEN
+    EXIT PROGRAM n
+  END IF
+END SUB
+
+FUNC riskyOf(n AS Integer) AS Integer
+  ' A `FAIL`, and a function-level TRAP around it: two more op kinds, each with
+  ' a value the validator has to walk.
+  IF n < 0 THEN
+    FAIL error(77050002, \"negative \" & toString(n))
+  END IF
+  RETURN n
+
+  TRAP(e)
+    RETURN 0 - e.code
+  END TRAP
+END FUNC
+
 FUNC main() AS Integer
   LET describer AS FUNC(Shape) AS String = describe
   LET d AS Shape = Dot[counter]
   MUT n AS Integer = 0
   n = n + 1
-  ' An IF and a MATCH in main, so a mutation can be placed inside a nested
-  ' body -- which is what reaches the `?` that carries a failure back out of
-  ' one, rather than the arm that opens it.
+  ' One of every op kind that carries a value, so a mutation can be placed
+  ' inside each -- which is what reaches the `?` that carries a failure back
+  ' OUT of a body, as opposed to the arm that opens one.
   IF n > 0 THEN
     counter = counter + n
   END IF
@@ -77,7 +104,25 @@ FUNC main() AS Integer
     CASE ELSE
       n = n + 0
   END MATCH
-  io::print(label & describer(d) & toString(n))
+  WHILE n < 2
+    n = n + 1
+  END WHILE
+  DO
+    n = n + 1
+  LOOP UNTIL n > 2
+  FOR i = 1 TO 2
+    n = n + i
+  NEXT
+  FOR EACH v IN [1, 2]
+    n = n + v
+  NEXT
+  stopEarly(n)
+  n = riskyOf(n)
+  RES f AS fs::File STATE Counter = fs::createTempFile()
+  f.state = Counter[n]
+  f.state.n = n + 1
+  io::print(label & describer(d) & toString(n) & toString(f.state.n))
+  fs::close(f)
   RETURN 0
 END FUNC
 ";
@@ -543,6 +588,16 @@ fn a_reference_that_does_not_resolve_is_refused() {
 /// Returning a `&mut` out of the recursive walk instead would thread a lifetime
 /// through every arm for no gain.
 fn wreck_first_op(module: &mut NirModule, wreck: &mut dyn FnMut(&mut NirOp) -> bool) -> bool {
+    module
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "main")
+        .is_some_and(|function| walk_ops(&mut function.body, wreck))
+}
+
+/// The depth-first walk both wreckers share: apply `wreck` to the first op it
+/// says it handled, descending into every nested body.
+fn walk_ops(ops: &mut [NirOp], wreck: &mut dyn FnMut(&mut NirOp) -> bool) -> bool {
     fn walk(ops: &mut [NirOp], wreck: &mut dyn FnMut(&mut NirOp) -> bool) -> bool {
         for op in ops.iter_mut() {
             // The node itself first, so an `If` is a candidate before its body.
@@ -572,11 +627,37 @@ fn wreck_first_op(module: &mut NirModule, wreck: &mut dyn FnMut(&mut NirOp) -> b
         false
     }
 
-    module
+    walk(ops, wreck)
+}
+
+/// [`wreck_first_op`] over EVERY function, not just `main`.
+///
+/// `EXIT PROGRAM`, `FAIL` and the `RETURN` of a value live in the helpers, and a
+/// walk pinned to `main` finds none of them — the `assert!` on the return value
+/// is what said so rather than the row quietly asserting on an unmutated
+/// module.
+fn wreck_any_op(module: &mut NirModule, wreck: &mut dyn FnMut(&mut NirOp) -> bool) -> bool {
+    let names: Vec<String> = module
         .functions
-        .iter_mut()
-        .find(|function| function.name == "main")
-        .is_some_and(|function| walk(&mut function.body, wreck))
+        .iter()
+        .map(|function| function.name.clone())
+        .collect();
+    for name in names {
+        // The same depth-first walk `wreck_first_op` uses: `EXIT PROGRAM` and
+        // `FAIL` sit inside an `IF`, so a top-level-only scan finds neither.
+        let found = {
+            let function = module
+                .functions
+                .iter_mut()
+                .find(|function| function.name == name)
+                .expect("named from this module a moment ago");
+            walk_ops(&mut function.body, wreck)
+        };
+        if found {
+            return true;
+        }
+    }
+    false
 }
 
 /// A module whose entry point disagrees with the function it names.
@@ -772,6 +853,126 @@ fn an_op_that_names_something_must_name_something_real() {
             Box::new(|m: &mut NirModule| {
                 assert!(wreck_first_op(m, &mut |op| match op {
                     NirOp::Match { value, .. } => {
+                        *value = NirValue::Local("$no_such_local".to_string());
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        // The remaining op kinds that carry a value. Each is a separate `?` in
+        // `validate_ops`, and each is the only thing standing between a
+        // lowering bug in that position and a relocation error two stages on.
+        (
+            "an unresolvable reference in a WHILE condition",
+            "local reference",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::While { condition, .. } => {
+                        *condition = NirValue::Local("$no_such_local".to_string());
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "an unresolvable reference in a DO ... UNTIL condition",
+            "local reference",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::DoUntil { condition, .. } => {
+                        *condition = NirValue::Local("$no_such_local".to_string());
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "an unresolvable reference in a FOR bound",
+            "local reference",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::For { end, .. } => {
+                        *end = NirValue::Local("$no_such_local".to_string());
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "an unresolvable reference in a FOR EACH iterable",
+            "local reference",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::ForEach { iterable, .. } => {
+                        *iterable = NirValue::Local("$no_such_local".to_string());
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "an unresolvable EXIT PROGRAM code",
+            "local reference",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_any_op(m, &mut |op| match op {
+                    NirOp::ExitProgram { code } => {
+                        *code = NirValue::Local("$no_such_local".to_string());
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "an unresolvable FAIL error",
+            "local reference",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_any_op(m, &mut |op| match op {
+                    NirOp::Fail { error } => {
+                        *error = NirValue::Local("$no_such_local".to_string());
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "an unresolvable reference in a state assignment",
+            "local reference",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::StateAssign { value, .. } => {
+                        *value = NirValue::Local("$no_such_local".to_string());
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "a state assignment to a local that does not exist",
+            "state assignment targets unknown local",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::StateAssign { resource, .. } => {
+                        *resource = "$no_such_local".to_string();
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "an unresolvable reference in a RETURN",
+            "local reference",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_any_op(m, &mut |op| match op {
+                    NirOp::Return { value: Some(value) } => {
                         *value = NirValue::Local("$no_such_local".to_string());
                         true
                     }
