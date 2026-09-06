@@ -470,6 +470,49 @@ None of the three is a bug on its face, and none was chased further — this is 
 coverage task. They are recorded with their measurements so the next session
 starts from an observation rather than from the same wrong guess.
 
+### F6 — rank the DEAD FUNCTIONS, not the uncovered lines
+
+The instrument that should have existed from the start.
+`scripts/coverage-src-dead-functions.py` reads the 33,325 function records the
+llvm-cov JSON already carries and reports the ones whose execution count is zero
+across every instantiation, ranked by span:
+
+    1033 src/** functions never executed, spanning 5481 lines
+
+That is 5,481 of the 6,746 remaining lines sitting in functions that were never
+CALLED — not in scattered guards inside functions that were. It reframes the
+work: the question is not "which lines are uncovered" but "which whole functions
+does no program reach", and one program usually reaches a whole function.
+
+The top of the list is two clusters, not a long tail:
+
+**The app-mode `term::` drawing surface, ~500 lines.**
+`target/macos_aarch64/app/app_io.rs` — `emit_app_draw_line` (111 lines),
+`emit_app_draw_box` (107), `emit_app_fill_rect` (74), `emit_app_move_to` (62),
+`emit_app_terminal_size` (58), `emit_app_clear` (42) — and their
+`target/linux_gtk/app_io.rs` counterparts. Every `term::` member has a second
+emitter for `-app` mode that writes into the toolkit's shadow grid instead of to
+a tty, and the app-surface suite reached them through
+`func_term_drawText_valid`, which calls six members and none of the drawing
+ones. A console run cannot stand in: the tty arm writes escape sequences a
+golden compares, and the app arm writes cells into a grid no headless test reads
+back.
+
+**The cross-arena deep-copy family, ~540 lines.**
+`memory/arena/builder_arena_transfer.rs` — `copy_resource_to_current_arena`
+(197 lines), `copy_collection_to_current_arena` (85, two instantiations),
+`copy_union_to_current_arena` (62, two), `copy_record_to_current_arena` (49).
+This one is NOT yet understood, and the obvious guesses were checked and are
+wrong: the recursive-type fixtures (`recursive-get-then-grow-rt`,
+`p121b-removeat-recursive-union-rt`, `types-recursive-record-valid`) are all in
+the corpus already, and `owned.rs`'s deep-copy call routes a recursive type to
+`emit_thread_copy_call` — a CALL to the per-type helper — rather than to these
+inline copiers. Measure with the F4 probe before writing anything.
+
+The third cluster is `target/*/mod.rs::write_executable` (84 + 81 + 64 lines),
+which spawns the system linker; that is integration territory and the existing
+exceptions already cover its neighbours.
+
 ## Corrections
 ### C1 — "the coverage job is the only red job in CI" is false; `fmt` is red too
 
