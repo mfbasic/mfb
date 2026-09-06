@@ -1303,6 +1303,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "registry has no blob for a vendored native library the package's section-10 table names",
     },
     Rule {
+        code: "6-605-0012",
+        name: "PACKAGE_PIN_MISMATCH",
+        severity: Severity::Error,
+        message: "installed package version differs from the pinned version",
+    },
+    Rule {
         code: "6-605-0011",
         name: "PACKAGE_VENDOR_BLOB_HASH_MISMATCH",
         severity: Severity::Error,

@@ -5,9 +5,11 @@ Effort: medium (3h–1d)
 Severity: LOW–MEDIUM (defense-in-depth; a platform-inconsistent security contract)
 Class: security / cross-platform consistency
 
-Status: OPEN — needs a decision before it is worth implementing (see "The
-decision" below). The CI failure it produced is fixed in the test harness; this
-doc is about the product asymmetry that failure exposed.
+Status: **OPEN — decided, and the proposed mechanism is disproved.** The owner
+ruled (2026-09-05): **the guarantee must be the same on all platforms**, i.e.
+option 1 below. The remaining work is not the decision, it is that this
+document's suggested macOS mechanism does not work — see "The mechanism question
+(2026-09-05)".
 
 ## The finding
 
@@ -52,6 +54,53 @@ GitHub Actions Linux and macOS runners produced
 non-CLOEXEC pipes, they descend runner → shell → cargo → test binary → MFB
 program → spawned child, and the probe sees them. The same program on Windows
 would show none of this, because the inheritance list there is exhaustive.
+
+## The mechanism question (2026-09-05) — measured, and it reopens the design
+
+**RED reproduced** on this tree, macOS aarch64 release, with a child that lists
+its own descriptors (`sh -c 'ls /dev/fd'`):
+
+    clean shell        childfds=0 1 2 3 4
+    two ambient fifos  childfds=0 1 142 145 2 3 4
+
+The delta is `142,145` — descriptors MFBASIC never opened, passing straight
+through `process::spawn`. (3 and 4 belong to the probe's own `ls | tr` pipeline,
+which is why the delta is the finding rather than the absolute set.)
+
+The contract this violates is written down in-tree, not merely implied:
+`tests/rt_process_spawn_no_fd_inherit.rs`'s header says the child must
+"inherit … only the three stdio pipes" and "must see NO open fd above 2".
+
+**But this document's proposed fallback is not viable, measured:**
+
+    $ getdtablesize()   ->  245760      # on this machine
+    $ closefrom(4)      ->  error: call to undeclared function 'closefrom'
+
+So "a `getdtablesize()` loop as the fallback, and the loop on macOS" would cost
+~245,000 `close` syscalls **per spawn**, and macOS ships no `closefrom` to
+replace it. The Linux half is fine — `close_range(4, ~0u, 0)` (syscall 436, 5.9+)
+is one syscall — so the platforms need different mechanisms and only one of them
+is settled.
+
+### The three macOS candidates
+
+1. **`posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT`.** The correct answer, and
+   the exact analogue of what Windows already does — an exhaustive, kernel-side
+   gate rather than a per-descriptor sweep. Cost: it replaces fork+exec on the
+   macOS path, so the child-side `cwd`/env setup moves into
+   `posix_spawn_file_actions`/`posix_spawnattr`, and the self-pipe errno protocol
+   is replaced by `posix_spawn`'s own return. That is a rewrite of
+   `emit_spawn_tail`'s macOS half, not an insertion into it.
+2. **Scan `/dev/fd` in the fork child.** Correct and cheap at run time, but
+   `opendir`/`readdir` allocate, and the child deliberately does not allocate
+   (see `emit_spawn_tail`'s own note). Doable with `getdirentries` into a stack
+   buffer; fiddly in emitted assembly.
+3. **The loop.** Disproved above.
+
+None of these is a coin-flip, so the mechanism is worth deciding before anyone
+starts: (1) is the most correct and the most work; (2) keeps the existing
+structure. The Linux half can land independently either way — it is one syscall
+and needs no decision.
 
 ## The decision
 

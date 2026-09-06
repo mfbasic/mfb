@@ -1735,6 +1735,69 @@ mod tests {
         assert!(verify_and_report_packages(dir.path(), &manifest, true).is_ok());
     }
 
+    /// bug-491: a `pin: true` dependency whose installed version differs from the
+    /// pinned one refuses the build.
+    ///
+    /// The comparison existed in `manifest::package::installed_package_files`
+    /// since it was written, and a unit test asserted its error — but all three
+    /// of that function's callers discard the `Result` deliberately, so an
+    /// unreadable package degrades rather than failing the build. The pin
+    /// mismatch rode the same `Result` and was therefore enforced NOWHERE, while
+    /// the passing unit test kept it reading as a live gate.
+    ///
+    /// `--unsigned` is passed in both halves so the only thing that can decide
+    /// the outcome is the version: the fixture is an unsigned package from a
+    /// remote source, which would otherwise be refused for that instead.
+    #[test]
+    fn verify_and_report_refuses_a_pinned_version_mismatch() {
+        let manifest_for = |version: &str, pin: &str| {
+            crate::manifest::parse_project_json(
+                &format!(
+                    "{{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\
+                     \"sources\":[{{\"root\":\"src\"}}],\
+                     \"packages\":[{{\"name\":\"trap_builtin_pkg\",\"ident\":\"tests#trap\",\
+                     \"version\":\"{version}\",\"pin\":{pin},\"source\":\"tests#trap\"}}]}}"
+                ),
+                Path::new("project.json"),
+            )
+            .expect("manifest")
+        };
+        let install = || {
+            let dir = tempfile::tempdir().expect("temp dir");
+            let packages = dir.path().join("packages");
+            std::fs::create_dir_all(&packages).expect("packages dir");
+            std::fs::copy(
+                "tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp",
+                packages.join("trap_builtin_pkg.mfp"),
+            )
+            .expect("copy fixture");
+            dir
+        };
+
+        // RED: the fixture is 0.1.0; pinning it to 9.9.9 must refuse.
+        let dir = install();
+        assert!(
+            verify_and_report_packages(dir.path(), &manifest_for("9.9.9", "true"), true).is_err(),
+            "a pinned version mismatch must refuse the build"
+        );
+
+        // Positive pin: the SAME fixture at its real version is allowed, so the
+        // refusal above is the version and nothing else.
+        let dir = install();
+        assert!(
+            verify_and_report_packages(dir.path(), &manifest_for("0.1.0", "true"), true).is_ok(),
+            "a pinned dependency at its pinned version must build"
+        );
+
+        // And an UNPINNED dependency is not version-checked at all: `version` is
+        // an ABI floor there, not an equality, so a newer selection is legitimate.
+        let dir = install();
+        assert!(
+            verify_and_report_packages(dir.path(), &manifest_for("9.9.9", "false"), true).is_ok(),
+            "an unpinned dependency must not be version-compared"
+        );
+    }
+
     #[test]
     fn verify_and_report_unsigned_local_is_allowed() {
         let manifest = crate::manifest::parse_project_json(
