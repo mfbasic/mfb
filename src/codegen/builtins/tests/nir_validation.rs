@@ -15,7 +15,7 @@
 //! invariants at once would be caught by whichever check ran first, and the rule
 //! under test could be deleted without the row noticing.
 
-use crate::target::shared::nir::NirModule;
+use crate::target::shared::nir::{NirModule, NirOp};
 use crate::target::shared::validate::validate_nir;
 use crate::target::NativeBuildMode::Console;
 use crate::testutil::{nir_for_src, CodeTarget};
@@ -65,7 +65,18 @@ FUNC main() AS Integer
   LET d AS Shape = Dot[counter]
   MUT n AS Integer = 0
   n = n + 1
-  counter = counter + n
+  ' An IF and a MATCH in main, so a mutation can be placed inside a nested
+  ' body -- which is what reaches the `?` that carries a failure back out of
+  ' one, rather than the arm that opens it.
+  IF n > 0 THEN
+    counter = counter + n
+  END IF
+  MATCH n
+    CASE 1
+      n = n + 0
+    CASE ELSE
+      n = n + 0
+  END MATCH
   io::print(label & describer(d) & toString(n))
   RETURN 0
 END FUNC
@@ -516,6 +527,264 @@ fn a_reference_that_does_not_resolve_is_refused() {
             refused.contains(message) && refused.contains("$no_such_reference"),
             "{what} that does not resolve must be refused with a message \
              containing {message:?} and naming the reference; it said {refused:?}"
+        );
+    }
+}
+
+/// Apply `wreck` to the first op in `main` it says it handled, depth first.
+///
+/// `wreck` reports whether it recognised the op, so one walk serves every row
+/// below: a row that wants the `IF` returns true only for an `If`, and the walk
+/// stops there. Targeted rather than "the first op anywhere", because each row
+/// is about ONE arm of `validate_ops` — a walk that stopped at whichever op came
+/// first would leave the arm it meant to test untouched while still producing a
+/// refusal from somewhere else, which is a green row asserting nothing.
+///
+/// Returning a `&mut` out of the recursive walk instead would thread a lifetime
+/// through every arm for no gain.
+fn wreck_first_op(module: &mut NirModule, wreck: &mut dyn FnMut(&mut NirOp) -> bool) -> bool {
+    fn walk(ops: &mut [NirOp], wreck: &mut dyn FnMut(&mut NirOp) -> bool) -> bool {
+        for op in ops.iter_mut() {
+            // The node itself first, so an `If` is a candidate before its body.
+            if wreck(op) {
+                return true;
+            }
+            let nested = match op {
+                NirOp::If {
+                    then_body,
+                    else_body,
+                    ..
+                } => walk(then_body, wreck) || walk(else_body, wreck),
+                NirOp::Match { cases, .. } => {
+                    cases.iter_mut().any(|case| walk(&mut case.body, wreck))
+                }
+                NirOp::While { body, .. }
+                | NirOp::For { body, .. }
+                | NirOp::DoUntil { body, .. }
+                | NirOp::ForEach { body, .. }
+                | NirOp::Trap { body, .. } => walk(body, wreck),
+                _ => false,
+            };
+            if nested {
+                return true;
+            }
+        }
+        false
+    }
+
+    module
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "main")
+        .is_some_and(|function| walk(&mut function.body, wreck))
+}
+
+/// A module whose entry point disagrees with the function it names.
+///
+/// The entry is written by lowering from the same `EntryPoint` the function was
+/// built from, so the two agree by construction and neither check had ever
+/// fired. Neither is redundant with the type checker: by this stage the source
+/// is gone, and an entry whose return type disagrees with its function's is a
+/// program the encoder emits a return sequence for against a register the
+/// callee never wrote.
+#[test]
+fn the_entry_point_must_match_the_function_it_names() {
+    for (what, message, mutate) in [
+        (
+            "a return type the function does not have",
+            "does not match function return type",
+            Box::new(|m: &mut NirModule| {
+                let entry = m.entry.as_mut().expect("the program has an entry");
+                entry.returns = crate::types::ParameterType::String;
+            }) as Box<dyn FnOnce(&mut _)>,
+        ),
+        (
+            "parameters on an entry that does not accept args",
+            "does not accept args but function has parameters",
+            Box::new(|m: &mut NirModule| {
+                let entry = m
+                    .entry
+                    .as_ref()
+                    .expect("the program has an entry")
+                    .name
+                    .clone();
+                let function = m
+                    .functions
+                    .iter_mut()
+                    .find(|f| f.name == entry)
+                    .expect("the entry names a function");
+                function.params.push(crate::target::shared::nir::NirParam {
+                    name: "argv".to_string(),
+                    type_: crate::types::ParameterType::String,
+                    default: None,
+                });
+            }),
+        ),
+    ] {
+        let refused = refusal(what, mutate);
+        assert!(
+            refused.contains(message),
+            "{what} must be refused with a message containing {message:?}; it \
+             said {refused:?}"
+        );
+    }
+}
+
+/// A parameter needs a name, a type, and a name no other local has.
+///
+/// A nameless parameter has no slot to bind; a duplicate silently shadows its
+/// twin, so every read of the first resolves to the second — a wrong VALUE, not
+/// a failure to build.
+#[test]
+fn a_parameter_needs_a_name_a_type_and_a_unique_one() {
+    fn first_with_params(m: &mut NirModule) -> &mut crate::target::shared::nir::NirFunction {
+        m.functions
+            .iter_mut()
+            .find(|f| !f.params.is_empty())
+            .expect("the program declares a function with a parameter")
+    }
+
+    for (what, message, mutate) in [
+        (
+            "a parameter with no name",
+            "has a parameter with empty name or type",
+            Box::new(|m: &mut NirModule| first_with_params(m).params[0].name.clear())
+                as Box<dyn FnOnce(&mut _)>,
+        ),
+        (
+            "two parameters with one name",
+            "has duplicate local",
+            Box::new(|m: &mut NirModule| {
+                let function = first_with_params(m);
+                let twin = crate::target::shared::nir::NirParam {
+                    name: function.params[0].name.clone(),
+                    type_: function.params[0].type_.clone(),
+                    default: None,
+                };
+                function.params.push(twin);
+            }),
+        ),
+    ] {
+        let refused = refusal(what, mutate);
+        assert!(
+            refused.contains(message),
+            "{what} must be refused with a message containing {message:?}; it \
+             said {refused:?}"
+        );
+    }
+}
+
+/// An op that names something must name something real, and a bind must name
+/// something new.
+///
+/// One row per arm of `validate_ops`, and each names a different kind of
+/// damage. An assignment to an unknown local writes a slot nobody reserved. A
+/// duplicate bind gives two values one slot. A store to an unknown global
+/// relocates against a symbol nothing defines — which the linker does
+/// eventually catch, two stages later and without the name of the function it
+/// came from.
+///
+/// The last two rows put the unresolvable reference inside a nested body rather
+/// than at the top of one, which is what covers the `?` that carries a failure
+/// back out of an `If` or a `MATCH` case.
+#[test]
+fn an_op_that_names_something_must_name_something_real() {
+    use crate::target::shared::nir::NirValue;
+
+    for (what, message, mutate) in [
+        (
+            "a bind with no name",
+            "bind op has empty name or type",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::Bind { name, .. } => {
+                        name.clear();
+                        true
+                    }
+                    _ => false,
+                }));
+            }) as Box<dyn FnOnce(&mut _)>,
+        ),
+        (
+            "a local bound twice",
+            "is declared more than once",
+            Box::new(|m: &mut NirModule| {
+                // The second bind renamed onto the first. Duplicating a row
+                // instead would want `NirOp: Clone` for a test's convenience.
+                let mut first: Option<String> = None;
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::Bind { name, .. } => match &first {
+                        None => {
+                            first = Some(name.clone());
+                            false
+                        }
+                        Some(taken) => {
+                            *name = taken.clone();
+                            true
+                        }
+                    },
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "an assignment to a local that does not exist",
+            "assignment targets unknown local",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::Assign { name, .. } => {
+                        *name = "$no_such_local".to_string();
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "a store to a global that does not exist",
+            "global store targets unknown global",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::StoreGlobal { name, .. } => {
+                        *name = "$no_such_global".to_string();
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "an unresolvable reference in an IF condition",
+            "local reference",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::If { condition, .. } => {
+                        *condition = NirValue::Local("$no_such_local".to_string());
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+        (
+            "an unresolvable reference in a MATCH scrutinee",
+            "local reference",
+            Box::new(|m: &mut NirModule| {
+                assert!(wreck_first_op(m, &mut |op| match op {
+                    NirOp::Match { value, .. } => {
+                        *value = NirValue::Local("$no_such_local".to_string());
+                        true
+                    }
+                    _ => false,
+                }));
+            }),
+        ),
+    ] {
+        let refused = refusal(what, mutate);
+        assert!(
+            refused.contains(message),
+            "{what} must be refused with a message containing {message:?}; it \
+             said {refused:?}"
         );
     }
 }

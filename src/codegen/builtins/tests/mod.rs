@@ -51,6 +51,7 @@ mod optimizer;
 mod os;
 mod package_format;
 mod perf;
+mod plan_validation;
 mod platform_hooks;
 mod registry_bodies;
 mod resource_union_default;

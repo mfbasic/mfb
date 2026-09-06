@@ -204,6 +204,14 @@ command, because a committed one goes stale between measurements:
 has never existed in this repository; a log over all refs for that path is
 empty.)
 
+**After every measurement, check the SPECIFIC lines the last commit claimed —
+not just the total.** The total moving proves something happened somewhere; it
+does not prove the test asserts what its name says. C10 is a test that claimed a
+line, passed, and left that exact line at zero executions, and the only thing
+that caught it was reading `coverage-src-lines.py` for the file afterwards. A
+test asserting a line is covered and the report saying it is not cannot both be
+right, and the report is the one that is not guessing.
+
 - [x] Generate the measured baseline: `planning/coverage-baseline.txt` (416
       files below the floor across the whole workspace; 401 of them in `src/**`).
 - [x] `canvas/gen_present.rs` 0.00% (0/233) -> 99.57% (232/233) — c97ba9dea
