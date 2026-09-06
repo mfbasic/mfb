@@ -1,134 +1,214 @@
-//! A `CSTRUCT` whose fields are not all 8 bytes wide.
+//! A `CSTRUCT` buffer is zeroed with a tail, and the tail's widths follow its
+//! SIZE.
 //!
-//! `link_thunk.rs` zeroes an `IN`/`OUT` struct buffer before use, and it does
-//! that a word at a time with a tail: `store_u32`, `store_u16`, `store_u8` for
-//! whatever is left over. Those three stores are only reached by a struct whose
-//! SIZE is not a multiple of 8, and every committed `CSTRUCT` fixture describes
-//! a struct that is — `struct timespec` is two `CInt64`s.
+//! `link_thunk.rs::lower_link_thunk` zeroes a struct slot's buffer before the
+//! `BIND IN` fields are written into it, widest store first:
 //!
-//! Zeroing the buffer is not tidiness. A `BIND IN` writes only the fields it
-//! names, and the C callee reads the whole struct: whatever the arena last left
-//! in the unwritten bytes is what it sees. `native-struct-scalar-rt`'s own
-//! comment says so — "`seconds` stays 0 because the whole buffer is zeroed
-//! first". A tail the zeroing missed is a field the callee reads as garbage,
-//! intermittently.
+//! ```text
+//! while z + 8 <= size { store_u64 }   while z + 4 <= size { store_u32 }
+//! while z + 2 <= size { store_u16 }   while z     <  size { store_u8  }
+//! ```
 //!
-//! Two structs, because one cannot reach all three widths. The zeroing takes
-//! the widest store that fits what is left, so a 7-byte struct is a 4 and then
-//! three BYTES — the 2-byte store is only reached when exactly 2 remain, which
-//! is the 6-byte struct.
+//! Zeroing is not tidiness. `BIND IN` writes only the fields it names and the C
+//! callee reads the whole struct, so every unnamed byte is whatever the arena
+//! last left there — `native-struct-scalar-rt`'s own comment says as much
+//! ("`seconds` stays 0 because the whole buffer is zeroed first"). A tail the
+//! zeroing missed is a field the callee reads as garbage, intermittently.
+//!
+//! **The size is not the sum of the field widths.** `compute_c_layout` rounds
+//! up to the struct's alignment, which is its widest member's:
+//! `CInt32 + CInt16 + CUInt8` occupies 7 bytes and is a struct of **8**, so it
+//! is zeroed by the `u64` loop alone and reaches no tail at all. Reaching a
+//! given tail store therefore means choosing an alignment as well as a size,
+//! and the only way to a size of 3 or 5 is all-`CUInt8` fields.
+//!
+//! Which is what the first version of this suite got wrong; see the counting
+//! note on [`thunk_narrow_stores`].
 
+use std::collections::BTreeMap;
+
+use crate::codegen::engine::types::NativeCodePlan;
 use crate::testutil::{try_code_for_linking_src, CodeTarget};
 
-/// A `CSTRUCT` of 4 + 2 + 1 bytes, filled by `BIND IN`.
+/// A one-function `LINK` program whose `CSTRUCT` has exactly `fields`, with the
+/// first one bound by `BIND IN`.
 ///
 /// The symbol is `getpid`, which takes no arguments and exists everywhere; the
-/// struct never reaches it (the ABI list is what matters here, and nothing is
-/// executed). What is under test is the thunk the compiler builds around the
-/// call, not the call.
-const NARROW_STRUCT: &str = "\
-IMPORT io
+/// struct never reaches it. What is under test is the thunk the compiler builds
+/// around the call, not the call.
+fn program(fields: &[(&str, &str)]) -> String {
+    let record: String = fields
+        .iter()
+        .map(|(name, _)| format!("  {name} AS Integer\n"))
+        .collect();
+    let cstruct: String = fields
+        .iter()
+        .map(|(name, ctype)| format!("    {name} {ctype}\n"))
+        .collect();
+    let bound = fields[0].0;
+    format!(
+        "IMPORT io\n\
+         \n\
+         TYPE Rec\n{record}END TYPE\n\
+         \n\
+         LINK \"c\" AS libc\n\
+         \x20 CSTRUCT S AS Rec\n{cstruct}\x20 END CSTRUCT\n\
+         \n\
+         \x20 FUNC pack(value AS Integer) AS Integer\n\
+         \x20   SYMBOL \"getpid\"\n\
+         \x20   ABI (n IN S) AS status CInt32\n\
+         \x20   BIND IN n\n\
+         \x20     {bound} = value\n\
+         \x20   END BIND\n\
+         \x20   RETURN status\n\
+         \x20 END FUNC\n\
+         END LINK\n\
+         \n\
+         FUNC main() AS Integer\n\
+         \x20 io::print(toString(libc::pack(3)))\n\
+         \x20 RETURN 0\n\
+         END FUNC\n"
+    )
+}
 
-TYPE Narrow
-  code AS Integer
-  flags AS Integer
-  level AS Integer
-END TYPE
-
-TYPE Even
-  flags AS Integer
-END TYPE
-
-LINK \"c\" AS libc
-  ' 7 bytes: code@0 (4), flags@4 (2), level@6 (1). Not a multiple of 8, so the
-  ' buffer zeroing needs a 4-byte, a 2-byte and a 1-byte store in its tail.
-  CSTRUCT NarrowStruct AS Narrow
-    code  CInt32
-    flags CInt16
-    level CUInt8
-  END CSTRUCT
-
-  ' 2 bytes. The zeroing takes the widest store that fits what is LEFT, so a
-  ' size of exactly 2 is the shortest way to reach the 16-bit one.
-  CSTRUCT EvenStruct AS Even
-    flags CInt16
-  END CSTRUCT
-
-  FUNC pack(value AS Integer) AS Integer
-    SYMBOL \"getpid\"
-    ABI (n IN NarrowStruct) AS status CInt32
-    BIND IN n
-      code = value
-    END BIND
-    RETURN status
-  END FUNC
-
-  FUNC packEven(value AS Integer) AS Integer
-    SYMBOL \"getpid\"
-    ABI (n IN EvenStruct) AS status CInt32
-    BIND IN n
-      flags = value
-    END BIND
-    RETURN status
-  END FUNC
-END LINK
-
-FUNC main() AS Integer
-  io::print(toString(libc::pack(3)))
-  io::print(toString(libc::packEven(4)))
-  RETURN 0
-END FUNC
-";
-
-/// A struct whose size is not a multiple of 8 zeroes its tail byte by byte.
+/// Sub-word stores emitted **by `link_thunk.rs`**, counted by width.
 ///
-/// The narrow stores ARE the tail. Asserting the 4- and 2-byte ones pins the
-/// structs' actual widths: a 7-byte buffer zeroed only in 8-byte steps would
-/// write 8 and run one byte past it, and a 6-byte one zeroed only in 4-byte
-/// steps would leave two bytes of whatever the arena held.
+/// The filter on the emitting file is the whole point. A program this size
+/// carries about twenty `store_u8`s from string handling alone, so
+/// "the plan contains a `StrU8`" is true of every program ever compiled and
+/// says nothing about a struct's tail. The first version of this suite asserted
+/// exactly that, and passed against a struct whose tail never ran — the
+/// `StrU32` it was reading came from `store_field` marshalling the bound
+/// `CInt32`, four hundred lines away in the same file. Recorded as C10.
 ///
-/// The 8-bit store is not asserted. It appears in this program many times over
-/// from string handling, so its presence says nothing about the tail — which is
-/// the difference between an assertion and a coincidence.
-#[test]
-fn a_struct_that_is_not_a_multiple_of_eight_zeroes_its_tail() {
+/// `CodeInstruction::source` is the `#[track_caller]` location of the builder
+/// call. It is audit-only metadata — never serialized, never affecting emitted
+/// bytes — which makes it exactly the right thing to key a test on: it
+/// distinguishes two identical instructions by who asked for them, and it
+/// cannot drift the way a line number can.
+fn thunk_narrow_stores(plan: &NativeCodePlan) -> BTreeMap<u32, usize> {
     use crate::arch::ops::CodeOp;
 
-    // Through the LINKING entry point: a `LINK "c"` needs a locator for the
-    // target, and a source string has no manifest to carry one. That refusal is
-    // correct (bug-549's neighbour, NATIVE_LIBRARY_NO_MATCH) and is tested in
-    // `fixture_projects.rs`; here it is just in the way.
-    let plan = try_code_for_linking_src(NARROW_STRUCT, CodeTarget::LinuxX86_64, &["c"])
-        .expect("the LINK program must lower");
-    let mut widths = Vec::new();
+    let mut counts = BTreeMap::new();
     for instruction in plan.functions.iter().flat_map(|f| f.instructions.iter()) {
-        match instruction.op {
-            CodeOp::StrU32 => widths.push(32),
-            CodeOp::StrU16 => widths.push(16),
-            CodeOp::StrU8 => widths.push(8),
-            _ => {}
+        let width = match instruction.op {
+            CodeOp::StrU32 => 32,
+            CodeOp::StrU16 => 16,
+            CodeOp::StrU8 => 8,
+            _ => continue,
+        };
+        if instruction
+            .source
+            .is_some_and(|location| location.file().ends_with("link_thunk.rs"))
+        {
+            *counts.entry(width).or_insert(0) += 1;
         }
     }
-    for width in [32u32, 16] {
-        assert!(
-            widths.contains(&width),
-            "a 7-byte `CSTRUCT` buffer is zeroed with a {width}-bit store in its \
-             tail; without it the C callee reads whatever the arena last left \
-             in those bytes, and a `BIND IN` that names one field leaves the \
-             rest to that zeroing. Widths emitted: {widths:?}"
+    counts
+}
+
+/// Each row: the struct's fields, its C layout, and the sub-word stores the
+/// thunk must emit for it.
+///
+/// The expectation is **derived**, not recorded. Two things emit a sub-word
+/// store in this thunk and both are predictable: the zeroing tail, from the
+/// size; and `store_field` marshalling the one bound field, from that field's
+/// width. So each row is `zeroing tail + one marshal store`, and the rows that
+/// exercise a given tail width also differ in the marshal store, which is why
+/// the whole multiset is asserted rather than "width W appears".
+const LAYOUTS: &[(&str, &[(&str, &str)], usize, &[(u32, usize)])] = &[
+    // size 8, align 8: the u64 loop consumes it. No tail, and the bound CInt64
+    // marshals with a u64 store, so the thunk emits no sub-word store at all.
+    // The baseline that makes the rows below mean something.
+    ("one CInt64", &[("a", "CInt64")], 8, &[]),
+    // size 5, align 1: 4 then 1. The only shape that reaches the 32-bit tail
+    // store AND the 8-bit one.
+    (
+        "five CUInt8",
+        &[
+            ("a", "CUInt8"),
+            ("b", "CUInt8"),
+            ("c", "CUInt8"),
+            ("d", "CUInt8"),
+            ("e", "CUInt8"),
+        ],
+        5,
+        // 32: the tail. 8: the tail's last byte, plus marshalling the CUInt8.
+        &[(32, 1), (8, 2)],
+    ),
+    // size 3, align 1: 2 then 1.
+    (
+        "three CUInt8",
+        &[("a", "CUInt8"), ("b", "CUInt8"), ("c", "CUInt8")],
+        3,
+        &[(16, 1), (8, 2)],
+    ),
+    // size 12, align 4: a u64 then a u32. The tail after a full word.
+    (
+        "three CInt32",
+        &[("a", "CInt32"), ("b", "CInt32"), ("c", "CInt32")],
+        12,
+        // one tail u32, one marshalling the CInt32.
+        &[(32, 2)],
+    ),
+    // size 2, align 2: the 16-bit store is the whole zeroing.
+    ("one CInt16", &[("a", "CInt16")], 2, &[(16, 2)]),
+];
+
+/// The layout the rows above claim is the layout `compute_c_layout` computes.
+///
+/// Asserted separately because it is the premise of every expectation in the
+/// table, and getting it wrong is not hypothetical: the previous version of
+/// this suite called `CInt32 + CInt16 + CUInt8` a 7-byte struct.
+#[test]
+fn the_table_states_each_structs_real_c_layout() {
+    use crate::types::ParameterType;
+
+    for (label, fields, size, _) in LAYOUTS {
+        let typed: Vec<(String, ParameterType)> = fields
+            .iter()
+            .map(|(name, ctype)| ((*name).to_string(), ParameterType::declared(ctype)))
+            .collect();
+        let layout = crate::ir::compute_c_layout(&typed, "linux-x86_64")
+            .unwrap_or_else(|err| panic!("{label}: {err}"));
+        assert_eq!(
+            layout.size, *size,
+            "{label}: a C struct's size is rounded up to its alignment \
+             ({}), not the sum of its fields",
+            layout.align
         );
     }
 }
 
-/// The narrow struct lowers on every backend.
-///
-/// The field offsets and the tail stores are laid out by shared codegen but
-/// emitted per-ISA, and a backend without a 16-bit store would have to
-/// synthesise one.
+/// The buffer zeroing emits exactly the tail its size calls for.
 #[test]
-fn a_narrow_link_struct_lowers_on_every_backend() {
-    for target in CodeTarget::ALL {
-        try_code_for_linking_src(NARROW_STRUCT, target, &["c"])
-            .unwrap_or_else(|err| panic!("a 7-byte CSTRUCT on {}: {err}", target.name()));
+fn a_struct_buffer_is_zeroed_with_the_tail_its_size_calls_for() {
+    for (label, fields, size, expected) in LAYOUTS {
+        let plan = try_code_for_linking_src(&program(fields), CodeTarget::LinuxX86_64, &["c"])
+            .unwrap_or_else(|err| panic!("{label}: {err}"));
+        let expected: BTreeMap<u32, usize> = expected.iter().copied().collect();
+        assert_eq!(
+            thunk_narrow_stores(&plan),
+            expected,
+            "{label} is a {size}-byte struct: the zeroing takes the widest store \
+             that fits what is left, and one more store marshals the bound \
+             field. A buffer zeroed only in 8-byte steps writes past its own \
+             end into the next one; one zeroed only in 4-byte steps leaves the \
+             remainder holding whatever the arena did."
+        );
+    }
+}
+
+/// Every layout lowers on every backend.
+///
+/// The offsets and the tail stores are decided by shared codegen and emitted
+/// per-ISA; a backend without a 16-bit store would have to synthesise one.
+#[test]
+fn every_struct_layout_lowers_on_every_backend() {
+    for (label, fields, _, _) in LAYOUTS {
+        for target in CodeTarget::ALL {
+            try_code_for_linking_src(&program(fields), target, &["c"])
+                .unwrap_or_else(|err| panic!("{label} on {}: {err}", target.name()));
+        }
     }
 }

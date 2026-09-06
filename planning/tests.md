@@ -914,3 +914,55 @@ was taken to imply "it shells out". The check that settles it is one `grep` for
 `Command::new` over the backend's directory, and it costs nothing next to
 excusing 310 lines.
 
+### C10 — a test of mine passed for the wrong reason, and the coverage report is what caught it
+
+`link_struct_widths.rs` (commit f45e24790) claimed to cover the `CSTRUCT`
+buffer-zeroing tail in `link_thunk.rs`. It asserted that lowering a "7-byte"
+`CSTRUCT` emits a `StrU32` and a `StrU16`. It passed. Both stores were real.
+Neither was the tail.
+
+Two mistakes, compounding:
+
+1. **The struct is 8 bytes, not 7.** `ir::link::compute_c_layout` ends with
+   `size = offset.div_ceil(struct_align) * struct_align`, and
+   `CInt32 + CInt16 + CUInt8` has alignment 4, so 7 rounds to 8. The `u64` loop
+   consumes the whole buffer and no tail store is reached at all.
+2. **The assertion was `widths.contains(&32)` over the whole plan.** A program
+   of this size carries ~20 `StrU8`s from string handling; the `StrU32` and
+   `StrU16` it found came from `store_field`, marshalling the bound field four
+   hundred lines away in the same file. The test's own doc comment had already
+   noticed this hazard for the 8-bit case ("it appears in this program many
+   times over, so its presence says nothing") and then made the identical
+   mistake for the other two widths.
+
+Found by reading the per-file uncovered RANGES: `link_thunk.rs:1034`
+(`store_u32` in the zeroing loop) had no execution in a report measured two
+commits after that test landed. A test asserting a line is covered, and the
+coverage report saying it is not, cannot both be right.
+
+Rewritten around a derived table. Each row is a struct's fields, its real
+`compute_c_layout` size (asserted separately, since that premise is what went
+wrong), and the exact multiset of sub-word stores the thunk must emit —
+`zeroing tail + one marshal store`, both predictable. Counting is filtered to
+instructions whose `CodeInstruction::source` is `link_thunk.rs`, the
+`#[track_caller]` location of the builder call: audit-only metadata that
+distinguishes two identical instructions by who asked for them, and does not
+drift the way a line number would.
+
+The shapes that actually reach each tail store need an ALIGNMENT as well as a
+size, and the only route to a size of 3 or 5 is all-`CUInt8` fields:
+
+    one CInt64     size 8   no sub-word store at all (the baseline)
+    five CUInt8    size 5   u32 tail + u8 tail + u8 marshal
+    three CUInt8   size 3   u16 tail + u8 tail + u8 marshal
+    three CInt32   size 12  u32 tail + u32 marshal
+    one CInt16     size 2   u16 tail + u16 marshal
+
+Seen to fail: deleting the `while z + 4 <= layout.size` loop reds the zeroing
+test and nothing else.
+
+**The lesson is the one the plan already states and I did not apply**: a test
+that asserts an instruction EXISTS in a plan is asserting about the whole
+program, not about the code under test. If a construct is common enough to
+appear incidentally — and a sub-word store is — the assertion has to name where
+it came from.
