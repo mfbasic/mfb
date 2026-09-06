@@ -197,3 +197,52 @@ fn set_dedup_and_map_key_lookup_lower_on_every_backend() {
             .unwrap_or_else(|err| panic!("set/map comparison on {}: {err}", target.name()));
     }
 }
+
+/// `find`, sublist `find`, and an in-place `removeKey`.
+///
+/// The three comparison emitters are reached by three different operations, and
+/// naming them took two attempts. `contains` reaches the first;
+/// `emit_collection_payload_matches_value_branch` is reached by
+/// `lower_list_find_item` (`collections::find` of one element) and by
+/// `lower_map_remove_key_in_place`; `emit_collection_payloads_match_branch` is
+/// reached by `lower_list_find_sublist` — `collections::find(list, pattern)`
+/// where the needle is itself a list.
+///
+/// The element types are the ones whose arms were unreached: `Boolean` and
+/// `Byte`, which are one byte in the block, and `String`, which is a length and
+/// a byte run rather than a word.
+const FIND_AND_REMOVE: &str = "\
+IMPORT collections
+IMPORT io
+
+FUNC main() AS Integer
+  LET bytes AS List OF Byte = [toByte(1), toByte(2), toByte(3)]
+  LET flags AS List OF Boolean = [TRUE, FALSE, TRUE]
+  LET names AS List OF String = [\"a\", \"bb\", \"ccc\"]
+  LET pattern AS List OF Byte = [toByte(2), toByte(3)]
+  MUT index AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1, \"bb\" := 2 }
+  MUT hits AS Integer = 0
+  hits = hits + collections::find(bytes, toByte(2))
+  hits = hits + collections::find(flags, FALSE)
+  hits = hits + collections::find(names, \"bb\")
+  hits = hits + collections::find(bytes, pattern)
+  index = collections::removeKey(index, \"a\")
+  io::print(toString(hits) & toString(len(index)))
+  RETURN 0
+END FUNC
+";
+
+/// `find` over the one-byte and String element types, and a sublist `find`.
+///
+/// A `find` that compared the wrong width returns the wrong INDEX -- or -1 for
+/// an element that is there -- rather than failing to build, which is why the
+/// arms matter and why lowering on every backend is the assertion: the
+/// comparison is emitted per-ISA and a backend without a byte-wide load would
+/// have to synthesise one.
+#[test]
+fn find_and_in_place_remove_key_lower_on_every_backend() {
+    for target in CodeTarget::ALL {
+        try_code_for_src(FIND_AND_REMOVE, target, Console)
+            .unwrap_or_else(|err| panic!("find/removeKey on {}: {err}", target.name()));
+    }
+}
