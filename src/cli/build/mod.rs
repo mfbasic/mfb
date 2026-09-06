@@ -1142,6 +1142,45 @@ pub(crate) fn native_libraries_for_test(
     native_libs::assemble_native_libraries_for_ir(ir, manifest, project_root)
 }
 
+/// Compile the dependencies a project declares by SOURCE DIRECTORY, the way the
+/// front end above does before anything resolves a package.
+///
+/// `testutil::fixture_project` ran every other front-end step and skipped this
+/// one, so a fixture whose dependency has no committed `.mfp` resolved only when
+/// some earlier build happened to have left one in `build/packages/` — and the
+/// standing remedy for a stale committed `.mfp` is exactly to declare the
+/// dependency by source directory, so that is not a rare fixture shape. The
+/// omission does not fail loudly either: `installed_package_files` reports the
+/// dependency as "must be installed", which reads as a broken fixture rather
+/// than a harness that never built it.
+///
+/// Host target and `-O1`, because only the dependency's *interface* is read
+/// here: `fixture_project` hands the resulting `.mfp` to
+/// `external_package_function_types_from_files` and
+/// `imported_type_defs_from_files`, never to a backend.
+#[cfg(test)]
+pub(crate) fn build_source_dependencies_for_test(
+    location: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> Result<(), ()> {
+    source_packages::build_source_dependencies(
+        &BuildOptions {
+            location: location.to_path_buf(),
+            outputs: Vec::new(),
+            package_output_dir: None,
+            target: target::BuildTarget::host(),
+            sign_owner: None,
+            app_mode: false,
+            app_debug: false,
+            opt: crate::optimizer::OptLevel::default(),
+            allow_unsigned: true,
+            mode: crate::testing::CompileMode::Build,
+            verbosity: Verbosity::Quiet,
+        },
+        manifest,
+    )
+}
+
 mod native_libs;
 mod options;
 mod packages;

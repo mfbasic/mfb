@@ -29,23 +29,20 @@ use crate::testutil::{try_code_for_fixture_project, CodeTarget};
 /// Every `tests/rt-behavior/**` fixture that needs its PROJECT, not just a
 /// source string.
 ///
-/// 63 of them, and not one was reachable in process before: each has a
+/// 87 of them, and not one was reachable in process before: each has a
 /// `packages/` directory its `project.json` declares, and `fixture_src` reads
 /// `src/main.mfb` alone. They are the thread and native-`LINK` surface almost
 /// in its entirety — a worker's entry lives in a package, so nearly every
 /// `thread::` fixture is one of these.
 ///
 /// Named rather than discovered, for the reason `corpus.rs` gives: a list that
-/// silently skips what it cannot lower is a gate that stops measuring. Two are
-/// deliberately absent and named here instead: `libsnd-load-sound-rt` and
-/// `libsnd-playback-rt` declare their `LINK "libsnd"` INSIDE the package, and
-/// its locators live in the package's own section-10 table plus a
-/// `packages/libsnd.vendor` directory. The consumer-side assembler this loader
-/// calls reads the CONSUMER's `libraries` section, which those fixtures do not
-/// have, so it refuses with NATIVE_LIBRARY_NO_MATCH -- correctly, for the input
-/// it was given. Reaching them needs `LibraryTables::collect`, which merges each
-/// package's table with the project's own; that is a second piece of build
-/// front end and it is not what the other 61 are waiting on.
+/// silently skips what it cannot lower is a gate that stops measuring. Nothing
+/// is deliberately absent: the four `libsnd-*` fixtures declare their
+/// `LINK "libsnd"` INSIDE the package, so its locators live in the package's own
+/// section-10 table rather than in the consumer's `libraries` section — and the
+/// loader below merges the two tables (`read_package_native_libraries` per
+/// package, after `native_libraries_for_test` for the project), which is what
+/// lets them in.
 const PACKAGE_FIXTURES: &[&str] = &[
     "allocator-04-thread-arena-init",
     "bug104_aliased_overload_import",

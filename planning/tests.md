@@ -297,11 +297,13 @@ right, and the report is the one that is not guessing.
 - [x] `mfb build -nir` emits parseable JSON containing the module it was given,
       on every backend, including the `LINK` expression tree operator by
       operator. `target/shared/nir/json.rs` 23.35% -> 75.76%.
-- [x] All 63 package-bearing `tests/rt-behavior/**` fixtures, on every backend
-      they support — a62d79402. None was reachable in process before, and they
-      are the thread and native-`LINK` surface almost entire. 17 files moved in
-      one commit, `builder_thread_cleanup.rs` 77.78% -> 95.77% and
-      `builder_arena_transfer.rs` 84.69% -> 89.70% among them.
+- [x] All 87 package-bearing `tests/rt-behavior/**` fixtures, on every backend
+      they support — a62d79402, and 87 rather than the 63 written here (C16).
+      None was reachable in process before, and they are the thread and
+      native-`LINK` surface almost entire. 17 files moved in one commit,
+      `builder_thread_cleanup.rs` 77.78% -> 95.77% and
+      `builder_arena_transfer.rs` 84.69% -> 89.70% among them. The loader had a
+      defect of its own, fixed in the same pass: see C16.
 - [x] The two source-dump writers: `-nir` (`target/shared/nir/json.rs`
       23.35% -> 75.76%) and `-nplan` (`target/shared/plan/json.rs`
       59.57% -> 89.36%). Each had one caller per backend and no unit test, and
@@ -1277,3 +1279,59 @@ floor and appear as new work. That is a real improvement to what the gate
 measures and a real risk to make in one step; it is left for a plan of its own,
 with the number recorded here so it starts from a measurement rather than a
 rediscovery.
+
+### C16 — the fixture loader depended on a build artifact, so its test passed only on a dirty tree
+
+`every_package_bearing_fixture_lowers_on_every_backend` (a62d79402, this plan)
+went red in the coverage run for `p121d-state-reach-rt`:
+
+    p121d-state-reach-rt on macos-aarch64: package `state_reach_worker` must be
+    installed as '.../packages/state_reach_worker.mfp' before binary
+    representation merging
+
+It had passed in the two coverage runs before it and in every `cargo test`. The
+difference was not the change under test: it was that an acceptance run had
+happened in between and removed `<fixture>/build/`.
+
+**What the loader was missing.** `testutil::fixture_project` runs `cli/build`'s
+front end — `parse_project`, `resolve_project`, augment, elaborate, monomorphize
+— and then asks `installed_package_files` for the fixture's `.mfp`s. `cli/build`
+does one more thing first, which it did not: `build_source_dependencies`, which
+compiles every dependency declared by SOURCE DIRECTORY (`"source":
+"file:packages/tiny"`) into `<project>/build/packages/<name>.mfp`. Without it a
+source dependency resolves only when some earlier build has left that file
+behind, and `p121d-state-reach-rt` is the one fixture in the list of 87 whose
+package is source-only — every other one carries a committed `packages/*.mfp`.
+
+    $ find tests -name "*.mfp" -path "*/packages/*" | wc -l
+    125
+    $ ls tests/rt-behavior/resources/p121d-state-reach-rt/packages/
+    state_reach_worker          # a directory, not a .mfp
+
+**And a source package is the RECOMMENDED shape.** A committed `.mfp` goes stale
+whenever the compiler re-qualifies what it encodes, so the standing remedy is to
+declare the dependency by source directory — exactly what this fixture does. The
+gap was therefore going to widen, not close.
+
+**The fix** is the missing step, not a skip: `fixture_project` now calls
+`cli::build::build_source_dependencies_for_test` before resolving packages,
+memoized per fixture behind a mutex (the builder CLEARS the cache before
+refilling it, so two tests reaching one fixture concurrently could have had one
+delete the `.mfp` the other was about to read).
+
+Proven both ways rather than by re-running: with every `tests/**/build/`
+directory deleted, the two affected tests fail before the change with the message
+above and pass after it.
+
+    $ find tests -type d -name build -maxdepth 4 | wc -l
+    0
+    $ cargo test --bin mfb -- every_package_bearing_fixture_lowers_on_every_backend \
+        a_valid_program_importing_a_type_exporting_package_is_silent
+    test result: ok. 2 passed; 0 failed
+
+**The lesson is about the gate, not the fixture.** A test that reads a build
+artifact nothing regenerates is green exactly as long as nobody cleans, and CI
+runs `cargo test` on a fresh checkout in a job that never runs the acceptance
+harness — so this would have been red there and green on every developer machine
+that had run `test-accept.sh` once. The coverage loop caught it only because
+`coverage-bins.sh` happens to run after acceptance in this session's order.

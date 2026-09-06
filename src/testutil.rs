@@ -912,6 +912,34 @@ pub struct FixtureProject {
     pub imported_resource_types: Vec<String>,
 }
 
+/// Compile the fixture's SOURCE-DIRECTORY package dependencies into its build
+/// cache, at most once per fixture per process.
+///
+/// Two things make the memo necessary rather than merely cheap.
+/// `build_source_dependencies` **clears** the cache before refilling it, so two
+/// tests that reached the same fixture concurrently could have one delete the
+/// `.mfp` the other was about to read; holding the lock across the build makes
+/// that impossible. And a fixture is lowered once per backend, so without the
+/// memo the same dependency would be compiled five times to produce five
+/// identical interfaces.
+fn build_fixture_source_packages(
+    dir: &std::path::Path,
+    manifest: &HashMap<String, tinyjson::JsonValue>,
+    name: &str,
+) -> Result<(), String> {
+    static BUILT: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<PathBuf>>> =
+        std::sync::OnceLock::new();
+    let mut built = BUILT
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    if !built.insert(dir.to_path_buf()) {
+        return Ok(());
+    }
+    crate::cli::build::build_source_dependencies_for_test(dir, manifest)
+        .map_err(|()| format!("{name}: a package declared by source directory does not build"))
+}
+
 /// Run `cli/build`'s front end over a fixture's project directory.
 pub fn fixture_project(name: &str) -> Result<FixtureProject, String> {
     let dir = fixture_dir(name);
@@ -934,6 +962,7 @@ pub fn fixture_project(name: &str) -> Result<FixtureProject, String> {
     let concrete = crate::monomorph::monomorphize_project(&dir, &crate::hir::elaborate(&augmented))
         .map_err(|()| format!("{name}: the project does not monomorphize"))?;
 
+    build_fixture_source_packages(&dir, &manifest, name)?;
     let packages = crate::manifest::package::installed_package_files(&dir, &manifest)
         .map_err(|err| format!("{name}: {err}"))?;
     let imported_resources = crate::manifest::package::imported_resource_closers(&dir, &manifest);
