@@ -3,12 +3,13 @@ IMPORT io
 
 ' plan-86 A3: native `collections::findLastIndex` for a `List OF String`
 ' (`#collections_findLastIndex$String`). A reverse predicate scan that returns
-' the highest matching index. The 2-arg source form is padded to the default
-' `endIndex = -1`, so the native body always sees `(list, predicate, endIndex)`
-' and reproduces the interpreted `.mfb` body exactly: negative `endIndex`
-' normalizes as `endIndex + len`, an out-of-range start traps bounds (77050001),
-' scanning past index 0 with no match traps not-found (77050004; covered by the
-' rt-error sibling), and String items are materialized fresh and freed after the
+' the highest matching index. The 2-arg source form is its own body
+' (`#collections_findLastIndexFromEnd$String`) which calls this one with
+' `len(value) - 1`, so the native body always sees `(list, predicate, endIndex)`
+' and reproduces the interpreted `.mfb` body exactly: an out-of-range start —
+' including any NEGATIVE one, bug-527 — traps bounds (77050001), scanning past
+' index 0 with no match traps not-found (77050004; covered by the rt-error
+' sibling), and String items are materialized fresh and freed after the
 ' predicate call (no leak/UAF across repeats).
 
 FUNC isShort(s AS String) AS Boolean
@@ -17,14 +18,15 @@ END FUNC
 
 FUNC main AS Integer
   LET xs AS List OF String = ["aa", "bbbb", "cc", "dddd", "e"]
-  ' Default endIndex (-1): the last short element is index 4 ("e").
+  ' Omitted endIndex: scan from the last element, so the answer is index 4 ("e").
   io::print("default: " & toString(collections::findLastIndex(xs, isShort)))
   ' Explicit endIndex 3: search 0..3, last short is index 2 ("cc").
   io::print("end3: " & toString(collections::findLastIndex(xs, isShort, 3)))
   ' Explicit endIndex 0: only index 0 ("aa") is in range and short.
   io::print("end0: " & toString(collections::findLastIndex(xs, isShort, 0)))
-  ' Negative endIndex -2: normalizes to 5 + (-2) = 3; last short in 0..3 is 2.
-  io::print("neg2: " & toString(collections::findLastIndex(xs, isShort, 0 - 2)))
+  ' A negative endIndex is out of range, not an offset from the end (bug-527):
+  ' the second element from the end is asked for by its index.
+  io::print("fromend2: " & toString(collections::findLastIndex(xs, isShort, len(xs) - 2)))
   ' Single element that matches.
   io::print("one: " & toString(collections::findLastIndex(["x"], isShort)))
   ' Only the first element matches (reverse scan must walk all the way to 0).

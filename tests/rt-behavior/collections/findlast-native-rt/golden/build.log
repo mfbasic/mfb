@@ -9,7 +9,7 @@ $ tests/rt-behavior/collections/findlast-native-rt/build/findlast_native_rt.out
 default: 4
 end3: 2
 end0: 0
-neg2: 2
+fromend2: 2
 one: 0
 first: 0
 src: 5

@@ -2803,6 +2803,30 @@ pub(crate) fn rewrite_target(qualified: &str, arg_types: &[ParameterType]) -> Op
     function.implementations.first()?.body.rewrite_target()
 }
 
+/// The internal symbol a call to `qualified` **with `argc` arguments** rewrites to.
+///
+/// The arity-routed twin of [`rewrite_target`]. That one selects the overload by
+/// argument TYPES, which is the right question for a member whose forms differ in
+/// shape (`http::handleRequest`'s two transports). It cannot answer the question an
+/// *optional-parameter split* asks, because both forms have the same types in the
+/// same order and differ only in how many of them are present — which is exactly
+/// `collections::findLastIndex`, whose two-argument form starts its backward scan at
+/// the last element and whose three-argument form starts where it is told, in two
+/// separate bodies (bug-527).
+///
+/// Falls back to the type-blind `rewrite_target` when no implementation declares
+/// exactly `argc` parameters — the ordinary case of a call that omits a defaulted
+/// trailing parameter, where the sole implementation is still the right answer.
+pub(crate) fn rewrite_target_for_arity(qualified: &str, argc: usize) -> Option<&'static str> {
+    let function = registry().resolve_func(qualified)?.function;
+    let exact = function
+        .implementations
+        .iter()
+        .find(|implementation| implementation.params.len() == argc)
+        .and_then(|implementation| implementation.body.rewrite_target());
+    exact.or_else(|| rewrite_target(qualified, &[]))
+}
+
 /// The qualified member whose call lowering rewrites to the internal symbol
 /// `target` (either spelling: the descriptor's `__pkg_name` or the internalized
 /// `#pkg_name` the IR carries), or `None` when no member rewrites to it. The
