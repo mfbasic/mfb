@@ -100,6 +100,47 @@ pub(crate) fn verify_and_report_packages(
             continue;
         };
 
+        // bug-491: a `pin: true` dependency must be the version it is pinned to.
+        //
+        // `manifest::package::installed_package_files` has performed exactly this
+        // comparison since it was written, but all three of its callers discard
+        // the error (`let Ok(packages) = … else { return … }`) — deliberately, so
+        // an unreadable package degrades instead of failing the build. The pin
+        // mismatch rode the same `Result` and was therefore never enforced
+        // anywhere, while a unit test asserting the error kept it looking live.
+        // This is the gate that already refuses a build, so the check belongs
+        // here; `installed_package_files` keeps its check for its own callers and
+        // its own test.
+        if object
+            .get("pin")
+            .and_then(|value| value.get::<bool>())
+            .copied()
+            .unwrap_or(false)
+        {
+            if let Some(pinned) = object
+                .get("version")
+                .and_then(|value| value.get::<String>())
+            {
+                match crate::manifest::package::read_mfp_header(&package_file) {
+                    Ok(header) if header.version != *pinned => {
+                        refusals.push((
+                            "PACKAGE_PIN_MISMATCH",
+                            format!(
+                                "package `{name}` is pinned to version {pinned}, but the installed \
+                                 package is version {}; refusing to build",
+                                header.version
+                            ),
+                        ));
+                    }
+                    // An unreadable header is the classification's business, not
+                    // this check's — it reports a far more actionable message
+                    // below. Staying silent here keeps the two from double-
+                    // reporting one broken file.
+                    Ok(_) | Err(_) => {}
+                }
+            }
+        }
+
         let classification = classify_installed_package(&package_file, trust_anchor);
         println!("uses {name} - [{}]", classification.state.label());
         match classification.state {

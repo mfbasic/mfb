@@ -414,6 +414,42 @@ pub(crate) fn install(project_dir: &Path) -> Result<(), String> {
         .map_err(|err| format!("failed to create '{}': {err}", packages_dir.display()))?;
     for package in &lock.packages {
         let blob = client::fetch_blob(&repo_url, &package.hash)?;
+        // bug-491: bind the fetched artifact to the LOCK before staging it.
+        //
+        // The plan-23 §3.5 chain that `install_verified_package` runs below
+        // proves the blob is self-consistent and signed by the pinned owner — and
+        // nothing more. `verify_attestation` binds the signature to the
+        // `ident`/`version` it reads out of THAT SAME FILE, so an owner's other
+        // artifact passes every one of those checks. Combined with the unsigned
+        // `/index` version list (bug-189), a registry that maps `version -> hash`
+        // freely could serve any artifact the owner ever signed for a requested
+        // version and have it accepted here.
+        //
+        // The sibling `mfb pkg add` path already compares the downloaded header's
+        // ident (`pkg.rs`, `header.ident != full_ident`); this is the same
+        // comparison at the other entry point, widened to the three fields the
+        // lock actually pins. `selected` is the lock's resolved version, NOT the
+        // manifest's `version` — that one is an ABI floor for an unpinned
+        // dependency and would reject a legitimate newer selection.
+        let header = mfb_repository::package::parse_mfp_package(&blob)
+            .map_err(|err| format!("registry returned a malformed package: {err}"))?;
+        if header.ident != package.ident
+            || header.version != package.selected
+            || header.name != package.name
+        {
+            return Err(format!(
+                "package `{}` does not match mfb.lock: the registry served \
+                 `{}` version {} (name `{}`), but the lock pins `{}` version {} \
+                 (name `{}`); refusing to install",
+                package.name,
+                header.ident,
+                header.version,
+                header.name,
+                package.ident,
+                package.selected,
+                package.name
+            ));
+        }
         // `package.name` comes from `mfb.lock`, which an attacker who ships a repo
         // controls: stage the untrusted blob under an exclusively created name
         // inside `packages/`, verify it there, and only then rename it into place.
