@@ -93,6 +93,13 @@ const CROSS_BACKEND: &[&str] = &[
 
 /// Every committed single-file fixture this harness can lower, four per family.
 ///
+/// Three entries are hand-added rather than generated, each aimed at a named
+/// gap the cap of four had dropped: `func_typename_builtin_calls` (the
+/// compile-time `typeName` fold, across every builtin family),
+/// `vector-promotion` (a vector held in registers rather than as a block), and
+/// `http-tcp-transport-rt` (a resource UNION carrying STATE, whose error-path
+/// binding needs the closed-record default).
+///
 /// Four per family for most, and ALL of them for the nineteen families whose
 /// lowering shapes carry the remaining gaps -- collection mutation, the
 /// RES/arena transfer paths, generics, traps, threads, and the error corpora.
@@ -251,6 +258,7 @@ const CORPUS: &[&str] = &[
     "user-function-default-args-result-valid",
     "user-function-stack-args-valid",
     // rt-behavior/general
+    "func_typename_builtin_calls",
     "bug133_find_multibyte_start",
     "bug137_bool_xor_call",
     "bug143_string_self_append_chain",
@@ -263,6 +271,7 @@ const CORPUS: &[&str] = &[
     "user-generic-single-param-rt",
     "user-generic-unknown-refine-rt",
     // rt-behavior/http
+    "http-tcp-transport-rt",
     "func_http_constructors_valid",
     "func_http_read_crlf_invalid",
     "func_http_respondPath_valid",
@@ -436,6 +445,7 @@ const CORPUS: &[&str] = &[
     "func_udp_endpoints_valid",
     "func_udp_poll_valid",
     // rt-behavior/vector
+    "vector-promotion",
     "vector-inline-ops",
     "vector-length-distance-inline-rt",
     "vector-native-carrier",
@@ -692,8 +702,8 @@ fn every_backend_lowers_the_corpus_to_the_same_program() {
 #[test]
 fn no_corpus_function_lowers_to_an_empty_body() {
     assert!(
-        CORPUS.len() >= 410,
-        "the corpus is {} fixtures; it was generated at 421 across 88 families, \
+        CORPUS.len() >= 420,
+        "the corpus is {} fixtures; it was generated at 421 across 88 families, plus three added by hand, \
          and a list that shrinks silently is a gate that stops measuring",
         CORPUS.len()
     );

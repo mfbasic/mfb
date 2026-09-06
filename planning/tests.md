@@ -353,6 +353,60 @@ backends **from any host**, so a test for a macOS emitter names
 this task adds for a platform-specific file must name its target explicitly
 rather than relying on the host.
 
+### F4 — `mfb build -ncode` is the measuring instrument, not a guess
+
+The three test files queued before this point all asserted a mechanism that had
+been reasoned about rather than observed, and all three were wrong. The cheap
+way to observe one is the compiler's own dump:
+
+    mfb build -ncode -target linux-x86_64 .   # writes <project>.ncode
+
+`.ncode` is JSON — a `functions` array, each with an `instructions` array of
+`{op, ...fields}` — so "which lowering did this program get" is answered by
+listing `main`'s `label` names, and "was this three-instruction sequence
+emitted" by scanning for it. It runs against `target/release/mfb`, so it costs
+nothing in the coverage profile and needs no rebuild between probes.
+
+The rule this cost enough to be worth writing down: **name the label family
+before asserting on it.** Every one of the three drafts below asserted an
+instruction-count or opcode difference that turned out to be produced by
+something else in the program.
+
+### F5 — three branches no straightforward program reaches
+
+Each was measured with the F4 instrument, on the date below, and each is a
+place where writing a test *first* would have produced a green test that proved
+nothing.
+
+**`optimizer/opt1/fuse.rs` did not fire.** Two adjacent `FOR i = 0 TO 40` loops
+with independent integer-accumulator bodies still emit two `for_loop_*` labels
+at `-O3` (fusion is a Level-**3** row, not Level-2 — `level_enabled(3)`). `-O1`
+and `-O3` differ only in that `for_continue_*` disappears, which is empty-block
+elimination. A draft test that counted labels containing `"for"` or `"loop"`
+read that disappearance as fusion and PASSED. The likely reason the row
+declines: the pass requires both bodies to be flat `pure_statement`s, and
+checked integer arithmetic lowers with an overflow branch (`overflow_ok_*`
+appears in the stream).
+
+**`list_mutate.rs`'s `if value_alignment > 1` did not fire.** Neither `List OF
+Byte` nor `List OF <record with a String and a Float>` emitted the round-up
+inside the append region: both take `append_inplace_*`, with identical label
+sets. The two `mov_imm 18446744073709551608 / and` pairs the record program does
+emit sit at indices 222 and 264, inside `string_concat_alloc_ok_*` and
+`record_build_alloc_ok_*` — record construction, ahead of the append at 410. A
+whole-program count of `and` instructions read those as the branch firing.
+
+**The record-field in-place path (G13–G18) did not fire.** All three `WITH bag {
+a := append(...) }` shapes — self-append, cross-field (G18), and self-alias
+(G12) — rebuild through `list_insert_*` on a record with two `List OF Integer`
+fields. The sanctioned shape and the G18 shape produced streams of *identical*
+length (1608 instructions each), so the guard makes no observable difference
+there: the fast path had already declined upstream.
+
+None of the three is a bug on its face, and none was chased further — this is a
+coverage task. They are recorded with their measurements so the next session
+starts from an observation rather than from the same wrong guess.
+
 ## Corrections
 ### C1 — "the coverage job is the only red job in CI" is false; `fmt` is red too
 

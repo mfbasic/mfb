@@ -37,6 +37,7 @@ mod data_layout;
 mod diagnostics;
 mod entry;
 mod imported_types;
+mod inplace;
 mod link;
 mod math;
 mod optimizer;
