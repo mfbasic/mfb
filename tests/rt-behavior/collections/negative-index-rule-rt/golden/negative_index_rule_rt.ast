@@ -1,0 +1,225 @@
+{
+  "project": "negative_index_rule_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "astrings", "line": 1 },
+    { "module": "collections", "line": 2 },
+    { "module": "io", "line": 3 },
+    { "module": "strings", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "isPos",
+      "line": 18,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 18 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "findIndexAt",
+      "line": 22,
+      "params": [
+      { "name": "nums", "type": "List OF Integer", "default": null, "line": 22 },
+      { "name": "start", "type": "Integer", "default": null, "line": 22 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.findIndex", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "identifier", "value": "isPos" }, { "kind": "identifier", "value": "start" }] }] }, "line": 23 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 25,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 26 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "findLastIndexAt",
+      "line": 30,
+      "params": [
+      { "name": "nums", "type": "List OF Integer", "default": null, "line": 30 },
+      { "name": "start", "type": "Integer", "default": null, "line": 30 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.findLastIndex", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "identifier", "value": "isPos" }, { "kind": "identifier", "value": "start" }] }] }, "line": 31 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 33,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 34 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "findLastIndexWhole",
+      "line": 38,
+      "params": [
+      { "name": "nums", "type": "List OF Integer", "default": null, "line": 38 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.findLastIndex", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "identifier", "value": "isPos" }] }] }, "line": 39 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 41,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 42 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "stringsFindAt",
+      "line": 46,
+      "params": [
+      { "name": "value", "type": "String", "default": null, "line": 46 },
+      { "name": "needle", "type": "String", "default": null, "line": 46 },
+      { "name": "start", "type": "Integer", "default": null, "line": 46 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "needle" }, { "kind": "identifier", "value": "start" }] }] }, "line": 47 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 49,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 50 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "stringsMidAt",
+      "line": 54,
+      "params": [
+      { "name": "value", "type": "String", "default": null, "line": 54 },
+      { "name": "start", "type": "Integer", "default": null, "line": 54 },
+      { "name": "count", "type": "Integer", "default": null, "line": 54 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "start" }, { "kind": "identifier", "value": "count" }] }, "line": 55 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 57,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 58 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "collectionsMidAt",
+      "line": 62,
+      "params": [
+      { "name": "nums", "type": "List OF Integer", "default": null, "line": 62 },
+      { "name": "start", "type": "Integer", "default": null, "line": 62 },
+      { "name": "count", "type": "Integer", "default": null, "line": 62 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.mid", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "identifier", "value": "start" }, { "kind": "identifier", "value": "count" }] }] }] }, "line": 63 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 65,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 66 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "addAttributeOver",
+      "line": 70,
+      "params": [
+      { "name": "start", "type": "Integer", "default": null, "line": 70 },
+      { "name": "endIndex", "type": "Integer", "default": null, "line": 70 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "plain", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.fromString", "arguments": [{ "kind": "string", "value": "hello" }] }, "line": 71 },
+      { "kind": "binding", "mutable": false, "name": "styled", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "plain" }, { "kind": "identifier", "value": "start" }, { "kind": "identifier", "value": "endIndex" }, { "kind": "call", "callee": "astrings.bold", "arguments": [] }] }, "line": 72 },
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "astrings.getAttributes", "arguments": [{ "kind": "identifier", "value": "styled" }, { "kind": "number", "value": "0" }] }] }] }, "line": 73 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 75,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 76 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 80,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "nums", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "3" }] }, "line": 81 },
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findIndex(nums, isPos, 0) = " }, "right": { "kind": "call", "callee": "findIndexAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "number", "value": "0" }] } }] }, "line": 85 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findIndex(nums, isPos, -1) = " }, "right": { "kind": "call", "callee": "findIndexAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] } }] }, "line": 86 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findIndex(nums, isPos, -4) = " }, "right": { "kind": "call", "callee": "findIndexAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "4" } }] } }] }, "line": 87 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findLastIndex(nums, isPos, 3) = " }, "right": { "kind": "call", "callee": "findLastIndexAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "number", "value": "3" }] } }] }, "line": 90 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findLastIndex(nums, isPos, 0) = " }, "right": { "kind": "call", "callee": "findLastIndexAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "number", "value": "0" }] } }] }, "line": 91 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findLastIndex(nums, isPos, -1) = " }, "right": { "kind": "call", "callee": "findLastIndexAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] } }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findLastIndex(nums, isPos, -2) = " }, "right": { "kind": "call", "callee": "findLastIndexAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }] } }] }, "line": 93 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findLastIndex(nums, isPos, -4) = " }, "right": { "kind": "call", "callee": "findLastIndexAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "4" } }] } }] }, "line": 94 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findLastIndex(nums, isPos, -5) = " }, "right": { "kind": "call", "callee": "findLastIndexAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "5" } }] } }] }, "line": 95 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findLastIndex(nums, isPos) = " }, "right": { "kind": "call", "callee": "findLastIndexWhole", "arguments": [{ "kind": "identifier", "value": "nums" }] } }] }, "line": 99 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findLastIndex(empty, isPos) = " }, "right": { "kind": "call", "callee": "findLastIndexWhole", "arguments": [{ "kind": "identifier", "value": "empty" }] } }] }, "line": 100 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "strings::find(abcabc, b, 2) = " }, "right": { "kind": "call", "callee": "stringsFindAt", "arguments": [{ "kind": "string", "value": "abcabc" }, { "kind": "string", "value": "b" }, { "kind": "number", "value": "2" }] } }] }, "line": 103 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "strings::find(abcabc, b, -1) = " }, "right": { "kind": "call", "callee": "stringsFindAt", "arguments": [{ "kind": "string", "value": "abcabc" }, { "kind": "string", "value": "b" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] } }] }, "line": 104 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "strings::mid(abcdef, 1, 2) = " }, "right": { "kind": "call", "callee": "stringsMidAt", "arguments": [{ "kind": "string", "value": "abcdef" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] } }] }, "line": 105 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "strings::mid(abcdef, -1, 2) = " }, "right": { "kind": "call", "callee": "stringsMidAt", "arguments": [{ "kind": "string", "value": "abcdef" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "2" }] } }] }, "line": 106 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "strings::mid(abcdef, 1, -1) = " }, "right": { "kind": "call", "callee": "stringsMidAt", "arguments": [{ "kind": "string", "value": "abcdef" }, { "kind": "number", "value": "1" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] } }] }, "line": 107 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "collections::mid(nums, 1, 2) = " }, "right": { "kind": "call", "callee": "collectionsMidAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] } }] }, "line": 108 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "collections::mid(nums, -1, 2) = " }, "right": { "kind": "call", "callee": "collectionsMidAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "2" }] } }] }, "line": 109 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "collections::mid(nums, 1, -1) = " }, "right": { "kind": "call", "callee": "collectionsMidAt", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "number", "value": "1" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] } }] }, "line": 110 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "astrings::addAttribute(0, 2) = " }, "right": { "kind": "call", "callee": "addAttributeOver", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "2" }] } }] }, "line": 111 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "astrings::addAttribute(-1, 2) = " }, "right": { "kind": "call", "callee": "addAttributeOver", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "2" }] } }] }, "line": 112 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "astrings::addAttribute(0, -1) = " }, "right": { "kind": "call", "callee": "addAttributeOver", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] } }] }, "line": 113 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 114 }
+      ]
+    }
+    ]
+  }
+  ]
+}

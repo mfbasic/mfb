@@ -1,0 +1,31 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/negative-index-rule-rt
+Wrote AST to tests/rt-behavior/collections/negative-index-rule-rt/negative_index_rule_rt.ast
+Wrote IR to tests/rt-behavior/collections/negative-index-rule-rt/negative_index_rule_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/negative-index-rule-rt
+Wrote executable to tests/rt-behavior/collections/negative-index-rule-rt/build/negative_index_rule_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/negative-index-rule-rt/build/negative_index_rule_rt.out
+findIndex(nums, isPos, 0) = 0
+findIndex(nums, isPos, -1) = ERR 77050001
+findIndex(nums, isPos, -4) = ERR 77050001
+findLastIndex(nums, isPos, 3) = 3
+findLastIndex(nums, isPos, 0) = 0
+findLastIndex(nums, isPos, -1) = 3
+findLastIndex(nums, isPos, -2) = 1
+findLastIndex(nums, isPos, -4) = 0
+findLastIndex(nums, isPos, -5) = ERR 77050001
+findLastIndex(nums, isPos) = 3
+findLastIndex(empty, isPos) = ERR 77050001
+strings::find(abcabc, b, 2) = 4
+strings::find(abcabc, b, -1) = ERR 77050001
+strings::mid(abcdef, 1, 2) = bc
+strings::mid(abcdef, -1, 2) = ERR 77050001
+strings::mid(abcdef, 1, -1) = ERR 77050001
+collections::mid(nums, 1, 2) = 2
+collections::mid(nums, -1, 2) = ERR 77050001
+collections::mid(nums, 1, -1) = ERR 77050001
+astrings::addAttribute(0, 2) = 1
+astrings::addAttribute(-1, 2) = ERR 77050002
+astrings::addAttribute(0, -1) = ERR 77050002
+[exit 0]
