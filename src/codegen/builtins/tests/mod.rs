@@ -43,6 +43,7 @@ mod imported_types;
 mod inplace;
 mod inplace_fields;
 mod link;
+mod link_out_widths;
 mod link_struct_widths;
 mod math;
 mod nir_json;
