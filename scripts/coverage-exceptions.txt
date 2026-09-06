@@ -22,8 +22,12 @@ src/cli/repo.rs       # register/auth/link/trust perform live HTTP + key-store m
 src/main.rs           # process entry point: fn main only forwards to cli::dispatch::run() (the excepted dispatch body moved to src/cli/dispatch.rs by bug-340 B1); fn main is never invoked by a unit test
 src/target.rs         # write_executable/nir/plan/object dispatchers invoke per-OS backends that spawn linkers/codesign over a full IrProject; BuildTarget/NativeBuildMode parsing is unit-covered
 
-# --- Required-for-exhaustiveness defensive match arms (unreachable at runtime) ---
-src/syntaxcheck/resources.rs  # ~94.6%: `Type::Result` arms in exhaustive type-walkers (contains_thread/is_copyable/is_thread_sendable — Result isn't source-nameable there) and thread.send/transfer resource arms rejected earlier at declaration. The arms are required for match exhaustiveness so they cannot be deleted; every reachable rule IS unit-tested.
+# `src/syntaxcheck/resources.rs` had an exception here for its
+# required-for-exhaustiveness `Type::Result` arms. The whole `src/syntaxcheck/`
+# directory is gone; `contains_thread` / `is_thread_sendable` now live in
+# `src/ir/verify/link.rs` (99.29%) and `src/codegen/builtins/mod.rs` (99.51%),
+# both of which clear the floor on their own. The entry matched nothing and was
+# removed rather than repointed, because there is nothing to point it at.
 
 # --- plan-68: files capped below 95% by genuinely-unreachable defensive / integration arms (each backfill-audited against the fresh lcov; the coverable body IS unit-tested, the residual is proven unreachable) ---
 repository/src/main.rs  # async server entrypoint main() (:48-284, wrapped in `// coverage:off` which cargo-llvm-cov 0.8.7 ignores): reads env::args, opens the on-disk SQLite store, constructs the blob store, binds the listen socket, runs server::serve(...).await, and process::exit. Every pure helper (the parse_* arg helpers, the store-op helpers, init_root_expires_at) is unit-covered; the entrypoint body is socket-bind + live-HTTP + argv/exit
