@@ -156,6 +156,66 @@ FUNC main() AS Integer
 END FUNC
 ";
 
+/// The statement and value shapes the three programs above do not have.
+///
+/// `NirModule::to_json` is a `match` over every `NirOp` and every `NirValue`,
+/// and an arm nothing produces is an arm nothing checks. What was left after the
+/// programs above: `DoUntil`, `ExitLoop`, `ContinueLoop`, `Fail`, `StateAssign`,
+/// the `Else` and `OneOf` match patterns, `SetLiteral`, `MapLiteral`, `Unary`,
+/// `LocalRef`, `FunctionRef`, and the four `Result*` values a `TRAP` produces.
+///
+/// Written as one program rather than a dozen because the dump is per-MODULE:
+/// every shape in one module is one lowering, and the assertion is over the one
+/// text.
+const OP_SHAPES: &str = "\
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+FUNC classify(n AS Integer) AS String
+  MATCH n
+    CASE 1, 2
+      RETURN \"low\"
+    CASE ELSE
+      RETURN \"high\"
+  END MATCH
+END FUNC
+
+FUNC risky(n AS Integer) AS Integer
+  IF n < 0 THEN
+    FAIL error(77060001, \"negative\")
+  END IF
+  RETURN -n
+END FUNC
+
+FUNC main() AS Integer
+  LET seen AS Set OF Integer = Set OF Integer { 1, 2, 3 }
+  LET named AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }
+  MUT total AS Integer = 0
+  MUT d AS Integer = 0
+  DO
+    d = d + 1
+    IF d = 1 THEN CONTINUE DO
+    total = total + 10
+    IF d > 3 THEN EXIT DO
+  LOOP UNTIL d > 9
+  FOR i = 0 TO 4
+    IF i = 2 THEN CONTINUE FOR
+    IF i = 4 THEN EXIT FOR
+    total = total + i
+  NEXT
+  LET apply AS FUNC(Integer) AS String = classify
+  io::print(apply(total))
+  io::print(toString(len(seen)) & toString(len(named)))
+  io::print(toString(risky(total)))
+  RETURN 0
+TRAP(e)
+  io::print(\"trapped \" & toString(e.code))
+  RETURN 1
+END TRAP
+END FUNC
+";
+
 /// Every backend's `-nir` dump is parseable JSON.
 ///
 /// The dump is a debugging surface, so a malformed one is not caught by
@@ -167,6 +227,7 @@ fn the_nir_dump_is_json_on_every_backend() {
         ("linking", LINKING),
         ("shapes", SHAPES),
         ("module shapes", MODULE_SHAPES),
+        ("op shapes", OP_SHAPES),
     ] {
         for target in CodeTarget::ALL {
             let module = nir_for_src(source, target, Console)
@@ -293,6 +354,7 @@ fn the_native_plan_dump_is_json_on_every_backend() {
         ("linking", LINKING),
         ("shapes", SHAPES),
         ("module shapes", MODULE_SHAPES),
+        ("op shapes", OP_SHAPES),
     ] {
         for target in CodeTarget::ALL {
             let plan = native_plan_for_src(source, target, Console)
@@ -312,5 +374,39 @@ fn the_native_plan_dump_is_json_on_every_backend() {
                 target.name()
             );
         }
+    }
+}
+
+/// The dump names each statement and value shape the program has.
+///
+/// Parseability says the writer produced JSON; this says it produced the right
+/// KINDS. An arm that fell through to a neighbour's spelling — `doUntil`
+/// written as `while`, `oneOf` as a plain `value` — is still valid JSON and
+/// still describes a program, just not this one.
+#[test]
+fn the_nir_dump_spells_every_shape_the_program_has() {
+    let module =
+        nir_for_src(OP_SHAPES, CodeTarget::LinuxX86_64, Console).expect("the program lowers");
+    let text = module.to_json();
+    for kind in [
+        "doUntil",
+        "exitLoop",
+        "continueLoop",
+        "fail",
+        // The writer's own spellings, read off `nir/json.rs` rather than
+        // guessed from the variant names: a `SetLiteral` is `"kind": "set"`.
+        "set",
+        "map",
+        "unary",
+        "functionRef",
+        "oneOf",
+        "else",
+    ] {
+        assert!(
+            text.contains(&format!("\"{kind}\"")),
+            "the program has a {kind} and the dump does not spell one; an arm \
+             that falls through to a neighbour's spelling is still valid JSON \
+             and still describes a program, just not this one"
+        );
     }
 }
