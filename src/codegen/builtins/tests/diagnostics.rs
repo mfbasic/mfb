@@ -616,3 +616,50 @@ fn the_syntax_corpus_still_reaches_every_rule_it_used_to() {
         produced.len()
     );
 }
+
+/// Package-bearing fixtures whose packages EXPORT types, and which are valid.
+///
+/// These are `rt-behavior` fixtures, so their goldens are build logs and runtime
+/// output rather than diagnostic codes — they cannot be checked against a golden
+/// the way the corpora above are. What can be checked is the thing that makes
+/// them interesting here: they are VALID, so both source passes must produce
+/// nothing at all.
+///
+/// The pass they reach that nothing else does is `validate_package_type`, which
+/// walks each imported package's exported records and unions. A package that
+/// exports only functions never reaches it, and the 19 package-bearing syntax
+/// fixtures above export only functions.
+const TYPE_EXPORTING_PACKAGE_FIXTURES: &[&str] = &[
+    "bug104_aliased_overload_import",
+    "native-resource-import-valid",
+    "project-record-comparable-package-valid",
+    "project-with-package-import-as",
+    "record-res-field-export-rt",
+    "resource-state-import-rt",
+];
+
+/// A valid program that imports a type-exporting package passes both passes
+/// clean.
+///
+/// "Produces nothing" is a weaker assertion than reproducing a golden and it is
+/// the right one here: these fixtures have no diagnostic golden to reproduce,
+/// and a diagnostic appearing on a program the acceptance suite BUILDS AND RUNS
+/// is unambiguously wrong however it is spelled.
+#[test]
+fn a_valid_program_importing_a_type_exporting_package_is_silent() {
+    let mut noisy = Vec::new();
+    for fixture in TYPE_EXPORTING_PACKAGE_FIXTURES {
+        match check_fixture_project(fixture) {
+            Ok(rules) if rules.is_empty() => {}
+            Ok(rules) => noisy.push(format!("{fixture}: {rules:?}")),
+            Err(err) => noisy.push(format!("{fixture}: {err}")),
+        }
+    }
+    assert!(
+        noisy.is_empty(),
+        "{} fixture(s) the acceptance suite builds and runs produced a source \
+         diagnostic, or would not load:\n  {}",
+        noisy.len(),
+        noisy.join("\n  ")
+    );
+}
