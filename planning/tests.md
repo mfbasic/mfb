@@ -406,7 +406,8 @@ these files, and is not for `repository/src/**`).
 | after the remaining `-nir` op/value/resource shapes | 224 | 7,290 |
 | after the record-field collection mutators | 223 | 7,077 |
 | after the comparison entry points and the resource-union default | 222 | 7,011 |
-| after the corpus expansion (424 -> 620 fixtures) | **221** | **6,982** |
+| after the corpus expansion (424 -> 620 fixtures) | 221 | 6,982 |
+| after the `CSTRUCT` tail zeroing | **221** | **6,977** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
