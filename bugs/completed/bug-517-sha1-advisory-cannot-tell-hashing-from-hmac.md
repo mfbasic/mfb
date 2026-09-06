@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: **FIXED** (2026-09-05). The owner ruled on the question this document
+Status: **FIXED** (2026-09-05, `5c2024f71`). The owner ruled on the question this document
 was blocked on: the advisory is **use-scoped** — `hash` warns, `hmac`/`hkdf`/
 `pbkdf2` do not. That reverses `plan-109-A`'s recorded decision; see "The owner's
 ruling" below for what the reversal cost and what it deliberately did not change.
