@@ -513,6 +513,50 @@ The third cluster is `target/*/mod.rs::write_executable` (84 + 81 + 64 lines),
 which spawns the system linker; that is integration territory and the existing
 exceptions already cover its neighbours.
 
+### F7 — the harness lowers ONE source file, and that is what blocks the biggest cluster
+
+`testutil::fixture_src` reads a fixture's `src/main.mfb` and nothing else, and
+`project_from_src` builds a project from that one string. A fixture whose
+`project.json` carries a `packages` entry therefore cannot be lowered in
+process at all.
+
+`corpus.rs` already excluded two fixtures for this, correctly, but recorded the
+reason as "a harness gap" without saying which:
+
+    // Two obvious candidates are deliberately absent --
+    // `thread-fixed-list-transfer-rt` and `p121d-state-reach-rt` -- because
+    // they do not lower here on ANY backend ("thread.start entry point must
+    // name an ISOLATED FUNC").
+
+The cause is now identified. `thread-fixed-list-transfer-rt` writes
+
+    thread::start(fixed_list_xfer_worker::doubleIntegers, "seed")
+
+and `packages/fixed_list_xfer_worker.mfp` is where that entry lives.
+`ir::shape`'s check for a QUALIFIED entry name looks the member up in
+`imported_signatures`, which a single-source project never populates — so the
+entry is not seen as `ISOLATED` and the diagnostic fires. It is not a thread
+limitation and not a backend difference; it is one missing input.
+
+**Why it is worth fixing rather than working around.** It is the most likely
+explanation for the largest remaining cluster. F6's cross-arena deep-copy family
+(~540 lines) is reached only by copying a value that EMBEDS A RESOURCE into the
+current arena — `emit_thread_copy_real` routes every flat value to
+`copy_flat_block` and leaves only "resources and the collections / unions that
+embed them" for the four uncovered copiers. A resource-bearing composite handed
+to a thread is exactly what `thread-fixed-list-transfer-rt` is for. It is also
+the standing hypothesis in bug-548: a union variant arriving from a `.mfp` is
+the one shape that could put a type in `union_variant_tags` without putting it
+in `record_fields`.
+
+**What it needs.** `code_for_src_with` and `check_src_with_imports` already take
+the imported side (`ir::ImportedTypeDef`), so the missing half is reading a
+fixture's `project.json`, loading each `packages` entry, and handing the
+signatures and type defs to the harness. Note the caution in
+`committed-mfp-goes-stale-on-resource-requalification`: a committed `.mfp` goes
+stale, so the loader should prefer building the package from source where the
+fixture ships it.
+
 ## Corrections
 ### C1 — "the coverage job is the only red job in CI" is false; `fmt` is red too
 
