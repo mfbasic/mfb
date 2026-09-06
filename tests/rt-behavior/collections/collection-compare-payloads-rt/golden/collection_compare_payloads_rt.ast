@@ -1,0 +1,76 @@
+{
+  "project": "collection_compare_payloads_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 19 },
+    { "module": "io", "line": 20 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Point",
+      "line": 22,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 23 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 24 }
+      ]
+    },
+    {
+      "kind": "enum",
+      "visibility": "public",
+      "name": "Suit",
+      "line": 27,
+      "members": [
+      { "name": "Hearts", "line": 28 },
+      { "name": "Spades", "line": 28 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 31,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "pts", "type": "Set OF Point", "value": { "kind": "set", "elementType": "Point", "values": [{ "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }] }, "line": 33 },
+      { "kind": "assignment", "name": "pts", "value": { "kind": "call", "callee": "collections.add", "arguments": [{ "kind": "identifier", "value": "pts" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }] }, "line": 34 },
+      { "kind": "assignment", "name": "pts", "value": { "kind": "call", "callee": "collections.add", "arguments": [{ "kind": "identifier", "value": "pts" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "setPoint=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "pts" }] }] } }] }, "line": 36 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "pts" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }] },
+        "line": 37,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "hasPoint" }] }, "line": 38 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "byPoint", "type": "Map OF Point TO String", "value": { "kind": "map", "keyType": "Point", "valueType": "String", "entries": [{ "key": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "value": { "kind": "string", "value": "a" } }] }, "line": 43 },
+      { "kind": "assignment", "name": "byPoint", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "byPoint" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, { "kind": "string", "value": "b" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mapPoint=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "byPoint" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }] }] } }] }, "line": 45 },
+      { "kind": "assignment", "name": "byPoint", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "identifier", "value": "byPoint" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "afterRemove=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "byPoint" }] }] } }] }, "line": 47 },
+      { "kind": "binding", "mutable": true, "name": "chars", "type": "Set OF Scalar", "value": { "kind": "set", "elementType": "Scalar", "values": [{ "kind": "scalar", "value": 97 }] }, "line": 50 },
+      { "kind": "assignment", "name": "chars", "value": { "kind": "call", "callee": "collections.add", "arguments": [{ "kind": "identifier", "value": "chars" }, { "kind": "scalar", "value": 98 }] }, "line": 51 },
+      { "kind": "assignment", "name": "chars", "value": { "kind": "call", "callee": "collections.add", "arguments": [{ "kind": "identifier", "value": "chars" }, { "kind": "scalar", "value": 97 }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "setScalar=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "chars" }] }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "chars" }, { "kind": "scalar", "value": 98 }] }] } }] }, "line": 53 },
+      { "kind": "binding", "mutable": true, "name": "suits", "type": "Set OF Suit", "value": { "kind": "set", "elementType": "Suit", "values": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Suit" }, "member": "Hearts" }] }, "line": 56 },
+      { "kind": "assignment", "name": "suits", "value": { "kind": "call", "callee": "collections.add", "arguments": [{ "kind": "identifier", "value": "suits" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Suit" }, "member": "Spades" }] }, "line": 57 },
+      { "kind": "assignment", "name": "suits", "value": { "kind": "call", "callee": "collections.add", "arguments": [{ "kind": "identifier", "value": "suits" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Suit" }, "member": "Hearts" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "setEnum=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "suits" }] }] } }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "money", "type": "Set OF Money", "value": { "kind": "set", "elementType": "Money", "values": [{ "kind": "number", "value": "1.00m" }, { "kind": "number", "value": "2.50m" }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "setMoney=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "money" }] }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "money" }, { "kind": "number", "value": "2.50m" }] }] } }] }, "line": 63 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 65 }
+      ]
+    }
+    ]
+  }
+  ]
+}

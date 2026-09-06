@@ -48,6 +48,7 @@ mod link_struct_widths;
 mod literal_coercion;
 mod math;
 mod money_operators;
+mod nir_dump;
 mod nir_fault;
 mod nir_json;
 mod nir_validation;

@@ -1,0 +1,66 @@
+' Every element type a Set dedup and a Map key lookup can be asked to compare.
+'
+' `collection/compare/builder_collection_compare.rs` is three emitters and each
+' is a `match` on the ELEMENT type, because what "equal" costs depends entirely
+' on how wide the element is in the block: one byte for Boolean/Byte, four for
+' Scalar, eight for Integer/Float/Fixed/Money and for an enum's ordinal, a
+' pointer for a nested collection, and a field-by-field walk for a record.
+'
+' A wrong arm is not a build failure. It is a wrong ANSWER, and a quiet one: a
+' `Set OF Scalar` compared eight bytes wide treats two distinct scalars as equal
+' whenever the four bytes that follow them in the block happen to match, so the
+' set silently drops an element. That is why every line below prints a COUNT and
+' a membership answer rather than just building.
+'
+' The arms exercised here are the ones the Boolean/Byte/String rows next door do
+' not reach: `Scalar` (four bytes), an enum (the ordinal), `Money` (eight, and
+' distinct from Integer in the type model), and a RECORD payload, which is the
+' one arm that does not compare bytes at all -- it walks the fields.
+IMPORT collections
+IMPORT io
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+ENUM Suit
+  Hearts, Spades
+END ENUM
+
+FUNC main() AS Integer
+  ' ---- RECORD payloads: the dedup walks fields, not bytes -----------------
+  MUT pts AS Set OF Point = Set OF Point { Point[1, 2] }
+  pts = collections::add(pts, Point[3, 4])
+  pts = collections::add(pts, Point[1, 2])
+  io::print("setPoint=" & toString(len(pts)))
+  IF collections::contains(pts, Point[3, 4]) THEN
+    io::print("hasPoint")
+  END IF
+
+  ' A record as a MAP KEY reaches the third emitter: a stored payload against a
+  ' loose value, on lookup and on the in-place remove.
+  MUT byPoint AS Map OF Point TO String = Map OF Point TO String { Point[1, 2] := "a" }
+  byPoint = collections::set(byPoint, Point[3, 4], "b")
+  io::print("mapPoint=" & toString(collections::hasKey(byPoint, Point[1, 2])))
+  byPoint = collections::removeKey(byPoint, Point[1, 2])
+  io::print("afterRemove=" & toString(len(byPoint)))
+
+  ' ---- Scalar: FOUR bytes, and the only element type that is ---------------
+  MUT chars AS Set OF Scalar = Set OF Scalar { `a` }
+  chars = collections::add(chars, `b`)
+  chars = collections::add(chars, `a`)
+  io::print("setScalar=" & toString(len(chars)) & toString(collections::contains(chars, `b`)))
+
+  ' ---- an enum: the ordinal, eight bytes (bug-549's family) ----------------
+  MUT suits AS Set OF Suit = Set OF Suit { Suit.Hearts }
+  suits = collections::add(suits, Suit.Spades)
+  suits = collections::add(suits, Suit.Hearts)
+  io::print("setEnum=" & toString(len(suits)))
+
+  ' ---- Money: eight bytes, and a separate arm from Integer -----------------
+  LET money AS Set OF Money = Set OF Money { 1.00m, 2.50m }
+  io::print("setMoney=" & toString(len(money)) & toString(collections::contains(money, 2.50m)))
+
+  RETURN 0
+END FUNC

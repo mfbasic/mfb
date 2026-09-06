@@ -269,6 +269,7 @@ pub(super) const CORPUS: &[&str] = &[
     "comparable-records-rt",
     "byref-capture-rt",
     "inplace-decline-aliasing-rt",
+    "collection-compare-payloads-rt",
     "state-scalar-inplace-decline-rt",
     "default-values-rt",
     "overload-sub-valid",

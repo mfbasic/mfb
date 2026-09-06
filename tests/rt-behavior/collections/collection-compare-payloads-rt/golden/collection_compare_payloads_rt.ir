@@ -1,0 +1,75 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "collection_compare_payloads_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 22,
+    "visibility": "public",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "line": 23, "name": "x", "type": "Integer" },
+    { "visibility": null, "line": 24, "name": "y", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 27,
+    "visibility": "public",
+    "name": "Suit",
+    "members": [
+    { "name": "Hearts" },
+    { "name": "Spades" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 31,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 33, "mutable": true, "name": "pts", "type": "Set OF Point", "value": { "kind": "set", "type": "Set OF Point", "values": [{ "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
+    { "op": "assign", "line": 34, "name": "pts", "value": { "kind": "call", "type": "Set OF Point", "target": "collections.add", "args": [{ "kind": "local", "name": "pts" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] }] } },
+    { "op": "assign", "line": 35, "name": "pts", "value": { "kind": "call", "type": "Set OF Point", "target": "collections.add", "args": [{ "kind": "local", "name": "pts" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "setPoint=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "pts" }] }] } }] } },
+    {
+      "op": "if",
+      "line": 37,
+      "condition": { "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "pts" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] }] },
+      "then": [
+      { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "hasPoint" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 43, "mutable": true, "name": "byPoint", "type": "Map OF Point TO String", "value": { "kind": "map", "type": "Map OF Point TO String", "entries": [{ "key": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, "value": { "kind": "const", "type": "String", "value": "a" } }] } },
+    { "op": "assign", "line": 44, "name": "byPoint", "value": { "kind": "call", "type": "Map OF Point TO String", "target": "collections.set", "args": [{ "kind": "local", "name": "byPoint" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] }, { "kind": "const", "type": "String", "value": "b" }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "mapPoint=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "local", "name": "byPoint" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }] }] } }] } },
+    { "op": "assign", "line": 46, "name": "byPoint", "value": { "kind": "call", "type": "Map OF Point TO String", "target": "collections.removeKey", "args": [{ "kind": "local", "name": "byPoint" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "afterRemove=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "byPoint" }] }] } }] } },
+    { "op": "bind", "line": 50, "mutable": true, "name": "chars", "type": "Set OF Scalar", "value": { "kind": "set", "type": "Set OF Scalar", "values": [{ "kind": "const", "type": "Scalar", "value": "97" }] } },
+    { "op": "assign", "line": 51, "name": "chars", "value": { "kind": "call", "type": "Set OF Scalar", "target": "collections.add", "args": [{ "kind": "local", "name": "chars" }, { "kind": "const", "type": "Scalar", "value": "98" }] } },
+    { "op": "assign", "line": 52, "name": "chars", "value": { "kind": "call", "type": "Set OF Scalar", "target": "collections.add", "args": [{ "kind": "local", "name": "chars" }, { "kind": "const", "type": "Scalar", "value": "97" }] } },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "setScalar=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "chars" }] }] } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "chars" }, { "kind": "const", "type": "Scalar", "value": "98" }] }] } }] } },
+    { "op": "bind", "line": 56, "mutable": true, "name": "suits", "type": "Set OF Suit", "value": { "kind": "set", "type": "Set OF Suit", "values": [{ "kind": "memberAccess", "type": "Suit", "target": { "kind": "local", "name": "Suit" }, "member": "Hearts" }] } },
+    { "op": "assign", "line": 57, "name": "suits", "value": { "kind": "call", "type": "Set OF Suit", "target": "collections.add", "args": [{ "kind": "local", "name": "suits" }, { "kind": "memberAccess", "type": "Suit", "target": { "kind": "local", "name": "Suit" }, "member": "Spades" }] } },
+    { "op": "assign", "line": 58, "name": "suits", "value": { "kind": "call", "type": "Set OF Suit", "target": "collections.add", "args": [{ "kind": "local", "name": "suits" }, { "kind": "memberAccess", "type": "Suit", "target": { "kind": "local", "name": "Suit" }, "member": "Hearts" }] } },
+    { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "setEnum=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "suits" }] }] } }] } },
+    { "op": "bind", "line": 62, "mutable": false, "name": "money", "type": "Set OF Money", "value": { "kind": "set", "type": "Set OF Money", "values": [{ "kind": "const", "type": "Money", "value": "1.00" }, { "kind": "const", "type": "Money", "value": "2.50" }] } },
+    { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "setMoney=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "money" }] }] } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "money" }, { "kind": "const", "type": "Money", "value": "2.50" }] }] } }] } },
+    { "op": "return", "line": 65, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

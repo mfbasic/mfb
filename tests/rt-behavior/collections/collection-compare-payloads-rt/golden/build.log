@@ -1,0 +1,16 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/collection-compare-payloads-rt
+Wrote AST to tests/rt-behavior/collections/collection-compare-payloads-rt/collection_compare_payloads_rt.ast
+Wrote IR to tests/rt-behavior/collections/collection-compare-payloads-rt/collection_compare_payloads_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/collection-compare-payloads-rt
+Wrote executable to tests/rt-behavior/collections/collection-compare-payloads-rt/build/collection_compare_payloads_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/collection-compare-payloads-rt/build/collection_compare_payloads_rt.out
+setPoint=2
+hasPoint
+mapPoint=TRUE
+afterRemove=1
+setScalar=2TRUE
+setEnum=2
+setMoney=2TRUE
+[exit 0]
