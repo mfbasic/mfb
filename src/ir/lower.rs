@@ -2207,7 +2207,7 @@ fn rewrite_trap_call(
     else {
         return;
     };
-    debug_assert_eq!(
+    assert_eq!(
         fallible.get(*index).copied(),
         Some(checked),
         "the scan and the rewrite disagree on which nodes are lifted"

@@ -143,7 +143,7 @@ pub(crate) fn simplify(instructions: &mut Vec<CodeInstruction>) {
     // A terminator-free tail can only arise if something above deleted the
     // last instruction of the stream; the block builder tolerates it, but the
     // assertion documents that this row never leaves one.
-    debug_assert!(
+    assert!(
         instructions
             .last()
             .is_none_or(|last| is_block_terminator(last.op) || last.op == CodeOp::Label),

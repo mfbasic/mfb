@@ -49,7 +49,7 @@ pub(crate) fn mfb_note_descriptor() -> Vec<u8> {
     bytes.extend_from_slice(&minor.to_le_bytes());
     bytes.extend_from_slice(&patch.to_le_bytes());
     bytes.extend_from_slice(&0u16.to_le_bytes()); // pad
-    debug_assert_eq!(bytes.len(), MFB_NOTE_DESCRIPTOR_SIZE);
+    assert_eq!(bytes.len(), MFB_NOTE_DESCRIPTOR_SIZE);
     bytes
 }
 

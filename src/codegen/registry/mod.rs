@@ -1858,7 +1858,7 @@ impl Registry {
                 ResolvedType::Resource(resource) => resource.name,
             };
             let (package, leaf) = qualified.split_once('.')?;
-            debug_assert_eq!(leaf, member, "registry row name disagrees with lookup");
+            assert_eq!(leaf, member, "registry row name disagrees with lookup");
             return Some(format!("{package}.{member}"));
         }
         // A source-declared value type (`datetime.Instant`) authored only in the
@@ -3942,6 +3942,88 @@ mod tests {
                         .flat_map(|imp| imp.params.iter().map(|p| p.name))
                         .collect::<Vec<_>>(),
                 );
+            }
+        }
+    }
+
+    /// **Every registry row satisfies the shape its `add_*` builder asserts.**
+    ///
+    /// bug-550: `add_record`, `add_union`, `add_enum`, `add_function` and
+    /// `add_constant` each carry a `debug_assert!` stating the shape they require,
+    /// and `Body::mfb`/`Body::mfb_with_fast_path` assert that the body actually
+    /// declares the `rewrite` symbol a call is redirected to. **None of them ran
+    /// anywhere**: CI builds `--release` on all five platforms, which is the whole
+    /// of bug-550.
+    ///
+    /// They stay where they are — at the construction site they give the sharper
+    /// message — and this walks the built registry so the same properties are
+    /// checked by something that actually executes. That is the shape plan-116-E
+    /// **E6** already chose for `the_consuming_parameters_name_real_members`
+    /// beside it, and it is better than promoting them to `assert!`: the registry
+    /// is static data, so a test pays once at test time instead of on every user's
+    /// compile.
+    ///
+    /// It walks 105 records, 8 unions, 22 enums, 123 constants, 587 functions and
+    /// 363 `Mfb` bodies — measured, because a shape test that iterates nothing
+    /// passes for free and reads exactly like one that works.
+    ///
+    /// What each row's absence would cost, since a shape check is only worth its
+    /// message: an empty record/union/enum renders a type with no members that
+    /// fails far from its declaration; a function with no implementation is a name
+    /// the resolver finds and codegen cannot lower; a constant setting neither
+    /// `value` nor `components` (or both) is read by whichever accessor asks
+    /// first; and an `Mfb` body that does not declare its `rewrite` target
+    /// redirects every call to a symbol that does not exist.
+    #[test]
+    fn every_registry_row_has_the_shape_its_builder_requires() {
+        for package in registry().packages() {
+            let pkg = package.import_name();
+            for record in package.records() {
+                assert!(
+                    !record.props.is_empty(),
+                    "{pkg}: record `{}` has no fields",
+                    record.name
+                );
+            }
+            for union in package.unions() {
+                assert!(
+                    !union.variants.is_empty(),
+                    "{pkg}: union `{}` has no variants",
+                    union.name
+                );
+            }
+            for r#enum in package.enums() {
+                assert!(
+                    !r#enum.variants.is_empty(),
+                    "{pkg}: enum `{}` has no variants",
+                    r#enum.name
+                );
+            }
+            for constant in package.constants() {
+                assert!(
+                    constant.value.is_some() != constant.components.is_some(),
+                    "{pkg}: constant `{}` must set exactly one of `value` (scalar) \
+                     / `components` (record)",
+                    constant.name
+                );
+            }
+            for function in package.functions() {
+                assert!(
+                    !function.implementations.is_empty(),
+                    "{pkg}: function `{}` has no implementations",
+                    function.name
+                );
+                for implementation in &function.implementations {
+                    if let Body::Mfb { body, rewrite, .. } = &implementation.body {
+                        assert!(
+                            body.contains(rewrite),
+                            "{pkg}.{}: the MFBASIC body does not declare its rewrite \
+                             target `{rewrite}`, so every call redirects to a symbol \
+                             that is not there",
+                            function.name
+                        );
+                    }
+                }
             }
         }
     }

@@ -192,7 +192,7 @@ impl LeWriter {
     /// Zero-pad up to `offset` (file offset). Used to reach each section's
     /// `FileAlignment`-aligned `PointerToRawData`.
     fn pad_to(&mut self, offset: usize) {
-        debug_assert!(offset >= self.buf.len(), "pad_to would truncate");
+        assert!(offset >= self.buf.len(), "pad_to would truncate");
         self.buf.resize(offset, 0);
     }
 }
@@ -340,7 +340,7 @@ pub(super) fn write_image(
             }
         }
     }
-    debug_assert_eq!(
+    assert_eq!(
         w.buf.len() - opt_start,
         OPTIONAL_HEADER_SIZE,
         "PE32+ optional header must be exactly 240 bytes"

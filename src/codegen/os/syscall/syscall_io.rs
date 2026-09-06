@@ -227,7 +227,7 @@ pub(crate) fn emit_eintr_retry_or_error_epipe(
         // `SIG_IGN` is installed — it would silently turn `prog | head` into an
         // `ErrWriteFailed` raise — so the `io::` output plan arms import the
         // accessor unconditionally, and this stays a hard error for everyone else.
-        debug_assert!(
+        assert!(
             epipe_label.is_none(),
             "{symbol}: an EPIPE-classifying write site must link the errno accessor",
         );

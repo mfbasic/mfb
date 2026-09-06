@@ -635,3 +635,55 @@ variable serialise nothing. Make it `pub(crate)` (its module too, if it is a
 `#[cfg(test)] mod tests`) and take it in every test that touches the state. Clearing
 the variable *on acquire*, as `env_guard` does, is worth copying — it means a test that
 panics mid-way cannot leak into the next one.
+
+## A `debug_assert!` runs on NO platform in CI (bug-550)
+
+Every job in `.github/workflows/coverage.yml` builds `--release`, on all five
+platforms. `debug_assert!`, `debug_assert_eq!` and anything behind
+`#[cfg(debug_assertions)]` are compiled OUT of every one of them. So an
+invariant expressed that way is not a weak check — it is **no check**, and the
+comment beside it saying "fails loudly in debug builds" is describing something
+that never happens to anybody.
+
+At the time of the audit that population was 35 `debug_assert*!` sites plus 8
+`cfg(debug_assertions)` gates:
+
+    grep -rn "debug_assert!(\|debug_assert_eq!(\|debug_assert_ne!(" src --include='*.rs' | grep -v '///' | wc -l
+    grep -rn "cfg(debug_assertions)" src --include='*.rs' | wc -l
+
+**How to decide where a new invariant goes.** Four instruments, in order of
+preference — reach for the cheapest one that can actually see the property:
+
+1. **`const _: () = assert!(…)`** when both sides are compile-time constants
+   (`ITEM_BLOCK_SIZE % 8 == 0`). Decided when the COMPILER is built; free at run
+   time. Strictly better than either assert spelling.
+2. **A real `#[test]` walking the data** when the property is over STATIC data —
+   the clean-room registry above all. A test pays once at test time instead of on
+   every user's compile, and it runs in CI. This is the file's own established
+   precedent (plan-116-E **E6**,
+   `the_consuming_parameters_name_real_members`; and
+   `every_registry_row_has_the_shape_its_builder_requires` beside it).
+3. **`assert!`** when the property is dynamic — a function of the program being
+   compiled — and the predicate is O(1), or bounded by something small and
+   fixed like the register file. Correctness of generated code beats a
+   micro-optimisation of the compiler.
+4. **`debug_assert!` only when the predicate is genuinely expensive** — O(code
+   size) with allocation, or worse. Then write down, at the site, that it is
+   debug-only ON PURPOSE and what it would cost otherwise; the next audit will
+   ask.
+
+**The trap that makes this worth a section.** `assert!` in release is on the hot
+path of every compile the user ever runs. Two predicates in this tree are
+disqualified by that and must stay debug-only: `regalloc/mod.rs`'s uncolored-vreg
+sweep renders EVERY field of EVERY instruction to a `String` and parses it
+(O(instructions × fields), one allocation each), and `riscv64/v128.rs`'s slot
+overlap check is O(n²). Measure before promoting anything that touches the
+instruction stream — interleave the runs, because a loaded box makes a 1% change
+look like 20%.
+
+**And do not promote a `debug_assert!(false)` that has a deliberate release
+fallback.** `arch/x86_64/select.rs` maps a residual ABI token to the call bank so
+it still encodes, and `rules/mod.rs` degrades to a visible `0-000-0000
+UNKNOWN_RULE` diagnostic. In both the release path is a designed, documented
+degradation, and replacing it with a panic is a product change, not an audit
+call — the right instrument for those is a test over the emit sites.

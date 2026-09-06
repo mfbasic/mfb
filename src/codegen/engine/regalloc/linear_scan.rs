@@ -694,7 +694,12 @@ pub(crate) fn run(
     // frame's save set. Eviction victims are excluded: they are bracketed by a
     // save/reload around their single use, so the function does not leave them
     // modified.
-    #[cfg(debug_assertions)]
+    // bug-550: NOT debug-only. Every CI job builds `--release`, so this ran on no
+    // platform at all; a callee-saved register written by generated code and left
+    // out of the frame save set corrupts the CALLER, which is the least local
+    // failure this compiler can produce. The cost is bounded by the register file
+    // (a scan of the homes against `extra_callee_saved`, both ~30 entries), not by
+    // program size, so it is paid per function rather than per instruction.
     {
         for phys in every_home
             .iter()
@@ -702,7 +707,7 @@ pub(crate) fn run(
             .filter(|name| model.is_callee_saved(name))
             .chain(scratch_callee_saved.iter().map(String::as_str))
         {
-            debug_assert!(
+            assert!(
                 extra_callee_saved.iter().any(|s| s == phys),
                 "bug-54: callee-saved register {phys} written by generated code \
                  (colored home or reload scratch) is missing from the frame save set",

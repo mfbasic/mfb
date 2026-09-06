@@ -125,7 +125,6 @@ pub(crate) fn finalize_frame(
         slot.offset += body_shift as i32;
     }
     adjust_stack_instruction_offsets(instructions, body_shift);
-    #[cfg(debug_assertions)]
     assert_stack_accesses_fit_frame(instructions, total_stack_size);
 
     // Resolve the incoming/outgoing stack-argument sentinels now that the final
@@ -507,9 +506,14 @@ fn for_each_frame_relative_sp_access(
 /// hook's own `sub_sp`-bracketed region is not frame-relative.
 ///
 /// A hit is a compiler-source regression, never input-dependent, so it is an
-/// assertion rather than a threaded build error. Debug-only, matching the
-/// `RULES` drift guard (bug-40).
-#[cfg(debug_assertions)]
+/// assertion rather than a threaded build error.
+///
+/// bug-550: no longer debug-only. It was gated to match the `RULES` drift guard
+/// (bug-40), but every CI job builds `--release`, so the gate meant this ran on
+/// no platform in CI — and an sp-relative access past the frame writes over the
+/// caller's stack, which is undebuggable from the symptom. One extra linear pass
+/// over a function's instruction stream is a small price beside the passes the
+/// backend already makes.
 fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack_size: usize) {
     for_each_frame_relative_sp_access(instructions, |needed| {
         assert!(

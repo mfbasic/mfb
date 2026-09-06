@@ -319,7 +319,7 @@ fn cache_run(
                 fired += replace_in(value, &name, &cache_name, strings);
             }
         }
-        debug_assert!(fired >= 2, "a cached name must have at least two readers");
+        assert!(fired >= 2, "a cached name must have at least two readers");
         ops.insert(
             at + inserted,
             NirOp::Bind {
