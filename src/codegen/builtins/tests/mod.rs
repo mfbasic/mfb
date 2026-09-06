@@ -47,6 +47,7 @@ mod perf;
 mod platform_hooks;
 mod registry_bodies;
 mod strings_fold;
+mod term_read;
 mod threads;
 mod validation;
 mod vector;
