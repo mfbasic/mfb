@@ -275,6 +275,23 @@ The per-file ledger is generated from the Phase 0 baseline; see
       are the thread and native-`LINK` surface almost entire. 17 files moved in
       one commit, `builder_thread_cleanup.rs` 77.78% -> 95.77% and
       `builder_arena_transfer.rs` 84.69% -> 89.70% among them.
+- [x] The two source-dump writers: `-nir` (`target/shared/nir/json.rs`
+      23.35% -> 75.76%) and `-nplan` (`target/shared/plan/json.rs`
+      59.57% -> 89.36%). Each had one caller per backend and no unit test, and
+      the goldens that run them pin the bytes of the programs that HAVE a
+      golden.
+- [x] `validate_nir`'s refusals, one mutation per rule
+      (`target/shared/validate/names.rs` 59.81% -> 79.44%,
+      `validate/body.rs` 81.12% -> 82.18%).
+- [x] The `.mfp` decoder's refusals, read straight off the four corrupt package
+      fixtures the tree already keeps — cebe2b5c4.
+- [x] The package-bearing `tests/syntax/**` fixtures in the diagnostic corpus:
+      19 more, through `check_fixture_project` — 41045b6c4.
+- [x] The record-field append (`inline_append_*`), which fires only for the LAST
+      inlined field — df6b84611. An earlier probe called the whole G13–G18
+      family unreachable; it had appended to the FIRST of two fields.
+- [x] The package list reaches the CODE stage, not just the NIR merge —
+      e7e242e2a. `engine/validation/validation.rs` 90.11% -> 96.65%.
 - [ ] The remaining `src/**` files below the floor, worst first. Regenerate
       the ranking with `python3 scripts/coverage-src-gaps.py <report.json>`,
       which sorts by LINES SHORT rather than by percentage,
@@ -347,7 +364,9 @@ these files, and is not for `repository/src/**`).
 | **after C8** — `src/target/**` enters the denominator (+51 files measured) | 225 | 8,012 |
 | after the project-based fixture lowering (F7) | 225 | 7,971 |
 | after the `-nir` dump suite | 225 | 7,701 |
-| after the 63 package-bearing fixtures | **224** | **7,491** |
+| after the 63 package-bearing fixtures | 224 | 7,491 |
+| after the dump writers, the NIR validator and the package decoder | 224 | 7,414 |
+| after the code stage sees the packages | **224** | **7,370** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
