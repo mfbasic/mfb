@@ -4,7 +4,6 @@
 use super::gen_case_map;
 use crate::codegen::builtins::strings::UnicodeCaseMap;
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -71,15 +70,6 @@ pub(crate) fn lower(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    if let Some(value) = builder.static_strings_package_string("strings.upper", args)? {
-        let register = builder.load_string_constant(&value)?;
-        return Ok(ValueResult {
-            origin: None,
-            type_: ParameterType::String,
-            location: Operand::from(register.render()),
-            text: "strings.upper".to_string(),
-        });
-    }
     if args.len() != 1 {
         return Err("strings.upper: no native lowering for these arguments".to_string());
     }

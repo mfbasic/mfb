@@ -1,16 +1,21 @@
 //! The four `strings::` members that fold a literal at compile time.
 //!
-//! `static_strings_package_string` turns `strings::upper("straße")` into the
-//! string constant `"STRASSE"` while the program is being lowered — four
-//! members do it (`upper`, `lower`, `caseFold`, `normalizeNfc`), each through
-//! one `if let Some(value) = ...` at the top of its `lower`.
+//! `nir::constfold::native_strings_package_static_string_value` turns
+//! `strings::upper("straße")` into the string constant `"STRASSE"` while the
+//! plan is being laid out — four members do it (`upper`, `lower`, `caseFold`,
+//! `normalizeNfc`), and none of the four had a test.
 //!
-//! Not one of those four `if let`s had ever been taken. Every fixture that calls
-//! them calls them on a *variable*, which is what a program that does anything
-//! interesting looks like — so the fold is exactly the branch a realistic corpus
-//! never reaches, and each of `func_upper.rs`, `func_lower.rs` and
-//! `func_case_fold.rs` sat at 82.93%, five uncovered lines each, all five being
-//! that block.
+//! **The fold names one place, and it used to name two.** Each of the four
+//! `func_*.rs` bodies opened with its own copy of the same fold, through a
+//! `static_strings_package_string` helper — and every one of those copies was
+//! unreachable, because the NIR folder had already replaced the call before
+//! codegen ran. Measured rather than reasoned: an `eprintln!` at the top of
+//! `func_upper::lower` shows it is never called at all for
+//! `strings::upper("literal")`, and called exactly once (fold declining,
+//! correctly) for `strings::upper(s)`. All four copies and the helper are gone,
+//! and this file is what remains to pin the behaviour — including the one shape
+//! where the two folders could have differed, a `LET`-bound literal, which they
+//! resolved through two different constant maps.
 //!
 //! What the fold is worth is visible in the emitted plan rather than in the
 //! answer. A folded call needs no case mapping at run time, so the Unicode
@@ -53,6 +58,31 @@ FUNC main() AS Integer
   io::print(strings::lower(s))
   io::print(strings::caseFold(s))
   io::print(strings::normalizeNfc(s))
+  RETURN 0
+END FUNC
+";
+
+/// The argument is a local the program never writes again, so the folder has to
+/// reach THROUGH the binding to see the literal.
+///
+/// This is the shape the deleted codegen-side copy of the fold handled, and the
+/// only one where the two folders could have differed: they resolve a `Local`
+/// through two different constant maps — the NIR folder through the plan's
+/// `constants`, the codegen one through `CodeBuilder::locals[..].constant`. With
+/// one folder left, this pins that the surviving map still sees a `LET`.
+const LET_BOUND: &str = "\
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  LET a AS String = \"straße\"
+  LET b AS String = \"STRASSE\"
+  LET c AS String = \"Straße\"
+  LET d AS String = \"e\\u{0301}\"
+  io::print(strings::upper(a))
+  io::print(strings::lower(b))
+  io::print(strings::caseFold(c))
+  io::print(strings::normalizeNfc(d))
   RETURN 0
 END FUNC
 ";
@@ -142,5 +172,38 @@ fn a_runtime_argument_leaves_no_folded_constant_behind() {
         !constants.iter().any(|value| *value == "STRASSE"),
         "nothing in the unfolded program can be folded, so `STRASSE` must not \
          appear as a constant; the constants are {constants:?}"
+    );
+}
+
+/// A `LET`-bound literal folds exactly as the literal itself does.
+///
+/// Constant propagation through a binding is the fold's whole reach: a program
+/// that names its strings — which is every program anyone writes — gets nothing
+/// from a folder that only matches a literal spelled inside the call. Asserted
+/// on both sides, because a folder that reached through the binding but produced
+/// the *unmapped* text would satisfy either half alone: the four results must be
+/// present as constants, and the Unicode tables must still be absent.
+#[test]
+fn a_let_bound_literal_folds_through_the_binding() {
+    let plan = plan(LET_BOUND);
+    let constants = string_constants(plan);
+    for (call, expected) in [
+        ("strings::upper(a)", "STRASSE"),
+        ("strings::lower(b)", "strasse"),
+        ("strings::caseFold(c)", "strasse"),
+        ("strings::normalizeNfc(d)", "\u{e9}"),
+    ] {
+        assert!(
+            constants.iter().any(|value| *value == expected),
+            "{call} names a local bound to a literal and never written again, so \
+             it must fold to {expected:?} at compile time; the plan's string \
+             constants are {constants:?}"
+        );
+    }
+    assert!(
+        !has_data_object(plan, "_mfb_unicode_uppercase_entries"),
+        "every case mapping in this program was folded, so it must not carry \
+         `_mfb_unicode_uppercase_entries` -- if it does, the fold returned the \
+         text unchanged and left the real mapping to run time"
     );
 }

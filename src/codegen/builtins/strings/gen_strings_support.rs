@@ -5,29 +5,6 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
-    pub(crate) fn static_strings_package_string(
-        &self,
-        target: &str,
-        args: &[ValueResult],
-    ) -> Result<Option<String>, String> {
-        let Some(value) = args
-            .first()
-            .and_then(|arg| self.static_string_value_vr(arg))
-        else {
-            return Ok(None);
-        };
-        let value = match target {
-            "strings.upper" if args.len() == 1 => crate::unicode::backend::upper(&value),
-            "strings.lower" if args.len() == 1 => crate::unicode::backend::lower(&value),
-            "strings.caseFold" if args.len() == 1 => crate::unicode::backend::case_fold(&value),
-            "strings.normalizeNfc" if args.len() == 1 => {
-                crate::unicode::backend::normalize_nfc(&value)
-            }
-            _ => return Ok(None),
-        };
-        Ok(Some(value))
-    }
-
     /// Branch to `in_set` if the scalar at [`scalar_ptr`, scalar_ptr+scalar_len)
     /// byte-matches any scalar in the `chars` set string; otherwise branch to
     /// `not_in_set`. The chars string pointer lives in `chars_slot`.

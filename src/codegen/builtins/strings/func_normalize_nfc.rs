@@ -74,15 +74,6 @@ pub(crate) fn lower(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    if let Some(value) = builder.static_strings_package_string("strings.normalizeNfc", args)? {
-        let register = builder.load_string_constant(&value)?;
-        return Ok(ValueResult {
-            origin: None,
-            type_: ParameterType::String,
-            location: Operand::from(register.render()),
-            text: "strings.normalizeNfc".to_string(),
-        });
-    }
     if args.len() != 1 {
         return Err("strings.normalizeNfc: no native lowering for these arguments".to_string());
     }
