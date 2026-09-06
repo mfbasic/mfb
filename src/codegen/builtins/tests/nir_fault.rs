@@ -229,6 +229,14 @@ FUNC main() AS Integer
   h = WITH h { mp := collections::removeKey(h.mp, "z") }
   io::print("h=" & toString(len(h.xs)))
 
+  ' A String element is the one `insert`/`append` shape that MATERIALIZES an
+  ' owned block for the item and then has to free it again -- the Integer path
+  ' above never allocates, so `free_intermediate_collection` is a different arm.
+  MUT names AS List OF String = ["a", "c"]
+  names = collections::insert(names, 1, "b")
+  names = collections::append(names, "d")
+  io::print("names=" & toString(len(names)) & collections::get(names, 1))
+
   LET items AS List OF Item = [Item[1, "a"], Item[2, "b"]]
   io::print(render(collections::sortBy(items, LAMBDA(i AS Item) -> i.name)))
   LET ids AS List OF Integer = collections::transform(items, LAMBDA(i AS Item) -> i.id)
