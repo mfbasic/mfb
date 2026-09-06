@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: security (cryptographic timing side-channel)
 
-Status: FIXED (branch pending). Found in audit-3, Surface 6 CRY-01; verified,
+Status: **FIXED** (2026-09-05, `e24914d5d`)
 widened by one site the report missed, and fixed.
 
 Regression Test: `src/codegen/builtins/crypto/mod.rs::curve25519_secret_paths_are_branch_free`
