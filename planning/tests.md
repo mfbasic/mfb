@@ -420,7 +420,8 @@ these files, and is not for `repository/src/**`).
 | after the inline-TRAP short-circuit suite, the Linux ELF writers and the indirect-trap fixture | 219 | 6,440 |
 | after the decline fixtures, bug-548/549, the two validators and the dump writers | 215 | 5,886 |
 | after the platform-emit failure sweep | 198 | 5,577 |
-| after the optimizer-globals and OUT-width suites | **198** | **5,509** |
+| after the optimizer-globals and OUT-width suites | 198 | 5,509 |
+| after the checker suites (coercion, shape refusals, Money) | **198** | **5,451** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
