@@ -977,7 +977,7 @@ fn riscv_pcrel_lo12_pairs_with_adjacent_auipc() {
         riscv_reloc(104, "P", "riscv_pcrel_lo12"),
     ];
     assert_eq!(
-        paired_auipc_offset(&relocs, &relocs[1], "riscv_pcrel_hi20"),
+        HiRelocIndex::build(&relocs).paired_auipc_offset(&relocs[1], "riscv_pcrel_hi20"),
         Ok(100)
     );
 }
@@ -993,7 +993,7 @@ fn riscv_pcrel_lo12_pairs_across_a_spill_gap() {
         riscv_reloc(116, "P", "riscv_pcrel_lo12"),
     ];
     assert_eq!(
-        paired_auipc_offset(&relocs, &relocs[1], "riscv_pcrel_hi20"),
+        HiRelocIndex::build(&relocs).paired_auipc_offset(&relocs[1], "riscv_pcrel_hi20"),
         Ok(100)
     );
 }
@@ -1011,17 +1011,19 @@ fn riscv_pcrel_lo12_pairs_with_nearest_preceding_hi_of_same_target() {
         riscv_reloc(228, "P", "riscv_pcrel_lo12"),
     ];
     assert_eq!(
-        paired_auipc_offset(&relocs, &relocs[1], "riscv_pcrel_hi20"),
+        HiRelocIndex::build(&relocs).paired_auipc_offset(&relocs[1], "riscv_pcrel_hi20"),
         Ok(100)
     );
     assert_eq!(
-        paired_auipc_offset(&relocs, &relocs[4], "riscv_pcrel_hi20"),
+        HiRelocIndex::build(&relocs).paired_auipc_offset(&relocs[4], "riscv_pcrel_hi20"),
         Ok(220)
     );
     // A lo12 with no preceding hi to its target is a hard error, not a silent
     // `offset - 4` guess.
     let orphan = vec![riscv_reloc(50, "Z", "riscv_pcrel_lo12")];
-    assert!(paired_auipc_offset(&orphan, &orphan[0], "riscv_pcrel_hi20").is_err());
+    assert!(HiRelocIndex::build(&orphan)
+        .paired_auipc_offset(&orphan[0], "riscv_pcrel_hi20")
+        .is_err());
 }
 
 /// bug-39: the SysV `DT_HASH` chain must begin with the unused null-symbol slot.
@@ -1696,5 +1698,80 @@ fn refuses_to_write_an_executable_under_a_traversing_name() {
     assert!(
         !dir.path().join("build").exists(),
         "nothing may be created on refusal"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// bug-552 — the `hi20`/`lo12` pairing index.
+//
+// The three tests above are the pairing RULE, and the rewrite leaves it alone:
+// only how the nearest preceding `hi20` is found moved (a backward scan over the
+// whole relocation list, O(R^2) per link, became a per-target index). These three
+// cover what an index newly makes possible to get wrong.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_pairing_index_is_keyed_by_kind_as_well_as_target() {
+    // A `got_hi20` for the SAME target sits nearer to the `lo12` than the
+    // `pcrel_hi20` does. Keying the index by target alone would pair them, and
+    // patch a data reference against a GOT slot's PC base.
+    let relocs = vec![
+        riscv_reloc(0x10, "msg", "riscv_pcrel_hi20"),
+        riscv_reloc(0x48, "msg", "riscv_got_hi20"),
+    ];
+    let index = HiRelocIndex::build(&relocs);
+    assert_eq!(
+        index.paired_auipc_offset(
+            &riscv_reloc(0x60, "msg", "riscv_pcrel_lo12"),
+            "riscv_pcrel_hi20"
+        ),
+        Ok(0x10),
+        "bug-552: a nearer got_hi20 must not be paired with a pcrel lo12"
+    );
+    assert_eq!(
+        index.paired_auipc_offset(
+            &riscv_reloc(0x60, "msg", "riscv_got_lo12"),
+            "riscv_got_hi20"
+        ),
+        Ok(0x48),
+        "bug-552: the GOT pair is indexed under its own kind"
+    );
+}
+
+#[test]
+fn the_pairing_index_does_not_assume_relocations_arrive_sorted() {
+    // The encoder emits relocations in offset order today, and the backward scan
+    // did not care either way because it took a max. A binary search does: over
+    // an unsorted list it silently returns the WRONG `auipc` rather than failing,
+    // so the index sorts, and this is what says so.
+    let relocs = vec![
+        riscv_reloc(0x80, "msg", "riscv_pcrel_hi20"),
+        riscv_reloc(0x10, "msg", "riscv_pcrel_hi20"),
+        riscv_reloc(0x40, "msg", "riscv_pcrel_hi20"),
+    ];
+    assert_eq!(
+        HiRelocIndex::build(&relocs).paired_auipc_offset(
+            &riscv_reloc(0x60, "msg", "riscv_pcrel_lo12"),
+            "riscv_pcrel_hi20"
+        ),
+        Ok(0x40)
+    );
+}
+
+#[test]
+fn a_lo12_with_no_preceding_hi20_keeps_its_diagnostic() {
+    // The only `auipc` for this target is AFTER the `lo12`. The scan reported
+    // this; the index must report it with the same message rather than pairing
+    // against something unrelated.
+    let relocs = vec![riscv_reloc(0x80, "msg", "riscv_pcrel_hi20")];
+    let error = HiRelocIndex::build(&relocs)
+        .paired_auipc_offset(
+            &riscv_reloc(0x60, "msg", "riscv_pcrel_lo12"),
+            "riscv_pcrel_hi20",
+        )
+        .expect_err("a lo12 with no preceding hi20 must be an error");
+    assert!(
+        error.contains("has no paired riscv_pcrel_hi20"),
+        "bug-552: the diagnostic must survive the index rewrite, got: {error}"
     );
 }
