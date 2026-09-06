@@ -1,0 +1,29 @@
+{
+  "template": "strings:{{#words}} <{{.}}>{{/words}}\nnumbers:{{#numbers}} {{.}}{{/numbers}}\nnested:{{#rows}}({{#.}}{{.}}/{{/.}}){{/rows}}\nescaped:{{#raw}} {{.}} | {{{.}}}{{/raw}}\n",
+  "data": {
+    "words": [
+      "alpha",
+      "beta"
+    ],
+    "numbers": [
+      1,
+      2.5,
+      -3,
+      0
+    ],
+    "rows": [
+      [
+        1,
+        2
+      ],
+      [
+        "a",
+        "b"
+      ]
+    ],
+    "raw": [
+      "a<b&c"
+    ]
+  },
+  "partials": {}
+}

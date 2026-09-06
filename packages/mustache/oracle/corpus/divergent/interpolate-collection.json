@@ -1,0 +1,21 @@
+{
+  "template": "object [{{o}}] array [{{a}}] nested [{{o.inner}}]",
+  "data": {
+    "o": {
+      "x": 1,
+      "inner": [
+        1,
+        {
+          "y": 2
+        }
+      ]
+    },
+    "a": [
+      1,
+      "two",
+      null,
+      true
+    ]
+  },
+  "partials": {}
+}

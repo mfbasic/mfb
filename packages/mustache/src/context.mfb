@@ -1,0 +1,216 @@
+' ---------------------------------------------------------------------------
+' mustache/context.mfb — name resolution against the context stack, the
+' truthiness rule sections turn on, and the text an interpolated value renders
+' as.
+'
+' The context stack is a `List OF json::Json` ordered bottom to top: element 0
+' is the value passed to `render`, and every open section has pushed one frame
+' above it. A lookup walks it from the top down.
+'
+' A name that resolves to nothing comes back as `json::JsonNull`. Mustache draws
+' no distinction anywhere between an absent name and one explicitly set to null
+' -- both interpolate as the empty string, both are falsey to a section, and
+' both make an inverted section render -- so representing "absent" as null loses
+' nothing and saves every caller a second return value.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' The JSON null, which is also this package's "no such name".
+PUBLIC FUNC absent() AS json::Json
+  RETURN json::JsonNull[NOTHING]
+END FUNC
+
+' TRUE when `value` is an object carrying a member called `key`.
+PUBLIC FUNC hasField(value AS json::Json, key AS String) AS Boolean
+  MATCH value
+    CASE json::JsonObj(o) : RETURN collections::hasKey(o.fields, key)
+    CASE json::JsonNull(n) : RETURN FALSE
+    CASE json::JsonBool(b) : RETURN FALSE
+    CASE json::JsonNum(m) : RETURN FALSE
+    CASE json::JsonStr(s) : RETURN FALSE
+    CASE json::JsonArr(a) : RETURN FALSE
+  END MATCH
+END FUNC
+
+' The member `key` of an object, or null when there is none.
+PUBLIC FUNC fieldOf(value AS json::Json, key AS String) AS json::Json
+  MATCH value
+    CASE json::JsonObj(o) : RETURN collections::getOr(o.fields, key, absent())
+    CASE json::JsonNull(n) : RETURN absent()
+    CASE json::JsonBool(b) : RETURN absent()
+    CASE json::JsonNum(m) : RETURN absent()
+    CASE json::JsonStr(s) : RETURN absent()
+    CASE json::JsonArr(a) : RETURN absent()
+  END MATCH
+END FUNC
+
+' Resolve `name` against the context stack.
+'
+' Three forms, and the difference between the last two is the whole of the
+' specification's "Dotted Names" module:
+'
+'   `.`     the implicit iterator -- the frame on top of the stack, whatever it
+'           is. This is how `{{#list}}{{.}}{{/list}}` prints a list of strings.
+'
+'   `a`     a plain name. Each frame is tried from the top down, and the first
+'           frame that IS an object and HAS that member wins. A frame that is
+'           not an object -- the string pushed by a section over a list of
+'           strings, say -- cannot satisfy a plain name, so the search passes
+'           straight through it to the enclosing frame.
+'
+'   `a.b.c` a dotted name. Only the FIRST segment searches the stack; once a
+'           frame supplies it, the remaining segments resolve strictly against
+'           what came before, and a miss is a miss. It does not resume the
+'           search at an outer frame, which is what "Each part of a dotted name
+'           should resolve only against its parent" means: with `{"a": {"b":
+'           {}}, "b": {"c": "ERROR"}}`, `{{#a}}{{b.c}}{{/a}}` renders nothing,
+'           because the enclosing `b` is not a fallback for the `b` inside `a`.
+'
+' A leading dot is NOT a dotted name: `{{.a}}` looks up the single key `.a`,
+' matching the reference implementation, which treats a name as dotted only when
+' it holds a dot somewhere after the first character.
+PUBLIC FUNC lookup(stack AS List OF json::Json, name AS String) AS json::Json
+  IF len(stack) = 0 THEN RETURN absent()
+  IF name = "." THEN RETURN collections::get(stack, len(stack) - 1)
+
+  MUT parts AS List OF String = [name]
+  IF strings::contains(name, ".") AND NOT strings::startsWith(name, ".") THEN
+    parts = strings::split(name, ".")
+  END IF
+  LET head AS String = collections::get(parts, 0)
+
+  MUT frame AS Integer = len(stack) - 1
+  WHILE frame >= 0
+    LET view AS json::Json = collections::get(stack, frame)
+    IF hasField(view, head) THEN
+      MUT value AS json::Json = fieldOf(view, head)
+      MUT segment AS Integer = 1
+      WHILE segment < len(parts)
+        LET part AS String = collections::get(parts, segment)
+        IF NOT hasField(value, part) THEN RETURN absent()
+        value = fieldOf(value, part)
+        segment = segment + 1
+      END WHILE
+      RETURN value
+    END IF
+    frame = frame - 1
+  END WHILE
+  RETURN absent()
+END FUNC
+
+' TRUE when a section over `value` renders nothing.
+'
+' The specification does not say which values are falsey beyond null, false and
+' a missing name, so this follows the reference implementation (mustache.js) and
+' its JavaScript ancestry: zero and the empty string are falsey too. That is the
+' behaviour a template author gets from every JavaScript and Handlebars
+' template, and it is the useful one -- `{{#title}}<h1>{{title}}</h1>{{/title}}`
+' should not emit an empty heading for `{"title": ""}`. It is also a real
+' decision, not an inevitability: Ruby's implementation treats both as truthy.
+'
+' An empty ARRAY is truthy here and still renders nothing, because a section
+' over an array renders its body once per element and an empty array has none.
+' The distinction matters only to `isEmptyList` below, which an inverted section
+' needs.
+PUBLIC FUNC isFalsey(value AS json::Json) AS Boolean
+  MATCH value
+    CASE json::JsonNull(n) : RETURN TRUE
+    CASE json::JsonBool(b) : RETURN NOT b.value
+    CASE json::JsonNum(m) : RETURN m.value = 0.0
+    CASE json::JsonStr(s) : RETURN s.value = ""
+    CASE json::JsonArr(a) : RETURN FALSE
+    CASE json::JsonObj(o) : RETURN FALSE
+  END MATCH
+END FUNC
+
+' TRUE when `value` is an array with no elements. An inverted section renders on
+' this as well as on a falsey value: `{{^items}}nothing here{{/items}}` is the
+' idiom for an empty list, and an empty list is not otherwise falsey.
+PUBLIC FUNC isEmptyList(value AS json::Json) AS Boolean
+  MATCH value
+    CASE json::JsonArr(a) : RETURN len(a.items) = 0
+    CASE json::JsonNull(n) : RETURN FALSE
+    CASE json::JsonBool(b) : RETURN FALSE
+    CASE json::JsonNum(m) : RETURN FALSE
+    CASE json::JsonStr(s) : RETURN FALSE
+    CASE json::JsonObj(o) : RETURN FALSE
+  END MATCH
+END FUNC
+
+' TRUE when a section over `value` should push it as a new context frame.
+'
+' An object, a string, a number and an array each become the frame their body
+' sees. A boolean `true` does NOT: `{{#ready}}{{name}}{{/ready}}` has to keep
+' seeing the enclosing object, or the body of every boolean-guarded section
+' would resolve against nothing.
+PUBLIC FUNC pushesFrame(value AS json::Json) AS Boolean
+  MATCH value
+    CASE json::JsonBool(b) : RETURN FALSE
+    CASE json::JsonNull(n) : RETURN FALSE
+    CASE json::JsonNum(m) : RETURN TRUE
+    CASE json::JsonStr(s) : RETURN TRUE
+    CASE json::JsonArr(a) : RETURN TRUE
+    CASE json::JsonObj(o) : RETURN TRUE
+  END MATCH
+END FUNC
+
+' The elements of an array, or an empty list for anything else.
+PUBLIC FUNC itemsOf(value AS json::Json) AS List OF json::Json
+  MATCH value
+    CASE json::JsonArr(a) : RETURN a.items
+    CASE json::JsonNull(n) : RETURN []
+    CASE json::JsonBool(b) : RETURN []
+    CASE json::JsonNum(m) : RETURN []
+    CASE json::JsonStr(s) : RETURN []
+    CASE json::JsonObj(o) : RETURN []
+  END MATCH
+END FUNC
+
+' TRUE when `value` is an array.
+PUBLIC FUNC isList(value AS json::Json) AS Boolean
+  MATCH value
+    CASE json::JsonArr(a) : RETURN TRUE
+    CASE json::JsonNull(n) : RETURN FALSE
+    CASE json::JsonBool(b) : RETURN FALSE
+    CASE json::JsonNum(m) : RETURN FALSE
+    CASE json::JsonStr(s) : RETURN FALSE
+    CASE json::JsonObj(o) : RETURN FALSE
+  END MATCH
+END FUNC
+
+' The text an interpolation writes for `value`.
+'
+' A string writes itself and null writes nothing -- those two are the whole of
+' the specification's interpolation module, which never interpolates anything
+' else. The other four are decisions:
+'
+'   A boolean writes `true` or `false`, as every implementation does.
+'
+'   A number writes exactly what `json::stringify` writes, which is exactly what
+'   JavaScript's `JSON.stringify` writes: the shortest digits that read back as
+'   the same value, plain between 1e-6 and 1e21 and exponential outside. `85`,
+'   not `85.0`; `1.21`, not `1.2100000000000002`.
+'
+'   An ARRAY or an OBJECT writes its compact JSON form. The specification says
+'   nothing about interpolating a collection, and implementations answer with
+'   whatever their host language's "to string" happens to do -- mustache.js
+'   writes `[object Object]` for an object and comma-joins an array. Neither is
+'   information a reader can use. JSON is: it is deterministic, it is the same
+'   on every platform, it loses nothing, and it is legible in the one place this
+'   comes up in practice, which is a template printing a value the author
+'   thought was a scalar.
+PUBLIC FUNC textOfValue(value AS json::Json) AS String
+  MATCH value
+    CASE json::JsonStr(s) : RETURN s.value
+    CASE json::JsonNull(n) : RETURN ""
+    CASE json::JsonBool(b)
+      IF b.value THEN RETURN "true"
+      RETURN "false"
+    CASE json::JsonNum(m) : RETURN json::stringify(value)
+    CASE json::JsonArr(a) : RETURN json::stringify(value)
+    CASE json::JsonObj(o) : RETURN json::stringify(value)
+  END MATCH
+END FUNC

@@ -1,0 +1,15 @@
+{
+  "template": "begin\n  {{! a standalone comment }}\n{{#items}}\n  - {{name}}\n{{/items}}\n  {{^items}}\nnone\n  {{/items}}\ninline {{#items}}{{name}} {{/items}}done\nnot standalone: {{title}}\nend\n",
+  "data": {
+    "title": "T",
+    "items": [
+      {
+        "name": "one"
+      },
+      {
+        "name": "two"
+      }
+    ]
+  },
+  "partials": {}
+}

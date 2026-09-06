@@ -1,0 +1,135 @@
+' ---------------------------------------------------------------------------
+' Tests: interpolation -- what a `{{name}}`, `{{{name}}}` or `{{&name}}` writes.
+'
+' Every case renders a template and compares the TEXT, which is the only thing
+' this package produces, so no assertion here depends on an internal shape.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+
+PRIVATE FUNC withData(template AS String, data AS String) AS String
+  RETURN render(template, json::parse(data))
+END FUNC
+
+PRIVATE FUNC bare(template AS String) AS String
+  RETURN render(template, json::JsonNull[NOTHING])
+END FUNC
+
+TESTING
+  TGROUP "interpolation"
+    TCASE "a name is replaced by its value"
+      expectString(withData("Hello {{name}}!", "{\"name\":\"world\"}"), "Hello world!")
+      expectString(withData("{{ name }}", "{\"name\":\"padded\"}"), "padded")
+      expectString(withData("{{\tname\t}}", "{\"name\":\"tabs\"}"), "tabs")
+    END TCASE
+
+    TCASE "a missing name and an explicit null both write nothing"
+      expectString(withData("[{{gone}}]", "{}"), "[]")
+      expectString(withData("[{{here}}]", "{\"here\":null}"), "[]")
+      expectString(bare("[{{anything}}]"), "[]")
+      expectString(withData("[{{gone}}]", "\"a string context has no members\""), "[]")
+    END TCASE
+
+    TCASE "text with no tag is copied through untouched"
+      expectString(bare("plain & <text>"), "plain & <text>")
+      expectString(bare(""), "")
+    END TCASE
+
+    TCASE "the result of an interpolation is never re-scanned for tags"
+      expectString(withData("{{a}}", "{\"a\":\"{{b}}\",\"b\":\"never\"}"), "{{b}}")
+    END TCASE
+
+    TCASE "numbers render as JSON renders them, not as Float text"
+      expectString(withData("{{n}}", "{\"n\":85}"), "85")
+      expectString(withData("{{n}}", "{\"n\":1.21}"), "1.21")
+      expectString(withData("{{n}}", "{\"n\":-0.5}"), "-0.5")
+      expectString(withData("{{n}}", "{\"n\":0}"), "0")
+      expectString(withData("{{n}}", "{\"n\":1e21}"), "1e+21")
+      expectString(withData("{{n}}", "{\"n\":1e-7}"), "1e-7")
+    END TCASE
+
+    TCASE "booleans render as true and false"
+      expectString(withData("{{a}}/{{b}}", "{\"a\":true,\"b\":false}"), "true/false")
+    END TCASE
+
+    TCASE "an array or an object renders as compact JSON"
+      expectString(withData("{{{a}}}", "{\"a\":[1,\"two\",null,true]}"), "[1,\"two\",null,true]")
+      expectString(withData("{{{a}}}", "{\"a\":{\"x\":1}}"), "{\"x\":1}")
+    END TCASE
+  END TGROUP
+
+  TGROUP "escaping"
+    TCASE "a double mustache escapes all eight characters"
+      expectString(withData("{{a}}", "{\"a\":\"&\"}"), "&amp;")
+      expectString(withData("{{a}}", "{\"a\":\"<\"}"), "&lt;")
+      expectString(withData("{{a}}", "{\"a\":\">\"}"), "&gt;")
+      expectString(withData("{{a}}", "{\"a\":\"\\\"\"}"), "&quot;")
+      expectString(withData("{{a}}", "{\"a\":\"'\"}"), "&#39;")
+      expectString(withData("{{a}}", "{\"a\":\"/\"}"), "&#x2F;")
+      expectString(withData("{{a}}", "{\"a\":\"`\"}"), "&#x60;")
+      expectString(withData("{{a}}", "{\"a\":\"=\"}"), "&#x3D;")
+    END TCASE
+
+    TCASE "the ampersand is escaped once, not twice"
+      expectString(withData("{{a}}", "{\"a\":\"&amp;\"}"), "&amp;amp;")
+      expectString(escapeHtml("a & b < c"), "a &amp; b &lt; c")
+    END TCASE
+
+    TCASE "a triple mustache and an ampersand tag write the value raw"
+      expectString(withData("{{{a}}}", "{\"a\":\"<b>&</b>\"}"), "<b>&</b>")
+      expectString(withData("{{&a}}", "{\"a\":\"<b>&</b>\"}"), "<b>&</b>")
+      expectString(withData("{{& a }}", "{\"a\":\"<b>\"}"), "<b>")
+    END TCASE
+
+    TCASE "everything else, including non-ASCII text, passes through"
+      expectString(escapeHtml("café 中文 😀"), "café 中文 😀")
+      expectString(escapeHtml(""), "")
+    END TCASE
+
+    TCASE "a number needs no escaping and is not changed by it"
+      expectString(withData("{{n}}", "{\"n\":-1.5}"), "-1.5")
+    END TCASE
+  END TGROUP
+
+  TGROUP "dotted names"
+    TCASE "a dotted name walks into nested objects"
+      expectString(withData("{{a.b.c}}", "{\"a\":{\"b\":{\"c\":\"deep\"}}}"), "deep")
+      expectString(withData("{{a.b}}", "{\"a\":{\"b\":42}}"), "42")
+    END TCASE
+
+    TCASE "a broken chain writes nothing rather than failing"
+      expectString(withData("[{{a.b.c}}]", "{\"a\":{}}"), "[]")
+      expectString(withData("[{{a.b.c}}]", "{\"a\":{\"b\":\"scalar\"}}"), "[]")
+      expectString(withData("[{{gone.b}}]", "{}"), "[]")
+    END TCASE
+
+    TCASE "only the first segment searches the context stack"
+      ' The specification's `Dotted Names - Context Precedence`: the enclosing
+      ' `b` is NOT a fallback for the `b` inside `a`. mustache.js resolves this
+      ' to "ERROR"; it is the one required-module case the reference fails.
+      expectString(withData("[{{#a}}{{b.c}}{{/a}}]", "{\"a\":{\"b\":{}},\"b\":{\"c\":\"ERROR\"}}"), "[]")
+      expectString(withData("{{#a}}{{b.c}}{{/a}}", "{\"a\":{\"b\":{\"c\":\"inner\"}},\"b\":{\"c\":\"outer\"}}"), "inner")
+    END TCASE
+
+    TCASE "a dotted name is never a single key, and a leading dot is not dotted"
+      expectString(withData("[{{a.b}}]", "{\"a.b\":\"flat\"}"), "[]")
+      expectString(withData("[{{.a}}]", "{\".a\":\"leading\"}"), "[leading]")
+    END TCASE
+  END TGROUP
+
+  TGROUP "the implicit iterator"
+    TCASE "a dot is the current context"
+      expectString(withData("{{#list}}({{.}}){{/list}}", "{\"list\":[\"a\",\"b\"]}"), "(a)(b)")
+      expectString(withData("{{#list}}{{.}} {{/list}}", "{\"list\":[1,2.5,-3]}"), "1 2.5 -3 ")
+      expectString(withData("{{#n}}{{.}}{{/n}}", "{\"n\":\"scalar\"}"), "scalar")
+    END TCASE
+
+    TCASE "a dot escapes and un-escapes like any other name"
+      expectString(withData("{{#list}}{{.}}|{{{.}}}{{/list}}", "{\"list\":[\"a&b\"]}"), "a&amp;b|a&b")
+    END TCASE
+
+    TCASE "a dot inside a dot iterates an array of arrays"
+      expectString(withData("{{#rows}}({{#.}}{{.}}/{{/.}}){{/rows}}", "{\"rows\":[[1,2],[\"a\"]]}"), "(1/2/)(a/)")
+    END TCASE
+  END TGROUP
+END TESTING

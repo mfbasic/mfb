@@ -1,0 +1,9 @@
+{
+  "template": "a lone {{ is text? no -- {{a}}\nthree {{{a}}} and four {{{{a}}}}\nempty name [{{}}] and whitespace name [{{   }}]\nunknown sigil is a name: [{{@a}}]\n",
+  "data": {
+    "a": "A",
+    "is text? no -- ": "X",
+    "@a": "at"
+  },
+  "partials": {}
+}

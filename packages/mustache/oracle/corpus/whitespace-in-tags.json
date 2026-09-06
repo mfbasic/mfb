@@ -1,0 +1,9 @@
+{
+  "template": "|{{ a }}|{{\ta\t}}|{{# b }}in{{/ b }}|{{^ c }}out{{/ c }}|{{{ a }}}|{{& a }}|\n",
+  "data": {
+    "a": "A",
+    "b": true,
+    "c": false
+  },
+  "partials": {}
+}

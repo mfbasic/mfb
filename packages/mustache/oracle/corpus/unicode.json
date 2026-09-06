@@ -1,0 +1,20 @@
+{
+  "template": "{{greeting}} {{#names}}{{.}} {{/names}}\n{{#emoji}}{{.}}{{/emoji}}\nkeys: {{café.中文}}\n",
+  "data": {
+    "greeting": "Καλημέρα",
+    "names": [
+      "Ana",
+      "Ævar",
+      "山田"
+    ],
+    "emoji": [
+      "😀",
+      "👍🏽",
+      "🇬🇧"
+    ],
+    "café": {
+      "中文": "yes"
+    }
+  },
+  "partials": {}
+}

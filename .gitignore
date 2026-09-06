@@ -38,6 +38,12 @@ packages/**/*.mfp
 # reproducible, but the installed tree is not.
 node_modules/
 
+# The official Mustache specification suite, downloaded by
+# `packages/mustache/oracle/fetch-spec.sh`. It is an upstream document that
+# moves; vendoring a copy would turn "the specification says" into "the
+# specification said, once".
+/packages/mustache/oracle/spec/
+
 # Packages installed into a consuming project by `mfb pkg install`.
 examples/**/packages/
 examples/**/*.lock

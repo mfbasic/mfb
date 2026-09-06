@@ -1,0 +1,14 @@
+{
+  "template": "header\r\n{{! standalone with a CRLF ending }}\r\n{{#rows}}\r\n  {{name}}\r\n{{/rows}}\r\nfooter\r\n",
+  "data": {
+    "rows": [
+      {
+        "name": "one"
+      },
+      {
+        "name": "two"
+      }
+    ]
+  },
+  "partials": {}
+}

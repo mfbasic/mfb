@@ -1,0 +1,218 @@
+' ---------------------------------------------------------------------------
+' mustache/core.mfb — limits, error codes, the parsed-node record, and the byte
+' primitives the tokenizer is built on.
+'
+' The tokenizer works on the template's UTF-8 BYTES rather than on a scalar or
+' grapheme list. Every character Mustache gives meaning to -- the `{` and `}` of
+' the default delimiters, the seven sigils `# ^ / > { & = !`, the `.` of a
+' dotted name, and the whitespace and line breaks a standalone line is made of
+' -- is ASCII, so a byte compare is exact. A byte >= 128 only ever occurs inside
+' literal text, inside a name, or inside a caller-chosen delimiter, and each of
+' those is matched or copied as a whole byte sequence, so a slice can never
+' split a multi-byte scalar.
+'
+' Whitespace here means the six ASCII whitespace bytes (tab, newline, vertical
+' tab, form feed, carriage return, space). mustache.js uses JavaScript's `\s`,
+' which also counts U+00A0 and the Unicode space separators; a template whose
+' tag padding or standalone-line indentation is written with one of those is
+' read differently by the two implementations. That is a deliberate choice --
+' see the README's compatibility table -- and the oracle corpus pins it.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' ---------------------------------------------------------------------------
+' Limits. Mustache's one unbounded construct is the partial: a partial may name
+' any partial, including itself, so `{{>a}}` in a partial called `a` expands
+' forever. The specification's own recursion test relies on a partial calling
+' itself, so the construct cannot simply be refused -- it has to be bounded.
+' Template size and output size bound the other two directions in which a small
+' input can name a large amount of work.
+' ---------------------------------------------------------------------------
+
+' Maximum size, in UTF-8 bytes, of a template or of one partial body.
+PUBLIC LET TEMPLATE_LIMIT AS Integer = 1048576
+
+' Maximum section nesting, and maximum depth of partial expansion. These two
+' bound the same resource and so are chosen together: render recursion descends
+' one native frame group per nested section AND one per partial level, so the
+' worst case is their PRODUCT -- 1024 frames -- which stays comfortable even on
+' the 1 MiB main stack a Windows build gets. A partial that, directly or through
+' other partials, reaches itself is unbounded recursion, and the partial limit
+' is what turns that into an ordinary catchable failure rather than a stack
+' overflow; the specification's own recursion test needs a depth of two.
+PUBLIC LET SECTION_DEPTH_LIMIT AS Integer = 64
+PUBLIC LET PARTIAL_DEPTH_LIMIT AS Integer = 16
+
+' Maximum size, in UTF-8 bytes, of the rendered output. Checked as the output
+' grows rather than at the end, so a template that expands without bound stops
+' at the limit instead of after exhausting memory.
+PUBLIC LET OUTPUT_LIMIT AS Integer = 16777216
+
+' ---------------------------------------------------------------------------
+' Error codes. Standard registry codes are used wherever one carries the right
+' meaning (`mfb spec diagnostics error-codes`); exactly one failure -- passing a
+' size limit -- has no registry equivalent, so it takes a generator-9 code,
+' which the package exports so a caller can match it by name.
+' ---------------------------------------------------------------------------
+
+' 7-705-0003 errorCode::ErrInvalidFormat — a malformed template: an unclosed
+' tag, a close with no open section, a mismatched close, a section left open at
+' the end, or a set-delimiter tag that does not name two delimiters.
+PUBLIC LET ERR_FORMAT AS Integer = 77050003
+
+' 7-705-0024 errorCode::ErrDepthExceeded — section nesting past
+' SECTION_DEPTH_LIMIT, or partial expansion past PARTIAL_DEPTH_LIMIT.
+PUBLIC LET ERR_DEPTH AS Integer = 77050024
+
+' 9-312-0001: a template or its output passed a size limit. No errorCode::
+' value models "this input is larger than the reader will handle", so this is a
+' generator-9 (user-defined) code, per the encoding rule.
+PUBLIC LET ERR_LIMIT AS Integer = 93120001
+
+' ---------------------------------------------------------------------------
+' Node kinds. The parse produces one FLAT list of these; a section carries the
+' index of its own closing node, so rendering a section body is a range walk
+' rather than a search for the matching tag.
+' ---------------------------------------------------------------------------
+
+PUBLIC LET K_TEXT AS Integer = 0
+PUBLIC LET K_VAR AS Integer = 1
+PUBLIC LET K_RAW AS Integer = 2
+PUBLIC LET K_SECTION AS Integer = 3
+PUBLIC LET K_INVERTED AS Integer = 4
+PUBLIC LET K_CLOSE AS Integer = 5
+PUBLIC LET K_PARTIAL AS Integer = 6
+
+' One parsed node.
+'
+' `name` carries the literal text for K_TEXT and the tag's name for everything
+' else. `jump` is the index of the matching K_CLOSE for K_SECTION and
+' K_INVERTED and -1 otherwise. The last three fields belong to K_PARTIAL alone:
+' a standalone partial is re-indented by the whitespace that preceded it, and
+' reproducing that needs the indentation, whether the partial was the first tag
+' on its line, and whether any literal non-space text came before it.
+TYPE Node
+  kind AS Integer
+  name AS String
+  jump AS Integer
+  indent AS String
+  firstTag AS Boolean
+  lineHasText AS Boolean
+END TYPE
+
+PUBLIC FUNC textNode(text AS String) AS Node
+  RETURN Node[K_TEXT, text, -1, "", FALSE, FALSE]
+END FUNC
+
+PUBLIC FUNC tagNode(kind AS Integer, name AS String) AS Node
+  RETURN Node[kind, name, -1, "", FALSE, FALSE]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Byte primitives.
+' ---------------------------------------------------------------------------
+
+PUBLIC LET B_TAB AS Integer = 9
+PUBLIC LET B_LF AS Integer = 10
+PUBLIC LET B_VTAB AS Integer = 11
+PUBLIC LET B_FF AS Integer = 12
+PUBLIC LET B_CR AS Integer = 13
+PUBLIC LET B_SPACE AS Integer = 32
+PUBLIC LET B_BANG AS Integer = 33
+PUBLIC LET B_HASH AS Integer = 35
+PUBLIC LET B_AMP AS Integer = 38
+PUBLIC LET B_SLASH AS Integer = 47
+PUBLIC LET B_EQUALS AS Integer = 61
+PUBLIC LET B_GT AS Integer = 62
+PUBLIC LET B_CARET AS Integer = 94
+PUBLIC LET B_LBRACE AS Integer = 123
+
+' The byte at `i`, or -1 when `i` is outside the input. Returning a sentinel
+' rather than failing lets every scanner write one bounds-free loop condition.
+PUBLIC FUNC byteAt(bytes AS List OF Byte, i AS Integer) AS Integer
+  IF i < 0 OR i >= len(bytes) THEN RETURN -1
+  RETURN toInt(collections::get(bytes, i))
+END FUNC
+
+' The text of bytes [from, stop). Every slice this package takes is bounded by
+' an ASCII delimiter, an ASCII whitespace run, or the whole input, so it never
+' splits a multi-byte scalar.
+PUBLIC FUNC textOf(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS String
+  IF stop <= from THEN RETURN ""
+  RETURN toString(collections::mid(bytes, from, stop - from))
+END FUNC
+
+' TRUE for the six ASCII whitespace bytes. See the file header for why this is
+' ASCII rather than Unicode whitespace.
+PUBLIC FUNC isSpaceByte(code AS Integer) AS Boolean
+  IF code = B_SPACE OR code = B_TAB THEN RETURN TRUE
+  RETURN code = B_LF OR code = B_CR OR code = B_VTAB OR code = B_FF
+END FUNC
+
+' The first offset at or after `from` (and before `stop`) that is not
+' whitespace.
+PUBLIC FUNC skipSpace(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Integer
+  MUT i AS Integer = from
+  WHILE i < stop AND isSpaceByte(byteAt(bytes, i))
+    i = i + 1
+  END WHILE
+  RETURN i
+END FUNC
+
+' The offset just past the last non-whitespace byte of [from, stop), so that
+' [from, trimEndAt(...)) is the slice with its trailing whitespace removed.
+PUBLIC FUNC trimEndAt(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Integer
+  MUT i AS Integer = stop
+  WHILE i > from AND isSpaceByte(byteAt(bytes, i - 1))
+    i = i - 1
+  END WHILE
+  RETURN i
+END FUNC
+
+' The offset of the first occurrence of `needle` in [from, stop), or -1.
+'
+' A plain scan: a delimiter is one or two bytes in every template anyone writes,
+' so the quadratic worst case needs a delimiter as long as the template itself.
+PUBLIC FUNC findBytes(bytes AS List OF Byte, needle AS List OF Byte, from AS Integer, stop AS Integer) AS Integer
+  LET size AS Integer = len(needle)
+  IF size = 0 THEN RETURN -1
+  LET head AS Integer = toInt(collections::get(needle, 0))
+  MUT at AS Integer = from
+  WHILE at + size <= stop
+    IF byteAt(bytes, at) = head THEN
+      MUT k AS Integer = 1
+      WHILE k < size AND byteAt(bytes, at + k) = toInt(collections::get(needle, k))
+        k = k + 1
+      END WHILE
+      IF k = size THEN RETURN at
+    END IF
+    at = at + 1
+  END WHILE
+  RETURN -1
+END FUNC
+
+' The offset of the first `code` byte in [from, stop), or -1.
+PUBLIC FUNC findByte(bytes AS List OF Byte, code AS Integer, from AS Integer, stop AS Integer) AS Integer
+  MUT at AS Integer = from
+  WHILE at < stop
+    IF byteAt(bytes, at) = code THEN RETURN at
+    at = at + 1
+  END WHILE
+  RETURN -1
+END FUNC
+
+' The number of indentation columns a template byte contributes to the
+' re-indentation of an inline partial. Continuation bytes contribute nothing, so
+' a character costs columns once rather than once per byte; a character outside
+' the Basic Multilingual Plane -- an emoji, most of which a terminal draws two
+' cells wide -- costs two, which both aligns better and is what the reference
+' implementation arrives at from the other direction, by counting UTF-16 code
+' units. A four-byte UTF-8 sequence is exactly the astral range, and its lead
+' byte is >= 240.
+PUBLIC FUNC indentColumns(code AS Integer) AS Integer
+  IF code >= 128 AND code < 192 THEN RETURN 0
+  IF code >= 240 THEN RETURN 2
+  RETURN 1
+END FUNC

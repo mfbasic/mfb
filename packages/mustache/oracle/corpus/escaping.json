@@ -1,0 +1,10 @@
+{
+  "template": "escaped:   [{{text}}]\ntriple:    [{{{text}}}]\nampersand: [{{&text}}]\nnested:    [{{a.b}}]\n",
+  "data": {
+    "text": "& < > \" ' / ` = end é 中文 😀",
+    "a": {
+      "b": "<script>alert('x')</script>"
+    }
+  },
+  "partials": {}
+}

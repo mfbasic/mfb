@@ -1,0 +1,76 @@
+' ---------------------------------------------------------------------------
+' Tests: `{{>name}}` -- partials, and the indentation a standalone one applies.
+'
+' The indentation rule is the one part of partials that is easy to get subtly
+' wrong and impossible to notice in a one-line template: the indentation is
+' applied to the partial's SOURCE before it is parsed, so the partial's own
+' lines are indented and the newlines inside an interpolated value are not.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+
+PRIVATE FUNC one(name AS String, body AS String) AS Map OF String TO String
+  MUT out AS Map OF String TO String = Map OF String TO String {}
+  RETURN collections::set(out, name, body)
+END FUNC
+
+PRIVATE FUNC expand(template AS String, data AS String, name AS String, body AS String) AS String
+  RETURN renderWith(template, json::parse(data), one(name, body))
+END FUNC
+
+TESTING
+  TGROUP "partials"
+    TCASE "a partial is rendered in place, against the current context"
+      expectString(expand("[{{>p}}]", "{\"a\":\"A\"}", "p", "<{{a}}>"), "[<A>]")
+      expectString(expand("{{#rows}}{{>p}}{{/rows}}", "{\"rows\":[{\"a\":1},{\"a\":2}]}", "p", "[{{a}}]"), "[1][2]")
+    END TCASE
+
+    TCASE "a partial that was not supplied renders nothing"
+      expectString(render("[{{>p}}]", json::parse("{}")), "[]")
+      expectString(expand("[{{>other}}]", "{}", "p", "x"), "[]")
+    END TCASE
+
+    TCASE "a partial alone on a line is standalone"
+      expectString(expand("|\n{{>p}}\n|\n", "{}", "p", ">"), "|\n>|\n")
+      expectString(expand("|\r\n{{>p}}\r\n|", "{}", "p", ">"), "|\r\n>|")
+    END TCASE
+
+    TCASE "a standalone partial reprints every line under the indentation"
+      expectString(expand("\\\n {{>p}}\n/\n", "{\"content\":\"<\\n->\"}", "p", "|\n{{{content}}}\n|\n"), "\\\n |\n <\n->\n |\n/\n")
+    END TCASE
+
+    TCASE "the indentation applies to the SOURCE, so an interpolated newline is not indented"
+      expectString(expand("  {{>p}}\n", "{\"v\":\"one\\ntwo\"}", "p", "a\n{{{v}}}\n"), "  a\n  one\ntwo\n")
+    END TCASE
+
+    TCASE "an inline partial indents only the lines after the first"
+      expectString(expand("[ {{>p}} ]\n", "{}", "p", "1\n2\n"), "[ 1\n  2\n ]\n")
+    END TCASE
+
+    TCASE "a partial that is not the first tag on its line is not indented"
+      expectString(expand("{{a}}  {{>p}}\n", "{\"a\":\"A\"}", "p", "1\n2"), "A  1\n2\n")
+    END TCASE
+
+    TCASE "an empty line inside a partial stays empty rather than gaining trailing spaces"
+      expectString(expand("  {{>p}}\n", "{}", "p", "a\n\nb\n"), "  a\n\n  b\n")
+    END TCASE
+
+    TCASE "a partial may recurse"
+      LET tree AS String = "{\"label\":\"r\",\"kids\":[{\"label\":\"a\",\"kids\":[]},{\"label\":\"b\",\"kids\":[{\"label\":\"c\",\"kids\":[]}]}]}"
+      expectString(expand("{{>node}}", tree, "node", "{{label}}({{#kids}}{{>node}}{{/kids}})"), "r(a()b(c()))")
+    END TCASE
+
+    TCASE "a malformed partial is refused, naming the same failure a malformed template would"
+      expectTrap(expand("{{>p}}", "{}", "p", "{{#a}}"), ERR_FORMAT)
+      expectTrap(expand("{{>p}}", "{}", "p", "{{a"), ERR_FORMAT)
+    END TCASE
+
+    TCASE "a section may not be opened in one partial and closed in another"
+      MUT partials AS Map OF String TO String = Map OF String TO String {}
+      partials = collections::set(partials, "open", "{{#a}}")
+      partials = collections::set(partials, "close", "{{/a}}")
+      expectTrap(renderWith("{{>open}}body{{>close}}", json::parse("{\"a\":true}"), partials), ERR_FORMAT)
+    END TCASE
+  END TGROUP
+END TESTING

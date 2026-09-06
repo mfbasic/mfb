@@ -1,0 +1,11 @@
+{
+  "template": "default {{a}}\n{{=<% %>=}}\nswapped <%a%> and <%#list%><%.%><%/list%>\n<%={{ }}=%>\nback {{a}}\ninline {{=| |=}}|a| {{a}}\n",
+  "data": {
+    "a": "A",
+    "list": [
+      1,
+      2
+    ]
+  },
+  "partials": {}
+}

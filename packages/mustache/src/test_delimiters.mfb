@@ -1,0 +1,71 @@
+' ---------------------------------------------------------------------------
+' Tests: `{{=<% %>=}}` -- changing the delimiters, and how far a change reaches.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+
+PRIVATE FUNC delim(template AS String, data AS String) AS String
+  RETURN render(template, json::parse(data))
+END FUNC
+
+TESTING
+  TGROUP "set delimiters"
+    TCASE "a change takes effect for every following tag"
+      expectString(delim("{{a}}{{=<% %>=}}<%a%>", "{\"a\":\"A\"}"), "AA")
+      expectString(delim("{{=| |=}}|a|", "{\"a\":\"A\"}"), "A")
+      expectString(delim("{{=[[ ]]=}}[[a]]", "{\"a\":\"A\"}"), "A")
+    END TCASE
+
+    TCASE "the old delimiters become ordinary text after a change"
+      expectString(delim("{{=<% %>=}}{{a}}<%a%>", "{\"a\":\"A\"}"), "{{a}}A")
+    END TCASE
+
+    TCASE "a change can be undone"
+      expectString(delim("{{=<% %>=}}<%a%><%={{ }}=%>{{a}}", "{\"a\":\"A\"}"), "AA")
+    END TCASE
+
+    TCASE "every tag kind works under changed delimiters"
+      expectString(delim("{{=<% %>=}}<%#a%><%.%><%/a%>", "{\"a\":[1,2]}"), "12")
+      expectString(delim("{{=<% %>=}}<%^a%>none<%/a%>", "{\"a\":false}"), "none")
+      expectString(delim("{{=<% %>=}}<%! note %>x", "{}"), "x")
+      expectString(delim("{{=<% %>=}}<%&a%>", "{\"a\":\"<b>\"}"), "<b>")
+      expectString(delim("{{=<% %>=}}<%{a}%>", "{\"a\":\"<b>\"}"), "<b>")
+    END TCASE
+
+    TCASE "a set-delimiters tag alone on a line is standalone"
+      expectString(delim("|\n{{=@ @=}}\n|\n", "{}"), "|\n|\n")
+      expectString(delim("|\n  {{=@ @=}}  \n|\n", "{}"), "|\n|\n")
+    END TCASE
+
+    TCASE "surrounding whitespace inside the tag is ignored"
+      expectString(delim("{{= <% %> =}}<%a%>", "{\"a\":\"A\"}"), "A")
+    END TCASE
+
+    TCASE "a tag naming other than two delimiters is refused"
+      ' mustache.js splits on whitespace with a limit of two and silently uses
+      ' the first two. Guessing which two were meant changes what every
+      ' following tag in the template means, so this refuses instead.
+      expectTrap(delim("{{=a b c=}}aXb", "{}"), ERR_FORMAT)
+      expectTrap(delim("{{=only=}}", "{}"), ERR_FORMAT)
+      expectTrap(delim("{{= =}}", "{}"), ERR_FORMAT)
+    END TCASE
+
+    TCASE "an unterminated set-delimiters tag is refused"
+      expectTrap(delim("{{=<% %>", "{}"), ERR_FORMAT)
+      expectTrap(delim("{{=<% %>=", "{}"), ERR_FORMAT)
+    END TCASE
+
+    TCASE "a partial always starts from the default delimiters"
+      MUT partials AS Map OF String TO String = Map OF String TO String {}
+      partials = collections::set(partials, "p", ".{{a}}.")
+      expectString(renderWith("{{=| |=}}[|>p|]", json::parse("{\"a\":\"A\"}"), partials), "[.A.]")
+    END TCASE
+
+    TCASE "a change inside a partial does not leak back out"
+      MUT partials AS Map OF String TO String = Map OF String TO String {}
+      partials = collections::set(partials, "p", ".{{a}}. {{=| |=}} .|a|.")
+      expectString(renderWith("[{{>p}}][{{a}}]", json::parse("{\"a\":\"A\"}"), partials), "[.A.  .A.][A]")
+    END TCASE
+  END TGROUP
+END TESTING

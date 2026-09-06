@@ -1,0 +1,15 @@
+{
+  "template": "{{person.name.first}} {{person.name.last}}\nage {{person.age}}\nmissing [{{person.name.middle}}]\nbroken [{{person.address.city}}]\ninside {{#person}}{{name.first}}{{/person}}\nnever-a-key [{{a.b}}]\nleading-dot [{{.a}}]\n",
+  "data": {
+    "person": {
+      "name": {
+        "first": "Ada",
+        "last": "Lovelace"
+      },
+      "age": 36
+    },
+    "a.b": "flat",
+    ".a": "dotted key"
+  },
+  "partials": {}
+}

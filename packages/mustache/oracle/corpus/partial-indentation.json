@@ -1,0 +1,9 @@
+{
+  "template": "\\\n {{>partial}}\n/\nafter [ {{>partial}} ]\n",
+  "data": {
+    "content": "<\n->"
+  },
+  "partials": {
+    "partial": "|\n{{{content}}}\n|\n"
+  }
+}
