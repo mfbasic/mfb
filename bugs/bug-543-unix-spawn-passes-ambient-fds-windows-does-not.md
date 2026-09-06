@@ -11,6 +11,34 @@ option 1 below. The remaining work is not the decision, it is that this
 document's suggested macOS mechanism does not work — see "The mechanism question
 (2026-09-05)".
 
+
+## USER DECISION (2026-09-06) — the mechanism, not just the guarantee
+
+The guarantee was already ruled on: **the same on all platforms.** The remaining
+question was how macOS gets there, and the ruling is
+**`posix_spawn` + `POSIX_SPAWN_CLOEXEC_DEFAULT`**.
+
+That makes the guarantee STRUCTURAL rather than a scan — everything not named in
+the file-actions is closed by the spawn itself, which is the same shape Windows
+already has. The rejected alternative (a `/dev/fd` readdir in the fork child) was
+smaller but keeps the guarantee as an enumeration, and `readdir` in a fork child
+is not async-signal-safe.
+
+Consequences a fix must handle, both of which follow from leaving fork/exec:
+
+- The macOS spawn path is REWRITTEN off `fork`/`exec`, not patched.
+- **An ignored signal disposition survives `exec`** — the reset to `SIG_DFL`
+  currently done between fork and exec has no "between" any more. It has to move
+  into the `posix_spawn` attributes (`POSIX_SPAWN_SETSIGDEF` with the full set),
+  or a spawned child silently inherits an ignored `SIGPIPE`/`SIGINT`. This is
+  the trap that will be missed; a spawned child that never dies on a closed pipe
+  is the symptom.
+- The doc's originally suggested close-loop is DISPROVED and must not be
+  restored: `getdtablesize()` measured 245,760 on this host, so the loop is a
+  quarter-million syscalls per spawn.
+
+Linux is settled independently: `close_range`.
+
 ## The finding
 
 bug-499 gave `process::spawn` two different guarantees on two platforms:

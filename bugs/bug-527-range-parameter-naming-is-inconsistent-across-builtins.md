@@ -55,6 +55,28 @@ References:
 - `src/codegen/builtins/datetime/func_between.rs:88,95`
 - `src/codegen/builtins/strings/func_mid.rs:105,112`
 
+
+## USER DECISION (2026-09-06) — negative is out of range, everywhere
+
+Ruling on Fix Design decision 2: **negative-is-out-of-range, language-wide** —
+the doc's own recommendation, and already the majority rule (`findIndex`,
+`mid`, `find`). The rejected direction (negative counts from the end) converts
+existing `ErrIndexOutOfRange` failures into silent successes at a different
+index, which is the dangerous direction.
+
+Consequences the fix owns:
+
+- `collections::findLastIndex` LOSES its `-1` default and needs another spelling
+  for "from the end". An omitted argument meaning the last element is the
+  natural answer, and the parameter is already optional.
+- This is a source-compatibility break for any caller passing a negative index,
+  including `findLastIndex`'s OWN man-page example
+  (`findLastIndex([5,0,7], isPos, endIndex := -2)`), which must be rewritten
+  rather than kept working.
+- Decision 1 (the vocabulary) stands as the doc recommends: `endIndex` for an
+  inclusive bound, bare `start` for a scan origin in EITHER direction — so
+  `findLastIndex`'s `endIndex` becomes `start`, which is what it is.
+
 ## Failing Reproduction
 
 The defect is a census, not a crash:

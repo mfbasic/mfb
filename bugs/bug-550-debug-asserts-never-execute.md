@@ -7,6 +7,25 @@ Class: Missing gate / test infrastructure
 
 Status: Open — needs a decision on WHICH of the two fixes (see "The decision")
 
+
+## USER DECISION (2026-09-06) — promote, do not add a CI axis
+
+Ruling: **promote the load-bearing `debug_assert!`s to unconditional `assert!`.**
+No debug-assertions CI job.
+
+So the work is an AUDIT of all 55, not a workflow change, and each promotion has
+to be justified one at a time. Two constraints that fall out of the choice:
+
+- An `assert!` that runs in release is on the hot path in a way a
+  `debug_assert!` never was. A promotion whose predicate is expensive (anything
+  walking a collection or re-deriving a type) is NOT a candidate — it changes
+  compile time for every user. Say so per assert rather than promoting it.
+- The remainder stay dead by decision, not by oversight. Record which ones were
+  left and why, so the next audit does not re-litigate all 55.
+
+`raise_error_bare`'s error-list check is the specific one bug-553 needs, and is
+the first candidate to examine.
+
 ## The finding
 
     $ grep -rn 'debug_assert' src/ | wc -l

@@ -32,6 +32,31 @@ References:
 - RFC 9106 (Argon2), §5 test vectors
 - Spike: none needed — the gap is an absence, established by the grep below
 
+
+## USER DECISION (2026-09-06) — both spellings, and the profile is a wrapper
+
+Ruling: ship **both** an explicit-cost overload and a profile overload, with one
+structural constraint the user stated directly — **the profile overload calls
+the full version underneath.** It is not a second implementation and not a
+second parameter table; it resolves its profile to concrete
+`memoryKiB`/`iterations`/`parallelism` and calls the explicit member.
+
+That matters for two reasons beyond tidiness:
+
+- There is exactly ONE place the cost parameters are validated and one place
+  they are used, so the two spellings cannot drift into disagreeing about what
+  `Moderate` means.
+- The profile constants become the only thing that is retunable later, and
+  retuning them cannot change the explicit member's behavior.
+
+The explicit member exists because a caller VERIFYING a hash produced elsewhere
+must be able to name a specific published parameter set; the profile spelling is
+what the man page recommends for producing one.
+
+Still open, and answerable from the implementation rather than by the user: what
+an over-large `memoryKiB` does. It must be a raised error, not an allocation
+attempt — decide the error and pin it.
+
 ## Failing Reproduction
 
 The finding is an absence, so the reproduction is the census:
