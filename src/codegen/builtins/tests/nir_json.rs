@@ -29,6 +29,12 @@ use crate::testutil::{nir_for_src, CodeTarget};
 /// through a signed path emits `-1`, which is still valid JSON and still parses,
 /// so the assertion below looks for the value rather than for well-formedness
 /// alone.
+///
+/// The third function is where `link_expr_json`'s arms live. A `LINK` block
+/// carries a small expression language — the `SUCCESS_ON` gate and the `BUFFER
+/// SIZE` / `RETURN … LENGTH` sizes — and each operator is its own arm:
+/// `Compare`, `And`, `Or`, `Mul`, `Int`. Every committed `LINK` fixture uses one
+/// or two of them, so the rest were unwritten by anything.
 const LINKING: &str = "\
 IMPORT io
 
@@ -45,11 +51,19 @@ LINK \"sqlite3\" AS sql
     CONST n = 0xFFFFFFFFFFFFFFFF
     RETURN current
   END FUNC
+  FUNC gated(items AS Integer) AS List OF Byte
+    SYMBOL \"sqlite3_get_autocommit\"
+    ABI (buf OUT CBuffer, items CInt64) AS got CInt64
+    BUFFER buf SIZE items * 2
+    SUCCESS_ON got * 2 >= 0 AND (got <> 1 OR got = 100)
+    RETURN buf LENGTH got * 2
+  END FUNC
 END LINK
 
 FUNC main() AS Integer
   io::print(toString(sql::setLimit()))
   io::print(toString(sql::query()))
+  io::print(toString(len(sql::gated(4))))
   RETURN 0
 END FUNC
 ";
@@ -225,6 +239,42 @@ fn the_nir_dump_carries_a_link_block_whole() {
             text.contains(expected),
             "the `-nir` dump of a LINK block must carry {expected:?}; without it \
              the dump describes a program the compiler is not building"
+        );
+    }
+
+    // The gate and the buffer sizes are an expression TREE, and each operator
+    // is its own arm of `link_expr_json`. Asserting the operators, not just
+    // that a LINK block appeared, is what makes the third function in the
+    // program load-bearing: a writer that dropped the `SUCCESS_ON` gate
+    // entirely would still satisfy every row above, and a `-nir` dump that
+    // omits the gate describes a call that cannot fail.
+    for (kind, why) in [
+        (
+            r#""kind": "compare", "op": ">=""#,
+            "the SUCCESS_ON gate's `got >= 0`",
+        ),
+        (r#""kind": "and""#, "the gate's AND"),
+        (r#""kind": "or""#, "the gate's parenthesised OR"),
+        (
+            r#""kind": "binary", "op": "*""#,
+            "the gate's `got * 2`. It has to be in the GATE: the dump does not \
+             serialize `BUFFER … SIZE` or `RETURN … LENGTH` at all (a link \
+             function writes consts / successOn / result / free and no sizes), \
+             so `successOn` is the only expression tree that reaches it",
+        ),
+        (
+            r#""kind": "var", "name": "got""#,
+            "the gate's reference to the ABI result",
+        ),
+        (
+            r#""kind": "int", "value": 2"#,
+            "the literal in both size expressions",
+        ),
+    ] {
+        assert!(
+            text.contains(kind),
+            "the dump must carry {kind} -- {why}. Its absence means the \
+             expression tree reached the dump flattened or not at all"
         );
     }
 }
