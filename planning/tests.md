@@ -419,7 +419,8 @@ these files, and is not for `repository/src/**`).
 | after the NIR reference-resolution refusals | 221 | 6,949 |
 | after the inline-TRAP short-circuit suite, the Linux ELF writers and the indirect-trap fixture | 219 | 6,440 |
 | after the decline fixtures, bug-548/549, the two validators and the dump writers | 215 | 5,886 |
-| after the platform-emit failure sweep | **198** | **5,577** |
+| after the platform-emit failure sweep | 198 | 5,577 |
+| after the optimizer-globals and OUT-width suites | **198** | **5,509** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
@@ -1053,3 +1054,47 @@ That is also what the remaining 322 in `builtins` are, and the ~180 outside it
 for this class is a failing BUILDER rather than a failing platform, and it is a
 harder seam: a platform is a trait behind a `&dyn`, and `CodeBuilder` is a
 concrete struct every emitter calls inherent methods on.
+
+### C12 — two commits claimed a file they did not move, and the per-file check is what caught both
+
+The note added after C10 says to check the SPECIFIC lines a commit claimed after
+every measurement, not just the total. Two commits since then did not get that
+check, and both were wrong.
+
+**`ir/shape.rs`, claimed by `list-literal-numeric-coercion-rt`.** 94.42% before
+and 94.42% after — not one line. The reason is structural and worth stating
+plainly, because it disqualifies a whole tactic:
+
+> **An rt-behavior fixture cannot cover a source checker.** The in-process
+> corpus LOWERS its fixtures (`try_code_for_src` -> `lower_augmented_project`)
+> and never calls `ir::shape::collect_diagnostics` or `ir::verify`. Nothing in
+> `corpus.rs` mentions `check_src`. The checkers are reached by the
+> `tests/syntax` diagnostic corpus and by in-process `check_src` — and by
+> nothing else.
+
+So every `ir/shape.rs` and `ir/verify/**` line has to be closed with a
+`check_src` test or a `tests/syntax` fixture, and a fixture written for one of
+them is aimed at the wrong pass however carefully it is built. Closed by
+`literal_coercion.rs`. The rt fixture stays: the VALUES it asserts are worth
+pinning, and lowering is where a wrong coercion produces a wrong number.
+
+**`func_partition.rs`, claimed by `hof-callback-failure-rt`.** 76.50% before and
+76.50% after. Here the fixture DOES reach the code — an instrumented probe over
+the corpus shows `#collections_partition$Integer` lowered four times, `$Float`
+and `$String` once each — but `raw_result_capture_label()` is `None` on all six,
+so the `Some(capture)` arm the commit named is still dead.
+
+The reason looks structural too, and is filed as a lead rather than a
+conclusion: a raw capture is installed by `lower_checked_value` and
+`lower_inline_builtin_raw`, and the second one calls `try_abi_inline_lower` —
+**not** `try_mfb_fast_path`. `try_mfb_fast_path` is consulted from the
+`RuntimeCall` arm, outside any capture. If that is the whole story then the
+`Some(capture)` arm of every `Body::Mfb` fast path is unreachable for the same
+reason bug-548's union half was, and the fixture cannot close it. The fixture
+still earns its place — it asserts the abandon-the-partial-result contract for
+eight helpers at runtime, which nothing did before.
+
+The lesson is the process one: **a commit message that names a file has to be
+checked against that file in the next report.** Both of these read as plausible
+and both were wrong, and the total moved anyway — 5,886 -> 5,577 -> 5,509 —
+which is exactly how a wrong per-file claim hides.

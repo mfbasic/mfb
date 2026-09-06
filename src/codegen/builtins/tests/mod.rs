@@ -45,6 +45,7 @@ mod inplace_fields;
 mod link;
 mod link_out_widths;
 mod link_struct_widths;
+mod literal_coercion;
 mod math;
 mod nir_json;
 mod nir_validation;
