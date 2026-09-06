@@ -141,7 +141,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named(super::TLS_LISTENER_TYPE_ID),
-            errors: vec![],
+            errors: vec!["ErrAddressInvalid", "ErrNetworkFailed", "ErrOutOfMemory", "ErrTlsFailed"],
             body: Body::abi_function(lower_listen),
         }],
     });

@@ -69,7 +69,7 @@ fn overload(ty: crate::types::ParameterType, desc: &'static str) -> Implementati
     Implementation {
         params: vec![super::req("resource", desc, &["sock", "listener"], ty)],
         return_type: super::address(),
-        errors: vec![],
+        errors: vec!["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed"],
         body: super::native_body(lower_local_address, &[]),
     }
 }

@@ -101,7 +101,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 ],
                 return_type: ParameterType::Nothing,
-                errors: vec![],
+                errors: vec!["ErrConnectionClosed", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrTimeout", "ErrTlsFailed"],
                 body: Body::abi_function_aliased(lower_write, &[]),
             },
             Implementation {
@@ -122,7 +122,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 ],
                 return_type: ParameterType::Nothing,
-                errors: vec![],
+                errors: vec!["ErrConnectionClosed", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrTimeout", "ErrTlsFailed"],
                 body: Body::abi_function_aliased(lower_write, &["writeText"]),
             },
         ],

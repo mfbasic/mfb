@@ -103,7 +103,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     ),
                 ],
                 return_type: ParameterType::Nothing,
-                errors: vec![],
+                errors: vec!["ErrConnectionClosed", "ErrInvalidArgument", "ErrResourceClosed", "ErrTimeout"],
                 body: super::native_body(lower_write, &[]),
             },
             Implementation {
@@ -117,7 +117,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     ),
                 ],
                 return_type: ParameterType::Nothing,
-                errors: vec![],
+                errors: vec!["ErrConnectionClosed", "ErrResourceClosed", "ErrTimeout"],
                 body: super::native_body(lower_write, &["writeText"]),
             },
         ],

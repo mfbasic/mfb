@@ -956,6 +956,36 @@ mod tests {
         assert!(md.contains("`ErrInvalidFormat`"));
     }
 
+    /// bug-553: `tcp`/`tls` gained real `errors:` lists, and the page has to grow
+    /// an Errors table WITHOUT losing anything it already rendered. The `errors`
+    /// field feeds nothing but this table, so the rest of the page is the control.
+    #[test]
+    fn a_tcp_member_that_gained_errors_still_renders_its_other_sections() {
+        let package = registry().resolve_package("tcp").unwrap();
+        let function = package.function("read").unwrap();
+        let md = render_function_markdown(package, function);
+
+        // The new table, resolved from the declared names to code + message.
+        assert!(md.contains("## Errors"));
+        assert!(md.contains("`ErrConnectionClosed`"));
+        assert!(md.contains("`ErrTimeout`"));
+        // ...and NOT an error the lowering cannot raise: `ErrEncoding` lives
+        // inside `lower_net_read_helper`'s `if text` arm, which `tcp::read` does
+        // not select.
+        assert!(!md.contains("`ErrEncoding`"));
+
+        // Everything the page rendered before is still there.
+        assert!(md.starts_with("# read\n"));
+        assert!(md.contains("## Package\n\ntcp"));
+        assert!(md.contains("## Description"));
+        assert!(md.contains("## Declaration"));
+        assert!(md.contains("`tcp::read(sock AS tcp::Socket"));
+        assert!(md.contains("## Parameters"));
+        assert!(md.contains("`maxBytes`"));
+        assert!(md.contains("Returns `List OF Byte`."));
+        assert!(md.contains("## Examples"));
+    }
+
     #[test]
     fn a_member_with_no_declared_errors_omits_the_errors_section() {
         // Every `csv` member is now fallible (dialect validation raises

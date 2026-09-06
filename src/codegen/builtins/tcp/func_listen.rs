@@ -121,7 +121,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ),
             ],
             return_type: super::listener(),
-            errors: vec![],
+            errors: vec!["ErrAddressInvalid", "ErrNetworkFailed", "ErrOutOfMemory"],
             body: super::native_body(lower_listen, &[]),
         }],
     });

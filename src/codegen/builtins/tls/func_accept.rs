@@ -95,7 +95,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrTimeout", "ErrTlsFailed"],
             body: Body::abi_function(lower_accept),
         }],
     });

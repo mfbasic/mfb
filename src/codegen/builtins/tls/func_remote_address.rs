@@ -79,7 +79,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID),
-            errors: vec![],
+            errors: vec!["ErrAddressInvalid", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed"],
             body: Body::abi_function(lower_remote_address),
         }],
     });

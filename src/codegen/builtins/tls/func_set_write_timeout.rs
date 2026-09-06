@@ -92,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument", "ErrResourceClosed"],
             body: Body::abi_function(lower_set_write_timeout),
         }],
     });
