@@ -1,0 +1,89 @@
+' A lambda that captures an outer MUT BY REFERENCE, and updates it.
+'
+' `LAMBDA(v AS Integer) -> name = <expr>` is its own grammar: the parser takes
+' the `identifier =` lookahead as an assignment rather than an equality, and the
+' lambda yields Nothing. It is the shape a NON-ESCAPING callback uses to update a
+' captured binding, and `collections::forEach` is the one callback position
+' proven non-escaping (`mfb man collections partition` says so in as many words:
+' "the callback position proven non-escaping is collections::forEach, not
+' partition").
+'
+' Nothing in the tree had one, so the whole by-reference capture path was dead:
+'
+'   ir::lower            the `IrValue::LocalRef` a by-ref capture lowers to
+'   optimizer/opt1       the read census's `LocalRef` arm
+'   builder_control      the `by_ref` local, and therefore the FIRST guard of
+'                        every in-place collection recogniser -- `if by_ref
+'                        { return Ok(false) }`, one per recogniser, none of
+'                        which had ever run
+'
+' That last one is the contract worth having. A by-ref local's SLOT holds the
+' address of the parent's binding, not the collection -- so an in-place mutation
+' that treated it as the collection would write through a pointer to a pointer.
+' Every recogniser declines, and the declines have to be right for the same
+' reason the aliasing declines do: the result is a wrong VALUE, not a crash.
+IMPORT collections
+IMPORT io
+
+FUNC ints(a AS List OF Integer) AS String
+  MUT s AS String = ""
+  FOR EACH v IN a
+    s = s & toString(v) & " "
+  NEXT
+  RETURN "[" & s & "]"
+END FUNC
+
+FUNC main() AS Integer
+  ' ---- the plain case: a scalar updated through the capture ---------------
+  MUT total AS Integer = 0
+  collections::forEach([1, 2, 3], LAMBDA(v AS Integer) -> total = total + v)
+  io::print("scalar     total=" & toString(total))
+
+  ' The binding the caller sees is the one the callback wrote: a capture BY
+  ' VALUE would leave this 0.
+  MUT last AS String = ""
+  collections::forEach(["a", "bb", "ccc"], LAMBDA(s AS String) -> last = s)
+  io::print("string     last=" & last)
+
+  ' ---- a captured COLLECTION, which is where the recognisers decline ------
+  ' `xs = append(xs, v)` inside the callback is exactly the shape every
+  ' in-place recogniser matches -- except that `xs` is a by-ref capture here,
+  ' so every one of them must decline and fall back to the copying path. The
+  ' result has to be right either way.
+  MUT xs AS List OF Integer = [0]
+  collections::forEach([1, 2, 3], LAMBDA(v AS Integer) -> xs = collections::append(xs, v))
+  io::print("append     " & ints(xs))
+
+  MUT ys AS List OF Integer = [9]
+  collections::forEach([1, 2], LAMBDA(v AS Integer) -> ys = collections::prepend(ys, v))
+  io::print("prepend    " & ints(ys))
+
+  MUT seen AS Set OF Integer = Set OF Integer { 0 }
+  collections::forEach([1, 2, 2], LAMBDA(v AS Integer) -> seen = collections::add(seen, v))
+  io::print("set add    len=" & toString(len(seen)) _
+    & " has1=" & toString(collections::contains(seen, 1)) _
+    & " has2=" & toString(collections::contains(seen, 2)))
+
+  MUT tally AS Map OF String TO Integer = Map OF String TO Integer { }
+  collections::forEach(["a", "b"], LAMBDA(k AS String) -> tally = collections::set(tally, k, 1))
+  io::print("map set    len=" & toString(len(tally)) _
+    & " a=" & toString(collections::getOr(tally, "a", 0)) _
+    & " b=" & toString(collections::getOr(tally, "b", 0)))
+
+  ' ---- and the churn, because a decline is a slow path and never a leak ----
+  ' Two hundred appends through a by-ref capture. A recogniser that took the
+  ' in-place path here would write through a pointer to a pointer; one that
+  ' declines but drops the intermediate wrongly shows up as a wrong length or
+  ' a crash by the end.
+  MUT big AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 200
+    collections::forEach([i], LAMBDA(v AS Integer) -> big = collections::append(big, v))
+    i = i + 1
+  END WHILE
+  io::print("churn      len=" & toString(len(big)) _
+    & " first=" & toString(collections::get(big, 0)) _
+    & " last=" & toString(collections::get(big, 199)))
+
+  RETURN 0
+END FUNC
