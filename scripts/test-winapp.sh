@@ -523,6 +523,93 @@ case "$tout" in
   *) fail "a term:: call after term::off mutated shared state — term::setBold is the visible one, and term::moveTo had no gate of any kind (bug-541 GATE-02)" ;;
 esac
 
+
+# ---------------------------------------------------------------------------
+# `term::` style fidelity and the term::on reset on Windows (bug-540)
+#
+# WIN-01: `term::LineStyle`/`term::FillStyle` were ignored — every rule came out
+# `Light` and every `fillRect` painted the background, so the six fill styles were
+# indistinguishable. The glyphs now come from the shared `TERM_*_CODEPOINTS`
+# tables. **Which glyph landed in which cell is not observable from this box**:
+# the GDI grid has no readback path and headless has no window to photograph, so
+# the pixel-level claim is pinned by codegen inspection
+# (`tests/cli_win_app_term_fidelity.rs`, Windows vs the macOS oracle) and this run
+# asserts what a runtime CAN prove — that every style's newly-emitted select chain
+# and the larger frames the extra slots need execute without faulting.
+#
+# WIN-05 IS observable here, and it is the reason this section exists: `term::on`
+# reset only `active`/`fg`/`bg`, so bold, underline, a hidden cursor and a stale
+# pending-resize survived `term::off` + `term::on` on Windows alone.
+sproj="$work/winstyle"
+mkdir -p "$sproj/src"
+cat > "$sproj/project.json" <<'JSON'
+{ "name": "winstyle", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$sproj/src/main.mfb" <<'MFB'
+IMPORT term
+IMPORT io
+IMPORT color
+
+SUB main()
+  MUT log AS String = ""
+  term::on()
+  ' Every LineStyle and every FillStyle, so each select chain runs at least once.
+  term::drawHLine(term::LineStyle.Double, 1, 1, 20)
+  term::drawVLine(term::LineStyle.HeavyDash, 2, 1, 8)
+  term::drawBox(term::LineStyle.Double, 3, 4, 8, 30)
+  term::drawBox(term::LineStyle.LightDot, 10, 4, 14, 30)
+  term::fillRect(term::FillStyle.Filled, 16, 1, 17, 10)
+  term::fillRect(term::FillStyle.Light, 18, 1, 18, 10)
+  term::fillRect(term::FillStyle.Medium, 19, 1, 19, 10)
+  term::fillRect(term::FillStyle.Dark, 20, 1, 20, 10)
+  term::fillRect(term::FillStyle.Checker, 21, 1, 21, 10)
+  term::fillRect(term::FillStyle.CheckerAlt, 22, 1, 22, 10)
+  term::drawGlyph(23, 1, 9731)
+  term::sync()
+
+  ' WIN-05: term::on resets EVERY term:: setting, so these must not survive it.
+  term::setBold(TRUE)
+  term::setUnderline(TRUE)
+  term::hideCursor()
+  term::off()
+  term::on()
+  log = log & "reset bold=" & toString(term::getBold())
+  log = log & " underline=" & toString(term::getUnderline())
+  term::off()
+  io::print(log)
+END SUB
+MFB
+
+echo "--- building the term style program for windows-x86_64 ---"
+"$MFB_EXE" build --app --target windows-x86_64 "$sproj" >/dev/null
+
+cat > "$work/winstyle.bat" <<'BAT'
+@echo off
+setlocal
+set MFB_WINAPP_HEADLESS=1
+cd /d C:\mfbwin
+winstyle.exe > winstyle.out 2>&1
+echo rc=%errorlevel%
+type winstyle.out
+BAT
+
+ssh -p "$PORT" "$host" "del /q $remote\\winstyle.out 2>nul" >/dev/null 2>&1 || true
+scp -P "$PORT" "$sproj/build/winstyle.exe" "$host:C:/mfbwin/winstyle.exe" >/dev/null
+scp -P "$PORT" "$work/winstyle.bat" "$host:C:/mfbwin/winstyle.bat" >/dev/null
+sout="$(ssh -p "$PORT" "$host" "$remote\\winstyle.bat" 2>&1 || true)"
+echo "$sout" | sed 's/^/    /'
+
+case "$sout" in
+  *"rc=0"*) pass "every LineStyle and FillStyle select chain ran without faulting (bug-540 WIN-01)" ;;
+  *) fail "the term style program did not exit 0 — the per-style glyph select chains, or the larger frames their slots need, fault at run time" ;;
+esac
+case "$sout" in
+  *"reset bold=FALSE underline=FALSE"*) pass "term::on resets bold and underline (bug-540 WIN-05)" ;;
+  *) fail "term::on did not reset the term state — bold and underline survived a term::off + term::on, which happens on no other backend (bug-540 WIN-05)" ;;
+esac
+
 if [ "$fails" -eq 0 ]; then
   echo "windows app-mode, canvas and Vulkan runtime tests passed"
 else

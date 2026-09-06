@@ -128,12 +128,12 @@ source drives both.
 
 **One app-mode gap is worth knowing before you rely on it**, and it is about
 `mfb build --app` on Windows only — a program run in a terminal, or built
-`--app` for macOS or Linux, behaves the same everywhere. **Windows** app mode
-draws the positioned calls, but ignores the `term::LineStyle` and
-`term::FillStyle` argument: lines and boxes always come out `Light`, and
-`fillRect` paints the background rather than a block or shade glyph. Its surface
-is also a fixed 80 by 25 cells, and `term::drawText` stamps one position per
-Unicode scalar there rather than per grapheme cluster.
+`--app` for macOS or Linux, behaves the same everywhere. A **Windows** app
+window's surface is a fixed 80 by 25 cells that does not follow the window, so
+`term::terminalSize` always reports that size and `term::didResize` always reads
+`FALSE`; and `term::drawText` stamps one position per Unicode scalar there
+rather than per grapheme cluster, so a combining mark or a ZWJ emoji takes more
+than one cell.
 
 `term::on` is the gate for the whole module. It switches the terminal into TUI
 mode and resets all `term::` state to its defaults (white foreground, black

@@ -2559,6 +2559,62 @@ fn win_guard_on_grid(ins: &mut Vec<CodeInstruction>, off: usize, max: usize, ski
     ins.push(abi::branch_gt(skip));
 }
 
+/// bug-540 WIN-01: `glyph_off = table[ord_off]`, a select-by-ordinal chain that
+/// falls back to entry 0 for an out-of-range ordinal. `tag` uniquifies the labels.
+/// Clobbers ARG[0..1].
+///
+/// The tables are `crate::codegen::error::constants::TERM_*_CODEPOINTS`, the same
+/// arrays the console (`emit_select_glyph`), macOS (`emit_app_select_unichar`) and
+/// GTK (`emit_select_packed_glyph`) backends index. This backend used to write the
+/// glyph as a literal — `9472` for every horizontal rule, `9474` for every vertical
+/// one, `9484`/`9488`/`9492`/`9496` for the four corners and `32` for every fill —
+/// so `term::LineStyle` and `term::FillStyle` arrived in ARG[0] and were never
+/// read. Reading the shared table is the point: a fifth backend cannot then
+/// disagree about which glyph a style means.
+///
+/// Every entry in every one of these tables is BMP, so a selected code point is
+/// always a single UTF-16 unit and [`win_stamp_bmp`] can stamp it directly.
+fn emit_win_select_codepoint(
+    ins: &mut Vec<CodeInstruction>,
+    ord_off: usize,
+    glyph_off: usize,
+    table: &[u32],
+    tag: &str,
+) {
+    let done = format!("{tag}_sel");
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        ord_off,
+    ));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        &table[0].to_string(),
+    ));
+    for (ordinal, codepoint) in table.iter().enumerate().skip(1) {
+        let next = format!("{tag}_sel{ordinal}");
+        ins.push(abi::compare_immediate(
+            abi::mfb_arg(0),
+            &ordinal.to_string(),
+        ));
+        ins.push(abi::branch_ne(&next));
+        ins.push(abi::move_immediate(
+            abi::mfb_arg(1),
+            "Integer",
+            &codepoint.to_string(),
+        ));
+        ins.push(abi::branch(&done));
+        ins.push(abi::label(&next));
+    }
+    ins.push(abi::label(&done));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        glyph_off,
+    ));
+}
+
 /// bug-541: branch to `inactive` while TUI mode is off — the §4.2.1 no-op gate,
 /// read from the same shared arena term-state `active` slot the console
 /// (`emit_gate_inactive`), macOS (`emit_term_active_gate`) and GTK
@@ -2823,6 +2879,7 @@ fn emit_term_draw_line(
     const POS: usize = 0x48; // running a..b
     const ENDV: usize = 0x50;
     const GLYPH: usize = 0x58;
+    const ORD: usize = 0x60; // bug-540 WIN-01: the incoming LineStyle ordinal
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
@@ -2832,6 +2889,9 @@ fn emit_term_draw_line(
     let (fixed_arg, pos_arg, end_arg) = if horizontal { (1, 2, 3) } else { (2, 1, 3) };
     // bug-541: inert while TUI mode is off.
     emit_win_term_active_gate(&mut ins, tso, "dln_inactive");
+    // bug-540 WIN-01: ARG[0] is the `LineStyle` ordinal. Parked first, because the
+    // clipping helpers below use ARG[0..2] as scratch.
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), ORD));
     ins.push(abi::store_u64(
         abi::mfb_arg(fixed_arg),
         abi::stack_pointer(),
@@ -2858,13 +2918,19 @@ fn emit_term_draw_line(
     win_guard_on_grid(&mut ins, FIXED, fixed_max, "dln_done");
     win_normalize_pair(&mut ins, "dln", POS, ENDV);
     win_clip_span(&mut ins, "dln", POS, ENDV, span_max, "dln_done");
-    // glyph = ─ (9472) for H, │ (9474) for V.
-    ins.push(abi::move_immediate(
-        abi::mfb_arg(0),
-        "Integer",
-        if horizontal { "9472" } else { "9474" },
-    ));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
+    // bug-540 WIN-01: the glyph comes from the shared table, indexed by the style
+    // ordinal — not the Light literal this backend used for every style.
+    emit_win_select_codepoint(
+        &mut ins,
+        ORD,
+        GLYPH,
+        if horizontal {
+            &crate::codegen::error::constants::TERM_HLINE_CODEPOINTS
+        } else {
+            &crate::codegen::error::constants::TERM_VLINE_CODEPOINTS
+        },
+        "dln",
+    );
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
@@ -2935,11 +3001,19 @@ fn emit_term_draw_box(
     const CY1: usize = 0x78;
     const CX2: usize = 0x80;
     const CY2: usize = 0x88;
+    // bug-540 WIN-01: the LineStyle ordinal and the two edge glyphs it selects. The
+    // edges are selected ONCE and stamped from their own slots, so the four edge
+    // loops share one chain each instead of re-deriving the glyph per edge.
+    const ORD: usize = 0x90;
+    const HGLYPH: usize = 0x98;
+    const VGLYPH: usize = 0xA0;
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     // bug-541: inert while TUI mode is off.
     emit_win_term_active_gate(&mut ins, tso, "dbx_inactive");
+    // bug-540 WIN-01: ARG[0] is the `LineStyle` ordinal.
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), ORD));
     // Corners arrive as `(rowA, columnA, rowB, columnB)` — every `term::` point is
     // written row before column.
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), Y1));
@@ -2968,60 +3042,96 @@ fn emit_term_draw_box(
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
     ins.push(abi::branch_eq("dbx_done"));
     win_set_colors(&mut ins, &mut rel, from, tso, MEMDC);
-    // Top + bottom edges (─) across x1..x2 at y1 / y2. An edge whose row is off the
+    // bug-540 WIN-01: both edge glyphs, from the same tables the rules use.
+    emit_win_select_codepoint(
+        &mut ins,
+        ORD,
+        HGLYPH,
+        &crate::codegen::error::constants::TERM_HLINE_CODEPOINTS,
+        "dbx_h",
+    );
+    emit_win_select_codepoint(
+        &mut ins,
+        ORD,
+        VGLYPH,
+        &crate::codegen::error::constants::TERM_VLINE_CODEPOINTS,
+        "dbx_v",
+    );
+    // Top + bottom edges across x1..x2 at y1 / y2. An edge whose row is off the
     // grid is skipped entirely (the clamped X range still bounds the loop).
     for (yslot, cyslot, tag) in [(Y1, CY1, "dbx_top"), (Y2, CY2, "dbx_bot")] {
         win_guard_on_grid(&mut ins, cyslot, TUI_ROWS - 1, &format!("{tag}_done"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), X1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
-        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "9472")); // ─
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
         ins.push(abi::label(&format!("{tag}_loop")));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), X2));
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_gt(&format!("{tag}_done")));
-        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, POS, yslot, GLYPH, WCH);
+        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, POS, yslot, HGLYPH, WCH);
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::branch(&format!("{tag}_loop")));
         ins.push(abi::label(&format!("{tag}_done")));
     }
-    // Left + right edges (│) down y1..y2 at x1 / x2. Skipped when the column is off
+    // Left + right edges down y1..y2 at x1 / x2. Skipped when the column is off
     // the grid.
     for (xslot, cxslot, tag) in [(X1, CX1, "dbx_left"), (X2, CX2, "dbx_right")] {
         win_guard_on_grid(&mut ins, cxslot, TUI_COLS - 1, &format!("{tag}_done"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), Y1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
-        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "9474")); // │
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
         ins.push(abi::label(&format!("{tag}_loop")));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), Y2));
         ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_gt(&format!("{tag}_done")));
-        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, xslot, POS, GLYPH, WCH);
+        win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, xslot, POS, VGLYPH, WCH);
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::branch(&format!("{tag}_loop")));
         ins.push(abi::label(&format!("{tag}_done")));
     }
-    // Corners: ┌ x1y1, ┐ x2y1, └ x1y2, ┘ x2y2 — each stamped only when its own cell
-    // is on the grid, read from the unclamped copies so a corner off the rim is
+    // Corners: TL x1y1, TR x2y1, BL x1y2, BR x2y2 — each stamped only when its own
+    // cell is on the grid, read from the unclamped copies so a corner off the rim is
     // skipped rather than slid onto it.
-    for (xslot, yslot, cp, tag) in [
-        (CX1, CY1, "9484", "tl"),
-        (CX2, CY1, "9488", "tr"),
-        (CX1, CY2, "9492", "bl"),
-        (CX2, CY2, "9496", "br"),
+    //
+    // bug-540 WIN-01: each corner comes from its own shared table, which is also
+    // where the dash/dot fallback lives — `LightDash`/`LightDot` reuse the Light
+    // corner and `HeavyDash`/`HeavyDot` the Heavy one, because Unicode has no dashed
+    // corner glyph. Reading the table is what gets that fallback for free; a
+    // hand-written weight chain here would be a second place to get it wrong.
+    for (xslot, yslot, table, tag) in [
+        (
+            CX1,
+            CY1,
+            &crate::codegen::error::constants::TERM_CORNER_TL_CODEPOINTS,
+            "tl",
+        ),
+        (
+            CX2,
+            CY1,
+            &crate::codegen::error::constants::TERM_CORNER_TR_CODEPOINTS,
+            "tr",
+        ),
+        (
+            CX1,
+            CY2,
+            &crate::codegen::error::constants::TERM_CORNER_BL_CODEPOINTS,
+            "bl",
+        ),
+        (
+            CX2,
+            CY2,
+            &crate::codegen::error::constants::TERM_CORNER_BR_CODEPOINTS,
+            "br",
+        ),
     ] {
         let skip = format!("dbx_c{tag}_skip");
         win_guard_on_grid(&mut ins, xslot, TUI_COLS - 1, &skip);
         win_guard_on_grid(&mut ins, yslot, TUI_ROWS - 1, &skip);
-        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", cp));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
+        emit_win_select_codepoint(&mut ins, ORD, GLYPH, table, &format!("dbx_c{tag}"));
         win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, xslot, yslot, GLYPH, WCH);
         ins.push(abi::label(&skip));
     }
@@ -3059,11 +3169,14 @@ fn emit_term_fill_rect(
     const CX: usize = 0x60;
     const CY: usize = 0x68;
     const GLYPH: usize = 0x70;
+    const ORD: usize = 0x78; // bug-540 WIN-01: the incoming FillStyle ordinal
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     // bug-541: inert while TUI mode is off.
     emit_win_term_active_gate(&mut ins, tso, "dfr_inactive");
+    // bug-540 WIN-01: ARG[0] is the `FillStyle` ordinal.
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), ORD));
     // Corners arrive as `(rowA, columnA, rowB, columnB)` — row before column.
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), Y1));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), X1));
@@ -3076,8 +3189,17 @@ fn emit_term_fill_rect(
     win_normalize_pair(&mut ins, "dfr_y", Y1, Y2);
     win_clip_span(&mut ins, "dfr_x", X1, X2, TUI_COLS - 1, "dfr_done");
     win_clip_span(&mut ins, "dfr_y", Y1, Y2, TUI_ROWS - 1, "dfr_done");
-    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "32")); // space (paints bg)
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
+    // bug-540 WIN-01: the block/shade glyph for the requested `FillStyle`, from the
+    // shared table. This backend stamped a space and let the background colour make
+    // the region visible, which renders `Filled`, `Light`, `Medium`, `Dark`,
+    // `Checker` and `CheckerAlt` identically — the whole point of the enum.
+    emit_win_select_codepoint(
+        &mut ins,
+        ORD,
+        GLYPH,
+        &crate::codegen::error::constants::TERM_FILL_CODEPOINTS,
+        "dfr",
+    );
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
@@ -3509,10 +3631,25 @@ fn emit_term_on(
         ARENA_STATE_REGISTER,
         tso + TERM_STATE_FG_OFFSET,
     ));
+    // bug-540 WIN-05: `term::on` resets ALL `term::` state to its defaults, not just
+    // the colours — `mfb man term` states it, and the console (`emit_on`), macOS
+    // (`emit_app_term_on_helper`) and GTK (`emit_app_term_on`) bodies all do it.
+    // This body reset only `active`/`fg`/`bg`, so bold, underline and a hidden
+    // cursor survived a `term::off` + `term::on` on Windows alone, and a stale
+    // `didResize` was reported as a resize that never happened.
+    for field in [
+        TERM_STATE_BG_OFFSET,
+        TERM_STATE_BOLD_OFFSET,
+        TERM_STATE_UNDERLINE_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_DID_RESIZE_OFFSET,
+    ] {
+        ins.push(abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, tso + field));
+    }
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "1"));
     ins.push(abi::store_u64(
-        abi::ZERO,
+        abi::mfb_arg(0),
         ARENA_STATE_REGISTER,
-        tso + TERM_STATE_BG_OFFSET,
+        tso + TERM_STATE_CURSOR_VISIBLE_OFFSET,
     ));
     // Hide the transcript EDIT, then invalidate the window to present the grid.
     load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);

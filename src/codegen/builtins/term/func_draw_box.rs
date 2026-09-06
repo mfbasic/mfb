@@ -37,11 +37,6 @@ edges along the visible sides), and a box entirely off the surface draws nothing
 No error is raised for an out-of-range request. A one-cell-wide or one-cell-tall
 box collapses to a line or a single cell, with the corners drawn last.
 
-**One app-mode gap applies to this call** (see `mfb man term`): in a **Windows**
-`--app` build it draws, but ignores `line` and always uses the `Light` glyphs. The
-console backend on every platform, and macOS and Linux app mode, honour the
-style.
-
 The call is gated: while TUI mode is off it does nothing and reports no
 error."#;
 

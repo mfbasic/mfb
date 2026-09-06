@@ -43,10 +43,6 @@ colours or attributes; it overwrites only the cells in the run, so a later draw
 over the same cell (for example a crossing vertical line) wins. The same surface
 is rendered on the console backend and in windowed app mode.
 
-**One app-mode gap applies to this call** (see `mfb man term`): in a **Windows**
-`--app` build it draws, but ignores `line` and always uses the `Light` glyph. The
-console backend on every platform, and macOS and Linux app mode, honour the style.
-
 The call is gated: while TUI mode is off it does nothing and reports no
 error."#;
 

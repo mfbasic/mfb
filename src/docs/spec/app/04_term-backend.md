@@ -37,9 +37,9 @@ actually serves:
 | `moveTo`, `clear`, `sync`, colour/attr/cursor | yes | yes | yes | yes |
 | `terminalSize` | live terminal size | live view size | live view size | **fixed 80x25** (`TUI_COLS`/`TUI_ROWS`); raises `ErrUnsupported` while inactive like the rest |
 | `didResize` | latches a terminal resize | latches a view resize | latches a view resize | **always `FALSE`** — no dispatcher arm and nothing sets the flag |
-| `drawHLine`, `drawVLine` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | draws, **`LineStyle` ignored** (always Light) |
-| `drawBox` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | draws, **`LineStyle` ignored** |
-| `fillRect` | yes, per `FillStyle` | yes, per `FillStyle` | yes, per `FillStyle` | draws, **`FillStyle` ignored** (background wash) |
+| `drawHLine`, `drawVLine` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` |
+| `drawBox` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` |
+| `fillRect` | yes, per `FillStyle` | yes, per `FillStyle` | yes, per `FillStyle` | yes, per `FillStyle` |
 | `drawText`, `drawGlyph` | yes | yes | yes | yes |
 
 The Linux column read "**no**" until bug-539. Returning `None` from the app
@@ -53,6 +53,21 @@ helper that stamps the cell arrays directly.
 [[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
 [[src/target/linux_gtk/term_draw.rs:emit_term_stamp_helper]]
 [[src/target/win_x86_64/app/mod.rs:emit_term_draw_box]]
+
+The Windows column read "draws, **style ignored**" on those three rows until
+bug-540: the bodies wrote the glyph as a literal (`9472`, `9474`, the four Light
+corners, and a space for every fill), so the `LineStyle`/`FillStyle` ordinal
+arrived in `ARG[0]` and was never read. All four backends now index the same
+`TERM_*_CODEPOINTS` tables by that ordinal — which is also where the dash/dot
+corner fallback lives, since Unicode has no dashed corner glyph.
+[[src/target/win_x86_64/app/mod.rs:emit_win_select_codepoint]]
+[[src/codegen/error/constants/error_constants.rs:TERM_CORNER_TL_CODEPOINTS]]
+
+**`term::on` resets the shared term-state on every backend** — `active`,
+`fg`, `bg`, `bold`, `underline`, `cursorVisible` and the pending-resize flag —
+so entering TUI mode always starts from the documented defaults. The Windows body
+reset only the first three until bug-540, which made bold, underline and a hidden
+cursor survive a `term::off` + `term::on` there and nowhere else.
 
 `term::setForeground`/`setBackground` take a `color::Color` and
 `term::getForeground`/`getBackground` return one. **The term-state slot itself is
