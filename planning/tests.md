@@ -483,46 +483,51 @@ starts from an observation rather than from the same wrong guess.
 
 ### F6 — rank the DEAD FUNCTIONS, not the uncovered lines
 
-The instrument that should have existed from the start.
 `scripts/coverage-src-dead-functions.py` reads the 33,325 function records the
-llvm-cov JSON already carries and reports the ones whose execution count is zero
-across every instantiation, ranked by span:
-
-    1033 src/** functions never executed, spanning 5481 lines
-
-That is 5,481 of the 6,746 remaining lines sitting in functions that were never
-CALLED — not in scattered guards inside functions that were. It reframes the
-work: the question is not "which lines are uncovered" but "which whole functions
+llvm-cov JSON already carries and reports the ones never called, ranked by span.
+It reframes the work: not "which lines are uncovered" but "which whole functions
 does no program reach", and one program usually reaches a whole function.
 
-The top of the list is two clusters, not a long tail:
+It produced the four commits after it, and it was **wrong the first time, in a
+way that mattered**. See the correction below the numbers.
 
-**The app-mode `term::` drawing surface, ~500 lines.**
-`target/macos_aarch64/app/app_io.rs` — `emit_app_draw_line` (111 lines),
-`emit_app_draw_box` (107), `emit_app_fill_rect` (74), `emit_app_move_to` (62),
-`emit_app_terminal_size` (58), `emit_app_clear` (42) — and their
-`target/linux_gtk/app_io.rs` counterparts. Every `term::` member has a second
-emitter for `-app` mode that writes into the toolkit's shadow grid instead of to
-a tty, and the app-surface suite reached them through
-`func_term_drawText_valid`, which calls six members and none of the drawing
-ones. A console run cannot stand in: the tty arm writes escape sequences a
-golden compares, and the app arm writes cells into a grid no headless test reads
-back.
+    817 src/** functions never executed, spanning 2634 lines
 
-**The cross-arena deep-copy family, ~540 lines.**
-`memory/arena/builder_arena_transfer.rs` — `copy_resource_to_current_arena`
-(197 lines), `copy_collection_to_current_arena` (85, two instantiations),
-`copy_union_to_current_arena` (62, two), `copy_record_to_current_arena` (49).
-This one is NOT yet understood, and the obvious guesses were checked and are
-wrong: the recursive-type fixtures (`recursive-get-then-grow-rt`,
-`p121b-removeat-recursive-union-rt`, `types-recursive-record-valid`) are all in
-the corpus already, and `owned.rs`'s deep-copy call routes a recursive type to
-`emit_thread_copy_call` — a CALL to the per-type helper — rather than to these
-inline copiers. Measure with the F4 probe before writing anything.
+What is left is flat — no cluster. The widest rows are the three
+`target/*/mod.rs::write_executable` (84 + 81 + 64 lines), which spawn the system
+linker and are the same class as the existing `src/target.rs` exception;
+`TypeModel::add_package_type_export` (50); a `#[cfg(test)]` cross-check helper
+that is `#[ignore]`d because it needs Node (43); `lower_checked_value` (40);
+`emit_app_did_resize` (34); `nir_value_context` (34). After that it is threes
+and fours.
 
-The third cluster is `target/*/mod.rs::write_executable` (84 + 81 + 64 lines),
-which spawns the system linker; that is integration territory and the existing
-exceptions already cover its neighbours.
+**The correction.** This entry first read *1,033 functions, spanning 5,481
+lines*, and named two clusters — the app-mode `term::` drawing surface and, at
+the very top, `memory/arena/builder_arena_transfer.rs`'s copy family with
+`copy_resource_to_current_arena` at 197 lines. The first cluster was real and is
+closed. **The second did not exist.**
+
+llvm-cov keys its records by MANGLED name, and a v0 mangled name encodes the
+type arguments, so a generic has one record per instantiation. The script summed
+by name, which reports a single never-called monomorphization of a hot function
+as a dead function. `copy_resource_to_current_arena` is not dead: an
+`eprintln!` probe at its dispatch arm counts **ninety calls** for `fs.File`
+alone in one run of the package-fixture suite, plus `tls.Socket`,
+`tcp.Listener`, `fs.File STATE Cursor` and `fs.File STATE Accum`. What has no
+caller is one instantiation of it.
+
+Records are now folded by SOURCE POSITION — file plus the first line the
+function's regions cover — which is exact, because two instantiations of one
+function occupy the same lines. Demangling v0 to strip the type arguments is
+not: the identifier run is interleaved with tag letters, and the obvious regex
+over it matches nothing at all and silently returns the name unfolded, which is
+how the first fix appeared to change nothing.
+
+Two things follow. The headline was overstated by roughly 2x, and — the reason
+this is a Correction rather than a footnote — **the work it pointed at was
+partly imaginary**. The arena-transfer file did move (81.59% -> 89.70%) but from
+the package fixtures reaching its other paths, not from anything aimed at a copy
+family that was never dead.
 
 ### F7 — the harness lowers ONE source file, and that is what blocks the biggest cluster
 
