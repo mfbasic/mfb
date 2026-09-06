@@ -46,6 +46,7 @@ mod nir_json;
 mod nir_validation;
 mod optimizer;
 mod os;
+mod package_format;
 mod perf;
 mod platform_hooks;
 mod registry_bodies;
