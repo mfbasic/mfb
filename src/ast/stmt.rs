@@ -663,7 +663,7 @@ impl<'a> FileParser<'a> {
         // `CASE json::JsonBool(b)` was not recognized as a variant at all: the
         // MATCH read as covering nothing and reported every variant uncovered.
         let name = self.parse_qualified_name("")?;
-        let name = self.normalize_qualified_builtin_type(name);
+        let name = self.normalize_qualified_type_name(name);
         if self.check_kind(&TokenKind::LParen) {
             Some(name)
         } else {

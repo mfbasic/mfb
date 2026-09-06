@@ -16,7 +16,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "db", "line": 9, "type": "demo.Db", "default": null }
+    { "name": "db", "line": 9, "type": "Db", "default": null }
     ],
     "returns": "Nothing",
     "body": [
