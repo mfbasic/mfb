@@ -1,0 +1,14 @@
+plain: >
+  one
+  two
+paragraphs: >
+  first
+
+  second
+keeps_more_indented: >
+  normal
+    verbatim
+  normal again
+leading_blank: >
+
+  after a blank

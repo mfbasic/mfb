@@ -1,0 +1,15 @@
+{
+  "name": "yamlprobe",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Reads a YAML file with yaml::parseAll and writes one line of JSON describing the outcome, so the Node oracle can compare against it.",
+  "sources": [
+    { "root": "src", "role": "main", "include": ["**/*.mfb"] }
+  ],
+  "packages": [
+    { "name": "yaml", "version": "=0.1.0", "source": "file:packages/yaml.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

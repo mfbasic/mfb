@@ -1,0 +1,15 @@
+# Flow collections: JSON-shaped, not indentation-sensitive.
+list: [1, 2, 3]
+map: {a: 1, b: 2}
+nested: [1, [2, 3], {d: 4}]
+trailing_comma: [1, 2,]
+across_lines: [
+  1,  # a comment inside a flow collection
+  2,
+]
+empty_list: []
+empty_map: {}
+spaced: [ 1 , 2 ]
+null_values: {a, b: }
+single_pair_in_sequence: [b: 1, c]
+glued_colon: {a:b}

@@ -1,0 +1,6 @@
+key_with_no_value:
+another:
+sequence_hole:
+  -
+  - x
+empty_flow_collections: [[], {}, [[]], [{}]]

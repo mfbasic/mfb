@@ -32,6 +32,11 @@ build/
 
 # Compiled package artifacts. Rebuilt from source by `mfb build`.
 packages/**/*.mfp
+# Node dependency trees. `packages/yaml/oracle` is a small Node project whose
+# only job is to be an independent YAML oracle for `packages/yaml`; its
+# package.json and package-lock.json are tracked so `npm install` is
+# reproducible, but the installed tree is not.
+node_modules/
 
 # Packages installed into a consuming project by `mfb pkg install`.
 examples/**/packages/

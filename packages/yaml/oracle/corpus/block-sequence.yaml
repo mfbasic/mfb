@@ -1,0 +1,17 @@
+# A sequence indented under its key, and one at the key's own indentation --
+# YAML allows both, and they mean the same thing.
+indented:
+  - one
+  - two
+flush:
+- three
+- four
+holes:
+  - a
+  -
+  - c
+mappings:
+  - id: 1
+    name: first
+  - id: 2
+    name: second

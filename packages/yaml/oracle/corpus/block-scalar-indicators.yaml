@@ -1,0 +1,17 @@
+clip: |
+  x
+
+
+strip: |-
+  x
+
+
+keep: |+
+  x
+
+
+explicit_indent: |2
+    two spaces of content
+folded_strip: >-
+  one
+  two

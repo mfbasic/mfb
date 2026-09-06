@@ -1,0 +1,4 @@
+base: &base {a: 1}
+child:
+  <<: *base
+  b: 2

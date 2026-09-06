@@ -1,0 +1,10 @@
+# A plain scalar folds onto every following line indented past its key.
+folded: one
+  two
+  three
+paragraph: first line
+
+  second paragraph
+trailing_comment: value # this comment is not part of the value
+not_a_comment: value#still-the-value
+interior_spaces:   hello world

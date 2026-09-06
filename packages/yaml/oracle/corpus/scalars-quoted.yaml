@@ -1,0 +1,21 @@
+single: 'it''s'
+single_backslash: 'a\nb'
+double_tab: "x\ty"
+double_newline: "x\ny"
+double_quote: "q\"q"
+double_backslash: "s\\s"
+double_solidus: "sl\/sl"
+hex_escape: "\x41"
+bmp_escape: "A"
+astral_escape: "\U0001F600"
+surrogate_pair: "😀"
+yaml_only_escapes: "\a\v\e\_\N"
+empty_double: ""
+empty_single: ''
+leading_space: " leading"
+folded_double: "one
+  two"
+folded_single: 'one
+  two'
+escaped_break: "one\
+  two"
