@@ -1,12 +1,17 @@
 # bug-516: the NIST private-key encoding `0x04‖X‖Y‖d` is bespoke, and no doc says how to interoperate with it
 
-Last updated: 2026-09-04
+Last updated: 2026-09-06
 Effort: small (<1h)
 Severity: LOW
 Class: Footgun
 
-Status: Open
-Regression Test: `scripts/man-run-examples.sh crypto --run` (the new example)
+Status: **FIXED** (2026-09-06) — the note is on `mfb man crypto generate`, with
+both `openssl` directions executed against OpenSSL 3.6.2 and a signature checked
+across the boundary each way; `sign` and `verify` cross-reference it, and the
+spec's own "accepted ... by OpenSSL/pyca" claim, which was false for the private
+key, is corrected.
+Regression Test: `scripts/man-run-examples.sh crypto --run` (the new example) —
+30 examples, 30 built, 30 ran, 0 failed
 
 For `P256`/`P384`/`P521`, `crypto::generate` returns a `privateKey` that is the
 SEC1 uncompressed public point immediately followed by the secret scalar —
@@ -126,29 +131,59 @@ exactly where the reader is standing when the question occurs to them.
 
 ### Phase 1 — the note
 
-- [ ] Add the "Interoperating with other tools" subsection to
-      `func_generate.rs`'s `DESC`, with the offsets for all three curves.
-- [ ] Add a runnable example that slices a `P256` `privateKey` into its
-      `publicKey` prefix and its 32-byte scalar, and asserts the prefix equals
-      the returned `publicKey`.
-- [ ] Cross-reference the note from `func_sign.rs` and `func_verify.rs`.
+- [x] "Interoperating with other tools" added to `func_generate.rs`'s `DESC`,
+      with the offsets for all three curves.
+- [x] Runnable example added: it slices a `P256` `privateKey` into its 65-byte
+      `publicKey` prefix and its 32-byte scalar and compares the prefix with the
+      returned `publicKey`. Note `List OF Byte` is not comparable with `=`
+      (`TYPE_REQUIRES_COMPARABLE`), so the example compares
+      `encoding::hexEncode` of each — a detail worth knowing before writing the
+      "obvious" version.
+- [x] Cross-referenced from `func_sign.rs` (the private form is package-local)
+      and `func_verify.rs` (the public form is not — it is the standard SEC1
+      point and passes straight in).
 
-Acceptance: `mfb man crypto generate` renders the note;
-`scripts/man-run-examples.sh crypto --run` compiles and runs the new example.
-Commit: —
+Acceptance: met. `mfb man crypto generate` renders the note;
+`scripts/man-run-examples.sh crypto --run` reports
+`examples: 30   built: 30   ran: 30   failed: 0`, and `crypto::generate example 3`
+prints both of its lines.
+Commit: (this change)
 
 ### Phase 2 — verify the claim before shipping it
 
-- [ ] Actually run the documented `openssl` round trip against a key from
-      `crypto::generate`, on a host whose `openssl` version is recorded. Do not
-      publish an incantation that has not been executed.
-- [ ] `scripts/man-census.sh --memory-scope` — the new prose must introduce no
-      banned memory vocabulary.
-- [ ] Check `src/docs/spec/**` for a stale restatement of the encodings.
+- [x] Both directions executed against **OpenSSL 3.6.2 (7 Apr 2026)**, and not
+      merely "the file loads": a signature was made on each side and checked on
+      the other. Package `privateKey` → hand-framed SEC1 DER → `openssl ec` →
+      `openssl dgst -sha256 -sign`, verified `TRUE` by `crypto::verify`; and
+      `openssl ecparam -genkey` → sliced to a package `privateKey` →
+      `crypto::sign`, `Verified OK` from `openssl dgst -verify`. Repeated for
+      P-384 (`Verified OK`).
+- [x] `scripts/man-census.sh --memory-scope crypto`: `unclassified
+      memory-vocabulary hits: 0` (9 carve-out-2 rows, all the derived
+      `ErrOutOfMemory` table row, unchanged).
+- [x] `src/docs/spec/stdlib/10_crypto.md` did restate the encodings — and
+      restated them **wrongly**. See "Found while fixing" below.
 
-Acceptance: the `openssl` commands in the page were run and their output
-recorded in the commit message; the census reports 0 unclassified hits.
-Commit: —
+Acceptance: met.
+Commit: (this change)
+
+## Found while fixing: the spec claimed OpenSSL accepts the private key
+
+`src/docs/spec/stdlib/10_crypto.md` said, of all three encodings at once:
+
+> The two backends are **wire-compatible**: a key or signature produced on one
+> platform is accepted by the other (and by OpenSSL/pyca).
+
+That parenthesis is true of the public key and of the signature and **false of
+the private key** — which is the whole subject of this bug, asserted as fact in
+the document a reader is sent to for the precise contract. It is the same
+one-sentence-short gap as the man page, except that here the missing sentence
+had been replaced by a wrong one.
+
+Corrected in the same change: the cross-platform claim keeps its scope, and a
+new paragraph separates the two externally-interoperable encodings from the
+package-local one, gives the slice arithmetic, and points at
+`mfb man crypto generate` for the `openssl` commands.
 
 ## Validation Plan
 

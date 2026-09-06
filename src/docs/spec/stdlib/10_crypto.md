@@ -46,8 +46,8 @@ Two categories bind the platform instead of computing in source:
   (`libcrypto.so.3`, falling back to `libcrypto.so.1.1`).
 
   The two backends are **wire-compatible**: a key or signature produced on one
-  platform is accepted by the other (and by OpenSSL/pyca). The agreed encodings,
-  identical on every target, are
+  platform is accepted by the other. The agreed encodings, identical on every
+  target, are
 
   - `KeyPair.privateKey` = `0x04 ‖ X ‖ Y ‖ K` — the SEC1 uncompressed point
     followed by the big-endian scalar (self-contained: 97 bytes for P-256, 145
@@ -55,6 +55,20 @@ Two categories bind the platform instead of computing in source:
   - `KeyPair.publicKey` = `0x04 ‖ X ‖ Y` — the SEC1 uncompressed point (65 / 97 /
     133 bytes);
   - signatures = ASN.1 DER `Ecdsa-Sig-Value` (X9.62).
+
+  Two of those three are also **externally** interoperable, and one is not. The
+  public key is the standard SEC1 / X9.62 uncompressed point and the signature is
+  the standard X9.62 DER structure, so OpenSSL and pyca read both as they stand.
+  The private key is **package-local**: `0x04 ‖ X ‖ Y ‖ K` is neither the raw SEC1
+  scalar nor a SEC1/PKCS#8 DER wrapper, and no other ecosystem parses it. It is
+  chosen so that `crypto::sign` needs only the private key, never the public half
+  alongside. Conversion is byte surgery, not a re-encoding: the leading
+  `1 + 2·field` bytes are exactly the public key and the trailing `field` bytes
+  are the SEC1 scalar `K`, so `publicKey ‖ K` builds the private form and slicing
+  recovers both halves. `mfb man crypto generate` carries the `openssl`
+  incantation in each direction. No member of `crypto` reads or writes DER- or
+  PEM-framed keys; that would need a general ASN.1 codec the package does not
+  have (bug-516).
 
 The software cores do not use hardware crypto acceleration (AES-NI, SHA
 extensions); computation is portable-arithmetic only, identical across targets.
