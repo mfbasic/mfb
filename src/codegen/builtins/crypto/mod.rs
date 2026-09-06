@@ -462,6 +462,9 @@ pub(crate) fn register(r: &mut Registry) {
     helper_ed_s::register(&mut pkg);
     helper_inv25519::register(&mut pkg);
     helper_pow2523::register(&mut pkg);
+    // bug-511: the branch-free limb select the 25519 ladder swap and the packer's
+    // conditional reduction both run under — nothing on a secret path may branch.
+    helper_sel25519::register(&mut pkg);
     helper_pack25519::register(&mut pkg);
     helper_unpack25519::register(&mut pkg);
     helper_par25519::register(&mut pkg);
@@ -843,6 +846,7 @@ mod helper_scalar_below_l;
 mod helper_scalarbase;
 mod helper_scalarmult;
 mod helper_seal_text;
+mod helper_sel25519;
 mod helper_sha1_bytes;
 mod helper_sha1_f;
 mod helper_sha1_k;
@@ -1303,6 +1307,71 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Structural constant-time audit of the Curve25519 secret paths (bug-511) —
+    /// the twin of `curve448_secret_paths_are_branch_free`, which covered the 448
+    /// field only. Two things on the X25519 path are secret: the private scalar
+    /// whose bits drive the ladder, and the shared secret whose canonical
+    /// representative `__crypto_pack25519` selects. Neither may be branched on.
+    /// `crypto::exchange`'s page promises this for **both** ladders ("a fixed
+    /// 255-/448-iteration Montgomery ladder whose conditional swap is branch-free,
+    /// so … no control flow depends on the private key"), so a branch here is the
+    /// page being false, not merely a missing hardening.
+    #[test]
+    fn curve25519_secret_paths_are_branch_free() {
+        let source = registry()
+            .resolve_package("crypto")
+            .expect("crypto")
+            .get_mfb();
+        let body_of = |name: &str| -> String {
+            let start = source
+                .find(&format!("FUNC {name}("))
+                .unwrap_or_else(|| panic!("{name} not in assembled source"));
+            let end = source[start..].find("END FUNC").expect("END FUNC") + start;
+            source[start..end].to_string()
+        };
+        for name in [
+            "__crypto_x25519",
+            "__crypto_sel25519",
+            "__crypto_pack25519",
+            "__crypto_clampScalar",
+            "__crypto_unpack25519",
+            "__crypto_edA",
+            "__crypto_edZ",
+            "__crypto_edS",
+            "__crypto_gf121665",
+        ] {
+            let body = body_of(name);
+            assert!(!body.contains("IF "), "{name} must be branch-free:\n{body}");
+        }
+        // The multiply, carry, and inversion ladder branch only on loop counters —
+        // every `IF` tests `i`, `j`, `j2` (the `edM` convolution indices), or `a`
+        // (the `inv25519` exponent-bit position, a public constant schedule).
+        for name in ["__crypto_edM", "__crypto_car25519", "__crypto_inv25519"] {
+            let body = body_of(name);
+            for line in body.lines().filter(|l| l.trim_start().starts_with("IF ")) {
+                let cond = line.trim_start().trim_start_matches("IF ");
+                assert!(
+                    cond.starts_with("i ")
+                        || cond.starts_with("j ")
+                        || cond.starts_with("j2 ")
+                        || cond.starts_with("a "),
+                    "{name} branches on a non-counter: {line}"
+                );
+            }
+        }
+        // The masked select is the only swap primitive the ladder may use: it must
+        // XOR under the mask, never compare.
+        let sel = body_of("__crypto_sel25519");
+        assert!(
+            sel.contains("bits::band(mask,"),
+            "sel25519 must mask:\n{sel}"
+        );
+        assert!(
+            sel.contains("bits::bxor("),
+            "sel25519 must XOR-select:\n{sel}"
+        );
     }
 
     /// Executable bound proof for the GF(2^448−2^224−1) arithmetic (plan-109-C

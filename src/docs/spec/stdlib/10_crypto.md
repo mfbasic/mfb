@@ -125,13 +125,22 @@ extensions); computation is portable-arithmetic only, identical across targets.
   [[src/codegen/builtins/crypto/helper_hpke_profile.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_hpke_seal_with.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_hpke_key_schedule.rs:BODY]]
-- **Key agreement** — `Certificate.X25519` (RFC 7748, 32-byte keys) and
-  `Certificate.X448` (RFC 7748, 56-byte keys; a 16 × 28-bit-limb
-  GF(2^448−2^224−1) field and a 448-step ladder with a branch-free select swap)
-  through `exchange(type, privateKey, publicKey)`, which **fails closed** with
-  `ErrInvalidArgument` on a signing certificate, a wrong key length, or an
-  all-zero shared secret (a low-order peer point, RFC 7748 §6.1). `sign`/`verify`
-  reject both. [[src/codegen/builtins/crypto/helper_x448.rs:BODY]]
+- **Key agreement** — `Certificate.X25519` (RFC 7748, 32-byte keys; a 255-step
+  ladder over the 16 × 16-bit-limb GF(2^255−19) field) and `Certificate.X448`
+  (RFC 7748, 56-byte keys; a 448-step ladder over a 16 × 28-bit-limb
+  GF(2^448−2^224−1) field) through `exchange(type, privateKey, publicKey)`,
+  which **fails closed** with `ErrInvalidArgument` on a signing certificate, a
+  wrong key length, or an all-zero shared secret (a low-order peer point, RFC
+  7748 §6.1; the all-zero test scans the whole secret with no early exit).
+  **Both** ladders run a fixed number of iterations and swap their state with a
+  branch-free masked select — `__crypto_sel25519` and `__crypto_gf448Select`,
+  each computing `a XOR (mask AND (a XOR b))` per limb under a `0 − bit` mask —
+  so no control flow depends on the private scalar. Each curve's canonical
+  packer reduces mod `p` through the same select on the borrow, so the shared
+  secret's representative is chosen without a branch either. `sign`/`verify`
+  reject both. [[src/codegen/builtins/crypto/helper_x25519.rs:BODY]]
+  [[src/codegen/builtins/crypto/helper_sel25519.rs:BODY]]
+  [[src/codegen/builtins/crypto/helper_x448.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_exchange.rs:BODY]]
 - **Key conversion** — `convert(KeyConvert.Ed25519ToX25519, keys)` (libsodium's
   `crypto_sign_ed25519_{pk,sk}_to_curve25519` maps) and
