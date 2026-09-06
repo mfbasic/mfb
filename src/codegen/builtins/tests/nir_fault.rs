@@ -282,6 +282,56 @@ fn corrupt(value: &mut NirValue) -> bool {
     }
 }
 
+/// Corrupt the NAME an op writes through, or the type it declares.
+///
+/// The value family above breaks what a builder READS. This breaks where it
+/// WRITES, which is a different set of lookups and a different set of
+/// refusals - `native code assignment unknown local 'x'` comes from
+/// `engine/control/builder_control.rs`'s assignment path and no corrupted value
+/// can reach it, because the destination of an `Assign` is not a `NirValue` at
+/// all.
+fn corrupt_op(op: &mut NirOp) -> bool {
+    match op {
+        NirOp::Assign { name, .. } => {
+            *name = "__no_such_local__".to_string();
+            true
+        }
+        NirOp::StateAssign { resource, .. } => {
+            *resource = "__no_such_resource__".to_string();
+            true
+        }
+        NirOp::StoreGlobal { name, .. } => {
+            *name = "__no_such_global__".to_string();
+            true
+        }
+        // A `Bind`'s declared type decides the slot the value is stored in and
+        // how wide the store is; disagreeing with the value is the shape a
+        // lowering bug in `monomorph` would have.
+        NirOp::Bind { type_, .. } | NirOp::For { type_, .. } | NirOp::ForEach { type_, .. } => {
+            *type_ = if *type_ == ParameterType::Integer {
+                ParameterType::String
+            } else {
+                ParameterType::Integer
+            };
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Whether [`corrupt_op`] would do anything to this op.
+fn op_corruptible(op: &NirOp) -> bool {
+    matches!(
+        op,
+        NirOp::Assign { .. }
+            | NirOp::StateAssign { .. }
+            | NirOp::StoreGlobal { .. }
+            | NirOp::Bind { .. }
+            | NirOp::For { .. }
+            | NirOp::ForEach { .. }
+    )
+}
+
 /// Whether [`corrupt`] would do anything to this value.
 fn corruptible(value: &NirValue) -> bool {
     matches!(
@@ -301,8 +351,13 @@ fn corruptible(value: &NirValue) -> bool {
 /// immutable sibling because nothing in the product needs it — and, like that
 /// one, it is exhaustive with no `_` arm, so a new `NirOp` or `NirValue` variant
 /// is a compile error rather than a silent hole in this sweep.
-fn walk_ops_mut(ops: &mut [NirOp], f: &mut dyn FnMut(&mut NirValue)) {
+fn walk_ops_mut(
+    ops: &mut [NirOp],
+    on_op: &mut dyn FnMut(&mut NirOp),
+    f: &mut dyn FnMut(&mut NirValue),
+) {
     for op in ops {
+        on_op(op);
         match op {
             NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } => {
                 if let Some(value) = value {
@@ -326,8 +381,8 @@ fn walk_ops_mut(ops: &mut [NirOp], f: &mut dyn FnMut(&mut NirValue)) {
                 else_body,
             } => {
                 walk_value_mut(condition, f);
-                walk_ops_mut(then_body, f);
-                walk_ops_mut(else_body, f);
+                walk_ops_mut(then_body, on_op, f);
+                walk_ops_mut(else_body, on_op, f);
             }
             NirOp::Match { value, cases } => {
                 walk_value_mut(value, f);
@@ -344,14 +399,14 @@ fn walk_ops_mut(ops: &mut [NirOp], f: &mut dyn FnMut(&mut NirValue)) {
                     if let Some(guard) = &mut case.guard {
                         walk_value_mut(guard, f);
                     }
-                    walk_ops_mut(&mut case.body, f);
+                    walk_ops_mut(&mut case.body, on_op, f);
                 }
             }
             NirOp::While {
                 condition, body, ..
             } => {
                 walk_value_mut(condition, f);
-                walk_ops_mut(body, f);
+                walk_ops_mut(body, on_op, f);
             }
             NirOp::For {
                 start,
@@ -363,17 +418,17 @@ fn walk_ops_mut(ops: &mut [NirOp], f: &mut dyn FnMut(&mut NirValue)) {
                 walk_value_mut(start, f);
                 walk_value_mut(end, f);
                 walk_value_mut(step, f);
-                walk_ops_mut(body, f);
+                walk_ops_mut(body, on_op, f);
             }
             NirOp::DoUntil { body, condition } => {
-                walk_ops_mut(body, f);
+                walk_ops_mut(body, on_op, f);
                 walk_value_mut(condition, f);
             }
             NirOp::ForEach { iterable, body, .. } => {
                 walk_value_mut(iterable, f);
-                walk_ops_mut(body, f);
+                walk_ops_mut(body, on_op, f);
             }
-            NirOp::Trap { body, .. } => walk_ops_mut(body, f),
+            NirOp::Trap { body, .. } => walk_ops_mut(body, on_op, f),
         }
     }
 }
@@ -455,7 +510,7 @@ fn corrupt_nth(module: &mut NirModule, index: usize) -> bool {
     let mut seen = 0usize;
     let mut applied = false;
     for function in &mut module.functions {
-        walk_ops_mut(&mut function.body, &mut |value| {
+        walk_ops_mut(&mut function.body, &mut |_| {}, &mut |value| {
             // Count only what `corrupt` acts on, so the index space has no holes
             // and the sweep's own bound means what it says.
             if applied || !corruptible(value) {
@@ -466,6 +521,31 @@ fn corrupt_nth(module: &mut NirModule, index: usize) -> bool {
             }
             seen += 1;
         });
+        if applied {
+            return true;
+        }
+    }
+    false
+}
+
+/// [`corrupt_nth`] for the op family; `false` past the end.
+fn corrupt_nth_op(module: &mut NirModule, index: usize) -> bool {
+    let mut seen = 0usize;
+    let mut applied = false;
+    for function in &mut module.functions {
+        walk_ops_mut(
+            &mut function.body,
+            &mut |op| {
+                if applied || !op_corruptible(op) {
+                    return;
+                }
+                if seen == index {
+                    applied = corrupt_op(op);
+                }
+                seen += 1;
+            },
+            &mut |_| {},
+        );
         if applied {
             return true;
         }
@@ -508,27 +588,32 @@ fn sweep() {
                 )
             });
 
-            for index in 0.. {
-                restore(&mut module, &pristine);
-                if !corrupt_nth(&mut module, index) {
-                    break;
-                }
-                swept += 1;
-                match code_for_nir(&module, target) {
-                    Ok(_) => {}
-                    Err(message) if message.starts_with("panicked: ") => {
-                        panicked.push(format!("{which} {} #{index}: {message}", target.name()));
+            for family in ["value", "op"] {
+                for index in 0.. {
+                    restore(&mut module, &pristine);
+                    let applied = match family {
+                        "value" => corrupt_nth(&mut module, index),
+                        _ => corrupt_nth_op(&mut module, index),
+                    };
+                    if !applied {
+                        break;
                     }
-                    Err(_) => refused += 1,
+                    swept += 1;
+                    match code_for_nir(&module, target) {
+                        Ok(_) => {}
+                        Err(message) if message.starts_with("panicked: ") => {
+                            panicked.push(format!(
+                                "{which} {family} {} #{index}: {message}",
+                                target.name()
+                            ));
+                        }
+                        Err(_) => refused += 1,
+                    }
                 }
             }
         }
     }
 
-    eprintln!(
-        "PROBE swept={swept} refused={refused} panicked={}",
-        panicked.len()
-    );
     assert!(
         panicked.is_empty(),
         "{} corrupted module(s) took a backend down instead of being refused. A \
@@ -545,16 +630,16 @@ fn sweep() {
     // the exception, and is a ratio rather than "all of them" because a `Const`
     // type is advisory in some positions and claiming otherwise would be false.
     assert!(
-        swept > 2400,
-        "the sweep corrupted only {swept} values; it measured 2,500 (two probe \
-         programs x their corruptible values x five backends), and a walker that \
+        swept > 3000,
+        "the sweep corrupted only {swept} nodes; it measured 3,070 (two probe \
+         programs x two corruption families x five backends), and a walker that \
          stopped descending would show up here rather than as a green run over \
          nothing"
     );
     assert!(
         refused * 4 > swept * 3,
         "only {refused} of {swept} corrupted modules were refused; it measured \
-         2,125, and a builder that stopped checking its inputs shows up here as \
+         2,615, and a builder that stopped checking its inputs shows up here as \
          this ratio falling"
     );
 }
