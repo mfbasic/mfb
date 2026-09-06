@@ -31,6 +31,7 @@
 mod abi_inline;
 mod app_surface;
 mod canvas;
+mod collection_compare;
 mod collections;
 mod corpus;
 mod data_layout;
