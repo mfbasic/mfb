@@ -292,6 +292,15 @@ The per-file ledger is generated from the Phase 0 baseline; see
       family unreachable; it had appended to the FIRST of two fields.
 - [x] The package list reaches the CODE stage, not just the NIR merge —
       e7e242e2a. `engine/validation/validation.rs` 90.11% -> 96.65%.
+- [x] The record-field collection mutators — the half of
+      `builder_inplace_assign.rs` and `list_mutate.rs` that operates on a
+      container held INSIDE another block. Four commits, and
+      `list_mutate.rs` crossed the floor: 92.90% -> 98.66%. The vein was rich
+      because each shape has its own lowering and its own soundness content:
+      the field must be the LAST inlined one (everything after it would move),
+      a variable-width element type carries a lookup entry array the grow must
+      copy, and a concatenation must REBASE the copied entries' offsets or every
+      appended element reads from the source's data region.
 - [ ] The remaining `src/**` files below the floor, worst first. Regenerate
       the ranking with `python3 scripts/coverage-src-gaps.py <report.json>`,
       which sorts by LINES SHORT rather than by percentage,
@@ -367,7 +376,8 @@ these files, and is not for `repository/src/**`).
 | after the 63 package-bearing fixtures | 224 | 7,491 |
 | after the dump writers, the NIR validator and the package decoder | 224 | 7,414 |
 | after the code stage sees the packages | 224 | 7,370 |
-| after the remaining `-nir` op/value/resource shapes | **224** | **7,290** |
+| after the remaining `-nir` op/value/resource shapes | 224 | 7,290 |
+| after the record-field collection mutators | **223** | **7,077** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
@@ -383,6 +393,21 @@ profile, the same tree reads 248 files / 22,883 lines. That 43-file, 16,020-line
 difference is the never-executed plain binaries, and it is why the two rows
 above it are not comparable with the CI baseline this task was written from. See
 C6.
+
+**Where the effort goes now.** Two kinds of commit have very different yields,
+and the difference is worth knowing before picking the next one:
+
+* A commit that reaches a lowering nothing reached — the package fixtures (17
+  files), the record-field appends (`list_mutate.rs` +5.8 points), the dump
+  writers (+66 points across two files) — moves tens to hundreds of lines.
+* A commit that adds a *contract* over a path already covered moves nothing.
+  `inplace_fields.rs` is the clearest case: seven `try_inplace_*` record-field
+  mutators, a real test of each, and **zero** lines. The corpus was already
+  reaching them through the `p121d-state-*` fixtures.
+
+Both are worth having and only the first closes the gate, so check
+`coverage-src-dead-functions.py` and the per-file uncovered RANGES before
+writing, not after.
 
 **What is left is branches, not functions.** With the dead-function ranking
 corrected (F6), only 2,634 of the remaining lines sit in functions nothing calls,
