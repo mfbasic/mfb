@@ -421,7 +421,8 @@ these files, and is not for `repository/src/**`).
 | after the decline fixtures, bug-548/549, the two validators and the dump writers | 215 | 5,886 |
 | after the platform-emit failure sweep | 198 | 5,577 |
 | after the optimizer-globals and OUT-width suites | 198 | 5,509 |
-| after the checker suites (coercion, shape refusals, Money) | **198** | **5,451** |
+| after the checker suites (coercion, shape refusals, Money) | 198 | 5,451 |
+| after the op-kind validator rows and the by-ref fixture | **198** | **5,414** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
@@ -1135,3 +1136,40 @@ The lever that DID work for this class is F9's, and its limit is stated there:
 the residue goes through builder methods rather than platform hooks, and a
 failing builder is a harder seam than a failing platform because `CodeBuilder`
 is a concrete struct with inherent methods rather than a trait behind a `&dyn`.
+
+### C13 — "this had never run" needs the BEFORE number, not a plausible story
+
+`2fbf9108e` (the by-ref capture fixture) claimed that a by-ref capture reaches
+"the FIRST guard of every in-place collection recogniser — `if by_ref { return
+Ok(false) }`, one per recogniser, none of which had ever run".
+
+Both halves of that are wrong, and the file said so: `builder_inplace_assign.rs`
+was 1247/1422 before the fixture and 1247/1422 after — not one line. Reading the
+six guard bodies directly:
+
+    m35 (before):  [171, 171, 171, 171, 171, 171]
+    m36 (after):   [181, 181, 181, 181, 181, 181]
+
+They were already covered 171 times over. The fixture added ten more executions
+of code that was not dead. And `optimizer/opt1/plans/reads.rs`'s `LocalRef` arm —
+the one line that file is short of the floor — is still uncovered, so the by-ref
+capture does not reach the optimizer as a `LocalRef` either, whatever
+`nir/lower.rs` does with one.
+
+The fixture is still worth having and is not being reverted: nothing else in the
+tree captures an outer `MUT` by reference and mutates a collection through it,
+and the values it asserts (append/prepend/set-add/map-set through the capture,
+plus 200 of them) are a real contract. What is being retracted is the coverage
+claim attached to it.
+
+**The rule this session keeps re-learning, stated once:** a claim of the form
+"X had never run" is a claim about a NUMBER, and the number is available before
+the commit — `coverage-src-lines.py` for the file, or an `eprintln!` at the line.
+C10 was a test that passed for the wrong reason; C12 was two files that did not
+move; this is a third, and the difference between the ones I caught early
+(`default-values-rt`, probed before committing, claim dropped) and the ones I did
+not is entirely whether I looked before writing the sentence.
+
+**A story about why a line must be dead is not evidence that it is.** The story
+here — "no fixture captures by reference, so the by_ref guards must be dead" —
+was coherent, checkable in one command, and false.
