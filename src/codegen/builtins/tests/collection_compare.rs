@@ -13,6 +13,11 @@
 //! loaded with `load_u8`, and reading eight instead would compare the seven
 //! bytes that follow them.
 //!
+//! The enum arm is still uncovered and cannot be reached from here: writing the
+//! program that should reach it turned up **bug-549** — `List OF <enum>`
+//! type-checks and then fails to build. The row is written out in the table
+//! below, commented, so it goes in the day that builds.
+//!
 //! Comparison is where `.ai/collections.md`'s rule bites: a collection block is
 //! not byte-comparable, because the entry fields around the payload are
 //! uninitialised. Everything here goes through the payload comparison rather
@@ -32,16 +37,44 @@ const ELEMENT_TYPES: &[(&str, &str, &str)] = &[
     ("Byte", "List OF Byte", "[toByte(1), toByte(2)]"),
     ("Integer", "List OF Integer", "[1, 2, 3]"),
     ("Float", "List OF Float", "[1.5, 2.5]"),
+    ("Fixed", "List OF Fixed", "[toFixed(1.5), toFixed(2.5)]"),
     ("String", "List OF String", "[\"a\", \"bb\"]"),
+    (
+        "Set OF Integer",
+        "Set OF Integer",
+        "Set OF Integer { 1, 2, 3 }",
+    ),
+    // An ENUM member belongs here and cannot be added yet: `List OF Colour`
+    // type-checks and then fails to build -- "native collection packed payload
+    // does not support type 'Colour'" (bug-549). The comparator HAS an enum arm
+    // and the payload classifier refuses the element type before it is reached,
+    // so the row goes in the day that builds:
+    //
+    //     ("an enum member", "List OF Colour", "[Colour.Red, Colour.Blue]"),
+    //
+    // and the needle is `Colour.Blue`. The `ENUM Colour` declaration is already
+    // in every program below, so nothing else has to change.
 ];
 
 /// The needle for each of the above, in the same order.
-const NEEDLES: &[&str] = &["TRUE", "toByte(2)", "2", "2.5", "\"bb\""];
+const NEEDLES: &[&str] = &[
+    "TRUE",
+    "toByte(2)",
+    "2",
+    "2.5",
+    "toFixed(2.5)",
+    "\"bb\"",
+    "2",
+];
 
 fn program(type_name: &str, literal: &str, needle: &str) -> String {
     format!(
         "IMPORT collections\n\
          IMPORT io\n\
+         \n\
+         ENUM Colour\n\
+         \x20 Red, Blue\n\
+         END ENUM\n\
          \n\
          FUNC main() AS Integer\n\
          \x20 LET xs AS {type_name} = {literal}\n\
