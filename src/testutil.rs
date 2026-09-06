@@ -520,6 +520,63 @@ pub fn nir_for_src(
         .unwrap_or_else(|_| Err("the lowering thread died".to_string()))
 }
 
+/// A NIR module lowered the rest of the way, by a caller that has the module in
+/// hand.
+///
+/// [`try_code_for_src`] owns the whole pipeline from source, which is what a
+/// test that starts from a program wants. A test that starts from a MODULE — one
+/// it has just mutated — cannot use it: re-lowering the source would throw the
+/// mutation away. This is the second half of that pipeline, taking the module by
+/// reference so the caller can restore it and go again.
+///
+/// Panics are caught and returned as a message. The point of handing this a
+/// mutated module is to find out WHICH refusals the backends make, and a panic
+/// that unwound the test binary would end the sweep at the first one instead of
+/// reporting all of them.
+pub fn code_for_nir(
+    module: &crate::target::shared::nir::NirModule,
+    target: CodeTarget,
+) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
+    use crate::os::linux::flavor::LinuxFlavor::Glibc;
+
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match target {
+        CodeTarget::MacosAarch64 => {
+            let plan = crate::target::macos_aarch64::plan::lower_module(module)?;
+            crate::target::macos_aarch64::code::lower_module(module, &plan, &[])
+        }
+        CodeTarget::LinuxAarch64 => {
+            let plan = crate::target::linux_aarch64::plan::lower_module(module, Glibc)?;
+            crate::target::linux_aarch64::code::lower_module(module, &plan, &[], Glibc)
+        }
+        CodeTarget::LinuxX86_64 => {
+            let plan = crate::target::linux_x86_64::plan::lower_module(module, Glibc)?;
+            crate::target::linux_x86_64::code::lower_module(module, &plan, &[], Glibc)
+        }
+        CodeTarget::LinuxRiscv64 => {
+            let plan = crate::target::linux_riscv64::plan::lower_module(module, Glibc)?;
+            crate::target::linux_riscv64::code::lower_module(module, &plan, &[], Glibc)
+        }
+        CodeTarget::WindowsX86_64 => {
+            let plan = crate::target::win_x86_64::plan::lower_module(module)?;
+            crate::target::win_x86_64::code::lower_module(module, &plan, &[])
+        }
+    }));
+    std::panic::set_hook(hook);
+    match lowered {
+        Ok(result) => result,
+        Err(payload) => Err(format!(
+            "panicked: {}",
+            payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                .unwrap_or_else(|| "no message".to_string())
+        )),
+    }
+}
+
 /// The NATIVE PLAN for a source string — one stage below NIR, one above the
 /// code plan.
 ///
