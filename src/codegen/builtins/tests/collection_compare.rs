@@ -133,3 +133,67 @@ fn a_one_byte_element_is_compared_one_byte_wide() {
          bytes wide and compared against whatever follows it in the block"
     );
 }
+
+/// Set membership and map-key lookup, over the one-byte and String element
+/// types.
+///
+/// `contains` is one of three entry points, and the other two have their own
+/// element-type `match`: `emit_collection_payload_matches_value_branch` (a
+/// payload against a loose value — a map key lookup) and
+/// `emit_collection_payloads_match_branch` (two payloads against each other —
+/// the dedup a `Set` does on every `add`). Their `Boolean | Byte` and `String`
+/// arms are separate code from the ones `contains` reaches, and were separately
+/// unreached.
+///
+/// It has to be a Set and a Map rather than `a = b` between two lists:
+/// collections are NOT comparable with `=`, which the type checker says as
+/// `TYPE_REQUIRES_COMPARABLE` and the spec says as "`List`, `Set`, `Map`,
+/// unions, functions, lambdas, threads, resource handles ... are not
+/// comparable".
+const SET_AND_MAP_COMPARE: &str = "\
+IMPORT collections
+IMPORT io
+
+FUNC main() AS Integer
+  MUT bytes AS Set OF Byte = Set OF Byte { toByte(1) }
+  MUT flags AS Set OF Boolean = Set OF Boolean { TRUE }
+  MUT names AS Set OF String = Set OF String { \"a\" }
+  LET index AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1, \"bb\" := 2 }
+  MUT hits AS Integer = 0
+  FOR i = 0 TO 4
+    bytes = collections::add(bytes, toByte(i))
+    names = collections::add(names, \"n\" & toString(i))
+  NEXT
+  flags = collections::add(flags, FALSE)
+  IF collections::contains(bytes, toByte(2)) THEN
+    hits = hits + 1
+  END IF
+  IF collections::contains(flags, FALSE) THEN
+    hits = hits + 1
+  END IF
+  IF collections::contains(names, \"n3\") THEN
+    hits = hits + 1
+  END IF
+  IF collections::hasKey(index, \"bb\") THEN
+    hits = hits + 1
+  END IF
+  io::print(toString(hits) & toString(len(bytes)) & toString(len(names)))
+  RETURN 0
+END FUNC
+";
+
+/// The other two comparison entry points lower, on every backend.
+///
+/// A `Set`'s `add` compares the new element against every payload already
+/// there — that is the dedup, and it is `emit_collection_payloads_match_branch`.
+/// A map-key lookup compares a payload against a loose value. Each is a
+/// wrong-ANSWER failure rather than a build failure if an arm reads the wrong
+/// width: a `Set OF Byte` that compared eight bytes would treat two distinct
+/// bytes as equal whenever the seven that follow happened to match.
+#[test]
+fn set_dedup_and_map_key_lookup_lower_on_every_backend() {
+    for target in CodeTarget::ALL {
+        try_code_for_src(SET_AND_MAP_COMPARE, target, Console)
+            .unwrap_or_else(|err| panic!("set/map comparison on {}: {err}", target.name()));
+    }
+}
