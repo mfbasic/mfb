@@ -68,6 +68,30 @@ mod tests {
         assert!(lines[0].contains("reg=x0"), "{}", lines[0]);
     }
 
+    /// A `Mov` the probe cannot read the operands of is skipped, not guessed at.
+    ///
+    /// `get("dst")`/`get("src")` are the role names every ordinary `Mov` carries,
+    /// and the `if let` that reads them has an implicit other arm: an
+    /// instruction tagged `Mov` whose operands are keyed differently, or absent.
+    /// That arm had never run, and it is the one that decides whether the probe
+    /// is a diagnostic or a source of noise -- reporting on an instruction it
+    /// does not understand would put a BUG387 line into an audit for something
+    /// that is not a self-move at all.
+    #[test]
+    fn probe_skips_a_mov_whose_operands_it_cannot_read() {
+        let stream = vec![CodeInstruction {
+            op: CodeOp::Mov,
+            fields: Vec::new(),
+            source: None,
+        }];
+        let lines = bug387_selfmove_lines(&stream, "aarch64");
+        assert!(
+            lines.is_empty(),
+            "a Mov with no dst/src operands is not something the probe can call \
+             a self-move: {lines:?}"
+        );
+    }
+
     #[test]
     fn probe_ignores_non_mov_with_equal_operands() {
         // A store whose operands render equally is not a no-op and must not count.
