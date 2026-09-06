@@ -5,7 +5,7 @@ Effort: small–medium (an index replaces a scan; the measurement harness alread
 Severity: MEDIUM (performance; output is correct)
 Class: Performance / scalability
 
-Status: FIXED
+Status: **FIXED** (2026-09-05, `aea1216bf`)
 
 ## The finding
 
