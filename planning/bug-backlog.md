@@ -1,8 +1,8 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-05
-Open bugs: **22** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 19 MEDIUM · 2 LOW/other** (re-derived from
+Open bugs: **21** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 18 MEDIUM · 2 LOW/other** (re-derived from
 each open bug's `Severity:` line on 2026-09-05; several rows carry a
 parenthetical qualifier after the word, so grep for the leading word, not the
 whole line)
@@ -140,31 +140,39 @@ the sibling census is complete.
 **datetime**: 520 (no named zones — huge; carries interaction notes from the
 three landed siblings). 518, 519 and 521 are landed.
 
-**crypto**: 515 (no memory-hard password KDF) · 517 (**BLOCKED — needs an owner
-ruling**, see below). **511 is landed (`e24914d5d`)**.
+**crypto**: 515 (no memory-hard password KDF) is the only one left. **511 is
+landed (`e24914d5d`)** and **517 is landed (`5c2024f71`)**.
 
-**517 is the one item on this backlog waiting on a decision, not on work.** It
-reproduces exactly as filed, but the report frames a RECORDED decision as an
-emitter limitation: `plan-109-A:92` says "the warning applies regardless of which
-public function consumes the selector", and the spec says "every user-source
-occurrence" in two places (`01_rule-codes.md:284`, `10_crypto.md:70`). AGENTS.md's
-four-question gate comes out 3-of-4 — nothing proves an emitted sentence untrue —
-so the tests win. The ruling needed: **is `CRYPTO_SHA1_INSECURE` an
-algorithm-hygiene signal (every occurrence of the value) or a defect signal (only
-where SHA-1's broken property matters — `hash` but not `hmac`/`hkdf`/`pbkdf2`)?**
-Reversing it costs two spec paragraphs, a variant `description`, three man pages
-and three behavioural `build.log` goldens. Do not implement it without the ruling.
+**517 was the one backlog item blocked on a ruling, and the owner gave it**: the
+SHA-1 advisory is scoped to the USE — `hash` warns, `hmac`/`hkdf`/`pbkdf2` do
+not. That reverses `plan-109-A:92` ("regardless of which public function consumes
+the selector"), so the plan is left unedited as a record of what was decided
+then and the reversal lives in the bug doc and in
+`ir::verify::values::hash_selector_use_is_sound`.
 
-**511 left a follow-up worth doing** (not filed as a bug; it is a test-coverage
-gap, not a defect). The report named ONE secret-dependent branch; there were two
-— `__crypto_pack25519` also branched on the borrow out of its trial subtraction,
+Two things from it that generalize:
+
+- **Suppression is fail-closed, and that was a choice inside the ruling.** The
+  ruling names members that should not warn; implementing it as "fire only at
+  `hash`" would make silence the default. Implemented the other way round, so a
+  local-bound selector, a `MATCH` literal, a bare occurrence and a value nested
+  inside the argument all still warn.
+- **A builtin member has TWO call-target spellings in IR** and only one is
+  obvious. `crypto::hash` arrives dotted (`crypto.hash`); the `.mfb`-bodied
+  `hmac`/`hkdf`/`pbkdf2` arrive as `#crypto_hmac`, the `internal_name::internalize`
+  form of the package's own `__crypto_hmac`. Matching only the dotted name
+  suppressed NOTHING and looked correct. Any future predicate keyed on a call
+  target must accept both, via the mangling contract.
+
+**511 left a follow-up worth doing** (a test-coverage gap, not a defect). The
+report named ONE secret-dependent branch; there were two —
+`__crypto_pack25519` also branched on the borrow out of its trial subtraction,
 and one of the values packed there is the X25519 shared secret. It survived
-because `curve448_secret_paths_are_branch_free` already enforced exactly this
-property **for the 448 field only**, while the constant-time primitive
-(`__crypto_gf448Select`) and its packer already existed. Same "two lists" shape as
-bug-470 and bug-533: the enforcement covered one of two structurally identical
-fields. The durable fix is a test that ENUMERATES the curve fields and asserts a
-branch-free secret path for each, so adding a curve fails until it is covered.
+because `curve448_secret_paths_are_branch_free` enforced the property **for the
+448 field only**, while the constant-time primitive and its packer already
+existed. Same "two lists" shape as bug-470 and bug-533. The durable fix is a test
+that ENUMERATES the curve fields and asserts a branch-free secret path for each,
+so adding a curve fails until it is covered.
 
 **registry / supply chain** (audit-3 MEDIUM carryover):
 489 (response terminal injection) · 490 (client redirect credential leak) ·
