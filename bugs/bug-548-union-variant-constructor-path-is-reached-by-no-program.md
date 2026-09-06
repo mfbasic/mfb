@@ -5,10 +5,10 @@ Effort: small (30m–1h) to decide; medium if it turns out reachable
 Severity: LOW
 Class: Dead code (suspected) / Coverage
 
-Status: **OPEN — measured dead, not yet proven unreachable.** Filed rather than
-deleted: two independent sweeps agree nothing reaches it, but "no committed
-program reaches it" and "no valid program can reach it" are different claims,
-and only the second justifies deleting ~85 lines of codegen.
+Status: **OPEN — both measured dead, neither proven unreachable.** Filed rather
+than deleted: the sweeps agree nothing reaches either, but "no committed program
+reaches it" and "no valid program can reach it" are different claims, and only
+the second justifies deleting ~175 lines of codegen.
 
 ## What it is
 
@@ -64,8 +64,8 @@ runs it. It matters for two reasons:
   deleted, and `UnionWrap` documented as the one path that tags a union value.
 * **It is ~85 lines of the per-file coverage gate** that no test can close,
   which is what turned it up. `src/codegen/engine/value/builder_values.rs` is
-  the largest remaining gap in that task (381 lines short, 79.74%), and this is
-  a quarter of it.
+  the largest remaining gap in that task (373 lines short, 80.17%), and this
+  path plus the second one below are about half of it.
 
 The risk of getting it wrong points the other way, which is why this is a report
 and not a deletion: if some shape DOES reach it — a variant declared in an
