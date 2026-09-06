@@ -6,6 +6,13 @@ commit per file.
 
 ## Current state (measured on CI run 33816061767, job 100849258494)
 
+> **These numbers were measured through a gate with two defects in it, and both
+> are now fixed — see Corrections C6 and C8.** The 405/89.09% counted a
+> never-executed second copy of every binary (43 files, 16,020 lines of phantom
+> gap) and did not count `src/target/**` at all (51 files, 31,897 lines). They
+> are the task's starting point and they are not comparable with any number
+> measured after 2026-09-05. The live figure is in "Where the count stands".
+
 - **405 files** below the 98% floor; **89.09%** overall.
 - Distribution: 46 files <50% (7 at exactly 0%), 49 at 50–80%, 41 at 80–90%,
   61 at 90–95%, 104 at 95–97%, 104 at 97–98%.
