@@ -189,8 +189,20 @@ previously-0% `gen_present.rs` / `gen_fmod.rs` are at 99.57% / 100.00%.
 
 ## Phase 2 — close the files, worst first, one commit each
 
-The per-file ledger is generated from the Phase 0 baseline; see
-`planning/coverage-ledger.md`. Each row is one commit.
+The Phase 0 baseline is `planning/coverage-baseline.txt` (423 lines, the
+`coverage-check.sh` output that started this). Rows below are the work, roughly
+one commit each; the live per-file ranking is not a committed file but a
+command, because a committed one goes stale between measurements:
+
+    sh scripts/coverage-bins.sh                       # refresh the profile
+    python3 scripts/coverage-src-gaps.py <report>     # which FILE, by lines short
+    python3 scripts/coverage-src-lines.py <report> F  # which LINES in it (--source)
+    python3 scripts/coverage-src-shapes.py <report>   # what KIND they are
+    python3 scripts/coverage-src-dead-functions.py <report>   # whole functions
+
+(An earlier draft of this line pointed at `planning/coverage-ledger.md`, which
+has never existed in this repository; a log over all refs for that path is
+empty.)
 
 - [x] Generate the measured baseline: `planning/coverage-baseline.txt` (416
       files below the floor across the whole workspace; 401 of them in `src/**`).
