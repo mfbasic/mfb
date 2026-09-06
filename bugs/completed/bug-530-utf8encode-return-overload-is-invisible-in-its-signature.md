@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: FIXED — the DESCRIPTOR was the defect (hypothesis 2), not the renderer
+Status: **FIXED** (2026-09-05, `f75616ed2`)
 Regression Test: `src/cli/man.rs` — `a_return_type_overload_renders_every_form`,
 `only_a_return_type_overload_gets_the_expected_type_note`,
 `every_member_renders_one_declaration_per_implementation`; `src/codegen/registry/mod.rs`

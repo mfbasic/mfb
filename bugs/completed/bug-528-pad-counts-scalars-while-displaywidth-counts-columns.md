@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: FIXED — `strings::padLeftToWidth`/`padRightToWidth` added; two of the report's three Phase 1 claims were already true at HEAD
+Status: **FIXED** (2026-09-05, `f071d0f45`)
 Regression Test: `tests/rt-behavior/strings/strings-pad-to-width-rt`
 
 `strings::padLeft`/`padRight` pad to a width counted in **Unicode scalar
