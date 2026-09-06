@@ -265,6 +265,16 @@ The per-file ledger is generated from the Phase 0 baseline; see
       7dedf6723. One entry (`src/syntaxcheck/resources.rs`) named a file that no
       longer exists, so it excused nothing and showed up nowhere; the other 15
       all still name a real file that is still below the floor.
+- [x] `src/target/**` into the denominator — C8. 51 files, 31,897 lines that the
+      gate had never measured.
+- [x] `mfb build -nir` emits parseable JSON containing the module it was given,
+      on every backend, including the `LINK` expression tree operator by
+      operator. `target/shared/nir/json.rs` 23.35% -> 75.76%.
+- [x] All 63 package-bearing `tests/rt-behavior/**` fixtures, on every backend
+      they support — a62d79402. None was reachable in process before, and they
+      are the thread and native-`LINK` surface almost entire. 17 files moved in
+      one commit, `builder_thread_cleanup.rs` 77.78% -> 95.77% and
+      `builder_arena_transfer.rs` 84.69% -> 89.70% among them.
 - [ ] The remaining `src/**` files below the floor, worst first. Regenerate
       the ranking with `python3 scripts/coverage-src-gaps.py <report.json>`,
       which sorts by LINES SHORT rather than by percentage,
@@ -336,7 +346,8 @@ these files, and is not for `repository/src/**`).
 | after the group table, the app-mode `term::` surface and the trait defaults | 197 | 6,468 |
 | **after C8** — `src/target/**` enters the denominator (+51 files measured) | 225 | 8,012 |
 | after the project-based fixture lowering (F7) | 225 | 7,971 |
-| after the `-nir` dump suite | **225** | **7,701** |
+| after the `-nir` dump suite | 225 | 7,701 |
+| after the 63 package-bearing fixtures | **224** | **7,491** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
@@ -352,6 +363,13 @@ profile, the same tree reads 248 files / 22,883 lines. That 43-file, 16,020-line
 difference is the never-executed plain binaries, and it is why the two rows
 above it are not comparable with the CI baseline this task was written from. See
 C6.
+
+**What is left is branches, not functions.** With the dead-function ranking
+corrected (F6), only 2,634 of the remaining lines sit in functions nothing calls,
+and the widest of those are the three `write_executable`s that spawn the system
+linker. The other ~4,900 are branches inside functions that already run — which
+is the slowest kind to close, one program per shape, and is what the shape table
+above is counting.
 
 The uncovered-line count moves less than the file count in the later rows, and
 that is the shape of the remaining work rather than a stall: the sweeps closed
