@@ -61,11 +61,12 @@ FUNC describe(s AS Shape) AS String
 END FUNC
 
 FUNC main() AS Integer
+  LET describer AS FUNC(Shape) AS String = describe
   LET d AS Shape = Dot[counter]
   MUT n AS Integer = 0
   n = n + 1
   counter = counter + n
-  io::print(label & describe(d) & toString(n))
+  io::print(label & describer(d) & toString(n))
   RETURN 0
 END FUNC
 ";
@@ -372,4 +373,149 @@ fn a_malformed_body_op_is_refused() {
         refused.contains("unknown global"),
         "a store to a global that does not exist must be refused; it said {refused:?}"
     );
+}
+
+/// Rename the first `NirValue` in the module for which `pick` returns a
+/// mutable reference to its name, and return whether one was found.
+///
+/// A hand-rolled walk rather than a visitor: `NirValue` has no mutable one, and
+/// the alternative — a test that reached in by index — would go quiet the day
+/// the lowering emits one more temporary.
+fn rename_first_value(
+    module: &mut NirModule,
+    pick: impl Fn(&mut crate::target::shared::nir::NirValue) -> Option<&mut String> + Copy,
+) -> bool {
+    use crate::target::shared::nir::{NirOp, NirValue};
+
+    fn walk_value(
+        value: &mut NirValue,
+        pick: impl Fn(&mut NirValue) -> Option<&mut String> + Copy,
+    ) -> bool {
+        // The node itself first, so the outermost match wins and one mutation
+        // is one broken reference.
+        if let Some(name) = pick(value) {
+            *name = "$no_such_reference".to_string();
+            return true;
+        }
+        match value {
+            NirValue::Call { args, .. }
+            | NirValue::CallResult { args, .. }
+            | NirValue::Constructor { args, .. }
+            | NirValue::RuntimeCall { args, .. } => {
+                args.iter_mut().any(|arg| walk_value(arg, pick))
+            }
+            NirValue::Binary { left, right, .. } => {
+                walk_value(left, pick) || walk_value(right, pick)
+            }
+            NirValue::Unary { operand, .. } => walk_value(operand, pick),
+            NirValue::UnionWrap { value, .. }
+            | NirValue::UnionExtract { value, .. }
+            | NirValue::Checked { value, .. }
+            | NirValue::ResultIsOk { value }
+            | NirValue::ResultValue { value }
+            | NirValue::ResultError { value } => walk_value(value, pick),
+            _ => false,
+        }
+    }
+
+    fn walk_op(op: &mut NirOp, pick: impl Fn(&mut NirValue) -> Option<&mut String> + Copy) -> bool {
+        match op {
+            NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } => {
+                value.as_mut().is_some_and(|v| walk_value(v, pick))
+            }
+            NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } => {
+                walk_value(value, pick)
+            }
+            NirOp::Return { value } => value.as_mut().is_some_and(|v| walk_value(v, pick)),
+            NirOp::Eval { value } => walk_value(value, pick),
+            NirOp::ExitProgram { code } => walk_value(code, pick),
+            NirOp::Fail { error } => walk_value(error, pick),
+            NirOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                walk_value(condition, pick)
+                    || then_body.iter_mut().any(|op| walk_op(op, pick))
+                    || else_body.iter_mut().any(|op| walk_op(op, pick))
+            }
+            NirOp::Match { value, cases } => {
+                walk_value(value, pick)
+                    || cases
+                        .iter_mut()
+                        .any(|case| case.body.iter_mut().any(|op| walk_op(op, pick)))
+            }
+            _ => false,
+        }
+    }
+
+    module
+        .functions
+        .iter_mut()
+        .any(|function| function.body.iter_mut().any(|op| walk_op(op, pick)))
+}
+
+/// Every kind of reference a body can make must resolve.
+///
+/// `validate_body` checks each against the name table its own pass built: a
+/// local, a local REF (the by-reference form), a global, a function, a closure
+/// target, a call target. Each is a separate `Err` and each was unreached,
+/// because a module from a correct lowering names only things that exist.
+///
+/// A reference that does not resolve is not a diagnostic the user ever sees — it
+/// is a lowering bug, and this is the layer that names WHICH reference rather
+/// than leaving it to a relocation error two stages later.
+#[test]
+fn a_reference_that_does_not_resolve_is_refused() {
+    use crate::target::shared::nir::NirValue;
+
+    for (what, message, pick) in [
+        (
+            "a local reference",
+            "local reference",
+            (|value: &mut NirValue| match value {
+                NirValue::Local(name) => Some(name),
+                _ => None,
+            }) as fn(&mut NirValue) -> Option<&mut String>,
+        ),
+        (
+            "a global reference",
+            "global reference",
+            |value: &mut NirValue| match value {
+                NirValue::Global { name, .. } => Some(name),
+                _ => None,
+            },
+        ),
+        (
+            "a function reference",
+            "function reference",
+            |value: &mut NirValue| match value {
+                NirValue::FunctionRef { name, .. } => Some(name),
+                _ => None,
+            },
+        ),
+        (
+            "a call target",
+            "call target",
+            |value: &mut NirValue| match value {
+                NirValue::Call { target, .. } => Some(target),
+                _ => None,
+            },
+        ),
+    ] {
+        let mut found = false;
+        let refused = refusal(what, |m| {
+            found = rename_first_value(m, pick);
+        });
+        assert!(
+            found,
+            "the program must contain {what} for this row to break one; it has \
+             none, so the row is asserting on a module it did not change"
+        );
+        assert!(
+            refused.contains(message) && refused.contains("$no_such_reference"),
+            "{what} that does not resolve must be refused with a message \
+             containing {message:?} and naming the reference; it said {refused:?}"
+        );
+    }
 }
