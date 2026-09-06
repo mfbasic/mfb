@@ -136,6 +136,17 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
 /// is decoded from an id that must exist in it. Same checker, different completeness
 /// of information — so a miss means "imported, cannot say" on one and "genuinely
 /// absent" on the other (bug-258).
+/// The `(name, type)` pairs of an imported type's fields, in declaration order.
+/// `field_types` wants them as a map and `record_field_lists` as a vector, so
+/// the shared half is the iterator.
+fn imported_field_pairs(
+    fields: &[crate::ir::ImportedTypeField],
+) -> impl Iterator<Item = (String, ParameterType)> + '_ {
+    fields
+        .iter()
+        .map(|field| (field.name.clone(), field.type_.clone()))
+}
+
 fn collect_diagnostics_with(
     project: &IrProject,
     imported_types_unknown: bool,
@@ -163,22 +174,77 @@ fn collect_diagnostics_with(
     // type's FIELDS, so it cannot be answered without them.
     //
     // The package path passes none: its merged IR already carries every type.
-    // Only records are seeded, and only where the importer declares nothing of
-    // that name — an importer never overrides a declaration it can see the
-    // source of, the same precedence the `imported_resources` seed below uses.
+    // Seeded only where the importer declares nothing of that name — an importer
+    // never overrides a declaration it can see the source of, the same
+    // precedence the `imported_resources` seed below uses.
+    //
+    // bug-554: the UNION and ENUM rows are seeded for the same reason in the
+    // membership domain. `check_match_exhaustive` asks `unions`/`enums` for the
+    // complete member set and treats a type absent from both as an OPEN type, so
+    // an imported union's `MATCH` — which covered every variant the package
+    // declares — was reported "MATCH on open type Item requires an unguarded
+    // CASE ELSE", and a `CASE ELSE` was the only spelling that compiled. The
+    // membership is a property of the DECLARATION, so it cannot be answered
+    // without it. `.mfp` carries it already (`ImportedTypeDef::variants` /
+    // `::members`), which is what `ir::lower::TypeIndex` reads for the same
+    // types.
     for imported in imported_types {
-        if imported.kind != crate::ir::ImportedTypeKind::Record {
-            continue;
+        let imported_type = ParameterType::declared(&imported.name);
+        match imported.kind {
+            crate::ir::ImportedTypeKind::Record => {
+                env.field_types
+                    .entry(imported_type)
+                    .or_insert_with(|| imported_field_pairs(&imported.fields).collect());
+            }
+            crate::ir::ImportedTypeKind::Enum => {
+                env.enums
+                    .entry(imported_type)
+                    .or_insert_with(|| imported.members.iter().cloned().collect());
+            }
+            crate::ir::ImportedTypeKind::Union => {
+                env.unions
+                    .entry(imported_type.clone())
+                    .or_insert_with(|| UnionInfo {
+                        variants: imported
+                            .variants
+                            .iter()
+                            .map(|variant| ParameterType::declared(&variant.name))
+                            .collect(),
+                        variant_order: imported
+                            .variants
+                            .iter()
+                            .map(|variant| variant.name.clone())
+                            .collect(),
+                        // A `.mfp`'s variant list is already the expanded set:
+                        // the writer flattens `INCLUDES` before serializing, so
+                        // there is no second union to chase.
+                        includes: Vec::new(),
+                    });
+                // Each variant is a record in its own right — the same
+                // registration `TypeEnv::build` makes for a local union, so a
+                // `CASE pkg::Note(n)` arm's `n.label` resolves and the variant
+                // answers the comparability rule by its own fields.
+                for variant in &imported.variants {
+                    let variant_type = ParameterType::declared(&variant.name);
+                    env.records
+                        .entry(variant_type.clone())
+                        .or_insert_with(|| RecordInfo {
+                            fields: variant
+                                .fields
+                                .iter()
+                                .map(|field| field.name.clone())
+                                .collect(),
+                            includes: Vec::new(),
+                        });
+                    env.field_types
+                        .entry(variant_type.clone())
+                        .or_insert_with(|| imported_field_pairs(&variant.fields).collect());
+                    env.record_field_lists
+                        .entry(variant_type)
+                        .or_insert_with(|| imported_field_pairs(&variant.fields).collect());
+                }
+            }
         }
-        env.field_types
-            .entry(ParameterType::declared(&imported.name))
-            .or_insert_with(|| {
-                imported
-                    .fields
-                    .iter()
-                    .map(|field| (field.name.clone(), field.type_.clone()))
-                    .collect()
-            });
     }
     // bug-377: seed the imported packages' `RESOURCE_TABLE` rows. The project's
     // own `native_resources` win — an importer never overrides a declaration it

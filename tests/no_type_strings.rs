@@ -955,7 +955,17 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // KEY: a wire decode used as a table key, which is exactly what this class
     // enumerates, and the same conversion `ir/shape.rs` already makes over the
     // same `ImportedTypeDef` list.
-    ("declared_sites", "ir", 48),
+    //
+    // 48 -> 52: bug-554 extends that same seed from records to UNIONS and ENUMS
+    // (`ir/verify/mod.rs`), and adds the qualified enum-member lookup
+    // (`ir/lower.rs`). Every one of the five new sites is the identical
+    // conversion the entry above describes -- a name decoded off the `.mfp`
+    // type-export table, or the leaf of a `pkg::Enum` spelling, becoming the KEY
+    // of a `ParameterType`-keyed table (`unions`, `enums`, `records`,
+    // `field_types`, `record_field_lists`, `TypeIndex::enums`) -- and none of
+    // them decides anything by COMPARING a spelling. One prior site is folded
+    // into a shared `imported_type` binding, hence +5/-1.
+    ("declared_sites", "ir", 52),
     ("declared_sites", "manifest", 1),
     ("declared_sites", "monomorph", 8),
     ("declared_sites", "resolver", 8),

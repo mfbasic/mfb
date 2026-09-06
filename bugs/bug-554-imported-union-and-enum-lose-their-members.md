@@ -1,11 +1,17 @@
 # bug-554: an imported package's UNION and ENUM lose their members, so every `MATCH` on one is "not exhaustive"
 
-Last updated: 2026-09-05
+Last updated: 2026-09-06
 Effort: medium (resolver + the exhaustiveness checker; the wire format already carries what is needed)
 Severity: MEDIUM (a specified language feature is unusable across a package boundary; a package that exports a union cannot be consumed)
 Class: Unimplemented spec surface
 
-Status: Open
+Status: FIXED (branch `fix-pkg-symbol-resolution`). Two independent defects, not
+one; see "Correction to the diagnosis" below.
+Regression Test: `tests/rt_imported_union_enum_members.rs` — 6 positive
+(qualified + bare union `MATCH`, qualified enum `MATCH`, qualified + bare enum
+member as a value) and 4 negative (a missing union arm, a missing enum member, a
+non-member enum name, a `CASE` on a non-variant), all confirmed RED against
+`8a7735c85`'s binary via `MFB_TEST_EXE`.
 
 ## The finding
 
@@ -141,3 +147,50 @@ It is the difference between a package that can define a data model and one that
 can only define functions over somebody else's. Every sum type — a parsed
 document, a result classification, a state machine — is a union, and today none
 of them can be exported.
+
+## Correction to the diagnosis (2026-09-06)
+
+Reproduced at main `8a7735c85`. Every symptom the report lists is real, but it is
+**two independent defects**, and the report's guess about the second is wrong.
+
+**Defect 1 — the membership tables, both spellings.** `ir::verify`'s `TypeEnv` is
+built from `project.types`, which on the source path holds only the importer's own
+declarations, so an imported union/enum is in neither `unions` nor `enums`.
+`check_match_exhaustive` classifies a type in neither as an OPEN type, hence
+"MATCH on open type `Item` requires an unguarded CASE ELSE". The fix seeds
+`unions`/`enums` (and each union variant as a record, so a `CASE pkg::Note(n)`
+arm's `n.label` resolves) from `ImportedTypeDef` in `collect_diagnostics_with` —
+the same seam, and the same precedence rule, `93b72b92a` used for `field_types`
+and bug-377 used for `imported_resources`. The `.mfp` already carries the
+membership, as the report says; `ir::lower::TypeIndex` was already reading it for
+the same types.
+
+**Defect 2 — the qualified enum-member READ.** The report says
+`recpkg::Colour.Red` failing with `TYPE_UNKNOWN_VALUE` is "the same shape as
+bug-551's constants, and probably the same missing lookup". It is not. Measured
+at `8a7735c85`: **the bare `Colour.Red` already worked**; only the prefixed form
+§13 asks for failed. A member read is a VALUE, so the parser's type-position
+normalizer never sees it, and `expression_type`'s enum-member arm looked the
+target up under the name as written. The fix (`qualified_imported_enum` in
+`ir/lower.rs`) resolves the qualified spelling onto the bare enum and lowers to
+the byte-identical node the bare spelling produces. It fails CLOSED: the prefix
+must be a live `IMPORT` binding, the leaf a single segment, and the leaf a known
+enum *declaring that very member*.
+
+The two are independent — defect 1 alone leaves `pkg::Colour.Red` untyped, and
+defect 2 alone leaves every `MATCH` non-exhaustive — so they are fixed and pinned
+separately in one commit.
+
+**Not a regression from `8f0ebfeb8`.** Bisected: built `8f0ebfeb8^` and ran both
+defects against it. The BARE union `MATCH` fails there with the identical "MATCH
+on open type `Item`", and the qualified enum member fails with the identical
+`TYPE_UNKNOWN_VALUE` while the bare control builds clean — so both defects
+pre-date `8f0ebfeb8`. (The *qualified* union `MATCH` reports differently at
+`8f0ebfeb8^`, with the `TYPE_CALL_ARGUMENT_MISMATCH (Unknown)` cascade of the
+bug `8f0ebfeb8` fixed — that bug masked this one for the qualified spelling,
+which is why the bare spelling is the clean control.) Nothing here shares a root
+cause with bug-555, whose cause was `normalize_qualified_type_name`
+over-applying in a TYPE position.
+
+Gates: full `cargo test --release --no-fail-fast` green; full
+`scripts/test-accept.sh` 1416 ran / 0 mismatches; `artifact-gate.sh all` 0 diffs.
