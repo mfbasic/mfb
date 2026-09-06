@@ -5,7 +5,7 @@ Effort: medium (front end + IR merge; the wire format already carries what is ne
 Severity: MEDIUM (a specified language feature is unusable; every package must work around it)
 Class: Unimplemented spec surface
 
-Status: FIXED (branch `fix-pkg-symbol-resolution`). Point 3 — the initialization
+Status: **FIXED** (2026-09-06, `9a5aacb6e`)
 order this was filed rather than fixed over — was measured first and holds; see
 "Point 3, measured" below. Points 1, 2 and 4 are all implemented.
 Regression Test: `tests/rt_imported_package_global.rs` — 5 positive (read of an

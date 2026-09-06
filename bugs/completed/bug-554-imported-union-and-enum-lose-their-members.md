@@ -5,7 +5,7 @@ Effort: medium (resolver + the exhaustiveness checker; the wire format already c
 Severity: MEDIUM (a specified language feature is unusable across a package boundary; a package that exports a union cannot be consumed)
 Class: Unimplemented spec surface
 
-Status: FIXED (branch `fix-pkg-symbol-resolution`). Two independent defects, not
+Status: **FIXED** (2026-09-06, `c02832a1b`)
 one; see "Correction to the diagnosis" below.
 Regression Test: `tests/rt_imported_union_enum_members.rs` — 6 positive
 (qualified + bare union `MATCH`, qualified enum `MATCH`, qualified + bare enum
