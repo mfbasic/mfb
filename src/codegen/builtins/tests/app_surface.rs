@@ -13,7 +13,7 @@
 //! sees until a release runner reaches it.
 
 use crate::codegen::engine::types::NativeCodePlan;
-use crate::testutil::{app_code_cached, code_for_src_cached, fixture_src, CodeTarget};
+use crate::testutil::{app_code_cached, code_for_src_cached, CodeTarget};
 
 /// The image surface: create, size, read back, write, and the resize flag.
 const CANVAS_SURFACE: &str = "\
@@ -72,6 +72,48 @@ fn the_canvas_surface_lowers_on_every_app_capable_backend() {
     assert_eq!(lowered, 4, "four backends have an -app mode");
 }
 
+/// The whole `term::` drawing surface in one program.
+///
+/// The corpus reaches `term::` through `func_term_drawText_valid`, which calls
+/// six members — `on`, `setForeground`, `drawText`, `drawGlyph`, `sync`, `off`.
+/// In an `-app` build each member has a SECOND emitter that writes into the
+/// toolkit's shadow grid instead of to a tty, and the ones that fixture does not
+/// call had never been lowered in either backend that has them: `emit_app_draw_line`
+/// (111 lines), `emit_app_draw_box` (107), `emit_app_fill_rect` (74),
+/// `emit_app_move_to` (62), `emit_app_terminal_size` (58) and `emit_app_clear`
+/// (42) in `target/macos_aarch64/app/app_io.rs`, and their `target/linux_gtk`
+/// counterparts.
+///
+/// A drawing member is exactly the kind that a console run cannot vouch for: the
+/// tty arm writes escape sequences a golden can compare, and the app arm writes
+/// cells into a grid nothing in a headless test ever reads back.
+const TERM_SURFACE: &str = "\
+IMPORT color
+IMPORT term
+
+FUNC main() AS Integer
+  term::on()
+  LET size AS term::TermSize = term::terminalSize()
+  term::clear()
+  term::hideCursor()
+  term::moveTo(1, 1)
+  term::setForeground(color::rgb(255, 255, 0))
+  term::setBackground(color::rgb(0, 0, 40))
+  term::setBold(true)
+  term::setUnderline(true)
+  term::drawText(2, 3, \"Hello, TUI!\")
+  term::drawGlyph(0, 0, 9731)
+  term::drawHLine(term::LineStyle.Light, 4, 0, 20)
+  term::drawVLine(term::LineStyle.Double, 5, 2, 10)
+  term::drawBox(term::LineStyle.Heavy, 6, 4, 9, 24)
+  term::fillRect(term::FillStyle.Light, 10, 4, 12, 24)
+  term::showCursor()
+  term::sync()
+  term::off()
+  RETURN size.rows
+END FUNC
+";
+
 /// A `term::` program lowers in BOTH build modes, on every backend.
 ///
 /// `term::` is where the two modes genuinely differ: in console mode the helpers
@@ -80,7 +122,7 @@ fn the_canvas_surface_lowers_on_every_app_capable_backend() {
 /// because every fixture the corpus runs is a console build.
 #[test]
 fn a_term_program_lowers_in_both_build_modes_on_every_backend() {
-    let source = fixture_src("func_term_drawText_valid");
+    let source = TERM_SURFACE.to_string();
     let mut lowered = 0;
     for target in CodeTarget::ALL {
         let console = code_for_src_cached(&source, target, crate::target::NativeBuildMode::Console);

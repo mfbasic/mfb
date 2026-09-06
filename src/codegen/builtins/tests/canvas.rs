@@ -19,6 +19,13 @@ use crate::testutil::{app_code_cached, code_function, CodeTarget};
 ///
 /// It has to be an `-app` build: `app::setMode(Canvas)` lowers to the host
 /// toolkit's event loop, which only the app build mode declares an import for.
+///
+/// It also installs, references and removes a named group. `canvas::setGroup`
+/// is not incidental to the publish: a `Group` node is the one `DrawItem` that
+/// is a CONTAINER rather than a shape, so presenting a scene copies two offsets
+/// and a name instead of the items they stand for, and the items themselves
+/// live in a table the graphics thread scans. That table's install/remove
+/// (`gen_group.rs`, 783 lines) was reached by nothing in process.
 const PRESENT_SRC: &str = "\
 IMPORT app
 IMPORT canvas
@@ -36,6 +43,9 @@ END FUNC
 
 FUNC main() AS Integer
   app::setMode(app::Mode.Canvas)
+  canvas::setGroup(\"light\", scene(3.0))
+  canvas::present([canvas::Group[dx := 4.0, dy := 5.0, name := \"light\"]])
+  canvas::removeGroup(\"light\")
   canvas::present(scene(5.0))
   canvas::presentLayers(layered(5.0))
   RETURN 0
