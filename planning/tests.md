@@ -678,9 +678,8 @@ With the ranking corrected (F6) the list is flat, and its top is one cluster:
 
 ~310 lines across six functions. `write_executable` takes a project directory
 and produces files: it lowers the module, then links, then writes an executable
-per libc world, spawning the system linker (and on macOS `codesign`). It cannot
-run in this process, and it is exactly what `scripts/coverage-exceptions.txt`
-already excuses for `src/target.rs`:
+per libc world. `scripts/coverage-exceptions.txt` already excuses the
+dispatchers above them for exactly that reason:
 
     src/target.rs  # write_executable/nir/plan/object dispatchers invoke per-OS
                    # backends that spawn linkers/codesign over a full IrProject
@@ -693,10 +692,11 @@ are now, and the three of them sit at 24.65%, 24.77% and 36.41%.
 these three files are not only their writers: they also hold each backend's
 `write_native_plan` / `write_nir` / `write_object` dispatchers, which the new
 `-nir` and `-nplan` suites DO reach. Excepting the file would excuse the parts a
-test can close along with the parts it cannot. The honest next step is to close
-what is reachable first and see what the residual actually is — and if it turns
-out to be only the linker-spawning writers, the entry to add says so and names
-them, rather than naming three files.
+test can close along with the parts it cannot.
+
+**See C9 — for the three LINUX backends the premise turned out to be false.**
+Nothing is spawned; MFB writes its own ELF. All six functions are now tested in
+process and this finding's cluster is closed rather than excepted.
 
 ## Corrections
 ### C1 — "the coverage job is the only red job in CI" is false; `fmt` is red too
@@ -884,3 +884,32 @@ halves the same way would put ~4,000 lines of test code into the gate and
 re-break every file C3 fixed. Checked after the change: `builtins/tests/`,
 `engine/tests/` and `src/testutil.rs` are all still absent from the report, and
 `llvm-cov-target/` still is too.
+### C9 — the Linux `write_executable`s spawn nothing, and run fine in process
+
+F8 asserted that `write_executable` "cannot run in this process" because it
+"spawn[s] the system linker (and on macOS `codesign`)". That is true of the
+macOS backend. It is **not** true of the three Linux ones, which are the entire
+cluster F8 named.
+
+    $ grep -rn "Command::new" src/os/linux/
+    src/os/linux/appimage/mod.rs:437   (mkfifo, in the AppImage sealer)
+    src/os/linux/appimage/squashfs/tests.rs:65,710,765,816   (test-only)
+
+`os::linux::link::write_executable` is `encode_executable_bytes` + `fs::write` +
+a `set_mode(0o755)`. MFB emits its own ELF; there is no linker in the path at
+all. A Linux executable for any of the three architectures can therefore be
+produced on this macOS host by calling the backend directly — which is what
+cross-compilation means, and what CI's five-platform matrix has been doing all
+along through a subprocess.
+
+Closed by `src/target/tests/cross_executables.rs` (4 tests): each backend writes
+one ELF per libc world carrying its own `e_machine`; the glibc and musl
+artifacts differ; an `-app` build writes AppDirs and `finalize_app_bundle` seals
+them into AppImages (the sealer's `mkfifo` works on macOS too); and the missing
+`app_version` refusal is asserted in the same pass.
+
+The lesson is the shape of the mistake, not the fact: "it writes an executable"
+was taken to imply "it shells out". The check that settles it is one `grep` for
+`Command::new` over the backend's directory, and it costs nothing next to
+excusing 310 lines.
+

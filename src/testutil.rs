@@ -129,6 +129,20 @@ fn main_entry(source: &str) -> crate::ir::EntryPoint {
     }
 }
 
+/// The [`IrProject`] the build path would hand a backend for `source`, named
+/// `name`.
+///
+/// [`lower_src_concrete`] leaves `IrProject::name` empty, which is fine for
+/// every consumer that stops at a plan or a code plan. It is not fine for the
+/// one that writes files: the name is the artifact's file name, and
+/// `os::validate_output_name` refuses an empty one. Anything driving a
+/// `NativeBackend::write_executable` needs this rather than the raw lowering.
+pub fn named_ir_for_src(source: &str, name: &str) -> IrProject {
+    let mut ir = lower_src_concrete(source, Some(main_entry(source)));
+    ir.name = name.to_string();
+    ir
+}
+
 /// [`check_src`] with a table of types imported from a `.mfp` package.
 ///
 /// A program that names a type from an imported binary package reaches

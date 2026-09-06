@@ -449,6 +449,8 @@ pub fn write_package(
 mod tests {
     use super::*;
 
+    mod cross_executables;
+
     /// The app-mode-capable targets, as a `(name, supports_app_mode)` table.
     /// Kept explicit rather than derived so that registering a backend, or
     /// flipping one's `supports_app_mode`, fails this table loudly instead of
