@@ -827,6 +827,34 @@ pub fn try_code_for_fixture_project(
             returns: crate::types::ParameterType::Integer,
             accepts_args: false,
         });
-    let ir = crate::ir::lower_augmented_project(&concrete, entry, &signatures, &imported_types);
+    let mut ir = crate::ir::lower_augmented_project(&concrete, entry, &signatures, &imported_types);
+    // A `LINK` block's locators can come from either side, and a fixture that
+    // declares its LINK inside a package has them on the package's side only:
+    // the consumer's `project.json` carries no `libraries` section at all, so
+    // the consumer-side assembler refuses with NATIVE_LIBRARY_NO_MATCH --
+    // correctly, for the input it was given. The build reaches both through
+    // `LibraryTables::collect`; this does the same to one table, taking the
+    // project's own section first and then each package's section-10 table.
+    //
+    // Entries stay sorted by `logical`, which the encoding depends on.
+    let mut table = crate::binary_repr::NativeLibraryTable::default();
+    if crate::cli::build::native_libraries_for_test(&mut ir, &manifest, &dir) {
+        table.entries.append(&mut ir.native_libraries.entries);
+    }
+    for package in &packages {
+        let (_unit, package_table) = crate::binary_repr::read_package_native_libraries(package)
+            .map_err(|err| format!("{name}: {err}"))?;
+        for entry in package_table.entries {
+            if !table
+                .entries
+                .iter()
+                .any(|held| held.logical == entry.logical)
+            {
+                table.entries.push(entry);
+            }
+        }
+    }
+    table.entries.sort_by(|a, b| a.logical.cmp(&b.logical));
+    ir.native_libraries = table;
     lower_ir_to_code(ir, target, build_mode, &packages)
 }

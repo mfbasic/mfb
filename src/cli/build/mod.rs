@@ -1123,6 +1123,25 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     Ok(())
 }
 
+/// The manifest's `libraries` section as an `IrProject::native_libraries` table.
+///
+/// `testutil::try_code_for_fixture_project` lowers a fixture from its project
+/// directory the way this module does, and a fixture whose `LINK` block names a
+/// vendored library needs the locators the manifest carries — without them
+/// lowering stops at `NATIVE_LIBRARY_NO_MATCH`, which is the build refusing
+/// correctly and the harness looking broken.
+///
+/// A thin re-export rather than widening `native_libs`: the harness needs this
+/// one function, and the rest of the module's surface is the build's own.
+#[cfg(test)]
+pub(crate) fn native_libraries_for_test(
+    ir: &mut ir::IrProject,
+    manifest: &HashMap<String, JsonValue>,
+    project_root: &Path,
+) -> bool {
+    native_libs::assemble_native_libraries_for_ir(ir, manifest, project_root)
+}
+
 mod native_libs;
 mod options;
 mod packages;
