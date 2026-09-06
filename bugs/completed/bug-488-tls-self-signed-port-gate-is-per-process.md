@@ -1,6 +1,6 @@
 # bug-488 — `rt_tls_connect_allow_self_signed` is flaky when two `cargo test` runs share a machine
 
-STATUS: OPEN — gate fixed, symptom unreproduced (test-isolation flake; no product defect)
+STATUS: **CLOSED** (2026-09-06) — the clean period this bug was held open for arrived; see "Closing census" at the end. No product defect.
 
 Fixed so far (`e5f705c13`, restored `0953cd57d`, pinned `7cbf00777`):
 - The gate is now `common::PortGate`, a `flock(2)` on a temp-dir file, so it
@@ -236,3 +236,42 @@ Run two full `cargo test --no-fail-fast` invocations concurrently from two
 worktrees of this repo. Expect an intermittent `result=connected` in
 `defaults_to_rejecting_a_self_signed_peer`, or a name-mismatch/expired case
 reporting the wrong outcome for the same reason.
+
+
+## Closing census (2026-09-06) — 75 clean unfiltered runs, and the rate it rules out
+
+This bug was held open on a COUNT, so it closes on one. Every `/tmp/*.log` on
+this host that contains the fixture was classified by whether all four cases ran
+and whether any reported `FAILED`, split at `7cbf00777` (2026-09-04 22:11, the
+pin):
+
+    BEFORE the pin: 147 logs, 14 with a failed case
+    AFTER  the pin:  75 logs,  0 with a failed case
+    AFTER, running all four cases: 75 of 75
+    span: 2026-09-04 23:19 -> 2026-09-06 12:01
+
+Three of the 14 pre-fix reds are ATTRIBUTABLE and are not this flake — `b485-red`,
+`b485-libressl-final` and `b485-green-libressl` are the LibreSSL backend
+experiment, where the failure was the point. That leaves **11 unattributed
+failures in 144 pre-fix runs, ≈7.6% per run**, spread across all four cases
+(`accepts` ×4, `defaults_to_rejecting` ×3, `still_rejects_a_name_mismatch` ×2,
+`still_rejects_an_expired_certificate` ×2) — which is itself consistent with a
+port collision rather than a defect in any one case.
+
+If the fix had changed nothing, 75 consecutive clean runs at that rate has
+probability `0.924^75 ≈ 0.0027`. So the observation rules out "the rate is
+unchanged" at better than 1 in 300.
+
+**What this evidence is not.** These are logs of runs performed for other
+purposes on one macOS host, not a controlled experiment, and I did not hold
+concurrency constant — though the post-pin runs were mostly made WITH concurrent
+subagent suites and artifact gates on the same box, which is the condition all
+six original sightings occurred under, so the exposure is not obviously lower.
+The mechanism argument (`flock(2)` excludes across processes; a
+`static OnceLock<Mutex<()>>` definitionally cannot) and
+`tests/rt_port_gate_is_cross_process.rs` remain the primary justification. This
+census is the corroboration the document asked for, not a replacement for them.
+
+The `code=<n>` self-diagnosis added by `e5f705c13` was never consumed, because
+no post-fix occurrence arrived to consume it. It stays in the test: if a
+seventh sighting ever happens, it will name its own cause.
