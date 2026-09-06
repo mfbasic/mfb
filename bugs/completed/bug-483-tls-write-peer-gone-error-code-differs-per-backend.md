@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (cross-platform contract divergence)
 
-Status: Fixed
+Status: **FIXED** (2026-09-05, `7b0ab81be`)
 Regression Test: `tests/rt-behavior/tls/tls-write-peer-closed-raises-rt`
 (runtime, host backend — RED before the fix: `write raised=FALSE`), plus
 `codegen::builtins::tls::gen_schannel::schannel_tests::write_classifies_the_winsock_error_behind_a_failed_send`

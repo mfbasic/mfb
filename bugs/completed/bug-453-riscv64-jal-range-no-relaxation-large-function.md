@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness (valid source rejected by codegen)
 
-Status: Fixed — awaiting archive
+Status: **FIXED** (2026-09-05, `f332f18e6`)
 Regression Test: `src/arch/riscv64/encode/relax.rs` `#[cfg(test)] mod tests` (8 tests):
 `far_b_is_rejected_without_relaxation`, `far_rv_br_is_rejected_without_relaxation`
 (pre-fix pins), `relaxation_makes_a_far_b_encode`,

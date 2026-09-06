@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (portable API missing on one target)
 
-Status: Fixed
+Status: **FIXED** (2026-09-05, `94b2ec1e1`)
 Regression Test: `tests/codegen_win64_resource_path.rs` (three cases: the
 windows-x86_64 cross-build, the acquisition-frame addressing invariant, and the
 `\`-vs-`/` separator split), plus the positive pin
