@@ -36,6 +36,7 @@
 
 use std::collections::HashMap;
 
+use crate::codegen::engine::tests::test_support::TestPlatform;
 use crate::codegen::engine::types::{
     AppEntrySpec, CodeInstruction, CodeRelocation, CodegenPlatform, PresentationMode,
 };
@@ -178,6 +179,107 @@ fn the_windows_only_primitives_refuse_on_every_posix_backend() {
             sink.relocations.len()
         );
     }
+}
+
+/// The two `fs::openWithin` reparse-point checks hard-stop off Windows.
+///
+/// `emit_verify_nofollow` and `emit_verify_within` default to `unreachable!`
+/// rather than to an `Err`, and the difference is deliberate: the other
+/// Windows-only primitives are *routed to* on POSIX and refuse, while these two
+/// are not routed to at all, so reaching one is not a build that should fail
+/// with a diagnostic — it is a claim about the code that has stopped being
+/// true.
+///
+/// Asserting a panic needs `catch_unwind`, which is why it is its own test:
+/// folding it into the `Err` sweep above would make every row there pay for the
+/// hook swap.
+#[test]
+fn the_openwithin_reparse_checks_are_unreachable_off_windows() {
+    for (name, platform) in platforms() {
+        if name == "windows-x86_64" {
+            continue;
+        }
+        for hook in ["emit_verify_nofollow", "emit_verify_within"] {
+            let mut sink = Sink::default();
+            let previous = std::panic::take_hook();
+            std::panic::set_hook(Box::new(|_| {}));
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if hook == "emit_verify_nofollow" {
+                    platform.emit_verify_nofollow(
+                        "_probe",
+                        &sink.imports,
+                        &mut sink.instructions,
+                        &mut sink.relocations,
+                    )
+                } else {
+                    platform.emit_verify_within(
+                        "_probe",
+                        &sink.imports,
+                        &mut sink.instructions,
+                        &mut sink.relocations,
+                    )
+                }
+            }));
+            std::panic::set_hook(previous);
+            let payload = outcome.err().unwrap_or_else(|| {
+                panic!(
+                    "{name}: `{hook}` is the Windows-only `fs::openWithin` \
+                     reparse-point check and nothing routes to it off Windows, \
+                     so its default must hard-stop rather than return"
+                )
+            });
+            let message = payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                .unwrap_or_default();
+            assert!(
+                message.contains("Windows-only"),
+                "{name}: `{hook}` hard-stopped with {message:?}, which does not \
+                 say the check is Windows-only"
+            );
+        }
+    }
+}
+
+/// A backend that overrides nothing gets the documented defaults.
+///
+/// Every one of the five real backends overrides the whole app-mode family, so
+/// the trait's own default bodies are dead for all of them — and those defaults
+/// are exactly what a SIXTH backend inherits on the day it is added. `None`
+/// means "this target has no app mode", and it is the answer that lets a new
+/// console-only backend lower a program at all instead of tripping over a hook
+/// it has never heard of.
+///
+/// `TestPlatform` is the stub that overrides nothing, so it is the only way to
+/// reach them.
+#[test]
+fn a_backend_that_overrides_nothing_declines_every_optional_hook() {
+    let stub = TestPlatform;
+    for (hook, answer) in optional_hook_answers(&stub) {
+        assert_eq!(
+            answer,
+            Answer::Declined,
+            "a backend that overrides nothing must inherit `None` for `{hook}` \
+             -- that is what makes the hook optional, and a default that did \
+             anything else would make adding a backend a matter of implementing \
+             all of them first"
+        );
+    }
+    // The value-returning defaults, which `optional_hook_answers` cannot reach
+    // because they answer with a collection rather than an `Option`.
+    assert!(
+        stub.app_mode_data_objects("probe").is_empty(),
+        "a backend with no app mode has no app-mode data objects"
+    );
+    assert!(
+        stub.app_mode_reconcile_data_objects().is_empty(),
+        "a backend with no mode reconcile has no reconcile data objects"
+    );
+    assert!(
+        stub.emit_tls_block_trampolines(true).is_empty(),
+        "a backend with no foreign TLS callback boundary emits no trampolines"
+    );
 }
 
 /// Windows implements all five, and says so with a real emission.
