@@ -26,7 +26,8 @@
 use crate::target::NativeBuildMode::Console;
 use crate::testutil::{try_code_for_fixture_project, CodeTarget};
 
-/// Every package-bearing fixture under `tests/rt-behavior/**`.
+/// Every `tests/rt-behavior/**` fixture that needs its PROJECT, not just a
+/// source string.
 ///
 /// 63 of them, and not one was reachable in process before: each has a
 /// `packages/` directory its `project.json` declares, and `fixture_src` reads
@@ -109,6 +110,38 @@ const PACKAGE_FIXTURES: &[&str] = &[
     "thread-transfer-union-state-rt",
     "thread-transfer-union-stateless-rt",
     "trap-builtin-consumer",
+    // --- not package-bearing, but still needs its PROJECT ---
+    //
+    // Each of these fails from `src/main.mfb` alone for a reason the manifest
+    // answers. The `native-*` and `libsnd-*` fixtures declare a `LINK` whose
+    // locators live in the project's own `libraries` section; the
+    // `project-entry-*-foobar-*` ones name an entry that is not `main`, which
+    // the source-string path hardcodes; and `func_override_visibility` has a
+    // second source file.
+    "func_override_visibility",
+    "libsnd-open-file-info-rt",
+    "libsnd-read-samples-rt",
+    "native-cbuffer-read-rt",
+    "native-closed-guard-rt",
+    "native-link-and-truthy-rt",
+    "native-link-const-64bit-rt",
+    "native-link-free-rt",
+    "native-link-inline-trap-rt",
+    "native-link-nested-success-rt",
+    "native-link-sqlite-rt",
+    "native-private-resource-rt",
+    "native-resource-in-collection-rt",
+    "native-resource-scope-drop-rt",
+    "native-resource-state-rt",
+    "native-resource-thread-accept-rt",
+    "native-resource-transfer-fail-usable-rt",
+    "native-stateless-record-rt",
+    "native-struct-cstring-rt",
+    "native-struct-scalar-rt",
+    "project-entry-func-args-foobar-trap",
+    "project-entry-func-foobar-trap",
+    "project-entry-sub-args-foobar-trap",
+    "project-entry-sub-foobar-trap",
 ];
 
 /// Each one lowers, on every backend.

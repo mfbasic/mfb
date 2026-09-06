@@ -638,6 +638,214 @@ const CORPUS: &[&str] = &[
     // syntax/types
     "mut-default-collection-of-nondefaultable-valid",
     "types-recursive-record-valid",
+    // --- the rest of tests/rt-behavior ---
+    //
+    // The list above was generated with a cap of four fixtures per family,
+    // which is a reasonable way to pick a BREADTH sample and a poor way to
+    // reach a lowering only one program in a family has. These are the other
+    // 220 rt-behavior fixtures that this harness can lower from
+    // `src/main.mfb` alone -- everything except the package-bearing ones
+    // (fixture_projects.rs owns those) and the ones with no `src/main.mfb`.
+    //
+    // They cost about a minute of suite time between them. What they buy is
+    // whatever the cap dropped, which is not knowable from the outside: the cap
+    // was applied per family, and coverage is not distributed per family.
+    "mutate-split-rt",
+    "tier-a-queries-rt",
+    "tier-b-replace-rt",
+    "tier-b-transforms-rt",
+    "tomarkdown-flags-rt",
+    "tomarkdown-fontsize-rt",
+    "color_packed_rt",
+    "color_perceptual_rt",
+    "color_to_string_rt",
+    "func_color_rgba_valid",
+    "crypto-ed25519-malleability-invalid",
+    "crypto-ed448-valid",
+    "crypto-hpke-x25519-valid",
+    "crypto-hpke-x448-valid",
+    "crypto-kat-valid",
+    "crypto-kdf-invalid",
+    "crypto-randomint-wide-range-rt",
+    "crypto-sha1-advisory-valid",
+    "crypto-sha3-kat-valid",
+    "crypto-x448-valid",
+    "identifier-generators",
+    "datetime-format-valid",
+    "datetime-instant-valid",
+    "datetime-invalid",
+    "datetime-iso-nanos-rt",
+    "datetime-parse-range-rt",
+    "datetime-parse-trap-rt",
+    "datetime-parse-valid",
+    "datetime-withzone-instant-rt",
+    "func_datetime_localOffset_valid",
+    "fs-atomic-write",
+    "fs-close-failed-rt",
+    "fs-create-temp-file-rt",
+    "fs-embedded-nul-rt",
+    "fs-listdir-order-rt",
+    "fs-nofollow-symlink-rt",
+    "fs-path-errors-rt",
+    "fs-pathjoin-rules-rt",
+    "fs-readline-buffer-boundary-rt",
+    "fs-temp-file-buffered",
+    "fs-text-utf8-rt",
+    "fs-write-bytes-payload-order-rt",
+    "func_fs_appendBytes_valid",
+    "func_fs_appendText_valid",
+    "func_fs_canonicalPath_valid",
+    "func_fs_close_valid",
+    "func_fs_createDirectories_valid",
+    "func_fs_createDirectory_valid",
+    "func_fs_createTempFile_valid",
+    "func_fs_currentDirectory_valid",
+    "func_fs_deleteDirectory_valid",
+    "func_fs_deleteFile_valid",
+    "func_fs_directoryExists_valid",
+    "func_fs_eof_valid",
+    "func_fs_exists_valid",
+    "func_fs_fileExists_valid",
+    "func_fs_flush_valid",
+    "func_fs_isBuffered_valid",
+    "func_fs_isWithin_valid",
+    "func_fs_listDirectory_valid",
+    "func_fs_openFileNoFollow_valid",
+    "func_fs_openFile_valid",
+    "func_fs_openWithin_valid",
+    "func_fs_open_valid",
+    "func_fs_pathBaseName_valid",
+    "func_fs_pathDirName_valid",
+    "func_fs_pathExtension_valid",
+    "func_fs_pathJoin_valid",
+    "func_fs_pathNormalize_valid",
+    "func_fs_readAllBytes_valid",
+    "func_fs_readAll_valid",
+    "func_fs_readBytes_valid",
+    "func_fs_readLine_valid",
+    "func_fs_readText_valid",
+    "func_fs_setBuffered_valid",
+    "func_fs_setCurrentDirectory_valid",
+    "func_fs_writeAllBytes_valid",
+    "func_fs_writeAll_valid",
+    "func_fs_writeBytesAtomic_valid",
+    "func_fs_writeBytes_valid",
+    "func_fs_writeTextAtomic_valid",
+    "func_fs_writeText_valid",
+    "bug156_return_with_literal_coercion",
+    "bug361_folded_literal_type_name",
+    "builtin-predicate-as-value-rt",
+    "codegen-conversion-edges-rt",
+    "fixed-min-literal",
+    "scalar-conversions-rt",
+    "scalar-primitive-rt",
+    "scalar-strings-seam-rt",
+    "stdlib-error-code-contracts-rt",
+    "func_http_route_valid",
+    "http_server_loopback",
+    "func_io_print_valid",
+    "func_io_setBuffered_valid",
+    "func_io_writeError_valid",
+    "func_io_write_valid",
+    "io-input-eof-buffering",
+    "json-parse-deep-scalar-scan-rt",
+    "qualified-union-variant-rt",
+    "strings-artifact-coverage-rt",
+    "strings-display-width-rt",
+    "bug130_neon_exp_range_boundaries",
+    "bug131_float_atan2_origin",
+    "bug134_float_log_subnormal",
+    "bug137_pow_negative_zero",
+    "bug137_rand_unbiased_bounds",
+    "bug164_exp_large_argument_saturation",
+    "bug74_pow_operator_base_clobber",
+    "ceil-fixed-vector-overflow-rt",
+    "math_package_valid",
+    "math_simd_signzero_tail_valid",
+    "record-field-args",
+    "round-ties-away-boundary-rt",
+    "money_tostring_mode_decoupled",
+    "func_net_toUrl_invalid_runtime",
+    "func_net_toUrl_valid",
+    "func_net_url_toString_valid",
+    "qualified-enum-member-rt",
+    "func_os_executablePath_valid",
+    "func_os_getEnvOr_valid",
+    "func_os_getEnv_valid",
+    "func_os_hasEnv_valid",
+    "func_os_hostName_valid",
+    "func_os_name_valid",
+    "func_os_pid_valid",
+    "func_os_resourcePath_valid",
+    "func_os_setEnv_valid",
+    "func_os_system_status_valid",
+    "func_os_unsetEnv_valid",
+    "func_os_userName_valid",
+    "os-args-basic",
+    "os-env-roundtrip",
+    "os-environ-roundtrip",
+    "os-identity-queries",
+    "os-introspect-basic",
+    "os-sleep-main-rt",
+    "poll",
+    "receive-lines",
+    "receivebytes",
+    "send-grep",
+    "send-timeout",
+    "sendbytes",
+    "shell-exitcode",
+    "signal",
+    "spawn-fail-trap",
+    "spawn-waitfor",
+    "spawnenv",
+    "project-entry-func-default-trap",
+    "project-entry-func-main-trap",
+    "project-entry-func-named-args-valid",
+    "project-entry-func-trap",
+    "project-entry-param-trap",
+    "project-entry-sub-args-default-trap",
+    "project-entry-sub-args-main-trap",
+    "project-entry-sub-default-trap",
+    "project-entry-sub-main-trap",
+    "regex-find-absence-rt",
+    "replace-empty-pattern-rt",
+    "strings-empty-needle-rt",
+    "func_tcp_connect_valid",
+    "func_tcp_localAddress_valid",
+    "func_tcp_poll_valid",
+    "func_tcp_readText_valid",
+    "func_tcp_read_valid",
+    "func_tcp_remoteAddress_valid",
+    "func_tcp_setReadTimeout_valid",
+    "func_tcp_setWriteTimeout_valid",
+    "func_tcp_stream_valid",
+    "func_tcp_writeText_valid",
+    "func_tcp_write_valid",
+    "tcp-accept-timeout-convention-rt",
+    "tcp-bounded-accept-blocking-rt",
+    "tcp-connect-timeout-convention-rt",
+    "tcp-poll-list-rt",
+    "tcp-poll-timeout-convention-rt",
+    "tcp-read-eof-raises-rt",
+    "tcp-readtimeout-convention-rt",
+    "tcp-udp-poll-list-trap-rt",
+    "tcp-write-peer-closed-raises-rt",
+    "func_term_drawHLine_valid",
+    "func_term_drawText_attr_valid",
+    "func_term_drawText_valid",
+    "func_term_drawVLine_valid",
+    "func_term_draw_wide_valid",
+    "func_term_fillRect_valid",
+    "func_term_grid_diff_valid",
+    "func_term_grid_draw_valid",
+    "func_term_inactive_gate_valid",
+    "func_term_sync_valid",
+    "func_term_wide_glyph_valid",
+    "term-styling-basic",
+    "tls-read-timeout-rt",
+    "tls-timeout-convention-rt",
+    "func_udp_receive_valid",
+    "func_udp_send_valid",
 ];
 
 /// The program's own functions — everything the source declared, plus the
@@ -709,27 +917,43 @@ fn every_backend_lowers_the_corpus_to_the_same_program() {
 #[test]
 fn no_corpus_function_lowers_to_an_empty_body() {
     assert!(
-        CORPUS.len() >= 420,
-        "the corpus is {} fixtures; it was generated at 421 across 88 families, plus three added by hand, \
+        CORPUS.len() >= 610,
+        "the corpus is {} fixtures; it was generated at 421 across 88 families, then grew to 620 with the rest of tests/rt-behavior, \
          and a list that shrinks silently is a gate that stops measuring",
         CORPUS.len()
     );
+    // Every fixture, then report. Stopping at the first failure means one bad
+    // row hides the rest, and this list is long enough that finding them one
+    // run at a time is the difference between an afternoon and a minute.
+    let mut failed = Vec::new();
     for fixture in CORPUS {
         let source = fixture_src(fixture);
-        let plan = try_code_for_src(
+        let plan = match try_code_for_src(
             &source,
             CodeTarget::LinuxX86_64,
             crate::target::NativeBuildMode::Console,
-        )
-        .unwrap_or_else(|err| panic!("{fixture}: {err}"));
+        ) {
+            Ok(plan) => plan,
+            Err(err) => {
+                failed.push(format!("{fixture}: {}", err.lines().next().unwrap_or(&err)));
+                continue;
+            }
+        };
         for f in &plan.functions {
-            assert!(
-                f.instructions.len() > 1,
-                "{fixture}: `{}` lowered to {} instruction(s) — a body that is \
-                 only its entry label is a lowering that declined",
-                f.name,
-                f.instructions.len()
-            );
+            if f.instructions.len() <= 1 {
+                failed.push(format!(
+                    "{fixture}: `{}` lowered to {} instruction(s) — a body that \
+                     is only its entry label is a lowering that declined",
+                    f.name,
+                    f.instructions.len()
+                ));
+            }
         }
     }
+    assert!(
+        failed.is_empty(),
+        "{} corpus fixture(s) did not lower:\n  {}",
+        failed.len(),
+        failed.join("\n  ")
+    );
 }
