@@ -1402,91 +1402,30 @@ impl CodeBuilder<'_> {
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
                     });
                 }
-                let register = self.allocate_register();
-                let tag = self
-                    .type_model
-                    .union_variant_tags
-                    .get(type_)
-                    .copied()
-                    .ok_or_else(|| {
-                        format!("native code union variant '{type_}' does not resolve")
-                    })?;
-                let union_name = self
-                    .type_model
-                    .union_variants
-                    .get(type_)
-                    .cloned()
-                    .unwrap_or_else(|| type_.clone());
-                // bug-175 C: size the union block the same way the `UnionWrap` path
-                // does — a resource variant occupies one word (its handle pointer)
-                // rather than being skipped, so a union mixing resource and data
-                // variants allocates an identical block size on both paths.
-                let union_size = self
-                    .type_model
-                    .variants_for_union(&union_name)
-                    .map(|variant| {
-                        if crate::codegen::builtins::is_resource_type(&variant) {
-                            1
-                        } else {
-                            self.type_model
-                                .union_variant_fields
-                                .get(variant)
-                                .map(Vec::len)
-                                .unwrap_or(0)
-                        }
-                    })
-                    .max()
-                    .map(|max_payload| 8 * (1 + max_payload.max(1)))
-                    .unwrap_or(8 * (arg_values.len() + 1));
-                let result_slot = self.allocate_stack_object("union_result", 8);
-                let alloc_ok = self.label("union_construct_alloc_ok");
-                self.emit(abi::move_immediate(
-                    abi::return_register(),
-                    "Integer",
-                    &union_size.to_string(),
-                ));
-                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-                self.emit_arena_alloc_call();
-                self.emit(abi::branch_eq(&alloc_ok));
-                self.raise_error_bare("ErrOutOfMemory")?;
-                self.emit(abi::label(&alloc_ok));
-                self.emit(abi::store_u64(
-                    abi::mfb_return(1),
-                    abi::stack_pointer(),
-                    result_slot,
-                ));
-                let zero_register = self.allocate_register();
-                self.emit(abi::move_immediate(&zero_register, "Integer", "0"));
-                for offset in (0..union_size).step_by(8) {
-                    self.emit(abi::store_u64(&zero_register, abi::mfb_return(1), offset));
-                }
-                let tag_register = self.allocate_register();
-                self.emit(abi::move_immediate(
-                    &tag_register,
-                    abi::IMMEDIATE_CLASS_UNION_TAG,
-                    &tag.to_string(),
-                ));
-                self.emit(abi::store_u64(&tag_register, abi::mfb_return(1), 0));
-                for (index, slot) in arg_slots.iter().enumerate() {
-                    self.emit(abi::load_u64(scratch9, abi::stack_pointer(), *slot));
-                    self.emit(abi::store_u64(
-                        scratch9,
-                        abi::mfb_return(1),
-                        8 * (index + 1),
-                    ));
-                }
-                self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
-                crate::trace::count_tally(
-                    "constructor type",
-                    || format!("variant {type_}"),
-                    (self.instructions.len() - census_start) as u64,
-                );
-                Ok(ValueResult {
-                    origin: None,
-                    type_: union_name.clone(),
-                    location: Operand::from(register.render()),
-                    text: format!("construct {type_}({})", join_texts(&arg_values)),
-                })
+                // Not a record, and there is nothing else a `Constructor` can
+                // name. A union is all-data or all-resource
+                // (`TYPE_MIXED_RESOURCE_UNION`): every variant of an all-data
+                // union is a `TYPE ... END TYPE` record and is therefore in
+                // `record_fields` above, and a resource has no constructor
+                // syntax at all — it comes from a function. So a `Constructor`
+                // whose type is missing from `record_fields` is a lowering bug,
+                // and this fails CLOSED rather than guessing a layout for it.
+                //
+                // bug-548: ~85 lines of union-variant construction stood here,
+                // building a tagged block the way `UnionWrap` does. Nothing
+                // reached it. Four sweeps agreed — every unit test, every one of
+                // ~700 committed projects, and then, with the instrumentation
+                // still in, an imported package's variant (`json::JsonNum[1.5]`),
+                // a LOCAL union over imported record variants, and a mixed
+                // resource/data union, which the type checker refuses outright.
+                // That refusal is what turned "no program reaches it" into "no
+                // program can": it removes the one variant kind that is not a
+                // record.
+                Err(format!(
+                    "native code constructor type '{type_}' is not a record; a \
+                     union variant is either a record (constructed above) or a \
+                     resource (which has no constructor)"
+                ))
             }
             NirValue::UnionWrap {
                 union_type,
