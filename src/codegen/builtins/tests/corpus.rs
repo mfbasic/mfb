@@ -125,7 +125,7 @@ const CROSS_BACKEND: &[&str] = &[
 /// to supply. None of it is a product gap. Taking all 704 rather than these 421
 /// was measured too: +170 seconds of unit-suite time for 242 lines and one
 /// file, so the sampling stops here.
-const CORPUS: &[&str] = &[
+pub(super) const CORPUS: &[&str] = &[
     // rt-behavior/arena
     "construct-helper-loop",
     "flat-nested-collection",

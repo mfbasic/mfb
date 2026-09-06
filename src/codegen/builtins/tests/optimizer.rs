@@ -124,6 +124,78 @@ fn the_corpus_survives_every_optimization_level() {
     }
 }
 
+/// The WHOLE corpus at the top of the dial, not just the shapes chosen for it.
+///
+/// `SHAPES` above is 25 programs picked for the constructs the higher rows act
+/// on, and it is the right list for the level-by-level comparison — four
+/// lowerings each, and a level that changes nothing is a level that is not
+/// arriving. It is the wrong list for *reach*: an `-O3` row fires on whatever
+/// shape the program happens to have, and 25 hand-picked programs cannot stand
+/// in for 630. The rows that were still unreached after `SHAPES` landed are the
+/// ones no chosen program happened to contain — a sunk store, a redundant
+/// bounds check on a shape the range plans recognise, a branch worth threading.
+///
+/// One level rather than four, because `level_enabled(row) = row <= active`:
+/// `-O3` enables every row `-O2` does and more, so `-O3` alone reaches the whole
+/// catalog. One lowering per program rather than two, because at 630 programs
+/// the second is 125 seconds bought for a comparison `SHAPES` already makes at
+/// four levels; what only this can say is that the top of the dial reaches the
+/// other 605.
+///
+/// The contract is `no_corpus_function_lowers_to_an_empty_body`'s, asserted
+/// where it has never been asserted: at `-O3` the program still lowers, still
+/// validates (`code::lower_module` rejects a branch to a label nothing defines
+/// and a relocation against a symbol nothing emits — precisely what a pass that
+/// rewrites a CFG gets wrong), and still has no function whose body is only its
+/// entry label. An empty body is what a pass that deleted a live function's
+/// contents looks like from here.
+#[test]
+fn the_whole_corpus_survives_the_top_of_the_dial() {
+    // Report every failure rather than the first: at 630 programs, finding them
+    // one run at a time is the difference between a minute and an afternoon.
+    let mut failed = Vec::new();
+    for fixture in super::corpus::CORPUS {
+        let source = fixture_src(fixture);
+        let plan = match code_for_src_at(
+            &source,
+            CodeTarget::LinuxX86_64,
+            crate::target::NativeBuildMode::Console,
+            3,
+        ) {
+            Ok(plan) => plan,
+            Err(err) => {
+                failed.push(format!(
+                    "{fixture} at -O3: {}",
+                    err.lines().next().unwrap_or(&err)
+                ));
+                continue;
+            }
+        };
+        for f in &plan.functions {
+            if f.instructions.len() <= 1 {
+                failed.push(format!(
+                    "{fixture} at -O3: `{}` lowered to {} instruction(s) — a body \
+                     that is only its entry label is a function the optimizer \
+                     emptied",
+                    f.name,
+                    f.instructions.len()
+                ));
+            }
+        }
+        if !program_functions(&plan).contains("main") {
+            failed.push(format!(
+                "{fixture} at -O3: the entry function did not survive with a body"
+            ));
+        }
+    }
+    assert!(
+        failed.is_empty(),
+        "{} corpus program(s) did not survive -O3:\n  {}",
+        failed.len(),
+        failed.join("\n  ")
+    );
+}
+
 /// Raising the level actually changes the emitted code.
 ///
 /// The other half, and the reason it is here: a level that never reaches the
