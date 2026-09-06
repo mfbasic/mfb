@@ -73,14 +73,21 @@ const CROSS_BACKEND: &[&str] = &[
     // close op and a scope drop, and a trap emits an error route. Each is
     // per-ARCH code that a single-backend lowering cannot reach.
     //
-    // Every name here is one this harness can lower. Two obvious candidates are
-    // deliberately absent -- `thread-fixed-list-transfer-rt` and
-    // `p121d-state-reach-rt` -- because they do not lower here on ANY backend
-    // ("thread.start entry point must name an ISOLATED FUNC"). That is a harness
-    // gap, not a product difference: both were lowered for all five targets,
-    // eight times each, and every attempt failed identically. Picking a fixture
-    // by hand without checking is how a cross-backend suite ends up reporting a
-    // front-end limitation as a backend disagreement.
+    // Every name here is one this harness can lower from `src/main.mfb` alone.
+    // Two fixtures cannot be: `thread-fixed-list-transfer-rt` and
+    // `p121d-state-reach-rt` name their worker through an imported package, and
+    // a qualified entry resolves through `imported_signatures`, which a
+    // single-source project never populates -- so both reported "thread.start
+    // entry point must name an ISOLATED FUNC" on all five backends, a missing
+    // input wearing the costume of a front-end limitation.
+    //
+    // They are no longer skipped, only lowered elsewhere:
+    // `fixture_projects.rs` runs them through
+    // `testutil::try_code_for_fixture_project`, which reads the manifest's
+    // `packages` and hands both the signatures and the merged package IR to
+    // lowering. Picking a fixture by hand without checking is still how a
+    // cross-backend suite ends up reporting a front-end limitation as a backend
+    // disagreement.
     "thread-executable-local-entry-rt",
     "thread-start-local-entry-valid",
     "p121d-state-ops-rt",

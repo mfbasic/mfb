@@ -454,13 +454,34 @@ fn code_for_src_inner(
     build_mode: crate::target::NativeBuildMode,
     libraries: crate::binary_repr::NativeLibraryTable,
 ) -> crate::codegen::engine::types::NativeCodePlan {
+    let mut ir = lower_src_concrete(source, Some(main_entry(source)));
+    ir.native_libraries = libraries;
+    lower_ir_to_code(ir, target, build_mode, &[]).unwrap_or_else(|err| panic!("{err}"))
+}
+
+/// NIR + the backend, for an [`IrProject`] however it was produced.
+///
+/// Shared by the source-string path ([`code_for_src_inner`]) and the project
+/// path ([`try_code_for_fixture_project`]): the two differ only in how they get
+/// an `IrProject`, and duplicating the five-arm backend match would let them
+/// drift on the one thing they must agree about.
+fn lower_ir_to_code(
+    ir: IrProject,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+    packages: &[PathBuf],
+) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
     use crate::os::linux::flavor::LinuxFlavor::Glibc;
     use crate::target::shared::lower;
 
-    let mut ir = lower_src_concrete(source, Some(main_entry(source)));
-    ir.native_libraries = libraries;
-    let module = lower::lower_project(&ir, target.name().to_string(), &[], build_mode, None)
-        .expect("test source must lower to NIR");
+    // `packages` is what makes an imported worker's BODY present. Resolving the
+    // name is only half of it: `merge_packages` decodes each `.mfp`'s IR and
+    // merges its functions in, and without that the call lowers to a relocation
+    // against a symbol nothing defines -- which `validate` refuses, correctly,
+    // as "data relocation target '<pkg>.<member>' is not a data object or
+    // defined symbol".
+    let module = lower::lower_project(&ir, target.name().to_string(), packages, build_mode, None)
+        .map_err(|err| format!("test source must lower to NIR: {err:?}"))?;
     match target {
         CodeTarget::MacosAarch64 => {
             let plan = crate::target::macos_aarch64::plan::lower_module(&module)
@@ -488,7 +509,6 @@ fn code_for_src_inner(
             crate::target::win_x86_64::code::lower_module(&module, &plan, &[])
         }
     }
-    .expect("test source must lower to native code")
 }
 
 /// [`code_for_src_mode`], memoized for the whole test binary.
@@ -715,4 +735,67 @@ END FUNC
             "a repeated (source, target, mode) must not recompile"
         );
     }
+}
+
+// --- lowering a fixture from its PROJECT, not from one source string ---------
+
+/// Lower a fixture **from its project directory**, resolving the packages its
+/// `project.json` declares.
+///
+/// [`fixture_src`] reads `src/main.mfb` and nothing else, which is enough for
+/// the great majority of fixtures and wrong for every one that imports a
+/// `.mfp`. A qualified name from such a package resolves through
+/// `imported_signatures`, which a single-source project never populates — so
+/// `thread::start(worker::entry, …)` reports "thread.start entry point must
+/// name an ISOLATED FUNC", and the fixture is unlowerable in process for a
+/// reason that has nothing to do with threads or with any backend. `corpus.rs`
+/// excludes two fixtures for exactly this.
+///
+/// This runs `cli/build`'s own front end instead — `parse_project` (which
+/// collects the manifest's source files, appends the prelude and runs the
+/// `collections` augmentation), `resolve_project` against the real directory
+/// and manifest, then augment / elaborate / monomorphize — and hands
+/// `lower_augmented_project` the signatures and type defs read off the `.mfp`s.
+pub fn try_code_for_fixture_project(
+    name: &str,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
+    let dir = fixture_dir(name);
+    let manifest_path = dir.join("project.json");
+    let text = std::fs::read_to_string(&manifest_path)
+        .map_err(|err| format!("{name}: reading project.json: {err}"))?;
+    let manifest = crate::manifest::parse_project_json(&text, &manifest_path)?;
+    let project_name = manifest
+        .get("name")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_else(|| name.to_string());
+
+    let ast = crate::ast::manifest::parse_project(&project_name, &dir, &manifest)
+        .map_err(|()| format!("{name}: the project does not parse"))?;
+    crate::resolver::resolve_project(&dir, &manifest, &ast)
+        .map_err(|()| format!("{name}: the project does not resolve"))?;
+    let augmented = crate::resolver::augment_project(&ast)
+        .map_err(|()| format!("{name}: builtin augmentation failed"))?;
+    let concrete = crate::monomorph::monomorphize_project(&dir, &crate::hir::elaborate(&augmented))
+        .map_err(|()| format!("{name}: the project does not monomorphize"))?;
+
+    let packages = crate::manifest::package::installed_package_files(&dir, &manifest)
+        .map_err(|err| format!("{name}: {err}"))?;
+    let imported_types = crate::manifest::package::imported_type_defs_from_files(&packages);
+    let signatures =
+        crate::manifest::package::external_package_function_types_from_files(&packages)
+            .map_err(|err| format!("{name}: {err}"))?;
+
+    let entry = manifest
+        .get("entry")
+        .and_then(|value| value.get::<String>())
+        .map(|entry_name| crate::ir::EntryPoint {
+            name: entry_name.clone(),
+            returns: crate::types::ParameterType::Integer,
+            accepts_args: false,
+        });
+    let ir = crate::ir::lower_augmented_project(&concrete, entry, &signatures, &imported_types);
+    lower_ir_to_code(ir, target, build_mode, &packages)
 }

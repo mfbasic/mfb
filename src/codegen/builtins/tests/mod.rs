@@ -36,6 +36,7 @@ mod corpus;
 mod data_layout;
 mod diagnostics;
 mod entry;
+mod fixture_projects;
 mod harness;
 mod imported_types;
 mod inplace;
