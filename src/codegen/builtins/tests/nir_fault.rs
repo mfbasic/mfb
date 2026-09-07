@@ -189,6 +189,19 @@ FUNC main() AS Integer
   END TRAP
   io::print("safe=" & toString(safe))
 
+  ' Three more members, each with defensive refusals of its own that no value
+  ' in the program above can reach: `insert` (which refuses a LIST where an item
+  ' belongs), `filter` (which refuses a predicate that does not return Boolean)
+  ' and `merge` (whose accelerator reads its own argument count and the two
+  ' halves of its monomorph suffix). A corruption only reaches a builder path
+  ' some value in the tree took, so the sweep's reach is the reach of its
+  ' programs -- and these three add three more entry points to it.
+  xs = collections::insert(xs, 1, 7)
+  LET kept AS List OF Integer = collections::filter(xs, LAMBDA(v AS Integer) -> v > 1)
+  io::print("kept=" & toString(len(kept)))
+  LET merged AS Map OF String TO Integer = collections::merge(names, names, TRUE)
+  io::print("merged=" & toString(len(merged)))
+
   RETURN 0
 END FUNC
 "#;
@@ -839,8 +852,8 @@ fn sweep() {
     // the exception, and is a ratio rather than "all of them" because a `Const`
     // type is advisory in some positions and claiming otherwise would be false.
     assert!(
-        swept > 5900,
-        "the sweep corrupted only {swept} nodes; it measured 6,045 (two probe \
+        swept > 6300,
+        "the sweep corrupted only {swept} nodes; it measured 6,420 (two probe \
          programs x four corruption families x five backends), and a walker that \
          stopped descending would show up here rather than as a green run over \
          nothing"
@@ -869,7 +882,7 @@ fn sweep() {
     );
 
     // The validator is WEAKER than the backends, and by how much is worth
-    // stating: it refused 4,025 of the 6,045 while the backends refused 5,315.
+    // stating: it refused 4,280 of the 6,420 while the backends refused 5,665.
     // That gap is not a defect. A `Const`'s type is advisory in some positions,
     // and an argument count outside a member's declared range is a codegen-side
     // rule the validator has no table for -- both are refusals only the builder
@@ -877,9 +890,9 @@ fn sweep() {
     // a name that resolves to nothing, an op that writes through one, a type
     // that disagrees with the value bound to it.
     assert!(
-        validator_refused > 3900,
+        validator_refused > 4200,
         "`validate_nir` refused only {validator_refused} of {swept} corrupted \
-         modules; it measured 4,025, and a validator that stopped checking shows \
+         modules; it measured 4,280, and a validator that stopped checking shows \
          up here rather than as a green run over a gate that waves everything \
          through"
     );
@@ -887,7 +900,7 @@ fn sweep() {
     assert!(
         refused * 4 > swept * 3,
         "only {refused} of {swept} corrupted modules were refused; it measured \
-         5,315, and a builder that stopped checking its inputs shows up here as \
+         5,665, and a builder that stopped checking its inputs shows up here as \
          this ratio falling"
     );
 }
