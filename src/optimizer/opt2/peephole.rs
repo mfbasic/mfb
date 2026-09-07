@@ -411,6 +411,138 @@ mod tests {
         CodeInstruction::new(name)
     }
 
+    /// An instruction whose fields the classifier cannot read FLUSHES the slot
+    /// map, rather than being skipped.
+    ///
+    /// `forward_stores_to_loads` answers a load from a remembered store, so
+    /// everything it cannot read has to invalidate what it remembers. Each arm
+    /// below has its own "and otherwise" case, and all of them were unexecuted
+    /// because a real emitter never omits a field:
+    ///
+    ///   * a `str` to `sp` with no `offset`/`src` to key the slot by,
+    ///   * an `ldr` from `sp` with no `offset` (a bare `dst` still defines it),
+    ///     and one with neither,
+    ///   * a `mul` (or any implicit-clobber op) with no `dst`,
+    ///   * a float conversion with no `dst`,
+    ///   * and a `DefDst` whose `dst` operand is missing, which clears the map
+    ///     rather than invalidating one register.
+    ///
+    /// The property is one sentence: **a store the pass cannot read must not
+    /// leave a stale answer behind it.** If any of these were skipped instead of
+    /// flushing, the load below would be forwarded from a slot the unreadable
+    /// store may have just overwritten — the pass would replace a load with a
+    /// register holding the wrong value, and every later instruction would look
+    /// correct.
+    #[test]
+    fn an_unreadable_instruction_flushes_the_forwarded_slots() {
+        for (what, opaque) in [
+            (
+                "a store to sp with no offset",
+                op("str_u64").field("base", "sp"),
+            ),
+            (
+                "a load from sp with no dst",
+                op("ldr_u64").field("base", "sp"),
+            ),
+            (
+                "a multiply with no dst",
+                op("mul").field("lhs", "x1").field("rhs", "x2"),
+            ),
+            (
+                "a float conversion with no dst",
+                op("fcvtzs_x_from_d").field("src", "d1"),
+            ),
+        ] {
+            let mut instructions = vec![
+                op("str_u64")
+                    .field("src", "x8")
+                    .field("base", "sp")
+                    .field("offset", "16"),
+                opaque,
+                op("ldr_u64")
+                    .field("dst", "x10")
+                    .field("base", "sp")
+                    .field("offset", "16"),
+                op("ret"),
+            ];
+            forward_stores_to_loads(&mut instructions, false);
+            assert_eq!(
+                instructions[2].op,
+                CodeOp::LdrU64,
+                "{what}: the pass could not read it, so it cannot know the slot \
+                 at sp+16 still holds x8 -- forwarding the load here replaces it \
+                 with a register holding whatever was there BEFORE, and every \
+                 later instruction still looks correct"
+            );
+        }
+    }
+
+    /// A load from `sp` with a `dst` but no offset defines its register and
+    /// nothing more.
+    ///
+    /// The one arm among the unreadable shapes that must NOT flush, and the
+    /// reason is the difference between the two halves of the map: a load reads
+    /// memory and writes a register, so the slots stay valid however unreadable
+    /// its offset is. Invalidating the whole map here would be sound but would
+    /// silently give up the forwarding for every frame that contains one -- and
+    /// nothing measures that, which is how a conservative arm written one line
+    /// too wide survives.
+    #[test]
+    fn a_load_with_no_offset_invalidates_only_its_own_register() {
+        let mut instructions = vec![
+            op("str_u64")
+                .field("src", "x8")
+                .field("base", "sp")
+                .field("offset", "16"),
+            op("ldr_u64").field("base", "sp").field("dst", "x9"),
+            op("ldr_u64")
+                .field("dst", "x10")
+                .field("base", "sp")
+                .field("offset", "16"),
+            op("ret"),
+        ];
+        forward_stores_to_loads(&mut instructions, false);
+        assert_eq!(
+            instructions[2].op,
+            CodeOp::Mov,
+            "the middle instruction writes x9 and reads memory; the slot at sp+16 \
+             still holds x8, so the load below is still forwarded"
+        );
+    }
+
+    /// A store whose offset is not a number keeps every remembered slot.
+    ///
+    /// The invalidation compares 8-byte ranges numerically. A symbolic offset
+    /// (a label, an unresolved frame reference) is not range-comparable, so the
+    /// pass falls back to exact-string keying and keeps the slots it cannot
+    /// prove overlap -- the opposite of the flush above, and correct for the same
+    /// reason: it is the answer that assumes less.
+    #[test]
+    fn a_non_numeric_store_offset_is_not_range_compared() {
+        let mut instructions = vec![
+            op("str_u64")
+                .field("src", "x8")
+                .field("base", "sp")
+                .field("offset", "16"),
+            op("str_u64")
+                .field("src", "x9")
+                .field("base", "sp")
+                .field("offset", "#frame_scratch"),
+            op("ldr_u64")
+                .field("dst", "x10")
+                .field("base", "sp")
+                .field("offset", "16"),
+            op("ret"),
+        ];
+        forward_stores_to_loads(&mut instructions, false);
+        assert_eq!(
+            instructions[2].op,
+            CodeOp::Mov,
+            "sp+16 was stored and the symbolic offset is a different key, so the \
+             load is still forwarded from x8"
+        );
+    }
+
     /// The result shuttle `fmov xN,dM ; str xN,[sp,#k]` collapses to `str d dM`
     /// when `xN` is dead afterwards, and the reload `ldr xN ; fmov dM,xN`
     /// collapses to `ldr d dM` likewise.
