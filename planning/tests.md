@@ -438,7 +438,11 @@ these files, and is not for `repository/src/**`).
 | after the NIR arity guard, the sublist search and the consumed-resource group | 162 | 4,471 |
 | after the collection accelerators' decline paths | 160 | 4,454 |
 | after the optimizer loop-shape fixture | 159 | 4,448 |
-| after splitting the CLI dispatcher and driving every command | **159** | **4,447** |
+| after splitting the CLI dispatcher and driving every command (C17: excepted) | 159 | 4,447 |
+| after the validator sweep and three more corruption shapes | 158 | 4,374 |
+| after the DOC-header misses | 157 | 4,369 |
+| after the driver chunking and the verify-status labels | 155 | 4,359 |
+| after the bignum edges and the malformed TESTING block | **153** | **4,348** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
