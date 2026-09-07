@@ -276,6 +276,7 @@ pub(super) const CORPUS: &[&str] = &[
     "inplace-decline-aliasing-rt",
     "collection-compare-payloads-rt",
     "collection-find-sublist-payloads-rt",
+    "collection-accelerator-declines-rt",
     "state-scalar-inplace-decline-rt",
     "default-values-rt",
     "overload-sub-valid",

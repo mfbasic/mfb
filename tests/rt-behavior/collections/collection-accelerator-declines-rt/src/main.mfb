@@ -1,0 +1,92 @@
+' The collection accelerators, on both sides of the condition that selects them.
+'
+' `window`, `chunks` and `merge` each open with a guard that reads the CALL SITE
+' rather than the types: the window size and stride must be integer literals, the
+' merge's `prefer` flag must be a boolean literal, and the element type must be
+' one the packed loop handles. When any of that does not hold the accelerator
+' returns `Ok(None)` and the generic lowering runs instead.
+'
+' Every corpus program passes literals, so the declines had never been taken --
+' and a decline is not a slow path, it is a DIFFERENT lowering. The two must
+' agree on the answer, which is the only thing that makes declining safe, and is
+' what this checks: the same call is made once with a literal the accelerator
+' takes and once with a value it cannot fold, and the answers are printed side by
+' side.
+'
+' The size and flag come through a FUNCTION PARAMETER rather than a mutated
+' local: a parameter is a `Local` with no constant attached, which is exactly the
+' shape the guards test for, and it stays deterministic for the golden.
+IMPORT collections
+IMPORT io
+
+FUNC doubled(n AS Integer) AS Integer
+  RETURN n * 2
+END FUNC
+
+FUNC windows(nums AS List OF Integer, size AS Integer) AS Integer
+  LET w AS List OF List OF Integer = collections::window(nums, size)
+  RETURN len(w)
+END FUNC
+
+FUNC chunked(nums AS List OF Integer, size AS Integer) AS Integer
+  LET c AS List OF List OF Integer = collections::chunks(nums, size)
+  RETURN len(c)
+END FUNC
+
+FUNC merged(a AS Map OF String TO Integer, b AS Map OF String TO Integer, prefer AS Boolean) AS Integer
+  LET m AS Map OF String TO Integer = collections::merge(a, b, prefer)
+  RETURN len(m)
+END FUNC
+
+FUNC main() AS Integer
+  LET nums AS List OF Integer = [1, 2, 3, 4]
+  LET words AS List OF String = ["a", "b", "c", "d"]
+
+  ' A size the compiler cannot fold: the guard declines and the generic lowering
+  ' answers. Both must be 3 -- four elements, windows of two.
+  io::print("window-var=" & toString(windows(nums, 2)))
+  LET wl AS List OF List OF Integer = collections::window(nums, 2)
+  io::print("window-lit=" & toString(len(wl)))
+
+  io::print("chunks-var=" & toString(chunked(nums, 2)))
+  LET cl AS List OF List OF Integer = collections::chunks(nums, 2)
+  io::print("chunks-lit=" & toString(len(cl)))
+
+  ' A stride above 1 is taken for a String element and declined for an Integer
+  ' one -- two literal calls that differ only in element type, so the guard's
+  ' `elem_ok && st == 1` half is exercised in both directions.
+  LET ws AS List OF List OF String = collections::window(words, 2, 2)
+  io::print("window-str=" & toString(len(ws)))
+  LET wi AS List OF List OF Integer = collections::window(nums, 2, 2)
+  io::print("window-stride=" & toString(len(wi)))
+
+  ' A `prefer` flag the compiler cannot fold.
+  LET a AS Map OF String TO Integer = Map OF String TO Integer { "x" := 1 }
+  LET b AS Map OF String TO Integer = Map OF String TO Integer { "y" := 2 }
+  io::print("merge-var=" & toString(merged(a, b, TRUE)))
+  LET ml AS Map OF String TO Integer = collections::merge(a, b, TRUE)
+  io::print("merge-lit=" & toString(len(ml)))
+
+  ' `getOr` with a STRING default. The miss path must COPY the default rather
+  ' than return the caller's pointer: the hit path hands back a freshly owned
+  ' string, so an aliased default is freed twice and corrupts the arena. Both
+  ' halves are printed, because a miss that returned the alias still prints the
+  ' right text -- the damage is at the free, not at the read.
+  io::print("get-default=" & collections::getOr(words, 9, "fallback"))
+  io::print("get-hit=" & collections::getOr(words, 1, "fallback"))
+
+  ' `sum` over the two payload shapes. A fixed-width element is walked directly
+  ' by the cursor; anything else is reached through the entry table, which is a
+  ' second address computation and its own arm.
+  LET rates AS List OF Fixed = [1.5F, 2.5F]
+  io::print("sum-fixed=" & toString(collections::sum(rates)))
+  io::print("sum-list=" & toString(collections::sum(nums)))
+
+  ' A higher-order call whose action is a NAMED function rather than a lambda:
+  ' a bare symbol is a direct branch-with-link plus a relocation, where a lambda
+  ' in a register is an indirect one. Same call, two instruction sequences.
+  LET mapped AS List OF Integer = collections::transform(nums, doubled)
+  io::print("named=" & toString(collections::getOr(mapped, 3, 0)))
+
+  RETURN 0
+END FUNC
