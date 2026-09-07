@@ -1,15 +1,15 @@
 # bug-543: `process::spawn` hands the child ambient inherited fds on Unix, but not on Windows
 
-Last updated: 2026-09-04
+Last updated: 2026-09-06
 Effort: medium (3h–1d)
 Severity: LOW–MEDIUM (defense-in-depth; a platform-inconsistent security contract)
 Class: security / cross-platform consistency
 
-Status: **OPEN — decided, and the proposed mechanism is disproved.** The owner
-ruled (2026-09-05): **the guarantee must be the same on all platforms**, i.e.
-option 1 below. The remaining work is not the decision, it is that this
-document's suggested macOS mechanism does not work — see "The mechanism question
-(2026-09-05)".
+Status: **FIXED** (2026-09-06, `5eb765a58`). The guarantee is now the same on all
+three platforms. Linux sweeps with `close_range`; macOS execs through
+`posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT`; Windows was already exhaustive
+and is unchanged. See "What was actually done" at the bottom, including three
+places this document was wrong.
 
 
 ## USER DECISION (2026-09-06) — the mechanism, not just the guarantee
@@ -165,3 +165,70 @@ this test process was handed, in the forked child before `exec`, so the probe
 measures what MFBASIC leaked rather than what the runner leaked. The
 `leaked=none` assertion is unchanged. Verified RED (`leaked=142:fifo,145:fifo`)
 then GREEN under a shell holding the same two fifos.
+
+
+## What was actually done (2026-09-06)
+
+### The fix
+
+* **Linux** (`gen_unix.rs::emit_spawn_tail`, child, after the `dup2` dance): the
+  self-pipe write end is `dup2`'d onto fd 3 and re-marked `FD_CLOEXEC`, then
+  `close_range(4, ~0u, 0)` sweeps everything above it. One syscall.
+* **macOS**: the child execs through
+  `posix_spawnp(NULL, argv[0], &fa, &attr, argv, environ)` with
+  `POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETEXEC`.
+  The file-actions are three `adddup2(fd, fd)` entries for 0/1/2, so the kernel
+  hands the new image those three descriptors and nothing else.
+* **Windows**: verified, not rewritten.
+* `mfb man process spawn` and `mfb man process shell` now state what a child
+  inherits. There is no `process` chapter under `mfb spec` at all (the `stdlib`
+  spec covers regex/datetime/csv/json/http/url/math-rng/encoding/vector/audio/
+  bits/money/os/astrings/icmp/transports/color and no others), so the man pages
+  are the whole doc surface for this guarantee.
+
+### Three corrections to this document
+
+1. **"Windows — `bInheritHandles = FALSE`" is wrong.** `gen_windows.rs` passes
+   `bInheritHandles = **TRUE**` and gets its exhaustiveness from the
+   `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` in the `STARTUPINFOEXA`. That is not a
+   nit: with `FALSE` the handle list is inert and the child would receive no
+   handles at all. The *conclusion* the document draws from it — that the
+   Windows gate is exhaustive — is correct.
+2. **The macOS rewrite is smaller than the document predicted.** It says the
+   `posix_spawn` route "replaces fork+exec on the macOS path, so the child-side
+   `cwd`/env setup moves into `posix_spawn_file_actions`/`posix_spawnattr`, and
+   the self-pipe errno protocol is replaced by `posix_spawn`'s own return".
+   With `POSIX_SPAWN_SETEXEC` — `posix_spawn` behaving as an exec of the calling
+   image rather than as a fork — the fork stays, so `chdir`/`setenv` stay exactly
+   where they were (no `posix_spawn_file_actions_addchdir_np`, no hand-built
+   `envp`) and the self-pipe protocol stays (it now carries `posix_spawn`'s
+   return value, which *is* the error number, instead of `errno`). The
+   kernel-side descriptor gate is identical either way, which is the part that
+   was ruled on. `posix_spawnp` was measured to match `execvp` on both PATH
+   search and the `ENOEXEC`-to-`sh` fallback for a shebang-less script.
+3. **`close_range` could not have been a libc import.** musl 1.2.6 — both Alpine
+   boxes — exports no `close_range` wrapper at all (`nm -D` on
+   `libc.musl-*.so.1`: nothing; the header declaration is missing too), so a
+   `close_range` PLT import would not link there. It goes out as raw syscall
+   **436**, which is the number on x86-64, AArch64 and RISC-V alike, and that
+   also makes the glibc-2.34 floor irrelevant. A kernel older than 5.9 answers
+   `-ENOSYS`; a bounded `close(4..1024)` loop is emitted behind that check and
+   was proven live by forcing `close_range` to fail with an invalid flags word.
+
+### The trap, measured
+
+Dropping `POSIX_SPAWN_SETSIGDEF` from the flags (`16452` → `16448`) and
+rebuilding turns two of the new tests red on macOS: the child reads back
+`sigpipe=ignored`, and a spawned `writer | head -c 8` pipeline never terminates —
+the 30s bound fires. That is the failure this change would have introduced if the
+signal reset had simply been deleted along with the fork child that used to hold
+it.
+
+### Proof
+
+`tests/rt_process_spawn_ambient_fds.rs` (4 cases: ambient-fd, stdio positive pin,
+signal disposition, closed-pipe pipeline). RED before the fix with
+`leaked=142:file,145:file`; green after, on macOS-aarch64 **and** — through
+cross-compiled binaries shipped and executed — on Linux x86_64/glibc (2228),
+x86_64/musl (2227), aarch64/glibc (2223) and riscv64/musl (2229). Windows was
+compile-tested only, as everything Windows in this repo is.
