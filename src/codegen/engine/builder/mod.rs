@@ -184,6 +184,14 @@ pub(crate) struct CodeBuilder<'a> {
     /// identical value semantics. Consistent with the caller side because both key
     /// off the same predicate.
     pub(crate) current_returns_param_borrow: bool,
+    /// bug-536 shape B-2: true while lowering a function whose bare-`String` result
+    /// callers are allowed to free (`function_returns_fresh_string`). It obliges
+    /// this function to hand back a solely-owned block on EVERY return path, so
+    /// `lower_returned_value` copies any returned `String` whose freshness lowering
+    /// could not otherwise establish. Consistent with the caller side because both
+    /// key off the same predicate — a disagreement is a leak in one direction and a
+    /// double free of the caller's live `String` in the other.
+    pub(crate) current_returns_fresh_string: bool,
     /// plan-86 K1: names of every function used as a `FunctionRef` (callback) in the
     /// module. Such a function is invoked through an owning ABI, so it is excluded
     /// from the parameter-passthrough borrow elision (`function_returns_param_borrow`)
@@ -526,6 +534,7 @@ impl<'a> CodeBuilder<'a> {
             borrow_get_locals: HashSet::new(),
             borrow_get_result: false,
             current_returns_param_borrow: false,
+            current_returns_fresh_string: false,
             callback_referenced_functions: HashSet::new(),
             synthesized_constructors: HashSet::new(),
             next_label: 0,

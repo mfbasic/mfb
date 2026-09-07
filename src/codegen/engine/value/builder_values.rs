@@ -166,7 +166,16 @@ impl CodeBuilder<'_> {
         // `arena_alloc` it just made) marked THIS node's own result operand. It
         // is fail-closed: a producer that does not mark keeps the old leak, and
         // no unmarked value can ever be freed here.
-        if result.type_ == ParameterType::String && !fresh_string {
+        //
+        // bug-536 shape B-2: a *native* producer marks its own block, but a
+        // `.mfb`-bodied / user callee's block is made inside the callee, where no
+        // mark can reach this frame. `call_returns_fresh_string` is that callee's
+        // own promise, read from its NIR before any lowering runs, so it is
+        // order-independent and identical to the promise the callee delivered.
+        if result.type_ == ParameterType::String
+            && !fresh_string
+            && !self.call_returns_fresh_string(value)
+        {
             return;
         }
         let slot = self.allocate_stack_object("pending_temp", 8);
@@ -213,6 +222,40 @@ impl CodeBuilder<'_> {
             slot,
             location,
         });
+    }
+
+    /// Re-identify the most recently registered pending temp, because an
+    /// **identity** lowering is about to return the same block under a different
+    /// operand.
+    ///
+    /// A `PendingTemp` carries two things: the `slot` its `arena_free` reads (the
+    /// block pointer) and the `location` that says which `ValueResult` *is* that
+    /// block. Only `location` is an identity token, and `claim_pending_temp` /
+    /// `lower_returned_value` compare against it to decide that an owner has taken
+    /// the block over. So a lowering that hands back its argument's block under a
+    /// NEW operand silently breaks the chain: the owner's claim no longer matches,
+    /// the statement-scope free still runs, and the owner is left holding freed
+    /// memory.
+    ///
+    /// That is not hypothetical — it is a **use-after-free** that predates
+    /// bug-536 shape B-2 and is fixed here because B-2 makes it reachable from far
+    /// more programs. `toString`'s `String` arm is the identity (it returns its own
+    /// argument), and it spills the argument and reloads it into a fresh register,
+    /// so `LET a AS String = toString("x" & toString(i))` bound `a` to the concat
+    /// block, freed that block at statement end, and read it back after reuse:
+    /// measured on the pre-fix compiler as a wrong value and then a SIGSEGV.
+    ///
+    /// Retargeting emits **nothing** — the free still reads the same slot — it only
+    /// moves the identity token forward so the one owner can still claim the one
+    /// block. Gated on the tail entry actually being this argument's registration
+    /// (`from`), so an identity applied to a value that registered no temp cannot
+    /// steal an enclosing expression's sibling temp.
+    pub(crate) fn retarget_pending_temp(&mut self, from: &Operand, to: &Operand) {
+        if let Some(temp) = self.pending_temp_frees.last_mut() {
+            if temp.location == *from {
+                temp.location = to.clone();
+            }
+        }
     }
 
     /// Exempt the just-produced temporary from the statement-scope free because an
@@ -324,6 +367,28 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, .. } | NirValue::CallResult { target, .. }
                 if matches!(target.as_str(), "regex.genCat" | "regex.scriptOf" | "strings.genCat")
         )
+    }
+
+    /// bug-536 shape B-2: whether `value` is a direct call to a user /
+    /// `.mfb`-bodied function that guarantees a **fresh** bare `String` result
+    /// (`function_returns_fresh_string`) — the one way a `String` call result with
+    /// no native provenance mark becomes eligible for the statement-scope free.
+    ///
+    /// It is the exact complement of `call_returns_param_borrow` above, keyed off
+    /// the same `functions` map and the same `callback_referenced_functions` set,
+    /// and the predicate itself checks the borrow case first so a function can
+    /// never be both. A target that is not in `functions` at all — every native
+    /// intrinsic, every `LINK` symbol — answers `false` and keeps the plan-25
+    /// exemption, which is the fail-closed direction: an unmarked, unpromised
+    /// producer keeps leaking and is never wild-freed.
+    fn call_returns_fresh_string(&self, value: &NirValue) -> bool {
+        let target = match value {
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => target.as_str(),
+            _ => return false,
+        };
+        self.functions
+            .get(target)
+            .is_some_and(|f| function_returns_fresh_string(f, &self.callback_referenced_functions))
     }
 
     /// plan-86 K1: whether `value` is a call to a user function that returns a borrow

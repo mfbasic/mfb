@@ -177,12 +177,73 @@ an argument or a container corrupts the free list, surfacing much later as
   one-byte pad String that is copied into the result and never returned. No
   result-shaped rule can reach it — that one is handed to the statement free
   explicitly with `register_fresh_string_temp`.
-- A **user/`.mfb`-bodied** function returning `String` is NOT covered: `RETURN
-  "literal"` yields rodata and `RETURN toString(s)` yields the argument, so
-  freeing a user call result needs a callee-side NIR predicate (the shape of
-  `function_returns_param_borrow`) that does not exist yet. This is what still
-  makes `csv::parse` / `json::parse` / `regex::findAll` leak per field — see
-  bug-536.
+- A **user/`.mfb`-bodied** function returning `String` needs the callee-side
+  contract below — the mark is set by a producer's own lowering and cannot travel
+  out of a callee.
+
+## A `.mfb` callee's `String`: assume-guarantee, not a per-site classification
+
+bug-536 shape B-2. `function_returns_fresh_string(f)` is the callee half of the
+same contract `function_returns_param_borrow` states for the opposite answer, and
+the two are disjoint by construction (the fresh predicate checks the borrow one
+first and loses). It admits a function whose declared return is a bare `String`,
+that has at least one value return, that is not a param-borrow function, and that
+is not callback-referenced. That last exclusion is **conservative, not
+principled**: K1 excludes callbacks to FORCE a copy, while excluding them here
+removes the copy obligation — which leaves a pre-existing HOF SIGSEGV live
+(`collections::transform(xs, identish)` where `identish` is `RETURN toString(s)`).
+Dropping the arm is the fix; it wants its own callback-ABI audit.
+
+**The guarantee is delivered, not observed.** `lower_returned_value` already
+makes three of the four return shapes fresh — a move-elided owned local moves its
+block, an aliasing source or static string is `copy_flat_block`ed, a claimed
+pending temp is a marked-fresh producer's own allocation. Only the fourth
+(fall-through, nothing claimed) is unprovable, and there the callee inserts one
+`copy_flat_block`. So the caller needs no per-return-site analysis and no seed set
+of "fresh" native targets — the audited call-target allowlist bug-536 rejected as
+design 2. It also needs no fixpoint: `RETURN <call to another such function>` is
+fresh *by this same guarantee*, and mutual recursion bottoms out at a return that
+is provably fresh or copied. Measured on the whole builtin corpus: the copy fires
+**zero** times (`artifact-gate all` adds no `_mfb_arena_alloc` anywhere), because
+every shipped `.mfb` body already returns one of the three provable shapes.
+
+Both sides key off the one predicate, exactly as plan-86 K1 requires — a
+disagreement is a leak one way and a double free of the caller's live `String`
+the other. The contract being realized is `mfb spec language
+memory-semantics` §14.3.1: *"copies are independent, returns never point into a
+shorter-lived frame or arena"*.
+
+Three traps this uncovered, each a pre-existing defect that only stops being
+invisible once a caller is licensed to free:
+
+- **An identity lowering breaks the pending-temp chain.** `toString`'s `String`
+  arm returns its own argument's block, but spills and reloads it, so the block
+  leaves under a NEW operand — and the operand *is* the `PendingTemp` identity
+  token `claim_pending_temp` matches. The owning binding's claim missed, the
+  statement-scope free ran anyway, and the binding was left holding freed memory:
+  `LET a AS String = toString("x" & toString(i))` printed the wrong text and then
+  SIGSEGVed. `retarget_pending_temp` moves the token forward and emits nothing —
+  the free still reads the same slot. **Any lowering that returns its argument's
+  block under a different operand owes the same call.**
+- **A constant-folded `String` local has no block to move.** `MUT out AS String =
+  "abc" … RETURN out` copies the literal into the arena at the bind, but every
+  *read* of `out` constant-folds back to `adrp _mfb_str_N`, so `plan_returned_move`
+  handed the caller a READ-ONLY pointer and orphaned the arena copy. Leak before;
+  immediate SIGBUS the moment the caller frees it. `plan_returned_move` now
+  declines on `static_string_value(value).is_some()`, which routes the return
+  through the existing `copy_flat_block`.
+- **`RETURN "literal"` was never the rodata hazard the bug report assumed.**
+  `static_string_value` classifies it as needing an owning copy, so the callee has
+  always returned a fresh block — proven by the fact that it *leaked* 64 B per call
+  (25 MB at 400k, 50 MB at 800k), which a rodata pointer cannot do.
+
+Still leaking after B-2, and unchanged by it — measure before attributing:
+`s = s & ch` on a `MUT String` (~190 B per iteration, the in-place self-append
+path; the assignment does NOT free the old block, unlike `s = <call>`), and a
+`Result OF T` bound through `TRAP` (128 B per call for `Integer`,
+type-independent — the `$trap_resN` binding gets no scope-drop free). Together
+they are the whole of `csv::parse`'s residual 112 MB per repeat call, so do not
+attribute that to B-2.
 
 ## Producer-side `Operand::imm` is an allocation trap
 
