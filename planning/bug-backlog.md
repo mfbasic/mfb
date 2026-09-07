@@ -1,57 +1,61 @@
 # Open bug backlog — triage and work order
 
-Last updated: 2026-09-06 (second refresh)
-Open bugs: **7** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 5 MEDIUM · 1 LOW–MEDIUM**
+Last updated: 2026-09-07
+Open bugs: **15** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
-The audit-3 security pass (goal-08) is **complete**.
+## ⚠️ THREE BUG NUMBERS COLLIDE — 550, 551, 552
 
-## 2026-09-06 — what landed
+A peer session filed its own 548–552 concurrently with this one. **550, 551 and
+552 each name two completely different bugs**, mine archived under
+`bugs/completed/` and the peer's still open under `bugs/`:
 
-Archived on 2026-09-06 (`git log --since=2026-09-06 --diff-filter=R --name-status`):
-**456, 479, 487, 516, 527, 543, 550, 551, 552, 553, 554, 555, 556**, plus **488**
-closed on evidence rather than a fix. **557** landed the same day from a peer.
-**558** was filed (the `mfb man` Errors table unions every overload's errors).
+| # | in `bugs/completed/` (mine, fixed) | in `bugs/` (peer's, open) |
+|---|---|---|
+| 550 | every `debug_assert!` is decorative — CI builds release | `collections::append([], x)` type-checks then fails to build |
+| 551 | an `EXPORT LET` package constant has no type for an importer | an inline `TRAP` on a `RES … STATE` write panics the compiler |
+| 552 | the riscv64 linker scans relocations quadratically | the three Level-2 global optimizer rows cannot fire |
 
-Four user rulings are recorded **in the bug docs themselves** under a
-"USER DECISION" heading — 543, 550, 527 and 515. Three are landed; 515 is the
-only one still open, and its ruling is: ship both an explicit-cost and a profile
-overload, with **the profile calling the explicit one underneath** so there is one
-validation site and one use site.
+**Not resolved here on purpose.** Renumbering a peer's in-flight documents in the
+shared checkout is the kind of edit that silently destroys someone's work, so the
+collision is recorded rather than fixed. Whoever owns the peer session should
+renumber theirs (548/549 are peer-only and fine). Until then, **a reference to
+"bug-550" is ambiguous** — cite the title too.
 
-### Two corrections worth carrying forward
+The underlying cause is the one already recorded for rule codes and plan numbers:
+`ls bugs/` under-reports, because a number claimed on an unlanded branch is
+invisible. `git log --all --grep=bug-NNN` catches most of it and did not catch
+this, because the peer had not committed when I picked.
 
-**bug-479's "defect D is a product decision" was wrong**, and the same shape may
-recur. Every thread op already raised `ErrResourceClosed` on
-`THREAD_STATE_CLOSED`, so there was no contract to invent; what blocked it was
-ORDERING. Before recording a defect as needing a product decision, check whether
-the behaviour is already implemented somewhere and only unreachable.
+## 2026-09-06/07 — what landed
 
-**bug-553's "fs, process, udp are the model" was wrong.** Measured, none of them
-is: `fs` 40 empty / 1 non-empty, `process` 15 / 0, `udp` 9 / 1. When a doc names a
-sibling as the standard to copy, verify the sibling first — 21 of 32 packages
-carry at least one `errors: vec![]`.
+**27 bugs archived** (`git log --since=2026-09-06 --diff-filter=R --name-status`):
+456, 479, 487, 488, 515, 516, 527, 543, 551, 552, 553, 554, 555, 556, 558, 560,
+561, 562, 565, 566, 567, 568, 569, 571, 572, 573, 574.
 
-## What is left, and why each is not trivial
+The bulk is one connected cluster: **thirteen scope-drop / ownership leaks**
+(536-B2, 560, 561, 562, 565, 566, 567, 568, 569, 571, 572, 573, 574), which
+`tests/runtime/rt_scope_drop_leaks.rs` now holds together — **87 cases, green as a
+set**. Two of them were crashes rather than leaks (562's callback SIGSEGV, and
+572's `http::route` use-after-free caught before it shipped).
 
-- **536** (HIGH) — shape B-2 and shape C. **Shape C is not a bug fix**: a
-  recursive-type value is never freed, and the fix needs recursive
-  copy-insertion, which does not exist. Do not dispatch it as one. Shape B-2 (a
-  `String` returned by a user/`.mfb`-bodied function) is a **double-free** risk
-  and wants its own change and audit.
-- **484** — `canvas::Picture` never renders on any backend; x-large, and no
-  renderer has a picture arm at all.
-- **520** — named time zones; huge, and it is a data + serialization design
-  question, not a bug.
-- **540** — the Windows app `term` is a reduced implementation. Note nothing in
-  this repo ever EXECUTES a Windows binary, so it cannot be verified here the way
-  543 was verified on four Linux boxes.
-- **472** — man examples are never compiled. Carries an explicit user decision
-  AGAINST building the gate (plan-108-A rejected-alternatives), so it needs a
-  ruling before work, not after.
-- **515** — has its ruling; in flight.
-- **558** — the man Errors table; small, but the LAYOUT is a product choice with
-  three options written up.
+### What this cluster taught, worth applying to the next one
+
+- **A runtime pointer-identity guard beats a whole-program proof.** Six of the
+  fixes free only after comparing against the value they do not own, so soundness
+  is local. Where the two pointers are provably the same stack slot, skip the
+  compare rather than emit one that could go the wrong way.
+- **Enumerate, and assert the enumeration is TOTAL.** 567 replaced a predicate
+  with a wildcard-free `match` (a new `NirOp` is now a build error); 566 and 572
+  assert set equality over a registry. 572's first gate would have shipped a
+  use-after-free precisely because it had a default.
+- **Pin the negative side by equality or asserted growth, never flatness** —
+  flatness cannot distinguish "correctly declined" from "wrongly freed".
+- **Golden attribution is per FUNCTION**, not a count: "N changed, every one
+  gained ≥1 free, none gained an allocation, `dataObjects` byte-identical".
+- **The docs' stated causes were wrong about as often as they were right** — 560
+  (frees the wrong SIZE), 568 (the callee's `RETURN` shape, not the payload type),
+  566 ("flat outside a TRAP" — false), 574 (`emit_raw_call` copies nothing), 573
+  ("cannot be helper-local" — it can). Measure the doc's own contrast first.
 
 ## Working rules for this pass
 
