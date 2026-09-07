@@ -5,7 +5,7 @@ Effort: medium (the free is small; the completeness proof is the work)
 Severity: **HIGH** (unbounded leak on the most ordinary `collections::transform` there is)
 Class: Memory / callback ABI
 
-Status: **Fixed** (pending land)
+Status: **FIXED** (2026-09-07, `073d43c23`)
 Regression Test:
 - `tests/runtime/rt_scope_drop_leaks.rs::transform_runs_at_constant_rss_with_a_string_callback`
   — 56.8 MB -> 112.6 MB at 50k/100k before; 1.0 -> 1.0 MB after.
