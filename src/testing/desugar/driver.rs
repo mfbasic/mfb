@@ -39,6 +39,10 @@ pub(crate) enum DriverStep {
 /// on a 547-case suite, a monolithic driver overflowed on ~every build and a
 /// 32-case chunk was still occasionally over the edge, while an 8-case chunk
 /// passed every build with wide margin.
+#[cfg(test)]
+#[path = "driver/tests.rs"]
+mod tests;
+
 const DRIVER_CHUNK_SIZE: usize = 8;
 
 /// Build the synthesized driver from the registration table (plan-18-B §3.5).
