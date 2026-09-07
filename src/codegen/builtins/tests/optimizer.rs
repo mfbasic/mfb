@@ -59,6 +59,14 @@ const SHAPES: &[&str] = &[
     "func-bare-trap-loop-leak-rt",
     "get-borrow-match-rt",
     "recursive-get-then-grow-rt",
+    // Written for the rows rather than found among the fixtures: a TRAP in a
+    // loop body, a `DO ... LOOP UNTIL` nested in a `FOR`, an invariant condition
+    // worth unswitching, a subexpression computed twice per iteration, an index
+    // derived linearly from the loop variable, a branch chain over one value,
+    // and bit operations the range plans can bound. Nine files under
+    // `src/optimizer/**` were 4-9 lines short, and every gap was an arm for a
+    // shape no fixture above happens to contain.
+    "optimizer-loop-shapes-rt",
 ];
 
 /// The program's OWN functions with a body — everything the source declared.

@@ -1,0 +1,268 @@
+{
+  "project": "optimizer_loop_shapes_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "bits", "line": 16 },
+    { "module": "io", "line": 17 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "risky",
+      "line": 19,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 19 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 20,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050002" }, { "kind": "string", "value": "risky" }] }, "line": 20 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "trapInLoop",
+      "line": 27,
+      "params": [
+      { "name": "rounds", "type": "Integer", "default": null, "line": 27 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 28 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "identifier", "value": "rounds" },
+        "step": null,
+        "line": 29,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "v", "type": "Integer", "value": {
+          "kind": "trapped",
+          "binding": "e",
+          "line": 30,
+          "expression": { "kind": "call", "callee": "risky", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3" } }] },
+          "handler": [
+          { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 31 }
+          ]
+        }, "line": 30 },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "v" } }, "line": 33 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 35 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "doUntilInLoop",
+      "line": 41,
+      "params": [
+      { "name": "rounds", "type": "Integer", "default": null, "line": 41 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 42 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "identifier", "value": "rounds" },
+        "step": null,
+        "line": 43,
+        "body": [
+        { "kind": "binding", "mutable": true, "name": "spins", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 44 },
+        {
+          "kind": "doUntil",
+          "condition": { "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "spins" }, "right": { "kind": "number", "value": "2" } },
+          "line": 45,
+          "body": [
+          { "kind": "assignment", "name": "spins", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "spins" }, "right": { "kind": "number", "value": "1" } }, "line": 46 },
+          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "i" } }, "line": 47 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 50 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "unswitchable",
+      "line": 56,
+      "params": [
+      { "name": "rounds", "type": "Integer", "default": null, "line": 56 },
+      { "name": "flag", "type": "Boolean", "default": null, "line": 56 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 57 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "identifier", "value": "rounds" },
+        "step": null,
+        "line": 58,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "identifier", "value": "flag" },
+          "line": 59,
+          "then": [
+          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "i" } }, "line": 60 }
+          ],
+          "else": [
+          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "1" } }, "line": 62 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 65 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "redundant",
+      "line": 73,
+      "params": [
+      { "name": "rounds", "type": "Integer", "default": null, "line": 73 },
+      { "name": "base", "type": "Integer", "default": null, "line": 73 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 74 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "identifier", "value": "rounds" },
+        "step": null,
+        "line": 75,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "base" }, "right": { "kind": "number", "value": "4" } }, "right": { "kind": "identifier", "value": "i" } }, "line": 76 },
+        { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "base" }, "right": { "kind": "number", "value": "4" } }, "right": { "kind": "identifier", "value": "i" } }, "line": 77 },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "a" } }, "right": { "kind": "identifier", "value": "b" } }, "line": 78 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 80 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "chained",
+      "line": 85,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 85 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "label", "type": "String", "value": { "kind": "string", "value": "" }, "line": 86 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 87,
+        "then": [
+        { "kind": "assignment", "name": "label", "value": { "kind": "string", "value": "zero" }, "line": 88 }
+        ],
+        "else": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } },
+          "line": 90,
+          "then": [
+          { "kind": "assignment", "name": "label", "value": { "kind": "string", "value": "one" }, "line": 91 }
+          ],
+          "else": [
+          {
+            "kind": "if",
+            "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } },
+            "line": 93,
+            "then": [
+            { "kind": "assignment", "name": "label", "value": { "kind": "string", "value": "two" }, "line": 94 }
+            ],
+            "else": [
+            { "kind": "assignment", "name": "label", "value": { "kind": "string", "value": "many" }, "line": 96 }
+            ]
+          }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "!" } }, "line": 100 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "masked",
+      "line": 106,
+      "params": [
+      { "name": "rounds", "type": "Integer", "default": null, "line": 106 },
+      { "name": "seed", "type": "Integer", "default": null, "line": 106 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "acc", "type": "Integer", "value": { "kind": "identifier", "value": "seed" }, "line": 107 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "identifier", "value": "rounds" },
+        "step": null,
+        "line": 108,
+        "body": [
+        { "kind": "assignment", "name": "acc", "value": { "kind": "call", "callee": "bits.bxor", "arguments": [{ "kind": "call", "callee": "bits.sl", "arguments": [{ "kind": "identifier", "value": "acc" }, { "kind": "number", "value": "1" }] }, { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "i" }, { "kind": "number", "value": "255" }] }] }, "line": 109 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "call", "callee": "bits.bor", "arguments": [{ "kind": "identifier", "value": "acc" }, { "kind": "call", "callee": "bits.sr", "arguments": [{ "kind": "identifier", "value": "acc" }, { "kind": "number", "value": "3" }] }] }, "line": 110 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "acc" }, { "kind": "number", "value": "65535" }] }, "line": 112 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 115,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trap=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "trapInLoop", "arguments": [{ "kind": "number", "value": "5" }] }] } }] }, "line": 116 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dountil=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "doUntilInLoop", "arguments": [{ "kind": "number", "value": "4" }] }] } }] }, "line": 117 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "unswitch-true=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "unswitchable", "arguments": [{ "kind": "number", "value": "4" }, { "kind": "boolean", "value": true }] }] } }] }, "line": 118 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "unswitch-false=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "unswitchable", "arguments": [{ "kind": "number", "value": "4" }, { "kind": "boolean", "value": false }] }] } }] }, "line": 119 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "redundant=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "redundant", "arguments": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "3" }] }] } }] }, "line": 120 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "chain=" }, "right": { "kind": "call", "callee": "chained", "arguments": [{ "kind": "number", "value": "0" }] } }, "right": { "kind": "call", "callee": "chained", "arguments": [{ "kind": "number", "value": "1" }] } }, "right": { "kind": "call", "callee": "chained", "arguments": [{ "kind": "number", "value": "2" }] } }, "right": { "kind": "call", "callee": "chained", "arguments": [{ "kind": "number", "value": "9" }] } }] }, "line": 121 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "masked=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "masked", "arguments": [{ "kind": "number", "value": "6" }, { "kind": "number", "value": "1" }] }] } }] }, "line": 122 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 123 }
+      ]
+    }
+    ]
+  }
+  ]
+}

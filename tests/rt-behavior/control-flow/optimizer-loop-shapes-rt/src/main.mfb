@@ -1,0 +1,124 @@
+' Loop shapes the optimizer rows act on, and the answer they must not change.
+'
+' `optimizer.rs`'s SHAPES list drives its fixtures at every level and asserts the
+' program survives; what it could not assert is the shapes each ROW needs. Nine
+' files under `src/optimizer/**` sat 4 to 9 lines short of the floor, and the
+' gaps were the arms for shapes no fixture happened to contain: a `TRAP` inside a
+' loop body, a `DO ... LOOP UNTIL` nested inside a `FOR`, an invariant condition
+' worth unswitching, the same subexpression computed twice per iteration, an
+' index derived linearly from the loop variable, a branch chain over one value,
+' and bit operations whose operands the range plans can bound.
+'
+' Each function is written so the OPTIMIZED answer is checkable rather than
+' merely present. The counts are small and the arithmetic exact, so `-O0` and
+' `-O3` must print the same nine lines -- which is the property that makes every
+' row above safe, and the only one a fixture can state.
+IMPORT bits
+IMPORT io
+
+FUNC risky(n AS Integer) AS Integer
+  IF n < 0 THEN FAIL error(77050002, "risky")
+  RETURN n
+END FUNC
+
+' A TRAP inside a loop body. The LICM name census has its own arm for a TRAP's
+' binding, and the hoist check has to see the handler's writes -- a hoist that
+' missed them would lift an expression the handler redefines.
+FUNC trapInLoop(rounds AS Integer) AS Integer
+  MUT total AS Integer = 0
+  FOR i = 1 TO rounds
+    LET v AS Integer = risky(i - 3) TRAP(e)
+      RECOVER 0
+    END TRAP
+    total = total + v
+  NEXT
+  RETURN total
+END FUNC
+
+' A `DO ... LOOP UNTIL` nested inside a `FOR`: the census recurses into a
+' `DoUntil` body through an arm of its own, and a walk that skipped it would
+' report zero definitions for a name the inner loop writes every pass.
+FUNC doUntilInLoop(rounds AS Integer) AS Integer
+  MUT total AS Integer = 0
+  FOR i = 1 TO rounds
+    MUT spins AS Integer = 0
+    DO
+      spins = spins + 1
+      total = total + i
+    LOOP UNTIL spins >= 2
+  NEXT
+  RETURN total
+END FUNC
+
+' A loop whose condition is INVARIANT, which the unswitch row lifts out of the
+' loop and specializes into two. Called both ways, so a specialization that kept
+' only one arm is visible in the answer rather than only in the shape.
+FUNC unswitchable(rounds AS Integer, flag AS Boolean) AS Integer
+  MUT total AS Integer = 0
+  FOR i = 1 TO rounds
+    IF flag THEN
+      total = total + i
+    ELSE
+      total = total + 1
+    END IF
+  NEXT
+  RETURN total
+END FUNC
+
+' The same subexpression twice per iteration (value numbering) over an index
+' derived linearly from the loop variable (induction-variable strength
+' reduction). `a` and `b` are equal by construction, so a numbering that mapped
+' them to different values costs nothing visible -- but one that mapped an
+' unequal pair together changes the total.
+FUNC redundant(rounds AS Integer, base AS Integer) AS Integer
+  MUT total AS Integer = 0
+  FOR i = 1 TO rounds
+    LET a AS Integer = base * 4 + i
+    LET b AS Integer = base * 4 + i
+    total = total + a + b
+  NEXT
+  RETURN total
+END FUNC
+
+' A chain of branches over one value, which jump threading collapses, with a
+' shared join (`& "!"`) the tail-duplication row can copy into each arm.
+FUNC chained(n AS Integer) AS String
+  MUT label AS String = ""
+  IF n = 0 THEN
+    label = "zero"
+  ELSE
+    IF n = 1 THEN
+      label = "one"
+    ELSE
+      IF n = 2 THEN
+        label = "two"
+      ELSE
+        label = "many"
+      END IF
+    END IF
+  END IF
+  RETURN label & "!"
+END FUNC
+
+' Bit operations whose operands the range plans can bound: `band(i, 255)` is
+' provably 0..255 and `sr(acc, 3)` provably non-negative, which is what the
+' known-bits plan is for.
+FUNC masked(rounds AS Integer, seed AS Integer) AS Integer
+  MUT acc AS Integer = seed
+  FOR i = 1 TO rounds
+    acc = bits::bxor(bits::sl(acc, 1), bits::band(i, 255))
+    acc = bits::bor(acc, bits::sr(acc, 3))
+  NEXT
+  RETURN bits::band(acc, 65535)
+END FUNC
+
+FUNC main() AS Integer
+  io::print("trap=" & toString(trapInLoop(5)))
+  io::print("dountil=" & toString(doUntilInLoop(4)))
+  io::print("unswitch-true=" & toString(unswitchable(4, TRUE)))
+  io::print("unswitch-false=" & toString(unswitchable(4, FALSE)))
+  io::print("redundant=" & toString(redundant(4, 3)))
+  io::print("chain=" & chained(0) & chained(1) & chained(2) & chained(9))
+  io::print("masked=" & toString(masked(6, 1)))
+  RETURN 0
+END FUNC
