@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "testing/tests.rs"]
+mod tests;
+
 impl<'a> FileParser<'a> {
     /// Parse a `TESTING … END TESTING` block (plan-18-testing.md §4). The block
     /// contains only `TGROUP` groups; `TGROUP`/`TCASE` are contextual identifiers
