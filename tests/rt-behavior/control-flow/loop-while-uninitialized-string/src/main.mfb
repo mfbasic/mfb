@@ -1,0 +1,12 @@
+' bug-67 guard case: the same uninitialized bind inside `WHILE` built correctly
+' before the fix and must continue to.
+IMPORT io
+
+SUB main()
+  MUT n AS Integer = 0
+  WHILE n < 3
+    MUT s AS String
+    io::print(s)
+    n = n + 1
+  END WHILE
+END SUB

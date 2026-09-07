@@ -1,0 +1,15 @@
+' The post-test loop updates a scalar `MUT Integer` correctly — it is only the
+' reference-typed binding's reads that go stale — so the counter reaches 4 and
+' the total reaches 40.
+IMPORT io
+
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  MUT n AS Integer = 0
+  DO
+    total = total + 10
+    n = n + 1
+  LOOP UNTIL n >= 4
+  io::print(toString(total))
+  RETURN 0
+END FUNC

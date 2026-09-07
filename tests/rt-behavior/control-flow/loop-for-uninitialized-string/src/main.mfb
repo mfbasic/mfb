@@ -1,0 +1,14 @@
+' bug-67: `op_requires_empty_string_constant` skipped the `FOR` and
+' `DO ... LOOP UNTIL` bodies, so an uninitialized `MUT String` declared ONLY
+' inside those loops did not force emission of the shared `_mfb_str_empty` data
+' object — while the codegen for the default bind still referenced it, producing
+' a dangling relocation that failed plan validation ("native code data
+' relocation target '_mfb_str_empty' is not a data object").
+IMPORT io
+
+SUB main()
+  FOR i = 0 TO 2
+    MUT s AS String
+    io::print(s)
+  NEXT
+END SUB

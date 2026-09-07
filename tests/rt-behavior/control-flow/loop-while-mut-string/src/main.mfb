@@ -1,0 +1,14 @@
+' Guard case for the `DO ... LOOP UNTIL` miscompilation next door: the `WHILE`
+' form was correct and must stay correct.
+IMPORT io
+
+FUNC main AS Integer
+  MUT s AS String = "Z"
+  MUT n AS Integer = 0
+  WHILE n < 4
+    s = s & "X"
+    n = n + 1
+  END WHILE
+  io::print(s)
+  RETURN 0
+END FUNC
