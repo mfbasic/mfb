@@ -5,7 +5,7 @@ Effort: medium
 Severity: **HIGH** (unbounded leak; `TRAP` over an `Integer`-returning function is a very common shape)
 Class: Memory / correctness
 
-Status: **FIXED** (2026-09-07, `<fix-hash>`)
+Status: **FIXED** (2026-09-07, `1bf2a4a94`)
 Regression Test: `tests/runtime/rt_scope_drop_leaks.rs` —
 `a_trap_over_a_param_returning_callee_runs_at_constant_rss`,
 `a_trap_over_every_scalar_payload_runs_at_constant_rss`,
