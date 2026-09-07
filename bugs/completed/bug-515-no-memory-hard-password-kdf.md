@@ -65,11 +65,39 @@ The finding is an absence, so the reproduction is the census:
 grep -rniE "argon2|scrypt|bcrypt" src/codegen/builtins/ | grep -v BCryptGenRandom | grep -v bcrypt_call
 ```
 
-- Observed: one line —
-  `crypto/func_pbkdf2.rs:37: passwords, prefer a memory-hard function (Argon2id, scrypt, or bcrypt) where one is`
-  (every other `bcrypt` hit is the Windows CNG `bcrypt.dll` RNG/signing seam,
-  unrelated to password hashing.)
+**That command does not do what this document said it did**, and the correction
+below is confirmed independently (`git grep` at the base commit `694dee2b7`):
+it returns **67** lines, not one. The match is case-insensitive and `libcrypto`
+*contains* the substring `bcrypt`, so every OpenSSL `dlopen` line comes back. A
+reader running it would have concluded the gap was already closed. The census
+that answers the question is:
+
+```
+$ git grep -niE "argon2|scrypt" 694dee2b7 -- src/
+src/codegen/builtins/crypto/func_pbkdf2.rs:39: ... prefer a memory-hard function (Argon2id, scrypt, or bcrypt) where one is
+src/docs/spec/package-manager/01_repository-protocol.md:584 / 592
+src/docs/spec/package-manager/02_key-store.md:71
+```
+
+- Observed: the advisory clause is at `func_pbkdf2.rs:**39**` (this document's
+  `:37` is the paragraph's opening sentence, not the clause), and nothing under
+  `src/codegen/builtins/` implements Argon2 or scrypt. `mfb man crypto | grep -i
+  argon` was empty.
 - Expected: a `crypto::argon2id` registry function alongside `crypto::pbkdf2`.
+
+**In-tree consumer audit (Phase 1).** `grep -rn "pbkdf2" repository/` is empty —
+nothing in the repository crate derives a key from a password through PBKDF2.
+But the *other* half of that audit found something the document did not
+anticipate: `repository/src/crypto.rs:pairing_key` already derives the machine-
+pairing key with **`Argon2::default()`** from the RustCrypto `argon2` crate. So
+the compiler's own repository already depended on Argon2id in Rust while an
+MFBASIC program had no way to compute one. `Argon2::default()` is Argon2id v19
+at `m = 19456, t = 2, p = 1` — byte-for-byte this member's
+`crypto::Argon2Profile.Minimum`, verified:
+`crypto::argon2id(pw, salt, Argon2Profile.Minimum, 32)` and
+`Argon2::default().hash_password_into(pw, salt, …)` both give
+`0c4c0b6db219194b6006e078818a24eabea136f7af619a31930310e7f2d749a5` for
+`pw = "password", salt = "somesalt12345678"`.
 
 Contrast case: the package is *not* short of the primitives Argon2id needs. It
 already ships BLAKE2b's sibling machinery in software — `crypto::shake256`
