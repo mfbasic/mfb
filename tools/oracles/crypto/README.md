@@ -1,4 +1,4 @@
-# crypto-oracles — offline oracles for the `crypto` package's primitives
+# oracles/crypto — offline oracles for the `crypto` package's primitives
 
 `crypto` is **software-first**: every primitive is implemented in MFBASIC over
 `bits` so its output is byte-identical on every target and no platform crypto
@@ -42,7 +42,7 @@ The oracle for `crypto::argon2id` and the BLAKE2b-512 it is built on.
 ### Running it
 
 ```sh
-cd tools/crypto-oracles/argon2id
+cd tools/oracles/crypto/argon2id
 cargo run --release            # self-check + RustCrypto cross-check
 ```
 

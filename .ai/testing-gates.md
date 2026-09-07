@@ -703,7 +703,7 @@ matches, do not invent a fourth:
 | Oracle for | Home | Example |
 |---|---|---|
 | An MFBASIC **package** under `packages/` | `packages/<pkg>/oracle/` | `packages/yaml/oracle` (Node, eemeli/yaml pinned 1.2 Core), `packages/mustache/oracle`, `packages/jwt/oracle`, `packages/json_schema/oracle` |
-| A **builtin** package or codegen kernel | `tools/<area>/` | `tools/crypto-oracles/argon2id`, `tools/math-kernels` |
+| A **builtin** package or codegen kernel | `tools/<area>/` | `tools/oracles/crypto/argon2id`, `tools/math-kernels` |
 | A primitive whose independent implementation is small enough to run in CI | the test file itself | `tests/rt_crypto_hpke_interop.rs` — 808 lines carrying its own RFC 9180 / RFC 7748 implementation, so the cross-check runs on every `cargo test` |
 
 The third is the best of the three when it is affordable, because it is the only
@@ -720,7 +720,7 @@ a dependency, a pinned third-party version, or minutes of compute.
 
 **And check the oracle can be wrong.** Agreement between an implementation and a
 reference written by reading that implementation proves nothing; a wrong oracle is
-ratified, not caught. That is why `crypto-oracles/argon2id` carries *three*
+ratified, not caught. That is why `oracles/crypto/argon2id` carries *three*
 opinions (its own reference, RustCrypto, OpenSSL) and why `packages/yaml` keeps
 PyYAML alongside the sharper 1.2 oracle — where two references disagree with each
 other is where the spec is worth re-reading.
