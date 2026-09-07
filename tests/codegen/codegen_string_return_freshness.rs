@@ -22,6 +22,7 @@
 //! Build-only `-ncode` cross-built for `linux-x86_64`, matching the sibling
 //! codegen-inspection suite: ownership is target-independent codegen.
 
+#[path = "../common/mod.rs"]
 mod common;
 
 use serde_json::Value;
