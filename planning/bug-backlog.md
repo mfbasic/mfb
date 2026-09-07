@@ -1,47 +1,57 @@
 # Open bug backlog — triage and work order
 
-Last updated: 2026-09-06
-Open bugs: **11** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 8 MEDIUM · 2 LOW–MEDIUM** (re-derived
-2026-09-06 from each open bug's own `Severity:` line; several carry a
-parenthetical qualifier after the word, so read the leading word, not the line)
+Last updated: 2026-09-06 (second refresh)
+Open bugs: **7** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 5 MEDIUM · 1 LOW–MEDIUM**
 
-The audit-3 security pass (goal-08) is **complete**: all 20 of its
-CRITICAL/HIGH findings are landed and archived.
+The audit-3 security pass (goal-08) is **complete**.
 
-## 2026-09-06 — what landed, and what it changes about the order
+## 2026-09-06 — what landed
 
 Archived on 2026-09-06 (`git log --since=2026-09-06 --diff-filter=R --name-status`):
-**456, 487, 516, 551, 552, 553, 554, 555, 556**, plus **488** closed on evidence
-rather than a fix (75 clean unfiltered runs since the pin; the 7.6% pre-fix rate
-makes "unchanged" a 1-in-300 proposition). **557** landed the same day from a
-peer. **550** is gated green and awaiting its merge at the time of writing.
+**456, 479, 487, 516, 527, 543, 550, 551, 552, 553, 554, 555, 556**, plus **488**
+closed on evidence rather than a fix. **557** landed the same day from a peer.
+**558** was filed (the `mfb man` Errors table unions every overload's errors).
 
-Four blocked decisions were put to the user and are now ANSWERED **in the bug
-docs themselves** — read the "USER DECISION" section before dispatching any of
-them, because each ruling carries consequences a fix gets wrong:
+Four user rulings are recorded **in the bug docs themselves** under a
+"USER DECISION" heading — 543, 550, 527 and 515. Three are landed; 515 is the
+only one still open, and its ruling is: ship both an explicit-cost and a profile
+overload, with **the profile calling the explicit one underneath** so there is one
+validation site and one use site.
 
-| bug | ruling | the consequence that bites |
-|---|---|---|
-| 543 | `posix_spawn` + `POSIX_SPAWN_CLOEXEC_DEFAULT` on macOS | leaving fork/exec removes the "between" where the ignored-signal reset lives; it must move into `POSIX_SPAWN_SETSIGDEF` |
-| 550 | promote the load-bearing asserts, **no** CI axis | an expensive predicate is not a candidate — `assert!` in release is on every user's compile |
-| 527 | negative index is out of range, language-wide | `findLastIndex` loses its `-1` default, and its OWN man example is a source break to be rewritten |
-| 515 | both spellings, profile calls the explicit one | one validation site, one use site; the profile constants are the only retunable thing |
+### Two corrections worth carrying forward
 
-**bug-479 is unblocked.** Its "defect D is a product decision" is corrected in
-the doc: all five `ThreadSimpleOp`s already raise `ErrResourceClosed` on
-`THREAD_STATE_CLOSED`, so there is no error code to pick. What blocks it is
-ORDERING — every op locks the queue before reading the state — and the
-recommended fix (give the closed handle real empty queues via the existing
-`emit_thread_queue_alloc`) leaves all five op emitters untouched.
+**bug-479's "defect D is a product decision" was wrong**, and the same shape may
+recur. Every thread op already raised `ErrResourceClosed` on
+`THREAD_STATE_CLOSED`, so there was no contract to invent; what blocked it was
+ORDERING. Before recording a defect as needing a product decision, check whether
+the behaviour is already implemented somewhere and only unreachable.
 
-**New:** 558 — `mfb man` merges every overload's errors into one table, so
-`tcp::poll`'s page tells scalar callers to handle an error that overload cannot
-raise. 8 members affected.
+**bug-553's "fs, process, udp are the model" was wrong.** Measured, none of them
+is: `fs` 40 empty / 1 non-empty, `process` 15 / 0, `udp` 9 / 1. When a doc names a
+sibling as the standard to copy, verify the sibling first — 21 of 32 packages
+carry at least one `errors: vec![]`.
 
-Still genuinely blocked, and not a bug fix: **536 shape C** (recursive-type
-values are never freed) needs recursive copy-insertion, which does not exist.
-Do not dispatch it as a bug.
+## What is left, and why each is not trivial
+
+- **536** (HIGH) — shape B-2 and shape C. **Shape C is not a bug fix**: a
+  recursive-type value is never freed, and the fix needs recursive
+  copy-insertion, which does not exist. Do not dispatch it as one. Shape B-2 (a
+  `String` returned by a user/`.mfb`-bodied function) is a **double-free** risk
+  and wants its own change and audit.
+- **484** — `canvas::Picture` never renders on any backend; x-large, and no
+  renderer has a picture arm at all.
+- **520** — named time zones; huge, and it is a data + serialization design
+  question, not a bug.
+- **540** — the Windows app `term` is a reduced implementation. Note nothing in
+  this repo ever EXECUTES a Windows binary, so it cannot be verified here the way
+  543 was verified on four Linux boxes.
+- **472** — man examples are never compiled. Carries an explicit user decision
+  AGAINST building the gate (plan-108-A rejected-alternatives), so it needs a
+  ruling before work, not after.
+- **515** — has its ruling; in flight.
+- **558** — the man Errors table; small, but the LAYOUT is a product choice with
+  three options written up.
 
 ## Working rules for this pass
 
