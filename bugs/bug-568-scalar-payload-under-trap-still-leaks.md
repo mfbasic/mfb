@@ -151,6 +151,21 @@ now owns the original.
 
 ## Residual
 
-None found for this shape. The `TRAP` machinery's remaining known leak is the
-one bug-565 names: an error raised by an inline builtin's own domain check
-orphans the `ErrorLoc` that `_mfb_make_error_result` allocated, on the RAISE side.
+None for this shape: the two leaking programs and the all-four-scalars program
+are all 1.0-1.1 MB flat at both counts, and the `RETURN i + 0` variant (which
+folds to the parameter and leaked identically) is flat with them.
+
+The `TRAP` machinery's remaining known leak is bug-573, and it is somebody
+else's: an error raised by an inline builtin's own domain check orphans the
+`ErrorLoc` `_mfb_make_error_result` allocated, on the RAISE side, before any
+`TRAP` is involved. It is pinned as a NEGATIVE case
+(`an_inline_builtins_own_domain_error_still_leaks_its_error_loc`, asserted to
+GROW) so fixing it reds a test on purpose.
+
+## References
+
+- `bugs/completed/bug-561-*` — the block-copy half, and `pending_temp_is_freeable`
+- `bugs/bug-565-*` — the error-branch half, and the runtime-guard precedent
+- `bugs/bug-573-*` — the raise-side `ErrorLoc` orphan, still open
+- `lower_value_owned`, `value_needs_owning_copy`, `call_returns_param_borrow`,
+  `function_returns_param_borrow`, `CodeBuilder::fresh_trapped_result_value`
