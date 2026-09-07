@@ -5,7 +5,7 @@ Effort: medium
 Severity: **HIGH** (unbounded leak on every fallible call in an expression)
 Class: Memory / correctness
 
-Status: **PARTIALLY FIXED** (2026-09-07, `26e47b003`) — the block-carrying half. **The scalar half is still open as bug-568.**
+Status: **FIXED** (2026-09-07) — the block-carrying half in `26e47b003`, the param-borrow half in `1bf2a4a94` (filed as bug-568).
 the third is filed as bug-566 — see "Residual")
 Regression Test: `tests/rt_scope_drop_leaks.rs` —
 `a_trap_bound_string_result_runs_at_constant_rss`,
@@ -193,3 +193,27 @@ Also corrected: the "112 MB per repeat call" for `csv::parse` attributed here
 does **not reproduce** — 1.26 MB of empty fields at 1/2/4/16 calls is flat at
 382.8 MB peak both before and after. Whoever tracks that number needs to record
 its input first.
+
+
+## Closed by bug-568, and the cause neither document had right
+
+bug-568 was filed as this document's residual on the theory that "a scalar payload
+carries no block, so the block-copy provenance never fires". **That theory is
+wrong** — and so was the fixing report's claim that `Result OF Integer` never
+leaked at all.
+
+The discriminator is the CALLEE's `RETURN` shape, not the payload type:
+
+    RETURN i        RETURN i + 0          leak   (the callee returns a param borrow)
+    RETURN i / 2    LET r = i; RETURN r   flat
+
+Both earlier measurements were therefore honest and neither was general: the
+fixing report's contrast returned `n / 2`; this document's repro returned the
+parameter. Verified directly on both shapes — `RETURN i` 50.2 MB -> 1.0 MB after
+bug-568, `RETURN i / 2` 1.0 MB on both compilers.
+
+`lower_value_owned` was asking `call_returns_param_borrow` — a statement about the
+callee's SUCCESS value — about a `CallResult`, whose lowered value is the
+`{tag,size,payload}` wrapper the calling frame had just allocated. It deep-copied
+a block needing no copy and abandoned the original. A `String` param-borrow leaks
+identically (38.2 / 75.4 MB), which no scalar-only story can explain.
