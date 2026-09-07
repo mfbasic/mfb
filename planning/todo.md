@@ -420,7 +420,7 @@ ones worth having**, and are the reason the crate exists.
 ### #15 — a builtin package, not a language type
 
 Decided: `bigint` is a **package**, not a numeric type. Arithmetic is function-based
-(`bigint.add`, `bigint.mul`, `bigint.divMod`, `bigint.pow`, `bigint.cmp`) — there is no
+(`bigint::add`, `bigint::mul`, `bigint::divMod`, `bigint::pow`, `bigint::cmp`) — there is no
 operator overloading, so `+`, `*` and `<` are not available on a big integer. That cost is
 real but bounded: the use cases are library-shaped (modexp, factorials, overflow-proof
 accumulation) — a handful of functions written once, not long arithmetic expressions in
@@ -433,7 +433,7 @@ needs anyway.
 
 **Represent it as a value record, not a resource** — the `net.Address` precedent
 (`src/codegen/builtins/net/mod.rs:112-118`): a package-owned record, copy semantics, no
-`RES`, no `close`. A resource makes every intermediate a leak (`bigint.add` returning a
+`RES`, no `close`. A resource makes every intermediate a leak (`bigint::add` returning a
 handle means every temporary needs a `close`), and a resource can never be promoted to a
 value type later.
 
@@ -442,7 +442,7 @@ single-`String`-field record then has structural `=` equal to numeric equality, 
 recover `=`/`<>` for free (the built-in `Error`/`ErrorLoc` records are comparable — check
 whether a new one can opt in the same way), leaving `cmp` needed only for ordering.
 
-**Ship `bigint.fromInteger` infallible.** `bigint.parse(String)` must be fallible, so every
+**Ship `bigint::fromInteger` infallible.** `bigint::parse(String)` must be fallible, so every
 constant it builds drags a `TRAP` or an `AS Error` propagation. Any `Integer` fits by
 construction, so seeding from a small value and growing stays total; only genuinely >64-bit
 literals pay the parse cost.
