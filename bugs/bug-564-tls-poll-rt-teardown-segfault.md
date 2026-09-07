@@ -1,11 +1,11 @@
-# bug-564: `tls-poll-rt` printed all its output correctly and then SIGSEGV'd in teardown — one sighting
+# bug-564: `tls` acceptance fixtures flake under a loaded full run — two sightings, neither reproducible
 
 Last updated: 2026-09-06
 Effort: unknown (one unreproduced observation)
 Severity: LOW — but see "Why this is filed anyway"
 Class: Runtime / teardown
 
-Status: **OPEN — one sighting, did not reproduce**
+Status: **OPEN — two sightings, different fixtures, neither reproduced**
 Regression Test: — (none possible until it reproduces)
 
 ## The sighting
@@ -55,3 +55,52 @@ and closed by a measured clean period rather than by a fix. Do not close this on
   pins a crash.
 - Do not "fix" it speculatively. There is nothing to fix yet; there is something
   to watch.
+
+
+## Second sighting (2026-09-06, same day) — a different fixture, a different shape
+
+During bug-558's acceptance run:
+
+    rt-behavior/tls/tls-write-peer-closed-raises-rt
+      golden: write raised=TRUE
+      actual: write raised=FALSE
+
+Not a crash this time — a **behavioural flip**. The fixture starts a local
+`tls::listen` on 127.0.0.1, spawns `openssl s_client` as the peer, closes the
+peer, and asserts that the next `tls::write` raises. Whether it raises depends on
+whether the peer's FIN has been processed by the time `write` runs, so the test is
+**racy by construction**: it asserts a consequence of the peer's exit without
+establishing that the exit has propagated.
+
+### Attribution — bug-558 was EXONERATED by byte-identity, not by argument
+
+Worth recording as a method. bug-558 changed only `src/cli/man.rs` (1 file, the
+renderer), so the claim "it cannot affect a compiled program" is easy to *assert*.
+It was instead **measured**: the fixture was built with the bug-558 compiler and
+with a main compiler, and the two executables are byte-identical —
+
+    558-binary: 9cb7623b2928326edacb9627b1969ba51e951072c7be7f2a6b83fe281a819194
+    main-binary:9cb7623b2928326edacb9627b1969ba51e951072c7be7f2a6b83fe281a819194
+
+A behavioural difference between two runs of the same bytes is not caused by the
+change that produced them. Use this rather than "my diff looks unrelated".
+
+### Did not reproduce
+
+**16/16 green**, of which 8 were run with four concurrent `cargo build --release`
+saturating the box specifically to provoke it. Also 6/6 green through
+`test-accept.sh` in isolation.
+
+### The pattern the two sightings share
+
+Both are `tls` fixtures, both failed exactly once inside a **full** acceptance run
+on a loaded box, and neither reproduces in isolation. That is the same profile as
+bug-488 — a network-timing fixture whose failure needs the port and scheduling
+pressure of hundreds of unrelated tests, which four copies of one test cannot
+recreate.
+
+**So the likely fix is in the fixtures, not the runtime**: a test that asserts a
+consequence of a peer's exit should wait for the exit (or for a readable EOF)
+rather than assuming it has landed. That would be a real fix rather than a
+re-baseline, and it is worth doing before a third sighting costs another
+investigation.
