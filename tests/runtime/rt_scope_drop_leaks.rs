@@ -2307,3 +2307,300 @@ END SUB\n";
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// -------------------------------------------------------------- bug-572
+
+/// bug-572, the bug report's own reproduction: a capturing `LAMBDA` passed to a
+/// HOF leaked its whole environment on every call — the env block, the deep copy
+/// of each captured value, and the 16-byte closure object. It is independent of
+/// the callback's RESULT type, which is why the predicate is `Boolean`: that
+/// allocates no result block at all, so nothing here is bug-562/569's leak.
+/// 13 MB at 50 000 calls, 25 MB at 100 000.
+const SHAPE_572_CAPTURING_FILTER: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  LET cap AS String = \"CAPTURED\"\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET c AS List OF String = collections::filter(xs, LAMBDA(s AS String) -> len(s) < len(cap))\n\
+    acc = acc + len(collections::get(c, 0))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The contrast, one token wide: dropping the capture makes the lambda lower to
+/// a `FunctionRef` over a static BSS descriptor rather than a `Closure`, so it
+/// allocates nothing. 1.0 MB flat at both counts before AND after — a fix that
+/// made the case above pass by suppressing an allocation would show up here.
+const SHAPE_572_CONTRAST_CAPTURELESS: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET c AS List OF String = collections::filter(xs, LAMBDA(s AS String) -> len(s) < 8)\n\
+    acc = acc + len(collections::get(c, 0))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `collections::reduce`'s BINARY callback (`FUNC(U, T) AS U`, parameter index 2)
+/// — a different position on the allow-list, and the one `callback_member`'s
+/// unary rule deliberately excludes. 13 -> 25 MB before.
+const SHAPE_572_REDUCE: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  LET cap AS String = \"CAPTURED\"\n\
+  LET xs AS List OF Integer = [1, 2, 3, 4, 5, 6, 7, 8]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET n AS Integer = collections::reduce(xs, 0, LAMBDA(a AS Integer, e AS Integer) -> a + e + len(cap))\n\
+    acc = acc + n\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `collections::forEach`, the one position that admits a BY-REF capture of a
+/// `MUT` binding (`is_nonescaping_callback_arg`). A by-ref env slot holds a
+/// pointer to the parent's stack slot, not an owned block, and
+/// `capture_free_type` answers the empty type for it so the drop SKIPS it — only
+/// the env array and the object are reclaimed. 7 -> 13 MB before; a wild free of
+/// the by-ref slot would corrupt the caller's frame instead.
+const SHAPE_572_FOREACH_BY_REF: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    collections::forEach(xs, LAMBDA(s AS String) -> total = total + len(s))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// `collections::mapValues`, whose callback is invoked from its own `.mfb` body
+/// rather than a native loop — so it takes the OTHER arm of the gate, the one
+/// that reads the callee's NIR and asks `collect_value_used_locals` whether the
+/// parameter is invoke-only. 15 -> 29 MB before.
+const SHAPE_572_MAP_VALUES: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  LET cap AS String = \"CAPTURED\"\n\
+  MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
+  MUT j AS Integer = 0\n\
+  WHILE j < 8\n\
+    m = collections::set(m, j, j)\n\
+    j = j + 1\n\
+  END WHILE\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET c AS Map OF Integer TO Integer = collections::mapValues(m, LAMBDA(v AS Integer) -> v + len(cap))\n\
+    acc = acc + collections::get(c, 1)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The POSITIVE pin, as an RSS EQUALITY rather than flatness: `http::route`'s
+/// handler is also a non-isolated `FUNC` parameter, but the returned
+/// `http::Route` KEEPS it and the server invokes it per request. It must keep
+/// leaking exactly as much as it did before — 6 -> 11 MB at 20k/40k on both
+/// compilers, byte-identical — because the alternative is a use-after-free the
+/// next time the route is served.
+///
+/// Asserted as "still grows", which is the only assertion that distinguishes
+/// "declined" from "freed" here; the VALUE half is
+/// `every_closure_argument_shape_still_produces_the_right_value` below.
+const SHAPE_572_RETAINED_ROUTE: &str = "IMPORT io\n\
+IMPORT http\n\
+SUB main()\n\
+  LET cap AS String = \"CAPTURED\"\n\
+  MUT last AS http::Route = http::route(\"/seed\", LAMBDA(req AS http::Request) -> http::ok(\"seed\"))\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET r AS http::Route = http::route(\"/x/:id\", LAMBDA(req AS http::Request) -> http::ok(cap))\n\
+    last = r\n\
+    acc = acc + len(r.pattern)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc) & \" pattern=\" & last.pattern)\n\
+END SUB\n";
+
+/// 13 MB at 50 000 calls, 25 MB at 100 000, before — with a `Boolean` predicate.
+#[cfg(unix)]
+#[test]
+fn a_capturing_lambda_argument_does_not_leak_its_environment() {
+    assert_flat(
+        "b572_capturing_filter",
+        SHAPE_572_CAPTURING_FILTER,
+        50_000,
+        100_000,
+    );
+}
+
+/// The one-token contrast that attributes the leak to the CAPTURE.
+#[cfg(unix)]
+#[test]
+fn a_captureless_lambda_argument_stays_flat() {
+    assert_flat(
+        "b572_contrast_captureless",
+        SHAPE_572_CONTRAST_CAPTURELESS,
+        50_000,
+        100_000,
+    );
+}
+
+/// The other three admitted positions, each on its own path to the callback:
+/// `reduce`'s binary combiner (13 -> 25 MB), `forEach`'s by-ref capture
+/// (7 -> 13 MB), and `mapValues`' `.mfb` body (15 -> 29 MB).
+#[cfg(unix)]
+#[test]
+fn every_admitted_callback_position_frees_its_closure() {
+    assert_flat("b572_reduce", SHAPE_572_REDUCE, 50_000, 100_000);
+    assert_flat(
+        "b572_foreach_by_ref",
+        SHAPE_572_FOREACH_BY_REF,
+        50_000,
+        100_000,
+    );
+    assert_flat("b572_map_values", SHAPE_572_MAP_VALUES, 50_000, 100_000);
+}
+
+/// `http::route` KEEPS its handler, so it must NOT have been freed — and the
+/// evidence that it was not is that its (pre-existing, unrelated) growth is
+/// unchanged. Measured 6 -> 11 MB at 20k/40k on the pre-fix compiler and
+/// identically after.
+#[cfg(unix)]
+#[test]
+fn a_retained_callback_position_is_left_alone() {
+    let small = peak_rss("b572_retained_route", SHAPE_572_RETAINED_ROUTE, 20_000);
+    let large = peak_rss("b572_retained_route", SHAPE_572_RETAINED_ROUTE, 40_000);
+    assert!(
+        large > small + 2 * 1024 * 1024,
+        "`http::route`'s handler stopped leaking ({} MB -> {} MB). That is not an \
+         improvement here: the returned `http::Route` still holds the pointer, so \
+         a free means the next request serves freed memory. If this position is \
+         ever made safe to free, it moves from RETAINED_CALLBACK_PARAMETERS to \
+         SYNCHRONOUS_CALLBACK_PARAMETERS and this case is replaced by assert_flat",
+        small / (1024 * 1024),
+        large / (1024 * 1024),
+    );
+}
+
+/// The VALUE half of bug-572, and the half a leak test cannot see.
+///
+/// Freeing a closure the callee kept is a use-after-free that surfaces LATER —
+/// as a wrong value read out of reused memory, or as "Allocation failed" in some
+/// unrelated allocation — so every escape the gate declines is exercised for its
+/// value, 25 times, against an expectation computed here:
+///
+/// * `RETURN LAMBDA…` out of a function, and a user HOF that returns its
+///   callable parameter.
+/// * a closure appended to a `List OF FUNC(…)`, which stores the POINTER
+///   (bug-73), and one assigned to a global.
+/// * `http::route`, whose returned record keeps the handler.
+/// * and, on the other side, the closures that ARE freed — including a nested
+///   pair, where a positional mispairing between the two drains would free the
+///   wrong one.
+#[test]
+fn every_closure_argument_shape_still_produces_the_right_value() {
+    const SOURCE: &str = "IMPORT io\n\
+IMPORT collections\n\
+MUT gfn AS FUNC(String) AS Boolean = LAMBDA(s AS String) -> len(s) < 3\n\
+FUNC make(cap AS String) AS FUNC(String) AS Boolean\n\
+  RETURN LAMBDA(s AS String) -> len(s) < len(cap)\n\
+END FUNC\n\
+FUNC hold(f AS FUNC(String) AS Boolean) AS FUNC(String) AS Boolean\n\
+  RETURN f\n\
+END FUNC\n\
+FUNC applyTwice(f AS FUNC(Integer) AS Integer, v AS Integer) AS Integer\n\
+  RETURN f(f(v))\n\
+END FUNC\n\
+SUB main()\n\
+  LET cap AS String = \"CAPTURED\"\n\
+  LET xs AS List OF String = [\"a\", \"bb\", \"ccc\", \"dddd\"]\n\
+  LET kept AS List OF String = collections::filter(xs, LAMBDA(s AS String) -> len(s) < len(cap))\n\
+  io::print(toString(len(kept)) & collections::get(kept, 0))\n\
+  LET small AS List OF String = collections::filter(xs, LAMBDA(s AS String) -> len(s) < 3)\n\
+  io::print(toString(len(small)))\n\
+  LET bump AS Integer = 5\n\
+  io::print(toString(applyTwice(LAMBDA(v AS Integer) -> v + bump, 1)))\n\
+  LET g AS FUNC(String) AS Boolean = make(cap)\n\
+  io::print(toString(g(\"ab\")) & toString(g(\"abcdefghij\")))\n\
+  LET h AS FUNC(String) AS Boolean = hold(LAMBDA(s AS String) -> len(s) < len(cap))\n\
+  io::print(toString(h(\"ab\")) & toString(h(\"abcdefghij\")))\n\
+  MUT fs AS List OF FUNC(String) AS Boolean = []\n\
+  fs = collections::append(fs, LAMBDA(s AS String) -> len(s) < len(cap))\n\
+  LET stored AS FUNC(String) AS Boolean = collections::get(fs, 0)\n\
+  io::print(toString(stored(\"ab\")) & toString(stored(\"abcdefghij\")))\n\
+  gfn = LAMBDA(s AS String) -> len(s) < len(cap)\n\
+  io::print(toString(gfn(\"ab\")) & toString(gfn(\"abcdefghij\")))\n\
+  io::print(cap & collections::get(xs, 0) & collections::get(xs, 3))\n\
+  LET both AS List OF String = collections::filter(collections::filter(xs, LAMBDA(s AS String) -> len(s) < len(cap)), LAMBDA(s AS String) -> len(s) > 1)\n\
+  io::print(toString(len(both)) & collections::get(both, 0))\n\
+  MUT total AS Integer = 0\n\
+  collections::forEach(xs, LAMBDA(s AS String) -> total = total + len(s))\n\
+  io::print(toString(total))\n\
+  io::print(toString(collections::reduce(xs, 0, LAMBDA(a AS Integer, s AS String) -> a + len(s) + len(cap))))\n\
+END SUB\n";
+
+    // Computed here, not read off the program.
+    let cap = "CAPTURED";
+    let xs = ["a", "bb", "ccc", "dddd"];
+    let lengths: usize = xs.iter().map(|s| s.len()).sum();
+    let shorter_than_cap: Vec<&&str> = xs.iter().filter(|s| s.len() < cap.len()).collect();
+    let expected = [
+        format!("{}{}", shorter_than_cap.len(), xs[0]),
+        xs.iter().filter(|s| s.len() < 3).count().to_string(),
+        (1 + 5 + 5).to_string(),
+        "TRUEFALSE".to_string(),
+        "TRUEFALSE".to_string(),
+        "TRUEFALSE".to_string(),
+        "TRUEFALSE".to_string(),
+        format!("{cap}{}{}", xs[0], xs[3]),
+        format!(
+            "{}{}",
+            shorter_than_cap.iter().filter(|s| s.len() > 1).count(),
+            shorter_than_cap
+                .iter()
+                .find(|s| s.len() > 1)
+                .expect("a kept element longer than one byte"),
+        ),
+        lengths.to_string(),
+        (lengths + xs.len() * cap.len()).to_string(),
+    ]
+    .join("\n");
+
+    let project = common::temp_project("b572_closure_values", SOURCE);
+    let exe = common::build_project(&project);
+    // A use-after-free is not deterministic: it depends on whether the arena
+    // reuses the block before the read.
+    for run in 1..=25 {
+        let output = std::process::Command::new(&exe)
+            .output()
+            .expect("run the closure-argument ownership probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected,
+            "run {run}: a closure read a different value — one was freed while a \
+             collection, a global, a caller, or an `http::Route` still held it"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}

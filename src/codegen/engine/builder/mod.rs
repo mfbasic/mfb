@@ -315,6 +315,16 @@ pub(crate) struct CodeBuilder<'a> {
     /// consumer (`lower_value_owned`, `RETURN`, `StateAssign`, thread-spawn move)
     /// claims its temp so the block is freed exactly once by whoever owns it.
     pub(crate) pending_temp_frees: Vec<PendingTemp>,
+    /// bug-572: capturing `LAMBDA` objects built while lowering the arguments of
+    /// a call that will free them. Pushed by the `NirValue::Closure` arm ONLY
+    /// while `closure_temp_wanted` is set, and drained by the same `lower_value`
+    /// frame that set it — so a call with no freeable closure argument registers
+    /// nothing and emits nothing.
+    pub(crate) pending_closure_temps: Vec<PendingClosure>,
+    /// bug-572: set around the lowering of one call node whose argument list
+    /// holds at least one capturing `LAMBDA` in a provably non-retaining callback
+    /// position. Save/restore (nestable), like `raw_result_capture`.
+    pub(crate) closure_temp_wanted: bool,
     /// bug-536 shape B: the location of a `String` block this builder has just
     /// **provably freshly allocated** — set by the shared String producers
     /// (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
@@ -558,6 +568,8 @@ impl<'a> CodeBuilder<'a> {
             owned_list_heads: HashMap::new(),
             owned_value_slots: Vec::new(),
             pending_temp_frees: Vec::new(),
+            pending_closure_temps: Vec::new(),
+            closure_temp_wanted: false,
             fresh_string_block: None,
             operand_snapshot_wanted: Vec::new(),
             for_each_iterable_locals: Vec::new(),
@@ -763,6 +775,21 @@ pub(crate) struct PendingTemp {
     pub(crate) type_: ParameterType,
     pub(crate) slot: usize,
     pub(crate) location: Operand,
+}
+
+/// bug-572: a capturing `LAMBDA` built as a call ARGUMENT, awaiting the free
+/// that runs once the call it was built for has returned.
+///
+/// `slot` holds the 16-byte closure object pointer; `captures` are the static
+/// types `emit_closure_drop` walks to free the env's own blocks (empty-named for
+/// a by-ref or by-value capture, which the drop skips). Unlike a [`PendingTemp`]
+/// this is never a statement-scope obligation: the drain is per CALL, because
+/// the call is the whole reason the closure exists and the only window in which
+/// it is live.
+#[derive(Clone)]
+pub(crate) struct PendingClosure {
+    pub(crate) slot: usize,
+    pub(crate) captures: Vec<ParameterType>,
 }
 
 #[derive(Clone)]
