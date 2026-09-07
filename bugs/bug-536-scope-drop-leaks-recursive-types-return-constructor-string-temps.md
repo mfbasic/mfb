@@ -5,7 +5,7 @@ Effort: x-large (1d–3d) — three independent shapes; the recursive-drop one i
 Severity: HIGH
 Class: Memory-safety / Security (denial of service — unbounded memory growth on ordinary programs; the real amplifier behind audit-3 DEC-03)
 
-Status: **Shape A FIXED** (2026-09-04, `f9be6e128`, merged `c210cc67d`).
+Status: **shapes A, B, B-2 FIXED** (B-2: 2026-09-06, `b845db0de`). **Shape C remains, and is NOT a bug fix** — see the ruling below.
 **Shape B's NATIVE half FIXED** (2026-09-05, `cd8699103`).
 **Shape B-2 (the callee half) FIXED** (2026-09-06, branch `bug-536-shape-b2`) —
 a `String` returned by a user / `.mfb`-bodied function may now be freed by its
@@ -62,6 +62,19 @@ References:
   a fix must keep NOT freeing.
 - Found during `bugs/bug-510-text-decoder-dos-cluster.md` (DEC-03); the decoder
   measurements above are its reproduction.
+
+## USER DECISION (2026-09-06) — shape C leaves the bug backlog
+
+Ruling: **write a plan-NN design doc for shape C.** Stop calling it a bug.
+
+A value of a recursive type is never freed, and the fix needs recursive
+copy-insertion, which does not exist in this compiler; the naive fix is a double
+free. That is a design pass, and the doc must be reviewable before any code is
+written. It should not be dispatched as a bug fix, and this document should not
+keep carrying it as one.
+
+Shapes A, B and B-2 are landed and stay here.
+
 
 ## Failing Reproduction
 
