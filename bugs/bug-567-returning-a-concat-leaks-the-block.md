@@ -58,3 +58,36 @@ existing B-2 shapes stay flat with no second free (`arena_free` on a block a
 caller still owns is a use-after-free, not a leak).
 
 Measure as peak RSS at N and 2N, never a one-shot.
+
+
+## Root cause — from bug-570, which was filed for the same defect and folded in here
+
+An agent working bug-562 reproduced this shape independently and filed it as
+bug-570 before bug-567 had landed. Same defect; bug-570 is withdrawn and its
+analysis is kept here, because it is sharper than what this document had.
+
+**`clear_pending_temps_to` truncates *every* pending temp above the watermark at
+a control transfer.** Its justification is two clauses, and the second is false:
+
+* *"the returned temp is moved to the caller"* — true, but only of the ONE temp
+  `claim_pending_temp` has already popped.
+* *"an interior free would be unreachable"* — **false.** It is unreachable only
+  because it would be emitted *after* the branch. That is a property of where the
+  code is placed, not of the program.
+
+So an INTERIOR temp — one that is not the returned value — is dropped without
+being freed.
+
+That predicts exactly which spellings leak, and the prediction was measured:
+
+| shape | interior temp? | 200k / 400k |
+| --- | --- | --- |
+| `RETURN "<" & s & ">"` | yes (the inner concat) | 25.6 MB / 50.2 MB |
+| `RETURN "v" & toString(n MOD 10)` | yes (`toString`'s result) | 13.3 MB / 25.6 MB |
+| `RETURN s & ">"` | **no** — both operands are already-owned values | 1.0 MB / 1.0 MB |
+
+The flat row is the control: one operator fewer, no interior temp, no leak.
+
+**A fix here ADDS frees**, which is the double-free direction, so it needs its own
+enumeration of what is and is not interior — not a relaxation of the truncation.
+Neither bug-562's change nor bug-536 shape B-2 moves these numbers at all.
