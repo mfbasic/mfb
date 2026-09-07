@@ -307,6 +307,27 @@ mod tests {
         with_opt_level(OptLevel(level), || eliminate(stream, &Aarch64RegisterModel));
     }
 
+    /// An empty instruction stream is answered without work, and REPORTS zero.
+    ///
+    /// `build_cfg` finds no blocks, and the row returns before numbering
+    /// anything. The reported count is the half that matters: `-vv` prints a
+    /// fire count per row, and a row that returned early without reporting
+    /// leaves its previous count standing, so the next build's trace attributes
+    /// this build's zero eliminations to whatever the last one did. Every other
+    /// exit from this function reports, so the early one has to as well.
+    ///
+    /// Not a hypothetical input: a function whose body the earlier rows deleted
+    /// entirely arrives here empty.
+    #[test]
+    fn an_empty_stream_is_answered_without_numbering_anything() {
+        let mut stream: Vec<CodeInstruction> = Vec::new();
+        run(&mut stream, 3);
+        assert!(
+            stream.is_empty(),
+            "nothing to number means nothing to change"
+        );
+    }
+
     /// A recompute in a *dominated* block (past a join label LVN must forget
     /// at) reuses the dominating computation — the global in GVN.
     #[test]
