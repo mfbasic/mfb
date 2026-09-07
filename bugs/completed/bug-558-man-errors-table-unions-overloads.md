@@ -5,8 +5,36 @@ Effort: small-to-medium (the renderer change is small; deciding the LAYOUT is th
 Severity: LOW-MEDIUM (documentation correctness; no miscompile — see "Why this is not urgent")
 Class: Documentation correctness / man renderer
 
-Status: Open
-Regression Test: `src/cli/man.rs` — a rendering test over a member whose overloads differ
+Status: **FIXED** (2026-09-06, `b1b336077`)
+Regression Test: `src/cli/man.rs` —
+`a_multi_overload_errors_table_names_the_overloads_that_raise_each_error`,
+`every_errors_overload_number_names_a_rendered_signature`,
+`an_overload_that_declares_no_errors_is_named_as_infallible`, and the two
+containment pins `a_single_overload_member_errors_table_is_unchanged` and
+`a_package_overview_errors_table_has_no_overload_column`
+
+## Correction to the blast radius (measured by RENDERING, 2026-09-06)
+
+The "8 members" census counted `errors:` lines per FILE, and three of the four
+`canvas` entries are not multi-overload members at all:
+
+- `canvas::groupStats` and `canvas::sceneHashes` render NO page — the several
+  `errors:` lines in `func_group_stats.rs` / `func_scene_hashes.rs` belong to
+  separate `internal_only` members that share one file.
+- `canvas::loadFont` is a SINGLE-overload member; its file's second `errors:`
+  belongs to the `internal_only` `fontFromBytes`.
+
+Five of the eight render an affected page: `tcp::poll`, `tcp::write`,
+`tls::poll`, `tls::write`, `canvas::getSize` — and those are exactly the five
+whose new Overloads column varies from row to row. `canvas::getSize` is the
+one-overload-declares-nothing shape, and its page now names the infallible
+signature outright ("Overload 2 raises no errors.") rather than leaving it
+absent from a two-row table.
+
+Rendered delta over all 605 pages `mfb man` produces: exactly the 94 pages with
+an Overloads section change (55 grow the column; 39 change only in that their
+signatures are numbered). All 449 single-overload function pages, all 31
+overviews and all 31 types pages are byte-identical.
 
 
 ## USER DECISION (2026-09-06) — number the overloads, add a column
