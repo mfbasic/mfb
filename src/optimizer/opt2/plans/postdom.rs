@@ -189,6 +189,48 @@ mod tests {
         }
     }
 
+    /// A CFG with NO postdominance facts answers `None`, and every caller
+    /// treats that as "do nothing".
+    ///
+    /// Two shapes reach it and neither had ever been built here. An EMPTY block
+    /// list is what an emptied function gives (the earlier rows can delete a body
+    /// entirely). A block that cannot reach an exit — an infinite loop with no
+    /// `ret` — is the one a real program produces: `WHILE TRUE` with no exit.
+    ///
+    /// **`None` is a correctness answer, not a shortcut.** `adce` deletes an
+    /// instruction when no live instruction is control-dependent on it, and
+    /// control dependence is computed FROM postdominance. With a block that never
+    /// reaches an exit, "post-dominates" is undefined for everything that can
+    /// reach it, and a table built anyway would name the wrong controllers —
+    /// so `adce` would delete a branch that decides whether the infinite loop is
+    /// entered. Answering `None` is what makes it decline instead.
+    #[test]
+    fn a_cfg_with_no_exit_has_no_postdominance_facts() {
+        assert!(
+            compute(&[]).is_none(),
+            "an emptied function has no blocks, so there is nothing to postdominate"
+        );
+
+        // 0 → 1 → 1: block 1 loops on itself and nothing reaches a `ret`.
+        let no_exit = vec![block(0, 1, &[1]), block(1, 2, &[1])];
+        assert!(
+            compute(&no_exit).is_none(),
+            "no block reaches an exit, so postdominance is undefined for every \
+             one of them -- a table built anyway would name the wrong \
+             controllers, and `adce` would delete the branch that decides \
+             whether the loop is entered at all"
+        );
+
+        // The same graph with an escape hatch DOES have facts, so the refusal
+        // above is about reachability and not about self-loops.
+        let with_exit = vec![block(0, 1, &[1]), block(1, 2, &[1, 2]), block(2, 3, &[])];
+        assert!(
+            compute(&with_exit).is_some(),
+            "one edge out of the loop is all it takes: every block reaches the \
+             exit, so the facts exist"
+        );
+    }
+
     /// Diamond: 0 → {1, 2} → 3(exit). ipdom of every block is 3 (or the
     /// virtual exit for 3), and 1/2 are control-dependent on 0.
     #[test]

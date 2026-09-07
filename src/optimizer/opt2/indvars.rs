@@ -285,6 +285,62 @@ mod tests {
         ]
     }
 
+    /// An empty stream is answered without work, and REPORTS zero.
+    ///
+    /// `build_cfg` finds no blocks and the row returns early. Reporting is the
+    /// half that matters: `-vv` prints a fire count per row, and a row that
+    /// returned without reporting leaves its previous count standing, so the
+    /// next build's trace attributes this build's zero merges to whatever the
+    /// last one did. A function whose body the earlier rows deleted entirely
+    /// arrives here empty.
+    #[test]
+    fn an_empty_stream_merges_nothing() {
+        let mut stream: Vec<CodeInstruction> = Vec::new();
+        run(&mut stream, 3);
+        assert!(
+            stream.is_empty(),
+            "nothing to merge means nothing to change"
+        );
+    }
+
+    /// An increment the row cannot READ is skipped, not guessed at.
+    ///
+    /// Three fields make an increment recognisable as a counter step: the `dst`
+    /// it writes, that `dst` being a virtual register (a physical one is already
+    /// allocated and not the row's to rewrite), and a constant `imm` to step by.
+    /// Each is checked separately and each was unexecuted, because a real
+    /// emitter writes all three.
+    ///
+    /// Skipping is the only safe answer. Merging two counters means redirecting
+    /// every use of one to the other, which is sound ONLY when both provably
+    /// step by the same constant from the same start. An increment whose step
+    /// the row cannot read is one it cannot prove anything about -- treating it
+    /// as a duplicate would silently give every later use of that counter the
+    /// wrong value.
+    #[test]
+    fn an_unreadable_increment_is_not_merged() {
+        for (what, increment) in [
+            ("no dst", ci("add_imm", &[("src", "%v2"), ("imm", "1")])),
+            (
+                "a physical dst",
+                ci("add_imm", &[("dst", "x2"), ("src", "%v2"), ("imm", "1")]),
+            ),
+            ("no imm", ci("add_imm", &[("dst", "%v2"), ("src", "%v2")])),
+        ] {
+            let mut stream = twin_counter_loop("1", "%v9");
+            stream[4] = increment;
+            run(&mut stream, 3);
+            assert_eq!(
+                stream[5].get("src").as_deref(),
+                Some("%v2"),
+                "{what}: the second counter's step is unreadable, so it cannot be \
+                 proven a duplicate of the first -- the store must still read \
+                 %v2. Redirecting it would give every later use the other \
+                 counter's value."
+            );
+        }
+    }
+
     #[test]
     fn duplicate_counters_merge() {
         let mut stream = twin_counter_loop("1", "%v9");
