@@ -5,7 +5,7 @@ Effort: medium
 Severity: **HIGH** (unbounded leak on every fallible call in an expression)
 Class: Memory / correctness
 
-Status: **FIXED** (the two lowering paths whose provenance is already audited;
+Status: **PARTIALLY FIXED** (2026-09-07, `26e47b003`) — the block-carrying half. **The scalar half is still open as bug-568.**
 the third is filed as bug-566 — see "Residual")
 Regression Test: `tests/rt_scope_drop_leaks.rs` —
 `a_trap_bound_string_result_runs_at_constant_rss`,
@@ -165,3 +165,31 @@ here: `csv::parse` over 1.26 MB of empty fields at 1, 2, 4 and 16 calls holds a
 no per-call residual to attribute with that input. The leaks measured above are
 real and are fixed; the 112 MB figure needs its own input recorded before anyone
 tracks it again.
+
+
+## What was fixed, and what was NOT
+
+This document's root cause was **inverted**. The `Result` wrapper was always freed
+(`ResultOf` is a freeable flat value). The leak is that `emit_build_result_inline`
+**copies** the producer's block into the `Result`, leaving the producer's own block
+owned by nothing. Fixed by asking `register_pending_temp`'s gate again, extracted
+as `pending_temp_is_freeable`, at the two raw-`Result` sites.
+
+Measured, and it is real:
+
+    strings::mid under TRAP, 400k    25.6 MB -> 1.0 MB
+    List OF Integer from a user FUNC 100.2 MB -> 1.0 MB
+
+**But this document's "type-independent" claim was RIGHT, and the fixing report's
+correction of it was wrong.** It reported "`Result OF Integer` never leaked at
+all"; re-measured on the exact shape this document specifies — a `TRAP` over an
+`Integer`-returning user `FUNC` — it leaks ~134 B/call and is **unchanged by the
+fix** (50.2 MB before, 50.2 MB after, two verifiably different compilers). A
+scalar payload carries no block, so the block-copy provenance never fires.
+
+**That residual is bug-568.** Do not read this document as closing it.
+
+Also corrected: the "112 MB per repeat call" for `csv::parse` attributed here
+does **not reproduce** — 1.26 MB of empty fields at 1/2/4/16 calls is flat at
+382.8 MB peak both before and after. Whoever tracks that number needs to record
+its input first.

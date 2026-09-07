@@ -5,7 +5,7 @@ Effort: medium
 Severity: **HIGH** (unbounded leak on the idiom the performance docs recommend)
 Class: Memory / correctness
 
-Status: **FIXED**
+Status: **FIXED** (2026-09-07, `29f3d5885`)
 Regression Test: `tests/rt_scope_drop_leaks.rs` —
 `a_reassigned_string_self_append_runs_at_constant_rss`,
 `a_returned_string_self_append_runs_at_constant_rss`,
@@ -135,3 +135,32 @@ optimization for any returned local) would make `__csv_decodeRange` and
 
 - Do not "fix" this by recommending `List OF String` + `join` instead. The
   self-append is the faster shape and is now also the correct one.
+
+
+## How it was actually fixed — the report's mechanism was WRONG
+
+This document guessed "the plain-assignment path frees the old block; this one
+appears not to." It does free. **It frees the wrong number of bytes.**
+
+`lower_string_self_append_one` grows the buffer with geometric headroom whose size
+lives only in a frame shadow slot (`string_capacity_slots`); `mfb.string.v1`
+records `byteLength` and nothing else. bug-77 taught the *regrow* to free the true
+`len + spare + 9`; every other freer still computed the tight `len + 9`.
+
+The repro in this document is also incomplete: `out = out & "a"` in a loop is
+**flat on its own**. What leaks is that shape plus a **reassignment**, and — much
+larger — the `RETURN` seam, where `plan_returned_move` moves the block out of the
+shadow's frame entirely.
+
+| shape | base @N | base @2N | fixed |
+| --- | --- | --- | --- |
+| `out = ""` / `out = out & "a"`, 200k/400k | 38.2 MB | 75.4 MB | 1.0 / 1.0 MB |
+| `FUNC build … RETURN out`, 2k/4k calls | 63.5 MB | 126.0 MB | 1.1 / 1.1 MB |
+| contrast: self-append, no reassign, no return | 1.7 MB | 2.5 MB | unchanged |
+
+Fix: `OwnedValueCleanup.capacity_slot` → `_mfb_rt_drop_owned_string_cap`, and
+`plan_returned_move` declines a capacity-shadowed local — §14.1 calls the move
+"*an optimization only*", so declining it restores the defined copy semantics.
+
+**Disclosed cost:** `csv::parse` 4.79 s → 5.12 s user (+7%), from the declined
+return-moves' copy. Correctness over performance.
