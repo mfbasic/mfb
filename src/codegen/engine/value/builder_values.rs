@@ -1878,6 +1878,32 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Option<Result<ValueResult, String>> {
         let lower = crate::codegen::registry::abi_inline_lower(target)?;
+        // An inline body reads its arguments positionally (`args[1]`, `args[2]`),
+        // so a call whose arity is outside what the member declares does not
+        // refuse -- it indexes past the end and PANICS, and a panicking build has
+        // no located error to show for itself. Arity is the front end's
+        // invariant, not something a program can break, so this is not a
+        // diagnostic anyone should see; it is the one place the invariant is
+        // CHECKED, so a defect upstream reports itself here instead of taking the
+        // process down. Measured: 280 arity-corrupted modules panicked before it,
+        // the same 56 across each of the five backends.
+        //
+        // The bound is the registry's own `(min, max)` -- `min` counts the
+        // required parameters and `max` the widest overload -- because an
+        // optional parameter is a REAL short call: `strings::padRight(s, 8)` omits
+        // the pad character and reaches the body with two arguments for a
+        // three-parameter member. A guard written as "exactly the parameter
+        // count" refuses that, which is how this one was first written and what
+        // the corpus caught.
+        if let Some((min, max)) = crate::codegen::registry::registry().arity(target) {
+            if args.len() < min || args.len() > max {
+                return Some(Err(format!(
+                    "native code inline call '{target}' has {} argument(s), but \
+                     its lowering is written for {min}..={max}",
+                    args.len()
+                )));
+            }
+        }
         let arg_values = match self.lower_abi_inline_args(args) {
             Ok(values) => values,
             Err(err) => return Some(Err(err)),

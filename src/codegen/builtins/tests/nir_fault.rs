@@ -327,6 +327,47 @@ fn corrupt_op(op: &mut NirOp) -> bool {
     }
 }
 
+/// Drop a call's LAST argument.
+///
+/// The two families above break a NAME or a TYPE; this breaks an ARITY, which
+/// is a third set of lookups entirely. A builder reads its arguments
+/// positionally — `helper_args.first().ok_or_else(…)`, `args.get(2)`,
+/// `args[1]` — and each of those reads is a decision about what to do when the
+/// argument is not there. `builder_values.rs` alone has eight `ok_or_else`
+/// closures on `helper_args.first()` (the `thread.send`/`receive`/
+/// `transferResource`/`acceptResource` handle-direction split), and every one of
+/// them is a refusal nothing had ever taken.
+///
+/// The contract is the same one the other two families assert, and it is
+/// stronger here: a body that INDEXES rather than checking does not refuse, it
+/// panics — and a panic in codegen is a build that dies with no located error.
+fn corrupt_arity(value: &mut NirValue) -> bool {
+    match value {
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. } => {
+            if args.is_empty() {
+                return false;
+            }
+            args.pop();
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Whether [`corrupt_arity`] would do anything to this value.
+fn arity_corruptible(value: &NirValue) -> bool {
+    match value {
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. } => !args.is_empty(),
+        _ => false,
+    }
+}
+
 /// Whether [`corrupt_op`] would do anything to this op.
 fn op_corruptible(op: &NirOp) -> bool {
     matches!(
@@ -536,6 +577,27 @@ fn corrupt_nth(module: &mut NirModule, index: usize) -> bool {
     false
 }
 
+/// [`corrupt_nth`] for the arity family; `false` past the end.
+fn corrupt_nth_arity(module: &mut NirModule, index: usize) -> bool {
+    let mut seen = 0usize;
+    let mut applied = false;
+    for function in &mut module.functions {
+        walk_ops_mut(&mut function.body, &mut |_| {}, &mut |value| {
+            if applied || !arity_corruptible(value) {
+                return;
+            }
+            if seen == index {
+                applied = corrupt_arity(value);
+            }
+            seen += 1;
+        });
+        if applied {
+            return true;
+        }
+    }
+    false
+}
+
 /// [`corrupt_nth`] for the op family; `false` past the end.
 fn corrupt_nth_op(module: &mut NirModule, index: usize) -> bool {
     let mut seen = 0usize;
@@ -596,12 +658,13 @@ fn sweep() {
                 )
             });
 
-            for family in ["value", "op"] {
+            for family in ["value", "op", "arity"] {
                 for index in 0.. {
                     restore(&mut module, &pristine);
                     let applied = match family {
                         "value" => corrupt_nth(&mut module, index),
-                        _ => corrupt_nth_op(&mut module, index),
+                        "op" => corrupt_nth_op(&mut module, index),
+                        _ => corrupt_nth_arity(&mut module, index),
                     };
                     if !applied {
                         break;
@@ -638,16 +701,16 @@ fn sweep() {
     // the exception, and is a ratio rather than "all of them" because a `Const`
     // type is advisory in some positions and claiming otherwise would be false.
     assert!(
-        swept > 3000,
-        "the sweep corrupted only {swept} nodes; it measured 3,070 (two probe \
-         programs x two corruption families x five backends), and a walker that \
+        swept > 3700,
+        "the sweep corrupted only {swept} nodes; it measured 3,785 (two probe \
+         programs x three corruption families x five backends), and a walker that \
          stopped descending would show up here rather than as a green run over \
          nothing"
     );
     assert!(
         refused * 4 > swept * 3,
         "only {refused} of {swept} corrupted modules were refused; it measured \
-         2,615, and a builder that stopped checking its inputs shows up here as \
+         3,185, and a builder that stopped checking its inputs shows up here as \
          this ratio falling"
     );
 }
