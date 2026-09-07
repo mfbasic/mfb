@@ -44,6 +44,7 @@ pub(crate) fn collect_diagnostics(
     project_dir: &Path,
     hir: &HirProject,
     imported_types: &[ImportedTypeDef],
+    imported_globals: &[crate::ir::ImportedGlobal],
     imported_signatures: &HashMap<String, ExternalSignature>,
     imported_resource_types: &[String],
 ) -> Vec<PendingDiagnostic> {
@@ -52,7 +53,7 @@ pub(crate) fn collect_diagnostics(
     // `.mfp` signature, so a `thread::start(pkg::worker, …)` argument must type
     // as that ISOLATED FUNC here too. (Lowering's own facts keep only the
     // resource-returning subset for `ir::verify`'s sake.)
-    let facts = lower::lower_facts(hir, imported_signatures, imported_types);
+    let facts = lower::lower_facts(hir, imported_signatures, imported_types, imported_globals);
     let mut walker = Walker::new(
         project_dir,
         &facts,
@@ -72,7 +73,7 @@ pub(crate) fn check_project(
     hir: &HirProject,
     imported_signatures: &HashMap<String, ExternalSignature>,
 ) -> Result<(), ()> {
-    let diagnostics = collect_diagnostics(project_dir, hir, &[], imported_signatures, &[]);
+    let diagnostics = collect_diagnostics(project_dir, hir, &[], &[], imported_signatures, &[]);
     let had_error = diagnostics.iter().any(|d| crate::rules::is_error(&d.rule));
     crate::rules::render_pending(diagnostics);
     if had_error {
@@ -3588,6 +3589,7 @@ mod tests {
             Path::new("/proj"),
             &hir_from(src),
             &[],
+            &[],
             &HashMap::new(),
             &[],
         )
@@ -3686,7 +3688,7 @@ mod tests {
                    END TRAP\n\
                    END FUNC\n";
         let hir = hir_from(src);
-        let facts = lower::lower_facts(&hir, &HashMap::new(), &[]);
+        let facts = lower::lower_facts(&hir, &HashMap::new(), &[], &[]);
         let no_imports = HashMap::new();
         let mut walker = Walker::new(Path::new("/proj"), &facts, &hir, &[], &no_imports, &[]);
         walker.walk_project(&hir);
@@ -3700,7 +3702,7 @@ mod tests {
             "a clean program emits nothing: {emitted:?}"
         );
 
-        let ir = lower::lower_augmented_project(&hir, None, &HashMap::new(), &[]);
+        let ir = lower::lower_augmented_project(&hir, None, &HashMap::new(), &[], &[]);
         let mut lowered = Vec::new();
         for function in ir.functions.iter().filter(|f| f.name == "main") {
             lowered_binds(&function.body, &mut lowered);
@@ -3800,7 +3802,7 @@ mod tests {
         let hir = crate::resolver::augment_hir_project(&crate::hir::elaborate(&project))
             .expect("augments");
         let codes: Vec<_> =
-            collect_diagnostics(Path::new("/proj"), &hir, &[], &HashMap::new(), &[])
+            collect_diagnostics(Path::new("/proj"), &hir, &[], &[], &HashMap::new(), &[])
                 .into_iter()
                 .map(|d| d.rule)
                 .collect();
@@ -3839,7 +3841,7 @@ mod tests {
             files: vec![file],
         };
         let hir = crate::hir::elaborate(&project);
-        let diagnostics = collect_diagnostics(Path::new("/proj"), &hir, &[], &imported, &[]);
+        let diagnostics = collect_diagnostics(Path::new("/proj"), &hir, &[], &[], &imported, &[]);
         let codes: Vec<_> = diagnostics.iter().map(|d| d.rule.as_str()).collect();
         // Line 3 supplies one bindable name of two required parameters, so the
         // arity rule follows the unknown name; line 4's duplicate leaves `height`
@@ -3976,11 +3978,17 @@ mod tests {
             &crate::hir::elaborate(&augmented),
         )
         .expect("monomorphizes");
-        let codes: Vec<_> =
-            collect_diagnostics(Path::new("/proj"), &concrete, &[], &HashMap::new(), &[])
-                .into_iter()
-                .map(|d| d.rule)
-                .collect();
+        let codes: Vec<_> = collect_diagnostics(
+            Path::new("/proj"),
+            &concrete,
+            &[],
+            &[],
+            &HashMap::new(),
+            &[],
+        )
+        .into_iter()
+        .map(|d| d.rule)
+        .collect();
         assert_eq!(codes, ["TYPE_CALL_ARITY_MISMATCH"]);
     }
 
@@ -3993,6 +4001,7 @@ mod tests {
             &hir_from(
                 "FUNC g(a AS Integer, b AS String = \"x\") AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(\"no\")\nEND FUNC\n",
             ),
+            &[],
             &[],
             &HashMap::new(),
             &[],
@@ -4021,6 +4030,7 @@ mod tests {
             &hir_from(
                 "IMPORT math\nFUNC main AS Integer\n  LET p = math::pow(\"a\", 2)\n  RETURN 0\nEND FUNC\n",
             ),
+            &[],
             &[],
             &HashMap::new(),
             &[],
@@ -4056,6 +4066,7 @@ mod tests {
             &hir_from(
                 "IMPORT thread\nFUNC main AS Integer\n  LET t = thread::start(main, \"x\", 1, 1)\n  RETURN 0\nEND FUNC\n",
             ),
+            &[],
             &[],
             &HashMap::new(),
             &[],
@@ -4093,6 +4104,7 @@ mod tests {
                  END FUNC\n",
             ),
             &[],
+            &[],
             &HashMap::new(),
             &[],
         );
@@ -4121,6 +4133,7 @@ mod tests {
                  END FUNC\n",
             ),
             &[],
+            &[],
             &HashMap::new(),
             &[],
         );
@@ -4140,6 +4153,7 @@ mod tests {
             &hir_from(
                 "IMPORT term\nFUNC show(a AS AttributedString) AS Integer\n  term::drawText(1, 1, a)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
             ),
+            &[],
             &[],
             &HashMap::new(),
             &[],
@@ -4238,7 +4252,7 @@ mod tests {
             name: "t".into(),
             files: vec![file],
         });
-        let diagnostics = collect_diagnostics(&dir, &hir, &[], &HashMap::new(), &[]);
+        let diagnostics = collect_diagnostics(&dir, &hir, &[], &[], &HashMap::new(), &[]);
         let _ = std::fs::remove_dir_all(&dir);
         let details: Vec<_> = diagnostics
             .iter()
@@ -4261,7 +4275,7 @@ mod tests {
     fn package_type_validation_arms() {
         let src = "ENUM Color\n  Red, Green\nEND ENUM\nTYPE Point\n  x AS Integer\nEND TYPE\nUNION Shape\n  Point\nEND UNION\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let hir = hir_from(src);
-        let facts = lower::lower_facts(&hir, &HashMap::new(), &[]);
+        let facts = lower::lower_facts(&hir, &HashMap::new(), &[], &[]);
         let no_imports = HashMap::new();
         let mut walker = Walker::new(Path::new("/proj"), &facts, &hir, &[], &no_imports, &[]);
         let pkg = Path::new("packages/fake.mfp");
@@ -4398,6 +4412,7 @@ mod tests {
             Path::new("/proj"),
             &hir_from(&src),
             &[],
+            &[],
             &HashMap::new(),
             &[],
         );
@@ -4428,6 +4443,7 @@ mod tests {
                 Path::new("/proj"),
                 &hir_from(&describe(malformed)),
                 &[],
+                &[],
                 &HashMap::new(),
                 &[],
             );
@@ -4447,6 +4463,7 @@ mod tests {
         let diagnostics = collect_diagnostics(
             Path::new("/proj"),
             &hir_from(src),
+            &[],
             &[],
             &HashMap::new(),
             &[],
@@ -4482,6 +4499,7 @@ mod tests {
         let diagnostics = collect_diagnostics(
             Path::new("/proj"),
             &hir_from(src),
+            &[],
             &[],
             &HashMap::new(),
             &[],
@@ -4561,6 +4579,7 @@ mod tests {
         let diagnostics = collect_diagnostics(
             Path::new("/proj"),
             &hir_from(&tcase("  expectTrap()")),
+            &[],
             &[],
             &HashMap::new(),
             &[],
@@ -4664,6 +4683,7 @@ mod tests {
             Path::new("/proj"),
             &hir_from("FUNC main AS Integer\n  EXIT FUNC\n  LET a = 1\n  RETURN a\nEND FUNC\n"),
             &[],
+            &[],
             &HashMap::new(),
             &[],
         );
@@ -4691,6 +4711,7 @@ mod tests {
                 "FUNC f(v AS Integer) AS Integer\n  RETURN v\nEND FUNC\nFUNC main AS Integer\n  FOR i = 1 TO 3\n    LET a = f(i) TRAP(e)\n      EXIT FOR\n      RECOVER 0\n      PROPAGATE\n    END TRAP\n  NEXT\n  FOR j = 1 TO 3\n    CONTINUE FOR\n    LET dead = 1\n  NEXT\n  RETURN 0\nEND FUNC\n",
             ),
             &[],
+            &[],
             &HashMap::new(),
             &[],
         );
@@ -4713,6 +4734,7 @@ mod tests {
                 "FUNC f(v AS Integer) AS Integer\n  RETURN v\nEND FUNC\nSUB g()\n  EXIT SUB\nEND SUB\nFUNC main AS Integer\n  LET a = f(1) TRAP(e)\n    RECOVER\n  END TRAP\n  g() TRAP(e)\n    RECOVER 2\n  END TRAP\n  RECOVER 1\n  RETURN a\nEND FUNC\n",
             ),
             &[],
+            &[],
             &HashMap::new(),
             &[],
         );
@@ -4734,6 +4756,7 @@ mod tests {
             &hir_from(
                 "IMPORT io\nFUNC f(v AS Integer) AS Integer\n  RETURN v\nEND FUNC\nFUNC main AS Integer\n  LET a = f(1) TRAP(e)\n    io::print(e.message)\n  END TRAP\n  LET b = f(2) TRAP(e)\n    IF a > 0 THEN\n      RECOVER 0\n    END IF\n  END TRAP\n  LET c = f(3) TRAP(e)\n    IF a > 0 THEN\n      RECOVER 0\n    ELSE\n      RETURN 1\n    END IF\n  END TRAP\n  RETURN a + b + c\nEND FUNC\n",
             ),
+            &[],
             &[],
             &HashMap::new(),
             &[],
@@ -4759,7 +4782,7 @@ mod tests {
             &hir_from(
                 "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(z := g(y := 1))\nEND FUNC\n",
             ),
-            &[], &HashMap::new(),
+            &[], &[], &HashMap::new(),
             &[],
         );
         let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
@@ -4793,6 +4816,7 @@ mod tests {
         collect_diagnostics(
             Path::new("/proj"),
             &hir_from(src),
+            &[],
             &[],
             &HashMap::new(),
             &[],

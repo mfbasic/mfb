@@ -40,13 +40,14 @@ pub(crate) fn find_last_index_fast_path(
 impl CodeBuilder<'_> {
     /// plan-86 A3: native `collections::findLastIndex` for a **String** item list
     /// (`#collections_findLastIndex$String`), a reverse predicate scan returning the
-    /// last matching index. The 2-arg source form is padded to 3 (the default
-    /// `endIndex = -1`), so this always sees the `(list, predicate, endIndex)` shape
-    /// and reproduces the interpreted `__collections_findLastIndex` body exactly:
-    ///   * `endIndex` normalizes negatives as `endIndex + len` (so the default `-1`
-    ///     means "from the last element"),
-    ///   * an out-of-range start (`e < 0 || e >= len`, which also covers an EMPTY
-    ///     list under the default) traps bounds `77050001`,
+    /// last matching index. Only the THREE-argument form reaches here: the two-argument
+    /// form is its own member body (`__collections_findLastIndexFromEnd`), which calls
+    /// this one with `len(value) - 1`. It reproduces the interpreted
+    /// `__collections_findLastIndex` body exactly:
+    ///   * an out-of-range start (`e < 0 || e >= len`) traps bounds `77050001` — a
+    ///     NEGATIVE start is out of range like every other index parameter (bug-527),
+    ///     not an offset from the end, and an EMPTY list is covered by it because the
+    ///     two-argument form hands this one `-1`,
     ///   * scanning from `e` down to `0` with no match traps not-found `77050004`,
     ///   * otherwise returns the highest matching index.
     /// String items are read through `load_collection_loop_item` (materializes an
@@ -104,12 +105,10 @@ impl CodeBuilder<'_> {
         let match_label = self.label("findlast_match");
         let bounds_label = self.label("findlast_bounds");
         let not_found_label = self.label("findlast_not_found");
-        let e_nonneg = self.label("findlast_e_nonneg");
 
-        // Normalize `endIndex`, bounds-check the start, and seat the reverse cursor
-        // at index `e` with `remaining = e + 1` (twin of
-        // `initialize_collection_loop_slots_reverse`, but starting at `e` not
-        // `count - 1`).
+        // Bounds-check the start and seat the reverse cursor at index `e` with
+        // `remaining = e + 1` (twin of `initialize_collection_loop_slots_reverse`, but
+        // starting at `e` not `count - 1`).
         let stride = kind2_payload_size(&element_type).unwrap_or(COLLECTION_ENTRY_SIZE);
         let coll = self.temporary_vreg();
         let count = self.temporary_vreg();
@@ -120,10 +119,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&coll, abi::stack_pointer(), collection_slot));
         self.emit(abi::load_u64(&count, &coll, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(&e, abi::stack_pointer(), end_slot));
-        self.emit(abi::compare_immediate(&e, "0"));
-        self.emit(abi::branch_ge(&e_nonneg));
-        self.emit(abi::add_registers(&e, &e, &count));
-        self.emit(abi::label(&e_nonneg));
         self.emit(abi::compare_immediate(&e, "0"));
         self.emit(abi::branch_lt(&bounds_label));
         self.emit(abi::compare_registers(&e, &count));
@@ -213,36 +208,33 @@ const INTRO: &str =
     r#"Index of the last element at or before an end position that satisfies a predicate"#;
 
 const DESC: &str = r#"`collections::findLastIndex` scans `value` **backward**, beginning at the
-element selected by `endIndex` and decreasing by one down to index `0`, calling
+element selected by `start` and decreasing by one down to index `0`, calling
 `predicate` with each element. It returns the zero-based index of the first
 element (in that backward order) for which `predicate` returns `TRUE` — that is,
-the last matching element at or before `endIndex`. The scan short-circuits at
+the last matching element at or before `start`. The scan short-circuits at
 that element: no lower index is examined. When the scan passes index `0` without
 a match, the call raises `ErrNotFound` (`77050004`) rather than returning a
 sentinel index.
 
-The third parameter is named `endIndex`. It is resolved in two steps, and the
-order matters:
+`start` is optional and there are two forms, which differ only in where the
+scan begins:
 
-1. **Negative resolution.** A negative `endIndex` counts from the end of the
-   list: the effective index becomes `len(value) + endIndex`. The default of
-   `-1` therefore selects the last element, so the common call form scans the
-   whole list from its end. A non-negative `endIndex` is used as written.
-2. **Range check.** *After* resolution, the call raises `ErrIndexOutOfRange`
-   (`77050001`) when the resolved index is less than `0` or greater than or
-   equal to `len(value)`.
+- **Omit it** and the scan begins at the last element, `len(value) - 1`, so the
+  whole list is searched. This is the common form.
+- **Supply it** and the scan begins exactly there. `start` is a plain
+  zero-based index: it must satisfy `0 <= start < len(value)` or the call
+  raises `ErrIndexOutOfRange` (`77050001`).
 
-Because the range check runs on the resolved index, the upper bound is
-`len(value) - 1`, not `len(value)`. This is deliberately asymmetric with
-`collections::findIndex`, whose `start` may equal `len(value)` and whose
-negative values are rejected instead of resolved.
+A **negative** `start` is out of range, exactly as it is for
+`collections::findIndex`, `collections::mid` and `strings::find`. It is not an
+offset from the end of the list; `-1` does not mean the last element. Omitting
+the argument is how you ask for the last element.
 
 One consequence is worth stating explicitly: on an **empty** list `len(value)`
-is `0`, so every `endIndex` resolves outside `0 .. -1` and is rejected. The
-default `-1` resolves to `-1`, which fails the range check. `findLastIndex` on
-an empty list therefore raises `ErrIndexOutOfRange` (`77050001`), **not**
-`ErrNotFound`. A caller that treats "no match" and "empty input" alike must
-handle both codes.
+is `0`, so no index is in range and the omitted form has no last element to
+begin at. `findLastIndex` on an empty list therefore raises
+`ErrIndexOutOfRange` (`77050001`), **not** `ErrNotFound`. A caller that treats
+"no match" and "empty input" alike must handle both codes.
 
 `predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
 `FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
@@ -255,7 +247,7 @@ non-escaping is `collections::forEach`, not `findLastIndex`.It does not mutate `
 `findLastIndex` imposes no comparability or orderability constraint on `T`,
 because elements are never compared to one another — they are only passed to
 `predicate`. The second argument must be a function value taking exactly one `T`
-and returning `Boolean`, and `endIndex`, when supplied, must be an `Integer`."#;
+and returning `Boolean`, and `start`, when supplied, must be an `Integer`."#;
 
 const EX: &str = r#"Find the last positive element:
 
@@ -273,7 +265,7 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Limit the backward scan with an explicit `endIndex`:
+Limit the backward scan with an explicit `start`:
 
 ```
 IMPORT io
@@ -290,7 +282,9 @@ FUNC main AS Integer
 END FUNC
 ```
 
-The parameter is named `endIndex`, so this is the named-argument spelling:
+The parameter is named `start`, so this is the named-argument spelling. A
+negative index is out of range, so ask for the second element from the end by
+its index rather than by `-2`:
 
 ```
 IMPORT io
@@ -301,7 +295,8 @@ FUNC isPos(n AS Integer) AS Boolean
 END FUNC
 
 FUNC main AS Integer
-  io::print(toString(collections::findLastIndex([5, 0, 7], isPos, endIndex := -2)))
+  LET nums AS List OF Integer = [5, 0, 7]
+  io::print(toString(collections::findLastIndex(nums, isPos, start := len(nums) - 2)))
   RETURN 0
 END FUNC
 ```
@@ -334,15 +329,11 @@ END FUNC
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, endIndex AS Integer = -1) AS Integer
-  MUT e AS Integer = endIndex
-  IF e < 0 THEN
-    e = len(value) + e
-  END IF
-  IF e < 0 OR e >= len(value) THEN
+r#"FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, start AS Integer) AS Integer
+  IF start < 0 OR start >= len(value) THEN
     FAIL error(77050001, "List or string index/range is outside valid bounds.")
   END IF
-  MUT i AS Integer = e
+  MUT i AS Integer = start
   WHILE i >= 0
     IF predicate(collections::get(value, i)) THEN
       RETURN i
@@ -352,46 +343,83 @@ r#"FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T
   FAIL error(77050004, "Requested item, key, file, or resource was not found.")
 END FUNC"#;
 
+/// The two-argument form's own body (bug-527).
+///
+/// `start` used to default to `-1` and the body resolved a negative index as
+/// `len(value) + start`. That made `findLastIndex` the one index parameter on the
+/// surface that answered a negative argument with a success instead of
+/// `ErrIndexOutOfRange`, and it was reachable by writing `-1` explicitly, not only by
+/// omitting the argument. Dropping the default means "scan from the end" can no
+/// longer be spelled as a value, so it is spelled by ARITY: omitting the argument
+/// selects this body, which starts the scan at `len(value) - 1`. An empty list yields
+/// `-1` there, so the three-argument body raises `ErrIndexOutOfRange` for it exactly
+/// as the old default did.
+#[rustfmt::skip]
+const BODY_FROM_END: &str =
+r#"FUNC __collections_findLastIndexFromEnd OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Integer
+  RETURN __collections_findLastIndex(value, predicate, len(value) - 1)
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
     use crate::codegen::registry::{
         Body, DefaultValue, Implementation, Parameter, RegistryFunction,
     };
     use crate::types::ParameterType;
 
+    // The two forms are separate implementations rather than one implementation with
+    // a defaulted trailing parameter: a default is a VALUE the call site injects, and
+    // no Integer value can mean "the last element" without also being writable by a
+    // caller — which is the `-1` the negative-index rule removed (bug-527). Arity is
+    // the only signal that distinguishes them, and `rewrite_target_for_arity` routes
+    // on it.
+    let value = |desc| Parameter {
+        name: "value",
+        desc,
+        aliases: &[],
+        ty: ParameterType::list_of(ParameterType::var("T")),
+        default: DefaultValue::None,
+    };
+    let predicate = Parameter {
+        name: "predicate",
+        desc: "Test applied to each element from the starting position downward; the scan stops at the first call returning `TRUE`. An error it raises propagates to the caller.",
+        aliases: &[],
+        ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::Boolean),
+        default: DefaultValue::None,
+    };
+
     pkg.add_function(RegistryFunction {
         name: "findLastIndex",
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("List OF T, FUNC(T) AS Boolean, Integer"),
+        expected_arguments: Some("List OF T, FUNC(T) AS Boolean[, Integer]"),
         internal_only: false,
-        implementations: vec![Implementation {
-            params: vec![
-                Parameter {
-                    name: "value",
-                    desc: "The list to scan. Not modified. An empty list always raises `ErrIndexOutOfRange`.",
-                    aliases: &[],
-                    ty: ParameterType::list_of(ParameterType::var("T")),
-                    default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "predicate",
-                    desc: "Test applied to each element from the resolved end position downward; the scan stops at the first call returning `TRUE`. An error it raises propagates to the caller.",
-                    aliases: &[],
-                    ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::Boolean),
-                    default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "endIndex",
-                    desc: "Zero-based index at which the backward scan begins. Optional, default `-1`. A negative value is resolved as `len(value) + endIndex`, so `-1` is the last element and `-len(value)` is the first; after resolution the index must satisfy `0 <= index < len(value)`.",
-                    aliases: &[],
-                    ty: ParameterType::Integer,
-                    default: DefaultValue::Fill { type_name: ParameterType::Integer, expr: "-1" },
-                },
-            ],
-            return_type: ParameterType::Integer,
-            errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
-            body: Body::mfb_with_fast_path(BODY, "__collections_findLastIndex", find_last_index_fast_path),
-        }],
+        implementations: vec![
+            Implementation {
+                params: vec![
+                    value("The list to scan. Not modified. An empty list always raises `ErrIndexOutOfRange`, because it has no last element to begin at."),
+                    predicate.clone(),
+                ],
+                return_type: ParameterType::Integer,
+                errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
+                body: Body::mfb(BODY_FROM_END, "__collections_findLastIndexFromEnd"),
+            },
+            Implementation {
+                params: vec![
+                    value("The list to scan. Not modified. An empty list always raises `ErrIndexOutOfRange`."),
+                    predicate,
+                    Parameter {
+                        name: "start",
+                        desc: "Zero-based index at which the backward scan begins. Optional; omit it to begin at the last element. Must satisfy `0 <= start < len(value)` — a negative value is out of range, **not** an offset from the end.",
+                        aliases: &[],
+                        ty: ParameterType::Integer,
+                        default: DefaultValue::None,
+                    },
+                ],
+                return_type: ParameterType::Integer,
+                errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
+                body: Body::mfb_with_fast_path(BODY, "__collections_findLastIndex", find_last_index_fast_path),
+            },
+        ],
     });
 }

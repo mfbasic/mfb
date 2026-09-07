@@ -1,0 +1,11 @@
+# A leading comment.
+a: 1 # a trailing comment
+
+# A comment between entries.
+b: 2
+
+nested:
+  # A comment inside a block.
+  c: 3
+  # ...and another.
+  d: 4

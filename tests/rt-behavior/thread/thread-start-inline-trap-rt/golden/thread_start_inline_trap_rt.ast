@@ -1,0 +1,191 @@
+{
+  "project": "thread_start_inline_trap_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 },
+    { "module": "thread", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "spin",
+      "line": 30,
+      "params": [
+      { "name": "t", "type": "ThreadWorker OF String TO Integer", "default": null, "line": 30 },
+      { "name": "n", "type": "Integer", "default": null, "line": 30 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 31 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "resWorker",
+      "line": 34,
+      "params": [
+      { "name": "t", "type": "ThreadWorker OF RES fs.File TO Integer", "default": null, "line": 34 },
+      { "name": "n", "type": "Integer", "default": null, "line": 34 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 35 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "msgResWorker",
+      "line": 38,
+      "params": [
+      { "name": "t", "type": "ThreadWorker OF String RES fs.File TO Integer", "default": null, "line": 38 },
+      { "name": "n", "type": "Integer", "default": null, "line": 38 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 39 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "closedAnswers",
+      "line": 43,
+      "params": [
+      { "name": "tag", "type": "String", "default": null, "line": 43 },
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null, "line": 43 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 44,
+        "expression": { "kind": "call", "callee": "thread.cancel", "arguments": [{ "kind": "identifier", "value": "t" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "tag" }, "right": { "kind": "string", "value": "-cancel=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 45 },
+        { "kind": "binding", "mutable": false, "name": "running", "type": "Boolean", "value": {
+          "kind": "trapped",
+          "binding": "e2",
+          "line": 46,
+          "expression": { "kind": "call", "callee": "thread.isRunning", "arguments": [{ "kind": "identifier", "value": "t" }] },
+          "handler": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "tag" }, "right": { "kind": "string", "value": "-isRunning=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e2" }, "member": "code" }] } }] }, "line": 47 },
+          { "kind": "binding", "mutable": false, "name": "ready", "type": "Boolean", "value": {
+            "kind": "trapped",
+            "binding": "e3",
+            "line": 48,
+            "expression": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "0" }] },
+            "handler": [
+            { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "tag" }, "right": { "kind": "string", "value": "-poll=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e3" }, "member": "code" }] } }] }, "line": 49 },
+            { "kind": "binding", "mutable": false, "name": "again", "type": "Integer", "value": {
+              "kind": "trapped",
+              "binding": "e4",
+              "line": 50,
+              "expression": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] },
+              "handler": [
+              { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "tag" }, "right": { "kind": "string", "value": "-waitFor=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e4" }, "member": "code" }] } }] }, "line": 51 },
+              { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 52 }
+              ]
+            }, "line": 50 },
+            { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "tag" }, "right": { "kind": "string", "value": "-waitFor=NOTRAISED" } }] }, "line": 54 },
+            { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 55 }
+            ]
+          }, "line": 48 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "tag" }, "right": { "kind": "string", "value": "-poll=NOTRAISED" } }] }, "line": 57 },
+          { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 58 }
+          ]
+        }, "line": 46 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "tag" }, "right": { "kind": "string", "value": "-isRunning=NOTRAISED" } }] }, "line": 60 },
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 61 }
+        ]
+      }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "tag" }, "right": { "kind": "string", "value": "-cancel=NOTRAISED" } }] }, "line": 63 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 64 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "startViaFunctionTrap",
+      "line": 71,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "spin" }, { "kind": "number", "value": "7" }] }, "line": 72 },
+      { "kind": "return", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 73 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 74,
+      "body": [
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 75 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 79,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fnLevel=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "startViaFunctionTrap", "arguments": [] }] } }] }, "line": 81 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 84,
+        "expression": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "spin" }, { "kind": "number", "value": "7" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "inline-start=failed" }] }, "line": 85 },
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 86 }
+        ]
+      }, "line": 84 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "inline-result=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }] } }] }, "line": 88 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "closedAnswers", "arguments": [{ "kind": "string", "value": "inline" }, { "kind": "identifier", "value": "t" }] }, "line": 89 },
+      { "kind": "binding", "mutable": false, "name": "u", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "spin" }, { "kind": "number", "value": "7" }] }, "line": 93 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "plain-result=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "u" }] }] } }] }, "line": 94 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "closedAnswers", "arguments": [{ "kind": "string", "value": "plain" }, { "kind": "identifier", "value": "u" }] }, "line": 95 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Thread OF RES fs.File TO Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 99,
+        "expression": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "resWorker" }, { "kind": "number", "value": "1" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "res=failed" }] }, "line": 100 },
+        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 101 }
+        ]
+      }, "line": 99 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "res=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "r" }] }] } }] }, "line": 103 },
+      { "kind": "binding", "mutable": false, "name": "m", "type": "Thread OF String RES fs.File TO Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 105,
+        "expression": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "msgResWorker" }, { "kind": "number", "value": "2" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "msgres=failed" }] }, "line": 106 },
+        { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 107 }
+        ]
+      }, "line": 105 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "msgres=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "m" }] }] } }] }, "line": 109 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 110 }
+      ]
+    }
+    ]
+  }
+  ]
+}

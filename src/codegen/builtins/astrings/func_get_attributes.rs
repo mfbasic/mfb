@@ -51,7 +51,7 @@ r#"FUNC __astrings_getAttributes(a AS AttributedString, index AS Integer) AS Lis
   LET spans AS List OF AttrSpan = astrings::readSpans(a)
   MUT covering AS List OF AttrSpan = []
   FOR EACH s IN spans
-    IF s.start <= index AND index <= s.last THEN
+    IF s.start <= index AND index <= s.endIndex THEN
       covering = collections::append(covering, s)
     END IF
   NEXT

@@ -17,7 +17,7 @@
 //! (both pure MFB, so no `AbiFunction`-symbol collision). `aad` is a trailing
 //! optional parameter filling to the empty byte list. The construction is proven
 //! against RFC 9180's Appendix A vectors and both-ways against an independent
-//! implementation in `tests/rt_crypto_hpke_interop.rs`.
+//! implementation in `tests/interop/rt_crypto_hpke_interop.rs`.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

@@ -2164,11 +2164,11 @@
     "kind": "func",
     "params": [
     { "name": "start", "line": 805, "type": "datetime.Instant", "default": null },
-    { "name": "finish", "line": 805, "type": "datetime.Instant", "default": null }
+    { "name": "endTime", "line": 805, "type": "datetime.Instant", "default": null }
     ],
     "returns": "datetime.Duration",
     "body": [
-    { "op": "return", "line": 806, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "finish" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "start" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "finish" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "start" }, "member": "nanos" } }] } }
+    { "op": "return", "line": 806, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "endTime" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "start" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "endTime" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "start" }, "member": "nanos" } }] } }
     ]
   },
   {

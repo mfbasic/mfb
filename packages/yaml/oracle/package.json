@@ -1,0 +1,15 @@
+{
+  "name": "mfb-yaml-oracle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Differential oracle for packages/yaml: reads the same YAML with eemeli/yaml, a YAML 1.2 implementation, and compares.",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "oracle": "node oracle.mjs",
+    "diff": "node diff.mjs"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  }
+}

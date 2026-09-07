@@ -198,6 +198,11 @@ fn patch_relocations(
         got_entries: &import_locations.got_entries,
         label: "linux-aarch64 linker",
     };
+    // bug-552: built once, before the loop. Resolving each RISC-V `lo12` by
+    // scanning `image.relocations` backwards made linking O(R²); a large
+    // single-function project spent 306.8 s linking where the relaxation pass
+    // and the encoder spent 1.6 s and 4.3 s.
+    let hi_index = HiRelocIndex::build(&image.relocations);
     for relocation in &image.relocations {
         if patch_aarch64_reloc(text, relocation, &aarch64)? {
             continue;
@@ -287,8 +292,7 @@ fn patch_relocations(
             }
             "data" if relocation.kind == "riscv_pcrel_lo12" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
-                let auipc_offset =
-                    paired_auipc_offset(&image.relocations, relocation, "riscv_pcrel_hi20")?;
+                let auipc_offset = hi_index.paired_auipc_offset(relocation, "riscv_pcrel_hi20")?;
                 let auipc_site = text_vmaddr + auipc_offset as u64;
                 let (_, lo12) = riscv_hi_lo(target as i64 - auipc_site as i64)?;
                 patch_riscv_itype_imm(text, relocation.offset, lo12)?;
@@ -316,8 +320,7 @@ fn patch_relocations(
                         relocation.library.as_deref().unwrap_or("<unknown library>")
                     ));
                 };
-                let auipc_offset =
-                    paired_auipc_offset(&image.relocations, relocation, "riscv_got_hi20")?;
+                let auipc_offset = hi_index.paired_auipc_offset(relocation, "riscv_got_hi20")?;
                 let auipc_site = text_vmaddr + auipc_offset as u64;
                 let (_, lo12) = riscv_hi_lo(slot as i64 - auipc_site as i64)?;
                 patch_riscv_itype_imm(text, relocation.offset, lo12)?;
@@ -377,22 +380,60 @@ fn append_import_stubs(
 /// lo12 under pressure (e.g. two inlined SIMD math kernels in one function),
 /// inserting stack traffic in the gap. So the lo12's base is the nearest
 /// *preceding* `hi` relocation to the same target, not a hard-coded `offset - 4`.
-fn paired_auipc_offset(
-    relocations: &[EncodedRelocation],
-    lo: &EncodedRelocation,
-    hi_kind: &str,
-) -> Result<usize, String> {
-    relocations
-        .iter()
-        .filter(|r| r.kind == hi_kind && r.target == lo.target && r.offset < lo.offset)
-        .map(|r| r.offset)
-        .max()
-        .ok_or_else(|| {
-            format!(
-                "linux-riscv64 linker: {} at {:#x} for '{}' has no paired {}",
-                lo.kind, lo.offset, lo.target, hi_kind
-            )
-        })
+///
+/// bug-552: the answer is looked up in a [`HiRelocIndex`] built once per link,
+/// not by re-scanning `image.relocations`. The scan was O(R) per `lo12` and
+/// therefore O(R²) per link — 60.7× for a 5× input while the relaxation pass
+/// and the encoder measured 5.1× and 6.3×. The pairing RULE is unchanged: still
+/// the nearest *preceding* `hi` relocation of the same kind to the same target,
+/// so the linked image is byte-identical.
+struct HiRelocIndex<'a> {
+    /// `(hi kind, target) -> ascending offsets`. Only `*_hi20` kinds are
+    /// indexed; every other relocation is irrelevant to the pairing.
+    by_target: std::collections::HashMap<(&'a str, &'a str), Vec<usize>>,
+}
+
+impl<'a> HiRelocIndex<'a> {
+    fn build(relocations: &'a [EncodedRelocation]) -> Self {
+        let mut by_target: std::collections::HashMap<(&'a str, &'a str), Vec<usize>> =
+            std::collections::HashMap::new();
+        for relocation in relocations {
+            if relocation.kind == "riscv_pcrel_hi20" || relocation.kind == "riscv_got_hi20" {
+                by_target
+                    .entry((relocation.kind.as_str(), relocation.target.as_str()))
+                    .or_default()
+                    .push(relocation.offset);
+            }
+        }
+        // The encoder emits relocations in offset order today, but the binary
+        // search below must not depend on that: sorting is what makes it correct
+        // whatever order they arrive in. This is also the only place order
+        // matters — the map itself never decides emission order, so it cannot
+        // make codegen non-deterministic.
+        for offsets in by_target.values_mut() {
+            offsets.sort_unstable();
+        }
+        Self { by_target }
+    }
+
+    /// The nearest `hi_kind` relocation to `lo`'s target that lies strictly
+    /// before it, or an error when there is none. Exactly the predicate the
+    /// backward scan computed: `max { offset | kind == hi_kind && target ==
+    /// lo.target && offset < lo.offset }`.
+    fn paired_auipc_offset(&self, lo: &EncodedRelocation, hi_kind: &str) -> Result<usize, String> {
+        self.by_target
+            .get(&(hi_kind, lo.target.as_str()))
+            .and_then(|offsets| {
+                let below = offsets.partition_point(|&offset| offset < lo.offset);
+                below.checked_sub(1).map(|last| offsets[last])
+            })
+            .ok_or_else(|| {
+                format!(
+                    "linux-riscv64 linker: {} at {:#x} for '{}' has no paired {}",
+                    lo.kind, lo.offset, lo.target, hi_kind
+                )
+            })
+    }
 }
 
 /// The RISC-V high/low split of a PC-relative displacement: `auipc` materializes

@@ -1,0 +1,551 @@
+' ---------------------------------------------------------------------------
+' json_schema/ecma.mfb — translate an ECMA-262 regular expression into the
+' MFBASIC regex dialect, or refuse it.
+'
+' JSON Schema's `pattern` and `patternProperties` are defined against the
+' ECMA-262 regular-expression grammar, and Draft 2020-12 says a pattern SHOULD
+' be written in the subset every implementation shares. The `regex` package has
+' a portable dialect of its OWN (`mfb spec stdlib regex`), which is close to
+' ECMA-262 but not identical -- \d is Unicode Nd rather than [0-9], \a is BEL
+' rather than an identity escape, `.` excludes only \n, and [] is a parse error
+' rather than an empty class. Handing a schema author's pattern straight to
+' `regex::match` would therefore accept it and quietly mean something else.
+'
+' So it is translated instead. Every construct whose ECMA-262 meaning can be
+' written exactly in the MFBASIC dialect is rewritten into that spelling, and
+' every construct whose meaning cannot be is REFUSED at compile time. Nothing
+' is passed through on the hope that the two dialects agree.
+'
+' The reference is ECMA-262 with the `u` flag, which is the mode ajv and every
+' other current validator compiles a `pattern` in: identity escapes are limited
+' to the syntax characters, a lone `}` or `]` is a syntax error rather than a
+' literal, and matching is over code points rather than UTF-16 code units --
+' the last of which MFBASIC's scalar model already gives for free.
+'
+' One documented divergence survives translation: \b and \B. ECMA-262 defines a
+' word character as [A-Za-z0-9_], while the MFBASIC engine's word test is
+' Unicode-aware, and a word boundary cannot be expressed without lookaround.
+' The two agree on any text whose word characters are ASCII and differ on text
+' where they are not. See README.md.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' The ECMA-262 WhiteSpace + LineTerminator set that `\s` names, written as
+' MFBASIC class items so it can be spliced into either a bare class (for `\s`)
+' or a negated one (for `\S`) or another class's body (for `[...\s...]`).
+PRIVATE LET WS_ITEMS AS String = "\\f\\n\\r\\t\\v \\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}\\x{feff}"
+
+' ECMA-262 `.` without the `s` flag: any code point except the four line
+' terminators. The MFBASIC `.` excludes \n alone, so it is never used.
+PRIVATE LET DOT_CLASS AS String = "[^\\n\\r\\x{2028}\\x{2029}]"
+
+' The whole code-point space, as a range between two rangeable endpoints. `[]`
+' matches nothing in ECMA-262 and `[^]` matches everything; the MFBASIC parser
+' rejects an empty class outright, so both are written out in full.
+PRIVATE LET ALL_ITEMS AS String = "\\x{0}-\\x{10ffff}"
+
+' One translated fragment plus the index just past what it consumed.
+PRIVATE TYPE Chunk
+  text AS String
+  nxt AS Integer
+END TYPE
+
+' Decompose text into one-scalar strings, which is the form the MFBASIC regex
+' engine's own parser works in and the form that makes every comparison below
+' an ordinary string equality.
+PRIVATE FUNC scalarStrings(text AS String) AS List OF String
+  MUT out AS List OF String = []
+  FOR EACH code IN strings::toScalars(text)
+    out = collections::append(out, toString(code))
+  NEXT
+  RETURN out
+END FUNC
+
+' Lowercase hexadecimal, no padding and no prefix.
+PRIVATE FUNC hex(value AS Integer) AS String
+  IF value = 0 THEN RETURN "0"
+  LET digits AS String = "0123456789abcdef"
+  MUT rest AS Integer = value
+  MUT out AS String = ""
+  WHILE rest > 0
+    out = strings::mid(digits, rest MOD 16, 1) & out
+    rest = rest / 16
+  END WHILE
+  RETURN out
+END FUNC
+
+' The value of one hexadecimal digit, or -1 when `ch` is not one.
+PRIVATE FUNC hexValue(ch AS String) AS Integer
+  LET code AS Integer = toInt(toScalar(ch))
+  IF code >= 48 AND code <= 57 THEN RETURN code - 48
+  IF code >= 97 AND code <= 102 THEN RETURN code - 87
+  IF code >= 65 AND code <= 70 THEN RETURN code - 55
+  RETURN -1
+END FUNC
+
+' TRUE when `ch` is an ASCII decimal digit.
+PRIVATE FUNC isDigitStr(ch AS String) AS Boolean
+  LET code AS Integer = toInt(toScalar(ch))
+  RETURN code >= 48 AND code <= 57
+END FUNC
+
+' TRUE when `ch` is an ASCII letter.
+PRIVATE FUNC isAlphaStr(ch AS String) AS Boolean
+  LET code AS Integer = toInt(toScalar(ch))
+  IF code >= 65 AND code <= 90 THEN RETURN TRUE
+  RETURN code >= 97 AND code <= 122
+END FUNC
+
+' TRUE when `ch` is an ECMA-262 SyntaxCharacter, the set an identity escape may
+' name under the `u` flag (plus "/", which the specification allows so a
+' pattern can be written between slashes).
+PRIVATE FUNC isSyntaxChar(ch AS String) AS Boolean
+  IF ch = "^" OR ch = "$" OR ch = "\\" OR ch = "." OR ch = "*" THEN RETURN TRUE
+  IF ch = "+" OR ch = "?" OR ch = "(" OR ch = ")" OR ch = "[" THEN RETURN TRUE
+  IF ch = "]" OR ch = "{" OR ch = "}" OR ch = "|" OR ch = "/" THEN RETURN TRUE
+  RETURN FALSE
+END FUNC
+
+' A code point as an MFBASIC `\x{...}` escape. Every use site wants a rangeable
+' class endpoint or a literal atom, and the braced form is both.
+PRIVATE FUNC codeEscape(code AS Integer) AS String
+  RETURN "\\x{" & hex(code) & "}"
+END FUNC
+
+' The two refusals, as Error VALUES rather than as diverging calls: a helper
+' that always fails still returns to its caller as far as the type checker is
+' concerned, so `FAIL badPattern(...)` is what makes each refusal a terminating
+' statement on its own path.
+PRIVATE FUNC badPattern(pattern AS String, detail AS String) AS Error
+  RETURN error(ERR_SCHEMA, "json_schema: `" & pattern & "` is not a valid ECMA-262 regular expression: " & detail)
+END FUNC
+
+PRIVATE FUNC unsupportedPattern(pattern AS String, detail AS String) AS Error
+  RETURN error(ERR_UNSUPPORTED, "json_schema: the pattern `" & pattern & "` uses " & detail & ", which this validator cannot evaluate with matching ECMA-262 semantics")
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Escapes.
+' ---------------------------------------------------------------------------
+
+' Read a run of `count` hexadecimal digits starting at `at`, or -1 when there
+' are not that many.
+PRIVATE FUNC readHex(pat AS List OF String, n AS Integer, at AS Integer, count AS Integer) AS Integer
+  IF at + count > n THEN RETURN -1
+  MUT value AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < count
+    LET digit AS Integer = hexValue(collections::get(pat, at + i))
+    IF digit < 0 THEN RETURN -1
+    value = value * 16 + digit
+    i = i + 1
+  END WHILE
+  RETURN value
+END FUNC
+
+' TRUE when `code` is a UTF-16 surrogate. A lone surrogate is a legal ECMA-262
+' pattern element but names no Unicode scalar, so no MFBASIC String can contain
+' one and no MFBASIC pattern can match one.
+PRIVATE FUNC isSurrogate(code AS Integer) AS Boolean
+  RETURN code >= 55296 AND code <= 57343
+END FUNC
+
+' Translate one literal escape -- the backslash at `at` and whatever it names --
+' into MFBASIC pattern text. Shorthands (\d \w \s and their negations),
+' assertions (\b \B) and property escapes are NOT handled here; the two callers
+' peel those off first, because their translation depends on whether the escape
+' is inside a character class.
+PRIVATE FUNC translateLiteralEscape(pattern AS String, pat AS List OF String, n AS Integer, at AS Integer) AS Chunk
+  IF at + 1 >= n THEN FAIL badPattern(pattern, "it ends with a trailing backslash")
+  LET e AS String = collections::get(pat, at + 1)
+
+  IF e = "n" OR e = "r" OR e = "t" OR e = "f" OR e = "v" THEN
+    RETURN Chunk["\\" & e, at + 2]
+  END IF
+
+  ' \0 is NUL, but only when no digit follows: \01 is a legacy octal escape,
+  ' which the `u` flag makes a syntax error rather than a character.
+  IF e = "0" THEN
+    IF at + 2 < n AND isDigitStr(collections::get(pat, at + 2)) THEN
+      FAIL badPattern(pattern, "\\0 may not be followed by a digit")
+    END IF
+    RETURN Chunk[codeEscape(0), at + 2]
+  END IF
+
+  IF isDigitStr(e) THEN
+    FAIL unsupportedPattern(pattern, "a backreference")
+  END IF
+
+  IF e = "x" THEN
+    LET code AS Integer = readHex(pat, n, at + 2, 2)
+    IF code < 0 THEN FAIL badPattern(pattern, "\\x must be followed by exactly two hexadecimal digits")
+    RETURN Chunk[codeEscape(code), at + 4]
+  END IF
+
+  IF e = "c" THEN
+    IF at + 2 >= n THEN FAIL badPattern(pattern, "\\c must be followed by a letter")
+    LET letter AS String = collections::get(pat, at + 2)
+    IF NOT isAlphaStr(letter) THEN FAIL badPattern(pattern, "\\c must be followed by a letter")
+    RETURN Chunk[codeEscape(toInt(toScalar(letter)) MOD 32), at + 3]
+  END IF
+
+  IF e = "u" THEN RETURN translateUnicodeEscape(pattern, pat, n, at)
+
+  ' Under the `u` flag an identity escape may only name a syntax character.
+  ' Everything else -- \a, \e, \A, \z, \q -- is a syntax error in ECMA-262 and
+  ' means something else again in the MFBASIC dialect, so it is refused rather
+  ' than passed through.
+  IF isSyntaxChar(e) THEN RETURN Chunk["\\" & e, at + 2]
+  FAIL badPattern(pattern, "`\\" & e & "` is not an escape")
+END FUNC
+
+' \uHHHH, a \uHHHH surrogate PAIR, or \u{H..H}.
+PRIVATE FUNC translateUnicodeEscape(pattern AS String, pat AS List OF String, n AS Integer, at AS Integer) AS Chunk
+  IF at + 2 < n AND collections::get(pat, at + 2) = "{" THEN
+    MUT i AS Integer = at + 3
+    MUT value AS Integer = 0
+    MUT digits AS Integer = 0
+    WHILE i < n AND collections::get(pat, i) <> "}"
+      LET digit AS Integer = hexValue(collections::get(pat, i))
+      IF digit < 0 THEN FAIL badPattern(pattern, "\\u{...} takes hexadecimal digits only")
+      value = value * 16 + digit
+      digits = digits + 1
+      IF value > 1114111 THEN FAIL badPattern(pattern, "\\u{...} names a value above U+10FFFF")
+      i = i + 1
+    END WHILE
+    IF i >= n OR digits = 0 THEN FAIL badPattern(pattern, "\\u{...} is unterminated or empty")
+    IF isSurrogate(value) THEN FAIL unsupportedPattern(pattern, "an escape naming a lone surrogate")
+    RETURN Chunk[codeEscape(value), i + 1]
+  END IF
+
+  LET first AS Integer = readHex(pat, n, at + 2, 4)
+  IF first < 0 THEN FAIL badPattern(pattern, "\\u must be followed by four hexadecimal digits or {...}")
+  IF first < 55296 OR first > 57343 THEN RETURN Chunk[codeEscape(first), at + 6]
+
+  ' A high surrogate followed by a low one is one code point in ECMA-262's `u`
+  ' mode; either alone matches a lone surrogate, which no MFBASIC String holds.
+  IF first > 56319 THEN FAIL unsupportedPattern(pattern, "an escape naming a lone surrogate")
+  IF at + 7 >= n THEN FAIL unsupportedPattern(pattern, "an escape naming a lone surrogate")
+  IF collections::get(pat, at + 6) <> "\\" OR collections::get(pat, at + 7) <> "u" THEN
+    FAIL unsupportedPattern(pattern, "an escape naming a lone surrogate")
+  END IF
+  LET second AS Integer = readHex(pat, n, at + 8, 4)
+  IF second < 56320 OR second > 57343 THEN FAIL unsupportedPattern(pattern, "an escape naming a lone surrogate")
+  LET combined AS Integer = 65536 + (first - 55296) * 1024 + (second - 56320)
+  RETURN Chunk[codeEscape(combined), at + 12]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Unicode property escapes.
+'
+' ECMA-262's `\p{...}` under the `u` flag and the MFBASIC dialect's `\p{...}`
+' both test the Unicode general category, so the meaning carries over exactly;
+' what does not carry over is the NAME. ECMA-262 spells a category with its
+' long UCD name (`Uppercase_Letter`) or its abbreviation (`Lu`), matched
+' case-sensitively, and admits `General_Category=`/`gc=` and `Script=`/`sc=`
+' key-value forms. The MFBASIC engine accepts the abbreviations, the
+' single-letter top-level names, two binary properties and script names.
+'
+' The overlap is translated by name and everything else is refused: an ECMA-262
+' binary property the engine does not implement (`ASCII`, `Assigned`,
+' `ID_Start`), `Script_Extensions` (which is not `Script`), and `Cased_Letter`
+' (which is a union of three categories, not a category).
+'
+' One caveat travels with every accepted name: both sides resolve it against
+' their own Unicode version. This package's tables are pinned to Unicode 16.0.0
+' (`mfb spec stdlib regex`), and another engine's may be newer, so a scalar
+' whose category changed between versions is classified differently by each.
+' That affects only scalars added or recategorised since the pinned version.
+
+' The MFBASIC spelling of an ECMA-262 general-category NAME, or "" when the
+' name is not one this can carry over exactly.
+PRIVATE FUNC generalCategory(name AS String) AS String
+  ' The long UCD names, as `name=abbreviation` pairs. One table rather than two
+  ' parallel lists: a name list and a code list are two lists that will
+  ' eventually disagree, and nothing would report it.
+  MUT table AS List OF String = []
+  table = collections::append(table, "Other=C Control=Cc cntrl=Cc Format=Cf Unassigned=Cn Private_Use=Co Surrogate=Cs")
+  table = collections::append(table, "Letter=L Lowercase_Letter=Ll Modifier_Letter=Lm Other_Letter=Lo Titlecase_Letter=Lt Uppercase_Letter=Lu")
+  table = collections::append(table, "Mark=M Combining_Mark=M Spacing_Mark=Mc Enclosing_Mark=Me Nonspacing_Mark=Mn")
+  table = collections::append(table, "Number=N Decimal_Number=Nd digit=Nd Letter_Number=Nl Other_Number=No")
+  table = collections::append(table, "Punctuation=P punct=P Connector_Punctuation=Pc Dash_Punctuation=Pd Close_Punctuation=Pe Final_Punctuation=Pf Initial_Punctuation=Pi Other_Punctuation=Po Open_Punctuation=Ps")
+  table = collections::append(table, "Symbol=S Currency_Symbol=Sc Modifier_Symbol=Sk Math_Symbol=Sm Other_Symbol=So")
+  table = collections::append(table, "Separator=Z Line_Separator=Zl Paragraph_Separator=Zp Space_Separator=Zs")
+  FOR EACH row IN table
+    FOR EACH pair IN strings::split(row, " ")
+      LET at AS Integer = indexOf(pair, "=")
+      IF slice(pair, 0, at) = name THEN RETURN sliceFrom(pair, at + 1)
+    NEXT
+  NEXT
+  ' The abbreviations themselves, which both dialects spell the same way.
+  ' `LC` (Cased_Letter) is deliberately absent: it is a union of three
+  ' categories rather than a category, and the engine matches exactly.
+  LET codes AS List OF String = ["C", "L", "M", "N", "P", "S", "Z", "Cc", "Cf", "Cn", "Co", "Cs", "Ll", "Lm", "Lo", "Lt", "Lu", "Mc", "Me", "Mn", "Nd", "Nl", "No", "Pc", "Pd", "Pe", "Pf", "Pi", "Po", "Ps", "Sc", "Sk", "Sm", "So", "Zl", "Zp", "Zs"]
+  IF collections::contains(codes, name) THEN RETURN name
+  RETURN ""
+END FUNC
+
+' The MFBASIC spelling of a whole ECMA-262 property escape body, or "".
+PRIVATE FUNC propertyName(body AS String) AS String
+  LET at AS Integer = indexOf(body, "=")
+  IF at < 0 THEN
+    IF body = "White_Space" OR body = "Alphabetic" THEN RETURN body
+    RETURN generalCategory(body)
+  END IF
+  LET key AS String = slice(body, 0, at)
+  LET value AS String = sliceFrom(body, at + 1)
+  IF key = "General_Category" OR key = "gc" THEN RETURN generalCategory(value)
+  ' `Script` carries over; `Script_Extensions` does not, and it is a different
+  ' property rather than a spelling of the same one.
+  IF key = "Script" OR key = "sc" THEN
+    IF value = "" THEN RETURN ""
+    RETURN "sc=" & value
+  END IF
+  RETURN ""
+END FUNC
+
+' Translate the property escape whose backslash is at `at`. ECMA-262 requires
+' the braced form under the `u` flag, so `\pL` is a syntax error rather than a
+' one-letter shorthand.
+PRIVATE FUNC translateProperty(pattern AS String, pat AS List OF String, n AS Integer, at AS Integer) AS Chunk
+  LET marker AS String = collections::get(pat, at + 1)
+  IF at + 2 >= n OR collections::get(pat, at + 2) <> "{" THEN
+    FAIL badPattern(pattern, "`\\" & marker & "` must be followed by `{...}`")
+  END IF
+  MUT i AS Integer = at + 3
+  MUT body AS String = ""
+  WHILE i < n AND collections::get(pat, i) <> "}"
+    body = body & collections::get(pat, i)
+    i = i + 1
+  END WHILE
+  IF i >= n THEN FAIL badPattern(pattern, "`\\" & marker & "{` is unterminated")
+  LET translated AS String = propertyName(body)
+  IF translated = "" THEN
+    FAIL unsupportedPattern(pattern, "the Unicode property escape `\\" & marker & "{" & body & "}`")
+  END IF
+  RETURN Chunk["\\" & marker & "{" & translated & "}", i + 1]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Character classes.
+' ---------------------------------------------------------------------------
+
+' Translate the class starting at the "[" at `at`.
+PRIVATE FUNC translateClass(pattern AS String, pat AS List OF String, n AS Integer, at AS Integer) AS Chunk
+  MUT i AS Integer = at + 1
+  MUT negated AS Boolean = FALSE
+  IF i < n AND collections::get(pat, i) = "^" THEN
+    negated = TRUE
+    i = i + 1
+  END IF
+
+  ' An empty class is legal in ECMA-262 -- [] matches nothing and [^] matches
+  ' anything -- and is a parse error in the MFBASIC dialect, so both are
+  ' rewritten as an explicit whole-code-point-space class.
+  IF i < n AND collections::get(pat, i) = "]" THEN
+    IF negated THEN RETURN Chunk["[" & ALL_ITEMS & "]", i + 1]
+    RETURN Chunk["[^" & ALL_ITEMS & "]", i + 1]
+  END IF
+
+  MUT body AS String = ""
+  MUT closed AS Boolean = FALSE
+  WHILE NOT closed
+    IF i >= n THEN FAIL badPattern(pattern, "a character class is unterminated")
+    LET c AS String = collections::get(pat, i)
+    IF c = "]" THEN
+      closed = TRUE
+      i = i + 1
+    ELSEIF c = "\\" THEN
+      IF i + 1 >= n THEN FAIL badPattern(pattern, "it ends with a trailing backslash")
+      LET e AS String = collections::get(pat, i + 1)
+      IF e = "d" THEN
+        body = body & "0-9"
+        i = i + 2
+      ELSEIF e = "w" THEN
+        body = body & "A-Za-z0-9_"
+        i = i + 2
+      ELSEIF e = "s" THEN
+        body = body & WS_ITEMS
+        i = i + 2
+      ELSEIF e = "D" OR e = "W" OR e = "S" THEN
+        ' [\D] is "not a digit" only because it is alone; [a\D] is a UNION with
+        ' a negated set, which a class of positive items cannot express and the
+        ' MFBASIC dialect has no set-difference operator to build.
+        FAIL unsupportedPattern(pattern, "a negated shorthand (\\" & e & ") inside a character class")
+      ELSEIF e = "b" THEN
+        ' Inside a class \b is the backspace character, not a word boundary.
+        body = body & codeEscape(8)
+        i = i + 2
+      ELSEIF e = "p" OR e = "P" THEN
+        LET property AS Chunk = translateProperty(pattern, pat, n, i)
+        body = body & property.text
+        i = property.nxt
+      ELSEIF e = "k" THEN
+        FAIL unsupportedPattern(pattern, "a named backreference")
+      ELSEIF e = "-" THEN
+        ' "\-" is an identity escape only INSIDE a class; outside one ECMA-262
+        ' rejects it, so translateLiteralEscape does not know it.
+        body = body & "\\-"
+        i = i + 2
+      ELSE
+        LET piece AS Chunk = translateLiteralEscape(pattern, pat, n, i)
+        body = body & piece.text
+        i = piece.nxt
+      END IF
+    ELSEIF c = "[" THEN
+      ' A bare "[" inside a class introduces a POSIX class ([:alpha:]) in the
+      ' MFBASIC dialect and is an ordinary literal in ECMA-262. Escaping it
+      ' keeps it a literal and keeps it rangeable.
+      body = body & "\\["
+      i = i + 1
+    ELSEIF c = "&" THEN
+      ' "&&" is a set-intersection operator in the MFBASIC dialect and two
+      ' literal ampersands in ECMA-262.
+      body = body & "\\&"
+      i = i + 1
+    ELSE
+      body = body & c
+      i = i + 1
+    END IF
+  END WHILE
+
+  IF negated THEN RETURN Chunk["[^" & body & "]", i]
+  RETURN Chunk["[" & body & "]", i]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Quantifiers and groups.
+' ---------------------------------------------------------------------------
+
+' The index just past a `{m}`, `{m,}` or `{m,n}` quantifier starting at `at`,
+' or -1 when the brace does not open one. ECMA-262 under the `u` flag makes a
+' brace that opens no quantifier a syntax error, where the MFBASIC dialect
+' treats it as a literal; the caller uses the -1 to refuse it.
+PRIVATE FUNC countedEnd(pat AS List OF String, n AS Integer, at AS Integer) AS Integer
+  MUT i AS Integer = at + 1
+  IF i >= n OR NOT isDigitStr(collections::get(pat, i)) THEN RETURN -1
+  WHILE i < n AND isDigitStr(collections::get(pat, i))
+    i = i + 1
+  END WHILE
+  IF i < n AND collections::get(pat, i) = "}" THEN RETURN i + 1
+  IF i >= n OR collections::get(pat, i) <> "," THEN RETURN -1
+  i = i + 1
+  IF i < n AND collections::get(pat, i) = "}" THEN RETURN i + 1
+  IF i >= n OR NOT isDigitStr(collections::get(pat, i)) THEN RETURN -1
+  WHILE i < n AND isDigitStr(collections::get(pat, i))
+    i = i + 1
+  END WHILE
+  IF i < n AND collections::get(pat, i) = "}" THEN RETURN i + 1
+  RETURN -1
+END FUNC
+
+' Translate the group opener at `at`.
+PRIVATE FUNC translateGroupOpen(pattern AS String, pat AS List OF String, n AS Integer, at AS Integer) AS Chunk
+  IF at + 1 >= n OR collections::get(pat, at + 1) <> "?" THEN RETURN Chunk["(", at + 1]
+  IF at + 2 >= n THEN FAIL badPattern(pattern, "a group is unterminated")
+  LET kind AS String = collections::get(pat, at + 2)
+  IF kind = ":" THEN RETURN Chunk["(?:", at + 3]
+  IF kind = "=" THEN FAIL unsupportedPattern(pattern, "a lookahead assertion")
+  IF kind = "!" THEN FAIL unsupportedPattern(pattern, "a negative lookahead assertion")
+  IF kind = "<" THEN
+    IF at + 3 < n AND collections::get(pat, at + 3) = "=" THEN FAIL unsupportedPattern(pattern, "a lookbehind assertion")
+    IF at + 3 < n AND collections::get(pat, at + 3) = "!" THEN FAIL unsupportedPattern(pattern, "a negative lookbehind assertion")
+    ' A named group. The name cannot be observed through `pattern` -- this
+    ' validator only asks whether a pattern matches, never what it captured --
+    ' and the two dialects spell a group name differently, so the name is
+    ' dropped and the group stays an ordinary capturing group.
+    MUT i AS Integer = at + 3
+    WHILE i < n AND collections::get(pat, i) <> ">"
+      i = i + 1
+    END WHILE
+    IF i >= n THEN FAIL badPattern(pattern, "a named group is unterminated")
+    RETURN Chunk["(", i + 1]
+  END IF
+  FAIL badPattern(pattern, "`(?" & kind & "` is not a group")
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The translation itself.
+' ---------------------------------------------------------------------------
+
+' Rewrite an ECMA-262 pattern as an MFBASIC one with the same meaning, or fail.
+'
+' Failure is the point as much as success: a pattern this cannot translate
+' exactly is refused with ERR_UNSUPPORTED or ERR_SCHEMA at COMPILE time, so a
+' schema never silently validates against a regular expression that means
+' something other than what its author wrote.
+PUBLIC FUNC toMfbPattern(pattern AS String) AS String
+  LET pat AS List OF String = scalarStrings(pattern)
+  LET n AS Integer = len(pat)
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET c AS String = collections::get(pat, i)
+    IF c = "." THEN
+      out = out & DOT_CLASS
+      i = i + 1
+    ELSEIF c = "[" THEN
+      LET piece AS Chunk = translateClass(pattern, pat, n, i)
+      out = out & piece.text
+      i = piece.nxt
+    ELSEIF c = "(" THEN
+      LET piece AS Chunk = translateGroupOpen(pattern, pat, n, i)
+      out = out & piece.text
+      i = piece.nxt
+    ELSEIF c = "{" THEN
+      LET stop AS Integer = countedEnd(pat, n, i)
+      IF stop < 0 THEN FAIL badPattern(pattern, "`{` does not open a quantifier")
+      MUT j AS Integer = i
+      WHILE j < stop
+        out = out & collections::get(pat, j)
+        j = j + 1
+      END WHILE
+      i = stop
+    ELSEIF c = "}" OR c = "]" THEN
+      FAIL badPattern(pattern, "a lone `" & c & "` must be escaped")
+    ELSEIF c = "\\" THEN
+      IF i + 1 >= n THEN FAIL badPattern(pattern, "it ends with a trailing backslash")
+      LET e AS String = collections::get(pat, i + 1)
+      IF e = "d" THEN
+        out = out & "[0-9]"
+        i = i + 2
+      ELSEIF e = "D" THEN
+        out = out & "[^0-9]"
+        i = i + 2
+      ELSEIF e = "w" THEN
+        out = out & "[A-Za-z0-9_]"
+        i = i + 2
+      ELSEIF e = "W" THEN
+        out = out & "[^A-Za-z0-9_]"
+        i = i + 2
+      ELSEIF e = "s" THEN
+        out = out & "[" & WS_ITEMS & "]"
+        i = i + 2
+      ELSEIF e = "S" THEN
+        out = out & "[^" & WS_ITEMS & "]"
+        i = i + 2
+      ELSEIF e = "b" OR e = "B" THEN
+        ' The one construct carried over rather than translated: see the file
+        ' header for the ASCII-versus-Unicode word-character divergence.
+        out = out & "\\" & e
+        i = i + 2
+      ELSEIF e = "p" OR e = "P" THEN
+        LET property AS Chunk = translateProperty(pattern, pat, n, i)
+        out = out & property.text
+        i = property.nxt
+      ELSEIF e = "k" THEN
+        FAIL unsupportedPattern(pattern, "a named backreference")
+      ELSE
+        LET piece AS Chunk = translateLiteralEscape(pattern, pat, n, i)
+        out = out & piece.text
+        i = piece.nxt
+      END IF
+    ELSE
+      out = out & c
+      i = i + 1
+    END IF
+  END WHILE
+  RETURN out
+END FUNC

@@ -1,0 +1,19 @@
+' A `DO ... LOOP UNTIL` (post-test loop) miscompilation: a `MUT String`
+' initialized from a literal and appended to inside the body was read as its
+' stale *initial* value on every iteration, so only the final append survived
+' ("ZX" instead of "ZXXXX"). The `MUT Integer` counter updated correctly, so the
+' loop ran the right number of times — only the reference-typed binding's reads
+' were stale, which points at the post-test loop's handling of a
+' constant-initialized MUT local rather than at `&` itself.
+IMPORT io
+
+FUNC main AS Integer
+  MUT s AS String = "Z"
+  MUT n AS Integer = 0
+  DO
+    s = s & "X"
+    n = n + 1
+  LOOP UNTIL n >= 4
+  io::print(s)
+  RETURN 0
+END FUNC

@@ -1,0 +1,11 @@
+# YAML 1.2 Core Schema, and only that. The 1.1 spellings below are STRINGS.
+nulls: [null, Null, NULL, ~]
+booleans: [true, True, TRUE, false, False, FALSE]
+not_booleans: [yes, no, on, off, y, n, TruE]
+integers: [0, 12, -12, +12, 007]
+radix: [0x1F, 0xff, 0o17]
+not_numbers: ["0b101", 1_000, 1.2.3, 12abc, 12:30, 2026-09-05]
+floats: [1.5, -1.5, .5, 5., 1e3, 1.2E-3, 1E+3, 1e100]
+float_model: [1.0, 100.0, 123456789012345678901234567890]
+strings: [hello world, -x, http://example.com/x]
+quoted_are_strings: ["true", '123', "null", ".inf"]

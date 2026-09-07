@@ -19,5 +19,8 @@ r#"FUNC __crypto_generateEd448() AS KeyPair
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    pkg.add_helper(RegistryHelper::always("crypto_generateEd448", BODY));
+    pkg.add_helper(RegistryHelper::always_natively_called(
+        "crypto_generateEd448",
+        BODY,
+    ));
 }

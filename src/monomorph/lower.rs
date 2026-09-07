@@ -171,12 +171,22 @@ impl<'a> Monomorphizer<'a> {
     /// monomorph (not IR lowering, where the other packages' `Body::Mfb` members
     /// rewrite) because these bodies are GENERIC — the rewritten `#collections_sort`
     /// must flow into `instantiate_function` to be type-mangled and instantiated.
-    fn collections_internal_callee(&self, callee: &str) -> Option<String> {
+    ///
+    /// Routed by ARGUMENT COUNT (bug-527). A member whose optional trailing parameter
+    /// selects a different body — `findLastIndex`, whose two-argument form scans from
+    /// the last element and whose three-argument form scans from the index it is given
+    /// — has one rewrite target per form, and only the count tells them apart: both
+    /// forms take the same types in the same order. `rewrite_target`'s type-based
+    /// selection is answered here with an empty argument list (a `collections::` call
+    /// is generic, so its argument types are pre-substitution and would mis-select),
+    /// so the count is the only signal available and `rewrite_target_for_arity` falls
+    /// back to the historical first-implementation answer for every other member.
+    fn collections_internal_callee(&self, callee: &str, argc: usize) -> Option<String> {
         let (binding, member) = callee.split_once('.')?;
         if !self.collections_bindings.contains(binding) {
             return None;
         }
-        crate::codegen::registry::rewrite_target(&format!("collections.{member}"), &[])
+        crate::codegen::registry::rewrite_target_for_arity(&format!("collections.{member}"), argc)
             .map(crate::internal_name::internalize)
     }
 
@@ -1466,7 +1476,7 @@ impl<'a> Monomorphizer<'a> {
                     _ => None,
                 };
                 let callee = &encoding_internal
-                    .or_else(|| self.collections_internal_callee(callee))
+                    .or_else(|| self.collections_internal_callee(callee, arguments.len()))
                     .unwrap_or_else(|| callee.clone());
                 // Named arguments can reorder the call's values relative to the
                 // template's declared parameters. `arg_types` is built in source

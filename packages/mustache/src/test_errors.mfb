@@ -1,0 +1,59 @@
+' ---------------------------------------------------------------------------
+' Tests: the templates this package refuses, and the code it refuses them with.
+'
+' Every one of these is a typo an author makes, so each has to fail loudly
+' rather than render something plausible: a template that silently drops a
+' misspelled closing tag produces a page missing a section, which is much harder
+' to find than an error.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+
+PRIVATE FUNC bad(template AS String) AS String
+  RETURN render(template, json::parse("{\"a\":true,\"b\":true}"))
+END FUNC
+
+TESTING
+  TGROUP "malformed templates"
+    TCASE "an unclosed tag is refused"
+      expectTrap(bad("{{a"), ERR_FORMAT)
+      expectTrap(bad("text {{"), ERR_FORMAT)
+      expectTrap(bad("{{#a}}x{{/a"), ERR_FORMAT)
+      expectTrap(bad("{{{a}}"), ERR_FORMAT)
+      expectTrap(bad("{{{a"), ERR_FORMAT)
+    END TCASE
+
+    TCASE "a close with nothing open is refused"
+      expectTrap(bad("{{/a}}"), ERR_FORMAT)
+      expectTrap(bad("{{#a}}x{{/a}}{{/a}}"), ERR_FORMAT)
+    END TCASE
+
+    TCASE "a close naming a different section is refused"
+      expectTrap(bad("{{#a}}x{{/b}}"), ERR_FORMAT)
+      expectTrap(bad("{{#a}}{{#b}}x{{/a}}{{/b}}"), ERR_FORMAT)
+    END TCASE
+
+    TCASE "a section left open is refused"
+      expectTrap(bad("{{#a}}x"), ERR_FORMAT)
+      expectTrap(bad("{{^a}}x"), ERR_FORMAT)
+      expectTrap(bad("{{#a}}{{#b}}x{{/b}}"), ERR_FORMAT)
+    END TCASE
+
+    TCASE "an inverted section closes with the same tag a section does"
+      expectNTrap(bad("{{^a}}x{{/a}}"))
+      expectTrap(bad("{{^a}}x{{/b}}"), ERR_FORMAT)
+    END TCASE
+
+    TCASE "a stray brace or an unknown sigil is ordinary text or an ordinary name"
+      expectString(render("a } b { c", json::JsonNull[NOTHING]), "a } b { c")
+      expectString(render("[{{@x}}]", json::parse("{\"@x\":\"at\"}")), "[at]")
+      expectString(render("[{{}}]", json::parse("{}")), "[]")
+      expectString(render("[{{   }}]", json::parse("{}")), "[]")
+    END TCASE
+
+    TCASE "the exported limit code is the generator-9 value the docs name"
+      expectInteger(limitCode(), 93120001)
+      expectInteger(ERR_LIMIT, 93120001)
+    END TCASE
+  END TGROUP
+END TESTING

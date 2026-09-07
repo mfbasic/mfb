@@ -1,0 +1,14 @@
+{
+  "name": "jwt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "JSON Web Tokens (RFC 7519) over the compact JWS serialization (RFC 7515), with JWK key import and export (RFC 7517, RFC 8037). It signs and verifies HS256/HS384/HS512, EdDSA over Ed25519 and Ed448, and ES256/ES384/ES512, and refuses everything else rather than guessing: `alg: \"none\"` is never a result, the verifier takes its algorithm from a caller-supplied allowlist rather than from the untrusted header, Base64url must be canonical and unpadded, and a header or claims object with a duplicate member name is rejected.\n\nClaims are an ordinary json::Json value, so a token's payload is the same tree json::parse produces and json::stringify serializes. The package owns no clock policy beyond the registered time claims: exp, nbf and iat are checked against datetime::now() or against an instant the caller pins, with a configurable leeway.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": ["**/*.mfb"]
+    }
+  ]
+}

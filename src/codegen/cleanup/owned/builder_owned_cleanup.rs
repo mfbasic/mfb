@@ -234,6 +234,11 @@ impl CodeBuilder<'_> {
         if let Some(captures) = cleanup.closure_captures.clone() {
             return self.emit_closure_drop(cleanup.stack_offset, &captures);
         }
+        // bug-571: a `FOR EACH` loop item, whose free is guarded against the one
+        // pointer the loop provably does not own.
+        if let Some(alias_slot) = cleanup.loop_alias_slot {
+            return self.emit_loop_item_drop(cleanup, alias_slot);
+        }
         // The slot is null when the binding's initializer trapped before it was
         // stored (the slot is zero-initialized at bind, see `lower_ops`), or for
         // a moved-out value; a null free would fault scrubbing address 0, so skip.
@@ -284,6 +289,30 @@ impl CodeBuilder<'_> {
             return Ok(());
         }
         if cleanup.type_ == ParameterType::String {
+            // bug-560: a `String` this function self-appends to in place carries
+            // geometric capacity headroom that its `byteLength` header does not
+            // record, so the tight `byteLength + 9` free orphaned `spare` bytes on
+            // every drop — 31 B per iteration on `out = "" / out = out & "a"`, and
+            // a third of the string on a decoder that builds one and returns it.
+            // The capacity-aware helper adds the shadow's spare bytes, which is
+            // the size `arena_alloc` was actually given. It ADDS no free and
+            // removes none: only the size argument changes, and only upward by an
+            // amount this frame itself recorded.
+            if let Some(capacity_slot) = cleanup.capacity_slot {
+                self.emit(abi::add_immediate(
+                    abi::c_arg(0),
+                    abi::stack_pointer(),
+                    cleanup.stack_offset,
+                ));
+                self.emit(abi::load_u64(
+                    abi::c_arg(1),
+                    abi::stack_pointer(),
+                    capacity_slot,
+                ));
+                self.emit(abi::branch_link(DROP_OWNED_STRING_CAP_SYMBOL));
+                self.push_internal_call_relocation(DROP_OWNED_STRING_CAP_SYMBOL);
+                return Ok(());
+            }
             self.emit(abi::add_immediate(
                 abi::c_arg(0),
                 abi::stack_pointer(),
@@ -340,6 +369,76 @@ impl CodeBuilder<'_> {
             cleanup.stack_offset,
         ));
         self.emit(abi::label(&skip));
+        Ok(())
+    }
+
+    /// bug-571: drop a `FOR EACH` loop item — the `String` block the per-iteration
+    /// payload load materialised, which nothing ever freed.
+    ///
+    /// `FOR EACH e IN xs` binds `e` to a fresh `arena_alloc` block on every
+    /// iteration (`emit_load_payload_with_stride`'s `String` arm, via
+    /// `emit_materialize_string_from_bytes`), because a packed `String` has no
+    /// standalone header to point at. The HOF loops release the equivalent block
+    /// with `free_collection_loop_item` (bug-307); the `FOR EACH` statement had no
+    /// equivalent, so an 8-element `List OF String` grew arena RSS by 8 blocks per
+    /// pass — 25 MB at 50 000 passes, 50 MB at 100 000.
+    ///
+    /// **The guard.** Adding a free is the double-free direction, and the hazard
+    /// specific to a loop item is that a `FOR EACH` element is immutable and, for
+    /// every payload type but `String`, IS a pointer into the container's own
+    /// block. So the free does not rest on this file's copy of that enumeration
+    /// staying in step with the emitter's: `alias_slot` holds the alias pointer
+    /// **that same emitter** computed this iteration (`dataBase + offset`, the
+    /// value its non-materialising arms return verbatim), and the free is skipped
+    /// when the item IS it. That is `collections::reduce`'s model — compare the
+    /// produced pointer against the value you do not own, then free only on
+    /// difference — and it makes the soundness argument local to one compare
+    /// instead of a whole-program claim about which element types allocate.
+    ///
+    /// Escape is handled before this point rather than here: an owning consumer of
+    /// `e` deep-copies it (`value_needs_owning_copy` classes a `Local`/
+    /// `MemberAccess` as an aliasing source), and `RETURN e` finds this very
+    /// cleanup by stack offset in `plan_returned_move` and removes it for that
+    /// path, moving the block to the caller instead. Registering as an ordinary
+    /// [`ActiveCleanup::OwnedValue`] is what makes both of those answer correctly:
+    /// they are keyed on the SLOT, and a distinct cleanup variant would have made
+    /// `lower_returned_value`'s param-borrow gate read "owns no block" for a loop
+    /// variable that shadows a parameter name.
+    ///
+    /// The free itself is the shared `String` drop, which null-tests the slot,
+    /// sizes the block from its own header and NULLS the slot afterward — so an
+    /// iteration reached without a re-store (there is none; the load precedes the
+    /// body) frees nothing.
+    fn emit_loop_item_drop(
+        &mut self,
+        cleanup: &OwnedValueCleanup,
+        alias_slot: usize,
+    ) -> Result<(), String> {
+        debug_assert_eq!(
+            cleanup.type_,
+            ParameterType::String,
+            "only the String payload arm materialises, so only it registers a loop-item drop"
+        );
+        self.owned_value_slots.push(cleanup.stack_offset);
+        let kept = self.label("for_each_item_kept");
+        let item = self.temporary_vreg();
+        let alias = self.temporary_vreg();
+        self.emit(abi::load_u64(
+            &item,
+            abi::stack_pointer(),
+            cleanup.stack_offset,
+        ));
+        self.emit(abi::load_u64(&alias, abi::stack_pointer(), alias_slot));
+        self.emit(abi::compare_registers(&item, &alias));
+        self.emit(abi::branch_eq(&kept));
+        self.emit(abi::add_immediate(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            cleanup.stack_offset,
+        ));
+        self.emit(abi::branch_link(DROP_OWNED_STRING_SYMBOL));
+        self.push_internal_call_relocation(DROP_OWNED_STRING_SYMBOL);
+        self.emit(abi::label(&kept));
         Ok(())
     }
 

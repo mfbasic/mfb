@@ -698,3 +698,95 @@ fn listen_zeroes_its_cleanup_slots_before_any_failure_exit() {
         );
     }
 }
+
+// bug-483: `tls::write` to a departed peer must raise `ErrConnectionClosed`,
+// the code `mfb man tls write` and `mfb man tcp write` both state and the one
+// the OpenSSL backend has raised since bug-467. macOS reported `ErrTlsFailed`
+// for it — "TLS handshake, certificate validation, SNI validation, or protocol
+// operation failed", for a session whose handshake had long since succeeded.
+//
+// Runtime proof is the host itself (`rt-behavior/tls/tls-write-peer-closed-raises-rt`);
+// these pin the SHAPE of the classification, which is the part that is easy to
+// get subtly wrong:
+//
+//  * both write-time terminal conditions route through ONE `write_classify`,
+//    because measured against a departed peer only the FIRST failing write takes
+//    the send-completion error path — every later one hits the terminal-state
+//    guard, and reporting two different codes for one disconnect is the bug;
+//  * the classification reads `CTX_EDOM`, the domain the SEND trampoline
+//    recorded, and NOT the `nw_error` object (see the trampoline test below);
+//  * anything that is not `nw_error_domain_posix` still raises `ErrTlsFailed`,
+//    so the terminal-state guard is not reclassified wholesale.
+#[test]
+fn write_names_a_posix_send_failure_connection_closed() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    for text in [false, true] {
+        let (ins, rel, _s) =
+            lower_tls_write_macos("t_w", &imports, &TlsReadTestPlatform, text).expect("lower");
+        assert!(
+            has_label(&ins, "t_w_write_classify"),
+            "both write-time terminal conditions must reach one classification point"
+        );
+        assert!(
+            has_label(&ins, "t_w_peer_closed"),
+            "the POSIX-domain arm needs its own exit"
+        );
+        let classify = window(&ins, "t_w_write_classify", "t_w_peer_closed");
+        assert!(
+            classify.iter().any(|i| i.get("offset").as_deref()
+                == Some(&crate::codegen::builtins::tls::gen_macos::CTX_EDOM.to_string())),
+            "the classification must read CTX_EDOM (the domain SEND_INVOKE recorded), \
+             never the nw_error object — that reference dies with the block"
+        );
+        for code in ["ErrConnectionClosed", "ErrTlsFailed"] {
+            let symbol = crate::codegen::registry::runtime_error_emission(code)
+                .expect("errorCode name")
+                .1;
+            assert!(
+                rel.iter().any(|r| r.to == symbol),
+                "tls::write must keep {code} reachable (text={text}): a non-POSIX domain \
+                 is still a protocol failure"
+            );
+        }
+    }
+}
+
+// bug-483, the lifetime half. The `nw_error_t` a completion block is handed is
+// borrowed for the block's duration only, so `tls::write` cannot ask it for its
+// domain after the semaphore wakes — measured, an instrumented build that did
+// SIGSEGV'd 2 runs in 6 (3 in 5 under `MallocScribble=1`) and the surviving runs
+// disagreed about the answer. The domain is therefore read inside the send
+// trampoline, on the dispatch queue, while the object is alive.
+//
+// This pins that the read happens THERE. If a later change moves it back into
+// the write helper the test goes red instead of the fix going intermittently
+// fatal in production.
+#[test]
+fn the_send_completion_records_the_error_domain_itself() {
+    use crate::codegen::builtins::tls::gen_macos::{CTX_EDOM, CTX_EDOMFN, SEND_INVOKE};
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let send = crate::target::macos_aarch64::tls::block_trampolines(false)
+        .into_iter()
+        .find(|f| f.symbol == SEND_INVOKE)
+        .expect("the send completion trampoline is emitted");
+    let reads = |off: usize| {
+        send.instructions
+            .iter()
+            .any(|i| i.get("offset").as_deref() == Some(&off.to_string()))
+    };
+    assert!(
+        reads(CTX_EDOMFN),
+        "the send completion must load nw_error_get_error_domain from the ctx"
+    );
+    assert!(
+        reads(CTX_EDOM),
+        "the send completion must store the domain it read into the ctx"
+    );
+    assert!(
+        send.instructions
+            .iter()
+            .any(|i| i.op == CodeOp::BranchLinkRegister),
+        "…which means it calls through that pointer"
+    );
+}

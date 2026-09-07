@@ -1,0 +1,21 @@
+{
+  "template": "<!doctype html>\n<html>\n<head><title>{{title}}</title></head>\n<body>\n{{! the navigation is optional }}\n{{#nav}}\n<nav>\n{{#links}}\n  <a href=\"{{href}}\">{{label}}</a>\n{{/links}}\n</nav>\n{{/nav}}\n{{^nav}}\n<p>No navigation.</p>\n{{/nav}}\n<main>\n{{{body}}}\n</main>\n{{#footer}}\n<footer>{{.}}</footer>\n{{/footer}}\n</body>\n</html>\n",
+  "data": {
+    "title": "Tom & Jerry's <Big> Day",
+    "nav": {
+      "links": [
+        {
+          "href": "/a?x=1&y=2",
+          "label": "A & B"
+        },
+        {
+          "href": "/b",
+          "label": "B"
+        }
+      ]
+    },
+    "body": "<p>Raw <b>HTML</b> passes through a triple mustache.</p>",
+    "footer": "© 2026"
+  },
+  "partials": {}
+}

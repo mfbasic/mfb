@@ -560,7 +560,7 @@ mod tests {
     #[test]
     fn suppressed_count_is_seen_minus_the_cap() {
         // Only the arithmetic is asserted here (the printer writes to stderr);
-        // the end-to-end shape is pinned by tests/cli_diagnostic_stream.rs.
+        // the end-to-end shape is pinned by tests/cli/cli_diagnostic_stream.rs.
         assert_eq!(0usize.saturating_sub(MAX_RENDERED_DIAGNOSTICS), 0);
         assert_eq!(
             (MAX_RENDERED_DIAGNOSTICS + 51).saturating_sub(MAX_RENDERED_DIAGNOSTICS),

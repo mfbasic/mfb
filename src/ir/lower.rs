@@ -78,6 +78,33 @@ pub(super) struct LowerContext<'a> {
 /// tolerated by `getOr`/`len` but not by `collections::keys`/`values`, which need
 /// the element type. Built-in packages need no entry here: their source is folded
 /// into the AST by `augmented_project`, so their types are already in `TypeIndex`.
+/// An exported top-level `LET`/`MUT` of an imported (non-builtin) package,
+/// decoded from its `.mfp` GLOBAL table (bug-551).
+///
+/// `mfb spec language modules-and-packages` §13 makes an `EXPORT LET`/`EXPORT
+/// MUT` importer-visible and covers it by the qualified-name rule ("variables
+/// and constants" heads its list of name kinds). The symbol half already worked
+/// — `resolver::packages::install_package_type_names` unions the GLOBAL table
+/// into the package's visible surface — but nothing carried the declared TYPE,
+/// so `pkg::Answer` typed as `Unknown` and died at its use site with
+/// `TYPE_UNKNOWN_VALUE`, or reached an unrelated call as an `(Unknown)`
+/// argument.
+///
+/// `name` is the spelling a CONSUMER writes it by: `package.Name`, which is
+/// exactly what `ir::package::package_qualified_reference_names` collects and
+/// `apply_package_identity` rewrites to the merged `<id>.package.Name`. So a
+/// read lowered against this name needs no further lowering support — the merge
+/// already re-points it at the definition.
+#[derive(Clone)]
+pub struct ImportedGlobal {
+    pub name: String,
+    pub type_: ParameterType,
+    /// `EXPORT MUT` (assignable) rather than `EXPORT LET`. Carried so
+    /// `ir::verify` refuses an importer's write to a constant with the same rule
+    /// it applies to the project's own bindings.
+    pub mutable: bool,
+}
+
 #[derive(Clone)]
 pub struct ImportedTypeDef {
     pub name: String,
@@ -122,6 +149,7 @@ pub fn lower_project_with_external_functions(
     entry: Option<EntryPoint>,
     external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
+    imported_globals: &[ImportedGlobal],
 ) -> IrProject {
     let augmented = crate::codegen::registry::registry()
         .augment_project(ast)
@@ -170,6 +198,7 @@ pub fn lower_project_with_external_functions(
         entry,
         external_signatures,
         imported_types,
+        imported_globals,
     );
     // Docs come from the source AST this wrapper owns (the lowering path holds
     // only HIR); the build's package path likewise collects from its original AST.
@@ -196,10 +225,17 @@ pub fn lower_monomorphized_project(
     entry: Option<EntryPoint>,
     external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
+    imported_globals: &[ImportedGlobal],
 ) -> IrProject {
     let augmented =
         crate::resolver::augment_hir_project(concrete).expect("built-in package source must parse");
-    let mut ir = lower_augmented_project(&augmented, entry, external_signatures, imported_types);
+    let mut ir = lower_augmented_project(
+        &augmented,
+        entry,
+        external_signatures,
+        imported_types,
+        imported_globals,
+    );
     ir.docs = collect_project_docs(
         &crate::resolver::augment_project(source).expect("built-in package source must parse"),
     );
@@ -215,10 +251,11 @@ pub fn lower_augmented_project(
     entry: Option<EntryPoint>,
     external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
+    imported_globals: &[ImportedGlobal],
 ) -> IrProject {
     let mut types = Vec::new();
     let mut functions = Vec::new();
-    let facts = lower_facts(hir, external_signatures, imported_types);
+    let facts = lower_facts(hir, external_signatures, imported_types, imported_globals);
     let type_index = &facts.type_index;
     let mut context = facts.context();
     let bindings = lower_bindings(hir, &mut context);
@@ -311,7 +348,12 @@ impl LowerContext<'_> {
     /// The declared or inferred type of a top-level binding, for the shape
     /// pass's call rules (a global of FUNC type is callable like a local).
     pub(super) fn binding_type(&self, name: &str) -> Option<&ParameterType> {
-        self.binding_types.get(name)
+        self.binding_types
+            .get(name)
+            // bug-551: an imported package's exported globals are keyed by the
+            // canonical `package.Name`, so an `IMPORT pkg AS p` write target
+            // (`p.Name`) has to resolve the alias before it is called unknown.
+            .or_else(|| self.binding_types.get(&canonical_import_name(name, self)))
     }
 
     /// Whether a call to `target` can raise an error its caller must handle
@@ -359,11 +401,22 @@ pub(super) fn lower_facts(
     hir: &crate::hir::HirProject,
     external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
+    imported_globals: &[ImportedGlobal],
 ) -> LowerFacts {
     let mut function_returns = function_returns(hir);
     let mut function_types = function_types(hir);
     let mut function_params = function_params(hir);
-    let binding_types = declared_binding_types(hir);
+    let mut binding_types = declared_binding_types(hir);
+    // bug-551: the imported packages' exported globals, under the `package.Name`
+    // spelling a consumer reads them by. The project's own declarations win — an
+    // importer never overrides a binding it can see the source of — and a
+    // package name cannot collide with a local binding anyway, since a local
+    // name has no dot in it.
+    for global in imported_globals {
+        binding_types
+            .entry(global.name.clone())
+            .or_insert_with(|| global.type_.clone());
+    }
     // Imported-package signatures arrive TYPED (plan-105-A): the return type and
     // the parameter list are read straight off `ExternalSignature` instead of being
     // re-split out of a formatted `FUNC(…) AS R` string. plan-106-A closed the last
@@ -962,20 +1015,33 @@ fn lower_statement_inner(
                     context,
                 );
             }
+            // bug-551: an assignment to an imported package's `EXPORT MUT` is
+            // written `pkg::Name` and reaches here as `pkg.Name`; under
+            // `IMPORT pkg AS p` it reaches here as `p.Name`. The CANONICAL
+            // spelling is what `ir::package::apply_package_identity` rewrites to
+            // the merged definition, so resolve the alias before emitting.
+            let canonical_name = canonical_import_name(name, context);
+            let target = if locals.contains_key(name) || context.binding_types.contains_key(name) {
+                name.clone()
+            } else if context.binding_types.contains_key(&canonical_name) {
+                canonical_name
+            } else {
+                name.clone()
+            };
             let expected = locals
-                .get(name)
-                .or_else(|| context.binding_types.get(name))
+                .get(&target)
+                .or_else(|| context.binding_types.get(&target))
                 .cloned();
             let lowered = lower_expression_with_expected(value, expected.as_ref(), locals, context);
-            if locals.contains_key(name) {
+            if locals.contains_key(&target) {
                 vec![IrOp::Assign {
-                    name: name.clone(),
+                    name: target,
                     value: lowered,
                     loc,
                 }]
             } else {
                 vec![IrOp::AssignGlobal {
-                    name: name.clone(),
+                    name: target,
                     value: lowered,
                     loc,
                 }]
@@ -2230,7 +2296,7 @@ fn rewrite_trap_call(
     else {
         return;
     };
-    debug_assert_eq!(
+    assert_eq!(
         fallible.get(*index).copied(),
         Some(checked),
         "the scan and the rewrite disagree on which nodes are lifted"
@@ -3429,6 +3495,10 @@ pub(super) fn expression_type(
                     .get(value)
                     .cloned()
                     .or_else(|| context.binding_types.get(value).cloned())
+                    // bug-551: an imported package's exported global is keyed by
+                    // the CANONICAL `package.Name`, so an aliased `IMPORT cst AS
+                    // c` reaches it through `c.Answer` too.
+                    .or_else(|| context.binding_types.get(&canonical_value).cloned())
                     .or_else(|| context.function_types.get(value).cloned())
                     .or_else(|| context.function_types.get(&canonical_value).cloned())
             }
@@ -3465,6 +3535,9 @@ pub(super) fn expression_type(
                 {
                     return Some(ParameterType::declared(type_name));
                 }
+            }
+            if let Some(bare) = qualified_imported_enum(target, member, context) {
+                return Some(ParameterType::declared(&bare));
             }
             let target_type = expression_type(target, locals, context)?;
             // `s.state` on a `RES` value yields its `STATE` record type, split
@@ -3773,6 +3846,40 @@ fn thread_resource_plane_target(name: &str) -> &str {
 /// while `List OF alias.T` looks up `"List OF alias"`, misses, and comes back
 /// unchanged — as do a container's or a user generic's ARGUMENTS. This
 /// reproduces exactly that, which is why it does not recurse.
+/// bug-554: the BARE enum name behind a package-qualified enum-member read
+/// (`pkg::Colour.Red`), or `None` when the target is not one.
+///
+/// An imported package's types are installed under their bare names on purpose
+/// (`resolver::packages::install_package_type_names`), and the parser's
+/// type-position normalizer never sees this spelling because a member read is a
+/// VALUE. So `Colour.Red` typed as `Colour` while `recpkg::Colour.Red` — the
+/// prefixed form §13 says is the one to write for an imported name — typed as
+/// `Unknown` and died at the use site with `TYPE_UNKNOWN_VALUE`.
+///
+/// Deliberately fails CLOSED: the prefix must be a live `IMPORT` binding, the
+/// leaf must be a single segment, and the leaf must already be a known enum
+/// **declaring this very member**. Anything else keeps the qualified spelling,
+/// so resolution still reports what was written.
+fn qualified_imported_enum(
+    target: &HirExpression,
+    member: &str,
+    context: &LowerContext<'_>,
+) -> Option<String> {
+    let HirExpression::Identifier(type_name) = target else {
+        return None;
+    };
+    let (binding, leaf) = type_name.split_once('.')?;
+    if leaf.contains('.') || !context.current_imports.contains_key(binding) {
+        return None;
+    }
+    context
+        .type_index
+        .enums
+        .get(&ParameterType::declared(leaf))
+        .is_some_and(|members| members.iter().any(|name| name == member))
+        .then(|| leaf.to_string())
+}
+
 fn canonical_import_type(type_: &ParameterType, context: &LowerContext<'_>) -> ParameterType {
     match type_ {
         ParameterType::Named(sym) => {
@@ -4191,6 +4298,13 @@ fn lower_expression_with_expected(
                 }
             } else if context.binding_types.contains_key(value) {
                 IrValue::Global(value.clone())
+            } else if context.binding_types.contains_key(&canonical_value) {
+                // bug-551: a read of an imported package's exported global. The
+                // CANONICAL `package.Name` is what
+                // `ir::package::apply_package_identity` rewrites to the merged
+                // `<id>.package.Name` definition, so an aliased import must
+                // lower to the canonical spelling, not the one written.
+                IrValue::Global(canonical_value.clone())
             } else if let Some(type_) = expected.and_then(|expected| {
                 // A general built-in predicate in a value position (bug-368).
                 // These are lowered inline at a direct call site and so have no
@@ -4322,7 +4436,14 @@ fn lower_expression_with_expected(
             // split — so both lowerings receive a `String` and the result equals
             // `strings::q(toString(a))`. (Tier-B transforms are plan-89-D and return
             // `AttributedString` instead.)
-            if crate::codegen::builtins::strings::is_tier_a_query(&canonical_callee)
+            //
+            // bug-534: `regex::`'s query members join the same tier on the same
+            // terms — the query runs on the visible text and returns exactly what
+            // the `String` overload returns. `regex` has no Tier-B, because a
+            // `regex::replace` that preserved attributes would have to remap spans
+            // across a pattern rewrite; it stays a type error instead.
+            if (crate::codegen::builtins::strings::is_tier_a_query(&canonical_callee)
+                || crate::codegen::builtins::regex::is_tier_a_query(&canonical_callee))
                 && !args.is_empty()
                 && normalized_builtin
                     .first()
@@ -4800,6 +4921,27 @@ fn lower_expression_with_expected(
                 values
                     .first()
                     .and_then(literal_expression_type)
+                    // bug-556: a list literal written INLINE at a call argument
+                    // has no `expected` to inherit from, and its first element is
+                    // usually not a *literal* — so this fell straight to
+                    // `Unknown`, and every rule that reads the argument's element
+                    // type was silently skipped. `check_builtin_comparability`
+                    // deliberately lets an `Unknown` element pass (it must never
+                    // reject on an unknown), so `collections::find([bag], bag)`
+                    // was ACCEPTED while the identical `LET xs = [bag]` then
+                    // `find(xs, bag)` was refused — the verdict depended on
+                    // whether the author had named the list.
+                    //
+                    // `expression_type` is the same typer the binding path
+                    // already uses and is in scope here; falling back to it makes
+                    // the two spellings agree. It is a fallback, not a
+                    // replacement: `expected_element` still wins, so an annotated
+                    // or parameter-driven element type is unaffected.
+                    .or_else(|| {
+                        values
+                            .first()
+                            .and_then(|first| expression_type(first, locals, context))
+                    })
                     .unwrap_or(ParameterType::Unknown)
             });
             IrValue::ListLiteral {
@@ -4855,6 +4997,19 @@ fn lower_expression_with_expected(
         HirExpression::MemberAccess { target, member } => {
             let member_type =
                 expression_type(expression, locals, context).unwrap_or(ParameterType::Unknown);
+            // bug-554: a package-qualified enum-member read lowers to the SAME
+            // node the bare spelling does. Everything downstream — codegen's
+            // member resolution, `ir::verify`'s `enums` table, the merged
+            // package IR — knows the enum by its bare name only, so leaving
+            // `recpkg.Colour` in the target would trade a front-end
+            // `TYPE_UNKNOWN_VALUE` for a later unresolved reference.
+            if let Some(bare) = qualified_imported_enum(target, member, context) {
+                return IrValue::MemberAccess {
+                    target: Box::new(IrValue::Local(bare)),
+                    member: member.clone(),
+                    type_: member_type,
+                };
+            }
             IrValue::MemberAccess {
                 target: Box::new(lower_expression(target, locals, context)),
                 member: member.clone(),

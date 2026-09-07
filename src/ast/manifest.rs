@@ -77,12 +77,18 @@ pub fn parse_project(
         );
     })?;
 
+    // The dependency `.mfp`s are already resolved by the time `build` parses (a
+    // source-directory dependency was compiled into the package cache before
+    // this), so the parser can ask what a package really exports before it
+    // rewrites a `pkg::Leaf` written in a type position.
+    let package_type_names = crate::manifest::package::imported_type_names(project_dir, manifest);
     for source_file in collect_selected_source_files(project_dir, &canonical_project_dir, manifest)?
     {
         files.push(parse_file(
             project_dir,
             &source_file.actual_path,
             &source_file.display_path,
+            &package_type_names,
         )?);
     }
 
@@ -144,7 +150,7 @@ pub fn write_ast(project_dir: &Path, ast: &AstProject) -> Result<PathBuf, String
 }
 
 pub fn parse_source(path: &Path, relative_path: &str, contents: &str) -> Result<AstFile, ()> {
-    parse_source_with(path, relative_path, contents, false, None)
+    parse_source_with(path, relative_path, contents, false, None, &HashMap::new())
 }
 
 /// Parse a compiler-injected built-in package file. Lexed in internal mode so
@@ -155,7 +161,7 @@ pub fn parse_source_internal(
     relative_path: &str,
     contents: &str,
 ) -> Result<AstFile, ()> {
-    parse_source_with(path, relative_path, contents, true, None)
+    parse_source_with(path, relative_path, contents, true, None, &HashMap::new())
 }
 
 /// Parse an injected built-in file whose owning package cannot be read off its
@@ -176,7 +182,14 @@ pub fn parse_source_builtin(
     contents: &str,
     package: &str,
 ) -> Result<AstFile, ()> {
-    parse_source_with(path, relative_path, contents, true, Some(package))
+    parse_source_with(
+        path,
+        relative_path,
+        contents,
+        true,
+        Some(package),
+        &HashMap::new(),
+    )
 }
 
 fn parse_source_with(
@@ -185,6 +198,7 @@ fn parse_source_with(
     contents: &str,
     internal: bool,
     builtin_package: Option<&str>,
+    package_type_names: &HashMap<String, HashSet<String>>,
 ) -> Result<AstFile, ()> {
     let tokens = if internal {
         lexer::lex_with(path, contents, true)?
@@ -195,6 +209,9 @@ fn parse_source_with(
     if let Some(package) = builtin_package {
         parser.builtin_package = Some(package.to_string());
     }
+    if !package_type_names.is_empty() {
+        parser.package_type_names = package_type_names.clone();
+    }
     let ast_file = parser.parse()?;
     Ok(AstFile {
         path: relative_path.replace('\\', "/"),
@@ -204,7 +221,12 @@ fn parse_source_with(
     })
 }
 
-fn parse_file(project_dir: &Path, actual_path: &Path, display_path: &Path) -> Result<AstFile, ()> {
+fn parse_file(
+    project_dir: &Path,
+    actual_path: &Path,
+    display_path: &Path,
+    package_type_names: &HashMap<String, HashSet<String>>,
+) -> Result<AstFile, ()> {
     let contents = fs::read_to_string(actual_path).map_err(|err| {
         rules::show_diagnostic(
             "MFB_SOURCE_READ_FAILED",
@@ -220,7 +242,14 @@ fn parse_file(project_dir: &Path, actual_path: &Path, display_path: &Path) -> Re
         .unwrap_or(display_path)
         .to_string_lossy()
         .replace('\\', "/");
-    parse_source(display_path, &relative_path, &contents)
+    parse_source_with(
+        display_path,
+        &relative_path,
+        &contents,
+        false,
+        None,
+        package_type_names,
+    )
 }
 
 #[derive(Clone, Debug)]

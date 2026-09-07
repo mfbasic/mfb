@@ -383,6 +383,13 @@ impl CodeBuilder<'_> {
             return None;
         }
         let args = self.inplace_call_args(&update.value, builtin, arity)?;
+        // `G25` — an operand that can reach a `STATE` assignment would write this
+        // same block while the arm holds it (bug-487). Every STATE arm shares
+        // this matcher, so stating it once here is what keeps the eight of them
+        // from disagreeing.
+        if self.inplace_state_operands_reach_a_state_assign(args) {
+            return None;
+        }
         Some(InlinedFieldTarget {
             field_index,
             field_type,
@@ -825,5 +832,181 @@ mod tests {
             "the record-field hazard must decline even though the plain-local \
              condition ahead of it is clear"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `G25` — an operand that can run user code which assigns a `STATE` field
+// (bug-487).
+// ---------------------------------------------------------------------------
+
+/// Every call named inside one NIR subtree, plus whether any of them is opaque.
+///
+/// A call is opaque when it is handed a `FUNC` value: a higher-order builtin
+/// invoking a callback, or an indirect call through a function value, runs a
+/// body this pass cannot name. Those fail closed.
+#[derive(Default)]
+struct CallSites {
+    targets: Vec<String>,
+    opaque: bool,
+}
+
+impl CodeBuilder<'_> {
+    /// `G25` — whether any of an in-place `RES … STATE` update's operands can run
+    /// user code that performs a `STATE` assignment.
+    ///
+    /// `mfb spec language resource-management` §15 defines the statement these
+    /// arms recognise as a shorthand: *"It is updated either by assigning a
+    /// single field in place (`s.state.field = value`) or by assigning a
+    /// whole-state `WITH` update (`s.state = WITH s.state { field := value }`);
+    /// the former is shorthand for the latter."* The `WITH` form **reads**
+    /// `s.state` and stores a record built from that read, and `mfb spec language
+    /// memory-semantics` §14.6 says *"Reads produce owned values, not aliases
+    /// into the buffer"* — so a `STATE` write performed while the operands are
+    /// being evaluated is (correctly) overwritten by the store and cannot be
+    /// observed in the result.
+    ///
+    /// An in-place arm mutates the live block instead, which §14 permits — *"The
+    /// compiler may choose stack storage, inline storage, heap allocation, or
+    /// destructive update, but those choices cannot change the ownership behavior
+    /// described here"* — only while nothing else writes that block in between. A
+    /// `RES` is an alias to one live resource (§15), so an operand that reaches a
+    /// `STATE` assignment is exactly the case where something does: the nested
+    /// write would survive into the result, which the shorthand's `WITH` form
+    /// does not produce, and for a *growing* arm that nested write **reallocates
+    /// and frees** the very block the arm snapshotted before lowering the
+    /// operand — so the mutation and the `O4` write-back both run on freed memory
+    /// (bug-487: `7-701-0001`, or SIGSEGV).
+    ///
+    /// Declining is always correct: the caller falls through to the whole-record
+    /// STATE replace, whose operand snapshot (bug-496,
+    /// `engine/value/operand_snapshot.rs`) already makes that path exact.
+    ///
+    /// The question is deliberately "can it reach a `STATE` assignment", not
+    /// "does it call user code at all". `f.state.xs = append(f.state.xs,
+    /// clamp(v))` calls a user function that assigns no `STATE`, so it keeps the
+    /// fast path — that is the 20 000× cliff
+    /// `tests/codegen_inplace_append_call_result.rs` measures, and
+    /// `tests/rt_res_state_inplace_mutation.rs` pins both halves.
+    ///
+    /// Emits nothing and allocates nothing, so it is a gate in the `O-order-1`
+    /// sense and runs before the first `lower_value`.
+    pub(crate) fn inplace_state_operands_reach_a_state_assign(
+        &self,
+        operands: &[NirValue],
+    ) -> bool {
+        let mut sites = CallSites::default();
+        for operand in operands {
+            self.collect_call_sites_in_value(operand, &mut sites);
+        }
+        let mut visited = std::collections::HashSet::new();
+        self.call_sites_reach_state_assign(&sites, &mut visited)
+    }
+
+    fn call_sites_reach_state_assign(
+        &self,
+        sites: &CallSites,
+        visited: &mut std::collections::HashSet<String>,
+    ) -> bool {
+        sites.opaque
+            || sites
+                .targets
+                .iter()
+                .any(|target| self.call_target_reaches_state_assign(target, visited))
+    }
+
+    /// Whether calling `target` can reach a `STATE` assignment. A module function
+    /// is followed into its body; anything whose body this pass cannot see — an
+    /// indirect call through a `FUNC` value, or a separately-lowered symbol — is
+    /// unknown, and therefore assumed to.
+    fn call_target_reaches_state_assign(
+        &self,
+        target: &str,
+        visited: &mut std::collections::HashSet<String>,
+    ) -> bool {
+        let Some(function) = self.functions.get(target) else {
+            return self.function_symbols.contains_key(target)
+                || self
+                    .locals
+                    .get(target)
+                    .is_some_and(|local| matches!(local.type_, ParameterType::Func(..)))
+                || self
+                    .globals
+                    .get(target)
+                    .is_some_and(|global| matches!(global.type_, ParameterType::Func(..)));
+        };
+        // Already on the DFS stack (recursion), or already explored and found
+        // nothing: either way this edge adds nothing. The search is a monotone OR
+        // that stops at the first hit, so a "seen" set is a sound memo.
+        if !visited.insert(target.to_string()) {
+            return false;
+        }
+        if ops_contain_a_state_assign(&function.body) {
+            return true;
+        }
+        let mut sites = CallSites::default();
+        self.collect_call_sites_in_ops(&function.body, &mut sites);
+        self.call_sites_reach_state_assign(&sites, visited)
+    }
+
+    fn collect_call_sites_in_value(&self, value: &NirValue, out: &mut CallSites) {
+        let mut collector = CallSiteCollector { builder: self, out };
+        crate::target::shared::nir::visit::NirVisitor::visit_value(&mut collector, value);
+    }
+
+    fn collect_call_sites_in_ops(&self, ops: &[NirOp], out: &mut CallSites) {
+        let mut collector = CallSiteCollector { builder: self, out };
+        crate::target::shared::nir::visit::NirVisitor::visit_ops(&mut collector, ops);
+    }
+}
+
+/// Whether `ops` (or any op nested in them) is a `STATE` assignment. The
+/// exhaustive `walk_op` seam is what makes this a complete answer: a new
+/// statement kind that can carry one is a compile error in `visit.rs`, not a
+/// silent hole here.
+fn ops_contain_a_state_assign(ops: &[NirOp]) -> bool {
+    use crate::target::shared::nir::visit::{walk_op, NirVisitor};
+    struct Finder {
+        found: bool,
+    }
+    impl NirVisitor for Finder {
+        fn visit_op(&mut self, op: &NirOp) {
+            if self.found {
+                return;
+            }
+            if matches!(op, NirOp::StateAssign { .. }) {
+                self.found = true;
+                return;
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut finder = Finder { found: false };
+    finder.visit_ops(ops);
+    finder.found
+}
+
+struct CallSiteCollector<'b, 'a> {
+    builder: &'b CodeBuilder<'a>,
+    out: &'b mut CallSites,
+}
+
+impl crate::target::shared::nir::visit::NirVisitor for CallSiteCollector<'_, '_> {
+    fn visit_value(&mut self, value: &NirValue) {
+        match value {
+            NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
+                self.out.targets.push(target.clone());
+                if args.iter().any(|arg| self.builder.is_function_value(arg)) {
+                    self.out.opaque = true;
+                }
+            }
+            NirValue::RuntimeCall { args, .. } => {
+                if args.iter().any(|arg| self.builder.is_function_value(arg)) {
+                    self.out.opaque = true;
+                }
+            }
+            _ => {}
+        }
+        crate::target::shared::nir::visit::walk_value(self, value);
     }
 }

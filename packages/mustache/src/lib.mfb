@@ -1,0 +1,286 @@
+' ---------------------------------------------------------------------------
+' mustache/lib.mfb — the package's public API.
+'
+' `render` and `renderWith` are the same function with and without partials;
+' `escapeHtml` exposes the escaping a `{{name}}` tag applies, so a caller
+' building HTML around a rendered fragment can use the same rule; and
+' `limitCode` names the one failure with no `errorCode::` equivalent.
+'
+' Nothing here touches the filesystem: read the template and the partials
+' yourself and hand over the Strings, which is the same split `csv::parse`,
+' `json::parse` and `yaml::parse` use.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+
+DOC
+  PACKAGE
+  DESC Render Mustache templates against a `json::Json` context.
+  DESC
+  DESC `mustache::render` takes a template and a `json::Json` value and returns
+  DESC the rendered text; `mustache::renderWith` adds a
+  DESC `Map OF String TO String` of partials. The context is an ordinary
+  DESC `json::Json` tree, so anything that already produces one -- `json::parse`
+  DESC on a config file, `yaml::parse` on a YAML one, an HTTP body -- is a
+  DESC context. Because the model is `json::Json`, an importer writes
+  DESC `IMPORT json` alongside `IMPORT mustache` to name the type.
+  DESC
+  DESC The package owns no filesystem access, exactly as `csv::parse` and
+  DESC `json::parse` own none: read the template and pass the `String`.
+  EXAMPLE
+    IMPORT mustache
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET template AS String = "Dear {{name}},\n{{#overdue}}Your loan of {{title}} is overdue.\n{{/overdue}}"
+      LET context AS json::Json = json::parse("{\"name\":\"Ada\",\"overdue\":{\"title\":\"The Analytical Engine\"}}")
+      io::print(mustache::render(template, context))
+      ' Dear Ada,
+      ' Your loan of The Analytical Engine is overdue.
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+  DESC
+  DESC In a program the template comes from a file, which this package does not
+  DESC read for you -- `fs::readText("page.mustache")` and
+  DESC `json::parse(fs::readText("page.json"))` produce both arguments.
+  DESC
+  DESC What it implements
+  DESC
+  DESC The six required modules of the Mustache specification, version 1.4:
+  DESC interpolation (`{{name}}`), sections (`{{#name}}`), inverted sections
+  DESC (`{{^name}}`), comments (`{{! note}}`), partials (`{{>name}}`), and
+  DESC set-delimiters (`{{=<% %>=}}`). That includes the parts of the
+  DESC specification that are easy to miss and impossible to work around:
+  INFO Dotted names. `{{a.b.c}}` walks into nested objects. Only the FIRST
+  INFO segment searches the context stack; the rest resolve strictly against
+  INFO what came before, so an enclosing `b` is never a fallback for a missing
+  INFO `b` inside `a`.
+  INFO
+  INFO The implicit iterator. `{{.}}` is the current context itself, which is
+  INFO how `{{#tags}}{{.}} {{/tags}}` prints a list of strings.
+  INFO
+  INFO Standalone lines. A line holding nothing but whitespace and a section,
+  INFO comment, partial or set-delimiters tag disappears completely -- tag,
+  INFO whitespace and newline. This is what lets `{{#items}}` sit on its own
+  INFO line without opening a blank line in the output. An interpolation is
+  INFO content, so a line carrying one is never standalone.
+  INFO
+  INFO Partial indentation. A standalone `{{>body}}` reprints the partial under
+  INFO the whitespace that preceded it, applied to the partial's SOURCE before
+  INFO it is parsed -- so the partial's own lines are indented and the newlines
+  INFO inside an interpolated value are not.
+  INFO
+  INFO Delimiter scope. A `{{=<% %>=}}` holds until the end of the template that
+  INFO wrote it. It does not reach into a partial, and a change made inside a
+  INFO partial does not leak back out.
+  DESC
+  DESC Deliberate limits
+  DESC
+  INFO Lambdas are not supported. They are the specification's one optional
+  INFO module, and they ask for a context value that is a function; a
+  INFO `json::Json` tree holds null, booleans, numbers, strings, arrays and
+  INFO objects, and none of those is callable. A `{{#name}}` over a value that
+  INFO is not a lambda behaves exactly as the specification says, so a template
+  INFO written for a lambda renders as an ordinary section rather than failing.
+  INFO
+  INFO Escaping is the reference implementation's, not the minimum. `{{name}}`
+  INFO escapes `&`, `<`, `>`, `"`, `'`, `/`, `=` and the backtick, matching
+  INFO mustache.js and Handlebars character for character. That is three more
+  INFO than `encoding::htmlEscape` rewrites, and it writes `&#39;` for an
+  INFO apostrophe where `encoding::htmlEscape` writes `&apos;`. Use
+  INFO `mustache::escapeHtml` when you need the same rule outside a template.
+  INFO
+  INFO Interpolating an array or an object writes its compact JSON form.
+  INFO The specification says nothing about this case and implementations
+  INFO answer with their host language's "to string" -- mustache.js writes
+  INFO `[object Object]`. JSON is deterministic, identical on every platform,
+  INFO and legible.
+  INFO
+  INFO Zero and the empty string are falsey, as they are in the reference
+  INFO implementation, so `{{#count}}` over `0` renders nothing. The
+  INFO specification does not say, and Ruby's implementation decides the other
+  INFO way.
+  INFO
+  INFO Whitespace means ASCII whitespace. A no-break space inside a tag or on an
+  INFO otherwise-standalone line is content here, where JavaScript's `\s` would
+  INFO count it as whitespace.
+  SEC Template size, section nesting, partial recursion and output size are all
+  SEC bounded, so an untrusted template cannot exhaust memory or the stack. A
+  SEC template (and each partial body) may be 1048576 bytes, sections may nest
+  SEC 64 deep, partials may expand 16 levels, and the output may reach 16777216
+  SEC bytes. The partial limit is the load-bearing one: a partial may name any
+  SEC partial including itself, so `{{>a}}` inside partial `a` would otherwise
+  SEC expand forever, and a partial that includes itself inside a section over a
+  SEC list multiplies at every level. The output limit is checked as the output
+  SEC grows rather than at the end, so such a template stops at the limit
+  SEC instead of after exhausting memory.
+  SEC
+  SEC Partials are supplied as a `Map OF String TO String`, never loaded from
+  SEC disk, so a template cannot reach a file the caller did not choose. A
+  SEC program that does want partials from a directory reads them itself, and
+  SEC should use `fs::isWithin` or `fs::openWithin` to keep a `../` in a partial
+  SEC name from escaping that directory.
+  DESC
+  DESC Errors
+  DESC
+  DESC `errorCode::ErrInvalidFormat` for a malformed template,
+  DESC `errorCode::ErrDepthExceeded` for section nesting or partial recursion
+  DESC past the limits, and `mustache::limitCode()` (93120001) for a template or
+  DESC an output past its size limit. That last one is a generator-9 code, which
+  DESC is not globally unique, so match it only around a call you already know
+  DESC is this package's.
+END DOC
+
+DOC
+  FUNC render
+  GROUP Rendering
+  DESC Render `template` against `context` and return the result.
+  DESC
+  DESC A `{{>name}}` partial renders as nothing, because this form supplies
+  DESC none; use `mustache::renderWith` to provide them.
+  ARG template The Mustache template. Reading a file is the caller's job: pass `fs::readText(path)`.
+  ARG context The values the template's names resolve against. Any `json::Json` value is accepted; a template's names can only resolve against a `json::JsonObj`, so anything else renders every name as empty.
+  RET The rendered text.
+  ERROR 77050003 The template is malformed: a tag is never closed, a `{{/name}}` closes a section that was never opened or is not the innermost open one, a section is left open at the end, or a `{{= =}}` tag does not name exactly two delimiters.
+  ERROR 77050024 Sections nest more than 64 levels deep.
+  ERROR 93120001 The template is larger than 1048576 bytes, or the output grew past 16777216 bytes.
+  EXAMPLE
+    IMPORT mustache
+    IMPORT json
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET context AS json::Json = json::parse("{\"name\":\"mfb\",\"tags\":[\"fast\",\"small\"]}")
+      io::print(mustache::render("Hello {{name}}! {{#tags}}[{{.}}]{{/tags}}", context))
+      ' Hello mfb! [fast][small]
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC render(template AS String, context AS json::Json) AS String
+  RETURN renderSource(template, context, Map OF String TO String {})
+END FUNC
+
+DOC
+  FUNC renderWith
+  GROUP Rendering
+  DESC Render `template` against `context`, resolving `{{>name}}` tags in
+  DESC `partials`.
+  DESC
+  DESC A `{{>name}}` whose name is not a key of `partials` renders as nothing
+  DESC rather than failing, which is what the specification requires -- a
+  DESC template may name a partial that only some callers supply.
+  DESC
+  DESC A partial is parsed with the DEFAULT `{{` and `}}` delimiters however the
+  DESC including template had changed them, and a `{{= =}}` inside a partial
+  DESC does not leak back out to the template that included it.
+  ARG template The Mustache template.
+  ARG context The values the template's names resolve against.
+  ARG partials The partial bodies, keyed by the name a `{{>name}}` tag writes. Supplying them in memory is the whole interface: this package never reads a file, so a template cannot reach one the caller did not choose.
+  RET The rendered text.
+  ERROR 77050003 The template, or one of the partials it expanded, is malformed.
+  ERROR 77050024 Sections nest more than 64 levels deep, or partials expand more than 16 levels deep -- which is also how a partial that eventually includes itself is reported.
+  ERROR 93120001 The template or a partial body is larger than 1048576 bytes, or the output grew past 16777216 bytes.
+  EXAMPLE
+    IMPORT mustache
+    IMPORT json
+    IMPORT collections
+    IMPORT io
+
+    FUNC main() AS Integer
+      MUT partials AS Map OF String TO String = Map OF String TO String {}
+      partials = collections::set(partials, "row", "  <li>{{name}}</li>\n")
+      LET context AS json::Json = json::parse("{\"people\":[{\"name\":\"Ada\"},{\"name\":\"Alan\"}]}")
+      io::print(mustache::renderWith("<ul>\n{{#people}}\n{{>row}}\n{{/people}}\n</ul>", context, partials))
+      ' <ul>
+      '   <li>Ada</li>
+      '   <li>Alan</li>
+      ' </ul>
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC renderWith(template AS String, context AS json::Json, partials AS Map OF String TO String) AS String
+  RETURN renderSource(template, context, partials)
+END FUNC
+
+DOC
+  FUNC escapeHtml
+  GROUP Rendering
+  DESC Escape text exactly as a `{{name}}` tag escapes it.
+  DESC
+  DESC Eight characters are rewritten: `&` to `&amp;`, `<` to `&lt;`, `>` to
+  DESC `&gt;`, `"` to `&quot;`, `'` to `&#39;`, `/` to `&#x2F;`, `=` to `&#x3D;`
+  DESC and the backtick to `&#x60;`. Everything else, including every non-ASCII
+  DESC character, passes through unchanged, and the function never fails.
+  DESC
+  DESC This is not `encoding::htmlEscape`. That function escapes the five XML
+  DESC metacharacters and writes an apostrophe as `&apos;`; this one matches the
+  DESC Mustache reference implementation character for character, which means
+  DESC `&#39;` for an apostrophe and three additional characters. `/` closes a
+  DESC `<script>` block early from inside a string literal, the backtick is an
+  DESC attribute delimiter in older Internet Explorer, and `=` starts an
+  DESC attribute inside an unquoted attribute value -- each turns a
+  DESC loosely-quoted attribute into an injection point. Escaping more than the
+  DESC minimum is always safe, so this is the stronger of the two.
+  DESC
+  DESC It is exported so that a program assembling HTML around a rendered
+  DESC fragment escapes by the same rule the template did.
+  ARG text The text to escape. Any String, including the empty one.
+  RET The escaped text.
+  EXAMPLE
+    IMPORT mustache
+    IMPORT io
+
+    FUNC main() AS Integer
+      io::print(mustache::escapeHtml("<a href='/x'>T & J</a>"))
+      ' &lt;a href&#x3D;&#39;&#x2F;x&#39;&gt;T &amp; J&lt;&#x2F;a&gt;
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC escapeHtml(text AS String) AS String
+  RETURN escapeText(text)
+END FUNC
+
+DOC
+  FUNC limitCode
+  GROUP Rendering
+  DESC The error code this package raises when a template or its output passes
+  DESC a size limit: 93120001, written `9-312-0001`.
+  DESC
+  DESC It is the one failure here with no `errorCode::` equivalent -- the
+  DESC registry models no "this input is larger than the reader will handle" --
+  DESC so it takes a code from generator 9, the range reserved for codes a
+  DESC package defines for itself. Generator-9 codes carry no registry meaning
+  DESC and are not globally unique: two unrelated packages may both use this
+  DESC integer for unrelated failures. Match it only around a call you already
+  DESC know is this package's, never across a broad block.
+  DESC
+  DESC The two limits it reports are a template (or partial body) over 1048576
+  DESC bytes and an output over 16777216 bytes. Recursion is reported
+  DESC separately, as `errorCode::ErrDepthExceeded`.
+  RET 93120001.
+  EXAMPLE
+    IMPORT mustache
+    IMPORT json
+    IMPORT io
+
+    FUNC page(template AS String, context AS json::Json) AS String
+      LET html AS String = mustache::render(template, context) TRAP(problem)
+        IF problem.code = mustache::limitCode() THEN
+          io::printError("that template renders too much output")
+          RECOVER ""
+        END IF
+        PROPAGATE
+      END TRAP
+      RETURN html
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC limitCode() AS Integer
+  RETURN ERR_LIMIT
+END FUNC

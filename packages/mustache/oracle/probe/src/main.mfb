@@ -1,0 +1,102 @@
+' ---------------------------------------------------------------------------
+' mustacheprobe — the MFBASIC side of the Node differential oracle and of the
+' official specification suite.
+'
+' It reads one JSON case file and writes ONE line of JSON to stdout describing
+' the outcome. Everything the comparison needs is on that line, and nothing else
+' is printed, so the runner never has to guess which part of the output is the
+' answer:
+'
+'   {"ok":true,"output":"..."}
+'   {"ok":false,"code":77050003,"message":"..."}
+'
+' A REFUSAL is a result, not a crash, so it is reported on stdout with exit 0
+' too. That leaves a non-zero exit or an unparseable line meaning exactly one
+' thing -- the probe itself broke -- which is what the runner's `mutate` mode
+' checks for.
+'
+' The case file is the shape the official specification suite already uses, so a
+' spec test and a hand-written corpus case are the same file format:
+'
+'   {"template": "...", "data": {...}, "partials": {"name": "..."}}
+'
+' `data` defaults to null and `partials` to empty, both of which are ordinary
+' inputs rather than errors -- a template with no context renders every name as
+' empty, which is exactly what the specification's context-miss tests assert.
+' ---------------------------------------------------------------------------
+
+IMPORT mustache
+IMPORT json
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC main() AS Integer
+  LET args AS List OF String = os::args()
+  IF len(args) <> 1 THEN
+    io::printError("usage: mustacheprobe <case.json>")
+    RETURN 2
+  END IF
+  LET source AS String = fs::readText(collections::get(args, 0))
+  LET probeCase AS json::Json = json::parse(source)
+  LET template AS String = stringOf(memberOf(probeCase, "template"))
+  LET context AS json::Json = memberOf(probeCase, "data")
+  LET partials AS Map OF String TO String = partialsOf(memberOf(probeCase, "partials"))
+  LET rendered AS String = mustache::renderWith(template, context, partials)
+  io::print("{\"ok\":true,\"output\":" & json::stringify(json::JsonStr[rendered]) & "}")
+  RETURN 0
+
+  TRAP(problem)
+    ' `json::stringify` of a JsonStr is exactly a JSON string literal, so the
+    ' message needs no escaping of its own.
+    LET message AS json::Json = json::JsonStr[problem.message]
+    io::print("{\"ok\":false,\"code\":" & toString(problem.code) & ",\"message\":" & json::stringify(message) & "}")
+    RETURN 0
+  END TRAP
+END FUNC
+
+' One member of a JSON object, or null when the value is not an object or has no
+' such member. Absence is ordinary here: a spec case carries no `partials` key
+' unless it uses partials.
+PRIVATE FUNC memberOf(node AS json::Json, name AS String) AS json::Json
+  LET empty AS json::Json = json::JsonNull[NOTHING]
+  MATCH node
+    CASE json::JsonObj(o) : RETURN collections::getOr(o.fields, name, empty)
+    CASE json::JsonNull(n) : RETURN empty
+    CASE json::JsonBool(b) : RETURN empty
+    CASE json::JsonNum(m) : RETURN empty
+    CASE json::JsonStr(s) : RETURN empty
+    CASE json::JsonArr(a) : RETURN empty
+  END MATCH
+END FUNC
+
+' The String behind a JSON string, or "" for anything else. A case whose
+' `template` is not a string is a malformed case rather than a finding, and the
+' empty template renders empty, which the runner will report as a mismatch.
+PRIVATE FUNC stringOf(node AS json::Json) AS String
+  MATCH node
+    CASE json::JsonStr(s) : RETURN s.value
+    CASE json::JsonNull(n) : RETURN ""
+    CASE json::JsonBool(b) : RETURN ""
+    CASE json::JsonNum(m) : RETURN ""
+    CASE json::JsonArr(a) : RETURN ""
+    CASE json::JsonObj(o) : RETURN ""
+  END MATCH
+END FUNC
+
+PRIVATE FUNC partialsOf(node AS json::Json) AS Map OF String TO String
+  MUT out AS Map OF String TO String = Map OF String TO String {}
+  MATCH node
+    CASE json::JsonObj(o)
+      FOR EACH entry IN o.fields
+        out = collections::set(out, entry.key, stringOf(entry.value))
+      NEXT
+    CASE json::JsonNull(n) : out = out
+    CASE json::JsonBool(b) : out = out
+    CASE json::JsonNum(m) : out = out
+    CASE json::JsonStr(s) : out = out
+    CASE json::JsonArr(a) : out = out
+  END MATCH
+  RETURN out
+END FUNC

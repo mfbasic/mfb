@@ -148,7 +148,7 @@ Everything below is written against the world where these hold.
   `&'static str` the compiler never reads; `artifact-gate`, the cargo suite
   and `test-accept` can neither catch a doc error nor fail on one. Do not run
   them for letters B–H. (Two exceptions, both narrow:
-  `tests/cli_man_summary_plain.rs` and `tests/cli_canvas_man_examples_compile.rs`
+  `tests/cli/cli_man_summary_plain.rs` and `tests/cli/cli_canvas_man_examples_compile.rs`
   pin rendered text — if a letter changes text those tests pin, update the
   pin in the same commit.)
 - **The spec surface is different and DOES have gates** (letters I–N):
@@ -450,7 +450,7 @@ Resolution, in two parts:
    reasonably expects the whole manual, and H's headline gate should be
    honest when a human runs it by hand. It is a contained change in
    `render_all_markdown` (append the topics after the packages, in the index's
-   sorted order), it needs `tests/cli_man_summary_plain.rs` re-checked, and it
+   sorted order), it needs `tests/cli/cli_man_summary_plain.rs` re-checked, and it
    is the **only** renderer change plan-125 permits. `testing`/`general` stay
    filtered for the documented reason and remain script-only.
 
@@ -556,8 +556,8 @@ question:
 ## Compatibility / Format Impact
 
 - **Rendered `mfb man` output changes** wherever prose is corrected — that is
-  the plan. `tests/cli_man_summary_plain.rs` and
-  `tests/cli_canvas_man_examples_compile.rs` pin some rendered text; a letter
+  the plan. `tests/cli/cli_man_summary_plain.rs` and
+  `tests/cli/cli_canvas_man_examples_compile.rs` pin some rendered text; a letter
   that changes pinned text updates the pin in the same commit.
 - **`mfb man --all` gains the guide topics** if the §4.1 Open Decision goes
   that way. No package page's content or order changes.
@@ -595,7 +595,7 @@ standard or tool is written to the wrong shape.
       to letters I–N, not just broken links.
 - [ ] Decide §4.1: does `mfb man --all` render guide topics? Record the
       decision and, if yes, make the one permitted renderer change and re-run
-      `cargo test --bin mfb man` + `tests/cli_man_summary_plain.rs`.
+      `cargo test --bin mfb man` + `tests/cli/cli_man_summary_plain.rs`.
 - [ ] Write `scripts/man-manual.sh`; confirm its output covers all 621 man
       pages (assert the page count against the census).
 
@@ -722,7 +722,7 @@ Commit: —
 - **Tests**: none for man prose (Non-goals). For any spec letter:
   `cargo build`, `cargo test --bin mfb spec`; plus `cargo test errorcode` if
   `diagnostics/02_error-codes.md` changed. For the §4.1 renderer change (if
-  taken): `cargo test --bin mfb man` and `tests/cli_man_summary_plain.rs`.
+  taken): `cargo test --bin mfb man` and `tests/cli/cli_man_summary_plain.rs`.
 - **Coverage check**: not a code-coverage question here — the analogue is
   `--reconcile`: a green letter means *every listed unit ran*, and that is
   checked, not assumed (memory `completeness-claims-need-an-audit`).

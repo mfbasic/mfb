@@ -1,0 +1,37 @@
+{
+  "project": "loop_for_uninitialized_string",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "2" },
+        "step": null,
+        "line": 10,
+        "body": [
+        { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": null, "line": 11 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 12 }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

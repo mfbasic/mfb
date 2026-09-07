@@ -1,0 +1,6 @@
+# A colon separates a key only when a space or a line end follows it.
+url: http://example.com/a:b
+time: 12:30
+ratio: 16:9
+quoted_colon: 'a: b'
+key:with:colons: value

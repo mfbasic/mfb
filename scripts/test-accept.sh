@@ -243,9 +243,49 @@ else
   opt_arg=""
 fi
 
+# bug-456: at a NON-DEFAULT level the per-target native dumps are not comparable
+# against goldens recorded at the default level. Every one of them is emitted
+# downstream of the `-O`-gated NIR passes, so the dial legitimately rewrites
+# them and every sweep reported a fixed set of mismatches and exited 1 — burying
+# the signal the sweep exists for (a `.run` or build.log deviation) in noise the
+# operator had to recognise by eye. Skip those comparisons, and say how many
+# were skipped; never cap silently. Which kinds are level-variant is decided by
+# `artifact_kind_is_level_variant` in artifact-kinds.sh, from where the passes
+# sit in the pipeline — not from a list of the goldens that happen to drift
+# today.
+#
+# The key is "the level differs from the default", and the default is `-O1` --
+# the flagless build IS `-O1` (`src/cli/build/mod.rs:1488`). So `MFB_OPT=1` is
+# plan-100's explicit "-O1 == default" byte-identity gate and keeps comparing
+# everything, while `MFB_OPT=0` skips for the same reason `MFB_OPT=3` does: it
+# turns gated passes OFF, and the goldens were recorded with them on. A
+# non-numeric MFB_OPT is not treated as a level here; `mfb` rejects it.
+level_variant_skip_for() {             # $1 = the MFB_OPT value ("" when unset)
+  case "$1" in
+    '' | 1)   echo 0 ;;
+    *[!0-9]*) echo 0 ;;
+    *)        echo 1 ;;
+  esac
+}
+skip_level_variant=$(level_variant_skip_for "${MFB_OPT:-}")
+
 failures=0
 ran=0
 skipped=0
+level_variant_skipped=0
+
+# Compare a per-target native dump unless this run's `-O` level makes it
+# meaningless (see `skip_level_variant` above). Counts what it skips.
+compare_native_output() {
+  local kind=$1 label=$2 expected=$3 actual=$4
+  if [ "$skip_level_variant" -eq 1 ] && artifact_kind_is_level_variant "$kind"; then
+    if [ -f "$expected" ]; then
+      level_variant_skipped=$((level_variant_skipped + 1))
+    fi
+    return
+  fi
+  compare_optional_output "$label" "$expected" "$actual"
+}
 
 project_name() {
   sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/project.json" | head -n 1
@@ -697,12 +737,12 @@ while IFS= read -r project_json; do
   # Native dumps (console) and their app-mode variants, driven by the shared
   # table so the compared set matches what the flags requested and the mv placed.
   for ext in $ARTIFACT_NATIVE_KINDS; do
-    compare_optional_output "$test_name/$package_name.$target_name.$ext" \
+    compare_native_output "$ext" "$test_name/$package_name.$target_name.$ext" \
       "$golden_dir/$package_name.$target_name.$ext" \
       "$actual_dir/$package_name.$target_name.$ext"
   done
   for ext in $ARTIFACT_NATIVE_APP_KINDS; do
-    compare_optional_output "$test_name/$package_name.$target_name.app.$ext" \
+    compare_native_output "$ext" "$test_name/$package_name.$target_name.app.$ext" \
       "$golden_dir/$package_name.$target_name.app.$ext" \
       "$actual_dir/$package_name.$target_name.app.$ext"
   done
@@ -718,6 +758,7 @@ fi
 
 skip_note=""
 [ "$skipped" -ne 0 ] && skip_note=", $skipped skipped"
+[ "$level_variant_skipped" -ne 0 ] && skip_note="$skip_note, $level_variant_skipped level-variant golden(s) skipped at -O$MFB_OPT"
 
 if [ "$failures" -ne 0 ]; then
   echo "acceptance tests failed: $failures mismatch(es) ($ran test(s) ran$skip_note)" >&2

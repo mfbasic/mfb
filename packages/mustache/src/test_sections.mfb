@@ -1,0 +1,110 @@
+' ---------------------------------------------------------------------------
+' Tests: sections and inverted sections -- which values render a body, how many
+' times, and what the body sees while it does.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+
+PRIVATE FUNC sectionOf(template AS String, data AS String) AS String
+  RETURN render(template, json::parse(data))
+END FUNC
+
+TESTING
+  TGROUP "section truthiness"
+    TCASE "false, null and a missing name render nothing"
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{\"a\":false}"), "[]")
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{\"a\":null}"), "[]")
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{}"), "[]")
+    END TCASE
+
+    TCASE "zero and the empty string are falsey, as in the reference"
+      ' The specification is silent here; this follows mustache.js and
+      ' Handlebars, so `{{#title}}<h1>{{title}}</h1>{{/title}}` emits no empty
+      ' heading for an empty title. Ruby's implementation decides the other way.
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{\"a\":0}"), "[]")
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{\"a\":\"\"}"), "[]")
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{\"a\":0.0}"), "[]")
+    END TCASE
+
+    TCASE "an empty list renders nothing; an empty object renders once"
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{\"a\":[]}"), "[]")
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{\"a\":{}}"), "[yes]")
+    END TCASE
+
+    TCASE "true, a non-zero number and a non-empty string render once"
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{\"a\":true}"), "[yes]")
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{\"a\":1}"), "[yes]")
+      expectString(sectionOf("[{{#a}}yes{{/a}}]", "{\"a\":\"x\"}"), "[yes]")
+    END TCASE
+  END TGROUP
+
+  TGROUP "section context"
+    TCASE "a list renders its body once per element, with the element pushed"
+      expectString(sectionOf("{{#rows}}<{{n}}>{{/rows}}", "{\"rows\":[{\"n\":1},{\"n\":2},{\"n\":3}]}"), "<1><2><3>")
+    END TCASE
+
+    TCASE "an object, string or number becomes the frame the body sees"
+      expectString(sectionOf("{{#a}}{{b}}{{/a}}", "{\"a\":{\"b\":\"inner\"}}"), "inner")
+      expectString(sectionOf("{{#a}}{{.}}{{/a}}", "{\"a\":\"pushed\"}"), "pushed")
+      expectString(sectionOf("{{#a}}{{.}}{{/a}}", "{\"a\":7}"), "7")
+    END TCASE
+
+    TCASE "a boolean true pushes NO frame, so the body still sees the enclosing object"
+      expectString(sectionOf("{{#ready}}{{name}}{{/ready}}", "{\"ready\":true,\"name\":\"kept\"}"), "kept")
+    END TCASE
+
+    TCASE "a name not in the frame is looked for in the enclosing frames"
+      expectString(sectionOf("{{#a}}{{outer}}{{/a}}", "{\"outer\":\"root\",\"a\":{\"x\":1}}"), "root")
+      expectString(sectionOf("{{#a}}{{#b}}{{root}}/{{mid}}/{{leaf}}{{/b}}{{/a}}", "{\"root\":\"R\",\"a\":{\"mid\":\"M\",\"b\":{\"leaf\":\"L\"}}}"), "R/M/L")
+    END TCASE
+
+    TCASE "a frame that is not an object satisfies no name, and the search passes through it"
+      expectString(sectionOf("{{#words}}[{{outer}}]{{/words}}", "{\"outer\":\"root\",\"words\":[\"a\",\"b\"]}"), "[root][root]")
+    END TCASE
+
+    TCASE "a null element of a list satisfies no name either"
+      ' mustache.js 4.2.0 CRASHES on this input with a TypeError: its plain-name
+      ' lookup indexes the pushed frame with no null guard. The oracle harness
+      ' reports that as a defect it cannot judge, so this test is what pins the
+      ' behaviour.
+      expectString(sectionOf("{{#rows}}<{{n}}>{{/rows}}", "{\"rows\":[{\"n\":1},null,{\"n\":2}]}"), "<1><><2>")
+      expectString(sectionOf("{{#rows}}<{{outer}}>{{/rows}}", "{\"outer\":\"root\",\"rows\":[null]}"), "<root>")
+    END TCASE
+
+    TCASE "sections nest, and a falsey outer suppresses the whole body"
+      expectString(sectionOf("{{#a}}A{{#b}}B{{/b}}{{/a}}", "{\"a\":true,\"b\":true}"), "AB")
+      expectString(sectionOf("{{#a}}A{{#b}}B{{/b}}{{/a}}", "{\"a\":true,\"b\":false}"), "A")
+      expectString(sectionOf("{{#a}}A{{#b}}B{{/b}}{{/a}}", "{\"a\":false,\"b\":true}"), "")
+    END TCASE
+
+    TCASE "the same section may be opened twice"
+      expectString(sectionOf("{{#a}}1{{/a}}{{#a}}2{{/a}}", "{\"a\":true}"), "12")
+    END TCASE
+
+    TCASE "a dotted name names a section"
+      expectString(sectionOf("{{#a.b}}{{c}}{{/a.b}}", "{\"a\":{\"b\":{\"c\":\"deep\"}}}"), "deep")
+      expectString(sectionOf("[{{#a.b}}x{{/a.b}}]", "{\"a\":{}}"), "[]")
+    END TCASE
+  END TGROUP
+
+  TGROUP "inverted sections"
+    TCASE "an inverted section renders on exactly the falsey values"
+      expectString(sectionOf("[{{^a}}no{{/a}}]", "{\"a\":false}"), "[no]")
+      expectString(sectionOf("[{{^a}}no{{/a}}]", "{\"a\":null}"), "[no]")
+      expectString(sectionOf("[{{^a}}no{{/a}}]", "{}"), "[no]")
+      expectString(sectionOf("[{{^a}}no{{/a}}]", "{\"a\":0}"), "[no]")
+      expectString(sectionOf("[{{^a}}no{{/a}}]", "{\"a\":\"\"}"), "[no]")
+      expectString(sectionOf("[{{^a}}no{{/a}}]", "{\"a\":true}"), "[]")
+      expectString(sectionOf("[{{^a}}no{{/a}}]", "{\"a\":{}}"), "[]")
+    END TCASE
+
+    TCASE "an EMPTY list renders an inverted section, which a plain truthiness test would not"
+      expectString(sectionOf("[{{^a}}none{{/a}}]", "{\"a\":[]}"), "[none]")
+      expectString(sectionOf("[{{^a}}none{{/a}}]", "{\"a\":[1]}"), "[]")
+    END TCASE
+
+    TCASE "an inverted section never pushes a frame"
+      expectString(sectionOf("{{^a}}{{outer}}{{/a}}", "{\"outer\":\"root\",\"a\":false}"), "root")
+    END TCASE
+  END TGROUP
+END TESTING

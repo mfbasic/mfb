@@ -1,0 +1,31 @@
+[package]
+name = "hashref"
+version = "0.1.0"
+edition = "2021"
+
+# Its OWN workspace, deliberately -- same reasoning as `../../argon2id/rust`.
+# This crate sits inside the mfb workspace's directory tree but is not a member
+# of it: it is offline oracle tooling, never linked into the compiler or the
+# runtime, and it pins dependency versions that must not be resolved against the
+# compiler's lockfile.
+#
+# Without this table `cargo` refuses to build here at all -- "current package
+# believes it's in a workspace when it's not". The alternative Cargo suggests is
+# adding this path to the root manifest's `workspace.exclude`, which would edit a
+# file every other session is building against for the sake of a tool none of
+# them use.
+[workspace]
+
+# PINNED, and the pin is the point: an oracle whose version floats is not an
+# oracle -- the thing it agreed with is gone. Unlike `../../argon2id/rust`, this
+# reference is NOT hand-written: the independence that makes it an oracle comes
+# from these being a different codebase entirely, maintained by people who never
+# read the MFBASIC core. Hand-transliterating SHA-1/2/3 here would produce a
+# second implementation by the same author as the first, which proves nothing.
+[dependencies]
+sha1 = "=0.10.6"
+sha2 = "=0.10.8"
+sha3 = "=0.10.8"
+
+[profile.release]
+opt-level = 3

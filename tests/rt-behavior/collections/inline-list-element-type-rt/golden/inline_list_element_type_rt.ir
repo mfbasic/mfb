@@ -1,0 +1,73 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "inline_list_element_type_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 13,
+    "visibility": "public",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "line": 14, "name": "x", "type": "Integer" },
+    { "visibility": null, "line": 15, "name": "y", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "int=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.find", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] }, { "kind": "const", "type": "Integer", "value": "20" }] }] } }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "str=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.find", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "const", "type": "String", "value": "c" }] }, { "kind": "const", "type": "String", "value": "c" }] }] } }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "has=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] }, { "kind": "const", "type": "Integer", "value": "2" }] }] } }] } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "42" } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "local=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.find", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "local", "name": "n" }, { "kind": "const", "type": "Integer", "value": "7" }] }, { "kind": "const", "type": "Integer", "value": "7" }] }] } }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "p", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "q", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rec=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.find", "args": [{ "kind": "list", "type": "List OF Point", "values": [{ "kind": "local", "name": "p" }, { "kind": "local", "name": "q" }] }, { "kind": "local", "name": "q" }] }] } }] } },
+    { "op": "bind", "line": 35, "mutable": false, "name": "named", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "named=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.find", "args": [{ "kind": "local", "name": "named" }, { "kind": "const", "type": "Integer", "value": "20" }] }] } }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nested=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Integer", "target": "#collections_flatten$Integer", "args": [{ "kind": "list", "type": "List OF List OF Integer", "values": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "3" }] }] }] }] }] } }] } },
+    { "op": "return", "line": 40, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "#collections_flatten$Integer",
+    "line": 230,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 230, "type": "List OF List OF Integer", "default": null }
+    ],
+    "returns": "List OF Integer",
+    "body": [
+    { "op": "bind", "line": 231, "mutable": true, "name": "result", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 232, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 233,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      { "op": "bind", "line": 234, "mutable": false, "name": "inner", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] } },
+      { "op": "assign", "line": 235, "name": "result", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "inner" }] } },
+      { "op": "assign", "line": 236, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 238, "value": { "kind": "local", "name": "result" } }
+    ]
+  }
+  ]
+}

@@ -276,7 +276,7 @@ impl CodeBuilder<'_> {
             || args.iter().any(|arg| self.is_function_value(arg))
     }
 
-    fn is_function_value(&self, value: &NirValue) -> bool {
+    pub(crate) fn is_function_value(&self, value: &NirValue) -> bool {
         matches!(
             value,
             NirValue::FunctionRef { .. } | NirValue::Closure { .. }

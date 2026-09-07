@@ -1,0 +1,16 @@
+{
+  "name": "mfb-mustache-oracle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Differential oracle for packages/mustache: renders the same templates with mustache.js, the Mustache reference implementation, and compares.",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "oracle": "node oracle.mjs",
+    "diff": "node diff.mjs",
+    "fetch-spec": "./fetch-spec.sh"
+  },
+  "dependencies": {
+    "mustache": "^4.2.0"
+  }
+}

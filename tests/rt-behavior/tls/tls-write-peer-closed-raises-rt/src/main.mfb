@@ -1,0 +1,131 @@
+' bug-483: the encrypted half of the departed-peer write contract, and the
+' mirror of `rt-behavior/tcp/tcp-write-peer-closed-raises-rt`.
+'
+' `tcp` and `tls` are documented drop-in mirrors, and `mfb man tls write` states
+' the contract this pins: "Writing to a socket whose peer has already gone away
+' raises ErrConnectionClosed, the same code tcp::write and both read calls use".
+' Before bug-483 only the OpenSSL backend met it -- macOS/Network.framework
+' raised ErrTlsFailed and Windows/Schannel raised ErrNetworkFailed for the
+' identical event.
+'
+' Why the peer is `openssl s_client` and not `tls::connect`: a proof where our
+' client and our server agree with each other cannot tell a working TLS server
+' from two matching bugs (the same reasoning `rt_tls_listener_thread_transfer.rs`
+' records). The identity is MINTED AT RUN TIME rather than committed: a committed
+' key rots -- every certificate has an expiry, and macOS additionally refuses a
+' server certificate whose validity window exceeds ~398 days -- so a static pair
+' would turn this fixture red on a date rather than on a regression.
+'
+' The chunk is 64 KiB and the loop runs 200 times for the reason the plaintext
+' twin spells out: small writes are all accepted by the local send buffer, so a
+' short probe reports success on a broken build. Chunks this size block waiting
+' for ACKs a departed peer never sends, which is where the failure surfaces.
+' Which iteration raises varies, so the output reports only THAT it raised and
+' with which code.
+IMPORT errorCode
+IMPORT fs
+IMPORT io
+IMPORT net
+IMPORT os
+IMPORT process
+IMPORT strings
+IMPORT tls
+
+' Mint a throwaway server identity. `openssl s_client` does not verify by
+' default, so the leaf needs no SAN and no extended key usage -- which also keeps
+' this off the `-addext` flag whose availability varies across openssl/LibreSSL
+' versions. Returns the directory holding cert.pem/key.pem.
+FUNC identity AS String
+  ' Named with the pid: the acceptance harness may run fixtures concurrently, and
+  ' two runs sharing one directory would serve each other half-written key files.
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb_bug483_" & toString(os::pid())])
+  IF fs::directoryExists(dir) = FALSE THEN
+    fs::createDirectory(dir)
+  END IF
+  RES gen = process::spawn(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "30", "-subj", "/CN=localhost", "-keyout", fs::pathJoin([dir, "key.pem"]), "-out", fs::pathJoin([dir, "cert.pem"])])
+  LET rc AS Integer = process::waitFor(gen)
+  RETURN dir
+END FUNC
+
+' Accept one TLS connection, kill the peer outright (so the socket goes away and
+' data arriving for it is answered with an RST), then write until the failure
+' surfaces.
+FUNC writeAfterPeerClose(dir AS String) AS String
+  RES server = tls::listen("127.0.0.1", 0, fs::pathJoin([dir, "cert.pem"]), fs::pathJoin([dir, "key.pem"]))
+  LET bound = tls::localAddress(server)
+  RES peer = process::spawn(["openssl", "s_client", "-quiet", "-connect", "127.0.0.1:" & toString(bound.port)])
+  RES conn = tls::accept(server)
+  process::signal(peer, process::Signal.Kill)
+  LET reaped AS Integer = process::waitFor(peer)
+  LET chunk AS String = strings::repeat("x", 65536)
+  FOR i = 1 TO 200
+    tls::write(conn, chunk)
+  NEXT
+  RETURN "completed=TRUE"
+  TRAP(err)
+    RETURN "raised=" & toString(err.code = errorCode::ErrConnectionClosed)
+  END TRAP
+END FUNC
+
+' The POSITIVE half, and the reason this fixture is not just the negative one: a
+' fix that reclassified every `tls::write` failure would pass the case above and
+' be a worse bug. A certificate that cannot be loaded is a genuine TLS failure
+' and must still raise `ErrTlsFailed`, not "the peer went away".
+FUNC certificateFailureStillTlsFailed AS String
+  RES server = tls::listen("127.0.0.1", 0, "/nonexistent/cert.pem", "/nonexistent/key.pem")
+  RETURN "listenSucceeded=TRUE"
+  TRAP(err)
+    RETURN "tlsFailed=" & toString(err.code = errorCode::ErrTlsFailed)
+  END TRAP
+END FUNC
+
+' An empty write is a no-op that never reaches the TLS layer, so it stays
+' successful even when the peer is gone -- pinned here so the fix above cannot be
+' "improved" into raising on a call that sends nothing. The plaintext twin pins
+' the same thing.
+FUNC emptyWriteAfterPeerClose(dir AS String) AS String
+  RES server = tls::listen("127.0.0.1", 0, fs::pathJoin([dir, "cert.pem"]), fs::pathJoin([dir, "key.pem"]))
+  LET bound = tls::localAddress(server)
+  RES peer = process::spawn(["openssl", "s_client", "-quiet", "-connect", "127.0.0.1:" & toString(bound.port)])
+  RES conn = tls::accept(server)
+  process::signal(peer, process::Signal.Kill)
+  LET reaped AS Integer = process::waitFor(peer)
+  LET noBytes AS List OF Byte = []
+  tls::write(conn, noBytes)
+  tls::write(conn, "")
+  RETURN "emptyWritesSucceeded=TRUE"
+  TRAP(err)
+    RETURN "emptyWriteRaised=" & toString(err.code)
+  END TRAP
+END FUNC
+
+' The other POSITIVE half. `tls::setWriteTimeout` documents that a write which
+' reaches its deadline raises `ErrTimeout` "rather than blocking further", and the
+' classification this fixture exists for must not swallow that: a slow peer is not
+' a departed one. The peer here is alive and connected — it simply stops draining,
+' because its own standard output is a pipe nobody reads — so the send fills the
+' window and the deadline is what ends the write.
+FUNC writeDeadlineStillTimesOut(dir AS String) AS String
+  RES server = tls::listen("127.0.0.1", 0, fs::pathJoin([dir, "cert.pem"]), fs::pathJoin([dir, "key.pem"]))
+  LET bound = tls::localAddress(server)
+  RES peer = process::spawn(["openssl", "s_client", "-quiet", "-connect", "127.0.0.1:" & toString(bound.port)])
+  RES conn = tls::accept(server)
+  tls::setWriteTimeout(conn, 300)
+  LET chunk AS String = strings::repeat("x", 65536)
+  FOR i = 1 TO 400
+    tls::write(conn, chunk)
+  NEXT
+  RETURN "completed=TRUE"
+  TRAP(err)
+    RETURN "timedOut=" & toString(err.code = errorCode::ErrTimeout)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET dir AS String = identity()
+  io::print("write " & writeAfterPeerClose(dir))
+  io::print("cert " & certificateFailureStillTlsFailed())
+  io::print("empty " & emptyWriteAfterPeerClose(dir))
+  io::print("deadline " & writeDeadlineStillTimesOut(dir))
+  RETURN 0
+END FUNC

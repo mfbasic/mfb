@@ -1,0 +1,469 @@
+' ---------------------------------------------------------------------------
+' json_schema/index.mfb — `compile`: the one traversal of a schema document
+' that checks its shape, indexes its identifiers, resolves its references, and
+' translates its regular expressions.
+'
+' Everything a schema can get wrong that does not depend on an instance is
+' found here, ONCE, before any instance is validated: a keyword holding the
+' wrong JSON type, a `$ref` naming nothing, a `pattern` that is not a valid
+' ECMA-262 regular expression, a construct outside the supported subset. That
+' is why `validate` returns validation errors as DATA and never fails: by the
+' time it runs, every way of failing has already been ruled out.
+'
+' The traversal runs twice over the same tree because `$ref` resolution needs
+' the whole identifier index before it can resolve anything -- a `$ref` may
+' name an `$id` declared later in the document. Both passes are the SAME
+' function under a phase flag rather than two functions, because a schema
+' keyword list that exists twice is a keyword list that will disagree with
+' itself.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT regex
+
+' A compiled schema: the document, its base URI, and the three tables the
+' evaluator reads instead of re-deriving anything per instance.
+EXPORT TYPE Schema
+  ' The schema document itself, exactly as `json::parse` produced it.
+  root AS json::Json
+  ' The base URI the document identifies itself by -- its root `$id` resolved
+  ' as an absolute URI, or "" when it declares none.
+  id AS String
+  ' The JSON Pointer of every `$ref`-bearing subschema, mapped to the JSON
+  ' Pointer of what it refers to. Every reference in the document has an entry:
+  ' a `$ref` that resolves to nothing fails `compile`.
+  refs AS Map OF String TO String
+  ' Every ECMA-262 pattern in the document, mapped to its MFBASIC-dialect
+  ' translation (see ecma.mfb). Keyed by the pattern TEXT, so `pattern` and a
+  ' `patternProperties` key that read the same share one entry.
+  patterns AS Map OF String TO String
+END TYPE
+
+' The traversal's accumulator. `locations` is filled by phase 1 and read by
+' phase 2; `refs` and `patterns` are filled by phase 2.
+PRIVATE TYPE Acc
+  locations AS Map OF String TO String
+  refs AS Map OF String TO String
+  patterns AS Map OF String TO String
+  nodes AS Integer
+END TYPE
+
+PRIVATE LET PHASE_IDENTIFY AS Integer = 1
+PRIVATE LET PHASE_RESOLVE AS Integer = 2
+
+' ---------------------------------------------------------------------------
+' The keyword tables. Draft 2020-12's Core and Validation vocabularies, split
+' by what the keyword's VALUE is, because that is what decides how the
+' traversal treats it.
+' ---------------------------------------------------------------------------
+
+' Keywords whose value is one subschema.
+PRIVATE FUNC subschemaKeys() AS List OF String
+  RETURN ["additionalProperties", "items", "not", "propertyNames", "contains", "if", "then", "else", "unevaluatedItems", "unevaluatedProperties", "contentSchema"]
+END FUNC
+
+' Keywords whose value is a non-empty array of subschemas.
+PRIVATE FUNC subschemaListKeys() AS List OF String
+  RETURN ["allOf", "anyOf", "oneOf", "prefixItems"]
+END FUNC
+
+' Keywords whose value is an object whose every member is a subschema.
+PRIVATE FUNC subschemaMapKeys() AS List OF String
+  RETURN ["$defs", "properties", "patternProperties", "dependentSchemas"]
+END FUNC
+
+' Keywords whose value must be a number.
+PRIVATE FUNC numberKeys() AS List OF String
+  RETURN ["maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum"]
+END FUNC
+
+' Keywords whose value must be a non-negative integer.
+PRIVATE FUNC countKeys() AS List OF String
+  RETURN ["maxLength", "minLength", "maxItems", "minItems", "maxContains", "minContains", "maxProperties", "minProperties"]
+END FUNC
+
+' Keywords whose value must be a string, and which this package treats as pure
+' annotation -- read by a consumer of the schema, never by the validator.
+PRIVATE FUNC annotationStringKeys() AS List OF String
+  RETURN ["title", "description", "$comment", "format", "contentEncoding", "contentMediaType"]
+END FUNC
+
+' Keywords whose value must be a boolean, all annotations.
+PRIVATE FUNC annotationBooleanKeys() AS List OF String
+  RETURN ["deprecated", "readOnly", "writeOnly"]
+END FUNC
+
+' Draft 2020-12 keywords this package refuses rather than approximates.
+PRIVATE FUNC refusedKeys() AS List OF String
+  RETURN ["$dynamicRef", "$dynamicAnchor", "$recursiveRef", "$recursiveAnchor"]
+END FUNC
+
+' The seven `type` names.
+PRIVATE FUNC typeNames() AS List OF String
+  RETURN ["null", "boolean", "object", "array", "number", "string", "integer"]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Shape errors.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC shapeError(pointer AS String, detail AS String) AS Error
+  RETURN error(ERR_SCHEMA, "json_schema: the schema at `" & pointer & "` is not a valid Draft 2020-12 schema: " & detail)
+END FUNC
+
+PRIVATE FUNC refusedError(pointer AS String, detail AS String) AS Error
+  RETURN error(ERR_UNSUPPORTED, "json_schema: the schema at `" & pointer & "` uses " & detail & ", which is outside this validator's documented subset")
+END FUNC
+
+' Require that a keyword's value has a given JSON kind.
+PRIVATE FUNC expectKind(value AS json::Json, wanted AS String, pointer AS String, keyword AS String) AS Nothing
+  IF kindOf(value) <> wanted THEN
+    FAIL shapeError(pointer, "`" & keyword & "` must be " & article(wanted) & ", not " & article(kindOf(value)))
+  END IF
+END FUNC
+
+PRIVATE FUNC article(kind AS String) AS String
+  IF kind = "array" OR kind = "object" OR kind = "integer" THEN RETURN "an " & kind
+  RETURN "a " & kind
+END FUNC
+
+' Require a non-negative integer, which JSON Schema spells as a number with no
+' fractional part rather than as a distinct JSON type.
+PRIVATE FUNC expectCount(value AS json::Json, pointer AS String, keyword AS String) AS Nothing
+  expectKind(value, "number", pointer, keyword)
+  LET number AS Float = numberOf(value)
+  IF NOT isIntegral(number) OR number < 0.0 THEN
+    FAIL shapeError(pointer, "`" & keyword & "` must be a non-negative integer, not " & toString(number))
+  END IF
+END FUNC
+
+' Require an array of strings with no repeats -- the shape of `required` and of
+' each member of `dependentRequired`.
+PRIVATE FUNC expectStringArray(value AS json::Json, pointer AS String, keyword AS String) AS Nothing
+  expectKind(value, "array", pointer, keyword)
+  MUT seen AS Set OF String = Set OF String {}
+  FOR EACH item IN itemsOf(value)
+    IF NOT isString(item) THEN
+      FAIL shapeError(pointer, "every element of `" & keyword & "` must be a string")
+    END IF
+    LET name AS String = stringOf(item)
+    IF collections::contains(seen, name) THEN
+      FAIL shapeError(pointer, "`" & keyword & "` repeats `" & name & "`")
+    END IF
+    seen = collections::add(seen, name)
+  NEXT
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Identifiers.
+' ---------------------------------------------------------------------------
+
+' The `$anchor` grammar: a letter or underscore, then letters, digits, "-",
+' "." and "_".
+PRIVATE FUNC isAnchorName(name AS String) AS Boolean
+  RETURN regex::match(name, "\\A[A-Za-z_][A-Za-z0-9._-]*\\z")
+END FUNC
+
+' Read a subschema's `$id`, resolved against the base it appears under, or ""
+' when it declares none.
+PRIVATE FUNC declaredId(node AS json::Json, base AS String, pointer AS String) AS String
+  IF NOT hasMember(node, "$id") THEN RETURN ""
+  LET raw AS json::Json = member(node, "$id")
+  expectKind(raw, "string", pointer, "$id")
+  LET text AS String = stringOf(raw)
+  ' Draft 2020-12 dropped the plain-name-fragment form of `$id`: an identifier
+  ' names a whole schema resource, and a location inside one is named by
+  ' `$anchor`. An `$id` with a fragment is therefore a 2019-09-or-earlier
+  ' document being read as a 2020-12 one, which is worth saying plainly.
+  LET parts AS UriParts = parseUri(text)
+  IF parts.hasFragment AND parts.fragment <> "" THEN
+    FAIL shapeError(pointer, "`$id` must not contain a fragment (`" & text & "`) -- use `$anchor` to name a location inside a schema resource")
+  END IF
+  RETURN resolveUri(base, text)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The traversal.
+' ---------------------------------------------------------------------------
+
+' Walk one subschema. `phase` selects which of the two jobs is being done;
+' everything else -- which members are subschemas, what shape each keyword
+' must have -- is shared, so the two passes can never disagree about what a
+' schema contains.
+PRIVATE FUNC walkSchema(phase AS Integer, document AS json::Json, node AS json::Json, pointer AS String, base AS String, acc AS Acc, depth AS Integer) AS Acc
+  checkDepth(depth)
+  MUT state AS Acc = WITH acc { nodes := charge(acc.nodes, INDEX_NODE_LIMIT, "the schema index") }
+
+  ' A schema is a boolean or an object, and nothing else. `true` accepts every
+  ' instance and `false` rejects every instance; neither has any members to
+  ' walk.
+  LET kind AS String = kindOf(node)
+  IF kind = "boolean" THEN RETURN state
+  IF kind <> "object" THEN
+    FAIL shapeError(pointer, "a schema must be an object or a boolean, not " & article(kind))
+  END IF
+
+  FOR EACH refused IN refusedKeys()
+    IF hasMember(node, refused) THEN FAIL refusedError(pointer, "`" & refused & "`")
+  NEXT
+
+  LET here AS String = declaredId(node, base, pointer)
+  MUT scope AS String = base
+  IF here <> "" THEN scope = here
+
+  IF phase = PHASE_IDENTIFY THEN
+    state = WITH state { locations := identify(node, pointer, scope, here, state.locations) }
+  ELSE
+    state = resolveReference(document, node, pointer, scope, state)
+  END IF
+
+  state = checkAssertions(node, pointer, state, phase)
+
+  ' Descend. Every subschema position is walked under the scope established
+  ' above, so an `$id` in a subschema rebases everything beneath it.
+  FOR EACH keyword IN subschemaKeys()
+    IF hasMember(node, keyword) THEN
+      state = walkSchema(phase, document, member(node, keyword), pointerAppend(pointer, keyword), scope, state, depth + 1)
+    END IF
+  NEXT
+
+  FOR EACH keyword IN subschemaListKeys()
+    IF hasMember(node, keyword) THEN
+      LET value AS json::Json = member(node, keyword)
+      expectKind(value, "array", pointer, keyword)
+      LET items AS List OF json::Json = itemsOf(value)
+      IF len(items) = 0 THEN FAIL shapeError(pointer, "`" & keyword & "` must hold at least one subschema")
+      MUT i AS Integer = 0
+      WHILE i < len(items)
+        state = walkSchema(phase, document, collections::get(items, i), pointerIndex(pointerAppend(pointer, keyword), i), scope, state, depth + 1)
+        i = i + 1
+      END WHILE
+    END IF
+  NEXT
+
+  FOR EACH keyword IN subschemaMapKeys()
+    IF hasMember(node, keyword) THEN
+      LET value AS json::Json = member(node, keyword)
+      expectKind(value, "object", pointer, keyword)
+      FOR EACH entry IN fieldsOf(value)
+        LET at AS String = pointerAppend(pointerAppend(pointer, keyword), entry.key)
+        IF keyword = "patternProperties" THEN
+          state = WITH state { patterns := learnPattern(state.patterns, entry.key, at) }
+        END IF
+        state = walkSchema(phase, document, entry.value, at, scope, state, depth + 1)
+      NEXT
+    END IF
+  NEXT
+
+  RETURN state
+END FUNC
+
+' Phase 1: record this subschema's `$id` and `$anchor` against the pointer that
+' reaches them.
+PRIVATE FUNC identify(node AS json::Json, pointer AS String, scope AS String, here AS String, locations AS Map OF String TO String) AS Map OF String TO String
+  MUT out AS Map OF String TO String = locations
+  IF here <> "" THEN
+    IF collections::hasKey(out, here) THEN
+      FAIL shapeError(pointer, "`$id` `" & here & "` is already used by the schema at `" & collections::get(out, here) & "`")
+    END IF
+    out = collections::set(out, here, pointer)
+  END IF
+
+  IF hasMember(node, "$anchor") THEN
+    LET raw AS json::Json = member(node, "$anchor")
+    expectKind(raw, "string", pointer, "$anchor")
+    LET name AS String = stringOf(raw)
+    IF NOT isAnchorName(name) THEN
+      FAIL shapeError(pointer, "`$anchor` must be a letter or underscore followed by letters, digits, `-`, `.` or `_`, not `" & name & "`")
+    END IF
+    LET key AS String = scope & "#" & name
+    IF collections::hasKey(out, key) THEN
+      FAIL shapeError(pointer, "`$anchor` `" & name & "` is already used by the schema at `" & collections::get(out, key) & "`")
+    END IF
+    out = collections::set(out, key, pointer)
+  END IF
+  RETURN out
+END FUNC
+
+' Phase 2: turn this subschema's `$ref` into the JSON Pointer it names.
+'
+' Resolution is arithmetic on names and never retrieval: the target must be
+' inside the document being compiled. A reference to anything else is refused
+' with a message that says so, rather than being fetched -- see README.md on
+' why this package does not dereference a URI.
+PRIVATE FUNC resolveReference(document AS json::Json, node AS json::Json, pointer AS String, scope AS String, acc AS Acc) AS Acc
+  IF NOT hasMember(node, "$ref") THEN RETURN acc
+  LET raw AS json::Json = member(node, "$ref")
+  expectKind(raw, "string", pointer, "$ref")
+  LET target AS String = resolveUri(scope, stringOf(raw))
+  LET resource AS String = withoutFragment(target)
+  LET fragment AS String = fragmentOf(target)
+
+  MUT resourcePointer AS String = ""
+  IF resource <> "" THEN
+    IF NOT collections::hasKey(acc.locations, resource) THEN
+      FAIL error(ERR_REF, "json_schema: the `$ref` at `" & pointer & "` names `" & target & "`, which is not a schema resource in this document -- this validator resolves references within the compiled document and retrieves nothing")
+    END IF
+    resourcePointer = collections::get(acc.locations, resource)
+  END IF
+
+  IF fragment = "" THEN
+    RETURN WITH acc { refs := collections::set(acc.refs, pointer, resourcePointer) }
+  END IF
+
+  IF strings::startsWith(fragment, "/") THEN
+    LET located AS String = resourcePointer & fragment
+    ' Prove the pointer resolves now rather than at validation time.
+    LET reached AS json::Json = resolvePointer(document, located) TRAP(problem)
+      FAIL error(ERR_REF, "json_schema: the `$ref` at `" & pointer & "` names `" & target & "`, which resolves to nothing: " & problem.message)
+    END TRAP
+    RETURN WITH acc { refs := collections::set(acc.refs, pointer, located) }
+  END IF
+
+  LET key AS String = resource & "#" & fragment
+  IF NOT collections::hasKey(acc.locations, key) THEN
+    FAIL error(ERR_REF, "json_schema: the `$ref` at `" & pointer & "` names the anchor `" & target & "`, which no `$anchor` in this document declares")
+  END IF
+  RETURN WITH acc { refs := collections::set(acc.refs, pointer, collections::get(acc.locations, key)) }
+END FUNC
+
+' Translate one ECMA-262 pattern and remember it, so a pattern that cannot be
+' translated fails `compile` rather than the first `validate` that reaches it.
+PRIVATE FUNC learnPattern(patterns AS Map OF String TO String, pattern AS String, pointer AS String) AS Map OF String TO String
+  IF collections::hasKey(patterns, pattern) THEN RETURN patterns
+  LET translated AS String = toMfbPattern(pattern) TRAP(problem)
+    FAIL error(problem.code, problem.message & " (at `" & pointer & "`)")
+  END TRAP
+  RETURN collections::set(patterns, pattern, translated)
+END FUNC
+
+' Check every keyword that is neither a subschema position nor an identifier,
+' and pick up `pattern` on the way.
+PRIVATE FUNC checkAssertions(node AS json::Json, pointer AS String, acc AS Acc, phase AS Integer) AS Acc
+  MUT state AS Acc = acc
+
+  IF hasMember(node, "$schema") THEN
+    LET raw AS json::Json = member(node, "$schema")
+    expectKind(raw, "string", pointer, "$schema")
+    LET dialect AS String = stringOf(raw)
+    IF dialect <> DIALECT THEN
+      FAIL refusedError(pointer, "the dialect `" & dialect & "` (this validator implements " & DIALECT & ")")
+    END IF
+  END IF
+
+  IF hasMember(node, "$vocabulary") THEN
+    LET raw AS json::Json = member(node, "$vocabulary")
+    expectKind(raw, "object", pointer, "$vocabulary")
+    FOR EACH entry IN fieldsOf(raw)
+      IF kindOf(entry.value) <> "boolean" THEN
+        FAIL shapeError(pointer, "every member of `$vocabulary` must be a boolean")
+      END IF
+    NEXT
+  END IF
+
+  IF hasMember(node, "type") THEN checkTypeKeyword(member(node, "type"), pointer)
+
+  IF hasMember(node, "enum") THEN expectKind(member(node, "enum"), "array", pointer, "enum")
+  IF hasMember(node, "examples") THEN expectKind(member(node, "examples"), "array", pointer, "examples")
+  IF hasMember(node, "required") THEN expectStringArray(member(node, "required"), pointer, "required")
+
+  IF hasMember(node, "dependentRequired") THEN
+    LET raw AS json::Json = member(node, "dependentRequired")
+    expectKind(raw, "object", pointer, "dependentRequired")
+    FOR EACH entry IN fieldsOf(raw)
+      expectStringArray(entry.value, pointerAppend(pointerAppend(pointer, "dependentRequired"), entry.key), "dependentRequired")
+    NEXT
+  END IF
+
+  IF hasMember(node, "multipleOf") THEN
+    expectKind(member(node, "multipleOf"), "number", pointer, "multipleOf")
+    IF numberOf(member(node, "multipleOf")) <= 0.0 THEN
+      FAIL shapeError(pointer, "`multipleOf` must be greater than zero")
+    END IF
+  END IF
+
+  FOR EACH keyword IN numberKeys()
+    IF hasMember(node, keyword) THEN expectKind(member(node, keyword), "number", pointer, keyword)
+  NEXT
+
+  FOR EACH keyword IN countKeys()
+    IF hasMember(node, keyword) THEN expectCount(member(node, keyword), pointer, keyword)
+  NEXT
+
+  FOR EACH keyword IN annotationStringKeys()
+    IF hasMember(node, keyword) THEN expectKind(member(node, keyword), "string", pointer, keyword)
+  NEXT
+
+  FOR EACH keyword IN annotationBooleanKeys()
+    IF hasMember(node, keyword) THEN expectKind(member(node, keyword), "boolean", pointer, keyword)
+  NEXT
+
+  IF hasMember(node, "uniqueItems") THEN expectKind(member(node, "uniqueItems"), "boolean", pointer, "uniqueItems")
+
+  IF hasMember(node, "pattern") THEN
+    LET raw AS json::Json = member(node, "pattern")
+    expectKind(raw, "string", pointer, "pattern")
+    IF phase = PHASE_RESOLVE THEN
+      state = WITH state { patterns := learnPattern(state.patterns, stringOf(raw), pointerAppend(pointer, "pattern")) }
+    END IF
+  END IF
+
+  RETURN state
+END FUNC
+
+' `type` is one type name or a non-repeating array of them.
+PRIVATE FUNC checkTypeKeyword(value AS json::Json, pointer AS String) AS Nothing
+  IF isString(value) THEN
+    checkTypeName(stringOf(value), pointer)
+    RETURN NOTHING
+  END IF
+  IF NOT isArray(value) THEN
+    FAIL shapeError(pointer, "`type` must be a string or an array of strings, not " & article(kindOf(value)))
+  END IF
+  LET items AS List OF json::Json = itemsOf(value)
+  IF len(items) = 0 THEN FAIL shapeError(pointer, "`type` must name at least one type")
+  MUT seen AS Set OF String = Set OF String {}
+  FOR EACH item IN items
+    IF NOT isString(item) THEN FAIL shapeError(pointer, "every element of `type` must be a string")
+    LET name AS String = stringOf(item)
+    checkTypeName(name, pointer)
+    IF collections::contains(seen, name) THEN FAIL shapeError(pointer, "`type` repeats `" & name & "`")
+    seen = collections::add(seen, name)
+  NEXT
+  RETURN NOTHING
+END FUNC
+
+PRIVATE FUNC checkTypeName(name AS String, pointer AS String) AS Nothing
+  IF collections::contains(typeNames(), name) THEN RETURN NOTHING
+  FAIL shapeError(pointer, "`" & name & "` is not a JSON Schema type -- the seven are " & strings::join(typeNames(), ", "))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' compile
+' ---------------------------------------------------------------------------
+
+' Compile a schema document: check its shape, index its identifiers, resolve
+' its references, and translate its regular expressions.
+PUBLIC FUNC compileSchema(document AS json::Json) AS Schema
+  LET rootId AS String = declaredId(document, "", "")
+  MUT state AS Acc = Acc[locations := Map OF String TO String {}, refs := Map OF String TO String {}, patterns := Map OF String TO String {}, nodes := 0]
+
+  ' The root is a schema resource whether or not it declares an `$id`, so it is
+  ' registered under the EMPTY identity here; its declared identity, if it has
+  ' one, is registered by the walk below like any other `$id`. Registering it
+  ' here too would make the walk's own duplicate-`$id` check fire on the root.
+  '
+  ' Both registrations are needed. A `$ref` of "#/$defs/x" inside a document
+  ' with an `$id` resolves against that `$id`, and one inside a document
+  ' without an `$id` resolves against "" -- indexing the root under "" is what
+  ' makes the second spelling reach it.
+  state = WITH state { locations := collections::set(state.locations, "", "") }
+
+  state = walkSchema(PHASE_IDENTIFY, document, document, "", rootId, state, 0)
+  state = WITH state { nodes := 0 }
+  state = walkSchema(PHASE_RESOLVE, document, document, "", rootId, state, 0)
+
+  RETURN Schema[root := document, id := rootId, refs := state.refs, patterns := state.patterns]
+END FUNC

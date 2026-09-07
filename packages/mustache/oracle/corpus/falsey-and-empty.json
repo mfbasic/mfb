@@ -1,0 +1,13 @@
+{
+  "template": "false     [{{#f}}yes{{/f}}][{{^f}}no{{/f}}]\nnull      [{{#n}}yes{{/n}}][{{^n}}no{{/n}}]\nmissing   [{{#gone}}yes{{/gone}}][{{^gone}}no{{/gone}}]\nzero      [{{#z}}yes{{/z}}][{{^z}}no{{/z}}]\nempty str [{{#e}}yes{{/e}}][{{^e}}no{{/e}}]\nempty arr [{{#a}}yes{{/a}}][{{^a}}no{{/a}}]\nempty obj [{{#o}}yes{{/o}}][{{^o}}no{{/o}}]\ntrue      [{{#t}}yes{{/t}}][{{^t}}no{{/t}}]\ninterp    [{{n}}][{{gone}}][{{z}}][{{e}}][{{f}}][{{t}}]\n",
+  "data": {
+    "f": false,
+    "n": null,
+    "z": 0,
+    "e": "",
+    "a": [],
+    "o": {},
+    "t": true
+  },
+  "partials": {}
+}

@@ -1,0 +1,17 @@
+{
+  "template": "{{#outer}}{{outerOnly}}/{{innerOnly}}/{{shared}}{{#inner}}[{{outerOnly}}|{{innerOnly}}|{{shared}}]{{/inner}}{{/outer}}\nroot sees {{shared}}\nboolean keeps the frame: {{#ready}}{{shared}}{{/ready}}\nstring pushes a frame: {{#label}}{{.}}{{/label}}\n",
+  "data": {
+    "shared": "root",
+    "ready": true,
+    "label": "hello",
+    "outer": {
+      "outerOnly": "O",
+      "shared": "outer",
+      "inner": {
+        "innerOnly": "I",
+        "shared": "inner"
+      }
+    }
+  },
+  "partials": {}
+}

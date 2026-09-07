@@ -138,7 +138,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ),
             ],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec![],
+            errors: vec!["ErrConnectionClosed", "ErrInvalidArgument", "ErrOutOfMemory", "ErrResourceClosed", "ErrTimeout"],
             body: super::native_body(lower_read, &[]),
         }],
     });

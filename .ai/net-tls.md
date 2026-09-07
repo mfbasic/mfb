@@ -74,6 +74,70 @@ The convention says a deadline raises `ErrTimeout` (77050008). Left alone, each 
 
 If you add a bounded operation to any backend, classify the expiry explicitly — the natural error path will otherwise swallow it as a transport failure and a caller cannot tell a slow peer from a broken session.
 
+## A departed peer is `ErrConnectionClosed` on every backend — and each one had to be taught it
+
+Exactly the shape of the deadline row above, one direction over. `tcp` and `tls`
+are documented drop-in mirrors and both `read` calls already agreed at end of
+stream (bug-465); the WRITE direction named one event three ways, and only the
+OpenSSL row matched what `mfb man tcp write` and `mfb man tls write` promise:
+
+| backend | `tls::write` after the peer goes away | measured |
+|---|---|---|
+| Linux, OpenSSL | `ErrConnectionClosed` (correct since bug-467) | box 2228 |
+| macOS, Network.framework | `ErrTlsFailed` — "TLS handshake, certificate validation, SNI validation, or protocol operation failed", for a session whose handshake succeeded | host |
+| Windows, Schannel | `ErrNetworkFailed` — "Network operation failed **before a connection was established**", for a connection that was established and used | box 2230 |
+
+Windows is `WSAGetLastError` after `send`: 10054/10053/10058 are the peer,
+**10060 `WSAETIMEDOUT` is the `SO_SNDTIMEO` deadline** (the write side had never
+learned the `ErrTimeout` rule the read side got in plan-110-D), anything else
+stays `ErrNetworkFailed`. macOS is the paragraph below.
+
+## A Network.framework completion block's `nw_error` does NOT outlive the block
+
+The `nw_error_t` a `nw_connection_send`/state-changed handler is handed is
+borrowed for the block's duration; Network.framework releases it on return. The
+ctx slot `CTX_ERROR` therefore holds a **dangling pointer** by the time the
+helper's `dispatch_semaphore_wait` returns, and it has always been read as a
+non-null test only — never dereferenced — for that reason.
+
+Measured, because it is not obvious and the failure is intermittent: a build that
+called `nw_error_get_error_domain(CTX_ERROR)` from `tls::write` after the wait
+SIGSEGV'd in **2 of 6** runs, **3 of 5** under `MallocScribble=1`, and the runs
+that survived disagreed with each other about the domain (POSIX 32, POSIX 54,
+non-POSIX) for one identical scenario. A design that reads the error object from
+the helper is not a slow leak or a rare edge — it is a crash in a server's write
+path, driven by a remote peer.
+
+So anything you want to know about an `nw_error` must be asked **inside the block
+trampoline**, on the dispatch queue. bug-483 parks
+`nw_error_get_error_domain` in the ctx (`CTX_EDOMFN`) at connection-ctx setup and
+both `SEND_INVOKE` and `STATE_INVOKE` record the domain into `CTX_EDOM` while the
+object is alive; `tls::write` then classifies from that integer.
+
+Three things that design has to get right, all of them load-bearing:
+
+- **`CTX_EDOM` is sticky.** `emit_fresh_sem` clears `CTX_ERROR` before every
+  operation and must NOT clear the domain: the terminal-state guard on a *later*
+  write is a reader, and by then no send has run.
+- **Both trampolines must classify, not just the send.** Measured against a
+  departed peer, only the FIRST failing write takes the send-completion error
+  path — every write after it hits the `CTX_STATE >= 4` guard, because
+  Network.framework has moved the connection to `failed` (4; never `cancelled`,
+  5). And the state handler can get there *before* the program's first write ever
+  posts a send, which is a 2-in-5 flake if only the send classifies.
+- **`STATE_INVOKE` is shared by connection AND listener contexts, so every slot
+  it writes must mean the same thing in both.** The listener ctx's ring occupies
+  64..192, so the new pair sits at 192/200 with `LCTX_SIZE` grown to match. At
+  128/136 the state handler would have written ring entries 8 and 9 — and read
+  one back as a function pointer to call.
+
+The write-time guard is NOT reclassified wholesale (a handshake failure reaches
+`failed` too, in general): it reports `ErrConnectionClosed` only when a
+`nw_error_domain_posix` error was actually recorded on that connection, and
+`ErrTlsFailed` otherwise. In practice `tls::connect`/`tls::accept` both wait for
+`NW_STATE_READY` before returning a `Socket`, so a certificate failure is raised
+there and never reaches `tls::write` at all.
+
 ## A macOS TLS `Listener` has no descriptor, and its whole address surface is one port
 
 The pattern above repeats for endpoint queries, but harder. `tls::localAddress`/`remoteAddress` over a **`Socket`** reuse `net`'s `getsockname`/`getpeername` emitter on Linux and Windows, and macOS substitutes `nw_connection_copy_current_path` → `nw_path_copy_effective_{local,remote}_endpoint` → `nw_endpoint_get_address`, which still yields a `sockaddr` and so still feeds the shared `Address` builder.
@@ -140,6 +204,28 @@ certificates with `-days 397 -addext extendedKeyUsage=serverAuth`.
 ## There is no `tls::wrap`, and the reason is macOS-specific
 
 Upgrading an established `tcp::Socket` in place needs to adopt its fd. On macOS nothing supported can: Network.framework fixes TLS in `nw_parameters` at creation and cannot graft it onto a live connection; `nw_connection_create_with_connected_socket` is exported but declared in no SDK header and fails `ENETDOWN` for every parameter shape; Secure Transport can adopt an fd but is deprecated and rejects `kTLSProtocol13` (`errSSLIllegalParam`), capping at TLS 1.2. The system LibreSSL (`/usr/lib/libssl.48.dylib`) *can* do it at TLS 1.3 — measured — but ships no headers and the unversioned path deliberately aborts, so it is unsupported. Shipping `wrap` on Linux and Windows alone would let a program compile for five targets and fail at runtime on one, so the member exists nowhere (plan-110-D §C9). Do not reintroduce it on two platforms.
+
+### What that costs downstream: no in-band TLS upgrade, ever
+
+The absence is not only an API gap — it decides which network protocols can be an MFB
+package at all. A protocol is implementable in pure MFBASIC only if TLS is established at
+**connect time**, before any protocol bytes flow (`tls::connect` / `tls::accept`). A
+protocol that negotiates encryption **in band**, on an already-open plaintext socket,
+needs the wrap that cannot exist:
+
+| Pure-MFB viable (TLS at connect) | Binding-package only (in-band upgrade) |
+| --- | --- |
+| HTTPS, `wss://` | PostgreSQL — SSLRequest, then handshake on the same socket |
+| Redis (TLS-on-connect), MongoDB | MySQL — TLS after the initial handshake packet |
+| gRPC | SMTP / IMAP / POP3 — `STARTTLS` |
+| | FTPS (`AUTH TLS`), LDAP StartTLS |
+
+Establish which side a protocol falls on before scoping a package for it. The failure mode
+is not a compile error: the driver works, and simply cannot encrypt on macOS.
+
+Note that a WebSocket package is on the *left*, despite "upgrade" appearing in RFC 6455 —
+`wss://` completes the TLS handshake first and then speaks HTTP over it. An HTTP
+`101 Switching Protocols` upgrade and a TLS upgrade are unrelated operations.
 
 ## Repository client transport security is per-URL, not per-hop
 

@@ -1,0 +1,291 @@
+' ---------------------------------------------------------------------------
+' mustache/parse.mfb — the tokenizer and the parser.
+'
+' One pass turns a template into a FLAT `List OF Node`; a second pass links each
+' section to its closing tag, so rendering a section body is a range walk rather
+' than a repeated search for the matching `{{/name}}`.
+'
+' The two subtle parts are both about whitespace, and both are what makes the
+' difference between output a template author recognises and output littered
+' with blank lines:
+'
+'   Trailing tag whitespace. `{{ name }}` names `name`. The reference
+'   implementation expresses this as `scanUntil(/\s*<close>/)` -- stop at the
+'   START of the whitespace run that precedes the closing delimiter. The same
+'   thing is written here as "find the closing delimiter, then trim back over
+'   whitespace", which reaches the identical offset: the lowest position at
+'   which `\s*<close>` matches is the start of the whitespace run immediately
+'   before the first `<close>`, because a run of whitespace can only reach a
+'   later `<close>` if everything between is whitespace -- in which case that
+'   IS the first one.
+'
+'   Standalone lines. A line holding nothing but whitespace and one or more
+'   tags, none of which is an interpolation, disappears entirely -- the tags and
+'   the line's whitespace AND its newline. This is what lets `{{#items}}` sit on
+'   its own line without opening a blank line in the output. It is implemented
+'   by BLANKING the line's text nodes rather than deleting them, because the
+'   section-linking pass below addresses nodes by index and a deletion would
+'   move every section's closing tag out from under it.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' Parse `template` into its nodes, with the default `{{`/`}}` delimiters.
+'
+' A partial is parsed by calling this again on the partial's body, which is why
+' a `{{=<% %>=}}` inside a partial cannot leak out to the template that included
+' it, and why a partial always starts from the default delimiters however the
+' including template had changed them. Both are what the specification requires.
+PUBLIC FUNC parseTemplate(template AS String) AS List OF Node
+  IF strings::byteLen(template) > TEMPLATE_LIMIT THEN
+    FAIL error(ERR_LIMIT, "mustache: the template is " & toString(strings::byteLen(template)) & " bytes, past the " & toString(TEMPLATE_LIMIT) & "-byte limit")
+  END IF
+
+  LET bytes AS List OF Byte = strings::toBytes(template)
+  LET size AS Integer = len(bytes)
+  MUT openText AS String = "{{"
+  MUT closeText AS String = "}}"
+  MUT openDelim AS List OF Byte = strings::toBytes(openText)
+  MUT closeDelim AS List OF Byte = strings::toBytes(closeText)
+
+  MUT nodes AS List OF Node = []
+  MUT pos AS Integer = 0
+
+  ' Per-line state, reset at every newline. `lineStart` is the node index at
+  ' which the current line's nodes begin; `hasTag` and `nonSpace` are the two
+  ' halves of the standalone test; `lineHasText` is the narrower question a
+  ' partial asks -- was there literal non-space text before it on this line --
+  ' and `indent` is the line's text so far with every non-space character
+  ' mapped to a space, which is the indentation a standalone partial reprints
+  ' its body under.
+  MUT lineStart AS Integer = 0
+  MUT hasTag AS Boolean = FALSE
+  MUT nonSpace AS Boolean = FALSE
+  MUT lineHasText AS Boolean = FALSE
+  MUT indent AS String = ""
+  MUT tagIndex AS Integer = 0
+
+  WHILE pos < size
+    LET tagAt AS Integer = findBytes(bytes, openDelim, pos, size)
+    MUT textEnd AS Integer = size
+    IF tagAt >= 0 THEN textEnd = tagAt
+
+    ' --- the literal text before the tag, emitted one whole line at a time ---
+    MUT at AS Integer = pos
+    WHILE at < textEnd
+      LET breakAt AS Integer = findByte(bytes, B_LF, at, textEnd)
+      MUT segmentEnd AS Integer = textEnd
+      IF breakAt >= 0 THEN segmentEnd = breakAt + 1
+
+      MUT scan AS Integer = at
+      WHILE scan < segmentEnd
+        LET code AS Integer = byteAt(bytes, scan)
+        ' A newline ends the line below, and a carriage return, vertical tab or
+        ' form feed is not an indentation character, so neither branch below
+        ' takes them: they contribute no column to a partial's indentation.
+        IF code = B_SPACE OR code = B_TAB THEN
+          indent = indent & textOf(bytes, scan, scan + 1)
+        ELSEIF NOT isSpaceByte(code) THEN
+          nonSpace = TRUE
+          lineHasText = TRUE
+          indent = indent & strings::repeat(" ", indentColumns(code))
+        END IF
+        scan = scan + 1
+      END WHILE
+
+      nodes = collections::append(nodes, textNode(textOf(bytes, at, segmentEnd)))
+
+      IF breakAt < 0 THEN
+        at = textEnd
+      ELSE
+        ' End of line. Blank this line's text nodes when the line was
+        ' standalone; every text node on such a line is whitespace by
+        ' definition, because any other character would have set `nonSpace`.
+        IF hasTag AND NOT nonSpace THEN
+          MUT blank AS Integer = lineStart
+          WHILE blank < len(nodes)
+            LET stale AS Node = collections::get(nodes, blank)
+            IF stale.kind = K_TEXT THEN nodes = collections::set(nodes, blank, textNode(""))
+            blank = blank + 1
+          END WHILE
+        END IF
+        lineStart = len(nodes)
+        hasTag = FALSE
+        nonSpace = FALSE
+        lineHasText = FALSE
+        indent = ""
+        tagIndex = 0
+        at = segmentEnd
+      END IF
+    END WHILE
+
+    pos = textEnd
+    IF tagAt < 0 THEN EXIT WHILE
+
+    ' --- the tag ---
+    hasTag = TRUE
+    MUT cursor AS Integer = skipSpace(bytes, tagAt + len(openDelim), size)
+    LET sigil AS Integer = byteAt(bytes, cursor)
+    MUT kind AS Integer = K_VAR
+    MUT comment AS Boolean = FALSE
+    MUT delimiters AS Boolean = FALSE
+    MUT triple AS Boolean = FALSE
+    IF sigil = B_HASH THEN
+      kind = K_SECTION
+      cursor = cursor + 1
+    ELSEIF sigil = B_CARET THEN
+      kind = K_INVERTED
+      cursor = cursor + 1
+    ELSEIF sigil = B_SLASH THEN
+      kind = K_CLOSE
+      cursor = cursor + 1
+    ELSEIF sigil = B_GT THEN
+      kind = K_PARTIAL
+      cursor = cursor + 1
+    ELSEIF sigil = B_AMP THEN
+      kind = K_RAW
+      cursor = cursor + 1
+    ELSEIF sigil = B_LBRACE THEN
+      kind = K_RAW
+      triple = TRUE
+      cursor = cursor + 1
+    ELSEIF sigil = B_BANG THEN
+      comment = TRUE
+      cursor = cursor + 1
+    ELSEIF sigil = B_EQUALS THEN
+      delimiters = TRUE
+      cursor = cursor + 1
+    END IF
+    cursor = skipSpace(bytes, cursor, size)
+
+    MUT name AS String = ""
+    IF delimiters THEN
+      LET equalsAt AS Integer = findByte(bytes, B_EQUALS, cursor, size)
+      IF equalsAt < 0 THEN
+        FAIL error(ERR_FORMAT, "mustache: a set-delimiters tag opened at byte " & toString(tagAt) & " is never closed")
+      END IF
+      name = textOf(bytes, cursor, trimEndAt(bytes, cursor, equalsAt))
+      LET closeAt AS Integer = findBytes(bytes, closeDelim, equalsAt + 1, size)
+      IF closeAt < 0 THEN
+        FAIL error(ERR_FORMAT, "mustache: a set-delimiters tag opened at byte " & toString(tagAt) & " is never closed")
+      END IF
+      pos = closeAt + len(closeDelim)
+      LET chosen AS List OF String = splitDelimiters(name)
+      openText = collections::get(chosen, 0)
+      closeText = collections::get(chosen, 1)
+      openDelim = strings::toBytes(openText)
+      closeDelim = strings::toBytes(closeText)
+    ELSEIF triple THEN
+      ' `{{{name}}}` closes on `}` followed by the current closing delimiter,
+      ' which is how the reference implementation reads it: the third brace is
+      ' matched as part of the close, not as part of the name.
+      LET tripleDelim AS List OF Byte = strings::toBytes("}" & closeText)
+      LET closeAt AS Integer = findBytes(bytes, tripleDelim, cursor, size)
+      IF closeAt < 0 THEN
+        FAIL error(ERR_FORMAT, "mustache: a triple-mustache tag opened at byte " & toString(tagAt) & " is never closed")
+      END IF
+      name = textOf(bytes, cursor, trimEndAt(bytes, cursor, closeAt))
+      pos = closeAt + len(tripleDelim)
+    ELSE
+      LET closeAt AS Integer = findBytes(bytes, closeDelim, cursor, size)
+      IF closeAt < 0 THEN
+        FAIL error(ERR_FORMAT, "mustache: a tag opened at byte " & toString(tagAt) & " is never closed")
+      END IF
+      name = textOf(bytes, cursor, trimEndAt(bytes, cursor, closeAt))
+      pos = closeAt + len(closeDelim)
+    END IF
+
+    ' A comment and a set-delimiters tag emit no node: both are parsed only so
+    ' that their closing delimiter is consumed and their line is counted as
+    ' carrying a tag. Everything else becomes one node.
+    IF NOT comment AND NOT delimiters THEN
+      IF kind = K_PARTIAL THEN
+        MUT firstOnLine AS Boolean = FALSE
+        IF tagIndex = 0 THEN firstOnLine = TRUE
+        nodes = collections::append(nodes, Node[K_PARTIAL, name, -1, indent, firstOnLine, lineHasText])
+      ELSE
+        nodes = collections::append(nodes, tagNode(kind, name))
+        ' An interpolation is content, so a line carrying one is never
+        ' standalone. A section, inverted section, close, partial, comment or
+        ' set-delimiters tag leaves the line eligible.
+        IF kind = K_VAR OR kind = K_RAW THEN nonSpace = TRUE
+      END IF
+    END IF
+    tagIndex = tagIndex + 1
+  END WHILE
+
+  ' The last line has no newline to close it, so close it here. This is what
+  ' makes a template ending `...\n  {{/section}}` -- with no final newline --
+  ' drop its trailing indentation.
+  IF hasTag AND NOT nonSpace THEN
+    MUT tail AS Integer = lineStart
+    WHILE tail < len(nodes)
+      LET stale AS Node = collections::get(nodes, tail)
+      IF stale.kind = K_TEXT THEN nodes = collections::set(nodes, tail, textNode(""))
+      tail = tail + 1
+    END WHILE
+  END IF
+
+  RETURN linkSections(nodes)
+END FUNC
+
+' Split a set-delimiters tag's content into the two delimiters it names.
+'
+' Slicing by byte offsets rather than accumulating characters, because a
+' delimiter may be any non-whitespace text -- including non-ASCII text -- and
+' only a whole-scalar slice is a valid String.
+PRIVATE FUNC splitDelimiters(spec AS String) AS List OF String
+  LET bytes AS List OF Byte = strings::toBytes(spec)
+  LET size AS Integer = len(bytes)
+  MUT parts AS List OF String = []
+  MUT at AS Integer = 0
+  WHILE at < size
+    at = skipSpace(bytes, at, size)
+    IF at >= size THEN EXIT WHILE
+    LET from AS Integer = at
+    WHILE at < size AND NOT isSpaceByte(byteAt(bytes, at))
+      at = at + 1
+    END WHILE
+    parts = collections::append(parts, textOf(bytes, from, at))
+  END WHILE
+  IF len(parts) <> 2 THEN
+    FAIL error(ERR_FORMAT, "mustache: a set-delimiters tag names exactly two delimiters, and `" & spec & "` names " & toString(len(parts)))
+  END IF
+  RETURN parts
+END FUNC
+
+' Point every section at its own closing tag, and reject the three ways the
+' pairing can be wrong: a close with nothing open, a close naming a different
+' section than the one it closes, and a section still open at the end.
+PRIVATE FUNC linkSections(nodes AS List OF Node) AS List OF Node
+  MUT linked AS List OF Node = nodes
+  MUT open AS List OF Integer = []
+  MUT at AS Integer = 0
+  WHILE at < len(linked)
+    LET here AS Node = collections::get(linked, at)
+    IF here.kind = K_SECTION OR here.kind = K_INVERTED THEN
+      open = collections::append(open, at)
+      IF len(open) > SECTION_DEPTH_LIMIT THEN
+        FAIL error(ERR_DEPTH, "mustache: sections nest more than " & toString(SECTION_DEPTH_LIMIT) & " levels deep")
+      END IF
+    ELSEIF here.kind = K_CLOSE THEN
+      IF len(open) = 0 THEN
+        FAIL error(ERR_FORMAT, "mustache: `" & here.name & "` is closed but was never opened")
+      END IF
+      LET openAt AS Integer = collections::get(open, len(open) - 1)
+      open = collections::removeAt(open, len(open) - 1)
+      LET opened AS Node = collections::get(linked, openAt)
+      IF opened.name <> here.name THEN
+        FAIL error(ERR_FORMAT, "mustache: section `" & opened.name & "` is closed by `" & here.name & "`")
+      END IF
+      linked = collections::set(linked, openAt, WITH opened { jump := at })
+    END IF
+    at = at + 1
+  END WHILE
+  IF len(open) > 0 THEN
+    LET dangling AS Node = collections::get(linked, collections::get(open, len(open) - 1))
+    FAIL error(ERR_FORMAT, "mustache: section `" & dangling.name & "` is opened but never closed")
+  END IF
+  RETURN linked
+END FUNC

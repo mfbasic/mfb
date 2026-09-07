@@ -1,0 +1,98 @@
+' Emits every hash `crypto` supports over a spread of inputs, in a form the
+' RustCrypto reference next door can re-derive independently. This program is the
+' SUBJECT of the cross-check, never its judge: it prints the input it hashed
+' beside the digest it got, and `../run.sh` feeds those same inputs to `../rust`.
+'
+' Printing the input rather than duplicating a case table in the shell is what
+' makes the comparison honest -- the two sides cannot drift onto different bytes
+' and still agree. The case COUNT is pinned separately in run.sh, so a truncated
+' run shows up as a count mismatch instead of a silent pass.
+'
+' Line format, one per case:
+'   case <algorithm> <output-length-bytes> <input-hex> <digest-hex>
+' An empty input is written "-", because an empty field would shift every later
+' field left when the shell splits the line on spaces.
+'
+' The algorithm labels here ("sha2-256") are deliberately NOT the MFBASIC enum
+' spellings ("SHA2_256"): the reference maps the label to its own algorithm, so
+' neither side gets to assume the other agrees about naming.
+'
+' Building this file reports CRYPTO_SHA1_INSECURE for the `crypto::Hash.SHA1`
+' use below. That warning is correct and expected -- SHA-1 is still a hash this
+' package computes, and an oracle that skipped it would leave the one algorithm
+' most likely to be quietly broken unchecked. The digest is the standard
+' FIPS 180-4 value; the warning is about choosing it, not about computing it.
+IMPORT collections
+IMPORT crypto
+IMPORT encoding
+IMPORT io
+IMPORT strings
+
+' A deterministic `n`-byte input. The content matters far less than the LENGTH:
+' the lengths below straddle every block and rate boundary in the two families,
+' which is where padding bugs live.
+FUNC pattern(n AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    out = collections::append(out, toByte(i MOD 251))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' Hex, with "-" standing in for empty so the field count never changes.
+FUNC hexField(value AS List OF Byte) AS String
+  LET encoded AS String = encoding::hexEncode(value)
+  IF encoded = "" THEN
+    RETURN "-"
+  END IF
+  RETURN encoded
+END FUNC
+
+SUB emitOne(algorithm AS String, outputLen AS Integer, inputHex AS String, digest AS List OF Byte)
+  MUT line AS String = "case " & algorithm & " " & toString(outputLen)
+  line = line & " " & inputHex & " " & encoding::hexEncode(digest)
+  io::print(line)
+END SUB
+
+' Every algorithm `crypto` exposes, over one input. Keep this list and
+' EXPECTED_PER_INPUT in run.sh in step.
+SUB emitAll(data AS List OF Byte)
+  LET inputHex AS String = hexField(data)
+  emitOne("sha1", 20, inputHex, crypto::hash(crypto::Hash.SHA1, data))
+  emitOne("sha2-224", 28, inputHex, crypto::hash(crypto::Hash.SHA2_224, data))
+  emitOne("sha2-256", 32, inputHex, crypto::hash(crypto::Hash.SHA2_256, data))
+  emitOne("sha2-384", 48, inputHex, crypto::hash(crypto::Hash.SHA2_384, data))
+  emitOne("sha2-512", 64, inputHex, crypto::hash(crypto::Hash.SHA2_512, data))
+  emitOne("sha3-224", 28, inputHex, crypto::hash(crypto::Hash.SHA3_224, data))
+  emitOne("sha3-256", 32, inputHex, crypto::hash(crypto::Hash.SHA3_256, data))
+  emitOne("sha3-384", 48, inputHex, crypto::hash(crypto::Hash.SHA3_384, data))
+  emitOne("sha3-512", 64, inputHex, crypto::hash(crypto::Hash.SHA3_512, data))
+  ' SHAKE256 is an extendable-output function, so the requested width is part of
+  ' the input rather than a property of the algorithm. Two widths, because a
+  ' reference that ignored the parameter would still match on one of them.
+  emitOne("shake256", 32, inputHex, crypto::shake256(data, 32))
+  emitOne("shake256", 64, inputHex, crypto::shake256(data, 64))
+END SUB
+
+SUB main()
+  ' Lengths chosen to straddle every padding boundary these algorithms have:
+  '   SHA-1 / SHA-224 / SHA-256   64-byte block, 8-byte length  -> 55, 56, 63, 64
+  '   SHA-384 / SHA-512          128-byte block, 16-byte length -> 111, 112, 127, 128
+  '   SHA3-512 rate 72, SHA3-384 rate 104, SHA3-256 rate 136, SHA3-224 rate 144
+  '   SHAKE256 rate 136
+  ' Each boundary is probed at rate-1, rate and rate+1, since the one-byte
+  ' padding case (`0x86` rather than `0x06 … 0x80`) is its own code path.
+  LET lengths AS List OF Integer = [0, 1, 2, 3, 55, 56, 57, 63, 64, 65, 71, 72, 73, 103, 104, 105, 111, 112, 113, 119, 120, 127, 128, 129, 135, 136, 137, 143, 144, 145, 200, 255, 256, 1000]
+  FOR EACH n IN lengths
+    emitAll(pattern(n))
+  NEXT
+
+  ' A few inputs that are text rather than a counter, including one carrying a
+  ' non-ASCII scalar, so a UTF-8 handling bug in the String overload's shim has
+  ' somewhere to show up.
+  emitAll(strings::toBytes("abc"))
+  emitAll(strings::toBytes("The quick brown fox jumps over the lazy dog"))
+  emitAll(strings::toBytes("a-much-longer-passphrase-with-unicode-\u{e9}"))
+END SUB

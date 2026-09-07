@@ -128,7 +128,7 @@ pub(crate) fn emit_build_byte_list(
     // anything, and all four callers pass the allocation register anyway. State
     // the contract instead of pretending to handle the other case: a caller that
     // genuinely wants a different register has to emit that move deliberately.
-    debug_assert_eq!(
+    assert_eq!(
         block,
         abi::mfb_return(1),
         "emit_build_byte_list writes through the allocation's return register"

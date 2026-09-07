@@ -1,0 +1,11 @@
+' Guard case: the `FOR` form of the same string accumulation.
+IMPORT io
+
+FUNC main AS Integer
+  MUT s AS String = "Z"
+  FOR i = 1 TO 4
+    s = s & "X"
+  NEXT
+  io::print(s)
+  RETURN 0
+END FUNC

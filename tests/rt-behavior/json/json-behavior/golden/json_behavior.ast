@@ -70,16 +70,33 @@
       "kind": "func",
       "visibility": "public",
       "isolated": false,
-      "name": "main",
-      "line": 48,
+      "name": "json_crlf_escape_run",
+      "line": 56,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "_json_read_valid", "type": "Integer", "value": { "kind": "call", "callee": "json_read_valid_run", "arguments": [] }, "line": 49 },
-      { "kind": "binding", "mutable": false, "name": "_json_write_valid", "type": "Integer", "value": { "kind": "call", "callee": "json_write_valid_run", "arguments": [] }, "line": 50 },
-      { "kind": "binding", "mutable": false, "name": "_json_control_escape", "type": "Integer", "value": { "kind": "call", "callee": "json_control_escape_run", "arguments": [] }, "line": 51 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 52 }
+      { "kind": "binding", "mutable": false, "name": "s", "type": "String", "value": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "json.JsonStr", "arguments": [{ "kind": "string", "value": "a\r\nb" }] }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "roundtrip=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "identifier", "value": "s" }] }] }, "right": { "kind": "identifier", "value": "s" } }] } }] }, "line": 59 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 60 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 63,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "_json_read_valid", "type": "Integer", "value": { "kind": "call", "callee": "json_read_valid_run", "arguments": [] }, "line": 64 },
+      { "kind": "binding", "mutable": false, "name": "_json_write_valid", "type": "Integer", "value": { "kind": "call", "callee": "json_write_valid_run", "arguments": [] }, "line": 65 },
+      { "kind": "binding", "mutable": false, "name": "_json_control_escape", "type": "Integer", "value": { "kind": "call", "callee": "json_control_escape_run", "arguments": [] }, "line": 66 },
+      { "kind": "binding", "mutable": false, "name": "_json_crlf_escape", "type": "Integer", "value": { "kind": "call", "callee": "json_crlf_escape_run", "arguments": [] }, "line": 67 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 68 }
       ]
     }
     ]

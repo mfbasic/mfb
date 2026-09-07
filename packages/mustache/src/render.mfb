@@ -1,0 +1,158 @@
+' ---------------------------------------------------------------------------
+' mustache/render.mfb — walking the parsed nodes and producing text.
+'
+' Every function here builds and returns ITS OWN output, and its caller appends
+' that to the caller's own accumulator. The obvious alternative -- thread one
+' accumulator through the whole walk, so each level takes the text so far and
+' returns it extended -- is what this file used to do, and it is quadratic:
+' handing a String to a function and assigning it to a fresh local copies it, so
+' a template producing 16 MB across 4096 section iterations copied about 34 GB.
+' `x = x & piece`, where `x` is the same local being assigned, appends in place;
+' that is the one shape that stays linear, so every accumulation here is written
+' as exactly that, with any call result taken into a temporary first.
+'
+' The cost of the change is that the output limit is checked per LEVEL rather
+' than globally. It is still exact where it matters: a level checks after every
+' append, so no accumulator can pass the limit by more than one piece, and the
+' outermost level accumulates every level's output, so the total is checked
+' there. A template that expands without bound stops at roughly the limit
+' instead of after exhausting memory, which is the whole point of having one.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' Parse `template` and render it. The entry point both public API functions use.
+PUBLIC FUNC renderSource(template AS String, context AS json::Json, partials AS Map OF String TO String) AS String
+  LET nodes AS List OF Node = parseTemplate(template)
+  LET stack AS List OF json::Json = [context]
+  RETURN renderNodes(nodes, 0, len(nodes), stack, partials, 0)
+END FUNC
+
+' Refuse an accumulator that has grown past OUTPUT_LIMIT.
+'
+' Called after every append rather than at the end, because the thing it guards
+' against -- a partial that includes itself inside a section over a non-empty
+' list, so each level multiplies -- reaches gigabytes in a handful of levels.
+' Checking afterwards means never getting there.
+PUBLIC SUB guardOutput(out AS String)
+  IF strings::byteLen(out) > OUTPUT_LIMIT THEN
+    FAIL error(ERR_LIMIT, "mustache: the rendered output passed the " & toString(OUTPUT_LIMIT) & "-byte limit")
+  END IF
+END SUB
+
+' Render nodes [from, stop) and return what they produced.
+PUBLIC FUNC renderNodes(nodes AS List OF Node, from AS Integer, stop AS Integer, stack AS List OF json::Json, partials AS Map OF String TO String, partialDepth AS Integer) AS String
+  MUT result AS String = ""
+  MUT at AS Integer = from
+  WHILE at < stop
+    LET here AS Node = collections::get(nodes, at)
+    MUT advance AS Integer = at + 1
+    IF here.kind = K_TEXT THEN
+      result = result & here.name
+    ELSEIF here.kind = K_VAR THEN
+      LET escaped AS String = escapeText(textOfValue(lookup(stack, here.name)))
+      result = result & escaped
+    ELSEIF here.kind = K_RAW THEN
+      LET raw AS String = textOfValue(lookup(stack, here.name))
+      result = result & raw
+    ELSEIF here.kind = K_SECTION THEN
+      LET body AS String = renderSection(nodes, at, stack, partials, partialDepth)
+      result = result & body
+      advance = here.jump + 1
+    ELSEIF here.kind = K_INVERTED THEN
+      LET value AS json::Json = lookup(stack, here.name)
+      IF isFalsey(value) OR isEmptyList(value) THEN
+        LET body AS String = renderNodes(nodes, at + 1, here.jump, stack, partials, partialDepth)
+        result = result & body
+      END IF
+      advance = here.jump + 1
+    ELSEIF here.kind = K_PARTIAL THEN
+      LET body AS String = renderPartial(here, stack, partials, partialDepth)
+      result = result & body
+    END IF
+    guardOutput(result)
+    at = advance
+  END WHILE
+  RETURN result
+END FUNC
+
+' Render one `{{#name}}...{{/name}}`.
+'
+' Four outcomes, and which one applies is entirely a property of the value:
+' falsey renders nothing; an array renders the body once per element with the
+' element pushed; an object, string or number renders it once with the value
+' pushed; and `true` renders it once with NO new frame, so that
+' `{{#ready}}{{name}}{{/ready}}` still sees the enclosing object.
+PRIVATE FUNC renderSection(nodes AS List OF Node, at AS Integer, stack AS List OF json::Json, partials AS Map OF String TO String, partialDepth AS Integer) AS String
+  LET here AS Node = collections::get(nodes, at)
+  LET value AS json::Json = lookup(stack, here.name)
+  IF isFalsey(value) THEN RETURN ""
+
+  IF isList(value) THEN
+    LET items AS List OF json::Json = itemsOf(value)
+    MUT result AS String = ""
+    MUT index AS Integer = 0
+    WHILE index < len(items)
+      LET inner AS List OF json::Json = collections::append(stack, collections::get(items, index))
+      LET body AS String = renderNodes(nodes, at + 1, here.jump, inner, partials, partialDepth)
+      result = result & body
+      guardOutput(result)
+      index = index + 1
+    END WHILE
+    RETURN result
+  END IF
+
+  IF pushesFrame(value) THEN
+    LET inner AS List OF json::Json = collections::append(stack, value)
+    RETURN renderNodes(nodes, at + 1, here.jump, inner, partials, partialDepth)
+  END IF
+  RETURN renderNodes(nodes, at + 1, here.jump, stack, partials, partialDepth)
+END FUNC
+
+' Render one `{{>name}}`.
+'
+' A partial the caller did not supply renders NOTHING rather than failing, which
+' is what the specification requires: a template may reference a partial that is
+' only defined in some contexts, and the missing case is an empty expansion.
+'
+' The partial's body is parsed here rather than at the call site because the
+' indentation applied to a standalone partial changes the TEMPLATE, not the
+' output: indenting a body whose first line is `|` and whose second is
+' `{{{content}}}` must indent the `|` and the tag, and must NOT indent the
+' newlines inside whatever `content` holds. Indenting the source and then
+' parsing is the only order that gets that right.
+PRIVATE FUNC renderPartial(here AS Node, stack AS List OF json::Json, partials AS Map OF String TO String, partialDepth AS Integer) AS String
+  IF NOT collections::hasKey(partials, here.name) THEN RETURN ""
+  IF partialDepth >= PARTIAL_DEPTH_LIMIT THEN
+    FAIL error(ERR_DEPTH, "mustache: partial `" & here.name & "` expands more than " & toString(PARTIAL_DEPTH_LIMIT) & " levels deep, which is how a partial that reaches itself is reported")
+  END IF
+  MUT source AS String = collections::get(partials, here.name)
+  IF here.firstTag AND here.indent <> "" THEN
+    source = indentPartial(source, here.indent, here.lineHasText)
+  END IF
+  LET nodes AS List OF Node = parseTemplate(source)
+  RETURN renderNodes(nodes, 0, len(nodes), stack, partials, partialDepth + 1)
+END FUNC
+
+' Re-indent a partial's body by the whitespace that preceded its tag.
+'
+' An empty line is left empty rather than filled with trailing whitespace, and
+' the first line is indented only when nothing but whitespace came before the
+' tag on its line -- when text did (`[ {{>include}} ]`), the first line
+' continues that text and is already in place, while the lines after it start at
+' column zero and need the indentation.
+PRIVATE FUNC indentPartial(body AS String, indent AS String, lineHasText AS Boolean) AS String
+  LET lines AS List OF String = strings::split(body, "\n")
+  MUT out AS String = ""
+  MUT index AS Integer = 0
+  WHILE index < len(lines)
+    IF index > 0 THEN out = out & "\n"
+    LET line AS String = collections::get(lines, index)
+    IF line <> "" AND (index > 0 OR NOT lineHasText) THEN out = out & indent
+    out = out & line
+    index = index + 1
+  END WHILE
+  RETURN out
+END FUNC

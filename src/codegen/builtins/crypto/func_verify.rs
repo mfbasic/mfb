@@ -1569,7 +1569,10 @@ and returns a `Boolean`. `publicKey` is the `publicKey` field of the
 `crypto::KeyPair` from `crypto::generate(type)` — for the NIST curves one SEC1
 uncompressed point `0x04‖X‖Y` (65/97/133 bytes for `P256`/`P384`/`P521`), for
 `Ed25519` the 32-byte compressed point, for `Ed448` the 57-byte compressed point —
-and `signature` is the output of `crypto::sign(type, …)`.
+and `signature` is the output of `crypto::sign(type, …)`. The NIST public form is
+the standard SEC1 / X9.62 uncompressed point, so a key exported from OpenSSL or
+another ecosystem can be passed straight in; only the *private* form is
+package-local, and `mfb man crypto generate` covers converting that one.
 
 It returns `TRUE` **if and only if** `signature` is a valid signature of that
 exact `message` under that exact `publicKey`, and `FALSE` otherwise — a failed

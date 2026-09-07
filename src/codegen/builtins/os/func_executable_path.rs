@@ -98,7 +98,8 @@ const INTRO: &str = r#"The path to the running executable"#;
 const DESC: &str = r#"`os::executablePath` returns the filesystem path of the running binary as an
 `String`. On macOS it uses `_NSGetExecutablePath`; on Linux it reads the
 `/proc/self/exe` symlink with `readlink`, which yields the absolute, symlink-
-resolved path.
+resolved path; on Windows it calls `GetModuleFileNameW`, so the result is
+backslash-delimited (`C:\dir\app.exe`).
 
 Use it to locate resources beside the executable, or to report the program's own
 path. If the host cannot determine the path, `os::executablePath` raises
@@ -125,7 +126,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec![],
+            // bug-454: raised on both the POSIX and Windows paths, undeclared until now.
+            errors: vec!["ErrUnsupported"],
             body: Body::abi_function(lower_executable_path),
         }],
     });

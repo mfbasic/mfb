@@ -15,7 +15,7 @@ const INTRO: &str =
 const DESC: &str = r#"`removeAttribute` returns a new `AttributedString` with `attr` removed over the inclusive range
 `[start, endIndex]`. A stored span is affected only when its attribute **structurally matches** `attr`
 (same member and, for font/size, same value). A matching span that straddles the range is **split**:
-its surviving left flank `[s.start, start−1]` and/or right flank `[endIndex+1, s.last]` are kept and
+its surviving left flank `[s.start, start−1]` and/or right flank `[endIndex+1, s.endIndex]` are kept and
 the overlap dropped. Because overlapping spans resolve by higher-start-wins, removing a covering
 winner can reveal a lower-start loser at read time.
 

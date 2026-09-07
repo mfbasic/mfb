@@ -16,5 +16,8 @@ r#"FUNC __crypto_sha3_384_bytes(data AS List OF Byte) AS List OF Byte
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    pkg.add_helper(RegistryHelper::always("crypto_sha3_384_bytes", BODY));
+    pkg.add_helper(RegistryHelper::always_natively_called(
+        "crypto_sha3_384_bytes",
+        BODY,
+    ));
 }

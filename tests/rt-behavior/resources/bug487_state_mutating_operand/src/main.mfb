@@ -1,0 +1,83 @@
+' bug-487: an operand that mutates a resource's STATE, inside a statement whose
+' own destination is that same STATE block.
+'
+' `mfb spec language resource-management` §15 defines the shorthand:
+'   "s.state.field = value ... is shorthand for s.state = WITH s.state { ... }"
+' so every statement below is a whole-state WITH whose target `f.state` is READ
+' first. §14.6: "Reads produce owned values, not aliases into the buffer", and
+' §14: the compiler may choose "destructive update", but that choice "cannot
+' change the ownership behavior described here".
+'
+' So the defined answer is the nested write LOSING to the outer store: the
+' operand's own STATE update happened, and was then overwritten by the record
+' built from the pre-call read. `xs` is `rounds` elements, every one 222.
+'
+' Before the fix the in-place STATE arms snapshotted the STATE block pointer
+' BEFORE lowering the operand, so `sideEffect` reallocated (and freed) the block
+' that snapshot named: the append then read freed memory and the program died
+' with 7-701-0001 / SIGSEGV, and the O4 write-back republished a freed pointer.
+IMPORT collections
+IMPORT io
+IMPORT fs
+
+TYPE St
+  xs AS List OF Integer
+  n  AS Integer
+END TYPE
+
+' Reaches a STATE assignment directly.
+FUNC sideEffect(RES f AS fs::File STATE St) AS Integer
+  f.state.xs = collections::append(f.state.xs, 111)
+  f.state.n = f.state.n + 1
+  RETURN 222
+END FUNC
+
+' Reaches a STATE assignment only through a callee — the gate must be
+' transitive, not one level deep.
+FUNC indirectSideEffect(RES f AS fs::File STATE St) AS Integer
+  RETURN sideEffect(f)
+END FUNC
+
+' Reaches NO STATE assignment. The in-place fast path must still be taken for
+' this one; that is the positive half of the gate.
+FUNC pure(v AS Integer) AS Integer
+  RETURN v + 1
+END FUNC
+
+FUNC main AS Integer
+  RES f AS fs::File STATE St = fs::createTempFile()
+  f.state.n = 0
+
+  ' 1. The collection arm: a direct state-mutating operand.
+  MUT i AS Integer = 0
+  WHILE i < 3
+    f.state.xs = collections::append(f.state.xs, sideEffect(f))
+    i = i + 1
+  END WHILE
+  io::print("len=" & toString(len(f.state.xs)))
+  io::print("n=" & toString(f.state.n))
+  MUT j AS Integer = 0
+  WHILE j < len(f.state.xs)
+    io::print("e" & toString(j) & "=" & toString(collections::get(f.state.xs, j)))
+    j = j + 1
+  END WHILE
+
+  ' 2. The collection arm again, reached only transitively.
+  f.state.xs = collections::append(f.state.xs, indirectSideEffect(f))
+  io::print("len2=" & toString(len(f.state.xs)))
+  io::print("last2=" & toString(collections::get(f.state.xs, len(f.state.xs) - 1)))
+
+  ' 3. The scalar arm: the operand grows a SIBLING state field, so the record
+  '    the WITH builds from the pre-call read must not carry that growth.
+  f.state.n = f.state.n + sideEffect(f)
+  io::print("len3=" & toString(len(f.state.xs)))
+  io::print("n3=" & toString(f.state.n))
+
+  ' 4. Positive control: an operand that cannot reach a STATE assignment keeps
+  '    working and keeps its value.
+  f.state.xs = collections::append(f.state.xs, pure(41))
+  io::print("last4=" & toString(collections::get(f.state.xs, len(f.state.xs) - 1)))
+
+  fs::close(f)
+  RETURN 0
+END FUNC

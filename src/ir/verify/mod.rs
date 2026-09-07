@@ -117,7 +117,15 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
     // The package path runs on merged IR, whose resource types are already in
     // `native_resources` or are the package's own, so it registers no extra rows;
     // and a decoded package has no source, so its LINK rules report unlocated.
-    collect_diagnostics_with(project, false, &[], &crate::ir::LinkSpans::default(), false)
+    collect_diagnostics_with(
+        project,
+        false,
+        &[],
+        &[],
+        &[],
+        &crate::ir::LinkSpans::default(),
+        false,
+    )
 }
 
 /// `collect_diagnostics`, with `imported_types_unknown` telling the checker which
@@ -129,10 +137,23 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
 /// is decoded from an id that must exist in it. Same checker, different completeness
 /// of information — so a miss means "imported, cannot say" on one and "genuinely
 /// absent" on the other (bug-258).
+/// The `(name, type)` pairs of an imported type's fields, in declaration order.
+/// `field_types` wants them as a map and `record_field_lists` as a vector, so
+/// the shared half is the iterator.
+fn imported_field_pairs(
+    fields: &[crate::ir::ImportedTypeField],
+) -> impl Iterator<Item = (String, ParameterType)> + '_ {
+    fields
+        .iter()
+        .map(|field| (field.name.clone(), field.type_.clone()))
+}
+
 fn collect_diagnostics_with(
     project: &IrProject,
     imported_types_unknown: bool,
     imported_resources: &[ImportedResource],
+    imported_types: &[crate::ir::ImportedTypeDef],
+    imported_globals: &[crate::ir::ImportedGlobal],
     link_spans: &crate::ir::LinkSpans,
     source_path: bool,
 ) -> Vec<Diagnostic> {
@@ -140,6 +161,108 @@ fn collect_diagnostics_with(
     env.imported_types_unknown = imported_types_unknown;
     env.link_spans = link_spans.clone();
     env.source_path.set(source_path);
+    // Seed the FIELD TYPES of every imported package's exported records.
+    //
+    // `TypeEnv::build` reads `project.types`, and on the source path that holds
+    // only the importer's own declarations — an imported record has no row, so
+    // `is_comparable_seen` fell through to its "unknown user type — permissive"
+    // tail and called it COMPARABLE whatever its fields were. A
+    // `Map OF pkg::Box TO V`, and a `collections::find` over a `List OF pkg::Box`,
+    // were therefore accepted for a `Box` holding a `List OF Integer`, while the
+    // byte-identical LOCAL record was refused with TYPE_REQUIRES_COMPARABLE
+    // (`tests/syntax/types/types-map-key-comparable-invalid` against
+    // `tests/syntax/packages/package-comparable-import-invalid`, which was
+    // written for exactly this and never reached it). The rule is about the
+    // type's FIELDS, so it cannot be answered without them.
+    //
+    // The package path passes none: its merged IR already carries every type.
+    // Seeded only where the importer declares nothing of that name — an importer
+    // never overrides a declaration it can see the source of, the same
+    // precedence the `imported_resources` seed below uses.
+    //
+    // bug-554: the UNION and ENUM rows are seeded for the same reason in the
+    // membership domain. `check_match_exhaustive` asks `unions`/`enums` for the
+    // complete member set and treats a type absent from both as an OPEN type, so
+    // an imported union's `MATCH` — which covered every variant the package
+    // declares — was reported "MATCH on open type Item requires an unguarded
+    // CASE ELSE", and a `CASE ELSE` was the only spelling that compiled. The
+    // membership is a property of the DECLARATION, so it cannot be answered
+    // without it. `.mfp` carries it already (`ImportedTypeDef::variants` /
+    // `::members`), which is what `ir::lower::TypeIndex` reads for the same
+    // types.
+    for imported in imported_types {
+        let imported_type = ParameterType::declared(&imported.name);
+        match imported.kind {
+            crate::ir::ImportedTypeKind::Record => {
+                env.field_types
+                    .entry(imported_type)
+                    .or_insert_with(|| imported_field_pairs(&imported.fields).collect());
+            }
+            crate::ir::ImportedTypeKind::Enum => {
+                env.enums
+                    .entry(imported_type)
+                    .or_insert_with(|| imported.members.iter().cloned().collect());
+            }
+            crate::ir::ImportedTypeKind::Union => {
+                env.unions
+                    .entry(imported_type.clone())
+                    .or_insert_with(|| UnionInfo {
+                        variants: imported
+                            .variants
+                            .iter()
+                            .map(|variant| ParameterType::declared(&variant.name))
+                            .collect(),
+                        variant_order: imported
+                            .variants
+                            .iter()
+                            .map(|variant| variant.name.clone())
+                            .collect(),
+                        // A `.mfp`'s variant list is already the expanded set:
+                        // the writer flattens `INCLUDES` before serializing, so
+                        // there is no second union to chase.
+                        includes: Vec::new(),
+                    });
+                // Each variant is a record in its own right — the same
+                // registration `TypeEnv::build` makes for a local union, so a
+                // `CASE pkg::Note(n)` arm's `n.label` resolves and the variant
+                // answers the comparability rule by its own fields.
+                for variant in &imported.variants {
+                    let variant_type = ParameterType::declared(&variant.name);
+                    env.records
+                        .entry(variant_type.clone())
+                        .or_insert_with(|| RecordInfo {
+                            fields: variant
+                                .fields
+                                .iter()
+                                .map(|field| field.name.clone())
+                                .collect(),
+                            includes: Vec::new(),
+                        });
+                    env.field_types
+                        .entry(variant_type.clone())
+                        .or_insert_with(|| imported_field_pairs(&variant.fields).collect());
+                    env.record_field_lists
+                        .entry(variant_type)
+                        .or_insert_with(|| imported_field_pairs(&variant.fields).collect());
+                }
+            }
+        }
+    }
+    // bug-551: seed the imported packages' exported GLOBALS, under the
+    // `package.Name` spelling lowering emits an `IrValue::Global` for. Without
+    // them `infer_type` answers `None` for the read (so every use of an imported
+    // constant is an `Unknown`), and `global_muts` has no row, so an assignment
+    // to an imported `EXPORT LET` would not be caught by the rule that refuses a
+    // write to a local one. The project's own bindings win, and cannot collide:
+    // a local binding name has no dot in it.
+    for global in imported_globals {
+        env.globals
+            .entry(global.name.clone())
+            .or_insert_with(|| global.type_.clone());
+        env.global_muts
+            .entry(global.name.clone())
+            .or_insert(global.mutable);
+    }
     // bug-377: seed the imported packages' `RESOURCE_TABLE` rows. The project's
     // own `native_resources` win — an importer never overrides a declaration it
     // can see the source of.
@@ -451,31 +574,46 @@ pub fn check(project: &IrProject) -> Result<(), String> {
 /// package's `RESOURCE_TABLE` (bug-377). A decoded package contributes no
 /// `native_resources`, so without them every resource rule is inert for an
 /// imported type — a double close of a package handle passed clean.
+///
+/// `imported_types` carries those packages' exported record layouts, for the
+/// same reason in the type domain: the source-path IR holds only the importer's
+/// own type table, so without them a rule about an imported record's FIELDS —
+/// comparability — has nothing to read and answers permissively.
 pub fn collect_source_diagnostics(
     project: &IrProject,
     project_dir: &Path,
     imported_resources: &[ImportedResource],
+    imported_types: &[crate::ir::ImportedTypeDef],
+    imported_globals: &[crate::ir::ImportedGlobal],
     link_spans: &crate::ir::LinkSpans,
 ) -> Vec<crate::rules::PendingDiagnostic> {
-    collect_diagnostics_with(project, true, imported_resources, link_spans, true)
-        .into_iter()
-        // The two structural rules are the package path's guard against a
-        // malformed decoded IR (`PACKAGE_BINARY_REPRESENTATION_VERIFY_*`, not
-        // in the source rule table): a source program's equivalent defect is
-        // reported by its source rule (e.g. TYPE_MATCH_PATTERN_MISMATCH beside
-        // a `CASE` naming a non-variant), so they would only duplicate it here.
-        .filter(|d| d.rule != VERIFY_TYPE && d.rule != VERIFY_MATCH)
-        .map(|d| crate::rules::PendingDiagnostic {
-            rule: d.rule,
-            detail: d.detail,
-            path: if d.file.is_empty() {
-                project_dir.join("<generated>")
-            } else {
-                project_dir.join(&d.file)
-            },
-            line: d.line as usize,
-        })
-        .collect()
+    collect_diagnostics_with(
+        project,
+        true,
+        imported_resources,
+        imported_types,
+        imported_globals,
+        link_spans,
+        true,
+    )
+    .into_iter()
+    // The two structural rules are the package path's guard against a
+    // malformed decoded IR (`PACKAGE_BINARY_REPRESENTATION_VERIFY_*`, not
+    // in the source rule table): a source program's equivalent defect is
+    // reported by its source rule (e.g. TYPE_MATCH_PATTERN_MISMATCH beside
+    // a `CASE` naming a non-variant), so they would only duplicate it here.
+    .filter(|d| d.rule != VERIFY_TYPE && d.rule != VERIFY_MATCH)
+    .map(|d| crate::rules::PendingDiagnostic {
+        rule: d.rule,
+        detail: d.detail,
+        path: if d.file.is_empty() {
+            project_dir.join("<generated>")
+        } else {
+            project_dir.join(&d.file)
+        },
+        line: d.line as usize,
+    })
+    .collect()
 }
 
 /// Depth cap mirroring the decoder (`MAX_DECODE_DEPTH`). `check` may run on

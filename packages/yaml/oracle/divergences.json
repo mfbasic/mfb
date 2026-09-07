@@ -1,0 +1,6 @@
+{
+  "divergent/tags.yaml": "Tags are outside the supported subset. `!!str 1` selects a type the schema alone would not give, and a custom `!mytype` names something only the application knows; the package refuses every `!`/`!!` form rather than resolve some and drop others.",
+  "divergent/merge-key.yaml": "The merge key `<<` is outside the supported subset. The oracle runs with merge disabled, so it reads `<<` as an ordinary string key -- which is exactly the silent misreading the package refuses to perform on a document whose author meant a merge.",
+  "divergent/explicit-key.yaml": "An explicit `? key` / `: value` pair is outside the supported subset, because it is the syntax that exists to allow a key that is not a plain scalar, and a JSON object key must be a string.",
+  "divergent/lone-cr.yaml": "A lone CR is a line break. YAML 1.2 says so outright -- `b-break ::= ( b-carriage-return b-line-feed ) | b-carriage-return | b-line-feed` -- and PyYAML agrees, but this oracle refuses a file with old Mac line endings. Reading CR as ordinary content instead is the one option that is definitely wrong: `nested:<CR>  c: [1, 2]` would then be a single line holding a single key spelled \"nested:<CR>  c\", silently. The package follows the spec."
+}

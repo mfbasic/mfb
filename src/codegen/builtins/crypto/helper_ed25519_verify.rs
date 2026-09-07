@@ -43,5 +43,8 @@ r#"FUNC __crypto_ed25519Verify(publicKey AS List OF Byte, message AS List OF Byt
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    pkg.add_helper(RegistryHelper::always("crypto_ed25519Verify", BODY));
+    pkg.add_helper(RegistryHelper::always_natively_called(
+        "crypto_ed25519Verify",
+        BODY,
+    ));
 }

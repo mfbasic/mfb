@@ -1,0 +1,161 @@
+' ---------------------------------------------------------------------------
+' Tests: scalar content and the YAML 1.2 Core Schema.
+'
+' Every case reads YAML and compares the JSON the reader produces, so the
+' assertion is on the VALUE, not on an internal representation.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT strings
+
+' Read one document and render it as compact JSON.
+PRIVATE FUNC show(text AS String) AS String
+  RETURN json::stringify(parse(text))
+END FUNC
+
+TESTING
+  TGROUP "core schema"
+    TCASE "null spellings"
+      expectString(show("a: null"), "{\"a\":null}")
+      expectString(show("a: Null"), "{\"a\":null}")
+      expectString(show("a: NULL"), "{\"a\":null}")
+      expectString(show("a: ~"), "{\"a\":null}")
+      expectString(show("a:"), "{\"a\":null}")
+    END TCASE
+
+    TCASE "boolean spellings"
+      expectString(show("a: true"), "{\"a\":true}")
+      expectString(show("a: True"), "{\"a\":true}")
+      expectString(show("a: TRUE"), "{\"a\":true}")
+      expectString(show("a: false"), "{\"a\":false}")
+      expectString(show("a: False"), "{\"a\":false}")
+      expectString(show("a: FALSE"), "{\"a\":false}")
+    END TCASE
+
+    TCASE "1.1 booleans are strings in the 1.2 core schema"
+      expectString(show("a: yes"), "{\"a\":\"yes\"}")
+      expectString(show("a: no"), "{\"a\":\"no\"}")
+      expectString(show("a: on"), "{\"a\":\"on\"}")
+      expectString(show("a: off"), "{\"a\":\"off\"}")
+      expectString(show("a: y"), "{\"a\":\"y\"}")
+      expectString(show("a: n"), "{\"a\":\"n\"}")
+      expectString(show("a: TruE"), "{\"a\":\"TruE\"}")
+    END TCASE
+
+    TCASE "decimal integers"
+      expectString(show("a: 0"), "{\"a\":0}")
+      expectString(show("a: 12"), "{\"a\":12}")
+      expectString(show("a: -12"), "{\"a\":-12}")
+      expectString(show("a: +12"), "{\"a\":12}")
+      expectString(show("a: 007"), "{\"a\":7}")
+    END TCASE
+
+    TCASE "hexadecimal and octal integers"
+      expectString(show("a: 0x1F"), "{\"a\":31}")
+      expectString(show("a: 0xff"), "{\"a\":255}")
+      expectString(show("a: 0o17"), "{\"a\":15}")
+    END TCASE
+
+    TCASE "0b binary and 1.1 bare octal are not core-schema numbers"
+      expectString(show("a: 0b101"), "{\"a\":\"0b101\"}")
+      expectString(show("a: 1_000"), "{\"a\":\"1_000\"}")
+    END TCASE
+
+    TCASE "floats"
+      expectString(show("a: 1.5"), "{\"a\":1.5}")
+      expectString(show("a: -1.5"), "{\"a\":-1.5}")
+      expectString(show("a: .5"), "{\"a\":0.5}")
+      expectString(show("a: 5."), "{\"a\":5}")
+      expectString(show("a: 1e3"), "{\"a\":1000}")
+      expectString(show("a: 1.2E-3"), "{\"a\":0.0012}")
+    END TCASE
+
+    TCASE "not numbers"
+      expectString(show("a: 1.2.3"), "{\"a\":\"1.2.3\"}")
+      expectString(show("a: 12abc"), "{\"a\":\"12abc\"}")
+      expectString(show("a: -x"), "{\"a\":\"-x\"}")
+      expectString(show("a: 12:30"), "{\"a\":\"12:30\"}")
+    END TCASE
+
+    TCASE "infinity and NaN have no JSON form and are refused"
+      expectTrap(parse("a: .inf"), 77050007)
+      expectTrap(parse("a: -.inf"), 77050007)
+      expectTrap(parse("a: .Inf"), 77050007)
+      expectTrap(parse("a: .nan"), 77050007)
+      expectTrap(parse("a: .NaN"), 77050007)
+    END TCASE
+
+    TCASE "quoting makes a scalar a string, whatever the schema would say"
+      expectString(show("a: \"true\""), "{\"a\":\"true\"}")
+      expectString(show("a: '123'"), "{\"a\":\"123\"}")
+      expectString(show("a: \"null\""), "{\"a\":\"null\"}")
+      expectString(show("a: \".inf\""), "{\"a\":\".inf\"}")
+    END TCASE
+  END TGROUP
+
+  TGROUP "quoted scalars"
+    TCASE "single quotes take a doubled quote as one quote"
+      expectString(show("a: 'it''s'"), "{\"a\":\"it's\"}")
+      expectString(show("a: 'a\\nb'"), "{\"a\":\"a\\\\nb\"}")
+    END TCASE
+
+    TCASE "double-quote escapes"
+      expectString(show("a: \"x\\ty\""), "{\"a\":\"x\\ty\"}")
+      expectString(show("a: \"x\\ny\""), "{\"a\":\"x\\ny\"}")
+      expectString(show("a: \"q\\\"q\""), "{\"a\":\"q\\\"q\"}")
+      expectString(show("a: \"s\\\\s\""), "{\"a\":\"s\\\\s\"}")
+      expectString(show("a: \"sl\\/sl\""), "{\"a\":\"sl/sl\"}")
+    END TCASE
+
+    TCASE "numeric escapes"
+      expectString(show("a: \"\\x41\""), "{\"a\":\"A\"}")
+      expectString(show("a: \"\\u0041\""), "{\"a\":\"A\"}")
+      expectString(show("a: \"\\U0001F600\""), "{\"a\":\"\u{1F600}\"}")
+      expectString(show("a: \"\\uD83D\\uDE00\""), "{\"a\":\"\u{1F600}\"}")
+    END TCASE
+
+    TCASE "an unpaired surrogate escape is refused"
+      expectTrap(parse("a: \"\\uD83D\""), 77050025)
+      expectTrap(parse("a: \"\\uDE00\""), 77050025)
+    END TCASE
+
+    TCASE "an unknown escape is a malformed document, not a literal character"
+      expectTrap(parse("a: \"\\q\""), 77050003)
+    END TCASE
+
+    TCASE "an unterminated quoted scalar fails"
+      expectTrap(parse("a: 'x"), 77050003)
+      expectTrap(parse("a: \"x"), 77050003)
+    END TCASE
+
+    TCASE "quoted scalars fold across lines"
+      expectString(show("a: \"one\n  two\""), "{\"a\":\"one two\"}")
+      expectString(show("a: 'one\n  two'"), "{\"a\":\"one two\"}")
+      expectString(show("a: \"one\\\n  two\""), "{\"a\":\"onetwo\"}")
+    END TCASE
+
+    TCASE "text outside the Basic Multilingual Plane survives verbatim"
+      expectString(show("a: \u{1F600}\u{4E2D}"), "{\"a\":\"\u{1F600}\u{4E2D}\"}")
+    END TCASE
+  END TGROUP
+
+  TGROUP "plain scalars"
+    TCASE "a plain scalar keeps interior spaces and drops surrounding ones"
+      expectString(show("a:   hello world   "), "{\"a\":\"hello world\"}")
+    END TCASE
+
+    TCASE "a comment ends a plain scalar only after a space"
+      expectString(show("a: v # note"), "{\"a\":\"v\"}")
+      expectString(show("a: v#notacomment"), "{\"a\":\"v#notacomment\"}")
+    END TCASE
+
+    TCASE "a plain scalar folds onto more-indented following lines"
+      expectString(show("a: one\n  two\n  three"), "{\"a\":\"one two three\"}")
+      expectString(show("a: one\n\n  two"), "{\"a\":\"one\\ntwo\"}")
+    END TCASE
+
+    TCASE "a following key at the same indentation ends the scalar"
+      expectString(show("a: one\nb: two"), "{\"a\":\"one\",\"b\":\"two\"}")
+    END TCASE
+  END TGROUP
+END TESTING

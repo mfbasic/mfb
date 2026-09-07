@@ -31,7 +31,8 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::park_error_helper::{
-    lower_drop_owned_collection_helper, lower_drop_owned_string_helper, lower_park_error_helper,
+    lower_drop_owned_collection_helper, lower_drop_owned_string_cap_helper,
+    lower_drop_owned_string_helper, lower_park_error_helper,
 };
 use crate::codegen::error::result::*;
 use crate::codegen::memory::arena::*;
@@ -184,6 +185,14 @@ pub(crate) struct CodeBuilder<'a> {
     /// identical value semantics. Consistent with the caller side because both key
     /// off the same predicate.
     pub(crate) current_returns_param_borrow: bool,
+    /// bug-536 shape B-2: true while lowering a function whose bare-`String` result
+    /// callers are allowed to free (`function_returns_fresh_string`). It obliges
+    /// this function to hand back a solely-owned block on EVERY return path, so
+    /// `lower_returned_value` copies any returned `String` whose freshness lowering
+    /// could not otherwise establish. Consistent with the caller side because both
+    /// key off the same predicate — a disagreement is a leak in one direction and a
+    /// double free of the caller's live `String` in the other.
+    pub(crate) current_returns_fresh_string: bool,
     /// plan-86 K1: names of every function used as a `FunctionRef` (callback) in the
     /// module. Such a function is invoked through an owning ABI, so it is excluded
     /// from the parameter-passthrough borrow elision (`function_returns_param_borrow`)
@@ -306,6 +315,16 @@ pub(crate) struct CodeBuilder<'a> {
     /// consumer (`lower_value_owned`, `RETURN`, `StateAssign`, thread-spawn move)
     /// claims its temp so the block is freed exactly once by whoever owns it.
     pub(crate) pending_temp_frees: Vec<PendingTemp>,
+    /// bug-572: capturing `LAMBDA` objects built while lowering the arguments of
+    /// a call that will free them. Pushed by the `NirValue::Closure` arm ONLY
+    /// while `closure_temp_wanted` is set, and drained by the same `lower_value`
+    /// frame that set it — so a call with no freeable closure argument registers
+    /// nothing and emits nothing.
+    pub(crate) pending_closure_temps: Vec<PendingClosure>,
+    /// bug-572: set around the lowering of one call node whose argument list
+    /// holds at least one capturing `LAMBDA` in a provably non-retaining callback
+    /// position. Save/restore (nestable), like `raw_result_capture`.
+    pub(crate) closure_temp_wanted: bool,
     /// bug-536 shape B: the location of a `String` block this builder has just
     /// **provably freshly allocated** — set by the shared String producers
     /// (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
@@ -526,6 +545,7 @@ impl<'a> CodeBuilder<'a> {
             borrow_get_locals: HashSet::new(),
             borrow_get_result: false,
             current_returns_param_borrow: false,
+            current_returns_fresh_string: false,
             callback_referenced_functions: HashSet::new(),
             synthesized_constructors: HashSet::new(),
             next_label: 0,
@@ -548,6 +568,8 @@ impl<'a> CodeBuilder<'a> {
             owned_list_heads: HashMap::new(),
             owned_value_slots: Vec::new(),
             pending_temp_frees: Vec::new(),
+            pending_closure_temps: Vec::new(),
+            closure_temp_wanted: false,
             fresh_string_block: None,
             operand_snapshot_wanted: Vec::new(),
             for_each_iterable_locals: Vec::new(),
@@ -715,6 +737,32 @@ pub(crate) struct OwnedValueCleanup {
     /// each freeable-flat capture (skipping by-value scalars/floats) instead of a
     /// single flat `arena_free`.
     pub(crate) closure_captures: Option<Vec<ParameterType>>,
+    /// bug-560: for a `String` binding that an in-place self-append targets, the
+    /// frame offset of its capacity shadow (`string_capacity_slots`). The block in
+    /// `stack_offset` was then allocated at `byteLength + spare + 9`, not
+    /// `byteLength + 9`, so the drop must add the shadow's spare bytes or it
+    /// under-frees and orphans the headroom on every drop.
+    ///
+    /// FAIL-CLOSED: `None` keeps the historical tight size. It is set only where
+    /// the binding's NAME is in scope and `prescan_string_self_appends` has
+    /// already claimed a shadow for it, so an unrecognized shape keeps leaking
+    /// rather than freeing bytes it cannot prove were allocated.
+    pub(crate) capacity_slot: Option<usize>,
+    /// bug-571: for a `FOR EACH` loop item, the frame offset holding the ALIAS
+    /// pointer the payload load would have returned had it not materialised —
+    /// `emit_load_collection_payload_with_alias_base`'s second register, spilled
+    /// once per iteration.
+    ///
+    /// A `FOR EACH` element is immutable and, for every payload type but `String`,
+    /// IS a pointer into the container's own block; freeing that corrupts the
+    /// collection. The drop compares the two at runtime and frees only when they
+    /// differ, so "the loop materialised this" is decided by the emitter that
+    /// materialised it rather than by a second copy of its type enumeration —
+    /// `collections::reduce`'s model (`gen_memory.rs`), applied to the one value
+    /// the loop provably does not own.
+    ///
+    /// `None` everywhere else: an ordinary binding's block has no container.
+    pub(crate) loop_alias_slot: Option<usize>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free
@@ -727,6 +775,21 @@ pub(crate) struct PendingTemp {
     pub(crate) type_: ParameterType,
     pub(crate) slot: usize,
     pub(crate) location: Operand,
+}
+
+/// bug-572: a capturing `LAMBDA` built as a call ARGUMENT, awaiting the free
+/// that runs once the call it was built for has returned.
+///
+/// `slot` holds the 16-byte closure object pointer; `captures` are the static
+/// types `emit_closure_drop` walks to free the env's own blocks (empty-named for
+/// a by-ref or by-value capture, which the drop skips). Unlike a [`PendingTemp`]
+/// this is never a statement-scope obligation: the drain is per CALL, because
+/// the call is the whole reason the closure exists and the only window in which
+/// it is live.
+#[derive(Clone)]
+pub(crate) struct PendingClosure {
+    pub(crate) slot: usize,
+    pub(crate) captures: Vec<ParameterType>,
 }
 
 #[derive(Clone)]
@@ -2192,6 +2255,28 @@ pub(crate) fn lower_module_for_platform(
     });
     if uses_drop_owned_string {
         code_functions.push(lower_drop_owned_string_helper(
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
+    }
+    // bug-560: the capacity-aware variant, emitted only when some function
+    // actually drops a `String` binding that an in-place self-append grew. Same
+    // relocation gate, so a module with no self-append is byte-identical.
+    let uses_drop_owned_string_cap = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == DROP_OWNED_STRING_CAP_SYMBOL)
+    });
+    if uses_drop_owned_string_cap {
+        code_functions.push(lower_drop_owned_string_cap_helper(
             &function_symbols,
             &functions,
             &package_return_types,

@@ -1,0 +1,46 @@
+' ---------------------------------------------------------------------------
+' yamlprobe — the MFBASIC side of the Node differential oracle.
+'
+' It reads one file with `yaml::parseAll` and writes ONE line of JSON to stdout
+' describing the outcome. Everything the comparison needs is in that line, and
+' nothing else is printed, so the runner never has to guess what part of the
+' output is the answer:
+'
+'   {"ok":true,"documents":[ ... ]}          every document, in stream order
+'   {"ok":false,"code":77050005,"message":"..."}
+'
+' A REFUSAL is a result, not a crash, so it is reported on stdout with exit 0
+' too. That leaves a non-zero exit or an unparseable line meaning exactly one
+' thing — the probe itself broke — which is what the runner checks for.
+'
+' `parseAll` rather than `parse` because the array form covers a stream of any
+' length, including the empty one, with no second convention.
+' ---------------------------------------------------------------------------
+
+IMPORT yaml
+IMPORT json
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC main() AS Integer
+  LET args AS List OF String = os::args()
+  IF len(args) <> 1 THEN
+    io::printError("usage: yamlprobe <file.yaml>")
+    RETURN 2
+  END IF
+  LET text AS String = fs::readText(collections::get(args, 0))
+  LET documents AS List OF json::Json = yaml::parseAll(text)
+  LET wrapped AS json::Json = json::JsonArr[documents]
+  io::print("{\"ok\":true,\"documents\":" & json::stringify(wrapped) & "}")
+  RETURN 0
+
+  TRAP(problem)
+    ' `json::stringify` of a JsonStr is exactly a JSON string literal, so the
+    ' message needs no escaping of its own.
+    LET message AS json::Json = json::JsonStr[problem.message]
+    io::print("{\"ok\":false,\"code\":" & toString(problem.code) & ",\"message\":" & json::stringify(message) & "}")
+    RETURN 0
+  END TRAP
+END FUNC

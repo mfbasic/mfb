@@ -88,8 +88,10 @@ See the [`examples/`](examples/) directory for complete programs — including
 `hello_world`, `life` (a full-screen Conway's Game of Life built on the `term::`
 TUI package), `hangman`, `hello_input`, `audio`, `network-server` and
 `network-client` (a broadcast server and its client, each speaking plain TCP,
-UDP, and TLS), and `browser` (a full-screen terminal web viewer on `term::`
-whose `http::` fetch runs on a worker thread).
+UDP, and TLS), `browser` (a full-screen terminal web viewer on `term::` whose
+`http::` fetch runs on a worker thread), and `yaml-json` (a converter built on
+the `yaml` package in [`packages/yaml`](packages/yaml), which reads a
+JSON-compatible subset of YAML 1.2 into the `json::Json` tree).
 
 ## The `mfb` toolchain
 

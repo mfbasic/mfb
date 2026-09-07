@@ -1,0 +1,9 @@
+# Ordinary block mapping: order is document order, and a key with no value is
+# the empty node.
+name: mfb
+version: 0.1.0
+enabled: true
+missing:
+"quoted key": 1
+'single quoted key': 2
+key with spaces: 3

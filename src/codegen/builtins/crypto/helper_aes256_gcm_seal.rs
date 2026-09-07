@@ -28,5 +28,8 @@ r#"FUNC __crypto_aes256GcmSeal(key AS List OF Byte, nonce AS List OF Byte, plain
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    pkg.add_helper(RegistryHelper::always("crypto_aes256GcmSeal", BODY));
+    pkg.add_helper(RegistryHelper::always_natively_called(
+        "crypto_aes256GcmSeal",
+        BODY,
+    ));
 }

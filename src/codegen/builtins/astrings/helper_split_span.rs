@@ -14,15 +14,15 @@ REM range survives whole; a straddler keeps its left flank [s.start, rs-1] and/o
 REM right flank [re+1, s.endIndex]; the overlap is dropped. Flanks keep `s`'s seq.
 FUNC __astrings_splitSpan(acc AS List OF AttrSpan, s AS AttrSpan, rs AS Integer, re AS Integer) AS List OF AttrSpan
   MUT out AS List OF AttrSpan = acc
-  IF s.last < rs OR s.start > re THEN
+  IF s.endIndex < rs OR s.start > re THEN
     out = collections::append(out, s)
     RETURN out
   END IF
   IF s.start <= rs - 1 THEN
     out = collections::append(out, AttrSpan[s.start, rs - 1, s.seq, s.class, s.member, s.text, s.number])
   END IF
-  IF re + 1 <= s.last THEN
-    out = collections::append(out, AttrSpan[re + 1, s.last, s.seq, s.class, s.member, s.text, s.number])
+  IF re + 1 <= s.endIndex THEN
+    out = collections::append(out, AttrSpan[re + 1, s.endIndex, s.seq, s.class, s.member, s.text, s.number])
   END IF
   RETURN out
 END FUNC"#;

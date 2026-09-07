@@ -2,6 +2,7 @@
 use crate::arch::ops::CodeOp;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
+use crate::codegen::engine::value::builder_values::EscapingValue;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
@@ -279,6 +280,34 @@ impl CodeBuilder<'_> {
             self.claim_pending_temp(&lowered);
             return Ok((lowered, true));
         }
+        // bug-536 shape B-2: reaching here means lowering could NOT establish that
+        // the value is a fresh, solely-owned block — it is not a move-elided owned
+        // local, not an aliasing source or static string (both copied above), and no
+        // pending temp was registered for it. For a bare `String` that is exactly the
+        // set the caller cannot classify either: `RETURN toString(s)` hands back the
+        // *argument* (`toString`'s `String` arm is the identity), and an unopted
+        // native producer's block has no provenance mark.
+        //
+        // `function_returns_fresh_string` promised every caller a solely-owned block,
+        // so deliver it here rather than weakening the promise — one copy on exactly
+        // the return sites whose freshness is unprovable, and none on the ones the
+        // three arms above already made fresh (an owned local moves, a literal or a
+        // parameter is already copied, a marked native producer's temp is claimed).
+        // The alternative — classifying per return site at the caller — would need a
+        // seed set of "fresh" native targets, which is the audited call-target
+        // allowlist bug-536 rejected as design 2.
+        if self.current_returns_fresh_string && lowered.type_ == ParameterType::String {
+            let copied = self.copy_flat_block(&lowered.type_, &lowered.location)?;
+            return Ok((
+                ValueResult {
+                    origin: None,
+                    type_: lowered.type_,
+                    location: Operand::from(copied.render()),
+                    text: lowered.text,
+                },
+                true,
+            ));
+        }
         Ok((lowered, false))
     }
 
@@ -303,9 +332,42 @@ impl CodeBuilder<'_> {
         &mut self,
         value: Option<&NirValue>,
     ) -> Option<Vec<ActiveCleanup>> {
-        let NirValue::Local(name) = value? else {
+        let value = value?;
+        let NirValue::Local(name) = value else {
             return None;
         };
+        // bug-536 shape B-2: a local whose value is a compile-time `String`
+        // constant is constant-FOLDED at every read — `lower_value` re-materialises
+        // the rodata pointer (`adrp _mfb_str_N`) instead of loading the local's
+        // slot. So there is no block to move: the move would hand the caller a
+        // READ-ONLY constant and orphan the arena copy the binding actually made.
+        //
+        // That was already wrong before B-2 (the orphaned copy leaks 64 B per call,
+        // and any owner that frees the result frees rodata), but it was invisible
+        // while no caller ever freed a bare `String`. It stops being invisible the
+        // moment `function_returns_fresh_string` licenses that free: measured on
+        // `FUNC mkEmpty(i) AS String / MUT out AS String = "" / RETURN out` as an
+        // immediate **SIGBUS**. Declining the move sends the value through
+        // `value_needs_owning_copy`'s `copy_flat_block` instead, which copies the
+        // rodata bytes into a fresh block — the caller gets a real arena block and
+        // the binding's own cleanup still frees its copy.
+        if self.static_string_value(value).is_some() {
+            return None;
+        }
+        // bug-560: a `String` local grown by an in-place self-append carries
+        // capacity headroom recorded ONLY in this frame's shadow slot. Moving the
+        // block to the caller moves it out of the shadow's reach: the caller sizes
+        // its own free from the `byteLength` header alone and under-frees by
+        // `spare` on every call (measured at 32 KB per call on a 9 KB string, the
+        // shape `__csv_decodeRange` and `__encoding_utf32Decode` both have).
+        // Declining sends the return through `copy_flat_block`, which copies
+        // exactly `byteLength` bytes into a tight block the caller CAN free, and
+        // leaves this binding's own capacity-aware drop to reclaim the whole
+        // buffer. Same remedy, and same reason, as the `static_string_value`
+        // decline above: an unmovable carrier is copied, never handed on.
+        if self.string_capacity_slots.contains_key(name) {
+            return None;
+        }
         let local = self.locals.get(name)?;
         if local.by_ref {
             return None;
@@ -327,14 +389,25 @@ impl CodeBuilder<'_> {
         Some(saved)
     }
 
-    pub(crate) fn emit_return_exit(&mut self, value: Option<&NirValue>) -> Result<(), String> {
+    /// `interior_temp_watermark` is the pending-temp depth this `RETURN` STATEMENT
+    /// started at (bug-567). Everything the return expression registered above it
+    /// and no owner claimed is an interior temp, and this is the last reachable
+    /// point at which it can be freed — `clear_pending_temps_to` runs after the
+    /// branch. `None` for the synthesized fall-off-the-end return, which lowers no
+    /// expression and can register nothing.
+    pub(crate) fn emit_return_exit(
+        &mut self,
+        value: Option<&NirValue>,
+        interior_temp_watermark: Option<usize>,
+    ) -> Result<(), String> {
         // Plan a return-copy elision (plan-25-C C1) before emitting: a movable
         // `RETURN <owned-local>` removes the binding's scope-drop free for this
         // path so the block moves to the caller uncopied. Restore the live cleanup
         // set afterward so a sibling return path or the block's normal exit still
         // frees the binding.
         let restore_cleanups = self.plan_returned_move(value);
-        let result = self.emit_return_exit_inner(value, restore_cleanups.is_some());
+        let result =
+            self.emit_return_exit_inner(value, restore_cleanups.is_some(), interior_temp_watermark);
         if let Some(saved) = restore_cleanups {
             self.active_cleanups = saved;
         }
@@ -345,7 +418,10 @@ impl CodeBuilder<'_> {
         &mut self,
         value: Option<&NirValue>,
         move_elided: bool,
+        interior_temp_watermark: Option<usize>,
     ) -> Result<(), String> {
+        let interior_temp_watermark =
+            interior_temp_watermark.unwrap_or(self.pending_temp_frees.len());
         let lowered = if let Some(value) = value {
             Some(self.lower_returned_value(value, move_elided)?)
         } else {
@@ -370,23 +446,39 @@ impl CodeBuilder<'_> {
             None => None,
         };
         if self.active_cleanups.is_empty() {
+            let mut escaping = None;
             if let Some(result) = &result {
                 if result.type_ != ParameterType::Nothing {
-                    let location = if !already_standalone
-                        && self.inline_collection_payload_size(&result.type_).is_some()
-                    {
-                        Operand::from(
-                            self.materialize_inline_value_in_arena(
-                                &result.type_,
-                                &result.location,
-                            )?
-                            .render(),
-                        )
-                    } else {
-                        result.location.clone()
-                    };
-                    self.emit(abi::move_register(RESULT_VALUE_REGISTER, &location));
+                    escaping = Some(
+                        if !already_standalone
+                            && self.inline_collection_payload_size(&result.type_).is_some()
+                        {
+                            Operand::from(
+                                self.materialize_inline_value_in_arena(
+                                    &result.type_,
+                                    &result.location,
+                                )?
+                                .render(),
+                            )
+                        } else {
+                            result.location.clone()
+                        },
+                    );
                 }
+            }
+            // bug-567: the escaping value is standalone by here — claimed, moved,
+            // or copied — so the statement's remaining temps are interior and this
+            // is the last reachable instruction slot before the `ret`. Emits
+            // nothing when there are none.
+            let escaping = self.drop_interior_temps_before_branch(
+                interior_temp_watermark,
+                match escaping {
+                    Some(location) => EscapingValue::InRegister(location),
+                    None => EscapingValue::None,
+                },
+            )?;
+            if let Some(location) = &escaping {
+                self.emit(abi::move_register(RESULT_VALUE_REGISTER, location));
             }
             self.emit(abi::move_immediate(
                 RESULT_TAG_REGISTER,
@@ -397,6 +489,16 @@ impl CodeBuilder<'_> {
             return Ok(());
         }
         self.store_pending_success_result(result.as_ref(), already_standalone)?;
+        // bug-567, the same free on the cleanup-bearing path. The escaping value is
+        // already parked — `store_pending_success_result` wrote
+        // `pending_result_slots.value` — so nothing needs holding across the frees,
+        // but that slot is still handed over so the interior frees carry the same
+        // pointer-identity guard the fast path emits.
+        let escaping_slot = self
+            .pending_result_slots
+            .map(|slots| slots.value)
+            .map_or(EscapingValue::None, EscapingValue::InSlot);
+        self.drop_interior_temps_before_branch(interior_temp_watermark, escaping_slot)?;
         if let Some(value) = value {
             if let NirValue::Local(name) = value {
                 if result

@@ -1,0 +1,29 @@
+$ mfb build -ast -ir tests/rt-behavior/crypto/crypto-argon2id-valid
+Wrote AST to tests/rt-behavior/crypto/crypto-argon2id-valid/crypto-argon2id-valid.ast
+Wrote IR to tests/rt-behavior/crypto/crypto-argon2id-valid/crypto-argon2id-valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/crypto/crypto-argon2id-valid
+Wrote executable to tests/rt-behavior/crypto/crypto-argon2id-valid/build/crypto-argon2id-valid.out
+[exit 0]
+$ tests/rt-behavior/crypto/crypto-argon2id-valid/build/crypto-argon2id-valid.out
+d83804140012c3e6d3502a3eb59fc24a89a9ec08b6ac97be1feca1700abe0afb
+193516d757d5a0a664815a95284af097e21d04122f6b10d2f4597a52f71d67c8
+cd342db86d5658c8e3267ba1c32c14f66bd95c49ca2c842dbff0e298d37817c9
+2221417c8368046c827a9d6457839492fbf2549744386b49846cf40e63049c00ce880f47126a63d1a88a6053c8865bbcdb0deb64bc8c391c46d59c6f87f4bf7e
+74917376a06e631bc7172d085a1a4508
+03aab965c12001c9d7d0d2de33192c0494b684bb148196d73c1df1acaf6d0c2e
+0af8c8a7
+8c9949bc564b846fd93270a65b17f58896163d3cc42f6a71b63c550ad8e74740155c72824cf0531ae042c1fa5cdc59d526f2251f929c701f09f55ebcf79e710d2cfda816c37059d560ec41d5b707ac8edbd6f8654807cb9fd3d8e5b4e6d198632f7655ae
+9c7a6bcedb5b031ff36dbe3f01dc3a3e73b9042ab0bc0723df81f0f606018e7a
+profile-minimum=0c4c0b6db219194b6006e078818a24eabea136f7af619a31930310e7f2d749a5
+profile-is-a-wrapper=TRUE
+memory-4GiB=raised 77050002
+memory-over-ceiling=raised 77050002
+memory-below-8p=raised 77050002
+iterations-0=raised 77050002
+parallelism-0=raised 77050002
+parallelism-over-max=raised 77050002
+length-3=raised 77050002
+salt-7=raised 77050002
+salt-8=ok 4
+[exit 0]

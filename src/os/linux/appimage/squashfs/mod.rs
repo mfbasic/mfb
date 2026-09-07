@@ -192,8 +192,8 @@ impl MetadataWriter {
     /// metadata block and yields `-EIO`. A zero-length metadata block is
     /// unrepresentable, so header `0x0000`/`0x8000` must never be written.
     fn flush(&mut self) {
-        debug_assert!(!self.pending.is_empty(), "zero-length metadata block");
-        debug_assert!(self.pending.len() <= METADATA_BLOCK);
+        assert!(!self.pending.is_empty(), "zero-length metadata block");
+        assert!(self.pending.len() <= METADATA_BLOCK);
         let header = METADATA_UNCOMPRESSED | self.pending.len() as u16;
         self.out.extend_from_slice(&header.to_le_bytes());
         self.out.extend_from_slice(&self.pending);
@@ -453,7 +453,7 @@ pub(crate) fn write(tree: &SquashTree) -> Result<Vec<u8>, String> {
     put_u64(&mut out, directory_table_start);
     put_u64(&mut out, INVALID_BLK); // fragment_table_start
     put_u64(&mut out, INVALID_BLK); // lookup_table_start
-    debug_assert_eq!(out.len() as u64, SUPERBLOCK_SIZE);
+    assert_eq!(out.len() as u64, SUPERBLOCK_SIZE);
 
     out.extend_from_slice(&data);
     out.extend_from_slice(&inode_bytes);

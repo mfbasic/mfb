@@ -1,0 +1,431 @@
+' ---------------------------------------------------------------------------
+' yaml/scalar.mfb — scalar content: quoted-scalar decoding, plain-scalar line
+' folding, and the YAML 1.2 Core Schema that decides what an unquoted scalar
+' means.
+'
+' Two rules run through the whole file:
+'
+'   * A QUOTED scalar is always a string. Quoting is how YAML says "this is
+'     text", so `"true"` and `'123'` are the strings "true" and "123" -- the
+'     schema below is never consulted for them.
+'   * A PLAIN scalar is typed by the Core Schema and by nothing else. There is
+'     no tag support in this reader, so the schema is the only typing rule, and
+'     the two productions the schema types as values JSON cannot hold --
+'     `.inf` and `.nan` -- are rejected rather than converted.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT encoding
+
+' 7-705-0025 errorCode::ErrInvalidSurrogate — a `\u` escape encoding an
+' unpaired surrogate.
+PUBLIC LET ERR_SURROGATE AS Integer = 77050025
+
+' Decoded scalar text plus the byte offset just past it.
+TYPE Scanned
+  text AS String
+  index AS Integer
+END TYPE
+
+' ---------------------------------------------------------------------------
+' Line folding, shared by plain and quoted scalars.
+'
+' YAML folds a run of line breaks inside a single scalar: one break becomes a
+' space, and n > 1 breaks become n-1 line feeds, with the spaces on either side
+' of every break dropped. `i` must point at the LF that opens the run.
+' ---------------------------------------------------------------------------
+PUBLIC FUNC foldBreaks(bytes AS List OF Byte, i AS Integer, stop AS Integer) AS Scanned
+  MUT breaks AS Integer = 0
+  MUT j AS Integer = i
+  WHILE j < stop
+    LET code AS Integer = byteAt(bytes, j)
+    IF code = B_LF THEN
+      breaks = breaks + 1
+      j = j + 1
+    ELSEIF code = B_CR THEN
+      ' CR alone is a break; CR LF is the same ONE break, counted at the LF.
+      IF byteAt(bytes, j + 1) <> B_LF THEN
+        breaks = breaks + 1
+      END IF
+      j = j + 1
+    ELSEIF isSpace(code) THEN
+      j = j + 1
+    ELSE
+      EXIT WHILE
+    END IF
+  END WHILE
+  IF breaks <= 1 THEN RETURN Scanned[" ", j]
+  RETURN Scanned[strings::repeat("\n", breaks - 1), j]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Single-quoted scalars.
+'
+' The only escape is a doubled quote (`''` for one `'`); a backslash is a
+' literal backslash. Content may span lines, folding as above.
+' ---------------------------------------------------------------------------
+PUBLIC FUNC scanSingleQuoted(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Scanned
+  MUT out AS String = ""
+  MUT run AS Integer = from
+  MUT i AS Integer = from
+  WHILE i < stop
+    LET code AS Integer = byteAt(bytes, i)
+    IF code = B_SQUOTE THEN
+      out = out & textOf(bytes, run, i)
+      IF byteAt(bytes, i + 1) = B_SQUOTE THEN
+        out = out & "'"
+        i = i + 2
+        run = i
+      ELSE
+        RETURN Scanned[out, i + 1]
+      END IF
+    ELSEIF code = B_LF THEN
+      out = out & textOf(bytes, run, trimEndAt(bytes, run, i))
+      LET fold AS Scanned = foldBreaks(bytes, i, stop)
+      out = out & fold.text
+      i = fold.index
+      run = i
+    ELSE
+      i = i + 1
+    END IF
+  END WHILE
+  FAIL error(ERR_FORMAT, "yaml: single-quoted scalar is never closed")
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Double-quoted scalars.
+' ---------------------------------------------------------------------------
+
+' The hexadecimal value of `count` digits starting at `from`.
+FUNC hexValue(bytes AS List OF Byte, from AS Integer, count AS Integer) AS Integer
+  MUT value AS Integer = 0
+  FOR i = from TO from + count - 1
+    LET code AS Integer = byteAt(bytes, i)
+    MUT digit AS Integer = -1
+    IF code >= 48 AND code <= 57 THEN
+      digit = code - 48
+    ELSEIF code >= 97 AND code <= 102 THEN
+      digit = code - 87
+    ELSEIF code >= 65 AND code <= 70 THEN
+      digit = code - 55
+    END IF
+    IF digit < 0 THEN
+      FAIL error(ERR_FORMAT, "yaml: a \\x, \\u or \\U escape needs " & toString(count) & " hexadecimal digits")
+    END IF
+    value = value * 16 + digit
+  NEXT
+  RETURN value
+END FUNC
+
+' One code point as text, rejecting a value outside Unicode.
+FUNC codePointText(value AS Integer) AS String
+  IF value < 0 OR value > 1114111 THEN
+    FAIL error(ERR_FORMAT, "yaml: escape names U+" & toString(value) & ", which is not a Unicode scalar value")
+  END IF
+  RETURN encoding::utf32Decode([value])
+END FUNC
+
+PUBLIC FUNC scanDoubleQuoted(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Scanned
+  MUT out AS String = ""
+  MUT run AS Integer = from
+  MUT i AS Integer = from
+  WHILE i < stop
+    LET code AS Integer = byteAt(bytes, i)
+    IF code = B_DQUOTE THEN
+      out = out & textOf(bytes, run, i)
+      RETURN Scanned[out, i + 1]
+    ELSEIF code = B_LF THEN
+      out = out & textOf(bytes, run, trimEndAt(bytes, run, i))
+      LET fold AS Scanned = foldBreaks(bytes, i, stop)
+      out = out & fold.text
+      i = fold.index
+      run = i
+    ELSEIF code = B_BACKSLASH THEN
+      out = out & textOf(bytes, run, i)
+      LET esc AS Integer = byteAt(bytes, i + 1)
+      IF esc = B_LF THEN
+        ' A backslash immediately before a break escapes the break itself: the
+        ' lines join with neither a space nor a line feed.
+        MUT j AS Integer = i + 2
+        WHILE j < stop AND isSpace(byteAt(bytes, j))
+          j = j + 1
+        END WHILE
+        i = j
+        run = i
+      ELSEIF esc = 120 THEN
+        out = out & codePointText(hexValue(bytes, i + 2, 2))
+        i = i + 4
+        run = i
+      ELSEIF esc = 117 THEN
+        LET first AS Integer = hexValue(bytes, i + 2, 4)
+        IF first >= 55296 AND first <= 56319 THEN
+          ' A high surrogate must be followed by `\u` and a low surrogate; the
+          ' pair is one code point. Strings are Unicode text, so an unpaired
+          ' surrogate has no representation and is rejected rather than
+          ' replaced.
+          IF byteAt(bytes, i + 6) <> B_BACKSLASH OR byteAt(bytes, i + 7) <> 117 THEN
+            FAIL error(ERR_SURROGATE, "yaml: escape \\u" & textOf(bytes, i + 2, i + 6) & " is a high surrogate with no following low surrogate")
+          END IF
+          LET second AS Integer = hexValue(bytes, i + 8, 4)
+          IF second < 56320 OR second > 57343 THEN
+            FAIL error(ERR_SURROGATE, "yaml: escape \\u" & textOf(bytes, i + 2, i + 6) & " is a high surrogate with no following low surrogate")
+          END IF
+          out = out & codePointText(65536 + (first - 55296) * 1024 + (second - 56320))
+          i = i + 12
+        ELSEIF first >= 56320 AND first <= 57343 THEN
+          FAIL error(ERR_SURROGATE, "yaml: escape \\u" & textOf(bytes, i + 2, i + 6) & " is an unpaired low surrogate")
+        ELSE
+          out = out & codePointText(first)
+          i = i + 6
+        END IF
+        run = i
+      ELSEIF esc = 85 THEN
+        out = out & codePointText(hexValue(bytes, i + 2, 8))
+        i = i + 10
+        run = i
+      ELSE
+        out = out & simpleEscape(esc)
+        i = i + 2
+        run = i
+      END IF
+    ELSE
+      i = i + 1
+    END IF
+  END WHILE
+  FAIL error(ERR_FORMAT, "yaml: double-quoted scalar is never closed")
+END FUNC
+
+' The single-character escapes YAML 1.2 defines for a double-quoted scalar.
+' Anything else is a malformed escape rather than a literal character, so a
+' typo cannot pass through silently.
+FUNC simpleEscape(code AS Integer) AS String
+  MATCH code
+    CASE 48 : RETURN codePointText(0)         ' \0  NULL
+    CASE 97 : RETURN codePointText(7)         ' \a  BELL
+    CASE 98 : RETURN codePointText(8)         ' \b  BACKSPACE
+    CASE 116 : RETURN "\t"                    ' \t  TAB
+    CASE 9 : RETURN "\t"                      ' a literal tab after the backslash
+    CASE 110 : RETURN "\n"                    ' \n  LINE FEED
+    CASE 118 : RETURN codePointText(11)       ' \v  VERTICAL TAB
+    CASE 102 : RETURN codePointText(12)       ' \f  FORM FEED
+    CASE 114 : RETURN codePointText(13)       ' \r  CARRIAGE RETURN
+    CASE 101 : RETURN codePointText(27)       ' \e  ESCAPE
+    CASE 32 : RETURN " "                      ' \    SPACE
+    CASE 34 : RETURN "\""                     ' \"  QUOTE
+    CASE 47 : RETURN "/"                      ' \/  SOLIDUS
+    CASE 92 : RETURN "\\"                     ' \\  BACKSLASH
+    CASE 78 : RETURN codePointText(133)       ' \N  NEXT LINE
+    CASE 95 : RETURN codePointText(160)       ' \_  NO-BREAK SPACE
+    CASE 76 : RETURN codePointText(8232)      ' \L  LINE SEPARATOR
+    CASE 80 : RETURN codePointText(8233)      ' \P  PARAGRAPH SEPARATOR
+    CASE ELSE
+      IF code < 0 THEN
+        FAIL error(ERR_FORMAT, "yaml: a double-quoted scalar ends with a lone backslash")
+      END IF
+      FAIL error(ERR_FORMAT, "yaml: escape \\" & codePointText(code) & " is not a YAML escape")
+  END MATCH
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The YAML 1.2 Core Schema.
+'
+' This is the whole of the untagged-scalar typing rule, and it is deliberately
+' the 1.2 Core Schema and not YAML 1.1: `yes`, `no`, `on`, `off`, `y` and `n`
+' are ORDINARY STRINGS here, sexagesimals and `0b` binary literals do not
+' exist, and `_` is not a digit separator. That is what makes the result
+' JSON-shaped without a second guess.
+' ---------------------------------------------------------------------------
+
+' TRUE when [from, stop) is one or more decimal digits.
+FUNC allDigits(b AS List OF Byte, from AS Integer, stop AS Integer) AS Boolean
+  IF stop <= from THEN RETURN FALSE
+  FOR i = from TO stop - 1
+    IF NOT isDigitByte(byteAt(b, i)) THEN RETURN FALSE
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' `0x [0-9a-fA-F]+` or `0o [0-7]+`, the schema's two non-decimal integer forms.
+' Returns the value, or fails; `isRadixInt` decides whether to call it.
+FUNC isRadixInt(b AS List OF Byte) AS Boolean
+  IF len(b) < 3 THEN RETURN FALSE
+  IF byteAt(b, 0) <> B_ZERO THEN RETURN FALSE
+  LET kind AS Integer = byteAt(b, 1)
+  IF kind = 120 THEN
+    FOR i = 2 TO len(b) - 1
+      LET code AS Integer = byteAt(b, i)
+      LET hex AS Boolean = isDigitByte(code) OR (code >= 97 AND code <= 102) OR (code >= 65 AND code <= 70)
+      IF NOT hex THEN RETURN FALSE
+    NEXT
+    RETURN TRUE
+  END IF
+  IF kind = 111 THEN
+    FOR i = 2 TO len(b) - 1
+      LET code AS Integer = byteAt(b, i)
+      IF code < 48 OR code > 55 THEN RETURN FALSE
+    NEXT
+    RETURN TRUE
+  END IF
+  RETURN FALSE
+END FUNC
+
+FUNC radixValue(b AS List OF Byte) AS Integer
+  LET base AS Integer = 16
+  MUT radix AS Integer = base
+  IF byteAt(b, 1) = 111 THEN radix = 8
+  MUT value AS Integer = 0
+  FOR i = 2 TO len(b) - 1
+    LET code AS Integer = byteAt(b, i)
+    MUT digit AS Integer = 0
+    IF isDigitByte(code) THEN
+      digit = code - 48
+    ELSEIF code >= 97 THEN
+      digit = code - 87
+    ELSE
+      digit = code - 55
+    END IF
+    value = value * radix + digit
+  NEXT
+  RETURN value
+END FUNC
+
+' `[-+]? [0-9]+` — the schema's decimal integer.
+FUNC isDecimalInt(b AS List OF Byte) AS Boolean
+  MUT from AS Integer = 0
+  IF len(b) > 0 AND (byteAt(b, 0) = B_DASH OR byteAt(b, 0) = B_PLUS) THEN from = 1
+  RETURN allDigits(b, from, len(b))
+END FUNC
+
+' `[-+]? ( \. [0-9]+ | [0-9]+ ( \. [0-9]* )? ) ( [eE] [-+]? [0-9]+ )?`
+FUNC isDecimalFloat(b AS List OF Byte) AS Boolean
+  LET total AS Integer = len(b)
+  MUT i AS Integer = 0
+  IF i < total AND (byteAt(b, i) = B_DASH OR byteAt(b, i) = B_PLUS) THEN i = i + 1
+  MUT digits AS Integer = 0
+  WHILE i < total AND isDigitByte(byteAt(b, i))
+    digits = digits + 1
+    i = i + 1
+  END WHILE
+  IF i < total AND byteAt(b, i) = B_DOT THEN
+    i = i + 1
+    MUT fraction AS Integer = 0
+    WHILE i < total AND isDigitByte(byteAt(b, i))
+      fraction = fraction + 1
+      i = i + 1
+    END WHILE
+    ' `.5` is a float; `5.` is a float; a lone `.` is not.
+    IF digits = 0 AND fraction = 0 THEN RETURN FALSE
+    digits = digits + fraction
+  END IF
+  IF digits = 0 THEN RETURN FALSE
+  IF i < total AND (byteAt(b, i) = 101 OR byteAt(b, i) = 69) THEN
+    i = i + 1
+    IF i < total AND (byteAt(b, i) = B_DASH OR byteAt(b, i) = B_PLUS) THEN i = i + 1
+    MUT exponent AS Integer = 0
+    WHILE i < total AND isDigitByte(byteAt(b, i))
+      exponent = exponent + 1
+      i = i + 1
+    END WHILE
+    IF exponent = 0 THEN RETURN FALSE
+  END IF
+  RETURN i = total
+END FUNC
+
+' `[-+]? ( \.inf | \.Inf | \.INF )`
+FUNC isInfinity(text AS String) AS Boolean
+  MUT body AS String = text
+  IF strings::startsWith(body, "-") OR strings::startsWith(body, "+") THEN
+    body = strings::mid(body, 1, strings::graphemesCount(body) - 1)
+  END IF
+  RETURN body = ".inf" OR body = ".Inf" OR body = ".INF"
+END FUNC
+
+FUNC isNotANumber(text AS String) AS Boolean
+  RETURN text = ".nan" OR text = ".NaN" OR text = ".NAN"
+END FUNC
+
+DOC
+  FUNC resolvePlain
+  DESC Resolve one plain (unquoted) scalar under the YAML 1.2 Core Schema.
+  ARG text The scalar's text, already folded and trimmed.
+  RET The scalar as a `json::Json` value.
+END DOC
+PUBLIC FUNC resolvePlain(text AS String) AS json::Json
+  IF text = "" OR text = "~" OR text = "null" OR text = "Null" OR text = "NULL" THEN
+    LET nullValue AS json::Json = json::JsonNull[NOTHING]
+    RETURN nullValue
+  END IF
+  IF text = "true" OR text = "True" OR text = "TRUE" THEN
+    LET yes AS json::Json = json::JsonBool[TRUE]
+    RETURN yes
+  END IF
+  IF text = "false" OR text = "False" OR text = "FALSE" THEN
+    LET no AS json::Json = json::JsonBool[FALSE]
+    RETURN no
+  END IF
+  ' `.inf` and `.nan` ARE numbers under the Core Schema, and JSON has no way to
+  ' write either. Silently turning them into a string, a null, or 0 would each
+  ' be a different lie, so the document is rejected instead.
+  IF isInfinity(text) OR isNotANumber(text) THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: `" & text & "` is a YAML number with no JSON equivalent")
+  END IF
+  LET b AS List OF Byte = strings::toBytes(text)
+  IF isRadixInt(b) THEN
+    LET radix AS Float = toFloat(radixValue(b))
+    LET radixNum AS json::Json = json::JsonNum[radix]
+    RETURN radixNum
+  END IF
+  IF isDecimalInt(b) OR isDecimalFloat(b) THEN
+    MUT digits AS String = text
+    ' `toFloat` reads JSON/decimal number text, which has no leading `+`.
+    IF strings::startsWith(digits, "+") THEN
+      digits = strings::mid(digits, 1, strings::graphemesCount(digits) - 1)
+    END IF
+    LET number AS Float = toFloat(digits)
+    LET numeric AS json::Json = json::JsonNum[number]
+    RETURN numeric
+  END IF
+  LET textValue AS json::Json = json::JsonStr[text]
+  RETURN textValue
+END FUNC
+
+DOC
+  FUNC keyOfValue
+  DESC Require an already-resolved scalar to be a string, so it can be a
+  DESC mapping key.
+  DESC A JSON object key is a string, so a key the Core Schema types as
+  DESC anything else -- `12:`, `true:`, `null:`, an empty key -- is rejected
+  DESC rather than stringified behind the caller's back. Quote the key to make
+  DESC it a string.
+  ARG value The resolved key node.
+  ARG shown How to name the key in a failure message.
+  RET The key.
+END DOC
+PUBLIC FUNC keyOfValue(value AS json::Json, shown AS String) AS String
+  MATCH value
+    CASE json::JsonStr(s)
+      RETURN s.value
+    CASE json::JsonNull(n)
+      FAIL error(ERR_UNSUPPORTED, "yaml: mapping key `" & shown & "` is null, and a JSON object key must be a string -- quote it")
+    CASE json::JsonBool(b)
+      FAIL error(ERR_UNSUPPORTED, "yaml: mapping key `" & shown & "` is a boolean, and a JSON object key must be a string -- quote it")
+    CASE json::JsonNum(m)
+      FAIL error(ERR_UNSUPPORTED, "yaml: mapping key `" & shown & "` is a number, and a JSON object key must be a string -- quote it")
+    CASE json::JsonArr(a)
+      FAIL error(ERR_UNSUPPORTED, "yaml: mapping key `" & shown & "` is a sequence, and a JSON object key must be a string")
+    CASE json::JsonObj(o)
+      FAIL error(ERR_UNSUPPORTED, "yaml: mapping key `" & shown & "` is a mapping, and a JSON object key must be a string")
+  END MATCH
+END FUNC
+
+DOC
+  FUNC resolveKey
+  DESC Resolve one plain mapping key and require it to be a string.
+  ARG text The key's text, already folded and trimmed.
+  RET The key.
+END DOC
+PUBLIC FUNC resolveKey(text AS String) AS String
+  RETURN keyOfValue(resolvePlain(text), text)
+END FUNC

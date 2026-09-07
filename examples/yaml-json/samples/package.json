@@ -1,0 +1,13 @@
+{
+  "name": "yamljson",
+  "version": "0.1.0",
+  "keywords": ["cli", "converter", "yaml"],
+  "engine": { "os": "any", "cpus": 2, "gpu": null },
+  "scripts": {
+    "build": "mfb build .",
+    "note": "A value with\na line break becomes a block scalar."
+  },
+  "matrix": [[1, 2], [3, 4]],
+  "empty": {},
+  "none": []
+}

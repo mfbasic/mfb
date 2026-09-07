@@ -1,0 +1,38 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "loop_do_until_mut_string",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 11, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "Z" } },
+    { "op": "bind", "line": 12, "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "doUntil",
+      "line": 13,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
+      "body": [
+      { "op": "assign", "line": 14, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": "X" } } },
+      { "op": "assign", "line": 15, "name": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

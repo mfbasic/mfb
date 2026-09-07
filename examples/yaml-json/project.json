@@ -1,0 +1,23 @@
+{
+  "name": "yamljson",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Convert between YAML and JSON on the command line: yaml::parse in one direction, a small YAML emitter in the other.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "packages": [
+    {
+      "name": "yaml",
+      "version": "=0.1.0",
+      "source": "file:packages/yaml.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

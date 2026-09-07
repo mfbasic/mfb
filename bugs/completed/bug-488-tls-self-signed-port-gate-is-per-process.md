@@ -1,0 +1,277 @@
+# bug-488 — `rt_tls_connect_allow_self_signed` is flaky when two `cargo test` runs share a machine
+
+STATUS: **CLOSED** (2026-09-06) — the clean period this bug was held open for arrived; see "Closing census" at the end. No product defect.
+
+Fixed so far (`e5f705c13`, restored `0953cd57d`, pinned `7cbf00777`):
+- The gate is now `common::PortGate`, a `flock(2)` on a temp-dir file, so it
+  excludes across PROCESSES. The old `static OnceLock<Mutex<()>>` ordered the
+  four cases inside one binary and definitionally could not do more.
+- The TRAP now prints `result=raised code=<n>` and the raise assertions quote the
+  observed value. Six sightings produced no attribution because the test threw
+  its own error code away; the next one will arrive self-diagnosing.
+- `tests/rt_port_gate_is_cross_process.rs` pins the exclusion property, verified
+  to fail (`IN/IN/IN/IN/OUT`) with the acquire removed.
+
+**Why this is still OPEN.** The symptom would not reproduce. Soaking the pre-fix
+binary in a detached worktree at 2-way and 4-way concurrency (26 runs) gave zero
+failures. All six field sightings were during full `cargo test` runs, where port
+pressure comes from hundreds of unrelated tests — four copies of one test does
+not recreate that. So the fix is justified by mechanism plus the property test,
+NOT by a measured drop in failure rate, and this stays open until a full-suite
+run either shows a seventh occurrence or a long clean period closes it.
+
+A seventh occurrence should now name its own cause via the `code=` token; record
+it here rather than re-deriving.
+FOUND: plan-121-E prerequisite run (2026-09-03)
+SEVERITY: low — the test fails CLOSED (it reports the anomaly); it does not pass silently
+
+## Clean period so far (2026-09-05) — 3 full-suite runs under concurrency, still OPEN
+
+Recorded because this bug's closing criterion is a count, and a count is only
+useful if the runs behind it are described.
+
+Three complete `cargo test --release --no-fail-fast` runs today, each in a
+separate worktree, **all four cases green in every one**:
+
+| run | tree | concurrent load on the box |
+| --- | --- | --- |
+| bug-546 | `/tmp/wt-546` | a subagent's full suite + artifact gate, and a peer's `cargo-llvm-cov` in `.claude/worktrees/P-cov` |
+| bug-536 shape B | `/tmp/wt-536b` | a subagent working bugs 529/531/533 |
+| bug-470 | `/tmp/wt-470` | the same subagent, still running |
+
+That is the machine-sharing condition all six field sightings occurred under, so
+these are relevant runs rather than quiet ones.
+
+**Not closing on this.** Six sightings accumulated over an unknown number of
+full-suite runs, so the base rate is unknown and three clean runs cannot be
+decisive about it. What would close this is a count large enough to be worth
+something against that base rate, or a seventh sighting — which will now name its
+own cause through the `code=` token the fix added.
+
+**One confounder for whoever counts next.** bug-470 landed today
+(`fea98e3cb`): `artifact-gate.sh` and `test-accept.sh` now hold a per-tree lock
+and no longer overlap within a tree. That does not gate the `rt_tls_*` tests
+directly, but it changes the port-pressure profile of a full run, so runs before
+and after `fea98e3cb` are not quite the same experiment. Today's first two rows
+are before it; the third is after.
+
+## Symptom
+
+In a full `cargo test --no-fail-fast`, one case failed:
+
+```
+defaults_to_rejecting_a_self_signed_peer ... FAILED
+  left:  "result=connected"
+  right: "result=raised"
+```
+
+The client **connected** to a peer it should have refused. Re-run in isolation
+**3/3 green**, all four cases each time:
+
+```
+cargo test --test rt_tls_connect_allow_self_signed -- --test-threads=1
+```
+
+At the time of the failure a second worktree session (`P-116`) was running its own
+full `cargo test` on the same machine.
+
+## Second occurrence — it fails in BOTH directions (2026-09-03, bug-500 landing)
+
+A second sighting during the audit-3 fix pass, with the **opposite** signature:
+
+```
+accepts_a_self_signed_peer ... FAILED
+  left:  "result=raised"
+  right: "result=connected"
+```
+
+so the client **refused** a peer it should have accepted, where the first sighting
+had it **accept** one it should have refused. Same trigger: two other
+`cargo test` runs (audit-3 fix agents) were live on this machine at the time.
+Re-run in isolation immediately afterwards, 4/4 green:
+
+```
+cargo test --no-fail-fast --test rt_tls_connect_allow_self_signed -- --test-threads=1
+→ test result: ok. 4 passed; 0 failed
+```
+
+The rest of that suite was clean (4589 passed, 1 failed — this case only).
+
+This matters for the diagnosis: a gate that can flip a verdict in *either*
+direction is not "a stale allow that leaks in", it is two runs sharing one
+process-global piece of state and each seeing the other's value. Whichever fix is
+chosen must therefore make the state per-connection (or per-test), not merely
+reset it before each case — resetting still races when the reader is another
+process's test.
+
+## Third occurrence — first direction again (2026-09-03, bug-496 landing)
+
+`defaults_to_rejecting_a_self_signed_peer` failed with `left: "result=connected"`
+(the first signature) during the bug-496 merged full run, while two other audit-3
+fix agents had `cargo test` live on this machine. Sole failure in the run (113
+result lines otherwise green); re-run in isolation immediately afterwards 3/3 green
+(`cargo test --test rt_tls_connect_allow_self_signed`, 4 passed each time).
+
+## Fourth occurrence — a DIFFERENT symptom, so the shared state is wider than the port (2026-09-03, plan-122 landing)
+
+Two sightings in one plan-122 session, both with a peer worktree session
+(`P-116`) running its own `cargo test` on the same machine.
+
+The first matched §Symptom exactly (`defaults_to_rejecting_a_self_signed_peer`,
+`left: "result=connected"`, `right: "result=raised"`). The second, in the
+post-merge run, is **new**:
+
+```
+still_rejects_an_expired_certificate ... FAILED
+  the certificate meant to be expired is still valid — this case would assert the
+  opposite of what it reads as:
+  Certificate will not expire
+
+still_rejects_a_name_mismatch ... FAILED
+```
+
+That first one is not a verdict flip at all — it is the file's own **setup
+guard** firing, refusing to run a case that would have asserted vacuously. So the
+test is failing closed here too, which is good, but it means the contention
+damages more than the port: the cases also share the **generated certificate
+identity** on disk, and a concurrent run regenerating it can leave this run
+looking at an identity that is not the one its case needs.
+
+Isolation re-runs: **4/4 green, twice**, immediately after each failure
+(`cargo test --release --test rt_tls_connect_allow_self_signed`).
+
+Consequence for the fix: making `port_gate()` cross-process is **necessary but not
+sufficient**. Whatever lock is chosen has to cover the identity generation as
+well, or this case will keep failing under a shared machine after the port race is
+closed. A per-run temporary identity directory would remove the second half
+outright and is probably cheaper than locking it.
+
+Not attributable to plan-122, which touches no TLS code: `artifact-gate.sh all`
+reported 1890 goldens 0 diffs on the same tree, and the whole
+`rt_tls_connect_allow_self_signed` file is green when nothing else is running.
+
+**Four sightings in one day, by three unrelated sessions.** The third and fourth
+were reported independently and collided as a merge conflict in this file, which is
+itself a measure of how often this fires: it is no longer an occasional flake but a
+near-certainty whenever two `cargo test` runs overlap, which is now the normal
+working pattern. Both were kept rather than one being resolved away — the third
+adds frequency evidence, the fourth adds a symptom the port race does not explain.
+
+## Fifth occurrence — a fixed-port sibling, `rt_macos_tls_write_capacity` (2026-09-04, bug-502 landing)
+
+`macos_tls_write_sends_capacity_over_count_byte_list_exactly` (fixed
+`PORT = 18453`, 1 s bind sleep, `openssl s_client` peer) failed once in the
+bug-502 landing suite with `peer did not receive the exact byte payload
+[65, 66, 67, 68, 69]; got []` while a peer session's `cargo test` was running
+the same suite on this box; the branch touched only `src/fmt.rs`/`src/cli/fmt.rs`.
+Re-run alone (`--test-threads=1`) it passed in 2.1 s, and `lsof -i :18453` was
+empty afterwards. Same class: a fixed port shared across processes.
+
+## Cause
+
+`tests/rt_tls_connect_allow_self_signed.rs` picks a port by binding an ephemeral
+one and **releasing it** so `openssl s_server` can take it (`free_port`, line
+~361). The file knows this window is dangerous and guards it with `port_gate()`
+(line ~349) — but that is a `static OnceLock<Mutex<()>>`, i.e. **per-process**.
+
+It therefore serializes the four cases *inside this test binary* and cannot
+serialize against:
+
+- other test binaries in the same `cargo test` run, or
+- **another `cargo test` on the same machine** — now routine, since work happens
+  in several `.claude/worktrees/*` sessions concurrently.
+
+`start_peer`'s loser detection only catches the case where our `s_server` **fails
+to bind** (it exits, so `lost = true` and it retries). It cannot catch the
+converse: our port being handed to someone else's listener in the release window,
+after which the client under test reaches a stranger.
+
+## Sixth occurrence — `still_rejects_a_name_mismatch`, single run (2026-09-04)
+
+A full `cargo test --release --workspace --no-fail-fast`, during the bug-542
+Windows-stack fix. The third of the four cases, in the connected direction:
+
+```
+still_rejects_a_name_mismatch ... FAILED
+  left:  "result=connected"
+  right: "result=raised"
+test result: FAILED. 3 passed; 1 failed
+```
+
+Re-run in isolation immediately after: `4 passed; 0 failed`. The same suite had
+run fully green (124 binaries, 4694 passed, 0 failed) forty minutes earlier on
+the same machine with the same binary, so this is the documented race, not a
+regression — nothing in that session touched TLS.
+
+New data point: **this run was not racing another `cargo test`.** The two earlier
+sightings both had a second full suite on the machine; this one did not, which
+narrows the window to the plain in-run one `start_peer` already documents — the
+readiness probe checks `try_wait()` *before* `connect()`, so a child that is
+alive but has not yet reached its failing `bind(2)` passes both checks and the
+probe then connects to the winner's server. A cross-process gate alone would not
+have caught this one; closing the release window (or verifying the served
+certificate is this case's own) would.
+
+## Why it matters even though the test failed correctly
+
+The assertion did its job. But the file's own header says the negatives are the
+important cases, and a negative that flakes gets re-run and waved through — which
+is how a real regression in default TLS trust would eventually be dismissed as
+"that flaky TLS test". The value at risk is the credibility of a security
+assertion, not the assertion itself.
+
+## Fix directions (not yet chosen)
+
+- Have `s_server` bind and report its own port, removing the release window
+  entirely (the file notes banner-parsing is "markedly less stable across OpenSSL
+  versions" — so measure before adopting).
+- Or make the gate cross-process: an advisory lock on a file under a well-known
+  path, which is what `scripts/artifact-gate.sh` already does for a different
+  shared resource.
+- Or bind the listener in-process and hand `s_server` the inherited descriptor.
+
+## Reproduce
+
+Run two full `cargo test --no-fail-fast` invocations concurrently from two
+worktrees of this repo. Expect an intermittent `result=connected` in
+`defaults_to_rejecting_a_self_signed_peer`, or a name-mismatch/expired case
+reporting the wrong outcome for the same reason.
+
+
+## Closing census (2026-09-06) — 75 clean unfiltered runs, and the rate it rules out
+
+This bug was held open on a COUNT, so it closes on one. Every `/tmp/*.log` on
+this host that contains the fixture was classified by whether all four cases ran
+and whether any reported `FAILED`, split at `7cbf00777` (2026-09-04 22:11, the
+pin):
+
+    BEFORE the pin: 147 logs, 14 with a failed case
+    AFTER  the pin:  75 logs,  0 with a failed case
+    AFTER, running all four cases: 75 of 75
+    span: 2026-09-04 23:19 -> 2026-09-06 12:01
+
+Three of the 14 pre-fix reds are ATTRIBUTABLE and are not this flake — `b485-red`,
+`b485-libressl-final` and `b485-green-libressl` are the LibreSSL backend
+experiment, where the failure was the point. That leaves **11 unattributed
+failures in 144 pre-fix runs, ≈7.6% per run**, spread across all four cases
+(`accepts` ×4, `defaults_to_rejecting` ×3, `still_rejects_a_name_mismatch` ×2,
+`still_rejects_an_expired_certificate` ×2) — which is itself consistent with a
+port collision rather than a defect in any one case.
+
+If the fix had changed nothing, 75 consecutive clean runs at that rate has
+probability `0.924^75 ≈ 0.0027`. So the observation rules out "the rate is
+unchanged" at better than 1 in 300.
+
+**What this evidence is not.** These are logs of runs performed for other
+purposes on one macOS host, not a controlled experiment, and I did not hold
+concurrency constant — though the post-pin runs were mostly made WITH concurrent
+subagent suites and artifact gates on the same box, which is the condition all
+six original sightings occurred under, so the exposure is not obviously lower.
+The mechanism argument (`flock(2)` excludes across processes; a
+`static OnceLock<Mutex<()>>` definitionally cannot) and
+`tests/rt_port_gate_is_cross_process.rs` remain the primary justification. This
+census is the corroboration the document asked for, not a replacement for them.
+
+The `code=<n>` self-diagnosis added by `e5f705c13` was never consumed, because
+no post-fix occurrence arrived to consume it. It stays in the test: if a
+seventh sighting ever happens, it will name its own cause.

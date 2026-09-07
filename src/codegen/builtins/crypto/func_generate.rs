@@ -1579,6 +1579,53 @@ compressed edwards448 point (56-byte `y` plus the sign byte).
 | `X448` | RFC 7748 | — (not a signing key) | 56 B | 56 B |
 | `Ed448` | RFC 8032 | SHAKE256 (internal) | 57 B | 57 B (seed) |
 
+**Interoperating with other tools.** The `publicKey` needs no conversion: on the
+NIST curves it is the standard SEC1 / X9.62 uncompressed point that OpenSSL, a
+JWK and a PKCS#11 token all recognise. The `privateKey` does. `0x04‖X‖Y‖d` is
+this package's own layout — carrying the public point is what lets `crypto::sign`
+take the private key alone — and nothing outside MFBASIC reads it. Convert at the
+boundary: the key material is the same either way, only the framing differs.
+
+The two halves sit at fixed offsets. The leading `1 + 2*field` bytes are exactly
+the `publicKey` (65 / 97 / 133 for `P256` / `P384` / `P521`); the trailing `field`
+bytes are the SEC1 secret scalar `d` (32 / 48 / 66). In the other direction a
+package `privateKey` is `publicKey ‖ d`, in that order. The example below cuts a
+`P256` key into both.
+
+`d` and the public point are everything a SEC1 `ECPrivateKey` (RFC 5915) holds,
+so `openssl` does the DER and PEM framing on its side. Bringing a P-256 key in:
+
+```
+openssl ec -in key.pem -outform DER -out key.der
+head -c 39 key.der | tail -c 32 > d.bin        # the scalar d
+tail -c 65 key.der > pub.bin                   # 0x04||X||Y
+cat pub.bin d.bin > privatekey.bin             # what sign() takes
+```
+
+and taking one out, from the 97 bytes `generate` returned:
+
+```
+head -c 65 privatekey.bin > pub.bin
+tail -c 32 privatekey.bin > d.bin
+{ printf '\x30\x77\x02\x01\x01\x04\x20'; cat d.bin
+  printf '\xa0\x0a\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07\xa1\x44\x03\x42\x00'
+  cat pub.bin; } > key.der
+openssl ec -inform DER -in key.der -out key.pem
+```
+
+Both were run on OpenSSL 3.6.2, and a signature made on each side was checked on
+the other. The literal bytes in the second are the rest of the SEC1 structure —
+the version, the `prime256v1` object identifier and the public-key tag — and they
+are P-256 constants. `P384` and `P521` need their own, and their outer length
+takes an extra byte, so on those the scalar starts one byte later: `head -c 56 |
+tail -c 48` for P-384, `head -c 74 | tail -c 66` for P-521, with the public point
+still the last 97 / 133 bytes. `openssl asn1parse -in key.pem` prints the offsets
+if you would rather read them off than count them.
+
+A different thing that looks similar: `tls::listen`'s `certPath` and `keyPath`
+name PEM files the platform TLS stack reads for itself. They are not
+`crypto::KeyPair` material and none of the above applies to them.
+
 **Security.** The `privateKey` is secret key material — keep it confidential and
 never transmit or log it; only the `publicKey` is safe to share. Randomness comes
 from the platform CSPRNG (for the NIST curves) or `crypto::randomBytes` (for the
@@ -1617,6 +1664,26 @@ IMPORT crypto
 
 SUB main()
   LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
+END SUB
+```
+
+Split a NIST `privateKey` into the two pieces other ecosystems ask for — the
+uncompressed point, which is the `publicKey` again, and the SEC1 scalar `d`:
+
+```
+IMPORT crypto
+IMPORT collections
+IMPORT encoding
+IMPORT io
+
+SUB main()
+  LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
+  LET point AS List OF Byte = collections::mid(kp.privateKey, 0, 65)
+  LET scalar AS List OF Byte = collections::mid(kp.privateKey, 65, 32)
+  IF encoding::hexEncode(point) = encoding::hexEncode(kp.publicKey) THEN
+    io::print("privateKey is publicKey (65 bytes) followed by the scalar d")
+  END IF
+  io::print("d is " & toString(len(scalar)) & " bytes, ready for a SEC1 encoder")
 END SUB
 ```"#;
 

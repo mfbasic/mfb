@@ -100,6 +100,7 @@ pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrP
     for (id, ref_fns, ref_globals) in &identities {
         crate::ir::apply_package_identity(&mut merged, ref_fns, ref_globals, id);
     }
+    define_natively_called_helpers(&mut merged);
     // Semantically verify the fully merged IR before it is lowered to native
     // code (plan-19-ir-semantic-verification.md). `verify_package` re-states the
     // package-format structural invariants; this pass adds the semantic ones —
@@ -109,6 +110,52 @@ pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrP
     // that keeps type-confused IR (audit-1 PKG-02) out of the victim's binary.
     crate::ir::verify_semantics(&merged)?;
     Ok(merged)
+}
+
+/// Give every natively-called builtin helper its bare reserved name, when only an
+/// imported package brought it in.
+///
+/// Six `crypto` members dispatch on an enum ordinal at run time and branch to an
+/// MFBASIC helper: `hash` to a SHA core, `seal`/`open` to an AEAD core, and
+/// `sign`/`verify`/`generate` to a software-curve core. Each branch is emitted
+/// once per unit, as a standalone `abi_function` body with no calling function in
+/// scope, so it names the bare `_mfb_ifn_crypto_…` symbol and can name nothing
+/// else.
+///
+/// A program that imports `crypto` itself has the helper injected under exactly
+/// that name and everything lines up. A program that only imports a PACKAGE which
+/// uses `crypto` does not: the package carries the helper, but
+/// `prefix_package_symbols` has renamed it to `<identity>.<package>.#crypto_…` so
+/// two packages' copies cannot collide, and the branch was left dangling — the
+/// build failed with "internal relocation target … is not defined" (bug-557).
+///
+/// Binding the bare name to the first merged copy is what closes it. The copy is
+/// aliased rather than rewritten, so the package's own calls keep reaching their
+/// own prefixed helpers and nothing about an existing package changes; and only
+/// the handful of helpers a lowering actually names are aliased, so this is not
+/// the "dedup every reserved name" rule — which would be wrong, because a
+/// lambda-lifted body can share one sigil name across two packages while being
+/// two different functions.
+fn define_natively_called_helpers(merged: &mut IrProject) {
+    for helper in crate::codegen::registry::natively_called_helpers() {
+        if merged.functions.iter().any(|f| f.name == helper) {
+            continue;
+        }
+        let qualified_suffix = format!(".{helper}");
+        let Some(source) = merged
+            .functions
+            .iter()
+            .find(|f| f.name.ends_with(&qualified_suffix))
+        else {
+            // No package brought this helper in, so nothing branches to it
+            // either. A missing definition here would be a codegen bug, not a
+            // merge one, and the native validation pass reports it precisely.
+            continue;
+        };
+        let mut alias = source.clone();
+        alias.name = helper;
+        merged.functions.push(alias);
+    }
 }
 
 pub(crate) fn lower_ops(ops: &[IrOp]) -> Vec<NirOp> {

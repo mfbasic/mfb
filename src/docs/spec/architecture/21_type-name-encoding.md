@@ -6,7 +6,7 @@ it.** The parser builds the string when it reads a type annotation, and
 emitted byte the compiler carries the variant tree: the resolver, monomorphizer,
 `ir::shape`, `ir::verify`, the `TypeModel` builder and codegen all **match
 variants**, and none of them re-derives structure by prefix-stripping (plan-111,
-enforced by `tests/no_type_strings.rs`).
+enforced by `tests/guards/no_type_strings.rs`).
 
 The string still matters, because it is what the wire formats store and what
 diagnostics print. This document is the canonical contract for that encoding,

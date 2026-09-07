@@ -1133,6 +1133,14 @@ pub(crate) const PARK_ERROR_SYMBOL: &str = "_mfb_rt_park_error";
 /// header, `arena_free`, then null the slot. `x0` is the slot's ADDRESS, not the
 /// pointer, so the helper can do the free-and-null itself.
 pub(crate) const DROP_OWNED_STRING_SYMBOL: &str = "_mfb_rt_drop_owned_string";
+/// bug-560: drop one owned `String` slot whose block carries in-place
+/// self-append capacity headroom. `x0` is the slot's ADDRESS as above; `x1` is
+/// the spare-byte count read from the binding's capacity shadow, so the freed
+/// size is `byteLength + spare + 9` — exactly the size `arena_alloc` was given
+/// in `lower_string_self_append_one`'s regrow. The plain
+/// [`DROP_OWNED_STRING_SYMBOL`] frees `byteLength + 9`, which UNDER-frees such a
+/// block and orphans the headroom on every drop.
+pub(crate) const DROP_OWNED_STRING_CAP_SYMBOL: &str = "_mfb_rt_drop_owned_string_cap";
 /// plan-118-E: drop one owned flat collection slot. `x0` is the slot ADDRESS,
 /// `x1` the entry stride, `x2` non-zero when the block carries a hash-bucket
 /// region (`Map`/`Set`, never `List`). Those two are the only things the flat

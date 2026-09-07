@@ -17,6 +17,85 @@ enum BlockLength {
     CString,
 }
 
+/// bug-565: what a raw result tag says about who owns the `Error` behind it, at
+/// the moment an inline `TRAP` assembles its `Result`.
+///
+/// The trapped-error assembly ADOPTS on one tag and REBUILDS on the others, and
+/// then frees what it ended up holding. Getting that partition wrong in the
+/// adopt direction is a double free, so it is written once, here, as a total
+/// function over the tag vocabulary — `tests::the_result_tag_partition_is_total`
+/// pins it against the `RESULT_*_TAG` constants actually declared in
+/// `error_constants.rs`, so adding a fifth tag reds a test instead of silently
+/// falling into `LooseRegisters`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TrappedErrorTagClass {
+    /// `RESULT_OK_TAG` — not an error at all; the wrap-error branch is not taken.
+    NotAnError,
+    /// `RESULT_ERR_BLOCK_TAG` — the raiser built ONE owned flat `Error` block and
+    /// PARKED it in the per-thread current-error slot for the catcher to adopt
+    /// (design "b"). Rebuilding here orphans it, which is half of bug-565.
+    ParkedBlock,
+    /// `RESULT_ERR_TAG` (a legacy/OOM-degraded loose error) and
+    /// `RESULT_PROGRAM_EXIT_TAG` (`os::exit` unwinding through a fallible call).
+    /// No block is parked; the flat `Error` must be rebuilt from the registers.
+    LooseRegisters,
+}
+
+/// The class of `tag`, which must be one of the `RESULT_*_TAG` constants.
+pub(crate) fn trapped_error_tag_class(tag: &str) -> TrappedErrorTagClass {
+    match tag {
+        RESULT_OK_TAG => TrappedErrorTagClass::NotAnError,
+        RESULT_ERR_BLOCK_TAG => TrappedErrorTagClass::ParkedBlock,
+        RESULT_ERR_TAG | RESULT_PROGRAM_EXIT_TAG => TrappedErrorTagClass::LooseRegisters,
+        // Unreachable for the declared vocabulary (the test above proves the
+        // vocabulary is exactly those four). An unknown tag is treated as a loose
+        // error: it REBUILDS, which leaks at worst, rather than adopting a slot
+        // nobody parked and freeing a block someone else owns.
+        _ => TrappedErrorTagClass::LooseRegisters,
+    }
+}
+
+/// The one tag whose error arrives as a parked, adoptable block. Derived from the
+/// partition above rather than spelled again at the emitter, so the compare the
+/// generated code performs cannot drift from the classification this file
+/// documents.
+fn adoptable_error_tag() -> &'static str {
+    for tag in [
+        RESULT_OK_TAG,
+        RESULT_ERR_TAG,
+        RESULT_PROGRAM_EXIT_TAG,
+        RESULT_ERR_BLOCK_TAG,
+    ] {
+        if trapped_error_tag_class(tag) == TrappedErrorTagClass::ParkedBlock {
+            return tag;
+        }
+    }
+    unreachable!("the partition declares exactly one parked-block tag")
+}
+
+/// bug-565: where an inline `TRAP`'s error REBUILD branch gets the `ErrorLoc` it
+/// inlines into the flat `Error` block.
+///
+/// This is the ONLY axis on which the three trapped-`Result` lowerings differ, and
+/// the partition is total by construction — [`CodeBuilder::emit_trapped_error_result`]
+/// `match`es it, so a fourth lowering cannot reach the shared free without
+/// declaring which of these it is. `tests/codegen/codegen_trap_error_free.rs`
+/// asserts every variant is reachable and that no other emitter builds a trapped
+/// error `Result`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TrappedErrorSource {
+    /// The callee's own origin, arriving in `RESULT_ERROR_SOURCE_REGISTER` and
+    /// preserved verbatim: the direct user/`.mfb` callee and the indirect
+    /// `FUNC`-value callee (`builder_values.rs`, `NirValue::CallResult`).
+    CalleeRegister,
+    /// A fresh `ErrorLoc` for the current inline expression: an inline builtin or
+    /// a runtime helper trapped here, which has no MFB-level origin of its own.
+    CurrentLocation,
+    /// An inline-trapped `thread::waitFor`: the message and origin live in the
+    /// WORKER arena and are deep-copied into this one before they are inlined.
+    WorkerArena,
+}
+
 impl CodeBuilder<'_> {
     /// Build a flat `Result` value `{tag @0, size @8, payload @16}` (plan-02
     /// §4.3): a scalar payload occupies the 8-byte word at +16 (total 24 bytes); a
@@ -186,7 +265,7 @@ impl CodeBuilder<'_> {
                 self.emit_build_result_inline(tag_slot, &ParameterType::Integer, payload_slot)?;
             self.emit(abi::store_u64(&bare, abi::stack_pointer(), result_slot));
         } else {
-            self.emit_materialize_error_payload(
+            self.emit_trapped_error_result(
                 &scratch9,
                 tag_slot,
                 value_slot,
@@ -194,33 +273,100 @@ impl CodeBuilder<'_> {
                 source_raw_slot,
                 payload_slot,
                 result_slot,
-                worker_error_source,
+                if worker_error_source {
+                    TrappedErrorSource::WorkerArena
+                } else {
+                    TrappedErrorSource::CurrentLocation
+                },
             )?;
         }
 
         self.emit(abi::label(&have_payload_label));
+        Ok(self.fresh_trapped_result_value(result_slot, success, text))
+    }
+
+    /// bug-568: the ONE constructor of a `Result`-typed [`ValueResult`], and the
+    /// single place the claim "an inline `TRAP`'s value is a block THIS FRAME
+    /// allocated" is made.
+    ///
+    /// `result_slot` holds what [`Self::emit_build_result_inline`] returned: a
+    /// `{tag, size, payload}` block from this frame's own `_mfb_arena_alloc`,
+    /// into which the payload — scalar or block, `Ok` or `Error` — has been
+    /// COPIED. No other owner can name it.
+    ///
+    /// That matters because `lower_value_owned` decides whether a bind must deep
+    /// copy by asking predicates about the CALLEE (`call_returns_param_borrow`,
+    /// `call_returns_rodata_string`), and those describe the callee's SUCCESS
+    /// value, not this wrapper. A callee whose `RETURN` names a parameter made
+    /// `LET n AS Integer = risky(i) TRAP …` copy the whole `Result` and abandon
+    /// the one it copied — 134 B per call, 26.8 MB at 200 000 and 52.6 MB at
+    /// 400 000, on a call that never fails. Funnelling the construction here is
+    /// what makes "every `Result`-typed value is fresh" a checkable statement
+    /// rather than three separate sites agreeing by accident;
+    /// `codegen_trap_result_wrapper.rs::the_result_wrapper_has_exactly_one_constructor`
+    /// asserts nothing else builds one.
+    pub(crate) fn fresh_trapped_result_value(
+        &mut self,
+        result_slot: usize,
+        success: ParameterType,
+        text: String,
+    ) -> ValueResult {
         let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
-        Ok(ValueResult {
+        ValueResult {
             origin: None,
             type_: ParameterType::result_of(success),
             location: Operand::from(register.render()),
             text,
-        })
+        }
     }
 
-    /// The full error-payload assembly for `materialize_current_result` (the
-    /// `wrap_error` path): adopt a parked `ERR_BLOCK` `Error` when present,
-    /// otherwise rebuild the ErrorLoc + flat `Error` from the loose registers,
-    /// then wrap it in a `Result` at `result_slot`. Extracted verbatim so the
-    /// plan-64-I discard shortcut can sit beside it without re-indenting this
-    /// block. `tag_slot` holds the raw tag; `worker_error_source` selects the
-    /// worker-arena deep-copy path (an inline-trapped `thread::waitFor`).
-    fn emit_materialize_error_payload(
+    /// The full error-payload assembly for an inline-`TRAP`'s error branch: put
+    /// the trapped `Error` block in `payload_slot`, wrap a `Result` around it at
+    /// `result_slot`, and then FREE the payload block, which the wrap has copied.
+    ///
+    /// Shared by all three lowerings that build a trapped `Result` — the direct
+    /// user/`.mfb` callee and the indirect `FUNC`-value callee in
+    /// `builder_values.rs`, and [`Self::materialize_current_result`] for a runtime
+    /// helper or an inline builtin. They differ only in where the rebuild branch
+    /// gets its `ErrorLoc`, which is [`TrappedErrorSource`].
+    ///
+    /// **bug-565.** Before this was shared, only the ADOPT branch of the
+    /// `materialize_current_result` copy freed anything. The other three paths
+    /// each leaked TWO arena blocks per trapped error: the flat `Error` block
+    /// `emit_build_error_inline` builds (which [`Self::emit_build_result_inline`]
+    /// deep-copies into the `Result`, after which nothing owns the original), and
+    /// — on the two `builder_values.rs` paths, which rebuilt unconditionally —
+    /// the `ERR_BLOCK` block the raiser had already PARKED for the catcher to
+    /// adopt, orphaned by the very next `FAIL` that overwrote the slot. A loop
+    /// whose call fails every iteration grew 780 B per trapped error: 149.8 MB at
+    /// 200 000 and 298.6 MB at 400 000.
+    ///
+    /// `mfb spec language memory-semantics` §14 preamble: "Each live value is
+    /// owned by exactly one binding, container slot, temporary, closure
+    /// environment, thread message, or return slot." §14.7 lists `FAIL` and
+    /// auto-propagation among the scope edges at which live values are dropped.
+    /// Both orphans had no owner at all; this names one — this expression's
+    /// temporary — and drops it at the end of the branch that created it.
+    ///
+    /// **The guard.** Adding a free is the double-free direction, and the one
+    /// block on this path that another owner may still hold is the PARKED
+    /// `ERR_BLOCK`: it lives in the per-thread `ARENA_CURRENT_ERROR_OFFSET` slot
+    /// until somebody adopts it, and the trap route
+    /// (`route_current_result_to_trap`) adopts the same slot. So the free does not
+    /// rest on this emitter's copy of "which tag parks a block" agreeing with the
+    /// raiser's: [`Self::emit_free_trapped_error_payload`] compares the payload
+    /// pointer against whatever is in that slot AT RUN TIME and frees only on
+    /// difference. `emit_adopt_current_error_block` zeroes the slot as it hands
+    /// the block over, so a real adoption always differs and is always freed; a
+    /// payload that is still parked is never freed, however it got there. That is
+    /// `collections::reduce`'s and bug-571's model — compare the produced pointer
+    /// against the value you do not own — applied to the one block an inline
+    /// `TRAP` does not exclusively own.
+    pub(crate) fn emit_trapped_error_result(
         &mut self,
-        // Reuse `materialize_current_result`'s scratch vreg (rather than
-        // allocating a fresh one) so this extraction leaves the non-discard
-        // emitted code byte-identical to the pre-plan-64-I inline version.
+        // Reuse the caller's scratch vreg (rather than allocating a fresh one) so
+        // this stays a pure extraction of the code it replaced.
         scratch9: impl Into<Operand>,
         tag_slot: usize,
         value_slot: usize,
@@ -228,16 +374,15 @@ impl CodeBuilder<'_> {
         source_raw_slot: usize,
         payload_slot: usize,
         result_slot: usize,
-        worker_error_source: bool,
+        source: TrappedErrorSource,
     ) -> Result<(), String> {
         let scratch9 = scratch9.into();
-        let source_slot = self.allocate_stack_object("raw_result_source", 8);
         // Design "b": an `ERR_BLOCK` error already carries its single owned flat
         // Error block, parked in the current-error slot. ADOPT it as the payload
-        // directly (no source rebuild), copy it into the materialized `Result`, and
-        // free the adopted owner once — rather than rebuilding a fresh block from the
-        // loose registers and orphaning the parked one. A legacy `ERR` (or a worker
-        // error, never block-carried) falls through to the rebuild below.
+        // directly (no source rebuild) rather than rebuilding a fresh block from
+        // the loose registers and orphaning the parked one. A legacy `ERR`, a
+        // `PROGRAM_EXIT`, or a worker error (never block-carried) falls through to
+        // the rebuild below.
         let rebuild_label = self.label("raw_result_rebuild");
         let err_built_label = self.label("raw_result_err_built");
         self.emit(abi::load_u64(
@@ -247,7 +392,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(
             scratch9.clone(),
-            RESULT_ERR_BLOCK_TAG,
+            adoptable_error_tag(),
         ));
         self.emit(abi::branch_ne(&rebuild_label));
         let adopted = self.emit_adopt_current_error_block();
@@ -257,69 +402,115 @@ impl CodeBuilder<'_> {
         let err_tag = self.temporary_vreg();
         self.emit(abi::move_immediate(&err_tag, "Integer", RESULT_ERR_TAG));
         self.emit(abi::store_u64(&err_tag, abi::stack_pointer(), tag_slot));
-        let adopt_result =
-            self.emit_build_result_inline(tag_slot, &ParameterType::named("Error"), payload_slot)?;
-        self.emit(abi::store_u64(
-            &adopt_result,
-            abi::stack_pointer(),
-            result_slot,
-        ));
-        self.emit_free_error_block_from_slot(payload_slot)?;
         self.emit(abi::branch(&err_built_label));
 
         self.emit(abi::label(&rebuild_label));
-        if worker_error_source {
-            // A propagated worker error: deep-copy its message and origin out of
-            // the (still-alive) worker arena into the caller arena. If the helper
-            // raised its own error (source == 0), stamp this inline expression.
-            self.emit(abi::load_u64(
-                scratch9.clone(),
-                abi::stack_pointer(),
-                message_slot,
-            ));
-            let copied_message =
-                self.copy_value_to_current_arena(&ParameterType::String, scratch9.clone())?;
-            self.emit(abi::store_u64(
-                &copied_message,
-                abi::stack_pointer(),
-                message_slot,
-            ));
-            let own = self.label("raw_worker_error_own");
-            let done = self.label("raw_worker_error_done");
-            self.emit(abi::load_u64(
-                scratch9.clone(),
-                abi::stack_pointer(),
-                source_raw_slot,
-            ));
-            self.emit(abi::compare_immediate(scratch9.clone(), "0"));
-            self.emit(abi::branch_eq(&own));
-            let copied_source = self
-                .copy_value_to_current_arena(&ParameterType::named("ErrorLoc"), scratch9.clone())?;
-            self.emit(abi::store_u64(
-                &copied_source,
-                abi::stack_pointer(),
-                source_slot,
-            ));
-            self.emit(abi::branch(&done));
-            self.emit(abi::label(&own));
-            let loc = self.emit_build_error_loc()?;
-            self.emit(abi::store_u64(&loc, abi::stack_pointer(), source_slot));
-            self.emit(abi::label(&done));
-        } else {
-            // The error originates at the current inline expression.
-            let loc_register = self.emit_build_error_loc()?;
-            self.emit(abi::store_u64(
-                &loc_register,
-                abi::stack_pointer(),
-                source_slot,
-            ));
-        }
+        // Where the rebuild's `ErrorLoc` (and, for a worker error, its message)
+        // comes from — and, for each, the pointer that would be the RAISER's
+        // rather than ours. `*_borrowed_slot == *_slot` is the compile-time
+        // statement "this component is the raiser's, we allocated nothing"; where
+        // they differ the free below is guarded on the two pointers at run time.
+        let mut message_borrowed_slot = message_slot;
+        let source_slot = match source {
+            // The callee's own `x3` origin, preserved verbatim so an inline-trapped
+            // error keeps the source location it was raised at.
+            TrappedErrorSource::CalleeRegister => source_raw_slot,
+            TrappedErrorSource::CurrentLocation => {
+                let source_slot = self.allocate_stack_object("raw_result_source", 8);
+                let loc_register = self.emit_build_error_loc()?;
+                self.emit(abi::store_u64(
+                    &loc_register,
+                    abi::stack_pointer(),
+                    source_slot,
+                ));
+                source_slot
+            }
+            TrappedErrorSource::WorkerArena => {
+                let source_slot = self.allocate_stack_object("raw_result_source", 8);
+                // The worker's own message pointer, saved before the deep copy
+                // overwrites `message_slot`, so the free below can tell the copy
+                // this frame allocated from the worker block it was made from.
+                let raw = self.allocate_stack_object("raw_result_message_raw", 8);
+                self.emit(abi::load_u64(
+                    scratch9.clone(),
+                    abi::stack_pointer(),
+                    message_slot,
+                ));
+                self.emit(abi::store_u64(scratch9.clone(), abi::stack_pointer(), raw));
+                message_borrowed_slot = raw;
+                // A propagated worker error: deep-copy its message and origin out of
+                // the (still-alive) worker arena into the caller arena. If the helper
+                // raised its own error (source == 0), stamp this inline expression.
+                self.emit(abi::load_u64(
+                    scratch9.clone(),
+                    abi::stack_pointer(),
+                    message_slot,
+                ));
+                let copied_message =
+                    self.copy_value_to_current_arena(&ParameterType::String, scratch9.clone())?;
+                self.emit(abi::store_u64(
+                    &copied_message,
+                    abi::stack_pointer(),
+                    message_slot,
+                ));
+                let own = self.label("raw_worker_error_own");
+                let done = self.label("raw_worker_error_done");
+                self.emit(abi::load_u64(
+                    scratch9.clone(),
+                    abi::stack_pointer(),
+                    source_raw_slot,
+                ));
+                self.emit(abi::compare_immediate(scratch9.clone(), "0"));
+                self.emit(abi::branch_eq(&own));
+                let copied_source = self.copy_value_to_current_arena(
+                    &ParameterType::named("ErrorLoc"),
+                    scratch9.clone(),
+                )?;
+                self.emit(abi::store_u64(
+                    &copied_source,
+                    abi::stack_pointer(),
+                    source_slot,
+                ));
+                self.emit(abi::branch(&done));
+                self.emit(abi::label(&own));
+                let loc = self.emit_build_error_loc()?;
+                self.emit(abi::store_u64(&loc, abi::stack_pointer(), source_slot));
+                self.emit(abi::label(&done));
+                source_slot
+            }
+        };
         let error_register = self.emit_build_error_inline(value_slot, message_slot, source_slot)?;
         self.emit(abi::store_u64(
             &error_register,
             abi::stack_pointer(),
             payload_slot,
         ));
+        // bug-565: the flat `Error` INLINES its message and its `ErrorLoc`, so any
+        // component this frame allocated for the rebuild is dead the moment the
+        // build returns. `emit_free_borrowed_guarded` declines when the pointer is
+        // the raiser's; the two `if`s only skip emitting a compare that is
+        // statically the same slot, and can never turn a decline into a free.
+        if message_borrowed_slot != message_slot {
+            self.emit_free_borrowed_guarded(
+                &ParameterType::String,
+                message_slot,
+                message_borrowed_slot,
+                "trapped_error_message_borrowed",
+            )?;
+        }
+        if source_slot != source_raw_slot {
+            self.emit_free_borrowed_guarded(
+                &ParameterType::named("ErrorLoc"),
+                source_slot,
+                source_raw_slot,
+                "trapped_error_source_borrowed",
+            )?;
+        }
+        self.emit(abi::label(&err_built_label));
+
+        // One wrap for both branches: `emit_build_result_inline` deep-copies the
+        // block at `payload_slot` into the fresh `Result`, so from here the
+        // payload block — adopted or rebuilt — has no other owner.
         let err_result =
             self.emit_build_result_inline(tag_slot, &ParameterType::named("Error"), payload_slot)?;
         self.emit(abi::store_u64(
@@ -327,7 +518,73 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
-        self.emit(abi::label(&err_built_label));
+        self.emit_free_trapped_error_payload(payload_slot)?;
+        Ok(())
+    }
+
+    /// bug-565: free the trapped `Error` block at `payload_slot`, UNLESS it is the
+    /// block still parked in the per-thread current-error slot.
+    ///
+    /// The compare is the whole soundness argument, and it is exact rather than
+    /// conservative: `emit_adopt_current_error_block` zeroes the slot in the same
+    /// breath as it yields the base, so an adopted block can never still be the
+    /// parked one; and a block `emit_build_error_inline` has just allocated can
+    /// never equal a live parked pointer, because the arena hands out one address
+    /// to one live block. What the compare buys is that the free stops resting on
+    /// a compile-time claim about which tags park a block: if any future raiser
+    /// reaches this branch with its block still parked, the free is declined and
+    /// the block leaks — the fail-closed direction — instead of being freed twice.
+    /// bug-565: free the flat block at `ptr_slot`, UNLESS it is null or is the
+    /// pointer at `borrowed_slot` — the one this frame did NOT allocate.
+    ///
+    /// The two components an inline `TRAP`'s error rebuild can allocate — the
+    /// `ErrorLoc` it stamps for itself, and (for a worker error) the caller-arena
+    /// copy of the worker's message — are both INLINED into the flat `Error` by
+    /// `emit_build_error_inline` and owned by nothing afterwards. The identical
+    /// slots on the other source kinds hold the RAISER's blocks, which another
+    /// owner still frees. Rather than deciding that from the variant, the compare
+    /// asks it of the pointers: freeing is declined whenever the payload IS the
+    /// value the caller named as not-ours. Fail-closed — an unforeseen path that
+    /// hands the same pointer through leaks a block instead of freeing one twice.
+    fn emit_free_borrowed_guarded(
+        &mut self,
+        block_type: &ParameterType,
+        ptr_slot: usize,
+        borrowed_slot: usize,
+        label: &str,
+    ) -> Result<(), String> {
+        let skip = self.label(label);
+        let owned = self.temporary_vreg();
+        let borrowed = self.temporary_vreg();
+        self.emit(abi::load_u64(&owned, abi::stack_pointer(), ptr_slot));
+        // A degraded (OOM) `ErrorLoc` build yields the null sentinel, which
+        // `emit_build_error_inline` writes as a source offset of 0; there is no
+        // block to reclaim and `arena_free` would fault sizing address 0.
+        self.emit(abi::compare_immediate(&owned, "0"));
+        self.emit(abi::branch_eq(&skip));
+        self.emit(abi::load_u64(
+            &borrowed,
+            abi::stack_pointer(),
+            borrowed_slot,
+        ));
+        self.emit(abi::compare_registers(&owned, &borrowed));
+        self.emit(abi::branch_eq(&skip));
+        self.emit_free_flat_block_from_slot(block_type, ptr_slot)?;
+        self.emit(abi::label(&skip));
+        Ok(())
+    }
+
+    fn emit_free_trapped_error_payload(&mut self, payload_slot: usize) -> Result<(), String> {
+        let parked_label = self.label("trapped_error_still_parked");
+        let payload = self.temporary_vreg();
+        let parked = self.temporary_vreg();
+        let slot_address = self.current_error_slot_address();
+        self.emit(abi::load_u64(&payload, abi::stack_pointer(), payload_slot));
+        self.emit(abi::load_u64(&parked, &slot_address, 0));
+        self.emit(abi::compare_registers(&payload, &parked));
+        self.emit(abi::branch_eq(&parked_label));
+        self.emit_free_error_block_from_slot(payload_slot)?;
+        self.emit(abi::label(&parked_label));
         Ok(())
     }
 
@@ -1635,5 +1892,121 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&fallback_label));
         self.emit(abi::label(&done_label));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `Result` tag vocabulary, as declared in `error_constants.rs`.
+    ///
+    /// bug-565's fix decides, from this tag alone, whether the trapped error's
+    /// flat `Error` block is one the raiser PARKED for us to adopt or one we must
+    /// rebuild — and then frees what it ended up holding. An unclassified tag
+    /// falling through to `LooseRegisters` is the safe direction (it leaks rather
+    /// than double-frees), but it is still a silent wrong answer, so the partition
+    /// is asserted TOTAL against the constants rather than left to a default.
+    ///
+    /// This reads the constants file so the check cannot be satisfied by keeping a
+    /// stale copy of the list in step with itself: a fifth `RESULT_*_TAG` reds this
+    /// test, and whoever adds it has to say which class it belongs to.
+    const ERROR_CONSTANTS_SOURCE: &str = include_str!("../../error/constants/error_constants.rs");
+
+    fn declared_result_tags() -> Vec<String> {
+        ERROR_CONSTANTS_SOURCE
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                let rest = line.strip_prefix("pub(crate) const RESULT_")?;
+                let (name, value) = rest.split_once(": &str = ")?;
+                if !name.ends_with("_TAG") {
+                    return None;
+                }
+                Some(
+                    value
+                        .trim()
+                        .trim_end_matches(';')
+                        .trim_matches('"')
+                        .to_string(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_result_tag_partition_is_total() {
+        let declared = declared_result_tags();
+        assert_eq!(
+            declared.len(),
+            4,
+            "the `RESULT_*_TAG` vocabulary changed ({declared:?}); classify the new \
+             tag in `trapped_error_tag_class` — an unlisted tag REBUILDS the error, \
+             which silently orphans a parked `Error` block (bug-565)"
+        );
+        let mut classified: Vec<(String, TrappedErrorTagClass)> = declared
+            .iter()
+            .map(|tag| (tag.clone(), trapped_error_tag_class(tag)))
+            .collect();
+        classified.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            classified,
+            vec![
+                ("0".to_string(), TrappedErrorTagClass::NotAnError),
+                ("1".to_string(), TrappedErrorTagClass::LooseRegisters),
+                ("2".to_string(), TrappedErrorTagClass::LooseRegisters),
+                ("3".to_string(), TrappedErrorTagClass::ParkedBlock),
+            ],
+            "every declared tag must have an explicit class"
+        );
+    }
+
+    /// Exactly one tag adopts, and the emitter compares against THAT one.
+    ///
+    /// The adopt branch is the only place the trapped-error assembly takes a block
+    /// it did not allocate. If two tags ever adopted, the single-compare emitter
+    /// would silently serve one of them by rebuilding — orphaning a parked block
+    /// again — so the "exactly one" is what makes one compare sufficient.
+    #[test]
+    fn exactly_one_tag_is_adoptable_and_the_emitter_uses_it() {
+        let adoptable: Vec<&str> = declared_result_tags()
+            .into_iter()
+            .filter(|tag| trapped_error_tag_class(tag) == TrappedErrorTagClass::ParkedBlock)
+            .map(|tag| match tag.as_str() {
+                "0" => RESULT_OK_TAG,
+                "1" => RESULT_ERR_TAG,
+                "2" => RESULT_PROGRAM_EXIT_TAG,
+                "3" => RESULT_ERR_BLOCK_TAG,
+                other => panic!("undeclared tag {other}"),
+            })
+            .collect();
+        assert_eq!(adoptable, vec![RESULT_ERR_BLOCK_TAG]);
+        assert_eq!(adoptable_error_tag(), RESULT_ERR_BLOCK_TAG);
+    }
+
+    /// The three trapped-`Result` lowerings, and the fact that they differ only in
+    /// where the REBUILD branch gets its `ErrorLoc`.
+    ///
+    /// [`TrappedErrorSource`] is what the shared emitter `match`es, so a fourth
+    /// lowering cannot reach the shared free without declaring itself one of these
+    /// — and the free of the rebuild's own `ErrorLoc` is skipped, at compile time,
+    /// exactly for the variant whose `ErrorLoc` is the RAISER's.
+    #[test]
+    fn every_trapped_error_source_is_accounted_for() {
+        let all = [
+            TrappedErrorSource::CalleeRegister,
+            TrappedErrorSource::CurrentLocation,
+            TrappedErrorSource::WorkerArena,
+        ];
+        assert_eq!(all.len(), 3);
+        // The one variant that allocates NOTHING for the rebuild: it reuses the
+        // callee's `x3` slot verbatim, so `source_slot == source_raw_slot` and the
+        // emitter never emits a free for it.
+        assert_eq!(all[0], TrappedErrorSource::CalleeRegister);
+        // The two that DO allocate: a fresh `ErrorLoc` (and, for a worker error, a
+        // caller-arena copy of the message) which the flat `Error` then inlines.
+        assert_ne!(all[1], all[0]);
+        assert_ne!(all[2], all[0]);
+        assert_ne!(all[1], all[2]);
     }
 }

@@ -51,6 +51,15 @@ is not found) is reported back to the parent over a close-on-exec self-pipe and
 surfaces as `ErrSpawnFailed`, not as a silently running child.
 
 
+Those three pipes are **all** the child gets. No file, socket, or other open
+handle the program holds crosses into it, and neither does one the program was
+itself started with and never opened — the handover is exhaustive rather than a
+list of exceptions, and it is the same on Linux, macOS, and Windows. There is no
+way to hand a child an extra descriptor. The child also starts with default
+signal handling whatever the parent had installed, so a spawned program still
+dies on a closed pipe the way it would from a shell.
+
+
 The returned `Process` is a resource handle that cannot be copied. It closes
 itself when its binding goes out of scope, which **force-kills and reaps** a
 still-running child (`SIGKILL` + `waitpid` on Unix) so no runaway process or zombie

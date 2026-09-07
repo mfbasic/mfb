@@ -1,0 +1,694 @@
+' ---------------------------------------------------------------------------
+' json_schema/validate.mfb — the evaluator.
+'
+' One function per group of keywords, all sharing one `Outcome`: the errors
+' found so far, the annotations collected so far, and what is left of the
+' evaluation budget. Annotations are not a side channel --
+' `unevaluatedProperties` and `unevaluatedItems` are defined in terms of them,
+' so they are carried in the same value the errors are, and they obey the same
+' rule the specification gives: a subschema contributes its annotations only
+' when it VALIDATED.
+'
+' The one distinction that shapes every merge here is in-place versus child
+' application. An in-place applicator (`$ref`, `allOf`, `anyOf`, `oneOf`,
+' `if`/`then`/`else`, `dependentSchemas`) applies a subschema to the SAME
+' instance, so its annotations describe the same value and merge into this
+' one's. A child applicator (`properties`, `items`, `contains`, ...) applies a
+' subschema to a MEMBER, so its annotations describe a different value and must
+' not: merging them would make `unevaluatedProperties` at an array's schema
+' believe an object member's properties had been evaluated.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT regex
+IMPORT math
+
+' One reason an instance is not valid against a schema.
+EXPORT TYPE ValidationError
+  ' The keyword that rejected the instance: "type", "required", "$ref", and so
+  ' on. "false" is the boolean schema `false`, which rejects everything.
+  keyword AS String
+  ' A JSON Pointer to the part of the INSTANCE that was rejected. "" is the
+  ' whole instance.
+  instancePath AS String
+  ' A JSON Pointer to the keyword in the SCHEMA that rejected it. It points
+  ' into the compiled document, so a failure inside a `$ref` reports where the
+  ' failing keyword actually lives rather than where the reference was written.
+  schemaPath AS String
+  ' A sentence naming what was expected and what was found.
+  message AS String
+END TYPE
+
+' What one subschema evaluation produced.
+PRIVATE TYPE Outcome
+  errors AS List OF ValidationError
+  ' The names of the instance object's properties this evaluation applied a
+  ' subschema to -- the `properties`/`patternProperties`/`additionalProperties`
+  ' annotation `unevaluatedProperties` subtracts from.
+  props AS Set OF String
+  ' The indexes of the instance array's items this evaluation applied a
+  ' subschema to -- the `prefixItems`/`items`/`contains` annotation
+  ' `unevaluatedItems` subtracts from. Indexes rather than a count, because
+  ' `contains` evaluates the items that MATCH, which need not be a prefix.
+  slots AS Set OF Integer
+  ' What is left of the evaluation budget. Counting DOWN rather than up is what
+  ' lets the limit stay out of every signature: an outcome carries how much
+  ' work may still be done, not how much has been done against a limit only the
+  ' caller knows.
+  budget AS Integer
+END TYPE
+
+' ---------------------------------------------------------------------------
+' Outcome plumbing.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC pass(budget AS Integer) AS Outcome
+  MUT empty AS List OF ValidationError = []
+  RETURN Outcome[errors := empty, props := Set OF String {}, slots := Set OF Integer {}, budget := budget]
+END FUNC
+
+PRIVATE FUNC valid(outcome AS Outcome) AS Boolean
+  RETURN len(outcome.errors) = 0
+END FUNC
+
+PRIVATE FUNC addError(state AS Outcome, keyword AS String, instancePath AS String, schemaPath AS String, message AS String) AS Outcome
+  LET problem AS ValidationError = ValidationError[keyword := keyword, instancePath := instancePath, schemaPath := schemaPath, message := message]
+  RETURN WITH state { errors := collections::append(state.errors, problem) }
+END FUNC
+
+' Take an IN-PLACE subschema's result: its cost always, its errors when the
+' caller wants them, and its annotations only when it validated.
+PRIVATE FUNC absorbInPlace(state AS Outcome, part AS Outcome, keepErrors AS Boolean) AS Outcome
+  MUT out AS Outcome = WITH state { budget := part.budget }
+  IF keepErrors THEN out = WITH out { errors := collections::append(out.errors, part.errors) }
+  IF valid(part) THEN
+    out = WITH out { props := collections::union(out.props, part.props), slots := collections::union(out.slots, part.slots) }
+  END IF
+  RETURN out
+END FUNC
+
+' Take a CHILD subschema's result: its cost and its errors, never its
+' annotations -- they describe the member, not this instance.
+PRIVATE FUNC absorbChild(state AS Outcome, part AS Outcome) AS Outcome
+  RETURN WITH state { budget := part.budget, errors := collections::append(state.errors, part.errors) }
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The entry point.
+' ---------------------------------------------------------------------------
+
+' Validate `instance` against the subschema at `pointer`.
+'
+' `active` is the stack of (subschema, instance location) pairs currently being
+' evaluated. A `$ref` that re-enters a pair already on it has closed a loop
+' with no progress on either side and can never terminate, so it fails rather
+' than recursing until the depth limit -- a distinct, honest diagnosis.
+PUBLIC FUNC evalSchema(root AS json::Json, refs AS Map OF String TO String, patterns AS Map OF String TO String, node AS json::Json, pointer AS String, instance AS json::Json, instancePath AS String, active AS List OF String, depth AS Integer, budget AS Integer) AS Outcome
+  checkDepth(depth)
+  MUT state AS Outcome = pass(spend(budget))
+
+  ' A boolean schema: `true` accepts everything and `false` rejects everything.
+  MATCH node
+    CASE json::JsonBool(flag)
+      IF flag.value THEN RETURN state
+      RETURN addError(state, "false", instancePath, pointer, "the schema `false` rejects every instance")
+    CASE ELSE
+      state = state
+  END MATCH
+
+  state = evalInPlace(root, refs, patterns, node, pointer, instance, instancePath, active, depth, state)
+  state = evalAssertions(patterns, node, pointer, instance, instancePath, state)
+  state = evalChildren(root, refs, patterns, node, pointer, instance, instancePath, active, depth, state)
+  state = evalUnevaluated(root, refs, patterns, node, pointer, instance, instancePath, active, depth, state)
+  RETURN state
+END FUNC
+
+' ---------------------------------------------------------------------------
+' In-place applicators.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC evalInPlace(root AS json::Json, refs AS Map OF String TO String, patterns AS Map OF String TO String, node AS json::Json, pointer AS String, instance AS json::Json, instancePath AS String, active AS List OF String, depth AS Integer, state AS Outcome) AS Outcome
+  MUT out AS Outcome = state
+
+  IF hasMember(node, "$ref") THEN
+    LET target AS String = collections::get(refs, pointer)
+    ' A length prefix makes the pair unambiguous: without it the schema
+    ' pointer "/a" with instance "/b" and the schema pointer "/a/b" with the
+    ' empty instance path would share a key.
+    LET key AS String = toString(len(target)) & ":" & target & instancePath
+    IF collections::contains(active, key) THEN
+      FAIL error(ERR_REF_CYCLE, "json_schema: the `$ref` at `" & pointer & "` re-enters `" & target & "` at the same instance location `" & instancePath & "`, so evaluation cannot terminate")
+    END IF
+    LET referenced AS json::Json = resolvePointer(root, target)
+    LET part AS Outcome = evalSchema(root, refs, patterns, referenced, target, instance, instancePath, collections::append(active, key), depth + 1, out.budget)
+    out = absorbInPlace(out, part, TRUE)
+  END IF
+
+  IF hasMember(node, "allOf") THEN
+    LET at AS String = pointerAppend(pointer, "allOf")
+    LET branches AS List OF json::Json = itemsOf(member(node, "allOf"))
+    MUT i AS Integer = 0
+    WHILE i < len(branches)
+      LET part AS Outcome = evalSchema(root, refs, patterns, collections::get(branches, i), pointerIndex(at, i), instance, instancePath, active, depth + 1, out.budget)
+      out = absorbInPlace(out, part, TRUE)
+      i = i + 1
+    END WHILE
+  END IF
+
+  IF hasMember(node, "anyOf") THEN
+    LET at AS String = pointerAppend(pointer, "anyOf")
+    LET branches AS List OF json::Json = itemsOf(member(node, "anyOf"))
+    MUT matched AS Boolean = FALSE
+    MUT reasons AS List OF ValidationError = []
+    MUT i AS Integer = 0
+    WHILE i < len(branches)
+      LET part AS Outcome = evalSchema(root, refs, patterns, collections::get(branches, i), pointerIndex(at, i), instance, instancePath, active, depth + 1, out.budget)
+      out = absorbInPlace(out, part, FALSE)
+      IF valid(part) THEN
+        matched = TRUE
+      ELSE
+        reasons = collections::append(reasons, part.errors)
+      END IF
+      i = i + 1
+    END WHILE
+    IF NOT matched THEN
+      out = WITH out { errors := collections::append(out.errors, reasons) }
+      out = addError(out, "anyOf", instancePath, at, "the instance matches none of the " & toString(len(branches)) & " subschemas")
+    END IF
+  END IF
+
+  IF hasMember(node, "oneOf") THEN
+    LET at AS String = pointerAppend(pointer, "oneOf")
+    LET branches AS List OF json::Json = itemsOf(member(node, "oneOf"))
+    MUT hits AS List OF String = []
+    MUT reasons AS List OF ValidationError = []
+    MUT winner AS Outcome = pass(out.budget)
+    MUT i AS Integer = 0
+    WHILE i < len(branches)
+      LET part AS Outcome = evalSchema(root, refs, patterns, collections::get(branches, i), pointerIndex(at, i), instance, instancePath, active, depth + 1, out.budget)
+      out = WITH out { budget := part.budget }
+      IF valid(part) THEN
+        hits = collections::append(hits, toString(i))
+        winner = part
+      ELSE
+        reasons = collections::append(reasons, part.errors)
+      END IF
+      i = i + 1
+    END WHILE
+    IF len(hits) = 1 THEN
+      ' Exactly one branch validated, so its annotations -- and only its --
+      ' are the ones this schema collected.
+      out = absorbInPlace(out, WITH winner { budget := out.budget }, FALSE)
+    ELSEIF len(hits) = 0 THEN
+      out = WITH out { errors := collections::append(out.errors, reasons) }
+      out = addError(out, "oneOf", instancePath, at, "the instance matches none of the " & toString(len(branches)) & " subschemas, and must match exactly one")
+    ELSE
+      out = addError(out, "oneOf", instancePath, at, "the instance matches subschemas " & strings::join(hits, ", ") & ", and must match exactly one")
+    END IF
+  END IF
+
+  IF hasMember(node, "not") THEN
+    LET at AS String = pointerAppend(pointer, "not")
+    LET part AS Outcome = evalSchema(root, refs, patterns, member(node, "not"), at, instance, instancePath, active, depth + 1, out.budget)
+    out = WITH out { budget := part.budget }
+    IF valid(part) THEN
+      out = addError(out, "not", instancePath, at, "the instance matches the subschema it must not match")
+    END IF
+  END IF
+
+  IF hasMember(node, "if") THEN
+    LET at AS String = pointerAppend(pointer, "if")
+    LET condition AS Outcome = evalSchema(root, refs, patterns, member(node, "if"), at, instance, instancePath, active, depth + 1, out.budget)
+    ' `if` never contributes an error: its whole job is to select a branch.
+    out = absorbInPlace(out, condition, FALSE)
+    MUT branch AS String = "else"
+    IF valid(condition) THEN branch = "then"
+    IF hasMember(node, branch) THEN
+      LET taken AS String = pointerAppend(pointer, branch)
+      LET part AS Outcome = evalSchema(root, refs, patterns, member(node, branch), taken, instance, instancePath, active, depth + 1, out.budget)
+      out = absorbInPlace(out, part, TRUE)
+    END IF
+  END IF
+
+  IF hasMember(node, "dependentSchemas") AND isObject(instance) THEN
+    LET at AS String = pointerAppend(pointer, "dependentSchemas")
+    LET fields AS Map OF String TO json::Json = fieldsOf(instance)
+    FOR EACH entry IN fieldsOf(member(node, "dependentSchemas"))
+      IF collections::hasKey(fields, entry.key) THEN
+        LET part AS Outcome = evalSchema(root, refs, patterns, entry.value, pointerAppend(at, entry.key), instance, instancePath, active, depth + 1, out.budget)
+        out = absorbInPlace(out, part, TRUE)
+      END IF
+    NEXT
+  END IF
+
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Assertions: the keywords that inspect the instance directly.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC evalAssertions(patterns AS Map OF String TO String, node AS json::Json, pointer AS String, instance AS json::Json, instancePath AS String, state AS Outcome) AS Outcome
+  MUT out AS Outcome = state
+  LET actual AS String = kindOf(instance)
+
+  IF hasMember(node, "type") THEN
+    IF NOT typeMatches(member(node, "type"), instance) THEN
+      out = addError(out, "type", instancePath, pointerAppend(pointer, "type"), "expected " & typeWanted(member(node, "type")) & ", found " & describeInstance(instance))
+    END IF
+  END IF
+
+  IF hasMember(node, "const") THEN
+    IF NOT deepEqual(instance, member(node, "const")) THEN
+      out = addError(out, "const", instancePath, pointerAppend(pointer, "const"), "expected the constant " & json::stringify(member(node, "const")) & ", found " & describeInstance(instance))
+    END IF
+  END IF
+
+  IF hasMember(node, "enum") THEN
+    MUT found AS Boolean = FALSE
+    FOR EACH allowed IN itemsOf(member(node, "enum"))
+      IF deepEqual(instance, allowed) THEN found = TRUE
+    NEXT
+    IF NOT found THEN
+      out = addError(out, "enum", instancePath, pointerAppend(pointer, "enum"), "expected one of " & json::stringify(member(node, "enum")) & ", found " & describeInstance(instance))
+    END IF
+  END IF
+
+  IF actual = "number" THEN out = evalNumber(node, pointer, numberOf(instance), instancePath, out)
+  IF actual = "string" THEN out = evalString(patterns, node, pointer, stringOf(instance), instancePath, out)
+  IF actual = "array" THEN out = evalArraySize(node, pointer, itemsOf(instance), instancePath, out)
+  IF actual = "object" THEN out = evalObjectSize(node, pointer, fieldsOf(instance), instancePath, out)
+
+  RETURN out
+END FUNC
+
+PRIVATE FUNC evalNumber(node AS json::Json, pointer AS String, value AS Float, instancePath AS String, state AS Outcome) AS Outcome
+  MUT out AS Outcome = state
+
+  IF hasMember(node, "multipleOf") THEN
+    LET factor AS Float = numberOf(member(node, "multipleOf"))
+    LET ok AS Boolean = isMultipleOf(value, factor) TRAP
+      ' The quotient overflowed to infinity, which happens only when the value
+      ' dwarfs the factor by more than Float's range. Whether such a ratio is
+      ' a whole number is not answerable, so the instance does not qualify.
+      RECOVER FALSE
+    END TRAP
+    IF NOT ok THEN
+      out = addError(out, "multipleOf", instancePath, pointerAppend(pointer, "multipleOf"), "expected a multiple of " & showNumber(factor) & ", found " & showNumber(value))
+    END IF
+  END IF
+
+  IF hasMember(node, "maximum") THEN
+    LET bound AS Float = numberOf(member(node, "maximum"))
+    IF value > bound THEN
+      out = addError(out, "maximum", instancePath, pointerAppend(pointer, "maximum"), "expected at most " & showNumber(bound) & ", found " & showNumber(value))
+    END IF
+  END IF
+
+  IF hasMember(node, "exclusiveMaximum") THEN
+    LET bound AS Float = numberOf(member(node, "exclusiveMaximum"))
+    IF value >= bound THEN
+      out = addError(out, "exclusiveMaximum", instancePath, pointerAppend(pointer, "exclusiveMaximum"), "expected less than " & showNumber(bound) & ", found " & showNumber(value))
+    END IF
+  END IF
+
+  IF hasMember(node, "minimum") THEN
+    LET bound AS Float = numberOf(member(node, "minimum"))
+    IF value < bound THEN
+      out = addError(out, "minimum", instancePath, pointerAppend(pointer, "minimum"), "expected at least " & showNumber(bound) & ", found " & showNumber(value))
+    END IF
+  END IF
+
+  IF hasMember(node, "exclusiveMinimum") THEN
+    LET bound AS Float = numberOf(member(node, "exclusiveMinimum"))
+    IF value <= bound THEN
+      out = addError(out, "exclusiveMinimum", instancePath, pointerAppend(pointer, "exclusiveMinimum"), "expected more than " & showNumber(bound) & ", found " & showNumber(value))
+    END IF
+  END IF
+
+  RETURN out
+END FUNC
+
+' TRUE when `value` is a whole-number multiple of `factor`. Fails rather than
+' answers when the quotient leaves Float's range; the one caller recovers.
+PRIVATE FUNC isMultipleOf(value AS Float, factor AS Float) AS Boolean
+  IF value = 0.0 THEN RETURN TRUE
+  LET quotient AS Float = value / factor
+  RETURN isIntegral(quotient)
+END FUNC
+
+PRIVATE FUNC evalString(patterns AS Map OF String TO String, node AS json::Json, pointer AS String, value AS String, instancePath AS String, state AS Outcome) AS Outcome
+  MUT out AS Outcome = state
+  ' `len` on a String counts Unicode scalars, which is what JSON Schema means
+  ' by a string's length -- code points, not UTF-8 bytes and not UTF-16 units.
+  LET size AS Integer = len(value)
+
+  IF hasMember(node, "minLength") THEN
+    LET bound AS Float = numberOf(member(node, "minLength"))
+    IF size < bound THEN
+      out = addError(out, "minLength", instancePath, pointerAppend(pointer, "minLength"), "expected at least " & showNumber(bound) & " characters, found " & toString(size))
+    END IF
+  END IF
+
+  IF hasMember(node, "maxLength") THEN
+    LET bound AS Float = numberOf(member(node, "maxLength"))
+    IF size > bound THEN
+      out = addError(out, "maxLength", instancePath, pointerAppend(pointer, "maxLength"), "expected at most " & showNumber(bound) & " characters, found " & toString(size))
+    END IF
+  END IF
+
+  IF hasMember(node, "pattern") THEN
+    LET source AS String = stringOf(member(node, "pattern"))
+    IF NOT regex::match(value, collections::get(patterns, source)) THEN
+      out = addError(out, "pattern", instancePath, pointerAppend(pointer, "pattern"), "expected a match for /" & source & "/, found " & json::stringify(json::JsonStr[value]))
+    END IF
+  END IF
+
+  RETURN out
+END FUNC
+
+PRIVATE FUNC evalArraySize(node AS json::Json, pointer AS String, items AS List OF json::Json, instancePath AS String, state AS Outcome) AS Outcome
+  MUT out AS Outcome = state
+  LET size AS Integer = len(items)
+
+  IF hasMember(node, "minItems") THEN
+    LET bound AS Float = numberOf(member(node, "minItems"))
+    IF size < bound THEN
+      out = addError(out, "minItems", instancePath, pointerAppend(pointer, "minItems"), "expected at least " & showNumber(bound) & " items, found " & toString(size))
+    END IF
+  END IF
+
+  IF hasMember(node, "maxItems") THEN
+    LET bound AS Float = numberOf(member(node, "maxItems"))
+    IF size > bound THEN
+      out = addError(out, "maxItems", instancePath, pointerAppend(pointer, "maxItems"), "expected at most " & showNumber(bound) & " items, found " & toString(size))
+    END IF
+  END IF
+
+  IF hasMember(node, "uniqueItems") THEN
+    MATCH member(node, "uniqueItems")
+      CASE json::JsonBool(flag)
+        IF flag.value THEN
+          MUT i AS Integer = 0
+          MUT reported AS Boolean = FALSE
+          WHILE i < size AND NOT reported
+            MUT j AS Integer = i + 1
+            WHILE j < size AND NOT reported
+              IF deepEqual(collections::get(items, i), collections::get(items, j)) THEN
+                out = addError(out, "uniqueItems", instancePath, pointerAppend(pointer, "uniqueItems"), "items " & toString(i) & " and " & toString(j) & " are equal, and every item must be unique")
+                reported = TRUE
+              END IF
+              j = j + 1
+            END WHILE
+            i = i + 1
+          END WHILE
+        END IF
+      CASE ELSE
+        out = out
+    END MATCH
+  END IF
+
+  RETURN out
+END FUNC
+
+PRIVATE FUNC evalObjectSize(node AS json::Json, pointer AS String, fields AS Map OF String TO json::Json, instancePath AS String, state AS Outcome) AS Outcome
+  MUT out AS Outcome = state
+  LET size AS Integer = len(fields)
+
+  IF hasMember(node, "minProperties") THEN
+    LET bound AS Float = numberOf(member(node, "minProperties"))
+    IF size < bound THEN
+      out = addError(out, "minProperties", instancePath, pointerAppend(pointer, "minProperties"), "expected at least " & showNumber(bound) & " properties, found " & toString(size))
+    END IF
+  END IF
+
+  IF hasMember(node, "maxProperties") THEN
+    LET bound AS Float = numberOf(member(node, "maxProperties"))
+    IF size > bound THEN
+      out = addError(out, "maxProperties", instancePath, pointerAppend(pointer, "maxProperties"), "expected at most " & showNumber(bound) & " properties, found " & toString(size))
+    END IF
+  END IF
+
+  IF hasMember(node, "required") THEN
+    FOR EACH wanted IN itemsOf(member(node, "required"))
+      LET name AS String = stringOf(wanted)
+      IF NOT collections::hasKey(fields, name) THEN
+        out = addError(out, "required", instancePath, pointerAppend(pointer, "required"), "the required property `" & name & "` is missing")
+      END IF
+    NEXT
+  END IF
+
+  IF hasMember(node, "dependentRequired") THEN
+    LET at AS String = pointerAppend(pointer, "dependentRequired")
+    FOR EACH entry IN fieldsOf(member(node, "dependentRequired"))
+      IF collections::hasKey(fields, entry.key) THEN
+        FOR EACH wanted IN itemsOf(entry.value)
+          LET name AS String = stringOf(wanted)
+          IF NOT collections::hasKey(fields, name) THEN
+            out = addError(out, "dependentRequired", instancePath, pointerAppend(at, entry.key), "the property `" & entry.key & "` requires `" & name & "`, which is missing")
+          END IF
+        NEXT
+      END IF
+    NEXT
+  END IF
+
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' `type`.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC typeMatches(wanted AS json::Json, instance AS json::Json) AS Boolean
+  IF isString(wanted) THEN RETURN typeNameMatches(stringOf(wanted), instance)
+  FOR EACH name IN itemsOf(wanted)
+    IF typeNameMatches(stringOf(name), instance) THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' "integer" is not a seventh JSON type: it is "number" plus the requirement
+' that the value have no fractional part, so 1.0 is an integer and 1.5 is not.
+PRIVATE FUNC typeNameMatches(name AS String, instance AS json::Json) AS Boolean
+  LET actual AS String = kindOf(instance)
+  IF name = "integer" THEN
+    IF actual <> "number" THEN RETURN FALSE
+    RETURN isIntegral(numberOf(instance))
+  END IF
+  RETURN name = actual
+END FUNC
+
+PRIVATE FUNC typeWanted(wanted AS json::Json) AS String
+  IF isString(wanted) THEN RETURN stringOf(wanted)
+  MUT names AS List OF String = []
+  FOR EACH name IN itemsOf(wanted)
+    names = collections::append(names, stringOf(name))
+  NEXT
+  RETURN "one of " & strings::join(names, ", ")
+END FUNC
+
+' A short rendering of an instance for an error message: its type, and its
+' value when the value is small enough to be worth quoting.
+PRIVATE FUNC describeInstance(instance AS json::Json) AS String
+  LET kind AS String = kindOf(instance)
+  IF kind = "array" OR kind = "object" THEN RETURN "an " & kind
+  IF kind = "null" THEN RETURN "null"
+  RETURN kind & " " & json::stringify(instance)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Child applicators.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC evalChildren(root AS json::Json, refs AS Map OF String TO String, patterns AS Map OF String TO String, node AS json::Json, pointer AS String, instance AS json::Json, instancePath AS String, active AS List OF String, depth AS Integer, state AS Outcome) AS Outcome
+  LET kind AS String = kindOf(instance)
+  IF kind = "object" THEN
+    RETURN evalObjectChildren(root, refs, patterns, node, pointer, instance, instancePath, active, depth, state)
+  END IF
+  IF kind = "array" THEN
+    RETURN evalArrayChildren(root, refs, patterns, node, pointer, instance, instancePath, active, depth, state)
+  END IF
+  RETURN state
+END FUNC
+
+PRIVATE FUNC evalObjectChildren(root AS json::Json, refs AS Map OF String TO String, patterns AS Map OF String TO String, node AS json::Json, pointer AS String, instance AS json::Json, instancePath AS String, active AS List OF String, depth AS Integer, state AS Outcome) AS Outcome
+  MUT out AS Outcome = state
+  MUT evaluated AS Set OF String = Set OF String {}
+  LET members AS Map OF String TO json::Json = fieldsOf(instance)
+
+  IF hasMember(node, "propertyNames") THEN
+    LET at AS String = pointerAppend(pointer, "propertyNames")
+    LET rule AS json::Json = member(node, "propertyNames")
+    FOR EACH entry IN members
+      ' The subschema applies to the NAME, as a string instance. It produces no
+      ' annotation: it says nothing about whether the VALUE was evaluated.
+      LET asText AS json::Json = json::JsonStr[entry.key]
+      LET part AS Outcome = evalSchema(root, refs, patterns, rule, at, asText, pointerAppend(instancePath, entry.key), active, depth + 1, out.budget)
+      out = absorbChild(out, part)
+    NEXT
+  END IF
+
+  LET hasProperties AS Boolean = hasMember(node, "properties")
+  LET hasPatterns AS Boolean = hasMember(node, "patternProperties")
+  LET hasAdditional AS Boolean = hasMember(node, "additionalProperties")
+  IF NOT hasProperties AND NOT hasPatterns AND NOT hasAdditional THEN RETURN out
+
+  ' Read once, outside the loop over the instance: these are the SCHEMA's, and
+  ' nothing in the loop changes them.
+  MUT declared AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  IF hasProperties THEN declared = fieldsOf(member(node, "properties"))
+  MUT rules AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  IF hasPatterns THEN rules = fieldsOf(member(node, "patternProperties"))
+  MUT extra AS json::Json = json::JsonNull[NOTHING]
+  IF hasAdditional THEN extra = member(node, "additionalProperties")
+
+  FOR EACH entry IN members
+    LET childPath AS String = pointerAppend(instancePath, entry.key)
+    MUT covered AS Boolean = FALSE
+
+    IF collections::hasKey(declared, entry.key) THEN
+      LET at AS String = pointerAppend(pointerAppend(pointer, "properties"), entry.key)
+      LET part AS Outcome = evalSchema(root, refs, patterns, collections::get(declared, entry.key), at, entry.value, childPath, active, depth + 1, out.budget)
+      out = absorbChild(out, part)
+      covered = TRUE
+    END IF
+
+    FOR EACH rule IN rules
+      IF regex::match(entry.key, collections::get(patterns, rule.key)) THEN
+        LET at AS String = pointerAppend(pointerAppend(pointer, "patternProperties"), rule.key)
+        LET part AS Outcome = evalSchema(root, refs, patterns, rule.value, at, entry.value, childPath, active, depth + 1, out.budget)
+        out = absorbChild(out, part)
+        covered = TRUE
+      END IF
+    NEXT
+
+    ' `additionalProperties` is what `properties` and `patternProperties` did
+    ' not claim -- so it is asked last, and only about what is left.
+    IF NOT covered AND hasAdditional THEN
+      LET at AS String = pointerAppend(pointer, "additionalProperties")
+      LET part AS Outcome = evalSchema(root, refs, patterns, extra, at, entry.value, childPath, active, depth + 1, out.budget)
+      out = absorbChild(out, part)
+      covered = TRUE
+    END IF
+
+    IF covered THEN evaluated = collections::add(evaluated, entry.key)
+  NEXT
+
+  RETURN WITH out { props := collections::union(out.props, evaluated) }
+END FUNC
+
+PRIVATE FUNC evalArrayChildren(root AS json::Json, refs AS Map OF String TO String, patterns AS Map OF String TO String, node AS json::Json, pointer AS String, instance AS json::Json, instancePath AS String, active AS List OF String, depth AS Integer, state AS Outcome) AS Outcome
+  MUT out AS Outcome = state
+  MUT evaluated AS Set OF Integer = Set OF Integer {}
+  LET items AS List OF json::Json = itemsOf(instance)
+  MUT prefixCount AS Integer = 0
+
+  IF hasMember(node, "prefixItems") THEN
+    LET at AS String = pointerAppend(pointer, "prefixItems")
+    LET schemas AS List OF json::Json = itemsOf(member(node, "prefixItems"))
+    prefixCount = math::min(len(schemas), len(items))
+    MUT i AS Integer = 0
+    WHILE i < prefixCount
+      LET part AS Outcome = evalSchema(root, refs, patterns, collections::get(schemas, i), pointerIndex(at, i), collections::get(items, i), pointerIndex(instancePath, i), active, depth + 1, out.budget)
+      out = absorbChild(out, part)
+      evaluated = collections::add(evaluated, i)
+      i = i + 1
+    END WHILE
+  END IF
+
+  IF hasMember(node, "items") THEN
+    LET at AS String = pointerAppend(pointer, "items")
+    MUT i AS Integer = prefixCount
+    WHILE i < len(items)
+      LET part AS Outcome = evalSchema(root, refs, patterns, member(node, "items"), at, collections::get(items, i), pointerIndex(instancePath, i), active, depth + 1, out.budget)
+      out = absorbChild(out, part)
+      evaluated = collections::add(evaluated, i)
+      i = i + 1
+    END WHILE
+  END IF
+
+  IF hasMember(node, "contains") THEN
+    LET at AS String = pointerAppend(pointer, "contains")
+    MUT hits AS Integer = 0
+    MUT i AS Integer = 0
+    WHILE i < len(items)
+      LET part AS Outcome = evalSchema(root, refs, patterns, member(node, "contains"), at, collections::get(items, i), pointerIndex(instancePath, i), active, depth + 1, out.budget)
+      out = WITH out { budget := part.budget }
+      IF valid(part) THEN
+        hits = hits + 1
+        evaluated = collections::add(evaluated, i)
+      END IF
+      i = i + 1
+    END WHILE
+
+    MUT least AS Float = 1.0
+    IF hasMember(node, "minContains") THEN least = numberOf(member(node, "minContains"))
+    IF hits < least THEN
+      out = addError(out, "contains", instancePath, at, "expected at least " & showNumber(least) & " item(s) matching the subschema, found " & toString(hits))
+    END IF
+    IF hasMember(node, "maxContains") THEN
+      LET most AS Float = numberOf(member(node, "maxContains"))
+      IF hits > most THEN
+        out = addError(out, "maxContains", instancePath, pointerAppend(pointer, "maxContains"), "expected at most " & showNumber(most) & " item(s) matching the subschema, found " & toString(hits))
+      END IF
+    END IF
+  END IF
+
+  RETURN WITH out { slots := collections::union(out.slots, evaluated) }
+END FUNC
+
+' ---------------------------------------------------------------------------
+' `unevaluatedProperties` and `unevaluatedItems`.
+'
+' Both run LAST, because both are defined against what every other keyword in
+' this schema object -- and every in-place applicator under it -- has already
+' annotated as evaluated.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC evalUnevaluated(root AS json::Json, refs AS Map OF String TO String, patterns AS Map OF String TO String, node AS json::Json, pointer AS String, instance AS json::Json, instancePath AS String, active AS List OF String, depth AS Integer, state AS Outcome) AS Outcome
+  MUT out AS Outcome = state
+
+  IF hasMember(node, "unevaluatedProperties") AND isObject(instance) THEN
+    LET at AS String = pointerAppend(pointer, "unevaluatedProperties")
+    MUT reached AS Set OF String = Set OF String {}
+    FOR EACH entry IN fieldsOf(instance)
+      IF NOT collections::contains(out.props, entry.key) THEN
+        LET part AS Outcome = evalSchema(root, refs, patterns, member(node, "unevaluatedProperties"), at, entry.value, pointerAppend(instancePath, entry.key), active, depth + 1, out.budget)
+        out = absorbChild(out, part)
+        reached = collections::add(reached, entry.key)
+      END IF
+    NEXT
+    out = WITH out { props := collections::union(out.props, reached) }
+  END IF
+
+  IF hasMember(node, "unevaluatedItems") AND isArray(instance) THEN
+    LET at AS String = pointerAppend(pointer, "unevaluatedItems")
+    LET items AS List OF json::Json = itemsOf(instance)
+    MUT reached AS Set OF Integer = Set OF Integer {}
+    MUT i AS Integer = 0
+    WHILE i < len(items)
+      IF NOT collections::contains(out.slots, i) THEN
+        LET part AS Outcome = evalSchema(root, refs, patterns, member(node, "unevaluatedItems"), at, collections::get(items, i), pointerIndex(instancePath, i), active, depth + 1, out.budget)
+        out = absorbChild(out, part)
+        reached = collections::add(reached, i)
+      END IF
+      i = i + 1
+    END WHILE
+    out = WITH out { slots := collections::union(out.slots, reached) }
+  END IF
+
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The package-internal entry the public API calls.
+' ---------------------------------------------------------------------------
+
+PUBLIC FUNC runValidation(compiled AS Schema, instance AS json::Json) AS List OF ValidationError
+  MUT empty AS List OF String = []
+  LET budget AS Integer = STEP_BASE + STEP_PER_NODE * countNodes(instance)
+  LET outcome AS Outcome = evalSchema(compiled.root, compiled.refs, compiled.patterns, compiled.root, "", instance, "", empty, 0, budget)
+  RETURN outcome.errors
+END FUNC

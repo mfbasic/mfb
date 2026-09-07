@@ -1,0 +1,14 @@
+# Nesting is indentation and nothing else -- no closing token anywhere.
+a:
+  b:
+    c:
+      d: deep
+sequences:
+  - - 1
+    - 2
+  - - 3
+mixed:
+  - key:
+      inner:
+        - x
+        - y: 1

@@ -1,0 +1,148 @@
+' ---------------------------------------------------------------------------
+' Tests: the applicators, and the annotation flow `unevaluatedProperties` and
+' `unevaluatedItems` are defined in terms of.
+'
+' The annotation cases are the ones worth reading closely. An annotation
+' reaches `unevaluated*` only from a subschema that VALIDATED, and only from an
+' IN-PLACE applicator -- a `properties` inside an `allOf` describes the same
+' instance, a `properties` inside an `items` describes a member.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+PRIVATE FUNC verdict(schemaText AS String, instanceText AS String) AS String
+  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  LET problems AS List OF ValidationError = runValidation(compiled, json::parse(instanceText))
+  IF len(problems) = 0 THEN RETURN "valid"
+  MUT keywords AS List OF String = []
+  FOR EACH problem IN problems
+    keywords = collections::append(keywords, problem.keyword)
+  NEXT
+  RETURN strings::join(keywords, ",")
+END FUNC
+
+PRIVATE FUNC ok(schemaText AS String, instanceText AS String) AS Boolean
+  RETURN verdict(schemaText, instanceText) = "valid"
+END FUNC
+
+TESTING
+  TGROUP "in-place applicators"
+    TCASE "allOf requires every branch"
+      expectEqual(ok("{\"allOf\":[{\"type\":\"integer\"},{\"minimum\":2}]}", "2"), TRUE)
+      expectEqual(ok("{\"allOf\":[{\"type\":\"integer\"},{\"minimum\":2}]}", "1"), FALSE)
+    END TCASE
+
+    TCASE "anyOf requires at least one"
+      expectEqual(ok("{\"anyOf\":[{\"type\":\"integer\"},{\"type\":\"string\"}]}", "1"), TRUE)
+      expectEqual(ok("{\"anyOf\":[{\"type\":\"integer\"},{\"type\":\"string\"}]}", "\"x\""), TRUE)
+      expectEqual(ok("{\"anyOf\":[{\"type\":\"integer\"},{\"type\":\"string\"}]}", "true"), FALSE)
+    END TCASE
+
+    TCASE "oneOf requires exactly one"
+      expectEqual(ok("{\"oneOf\":[{\"multipleOf\":2},{\"multipleOf\":3}]}", "2"), TRUE)
+      expectEqual(ok("{\"oneOf\":[{\"multipleOf\":2},{\"multipleOf\":3}]}", "3"), TRUE)
+      expectEqual(ok("{\"oneOf\":[{\"multipleOf\":2},{\"multipleOf\":3}]}", "6"), FALSE)
+      expectEqual(ok("{\"oneOf\":[{\"multipleOf\":2},{\"multipleOf\":3}]}", "5"), FALSE)
+      ' Matching too many and matching none are different mistakes, and the
+      ' message says which.
+      expectString(verdict("{\"oneOf\":[{\"multipleOf\":2},{\"multipleOf\":3}]}", "6"), "oneOf")
+    END TCASE
+
+    TCASE "not inverts"
+      expectEqual(ok("{\"not\":{\"type\":\"integer\"}}", "\"x\""), TRUE)
+      expectEqual(ok("{\"not\":{\"type\":\"integer\"}}", "1"), FALSE)
+      expectEqual(ok("{\"not\":{}}", "1"), FALSE)
+      expectEqual(ok("{\"not\":false}", "1"), TRUE)
+    END TCASE
+
+    TCASE "if selects a branch and never rejects on its own"
+      expectEqual(ok("{\"if\":{\"type\":\"integer\"},\"then\":{\"minimum\":5}}", "7"), TRUE)
+      expectEqual(ok("{\"if\":{\"type\":\"integer\"},\"then\":{\"minimum\":5}}", "3"), FALSE)
+      expectEqual(ok("{\"if\":{\"type\":\"integer\"},\"then\":{\"minimum\":5}}", "\"x\""), TRUE)
+      expectEqual(ok("{\"if\":{\"type\":\"integer\"},\"else\":{\"type\":\"string\"}}", "true"), FALSE)
+      expectEqual(ok("{\"if\":{\"type\":\"integer\"},\"else\":{\"type\":\"string\"}}", "1"), TRUE)
+      ' `then` and `else` alone, with no `if`, do nothing at all.
+      expectEqual(ok("{\"then\":false}", "1"), TRUE)
+      expectEqual(ok("{\"else\":false}", "1"), TRUE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "unevaluatedProperties"
+    TCASE "a sibling properties evaluates its own names"
+      expectEqual(ok("{\"properties\":{\"a\":true},\"unevaluatedProperties\":false}", "{\"a\":1}"), TRUE)
+      expectEqual(ok("{\"properties\":{\"a\":true},\"unevaluatedProperties\":false}", "{\"b\":1}"), FALSE)
+    END TCASE
+
+    TCASE "an in-place applicator's annotations reach it"
+      expectEqual(ok("{\"allOf\":[{\"properties\":{\"a\":true}}],\"unevaluatedProperties\":false}", "{\"a\":1}"), TRUE)
+      expectEqual(ok("{\"$defs\":{\"s\":{\"properties\":{\"a\":true}}},\"$ref\":\"#/$defs/s\",\"unevaluatedProperties\":false}", "{\"a\":1}"), TRUE)
+      expectEqual(ok("{\"dependentSchemas\":{\"a\":{\"properties\":{\"b\":true}}},\"properties\":{\"a\":true},\"unevaluatedProperties\":false}", "{\"a\":1,\"b\":2}"), TRUE)
+    END TCASE
+
+    TCASE "only a branch that VALIDATED contributes"
+      ' The first branch fails, so its `properties` annotation is dropped and
+      ' `a` is still unevaluated.
+      expectEqual(ok("{\"anyOf\":[{\"properties\":{\"a\":true},\"required\":[\"z\"]},{\"type\":\"object\"}],\"unevaluatedProperties\":false}", "{\"a\":1}"), FALSE)
+      expectEqual(ok("{\"anyOf\":[{\"properties\":{\"a\":true}},{\"type\":\"object\"}],\"unevaluatedProperties\":false}", "{\"a\":1}"), TRUE)
+    END TCASE
+
+    TCASE "oneOf contributes only the winning branch"
+      expectEqual(ok("{\"oneOf\":[{\"properties\":{\"a\":true},\"required\":[\"a\"]},{\"properties\":{\"b\":true},\"required\":[\"b\"]}],\"unevaluatedProperties\":false}", "{\"a\":1}"), TRUE)
+      expectEqual(ok("{\"oneOf\":[{\"properties\":{\"a\":true},\"required\":[\"a\"]},{\"properties\":{\"b\":true},\"required\":[\"b\"]}],\"unevaluatedProperties\":false}", "{\"a\":1,\"c\":2}"), FALSE)
+    END TCASE
+
+    TCASE "not contributes nothing, because it succeeds only when its subschema failed"
+      expectEqual(ok("{\"not\":{\"required\":[\"z\"]},\"unevaluatedProperties\":false}", "{\"a\":1}"), FALSE)
+    END TCASE
+
+    TCASE "annotations do not flow DOWN into an in-place applicator"
+      ' The inner schema is evaluated on its own, so the parent's `properties`
+      ' is invisible to it.
+      expectEqual(ok("{\"properties\":{\"a\":true},\"allOf\":[{\"unevaluatedProperties\":false}]}", "{\"a\":1}"), FALSE)
+    END TCASE
+
+    TCASE "a member's own annotations stay with the member"
+      ' `properties/a` evaluates the MEMBER's names, which says nothing about
+      ' this object's.
+      expectEqual(ok("{\"properties\":{\"a\":{\"properties\":{\"b\":true}}},\"unevaluatedProperties\":false}", "{\"a\":{\"b\":1}}"), TRUE)
+      expectEqual(ok("{\"properties\":{\"a\":{\"properties\":{\"b\":true}}},\"unevaluatedProperties\":false}", "{\"a\":{\"b\":1},\"c\":1}"), FALSE)
+    END TCASE
+
+    TCASE "unevaluatedProperties may be a schema rather than a boolean"
+      expectEqual(ok("{\"unevaluatedProperties\":{\"type\":\"integer\"}}", "{\"a\":1}"), TRUE)
+      expectEqual(ok("{\"unevaluatedProperties\":{\"type\":\"integer\"}}", "{\"a\":\"x\"}"), FALSE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "unevaluatedItems"
+    TCASE "prefixItems and items evaluate what they applied to"
+      expectEqual(ok("{\"prefixItems\":[true],\"unevaluatedItems\":false}", "[1]"), TRUE)
+      expectEqual(ok("{\"prefixItems\":[true],\"unevaluatedItems\":false}", "[1,2]"), FALSE)
+      expectEqual(ok("{\"items\":true,\"unevaluatedItems\":false}", "[1,2,3]"), TRUE)
+    END TCASE
+
+    TCASE "contains evaluates the items it MATCHED, not all of them"
+      expectEqual(ok("{\"contains\":{\"type\":\"integer\"},\"unevaluatedItems\":false}", "[1]"), TRUE)
+      expectEqual(ok("{\"contains\":{\"type\":\"integer\"},\"unevaluatedItems\":false}", "[1,\"a\"]"), FALSE)
+      expectEqual(ok("{\"prefixItems\":[true],\"contains\":{\"type\":\"string\"},\"unevaluatedItems\":false}", "[1,\"foo\"]"), TRUE)
+      expectEqual(ok("{\"prefixItems\":[true],\"contains\":{\"type\":\"string\"},\"unevaluatedItems\":false}", "[1,2,\"foo\"]"), FALSE)
+    END TCASE
+
+    TCASE "an in-place applicator's item annotations reach it"
+      expectEqual(ok("{\"allOf\":[{\"prefixItems\":[true,true]}],\"unevaluatedItems\":false}", "[1,2]"), TRUE)
+      expectEqual(ok("{\"allOf\":[{\"prefixItems\":[true,true]}],\"unevaluatedItems\":false}", "[1,2,3]"), FALSE)
+    END TCASE
+
+    TCASE "unevaluatedItems may be a schema rather than a boolean"
+      expectEqual(ok("{\"unevaluatedItems\":{\"type\":\"integer\"}}", "[1]"), TRUE)
+      expectEqual(ok("{\"unevaluatedItems\":{\"type\":\"integer\"}}", "[\"x\"]"), FALSE)
+    END TCASE
+
+    TCASE "unevaluated keywords do not apply to the other kind"
+      expectEqual(ok("{\"unevaluatedItems\":false}", "{\"a\":1}"), TRUE)
+      expectEqual(ok("{\"unevaluatedProperties\":false}", "[1]"), TRUE)
+    END TCASE
+  END TGROUP
+END TESTING

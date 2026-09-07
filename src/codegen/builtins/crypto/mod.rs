@@ -39,6 +39,11 @@ generator, UUID and ULID identifiers, public-key signatures, and constant-time
 comparison. It is a built-in package, so `IMPORT crypto` needs no manifest
 dependency.
 
+There are two password-based KDFs, and they are not interchangeable: use
+`crypto::argon2id` (memory-hard Argon2id, RFC 9106) to store a password, and
+`crypto::pbkdf2` for RFC 8018 / WPA2 compatibility or to stretch a passphrase into a
+key.
+
 Inputs and outputs are `List OF Byte`; the hash/HMAC/PBKDF2 functions also accept
 a `String` overload that UTF-8-encodes internally. A digest, ciphertext, or key
 is raw binary — stringify it for display or storage with the `encoding` package
@@ -46,8 +51,8 @@ is raw binary — stringify it for display or storage with the `encoding` packag
 types, `crypto::Sealed` and `crypto::KeyPair`; see `mfb man crypto types`.
 
 `crypto` is software-first: every hash (SHA-1, SHA-2, SHA-3, and the SHAKE256
-XOF), HMAC, KDF, AEAD, Ed25519/Ed448 signature, and X25519/X448 key-agreement
-primitive is
+XOF), HMAC, KDF (including Argon2id and the BLAKE2b it is built on), AEAD,
+Ed25519/Ed448 signature, and X25519/X448 key-agreement primitive is
 a portable core written in MFBASIC source over the `bits` package, so its output
 is byte-identical on every target and uses no deprecated platform functions. Two
 categories bind the platform instead: `randomBytes` draws from the OS CSPRNG
@@ -299,6 +304,28 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Ed448_CHACHA20POLY1305",
                 description: "RFC 9180 HPKE base mode: DHKEM(X448, HKDF-SHA512) + HKDF-SHA512 + ChaCha20Poly1305, over Ed448 recipient keys (converted to X448). Wire value `enc(56) ‖ ct`.",
+                advisory: None,
+            },
+        ],
+    });
+
+    // The cost-setting selector for `crypto::argon2id(password, salt, profile, length)`
+    // (bug-515). Ordinals are declaration order (Minimum=0, Recommended=1); the pure-MFB
+    // `__crypto_argon2idProfile` helper branches on the value and calls the explicit
+    // `__crypto_argon2id` body, so these two rows are the ONLY place a profile's cost
+    // parameters exist. Retuning one cannot move the explicit member's behavior.
+    pkg.add_enum(RegistryEnum {
+        name: "Argon2Profile",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Minimum",
+                description: "The OWASP Password Storage Cheat Sheet's minimum configuration: 19456 KiB (19 MiB) of memory, 2 iterations, 1 lane. A floor, not a target — pick it when `Recommended` costs more latency than you can pay, and treat anything cheaper as unfit for storing a password.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Recommended",
+                description: "RFC 9106 section 4's SECOND RECOMMENDED option: 65536 KiB (64 MiB) of memory, 3 iterations, 4 lanes. The default choice for storing a password.",
                 advisory: None,
             },
         ],
@@ -585,6 +612,25 @@ pub(crate) fn register(r: &mut Registry) {
     helper_decrypt::register(&mut pkg);
     helper_encrypt_text::register(&mut pkg);
 
+    // bug-515: the Argon2id / BLAKE2b core. Registered LAST among the helpers and gated
+    // `WhenUsed(["argon2id"])`, so a program that imports `crypto` without calling
+    // `crypto::argon2id` renders byte-identically to before this member existed.
+    helper_blake2b_sigma_table::register(&mut pkg);
+    helper_blake2b_sigma::register(&mut pkg);
+    helper_blake2b_g::register(&mut pkg);
+    helper_blake2b_compress::register(&mut pkg);
+    helper_blake2b::register(&mut pkg);
+    helper_argon2_le32::register(&mut pkg);
+    helper_argon2_mul32::register(&mut pkg);
+    helper_argon2_mixadd::register(&mut pkg);
+    helper_argon2_p::register(&mut pkg);
+    helper_argon2_fill::register(&mut pkg);
+    helper_argon2_hprime::register(&mut pkg);
+    helper_argon2_index_alpha::register(&mut pkg);
+    helper_argon2_h0::register(&mut pkg);
+    helper_argon2id::register(&mut pkg);
+    helper_argon2id_profile::register(&mut pkg);
+
     // The unified clean-room `hash(Hash, data)` selects a SHA-2 digest by the `Hash`
     // ordinal and branch-links to the always-emitted MFB software SHA cores (the SHA
     // math stays in MFB), mirroring `generate`/`sign`/`verify` over `Certificate`. It
@@ -597,6 +643,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_hmac::register(&mut pkg);
     func_hkdf::register(&mut pkg);
     func_pbkdf2::register(&mut pkg);
+    func_argon2id::register(&mut pkg);
     // The SHAKE256 extendable-output function (FIPS 202 §6.2): variable output
     // length, so it is its own member rather than a fixed-digest `Hash` selector.
     // Pure-MFB rewrite onto `__crypto_shake256` (also the Ed448 hash).
@@ -649,6 +696,7 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
+mod func_argon2id;
 mod func_constant_time_equal;
 mod func_convert;
 mod func_decrypt;
@@ -691,12 +739,27 @@ mod helper_append_be_word;
 mod helper_append_be_word64;
 mod helper_append_le_lane;
 mod helper_append_le_word;
+mod helper_argon2_fill;
+mod helper_argon2_h0;
+mod helper_argon2_hprime;
+mod helper_argon2_index_alpha;
+mod helper_argon2_le32;
+mod helper_argon2_mixadd;
+mod helper_argon2_mul32;
+mod helper_argon2_p;
+mod helper_argon2id;
+mod helper_argon2id_profile;
 mod helper_be32;
 mod helper_be64;
 mod helper_be_word;
 mod helper_be_word64;
 mod helper_be_words;
 mod helper_be_words64;
+mod helper_blake2b;
+mod helper_blake2b_compress;
+mod helper_blake2b_g;
+mod helper_blake2b_sigma;
+mod helper_blake2b_sigma_table;
 mod helper_bn_add;
 mod helper_bn_mul;
 mod helper_bsig0;
@@ -921,16 +984,18 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 20 members: the unified `generate`/`sign`/`verify`/`hash`, the
+        // 21 members: the unified `generate`/`sign`/`verify`/`hash`, the
         // `SymmetricCipher`-selected `seal`/`open`, the hash-generic
-        // `hmac`/`hkdf`/`pbkdf2(Hash, …)`, the SHAKE256 XOF `shake256`, `convert`
+        // `hmac`/`hkdf`/`pbkdf2(Hash, …)`, the memory-hard password KDF
+        // `argon2id` (bug-515, both its explicit-cost and `Argon2Profile`
+        // overloads are one member), the SHAKE256 XOF `shake256`, `convert`
         // (Ed25519→X25519 / Ed448→X448 key conversion), `exchange` (X25519/X448
         // Diffie-Hellman), the `AsymmetricCipher`-selected `encrypt`/`decrypt`
         // (RFC 9180 HPKE), plus
         // `randomBytes`/`randomInt`/`uuid4`/`uuid7`/`ulid`/`constantTimeEqual`. The
         // per-type generate/sign/verify/sha and per-digest `*Sha*`/per-cipher AEAD
         // members were all retired behind the unified surface.
-        assert_eq!(pkg.functions().len(), 20);
+        assert_eq!(pkg.functions().len(), 21);
     }
 
     #[test]
@@ -940,6 +1005,7 @@ mod tests {
             "crypto.hmac",
             "crypto.hkdf",
             "crypto.pbkdf2",
+            "crypto.argon2id",
             "crypto.shake256",
             "crypto.seal",
             "crypto.open",

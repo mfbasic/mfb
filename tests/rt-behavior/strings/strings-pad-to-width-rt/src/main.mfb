@@ -1,0 +1,155 @@
+REM bug-528: strings::padLeft/padRight pad to a SCALAR count while
+REM strings::displayWidth measures COLUMNS, and there was no member for the unit a
+REM table is actually aligned in. strings::padLeftToWidth / padRightToWidth close
+REM that gap. Every assertion below is stated in displayWidth, not in len.
+
+IMPORT io
+IMPORT strings
+IMPORT astrings
+
+REM A per-scalar bold map, so a padded AttributedString's span positions are
+REM visible rather than asserted (the tier-b-transforms-rt idiom).
+FUNC boldMap(a AS AttributedString) AS String
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  LET n AS Integer = len(strings::toScalars(toString(a)))
+  WHILE i < n
+    MUT mark AS String = "-"
+    FOR EACH at IN astrings::getAttributes(a, i)
+      MATCH at
+        CASE astrings::AttrFlag(f)
+          mark = "B"
+        CASE ELSE
+      END MATCH
+    NEXT
+    out = out & mark
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC widths(label AS String) AS String
+  LET byScalar AS String = strings::padRight(label, 8)
+  LET byColumn AS String = strings::padRightToWidth(label, 8)
+  LET a AS String = "scalars=" & toString(len(byScalar))
+  LET b AS String = " padRight_columns=" & toString(strings::displayWidth(byScalar))
+  LET c AS String = " padRightToWidth_columns=" & toString(strings::displayWidth(byColumn))
+  RETURN a & b & c
+END FUNC
+
+REM The hand-rolled column pad this member replaces, verbatim from
+REM examples/browser/display/src/lib.mfb (`padTo`) before it was rewritten onto
+REM strings::padRightToWidth. The comparison below is the migration proof.
+FUNC handRolledPadTo(s AS String, w AS Integer) AS String
+  LET sw AS Integer = strings::displayWidth(s)
+  IF sw >= w THEN RETURN s
+  RETURN s & strings::repeat(" ", w - sw)
+END FUNC
+
+FUNC main() AS Integer
+  LET labels AS List OF String = ["ascii", "日本語", "café", "cafe" & "\u{301}", "😀😀"]
+
+  io::print("-- the old measure: same scalar count, different screen width --")
+  FOR EACH label IN labels
+    io::print(widths(label))
+  NEXT
+
+  io::print("")
+  io::print("-- the new measure: every row is 8 columns and they line up --")
+  FOR EACH label IN labels
+    LET padded AS String = strings::padRightToWidth(label, 8)
+    io::print("|" & padded & "|end| columns=" & toString(strings::displayWidth(padded)))
+  NEXT
+
+  io::print("")
+  io::print("-- padLeftToWidth is the same rule from the other side --")
+  FOR EACH label IN labels
+    LET padded AS String = strings::padLeftToWidth(label, 8)
+    io::print("|" & padded & "| columns=" & toString(strings::displayWidth(padded)))
+  NEXT
+
+  io::print("")
+  io::print("-- UNDERSHOOT: the result never exceeds `columns` --")
+  REM A two-column padChar cannot reach an odd gap: 6 columns wanted, 1 used by
+  REM "x", so two copies reach 5 and a third would reach 7.
+  LET wide AS String = strings::padLeftToWidth("x", 6, "😀")
+  io::print("padLeftToWidth(x, 6, wide) columns=" & toString(strings::displayWidth(wide)) & " [" & wide & "]")
+  LET wideR AS String = strings::padRightToWidth("x", 6, "😀")
+  io::print("padRightToWidth(x, 6, wide) columns=" & toString(strings::displayWidth(wideR)) & " [" & wideR & "]")
+  REM An exact fit is reached exactly.
+  LET exact AS String = strings::padLeftToWidth("x", 7, "😀")
+  io::print("padLeftToWidth(x, 7, wide) columns=" & toString(strings::displayWidth(exact)))
+
+  io::print("")
+  io::print("-- never truncates, and 0 never pads --")
+  LET narrow AS String = strings::padLeftToWidth("日本語", 4)
+  io::print("[" & narrow & "] columns=" & toString(strings::displayWidth(narrow)))
+  io::print("[" & strings::padRightToWidth("abc", 0) & "]")
+
+  io::print("")
+  io::print("-- rejections, each catchable through an INLINE trap --")
+  LET a AS String = strings::padLeftToWidth("x", -1) TRAP(err)
+    io::print("negative columns   " & toString(err.code))
+    RECOVER "-"
+  END TRAP
+  LET b AS String = strings::padLeftToWidth("x", 4, "") TRAP(err)
+    io::print("empty padChar      " & toString(err.code))
+    RECOVER "-"
+  END TRAP
+  LET c AS String = strings::padRightToWidth("x", 4, "ab") TRAP(err)
+    io::print("2-scalar padChar   " & toString(err.code))
+    RECOVER "-"
+  END TRAP
+  REM A zero-column padChar could never reach the target, however many copies were
+  REM laid down. padLeft accepts it (it counts scalars); padLeftToWidth cannot.
+  LET d AS String = strings::padLeftToWidth("x", 4, "\u{301}") TRAP(err)
+    io::print("zero-width padChar " & toString(err.code))
+    RECOVER "-"
+  END TRAP
+  REM A target too large to build fails rather than wrapping into a small
+  REM buffer (the audit finding the scalar-counted pair carries a guard for).
+  LET e AS String = strings::padLeftToWidth("x", 4611686018427387905, "😀") TRAP(err)
+    io::print("unbuildable width  " & toString(err.code))
+    RECOVER "-"
+  END TRAP
+  io::print("recovered: " & a & b & c & d & e)
+  io::print("padLeft takes that same padChar, scalars=" & toString(len(strings::padLeft("x", 4, "\u{301}"))))
+
+  io::print("")
+  io::print("-- the AttributedString overload runs on the visible text --")
+  LET attr AS AttributedString = astrings::addAttribute(astrings::fromString("日本"), 0, 1, astrings::bold())
+  LET padRightAttr AS AttributedString = strings::padRightToWidth(attr, 8)
+  io::print("padRightToWidth=[" & toString(padRightAttr) & "] bold=" & boldMap(padRightAttr))
+  io::print("  columns=" & toString(strings::displayWidth(toString(padRightAttr))))
+  LET padLeftAttr AS AttributedString = strings::padLeftToWidth(attr, 8)
+  io::print("padLeftToWidth=[" & toString(padLeftAttr) & "] bold=" & boldMap(padLeftAttr))
+  io::print("  columns=" & toString(strings::displayWidth(toString(padLeftAttr))))
+
+  io::print("")
+  io::print("-- the in-tree caller this member replaces agrees on every input --")
+  MUT disagreements AS Integer = 0
+  MUT compared AS Integer = 0
+  FOR EACH label IN labels
+    MUT w AS Integer = 0
+    WHILE w <= 12
+      compared = compared + 1
+      IF handRolledPadTo(label, w) <> strings::padRightToWidth(label, w) THEN
+        disagreements = disagreements + 1
+        io::print("DISAGREE w=" & toString(w) & " label=" & label)
+      END IF
+      w = w + 1
+    END WHILE
+  NEXT
+  io::print("compared=" & toString(compared) & " disagreements=" & toString(disagreements))
+
+  io::print("")
+  io::print("-- the POSITIVE pin: padLeft/padRight are untouched --")
+  io::print("[" & strings::padLeft("42", 5) & "]")
+  io::print("[" & strings::padRight("42", 5, "0") & "]")
+  LET scalarPad AS String = strings::padLeft("日本", 4, "-")
+  io::print("[" & scalarPad & "] scalars=" & toString(len(scalarPad)) & " columns=" & toString(strings::displayWidth(scalarPad)))
+  REM On plain ASCII the two measures agree, so the two members agree too.
+  io::print("ascii agree: [" & strings::padLeft("ab", 5, ".") & "] [" & strings::padLeftToWidth("ab", 5, ".") & "]")
+
+  RETURN 0
+END FUNC

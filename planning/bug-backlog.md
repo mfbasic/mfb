@@ -1,15 +1,57 @@
 # Open bug backlog — triage and work order
 
-Last updated: 2026-09-05
-Open bugs: **20** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 17 MEDIUM · 2 LOW/other** (re-derived from
-each open bug's `Severity:` line on 2026-09-05; several rows carry a
-parenthetical qualifier after the word, so grep for the leading word, not the
-whole line)
+Last updated: 2026-09-06 (second refresh)
+Open bugs: **7** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 5 MEDIUM · 1 LOW–MEDIUM**
 
-The audit-3 security pass (goal-08) is **complete**: all 20 of its
-CRITICAL/HIGH findings are landed and archived — 499, 504 and 510 were the last
-three and are all in `bugs/completed/`.
+The audit-3 security pass (goal-08) is **complete**.
+
+## 2026-09-06 — what landed
+
+Archived on 2026-09-06 (`git log --since=2026-09-06 --diff-filter=R --name-status`):
+**456, 479, 487, 516, 527, 543, 550, 551, 552, 553, 554, 555, 556**, plus **488**
+closed on evidence rather than a fix. **557** landed the same day from a peer.
+**558** was filed (the `mfb man` Errors table unions every overload's errors).
+
+Four user rulings are recorded **in the bug docs themselves** under a
+"USER DECISION" heading — 543, 550, 527 and 515. Three are landed; 515 is the
+only one still open, and its ruling is: ship both an explicit-cost and a profile
+overload, with **the profile calling the explicit one underneath** so there is one
+validation site and one use site.
+
+### Two corrections worth carrying forward
+
+**bug-479's "defect D is a product decision" was wrong**, and the same shape may
+recur. Every thread op already raised `ErrResourceClosed` on
+`THREAD_STATE_CLOSED`, so there was no contract to invent; what blocked it was
+ORDERING. Before recording a defect as needing a product decision, check whether
+the behaviour is already implemented somewhere and only unreachable.
+
+**bug-553's "fs, process, udp are the model" was wrong.** Measured, none of them
+is: `fs` 40 empty / 1 non-empty, `process` 15 / 0, `udp` 9 / 1. When a doc names a
+sibling as the standard to copy, verify the sibling first — 21 of 32 packages
+carry at least one `errors: vec![]`.
+
+## What is left, and why each is not trivial
+
+- **536** (HIGH) — shape B-2 and shape C. **Shape C is not a bug fix**: a
+  recursive-type value is never freed, and the fix needs recursive
+  copy-insertion, which does not exist. Do not dispatch it as one. Shape B-2 (a
+  `String` returned by a user/`.mfb`-bodied function) is a **double-free** risk
+  and wants its own change and audit.
+- **484** — `canvas::Picture` never renders on any backend; x-large, and no
+  renderer has a picture arm at all.
+- **520** — named time zones; huge, and it is a data + serialization design
+  question, not a bug.
+- **540** — the Windows app `term` is a reduced implementation. Note nothing in
+  this repo ever EXECUTES a Windows binary, so it cannot be verified here the way
+  543 was verified on four Linux boxes.
+- **472** — man examples are never compiled. Carries an explicit user decision
+  AGAINST building the gate (plan-108-A rejected-alternatives), so it needs a
+  ruling before work, not after.
+- **515** — has its ruling; in flight.
+- **558** — the man Errors table; small, but the LAYOUT is a product choice with
+  three options written up.
 
 ## Working rules for this pass
 
@@ -75,29 +117,30 @@ byte-identity coverage for the first time. 532 **unblocked bug-534's `split`**.
 
 ## Tier 3 — MEDIUM, grouped so a single agent can take a cluster
 
-**Regex/strings semantic divergence**: 529, 531 and 533 are **landed**
-(`2860dd7e7`, `5e93d26a3`, `426660224`). Remaining: 534 (no split/count/
-AttributedString — `split` unblocked by 532) · 528 (`pad` counts scalars,
-`displayWidth` counts columns) · 530 (`utf8Encode` return overload invisible in
-its signature).
+**Regex/strings surface: the whole cluster is LANDED.** 529/531/533
+(`2860dd7e7`, `5e93d26a3`, `426660224`), then 530 (`f75616ed2`), 528
+(`f071d0f45`) and 534 (`fe7903170`).
 
-Two things from that cluster worth carrying forward:
+**Three findings from it outlive the bugs:**
 
-- **531 and 533 are BREAKING**, both on the owner's own recorded decision
-  (`ded34df72`). `regex::find` now raises `ErrNotFound` instead of returning `-1`,
-  and the return type did NOT move — so an unmigrated caller still compiles and
-  fails at run time. Product code had zero call sites; both migrations are on the
-  member's page.
-- **533 turned a doc-shaped change into a MISCOMPILE**, and it is the second
-  instance of a known trap. `strings::replace` and `collections::replace`
-  dequalify to one bare native target `replace`, which sat on
-  `inline_builtin_is_infallible`'s NAME-keyed list. Once the `String` overload
-  could fail, an inline `TRAP` on it compiled with
-  `TYPE_INLINE_TRAP_DEAD_HANDLER` and the live handler was ELIDED — the program
-  aborted instead of recovering, and a function-level `TRAP` test cannot see it.
-  Reproduced independently while reviewing: reverting the fix aborts the fixture
-  with `7-705-0002`. `toString` was the first instance (bug-486). **Before making
-  any overload of a shared bare native target fallible, check that list.**
+- **A THIRD dead-handler miscompile**, and a different shape from the first two.
+  `strings::left`/`right`/`padLeft`/`padRight` raised `ErrInvalidArgument` while
+  declaring `errors: vec![]`, so `inline_builtin_is_infallible` proved them
+  infallible, the compiler warned `TYPE_INLINE_TRAP_DEAD_HANDLER`, **deleted the
+  live handler**, and the program aborted with `7-705-0002`. Fixed `6d9f4b79a`.
+  bug-486 and bug-533 were name-keyed-over-an-overload; this one is simply a
+  member lying in its descriptor. **A function-level `TRAP` test cannot see any
+  of the three — write the INLINE form.**
+- **The invariant that should have caught it never runs** — filed as **bug-550**.
+  `raise_error_bare`'s declaration check is a `debug_assert!`, and CI builds
+  release on every job, so all **55** `debug_assert!`s in the tree are compiled
+  out everywhere. Needs a decision: a debug-assertions CI job, or promoting the
+  miscompile-guarding ones to real `assert!`.
+- **Two branches editing one package both shift its embedded line numbers**, so
+  neither parent's `.ir` goldens are right for the merged tree. 528 and 534
+  collided on exactly that; resolving the conflict by picking a side would have
+  produced goldens matching neither compiler. Regenerate post-merge — the gate
+  named the two affected fixtures precisely (2 of 1932).
 
 **Resource / close contracts** (one agent): the cluster is **complete** — 524,
 525, 526, 522 and 523 are all landed.
@@ -202,17 +245,42 @@ so adding a curve fails until it is covered.
 489 (response terminal injection) · 490 (client redirect credential leak) ·
 491 (`pkg install` not bound to the lock)
 
-**Older carryover**: 453 (riscv64 jal range) · 454 (win64 `os::resourcePath`) ·
-479 (inline TRAP on thread start — **memory gate**; **three of its four defects
-are landed** in `a4a9d59dc`, and it is now ONE decision: the `TRAP` error path
-has no safe default `Thread` value. A resource gets a CLOSED record so operations
-short-circuit; `simple_thread_handle_helper` `pthread_mutex_lock`s the queue
-pointer off the handle with no null guard, so a null handle AND a zeroed block
-both fault, and `THREAD_STATE_CLOSED` cannot help because the lock precedes the
-state read. Answering it means a runtime contract across every `thread` member
-with a user-visible error code — a product decision, not a codegen arm) · 483 (tls write error code
-per backend) · 484 (`picture::drawItem` never renders) · 487 (state-mutating
-operand UAF — **memory gate**) · 527 (range parameter naming, large)
+**Older carryover**: **453, 454 and 483 are landed** (`f332f18e6`, `94b2ec1e1`,
+`7b0ab81be`). Remaining: 479 (inline TRAP on thread start — one decision left,
+see Tier 2) · 484 (`picture::drawItem` never renders — x-large, sequenced AFTER
+plan-116-I) · 487 (state-mutating operand UAF — **memory gate**) · 527 (range
+parameter naming, large) · 515 (memory-hard password KDF) · 520 (named zones,
+huge) · 472 (man examples never compiled — **blocked on a user decision**
+recorded in plan-108-A) · 543 (spawn fd parity — **the owner has ruled**; Linux
+is settled, the macOS mechanism is the open question) · 488 (deliberately open
+pending a long clean period).
+
+**Newly filed today, all found while fixing something else — none is a
+regression:** 550 (55 `debug_assert!`s that never run, because CI builds
+release) · 552 (riscv64 linker quadratic, unreachable until 453 removed the
+ceiling above it) · 553 (28 `tls`/`tcp` members declare `errors: vec![]`).
+
+**The lesson the cross-platform cluster paid for: name the instrument.** All
+three needed something the artifact gate structurally is not.
+- **453** — the gate reported 1930/0, *identical to the untouched baseline*, and
+  that zero IS the containment proof, because relaxation is a no-op in range. It
+  says nothing about execution; only **box 2229** (real riscv64) shows a relaxed
+  five-rung chain runs.
+- **454** — proved by a **negative control** on box 2230: with the separator left
+  POSIX, cross-build and gate stay GREEN while the program fails on Windows.
+  That demonstrates the instrument gap instead of asserting it, and is the
+  cheapest way to prove a per-platform fix is the fix.
+- **483** — the Windows row of its matrix had only ever been READ from source;
+  measuring it changed the answer. Its own doc's proposed macOS design turned out
+  to be a use-after-free, found by running it, not by reading it.
+
+**And the gate lock (bug-470) refused one of MY runs**, correctly: a subagent's
+`test-accept.sh` held the tree lock, my gate exited 98 having checked nothing,
+and `DIFFS=0` next to a refusal would have read as success if refusal shared exit
+code 1 with "found diffs". The distinct code is what made it detectable. The same
+collision hit the agent minutes earlier as 4 phantom mismatches in fixtures the
+bug does not touch — same cause, one unmistakable outcome and one plausible wrong
+one.
 
 **Resource bookkeeping holes found by bug-535's sweep** (both hidden by the same
 "any other call into the package" condition, both reproduce on `4d56f1a1a`):

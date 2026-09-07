@@ -153,7 +153,7 @@ impl Big {
             }
             self.0[index] = diff as u32;
         }
-        debug_assert_eq!(borrow, 0, "big subtraction went negative");
+        assert_eq!(borrow, 0, "big subtraction went negative");
         *self = std::mem::replace(self, Big(vec![])).trim();
     }
 }
@@ -190,7 +190,7 @@ fn ceil_pow2_div(shift: usize, divisor: &Big) -> (u64, u64) {
             remainder.sub_assign(divisor);
             // Record quotient bit `index`. The quotient is known to fit 128
             // bits, so `index` is < 128 for every set bit.
-            debug_assert!(index < 128, "quotient wider than 128 bits");
+            assert!(index < 128, "quotient wider than 128 bits");
             if index < 64 {
                 quotient_lo |= 1u64 << index;
             } else {

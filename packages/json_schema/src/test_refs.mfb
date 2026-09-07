@@ -1,0 +1,141 @@
+' ---------------------------------------------------------------------------
+' Tests: identifiers and references -- `$id`, `$anchor`, `$defs` and `$ref` --
+' and the two ways a reference can fail: naming nothing, and naming a loop.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+PRIVATE FUNC verdict(schemaText AS String, instanceText AS String) AS String
+  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  LET problems AS List OF ValidationError = runValidation(compiled, json::parse(instanceText))
+  IF len(problems) = 0 THEN RETURN "valid"
+  MUT keywords AS List OF String = []
+  FOR EACH problem IN problems
+    keywords = collections::append(keywords, problem.keyword)
+  NEXT
+  RETURN strings::join(keywords, ",")
+END FUNC
+
+PRIVATE FUNC ok(schemaText AS String, instanceText AS String) AS Boolean
+  RETURN verdict(schemaText, instanceText) = "valid"
+END FUNC
+
+PRIVATE FUNC compileOnly(schemaText AS String) AS String
+  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  RETURN compiled.id
+END FUNC
+
+TESTING
+  TGROUP "local references"
+    TCASE "a pointer fragment names a location in the document"
+      expectEqual(ok("{\"$defs\":{\"pos\":{\"type\":\"integer\",\"minimum\":1}},\"$ref\":\"#/$defs/pos\"}", "1"), TRUE)
+      expectEqual(ok("{\"$defs\":{\"pos\":{\"type\":\"integer\",\"minimum\":1}},\"$ref\":\"#/$defs/pos\"}", "0"), FALSE)
+      expectEqual(ok("{\"$defs\":{\"s\":{\"type\":\"string\"}},\"properties\":{\"a\":{\"$ref\":\"#/$defs/s\"}}}", "{\"a\":\"x\"}"), TRUE)
+      expectEqual(ok("{\"$defs\":{\"s\":{\"type\":\"string\"}},\"properties\":{\"a\":{\"$ref\":\"#/$defs/s\"}}}", "{\"a\":1}"), FALSE)
+    END TCASE
+
+    TCASE "a pointer may cross an array-valued keyword"
+      ' `prefixItems` is the target here only as a place to point AT: it does
+      ' not apply to an object, so the root contributes nothing and the case
+      ' measures the reference rather than the keyword beside it.
+      expectEqual(ok("{\"prefixItems\":[{\"type\":\"integer\"}],\"properties\":{\"a\":{\"$ref\":\"#/prefixItems/0\"}}}", "{\"a\":1}"), TRUE)
+      expectEqual(ok("{\"prefixItems\":[{\"type\":\"integer\"}],\"properties\":{\"a\":{\"$ref\":\"#/prefixItems/0\"}}}", "{\"a\":\"x\"}"), FALSE)
+    END TCASE
+
+    TCASE "a pointer token is unescaped before it is followed"
+      expectEqual(ok("{\"$defs\":{\"a/b\":{\"type\":\"integer\"}},\"$ref\":\"#/$defs/a~1b\"}", "1"), TRUE)
+      expectEqual(ok("{\"$defs\":{\"a~b\":{\"type\":\"integer\"}},\"$ref\":\"#/$defs/a~0b\"}", "1"), TRUE)
+      ' The same location, spelled with a percent escape.
+      expectEqual(ok("{\"$defs\":{\"a/b\":{\"type\":\"integer\"}},\"$ref\":\"#/$defs/a%7E1b\"}", "1"), TRUE)
+    END TCASE
+
+    TCASE "a reference applies alongside its siblings, not instead of them"
+      expectEqual(ok("{\"$defs\":{\"s\":{\"type\":\"string\"}},\"$ref\":\"#/$defs/s\",\"minLength\":2}", "\"ab\""), TRUE)
+      expectEqual(ok("{\"$defs\":{\"s\":{\"type\":\"string\"}},\"$ref\":\"#/$defs/s\",\"minLength\":2}", "\"a\""), FALSE)
+    END TCASE
+
+    TCASE "a recursive definition validates a nested instance"
+      LET schema AS String = "{\"$defs\":{\"node\":{\"type\":\"object\",\"properties\":{\"child\":{\"$ref\":\"#/$defs/node\"}}}},\"$ref\":\"#/$defs/node\"}"
+      expectEqual(ok(schema, "{}"), TRUE)
+      expectEqual(ok(schema, "{\"child\":{\"child\":{}}}"), TRUE)
+      expectEqual(ok(schema, "{\"child\":1}"), FALSE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "identifiers"
+    TCASE "a root $id becomes the document's base"
+      expectString(compileOnly("{\"$id\":\"https://example.com/root\"}"), "https://example.com/root")
+      expectString(compileOnly("{}"), "")
+    END TCASE
+
+    TCASE "$anchor names a location the base can reach"
+      expectEqual(ok("{\"$id\":\"https://example.com/r\",\"$defs\":{\"a\":{\"$anchor\":\"thing\",\"type\":\"integer\"}},\"$ref\":\"#thing\"}", "1"), TRUE)
+      expectEqual(ok("{\"$id\":\"https://example.com/r\",\"$defs\":{\"a\":{\"$anchor\":\"thing\",\"type\":\"integer\"}},\"$ref\":\"#thing\"}", "\"x\""), FALSE)
+      ' An anchor works without a root `$id` too -- the base is then "".
+      expectEqual(ok("{\"$defs\":{\"a\":{\"$anchor\":\"thing\",\"type\":\"integer\"}},\"$ref\":\"#thing\"}", "1"), TRUE)
+    END TCASE
+
+    TCASE "a nested $id is a schema resource of its own"
+      expectEqual(ok("{\"$id\":\"https://example.com/r\",\"$defs\":{\"a\":{\"$id\":\"child\",\"type\":\"integer\"}},\"$ref\":\"child\"}", "1"), TRUE)
+      expectEqual(ok("{\"$id\":\"https://example.com/r\",\"$defs\":{\"a\":{\"$id\":\"child\",\"type\":\"integer\"}},\"$ref\":\"child\"}", "\"x\""), FALSE)
+    END TCASE
+
+    TCASE "a nested $id rebases everything beneath it"
+      LET schema AS String = "{\"$id\":\"https://example.com/a/b/r\",\"$defs\":{\"a\":{\"$id\":\"../c/leaf\",\"type\":\"string\"}},\"$ref\":\"https://example.com/a/c/leaf\"}"
+      expectEqual(ok(schema, "\"x\""), TRUE)
+      expectEqual(ok(schema, "1"), FALSE)
+    END TCASE
+
+    TCASE "a duplicate identifier is refused"
+      expectTrap(compileOnly("{\"$defs\":{\"a\":{\"$id\":\"https://example.com/x\"},\"b\":{\"$id\":\"https://example.com/x\"}}}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"$defs\":{\"a\":{\"$anchor\":\"n\"},\"b\":{\"$anchor\":\"n\"}}}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "a root $id is not a duplicate of itself"
+      ' The root is registered once by the walk, not once here and once there.
+      expectString(compileOnly("{\"$id\":\"https://example.com/r\",\"$defs\":{\"a\":{\"type\":\"integer\"}}}"), "https://example.com/r")
+    END TCASE
+
+    TCASE "Draft 2020-12 dropped the plain-name fragment form of $id"
+      expectTrap(compileOnly("{\"$id\":\"https://example.com/r#frag\"}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "an $anchor must be a legal anchor name"
+      expectTrap(compileOnly("{\"$anchor\":\"1bad\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"$anchor\":\"has space\"}"), ERR_SCHEMA)
+      expectString(compileOnly("{\"$anchor\":\"_ok-1.2\"}"), "")
+    END TCASE
+  END TGROUP
+
+  TGROUP "references that cannot be followed"
+    TCASE "a reference naming nothing fails at compile time"
+      expectTrap(compileOnly("{\"$ref\":\"#/$defs/missing\"}"), ERR_REF)
+      expectTrap(compileOnly("{\"$ref\":\"#noSuchAnchor\"}"), ERR_REF)
+    END TCASE
+
+    TCASE "nothing is retrieved, so an external reference is refused"
+      expectTrap(compileOnly("{\"$ref\":\"https://example.com/elsewhere\"}"), ERR_REF)
+      expectTrap(compileOnly("{\"$ref\":\"https://json-schema.org/draft/2020-12/schema\"}"), ERR_REF)
+    END TCASE
+
+    TCASE "a $defs beside a $ref does not make the reference local"
+      ' `#/$defs/t` is a pointer into the schema RESOURCE, so it names the
+      ' ROOT's `$defs` and not the neighbouring one.
+      expectTrap(compileOnly("{\"properties\":{\"x\":{\"$defs\":{\"t\":true},\"$ref\":\"#/$defs/t\"}}}"), ERR_REF)
+    END TCASE
+
+    TCASE "a reference loop with no instance progress is refused"
+      LET schema AS String = "{\"$defs\":{\"loop\":{\"$ref\":\"#/$defs/loop\"}},\"$ref\":\"#/$defs/loop\"}"
+      expectTrap(ok(schema, "1"), ERR_REF_CYCLE)
+    END TCASE
+
+    TCASE "an unsupported reference form is refused by name"
+      expectTrap(compileOnly("{\"$dynamicRef\":\"#t\"}"), ERR_UNSUPPORTED)
+      expectTrap(compileOnly("{\"$dynamicAnchor\":\"t\"}"), ERR_UNSUPPORTED)
+      expectTrap(compileOnly("{\"$recursiveRef\":\"#\"}"), ERR_UNSUPPORTED)
+      expectTrap(compileOnly("{\"$recursiveAnchor\":true}"), ERR_UNSUPPORTED)
+    END TCASE
+  END TGROUP
+END TESTING

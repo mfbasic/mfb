@@ -422,7 +422,7 @@ impl<'a> FileParser<'a> {
         // inside a built-in companion a bare sibling (`JsonBool` within `json`)
         // picks up its package (bug-480 Phase 4b). `parse_qualified_name` does not
         // normalize on its own -- it also serves function and constant references.
-        let name = self.normalize_qualified_builtin_type(name);
+        let name = self.normalize_qualified_type_name(name);
         self.consume_statement_end("Expected end of statement after union member type.");
         Some(UnionVariant { name, line })
     }

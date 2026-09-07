@@ -262,18 +262,38 @@ fn render_topic_overview(topic: &ManTopic) -> String {
     }
 }
 
-/// The union of every error any of a function's implementations declares, in first-
-/// seen order.
-fn function_errors(function: &RegistryFunction) -> Vec<&'static str> {
-    let mut names: Vec<&'static str> = Vec::new();
-    for implementation in &function.implementations {
+/// Every error any of a function's implementations declares, in first-seen order,
+/// each paired with the numbers of the overloads that declare it.
+///
+/// The number is the 1-based position in `function.implementations`, which is the
+/// same sequence [`render_function_markdown`] numbers the `## Overloads` list from.
+/// One enumeration feeds both, so the table's cross-reference and the numbered
+/// signatures cannot disagree (bug-558).
+fn function_errors_by_overload(function: &RegistryFunction) -> Vec<(&'static str, Vec<usize>)> {
+    let mut rows: Vec<(&'static str, Vec<usize>)> = Vec::new();
+    for (index, implementation) in function.implementations.iter().enumerate() {
+        let overload = index + 1;
         for &name in &implementation.errors {
-            if !names.contains(&name) {
-                names.push(name);
+            match rows.iter_mut().find(|(existing, _)| *existing == name) {
+                Some((_, overloads)) => {
+                    if !overloads.contains(&overload) {
+                        overloads.push(overload);
+                    }
+                }
+                None => rows.push((name, vec![overload])),
             }
         }
     }
-    names
+    rows
+}
+
+/// The union of every error any of a function's implementations declares, in first-
+/// seen order.
+fn function_errors(function: &RegistryFunction) -> Vec<&'static str> {
+    function_errors_by_overload(function)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
 }
 
 /// Build a package-overview Markdown page: `intro` summary, `desc` description, a
@@ -485,6 +505,35 @@ fn public_type_name(ty: &crate::types::ParameterType) -> String {
     ty.name().replace('.', "::")
 }
 
+/// Whether `function`'s forms differ ONLY by return type — every implementation
+/// spells the same parameter list, so no argument can select between them and the
+/// call's expected (contextual) type has to. `encoding::utf8Encode` is the one
+/// such member in the language today; the test is written on the descriptor
+/// rather than on that name so a second one renders the same note (bug-530).
+fn is_return_type_overload_set(function: &RegistryFunction) -> bool {
+    let mut implementations = function.implementations.iter();
+    let Some(first) = implementations.next() else {
+        return false;
+    };
+    let mut any_other = false;
+    for other in implementations {
+        any_other = true;
+        if other.params.len() != first.params.len() {
+            return false;
+        }
+        let same = other.params.iter().zip(first.params.iter()).all(|(a, b)| {
+            a.name == b.name
+                && a.ty == b.ty
+                && matches!(a.default, DefaultValue::None)
+                    == matches!(b.default, DefaultValue::None)
+        });
+        if !same {
+            return false;
+        }
+    }
+    any_other
+}
+
 /// The union of every parameter across all overloads, de-duplicated by name (first
 /// occurrence wins, declaration order preserved), so the Parameters table covers every
 /// argument any overload accepts.
@@ -518,11 +567,28 @@ fn render_function_markdown(package: &RegistryPackage, function: &RegistryFuncti
     let pkg = package.import_name();
     if function.implementations.len() > 1 {
         md.push_str("## Overloads\n\n");
-        for implementation in &function.implementations {
+        // Numbered, because the Errors table below cross-references these numbers
+        // (bug-558). `function_errors_by_overload` numbers the SAME iteration, so
+        // the two can only agree.
+        for (index, implementation) in function.implementations.iter().enumerate() {
             md.push_str(&format!(
-                "**{}**\n\n",
+                "{}. **{}**\n",
+                index + 1,
                 render_declaration(pkg, function.name, implementation)
             ));
+        }
+        md.push('\n');
+        // A set whose forms share one parameter list cannot be told apart from the
+        // arguments, so the reader needs the contextual-type rule HERE — beside the
+        // signatures — rather than several paragraphs down (bug-530).
+        if is_return_type_overload_set(function) {
+            md.push_str(
+                "These overloads take the same arguments and differ only by what they \
+                 return, so a call needs an expected type to choose one — a \
+                 `LET … AS` annotation, a typed parameter slot, or the enclosing \
+                 function's return type. A call with no expected type is a \
+                 compile-time error.\n\n",
+            );
         }
     } else if let Some(implementation) = function.implementations.first() {
         md.push_str("## Declaration\n\n");
@@ -540,7 +606,7 @@ fn render_function_markdown(package: &RegistryPackage, function: &RegistryFuncti
         md.push_str("\n\n");
     }
 
-    render_errors_table(&mut md, &function_errors(function));
+    render_function_errors_table(&mut md, function);
 
     if !function.example.is_empty() {
         md.push_str("## Examples\n\n");
@@ -680,6 +746,73 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
     }
 }
 
+/// The `errorCode` value an error name resolves to, and the sort key of every
+/// Errors table. An unknown name sorts first and renders blank rather than
+/// dropping the row.
+fn error_code(name: &str) -> &'static str {
+    registry::runtime_error(name)
+        .map(|(code, _)| code)
+        .unwrap_or("")
+}
+
+/// The Errors table of a FUNCTION page.
+///
+/// A member with more than one overload gets an extra **Overloads** column naming
+/// which numbered signature(s) raise each error, because the union alone told a
+/// reader of `tcp::poll`'s scalar form to handle an `ErrTimeout` only the list form
+/// raises (bug-558). A single-overload member has nothing to cross-reference — the
+/// column would read `1` on every row of the 93 single-overload pages that render
+/// an Errors table — so its table is the three-column one it has always been, byte
+/// for byte.
+fn render_function_errors_table(md: &mut String, function: &RegistryFunction) {
+    let mut rows = function_errors_by_overload(function);
+    if rows.is_empty() {
+        return;
+    }
+    if function.implementations.len() < 2 {
+        let names: Vec<&'static str> = rows.into_iter().map(|(name, _)| name).collect();
+        render_errors_table(md, &names);
+        return;
+    }
+
+    rows.sort_by_key(|(name, _)| error_code(name));
+    md.push_str("## Errors\n\n");
+    md.push_str("| Code | Name | Overloads | Message |\n| --- | --- | --- | --- |\n");
+    for (name, overloads) in &rows {
+        let (code, message) = registry::runtime_error(name).unwrap_or(("", ""));
+        let numbers = overloads
+            .iter()
+            .map(|overload| overload.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        md.push_str(&format!(
+            "| `{code}` | `{name}` | {numbers} | {message} |\n"
+        ));
+    }
+    md.push('\n');
+
+    // An overload that declares no errors is absent from every row, and absence is
+    // easy to read as an oversight rather than as a promise. `canvas::getSize()` —
+    // the no-argument form, which reads the runtime's own record — is the one such
+    // signature in the rendered surface today, and its page carried a two-row
+    // Errors table over it, so say it outright.
+    let infallible: Vec<String> = (1..=function.implementations.len())
+        .filter(|overload| !rows.iter().any(|(_, o)| o.contains(overload)))
+        .map(|overload| overload.to_string())
+        .collect();
+    if !infallible.is_empty() {
+        let (label, verb) = if infallible.len() == 1 {
+            ("Overload", "raises")
+        } else {
+            ("Overloads", "raise")
+        };
+        md.push_str(&format!(
+            "{label} {} {verb} no errors.\n\n",
+            infallible.join(", ")
+        ));
+    }
+}
+
 /// Render an Errors table for a set of `errorCode` names, resolving each to its
 /// `(code, message)` and ordering by code. No-op when `names` is empty.
 fn render_errors_table(md: &mut String, names: &[&'static str]) {
@@ -687,11 +820,7 @@ fn render_errors_table(md: &mut String, names: &[&'static str]) {
         return;
     }
     let mut ordered = names.to_vec();
-    ordered.sort_by_key(|name| {
-        registry::runtime_error(name)
-            .map(|(code, _)| code)
-            .unwrap_or("")
-    });
+    ordered.sort_by_key(|name| error_code(name));
 
     md.push_str("## Errors\n\n");
     md.push_str("| Code | Name | Message |\n| --- | --- | --- |\n");
@@ -915,6 +1044,36 @@ mod tests {
         assert!(md.contains("`ErrInvalidFormat`"));
     }
 
+    /// bug-553: `tcp`/`tls` gained real `errors:` lists, and the page has to grow
+    /// an Errors table WITHOUT losing anything it already rendered. The `errors`
+    /// field feeds nothing but this table, so the rest of the page is the control.
+    #[test]
+    fn a_tcp_member_that_gained_errors_still_renders_its_other_sections() {
+        let package = registry().resolve_package("tcp").unwrap();
+        let function = package.function("read").unwrap();
+        let md = render_function_markdown(package, function);
+
+        // The new table, resolved from the declared names to code + message.
+        assert!(md.contains("## Errors"));
+        assert!(md.contains("`ErrConnectionClosed`"));
+        assert!(md.contains("`ErrTimeout`"));
+        // ...and NOT an error the lowering cannot raise: `ErrEncoding` lives
+        // inside `lower_net_read_helper`'s `if text` arm, which `tcp::read` does
+        // not select.
+        assert!(!md.contains("`ErrEncoding`"));
+
+        // Everything the page rendered before is still there.
+        assert!(md.starts_with("# read\n"));
+        assert!(md.contains("## Package\n\ntcp"));
+        assert!(md.contains("## Description"));
+        assert!(md.contains("## Declaration"));
+        assert!(md.contains("`tcp::read(sock AS tcp::Socket"));
+        assert!(md.contains("## Parameters"));
+        assert!(md.contains("`maxBytes`"));
+        assert!(md.contains("Returns `List OF Byte`."));
+        assert!(md.contains("## Examples"));
+    }
+
     #[test]
     fn a_member_with_no_declared_errors_omits_the_errors_section() {
         // Every `csv` member is now fallible (dialect validation raises
@@ -923,6 +1082,160 @@ mod tests {
         let package = registry().resolve_package("bits").unwrap();
         let md = render_function_markdown(package, package.function("band").unwrap());
         assert!(!md.contains("## Errors"));
+    }
+
+    /// The row of an Errors table whose Name cell is `name`.
+    fn errors_row<'a>(md: &'a str, name: &str) -> &'a str {
+        md.lines()
+            .find(|line| line.starts_with("| `") && line.contains(&format!("| `{name}` |")))
+            .unwrap_or_else(|| panic!("no Errors row for {name}:\n{md}"))
+    }
+
+    /// bug-558: the Errors table rendered the UNION of every overload's declared
+    /// errors under one heading while the Overloads block listed the signatures
+    /// separately, so nothing on the page said which signature raised what.
+    /// `tcp::poll`'s scalar form — listed first, and the common one — read as if it
+    /// raised `ErrTimeout`; readiness on one socket is a QUERY and an expired wait
+    /// is `FALSE`, so a program written from that page carried a handler that can
+    /// never run. The overloads are numbered and the table names the numbers.
+    #[test]
+    fn a_multi_overload_errors_table_names_the_overloads_that_raise_each_error() {
+        let package = registry().resolve_package("tcp").unwrap();
+        let function = package.function("poll").unwrap();
+        assert_eq!(function.implementations.len(), 2);
+        let md = render_function_markdown(package, function);
+
+        // The signatures are numbered, in descriptor order.
+        assert!(
+            md.contains("1. **`tcp::poll(sock AS tcp::Socket"),
+            "the scalar form is overload 1:\n{md}"
+        );
+        assert!(
+            md.contains("2. **`tcp::poll(socks AS List OF RES tcp::Socket"),
+            "the list form is overload 2:\n{md}"
+        );
+
+        // ...and the table cross-references those same numbers.
+        assert!(
+            md.contains("| Code | Name | Overloads | Message |"),
+            "a multi-overload Errors table carries the Overloads column:\n{md}"
+        );
+        // `ErrTimeout` and `ErrOutOfMemory` are the LIST form's alone.
+        assert!(
+            errors_row(&md, "ErrTimeout").contains("| 2 |"),
+            "ErrTimeout belongs to overload 2 only:\n{md}"
+        );
+        assert!(
+            errors_row(&md, "ErrOutOfMemory").contains("| 2 |"),
+            "ErrOutOfMemory belongs to overload 2 only:\n{md}"
+        );
+        // Both forms validate their arguments and both reject a closed handle.
+        assert!(
+            errors_row(&md, "ErrInvalidArgument").contains("| 1, 2 |"),
+            "ErrInvalidArgument belongs to both overloads:\n{md}"
+        );
+        assert!(
+            errors_row(&md, "ErrResourceClosed").contains("| 1, 2 |"),
+            "ErrResourceClosed belongs to both overloads:\n{md}"
+        );
+    }
+
+    /// The numbers in the Errors column and the numbers on the Overloads list come
+    /// from ONE enumeration of `implementations`, so a cross-reference cannot point
+    /// at a signature that is not there. Checked over every multi-overload member
+    /// in the registry rather than on one page: two enumerations would agree on
+    /// `tcp::poll` and drift somewhere else.
+    #[test]
+    fn every_errors_overload_number_names_a_rendered_signature() {
+        for package in registry().packages() {
+            for function in package.functions() {
+                if function.internal_only || function.implementations.len() < 2 {
+                    continue;
+                }
+                let md = render_function_markdown(package, function);
+                for (name, overloads) in function_errors_by_overload(function) {
+                    for overload in overloads {
+                        assert!(
+                            overload >= 1 && overload <= function.implementations.len(),
+                            "{}::{} cites overload {overload} for {name}, but it has {} \
+                             signatures",
+                            package.import_name(),
+                            function.name,
+                            function.implementations.len(),
+                        );
+                        assert!(
+                            md.contains(&format!(
+                                "{overload}. **{}",
+                                render_declaration(
+                                    package.import_name(),
+                                    function.name,
+                                    &function.implementations[overload - 1]
+                                )
+                            )),
+                            "{}::{}'s Overloads list must number {overload} the way the \
+                             Errors table cites it:\n{md}",
+                            package.import_name(),
+                            function.name,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The worst shape bug-558 names: one overload declares errors and its sibling
+    /// declares NONE, so the page showed an Errors table over an infallible
+    /// signature. `canvas::getSize()` (no argument) reads the runtime's own record
+    /// and cannot fail; `canvas::getSize(image)` can. Absence from every row is the
+    /// table's way of saying so, and absence reads as an oversight — so the page
+    /// says it in words too.
+    #[test]
+    fn an_overload_that_declares_no_errors_is_named_as_infallible() {
+        let package = registry().resolve_package("canvas").unwrap();
+        let function = package.function("getSize").unwrap();
+        assert_eq!(function.implementations.len(), 2);
+        let md = render_function_markdown(package, function);
+
+        assert!(md.contains("1. **`canvas::getSize(image AS canvas::Image)"));
+        assert!(md.contains("2. **`canvas::getSize()"));
+        assert!(errors_row(&md, "ErrResourceClosed").contains("| 1 |"));
+        assert!(errors_row(&md, "ErrOutOfMemory").contains("| 1 |"));
+        assert!(
+            md.contains("Overload 2 raises no errors."),
+            "the infallible signature must be named, not merely absent:\n{md}"
+        );
+    }
+
+    /// bug-558's containment argument, and the thing most likely to go wrong: the
+    /// column is suppressed where it carries no information. A single-overload
+    /// member has one signature to name, so its Errors table keeps its three
+    /// columns and its page does not change at all — which is 449 of the 543
+    /// rendered function pages, plus every package overview and types page.
+    #[test]
+    fn a_single_overload_member_errors_table_is_unchanged() {
+        let package = registry().resolve_package("fs").unwrap();
+        let function = package.function("close").unwrap();
+        assert_eq!(function.implementations.len(), 1);
+        let md = render_function_markdown(package, function);
+
+        assert!(md.contains("## Errors"));
+        assert!(
+            md.contains("| Code | Name | Message |\n| --- | --- | --- |\n"),
+            "a single-overload member keeps the three-column table:\n{md}"
+        );
+        assert!(!md.contains("Overloads"), "no column, no heading:\n{md}");
+        assert!(!md.contains("raises no errors"));
+    }
+
+    /// The package OVERVIEW's Errors table is the union over every member, so it
+    /// has no single signature to number and must keep three columns too.
+    #[test]
+    fn a_package_overview_errors_table_has_no_overload_column() {
+        let package = registry().resolve_package("tcp").unwrap();
+        let md = render_package_markdown(package);
+        assert!(md.contains("## Errors"));
+        assert!(md.contains("| Code | Name | Message |\n| --- | --- | --- |\n"));
+        assert!(!md.contains("| Code | Name | Overloads | Message |"));
     }
 
     #[test]
@@ -1262,6 +1575,109 @@ mod tests {
         assert!(show_man(&s(&["csv", "nope"]))
             .unwrap_err()
             .contains("unknown csv function"));
+    }
+
+    /// The Overloads/Declaration block of a rendered page — everything between
+    /// that heading and the next one.
+    fn signature_section(md: &str) -> &str {
+        let start = match md
+            .find("## Overloads\n")
+            .or_else(|| md.find("## Declaration\n"))
+        {
+            Some(start) => start,
+            None => return "",
+        };
+        let rest = &md[start + 3..];
+        match rest.find("\n## ") {
+            Some(end) => &rest[..end],
+            None => rest,
+        }
+    }
+
+    /// bug-530: `encoding::utf8Encode` is the language's one RETURN-TYPE overload
+    /// — the same `String` argument yields either a `List OF Byte` or a
+    /// `List OF Integer`, chosen by the expected type at the call site — and its
+    /// page rendered a single `Declaration` ending `AS List OF Byte`. The second
+    /// form was invisible in both places a reader looks for a signature, so an
+    /// ordinary-looking unannotated call failed to compile with nothing on the
+    /// page predicting it.
+    #[test]
+    fn a_return_type_overload_renders_every_form() {
+        let package = registry().resolve_package("encoding").unwrap();
+        let function = package.function("utf8Encode").unwrap();
+        let md = render_function_markdown(package, function);
+        assert!(
+            md.contains("## Overloads"),
+            "a two-form member renders an Overloads block, not a Declaration:\n{md}"
+        );
+        assert!(!md.contains("## Declaration"));
+        assert!(
+            md.contains("`encoding::utf8Encode(value AS String) AS List OF Byte`"),
+            "the byte form must render:\n{md}"
+        );
+        assert!(
+            md.contains("`encoding::utf8Encode(value AS String) AS List OF Integer`"),
+            "the integer form must render:\n{md}"
+        );
+        // The contextual-type requirement belongs in the signature area, not only
+        // in the third paragraph of the description.
+        assert!(
+            md.contains("differ only by what they return"),
+            "the signature area must state that an expected type is required:\n{md}"
+        );
+    }
+
+    /// The positive half of the bug-530 pin: the note is emitted for a
+    /// return-type overload set and for NOTHING else. `encoding::utf8Decode` is
+    /// the neighbouring two-form member selected by its PARAMETER type, and
+    /// `csv::parse` has one form; neither may grow the note.
+    #[test]
+    fn only_a_return_type_overload_gets_the_expected_type_note() {
+        let encoding = registry().resolve_package("encoding").unwrap();
+        let decode = render_function_markdown(encoding, encoding.function("utf8Decode").unwrap());
+        assert!(decode.contains("## Overloads"));
+        assert!(
+            !decode.contains("differ only by what they return"),
+            "utf8Decode's overloads differ by PARAMETER type; the note must not fire:\n{decode}"
+        );
+
+        let csv = registry().resolve_package("csv").unwrap();
+        let parse = render_function_markdown(csv, csv.function("parse").unwrap());
+        assert!(parse.contains("## Declaration"));
+        assert!(!parse.contains("differ only by what they return"));
+    }
+
+    /// The general pin bug-530 asks for: **every** registered form reaches the
+    /// page. A renderer that de-duplicated, collapsed or dropped a form would
+    /// print fewer declarations than the member has implementations, which is
+    /// exactly how the second `utf8Encode` form could go missing again.
+    #[test]
+    fn every_member_renders_one_declaration_per_implementation() {
+        let mut checked = 0usize;
+        for package in registry().packages() {
+            let pkg = package.import_name();
+            for function in package.functions() {
+                if function.internal_only {
+                    continue;
+                }
+                let md = render_function_markdown(package, function);
+                // Count declarations in the SIGNATURE SECTION only — the
+                // description and examples quote calls too, and those are prose.
+                let signatures = signature_section(&md);
+                let needle = format!("`{pkg}::{}(", function.name);
+                let rendered = signatures.matches(&needle).count();
+                assert_eq!(
+                    rendered,
+                    function.implementations.len(),
+                    "{pkg}::{} registers {} implementation(s) but its page renders \
+                     {rendered} declaration(s)",
+                    function.name,
+                    function.implementations.len()
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 400, "the census walked only {checked} members");
     }
 
     #[test]

@@ -1,0 +1,75 @@
+' ---------------------------------------------------------------------------
+' Tests: standalone lines -- the rule that decides whether a tag on its own line
+' leaves a blank line behind.
+'
+' This is the part of Mustache that separates a template that produces readable
+' output from one that produces a page of empty lines, and it is entirely
+' invisible in a one-line test, so every case here carries its newlines.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+
+PRIVATE FUNC lines(template AS String, data AS String) AS String
+  RETURN render(template, json::parse(data))
+END FUNC
+
+TESTING
+  TGROUP "standalone lines"
+    TCASE "a comment alone on a line takes the whole line with it"
+      expectString(lines("begin\n{{! note }}\nend\n", "{}"), "begin\nend\n")
+      expectString(lines("begin\n  {{! note }}  \nend\n", "{}"), "begin\nend\n")
+    END TCASE
+
+    TCASE "a comment may span lines and still be standalone"
+      expectString(lines("begin\n{{!\nstill\na comment\n}}\nend\n", "{}"), "begin\nend\n")
+    END TCASE
+
+    TCASE "section and inverted tags alone on a line take their lines"
+      expectString(lines("|\n{{#a}}\nin\n{{/a}}\n|\n", "{\"a\":true}"), "|\nin\n|\n")
+      expectString(lines("|\n{{#a}}\nin\n{{/a}}\n|\n", "{\"a\":false}"), "|\n|\n")
+      expectString(lines("|\n  {{^a}}\nout\n  {{/a}}\n|\n", "{\"a\":false}"), "|\nout\n|\n")
+    END TCASE
+
+    TCASE "an INTERPOLATION is content, so its line is never standalone"
+      expectString(lines("|\n  {{a}}\n|\n", "{\"a\":\"\"}"), "|\n  \n|\n")
+      expectString(lines("|\n  {{{a}}}\n|\n", "{\"a\":\"\"}"), "|\n  \n|\n")
+      expectString(lines("|\n  {{&a}}\n|\n", "{\"a\":\"\"}"), "|\n  \n|\n")
+    END TCASE
+
+    TCASE "any non-space text on the line keeps the line"
+      expectString(lines("|\nx {{! note }}\n|\n", "{}"), "|\nx \n|\n")
+      expectString(lines("|\n{{! note }} x\n|\n", "{}"), "|\n x\n|\n")
+    END TCASE
+
+    TCASE "two standalone tags on one line still strip it"
+      ' The rule is "the line carries a tag and no content", not "exactly one
+      ' tag": neither a comment nor a section tag is content.
+      expectString(lines("|\n  {{! a }}{{! b }}  \n|\n", "{}"), "|\n|\n")
+      expectString(lines("|\n{{#a}}{{/a}}\n|\n", "{\"a\":true}"), "|\n|\n")
+    END TCASE
+
+    TCASE "a standalone tag on the FIRST line, with no previous line, still strips"
+      expectString(lines("  {{! note }}\n|\n", "{}"), "|\n")
+      expectString(lines("{{#a}}\nin\n{{/a}}\n", "{\"a\":true}"), "in\n")
+    END TCASE
+
+    TCASE "a standalone tag with no trailing newline strips its indentation"
+      expectString(lines("^{{#a}}\n/\n  {{/a}}", "{\"a\":true}"), "^\n/\n")
+      expectString(lines("|\n  {{! note }}", "{}"), "|\n")
+    END TCASE
+
+    TCASE "CRLF line endings are stripped as a unit"
+      expectString(lines("|\r\n{{! note }}\r\n|", "{}"), "|\r\n|")
+      expectString(lines("|\r\n{{#a}}\r\n{{/a}}\r\n|", "{\"a\":true}"), "|\r\n|")
+    END TCASE
+
+    TCASE "an inline section keeps the surrounding whitespace"
+      expectString(lines(" | {{#a}}yes{{/a}} | \n", "{\"a\":true}"), " | yes | \n")
+      expectString(lines(" | {{#a}}yes{{/a}} | \n", "{\"a\":false}"), " |  | \n")
+    END TCASE
+
+    TCASE "the body of a section repeats the newlines inside it, once per element"
+      expectString(lines("{{#rows}}\n- {{n}}\n{{/rows}}", "{\"rows\":[{\"n\":1},{\"n\":2}]}"), "- 1\n- 2\n")
+    END TCASE
+  END TGROUP
+END TESTING

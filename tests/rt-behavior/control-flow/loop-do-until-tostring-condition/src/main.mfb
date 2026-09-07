@@ -1,0 +1,19 @@
+' bug-57 guard case: the `DO ... LOOP UNTIL` sibling clears loop-entry constants
+' before its condition already, so a `toString`-folding termination test was
+' correct before the fix and must remain so.
+IMPORT io
+
+FUNC main AS Integer
+  MUT c AS Integer = 0
+  MUT guard AS Integer = 0
+  DO
+    c = c + 1
+    guard = guard + 1
+    IF guard > 20 THEN
+      io::print("looping c=" & toString(c))
+      RETURN 0
+    END IF
+  LOOP UNTIL toString(c) = "3"
+  io::print("terminated c=" & toString(c))
+  RETURN 0
+END FUNC

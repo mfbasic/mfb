@@ -1,0 +1,115 @@
+' ---------------------------------------------------------------------------
+' yamljson — convert YAML to JSON and JSON to YAML.
+'
+'   yamljson to-json <file>     read YAML, write JSON
+'   yamljson to-yaml <file>     read JSON, write YAML
+'   yamljson <file>             pick the direction from the file extension
+'
+' The two directions are deliberately asymmetric in one place: YAML is a stream
+' of documents and JSON is one value, so `to-json` on a multi-document stream
+' writes a JSON array of the documents rather than pretending the extra ones
+' were not there.
+' ---------------------------------------------------------------------------
+
+IMPORT yaml
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT fs
+IMPORT io
+IMPORT os
+IMPORT errorCode
+
+FUNC usage() AS String
+  MUT out AS String = "yamljson - convert between YAML and JSON\n"
+  out = out & "\n"
+  out = out & "Usage:\n"
+  out = out & "  yamljson to-json <file> [--compact]   read YAML, write JSON\n"
+  out = out & "  yamljson to-yaml <file>               read JSON, write YAML\n"
+  out = out & "  yamljson <file> [--compact]           pick the direction from the extension\n"
+  out = out & "\n"
+  out = out & "  .yaml / .yml  ->  JSON        .json  ->  YAML\n"
+  out = out & "\n"
+  out = out & "JSON is written indented by two spaces unless --compact is given. A YAML\n"
+  out = out & "stream holding more than one document becomes a JSON array of documents."
+  RETURN out
+END FUNC
+
+' Read YAML and write JSON. One document becomes one JSON value; a stream of
+' several becomes a JSON array, so nothing in the input is dropped.
+FUNC yamlToJson(text AS String, compact AS Boolean) AS String
+  LET documents AS List OF json::Json = yaml::parseAll(text)
+  MUT value AS json::Json = json::JsonNull[NOTHING]
+  IF len(documents) = 1 THEN
+    value = collections::get(documents, 0)
+  ELSE
+    value = json::JsonArr[documents]
+  END IF
+  IF compact THEN RETURN json::stringify(value)
+  RETURN json::stringify(value, 2)
+END FUNC
+
+' Read JSON and write YAML.
+FUNC jsonToYaml(text AS String) AS String
+  RETURN toYaml(json::parse(text))
+END FUNC
+
+' Choose a direction from the file's extension.
+'
+' `fs::pathExtension` returns the extension INCLUDING its leading dot (`mfb man
+' fs pathExtension`), so the comparisons carry one too.
+FUNC directionFor(path AS String) AS String
+  LET extension AS String = strings::lower(fs::pathExtension(path))
+  IF extension = ".yaml" OR extension = ".yml" THEN RETURN "to-json"
+  IF extension = ".json" THEN RETURN "to-yaml"
+  FAIL error(errorCode::ErrInvalidArgument, "cannot tell the direction from `" & path & "` -- say to-json or to-yaml")
+END FUNC
+
+FUNC main() AS Integer
+  LET args AS List OF String = os::args()
+  MUT direction AS String = ""
+  MUT path AS String = ""
+  MUT compact AS Boolean = FALSE
+  FOR EACH arg IN args
+    IF arg = "--compact" THEN
+      compact = TRUE
+    ELSEIF arg = "--help" OR arg = "-h" THEN
+      io::print(usage())
+      RETURN 0
+    ELSEIF arg = "to-json" OR arg = "to-yaml" THEN
+      direction = arg
+    ELSEIF strings::startsWith(arg, "-") THEN
+      io::printError("yamljson: unknown option " & arg)
+      io::print(usage())
+      RETURN 2
+    ELSEIF path = "" THEN
+      path = arg
+    ELSE
+      io::printError("yamljson: more than one input file was given")
+      RETURN 2
+    END IF
+  NEXT
+
+  IF path = "" THEN
+    io::print(usage())
+    RETURN 2
+  END IF
+
+  IF direction = "" THEN
+    direction = directionFor(path)
+  END IF
+
+  LET text AS String = fs::readText(path)
+  IF direction = "to-json" THEN
+    io::print(yamlToJson(text, compact))
+  ELSE
+    io::print(jsonToYaml(text))
+  END IF
+  RETURN 0
+
+  TRAP(problem)
+    io::printError("yamljson: " & problem.message)
+    io::printError("  [" & toString(problem.code) & "] " & problem.source.filename & ":" & toString(problem.source.line))
+    RETURN 1
+  END TRAP
+END FUNC

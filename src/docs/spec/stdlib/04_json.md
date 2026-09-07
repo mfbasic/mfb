@@ -214,11 +214,22 @@ representation for them.
 
 ### String escaping
 
-`__json_escapeString` iterates graphemes and escapes `"` → `\"`, `\` → `\\`,
-newline → `\n`, tab → `\t`, carriage return → `\r`, backspace (U+0008) → `\b`,
-form feed (U+000C) → `\f`. Any remaining control character (code point `< 32`)
-is emitted as a `\u00XX` escape; all other characters pass through unchanged
-(non-ASCII is left as raw UTF-8, not `\u`-escaped).
+`__json_escapeString` iterates **code points** (`encoding::utf32Encode`) and
+escapes `"` → `\"`, `\` → `\\`, newline → `\n`, tab → `\t`, carriage return →
+`\r`, backspace (U+0008) → `\b`, form feed (U+000C) → `\f`. Any remaining
+control character (code point `< 32`) is emitted as a `\u00XX` escape; all other
+characters pass through unchanged (non-ASCII is left as raw UTF-8, not
+`\u`-escaped).
+
+The unit is load-bearing. RFC 8259 defines escaping per code point, and the
+walk used to be over **graphemes**, which disagree on the one input every
+Windows file has: CR followed by LF is a single extended grapheme cluster
+(UAX #29 rule GB3). A grapheme walk was handed `\r\n` whole, matched neither
+the `\r` arm nor the `\n` arm, got `FALSE` from `__json_isRawControlChar`
+because the cluster holds two scalars, and emitted both control bytes RAW — so
+any string carrying a Windows line ending was stringified into a document no
+JSON parser would read back. A grapheme is a *display* unit; every escaping
+rule here is a *code point* rule.
 
 The solidus `/` is **not** escaped on output. Escaping it is permitted by JSON
 but not required, and `JSON.stringify` does not do it, so a document produced

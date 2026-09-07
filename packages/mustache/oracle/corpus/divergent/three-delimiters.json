@@ -1,0 +1,7 @@
+{
+  "template": "{{=a b c=}}aXb",
+  "data": {
+    "X": "hit"
+  },
+  "partials": {}
+}

@@ -903,7 +903,7 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     // so a table shorter than the variant set binds a neighbouring state slot as a
     // pipeline handle. Tying the literal to the constant is what makes adding a
     // `BlendMode` variant fail here rather than in a frame.
-    debug_assert_eq!(
+    assert_eq!(
         modes.len(),
         BLEND_MODE_COUNT,
         "one pipeline per BlendMode variant"
@@ -2605,9 +2605,12 @@ fn emit_item_publish(asm: &mut Asm, full: &str) {
     asm.push(abi::load_u64(value, abi::stack_pointer(), OFF_CONTENTS));
     asm.push(abi::add_registers(target, value, target));
 
-    debug_assert_eq!(
-        ITEM_BLOCK_SIZE % 8,
-        0,
+    // bug-550: a `const` assertion, not a `debug_assert_eq!`. Both operands are
+    // compile-time constants, so this is decidable when the compiler ITSELF is
+    // built and costs nothing at run time — strictly better than an assertion that
+    // ran nowhere because CI builds `--release`.
+    const _: () = assert!(
+        ITEM_BLOCK_SIZE % 8 == 0,
         "the item block is copied to the buffer eight bytes at a time"
     );
     for word in 0..ITEM_BLOCK_SIZE / 8 {

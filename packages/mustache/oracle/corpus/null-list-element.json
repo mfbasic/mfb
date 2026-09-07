@@ -1,0 +1,16 @@
+{
+  "template": "list [{{#rows}}<{{name}}>{{/rows}}]\nimplicit [{{#rows}}<{{.}}>{{/rows}}]\ndotted [{{#rows}}<{{a.b}}>{{/rows}}]\nouter falls through [{{#rows}}<{{outer}}>{{/rows}}]\n",
+  "data": {
+    "rows": [
+      {
+        "name": "one"
+      },
+      null,
+      {
+        "name": "two"
+      }
+    ],
+    "outer": "root"
+  },
+  "partials": {}
+}

@@ -13,5 +13,8 @@ r#"FUNC __crypto_sha1_text(data AS String) AS List OF Byte
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    pkg.add_helper(RegistryHelper::always("crypto_sha1_text", BODY));
+    pkg.add_helper(RegistryHelper::always_natively_called(
+        "crypto_sha1_text",
+        BODY,
+    ));
 }

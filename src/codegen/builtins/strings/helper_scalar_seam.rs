@@ -147,11 +147,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         gate: HelperGate::WhenUsed(SEAM_MEMBERS),
         body: Some(SEAM),
         import_name: None,
+        natively_called: false,
     });
     pkg.add_helper(RegistryHelper {
         name: "strings",
         gate: HelperGate::WhenImported("astrings"),
         body: Some(SEAM),
         import_name: None,
+        natively_called: false,
     });
 }

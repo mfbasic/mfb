@@ -1671,7 +1671,8 @@ mod tests {
     /// whole rows, which is the same forgery one line down. This is pinned
     /// because it is exactly what makes sanitizing at the PRINT site wrong — see
     /// `sanitize_server_text`'s note and
-    /// `tests/cli_multiline_errors_keep_newlines.rs`.
+    /// `tests/cli/cli_untrusted_registry_text_is_escaped.rs`'s
+    /// `a_multiline_usage_error_keeps_its_real_newlines`.
     #[test]
     fn a_server_authored_newline_is_escaped() {
         assert_eq!(

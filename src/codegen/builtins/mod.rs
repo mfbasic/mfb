@@ -452,7 +452,7 @@ pub(crate) fn resolve_call_return_type_typed(
     // feeding IR lowering / codegen) keep the coarse match so a nominally-spelled
     // argument does not perturb type propagation.
     //
-    // Three packages carry a computed return the generic matcher cannot express
+    // Four packages carry a computed return the generic matcher cannot express
     // and keep their own co-located resolver:
     //
     // * `general` — bare-named, so disjoint from every qualified member and
@@ -462,6 +462,10 @@ pub(crate) fn resolve_call_return_type_typed(
     //   a per-type return, which the coarse-nominal matcher cannot select.
     // * `strings` — carries the `AttributedString` Tier-A/Tier-B return typing,
     //   deferring to the generic path for every other call (plan-99 PART B).
+    // * `regex` — carries the `AttributedString` Tier-A return typing for its query
+    //   members (bug-534). Tier-A only: `regex::replace` has no attribute-preserving
+    //   form, so it deliberately keeps the generic path and stays a type error for
+    //   an `AttributedString`.
     //
     // plan-111-C: all three take and return `ParameterType` now, so this is the
     // ONE entry — the render-in/parse-out pocket plan-104-C recorded here as a
@@ -474,6 +478,9 @@ pub(crate) fn resolve_call_return_type_typed(
     }
     if crate::codegen::registry::registry().owning_package(callee) == Some("strings") {
         return crate::codegen::builtins::strings::resolve_return_type(callee, arg_types, strict);
+    }
+    if crate::codegen::registry::registry().owning_package(callee) == Some("regex") {
+        return crate::codegen::builtins::regex::resolve_return_type(callee, arg_types, strict);
     }
     if crate::codegen::registry::registry().is_member(callee) {
         return crate::codegen::registry::resolve_call_typed(callee, arg_types, strict);
@@ -1088,6 +1095,63 @@ mod tests {
     /// front-end warned `TYPE_INLINE_TRAP_DEAD_HANDLER` on a LIVE handler, elided
     /// it, and the guarded call aborted the program instead of recovering.
     ///
+    /// The four `strings` members that RAISE `ErrInvalidArgument` and used to
+    /// declare no error at all.
+    ///
+    /// `strings::left`/`right` (negative `count`) and `padLeft`/`padRight`
+    /// (negative `width`, a `padChar` that is not exactly one scalar, an
+    /// unrepresentable result size) all raise through `raise_error_bare`, which
+    /// skips the "declares what it raises" assertion. Their descriptors said
+    /// `errors: vec![]`, so `native_member_declares_error` answered `Some(false)`
+    /// and the front-end proved the call infallible — eliding a LIVE inline
+    /// `TRAP` handler and letting `77050002` abort the program. Same shape as
+    /// bug-486 (`toString`) and bug-533 (`replace`).
+    ///
+    /// The verdict is registry-derived, so declaring the error is the whole fix:
+    /// it makes the member fallible AND raw-supported through the same
+    /// `native_member_declares_error` query, and `try_abi_inline_lower` already
+    /// runs an `abi_inline` body under the raw capture.
+    #[test]
+    fn the_raising_strings_members_are_not_infallible() {
+        for name in [
+            "strings.left",
+            "strings.right",
+            "strings.padLeft",
+            "strings.padRight",
+        ] {
+            assert!(
+                !inline_builtin_is_infallible(name, &[]),
+                "{name} raises ErrInvalidArgument; an infallible verdict elides a live handler"
+            );
+            assert!(
+                inline_builtin_raw_supported(name, &[]),
+                "{name} is fallible, so an inline TRAP needs a raw lowering"
+            );
+            assert!(!inline_trap_unsupported(name, &[]));
+            // The verdict does not depend on the argument types, so a consumer
+            // that skips typing them still gets the fallible answer.
+            assert!(!inline_builtin_fallibility_depends_on_args(name));
+        }
+
+        // The POSITIVE half: the neighbours that genuinely cannot fail keep their
+        // infallible verdict. A fix that made every `strings` member fallible
+        // would pass the assertions above and fail here.
+        for name in [
+            "strings.upper",
+            "strings.lower",
+            "strings.trim",
+            "strings.byteLen",
+            "strings.contains",
+            "strings.displayWidth",
+        ] {
+            assert!(
+                inline_builtin_is_infallible(name, &[]),
+                "{name} raises nothing trappable and must stay infallible"
+            );
+            assert!(!inline_builtin_raw_supported(name, &[]));
+        }
+    }
+
     /// The rule fails CLOSED: only a provable `List` first argument is
     /// infallible. Over-approximating keeps a handler that could not have run;
     /// the other direction is the miscompile above.
@@ -1493,6 +1557,451 @@ mod plan111f_probe {
                 Some(vec![expected]),
                 "{call} must resolve through the registry, not the string tail"
             );
+        }
+    }
+}
+
+/// bug-553: the `tcp`/`tls` mirror pair's declared error lists, pinned against the
+/// sets their lowerings can actually raise.
+///
+/// Twenty-eight of the pair's thirty-four registry implementations declared
+/// `errors: vec![]` while raising `ErrConnectionClosed`, `ErrTimeout`,
+/// `ErrTlsFailed` and `ErrNetworkFailed` in ordinary operation, so
+/// `mfb man tcp read` and `mfb man tls write` shipped no Errors section at all.
+///
+/// The tables below are derived from each member's LOWERING — the `emit_fail`
+/// closure over its selected helper, unioned across the three TLS backends —
+/// rather than from the pages' prose, which is what was being corrected. Two
+/// properties are pinned, and the second is the one an audit gets wrong:
+///
+/// - every error a member's lowering can raise is declared, and
+/// - **no member declares an error its lowering cannot raise.** A wrong list is
+///   worse than an empty one: it understates nothing but it lies, and it would
+///   feed bad data to [`inline_builtin_is_infallible`] for any member that moved
+///   to an inline-lowerable body.
+///
+/// Three traps this table is the record of:
+///
+/// - **Key by (package, member), never by bare member name.** `tcp` and `tls` are
+///   mirror packages whose lowerings share every name (`lower_read`,
+///   `lower_write`, `lower_close`, …); a bare-name census merges them and reports
+///   that `tcp::close` raises `ErrTlsFailed`.
+/// - **A raise site inside a Rust `if` on a lowering parameter is not in every
+///   caller's set.** `lower_net_read_helper`'s `ErrEncoding` sits inside
+///   `if text`, and `tcp::read` passes `text = false` — so `tcp::read` cannot
+///   raise it. `lower_fs_close_helper`'s `ErrWriteFailed` sits inside
+///   `if flush_on_close`, which `tcp`/`udp` pass `false`; that is why
+///   `tcp::close`'s pre-existing three-error list was already right.
+///   `lower_net_endpoint_helper` serves both `connect` and `listen`: its
+///   `ErrTimeout` label is emitted on the listen path but nothing branches to it,
+///   and `ErrAddressNotFound`/`ErrAddressInvalid` are the two arms of one `if
+///   listen`.
+/// - **A helper that `bl`s another helper by SYMBOL is a call-graph edge no Rust
+///   call expression shows.** `lower_tls_poll_list_helper` branch-links
+///   `_mfb_rt_tls_tls_poll` and propagates its error, so the list overload's set
+///   is the scalar overload's plus `ErrInvalidArgument`/`ErrTimeout`.
+#[cfg(test)]
+mod tcp_tls_error_declaration_tests {
+    /// Each registry implementation of `package` as `("member(paramType, …)",
+    /// declared errors)`, in registration order. The key names the PACKAGE's own
+    /// member and its parameter types, so the two mirror packages' identically
+    /// named overloads can never be confused for each other.
+    fn declared_rows(package: &str) -> Vec<(String, Vec<&'static str>)> {
+        let registry = crate::codegen::registry::registry();
+        let package = registry
+            .resolve_package(package)
+            .unwrap_or_else(|| panic!("{package} is a registered package"));
+        let mut rows = Vec::new();
+        for function in package.functions() {
+            for implementation in function.implementations() {
+                let params = implementation
+                    .params
+                    .iter()
+                    .map(|param| param.ty.name().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                rows.push((
+                    format!("{}({params})", function.name),
+                    implementation.errors.clone(),
+                ));
+            }
+        }
+        rows
+    }
+
+    fn assert_rows(package: &str, expected: &[(&str, &[&str])]) {
+        let actual = declared_rows(package);
+        // On any mismatch, print the whole actual table: a new overload shifts
+        // every later row, and the diff of one row is unreadable without it.
+        let rendered: Vec<String> = actual
+            .iter()
+            .map(|(key, errors)| format!("    (\"{key}\", &{errors:?}),"))
+            .collect();
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "{package} overload count changed; actual rows:\n{}",
+            rendered.join("\n")
+        );
+        for (index, ((key, errors), (want_key, want_errors))) in
+            actual.iter().zip(expected.iter()).enumerate()
+        {
+            assert_eq!(
+                (key.as_str(), errors.as_slice()),
+                (*want_key, *want_errors),
+                "{package} row {index} disagrees; actual rows:\n{}",
+                rendered.join("\n")
+            );
+        }
+    }
+
+    #[test]
+    fn every_tcp_member_declares_the_errors_its_lowering_raises() {
+        assert_rows(
+            "tcp",
+            &[
+                // All four `connect` overloads select `lower_net_endpoint_helper`
+                // with `listen = false`: a negative `timeoutMs` is
+                // ErrInvalidArgument, an unresolvable host ErrAddressNotFound
+                // (the `listen` arm of the same branch answers
+                // ErrAddressInvalid), the deadline ErrTimeout.
+                (
+                    "connect(String, Integer)",
+                    &[
+                        "ErrAddressNotFound",
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrTimeout",
+                    ],
+                ),
+                (
+                    "connect(String, Integer, Integer)",
+                    &[
+                        "ErrAddressNotFound",
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrTimeout",
+                    ],
+                ),
+                (
+                    "connect(net.Address)",
+                    &[
+                        "ErrAddressNotFound",
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrTimeout",
+                    ],
+                ),
+                (
+                    "connect(net.Address, Integer)",
+                    &[
+                        "ErrAddressNotFound",
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrTimeout",
+                    ],
+                ),
+                // `listen = true` in the same helper: no timeout wait is branched
+                // to (the label is emitted but unreachable), the backlog is
+                // clamped rather than refused, and an unusable bind address is
+                // ErrAddressInvalid.
+                (
+                    "listen(String, Integer, Integer)",
+                    &["ErrAddressInvalid", "ErrNetworkFailed", "ErrOutOfMemory"],
+                ),
+                (
+                    "accept(tcp.Listener, Integer)",
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                    ],
+                ),
+                // NOT ErrEncoding: that raise is inside `if text` and `tcp::read`
+                // passes `text = false`. `maxBytes <= 0` is ErrInvalidArgument.
+                (
+                    "read(tcp.Socket, Integer)",
+                    &[
+                        "ErrConnectionClosed",
+                        "ErrInvalidArgument",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                    ],
+                ),
+                // The byte form validates the payload block's header (bug-497) —
+                // that check, and so ErrInvalidArgument, is `if !text` only.
+                (
+                    "write(tcp.Socket, List OF Byte)",
+                    &[
+                        "ErrConnectionClosed",
+                        "ErrInvalidArgument",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                    ],
+                ),
+                (
+                    "write(tcp.Socket, String)",
+                    &["ErrConnectionClosed", "ErrResourceClosed", "ErrTimeout"],
+                ),
+                // Readiness is a query: the scalar form answers an expired
+                // deadline with FALSE, so it has no ErrTimeout. The list form has
+                // no value that could mean "nothing" and raises instead.
+                (
+                    "poll(tcp.Socket, Integer)",
+                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                ),
+                (
+                    "poll(List OF RES tcp.Socket, Integer)",
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                    ],
+                ),
+                // Already correct before bug-553, and the standing proof that the
+                // parameter-gated reading is the right one: `lower_fs_close_helper`
+                // also raises ErrWriteFailed, but only under `flush_on_close`,
+                // which `tcp` passes `false`.
+                (
+                    "close(tcp.Socket)",
+                    &["ErrResourceClosed", "ErrResourceMoved", "ErrCloseFailed"],
+                ),
+                (
+                    "close(tcp.Listener)",
+                    &["ErrResourceClosed", "ErrResourceMoved", "ErrCloseFailed"],
+                ),
+                (
+                    "localAddress(tcp.Socket)",
+                    &["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed"],
+                ),
+                (
+                    "localAddress(tcp.Listener)",
+                    &["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed"],
+                ),
+                (
+                    "remoteAddress(tcp.Socket)",
+                    &["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed"],
+                ),
+                (
+                    "setReadTimeout(tcp.Socket, Integer)",
+                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                ),
+                (
+                    "setWriteTimeout(tcp.Socket, Integer)",
+                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                ),
+            ],
+        );
+    }
+
+    /// The `tls` half. Every row is the UNION over the three backends
+    /// (Network.framework, OpenSSL, Schannel), because the descriptor is
+    /// platform-independent and a page cannot say "ErrAddressNotFound on Linux".
+    /// That union is where the pair legitimately diverges: `.ai/net-tls.md`
+    /// records the backends naming one event three ways, and the union is the only
+    /// honest single answer.
+    #[test]
+    fn every_tls_member_declares_the_errors_its_lowering_raises() {
+        assert_rows(
+            "tls",
+            &[
+                (
+                    "connect(String, Integer, Integer, String, Boolean)",
+                    &[
+                        "ErrAddressNotFound",
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrTimeout",
+                        "ErrTlsFailed",
+                    ],
+                ),
+                (
+                    "connect(net.Address, Integer, String, Boolean)",
+                    &[
+                        "ErrAddressNotFound",
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrTimeout",
+                        "ErrTlsFailed",
+                    ],
+                ),
+                (
+                    "listen(String, Integer, String, String, Integer)",
+                    &[
+                        "ErrAddressInvalid",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrTlsFailed",
+                    ],
+                ),
+                (
+                    "accept(tls.Listener, Integer)",
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                        "ErrTlsFailed",
+                    ],
+                ),
+                (
+                    "read(tls.Socket, Integer)",
+                    &[
+                        "ErrConnectionClosed",
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                        "ErrTlsFailed",
+                    ],
+                ),
+                // Same `if !text` payload-header check as `tcp::write`.
+                (
+                    "write(tls.Socket, List OF Byte)",
+                    &[
+                        "ErrConnectionClosed",
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                        "ErrTlsFailed",
+                    ],
+                ),
+                (
+                    "write(tls.Socket, String)",
+                    &[
+                        "ErrConnectionClosed",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                        "ErrTlsFailed",
+                    ],
+                ),
+                // macOS answers the endpoint query out of the Network.framework
+                // connection (ErrNetworkFailed); Linux and Windows share `tcp`'s
+                // `getsockname` emitter (ErrAddressInvalid). The union is both.
+                (
+                    "localAddress(tls.Socket)",
+                    &[
+                        "ErrAddressInvalid",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                    ],
+                ),
+                (
+                    "localAddress(tls.Listener)",
+                    &[
+                        "ErrAddressInvalid",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                    ],
+                ),
+                (
+                    "remoteAddress(tls.Socket)",
+                    &[
+                        "ErrAddressInvalid",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                    ],
+                ),
+                (
+                    "setReadTimeout(tls.Socket, Integer)",
+                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                ),
+                (
+                    "setWriteTimeout(tls.Socket, Integer)",
+                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                ),
+                // The scalar form answers an expired deadline FALSE, so no
+                // ErrTimeout. The list form branch-links the scalar helper and
+                // propagates its error, so its set is the scalar's plus the two it
+                // raises itself.
+                (
+                    "poll(tls.Socket, Integer)",
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTlsFailed",
+                    ],
+                ),
+                (
+                    "poll(List OF RES tls.Socket, Integer)",
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrNetworkFailed",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrTimeout",
+                        "ErrTlsFailed",
+                    ],
+                ),
+                // Already correct before bug-553 (bug-525 made a second close
+                // refuse) — pinned so the audit cannot churn a right answer.
+                ("close(tls.Socket)", &["ErrResourceClosed", "ErrTlsFailed"]),
+                (
+                    "close(tls.Listener)",
+                    &["ErrResourceClosed", "ErrTlsFailed"],
+                ),
+            ],
+        );
+    }
+
+    /// The reason a WRONG list would have been worse than an empty one, pinned:
+    /// today these lists are inert for the dead-handler verdict, and this is what
+    /// makes that true.
+    ///
+    /// [`super::inline_builtin_is_infallible`] reaches its registry-data branch
+    /// through [`crate::codegen::registry::native_member_declares_error`], which
+    /// answers `None` unless the member owns a [`Body::AbiInline`] call-site
+    /// lowering. Every `tcp`/`tls` member is an `abi_function` (a `bl`'d runtime
+    /// helper), so no list here — right, wrong, or empty — can prove a raising
+    /// member infallible and delete a live `TRAP` handler the way bug-486,
+    /// bug-533 and `strings::left`/`right`/`padLeft`/`padRight` did.
+    ///
+    /// If a member here ever moves to an inline-lowerable body this test goes red,
+    /// which is exactly when the tables above start being load-bearing for
+    /// codegen rather than for the man pages.
+    #[test]
+    fn no_tcp_or_tls_error_list_reaches_the_infallibility_verdict() {
+        use crate::codegen::registry::{native_bare_target, native_member_declares_error};
+        let registry = crate::codegen::registry::registry();
+        for package_name in ["tcp", "tls"] {
+            let package = registry
+                .resolve_package(package_name)
+                .expect("a registered package");
+            for function in package.functions() {
+                let qualified = format!("{package_name}.{}", function.name);
+                assert_eq!(
+                    native_member_declares_error(&qualified),
+                    None,
+                    "{qualified} is not an abi_function any more — its `errors` list \
+                     now feeds inline_builtin_is_infallible, so it must be exact",
+                );
+                assert_eq!(
+                    native_bare_target(&qualified),
+                    None,
+                    "{qualified} dequalifies to a bare inline native name",
+                );
+            }
         }
     }
 }

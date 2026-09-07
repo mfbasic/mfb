@@ -561,6 +561,109 @@ pub(crate) fn imported_type_defs(
     imported_type_defs_from_files(&packages)
 }
 
+/// The TYPE names each imported (non-builtin) package exports, keyed by package
+/// name: every exported record/union/enum, every union variant, and every
+/// resource type. Read from the same installed `.mfp`s as
+/// [`imported_type_defs`], and lossy in the same way — a package whose metadata
+/// cannot be read contributes no names, which leaves a qualified spelling under
+/// it alone rather than guessing.
+///
+/// The parser consumes this to decide whether `pkg::Leaf` in a TYPE position is
+/// really one of `pkg`'s types (`FileParser::normalize_qualified_type_name`).
+/// Without it the parser de-qualified every `pkg::Leaf` it saw in a type
+/// position, so `pkg::NoSuchType` reached name resolution as the bare
+/// `NoSuchType` and was reported as an unknown project type — losing the
+/// package attribution bug-480 exists to give it.
+pub(crate) fn imported_type_names(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> HashMap<String, std::collections::HashSet<String>> {
+    let Ok(packages) = installed_package_files(project_dir, manifest) else {
+        return HashMap::new();
+    };
+    let mut names: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for package in &packages {
+        let Ok(decode) = binary_repr::BinaryReprPackageDecode::read(package) else {
+            continue;
+        };
+        let Ok(package_name) = decode.name() else {
+            continue;
+        };
+        let entry = names.entry(package_name).or_default();
+        if let Ok(exports) = decode.type_exports() {
+            for export in exports {
+                match export.kind {
+                    binary_repr::BinaryReprExportKind::Type
+                    | binary_repr::BinaryReprExportKind::Union
+                    | binary_repr::BinaryReprExportKind::Enum => {
+                        entry.insert(export.name);
+                        for variant in export.variants {
+                            entry.insert(variant.name);
+                        }
+                    }
+                    // A function or a sub is not a type; de-qualifying one would
+                    // rename the call target, which is the over-correction the
+                    // type-position normalizer exists to avoid.
+                    binary_repr::BinaryReprExportKind::Func
+                    | binary_repr::BinaryReprExportKind::Sub => {}
+                }
+            }
+        }
+        // A resource type is not in the export table (it has its own section),
+        // and `RES h AS pkg::Handle` is a type position like any other.
+        if let Ok(resources) = decode.resources() {
+            for resource in resources {
+                entry.insert(resource.type_name);
+            }
+        }
+    }
+    names
+}
+
+/// The exported top-level `LET`/`MUT` bindings of every imported (non-builtin)
+/// package, keyed by the `package.Name` spelling a consumer reads them by
+/// (bug-551). Read from the same installed `.mfp`s as [`imported_type_defs`],
+/// and lossy in the same way — a package whose metadata cannot be read
+/// contributes nothing, which leaves its names untyped rather than guessing.
+pub(crate) fn imported_global_defs(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> Vec<ir::ImportedGlobal> {
+    let Ok(packages) = installed_package_files(project_dir, manifest) else {
+        return Vec::new();
+    };
+    imported_global_defs_from_files(&packages)
+}
+
+pub(crate) fn imported_global_defs_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedGlobal> {
+    let mut defs = Vec::new();
+    for package in packages {
+        let Ok(info) = binary_repr::read_package_info(package) else {
+            continue;
+        };
+        for global in info.globals {
+            // Only `EXPORT` crosses a package boundary. `PRIVATE`/`PUBLIC`
+            // bindings are in the same table (the writer records visibility in
+            // the entry flags rather than omitting the row), and a `PRIVATE`
+            // one additionally reaches here under its mangled
+            // `#<identity>$Name` spelling — so filtering on the recorded
+            // visibility is the rule, not the mangling.
+            if global.visibility != "export" {
+                continue;
+            }
+            defs.push(ir::ImportedGlobal {
+                name: format!("{}.{}", info.manifest_name, global.name),
+                // The `.mfp` GLOBAL table renders the declared type as text;
+                // this is where it stops being one, the same boundary
+                // `imported_type_field` crosses for a record field.
+                type_: crate::types::ParameterType::parse(&global.type_),
+                mutable: global.mutable,
+            });
+        }
+    }
+    defs
+}
+
 pub(crate) fn imported_type_defs_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedTypeDef> {
     let mut defs = Vec::new();
     for package in packages {

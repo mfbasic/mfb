@@ -14,7 +14,7 @@ FUNC __astrings_windowSpans(spans AS List OF AttrSpan, w0 AS Integer, w1 AS Inte
   MUT out AS List OF AttrSpan = []
   FOR EACH s IN spans
     MUT lo AS Integer = s.start
-    MUT hi AS Integer = s.last
+    MUT hi AS Integer = s.endIndex
     IF lo < w0 THEN
       lo = w0
     END IF

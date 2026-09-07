@@ -323,6 +323,39 @@ Two-profile runtime proof for a linux-riscv64 binary (cross-compiled on the Mac,
 
 Verified with a `getauxval(AT_HWCAP)` probe: native hwcap=0x112d (V=0), `v=true` hwcap=0x20112d (V=1). `gcc` (native riscv64) is present on 2232 for building reference probes.
 
+### riscv64 branch relaxation — `jal` is the widest jump there is (bug-453)
+
+`rv.br`'s 8-byte long form dodges the ±4 KiB B-type by *emitting a `jal`*, so
+**both** `CodeOp::Branch` and `CodeOp::RvBr` die at the same ±1 MiB `jal` reach in
+a large enough function — two emitter paths, one threshold. Relaxing only the
+standalone `b` (the shape bug-453 was filed as) would leave the conditional half
+rejecting functions of identical size, and the bug would read as fixed.
+
+Do **not** reach for `auipc`+`jalr`: it needs a destination register that is dead
+at the rewrite site and rv64 has none (`t0`–`t2` are lowering scratch, `gp` is the
+plan-99 flag register, `tp` faults a dynamically-linked binary through TLS, and
+shrinking `INT_ALLOCATABLE` trips the allocator fault below). The `RvBr` case is
+decisive: its `jal` sits *inside* an expansion where `t0`–`t2` liveness is not
+knowable at the relaxation site.
+
+`src/arch/riscv64/encode/relax.rs` instead chains **register-free hops**:
+`jal zero, over; hop: jal zero, onward; over:`, spliced *between* source and
+target at ≤ half-reach intervals. bug-445's AArch64 shape does not port — an
+*adjacent* trampoline works there only because the veneer's `b` (imm26) is wider
+than the branch it replaces; rv64 has nothing wider, so an adjacent island is
+exactly as far out of range as the original jump. Relaxing never resizes the
+branch itself (only its `target` field is rewritten), so the pass is a strict
+no-op in range and every existing rv64 golden is byte-identical.
+
+Two traps that cost real time here: (1) **share one island ladder per target per
+side.** A large function reaches one trap stub from thousands of sites; a private
+chain per site inserts millions of islands and `Vec::splice` per island is
+quadratic — a 50 MiB function did not finish in 10 minutes. (2) **A green
+cross-build is not proof.** Verify on 2229 with a program that actually *takes*
+the relaxed jump (an early `TRAP` raise in a >2 MiB function reaches `trap_0`
+through the chain); a build that merely encodes proves only that the displacement
+fit.
+
 ### riscv64 flag-emulation reserved slots
 
 The flagless riscv64 backend (`select_riscv64`) emulates condition flags: a bare (non-fused) `cmp` whose flag-reading branch is not adjacent must keep BOTH compared *values* live from compare to branch. `gp` (x3) holds the lhs. There is **no free second register** for the rhs, so it goes to memory:
@@ -396,7 +429,7 @@ Debugging technique that cracked it: **taking `close` out of the picture** — a
 
 ### Windows codegen verification
 
-`windows-x86_64` codegen **does** have some `.ncodesum` byte-identity goldens and `scripts/artifact-gate.sh` **does** check them — the gate discovers targets from golden *filenames*, so any fixture that ships a `<pkg>.windows-x86_64[.app].ncodesum` golden is cross-compiled and sha256-checked on the macOS host. Confirmed present: `tests/byte-identity/math` (console) and `tests/syntax/app/macos-app-mode-{io,plumbing,term}` (app-mode). So a Windows codegen change to a *covered* fixture IS caught by the gate (it reports `DIFF …windows-x86_64[.app].ncode (sha256)`). Regenerate by building `-ncode -target windows-x86_64 [--app]` and `shasum -a 256 > golden`. `byte-identity/{datetime,http,tls,term,crypto,net,strings,general,io,encoding,regex,audio}` also ship windows `.ncodesum` goldens. (The Windows CNG EC verify fix shifted `byte-identity/crypto`'s windows sum — the other four crypto targets stayed byte-identical, and a base-vs-fix `-ncode` diff confirmed the delta was confined to the six p256/p384/p521 Sign/Verify symbols.)
+`windows-x86_64` codegen **does** have some `.ncodesum` byte-identity goldens and `scripts/artifact-gate.sh` **does** check them — the gate discovers targets from golden *filenames*, so any fixture that ships a `<pkg>.windows-x86_64[.app].ncodesum` golden is cross-compiled and sha256-checked on the macOS host. Confirmed present: `tests/byte-identity/math` (console) and `tests/syntax/app/macos-app-mode-{io,plumbing,term}` (app-mode). So a Windows codegen change to a *covered* fixture IS caught by the gate (it reports `DIFF …windows-x86_64[.app].ncode (sha256)`). Regenerate by building `-ncode -target windows-x86_64 [--app]` and `shasum -a 256 > golden`. `byte-identity/{datetime,http,tls,term,crypto,net,strings,general,io,encoding,regex,audio,os}` also ship windows `.ncodesum` goldens. (`os` joined that list only in bug-454: `os_codegen_cover_rt` calls `os::resourcePath`, which windows-x86_64 refused to lower at all, so the fixture had no windows sum to compare and the whole `os` Windows surface was uncovered. If a fixture is missing ONE target's sum, ask why before assuming it was an oversight — and once the reason is gone, add it.) (The Windows CNG EC verify fix shifted `byte-identity/crypto`'s windows sum — the other four crypto targets stayed byte-identical, and a base-vs-fix `-ncode` diff confirmed the delta was confined to the six p256/p384/p521 Sign/Verify symbols.)
 
 STALE-GOLDEN TRAP: a change to Windows codegen for a covered fixture that regenerates the OTHER targets' goldens but skips the windows sum leaves the gate RED on `main` for the next person. If you touch Windows codegen, regenerate the windows sum too; if you find one stale, it's a real gate-red to fix (regen blesses the shipped fixed bytes — verify determinism by building twice). Coverage is still partial, so for a Windows path with no golden, verify the two ways below.
 
@@ -415,6 +448,69 @@ Pattern (`schannel_io.rs`): a `#[cfg(test)] mod` calls the private emit helper d
 Prior art: `openssl.rs` tests use `TestPlatform` + `has_label` the same way. Runs under plain `cargo test --bin mfb`. Complements the whole-pipeline goldens / PE disasm / box 2230 verification — this is the unit-level ABI guard.
 
 Gotcha hit along the way: `cargo fmt --all -- <file>` does NOT scope to that file AND main is not rustfmt-1.9.0-clean, so a tree-wide fmt churns ~90 unrelated files — verify your added block is clean with a scratch-copy `rustfmt --check` instead of running a repo-wide format.
+
+### A platform hook that moves `sp` mid-body must have nothing live across it
+
+Several `CodegenPlatform` hooks carve a temporary frame around a Win32 call —
+`emit_os_wide_string` (`subtract_stack(0x60)`), `emit_fs_path_operation` /
+`emit_marshal_path` (`MARSHAL_FRAME`), `emit_errno` (`0x20` shadow). Two facts
+make that a live hazard for whoever *calls* them:
+
+* Every x86-64 spill slot is addressed `[rsp + offset]`
+  (`X86_64RegisterModel::emit_spill`), and the slot area sits **above** the
+  function's declared locals (`builder_registers`: `spill_base =
+  align(stack_size, 16)`).
+* `finalize_frame`'s `adjust_stack_instruction_offsets` deliberately shifts only
+  **depth-0** `sp`-relative accesses; anything between a `sub_sp` and its
+  `add_sp` is left unshifted, because it belongs to the temporary region.
+
+So a value the allocator spills *before* the `sub_sp` and reloads *inside* it
+would be read `N` bytes away from where it was stored. Nothing catches that: the
+`.ncodesum` goldens ratify whatever is emitted, and a program that happens not to
+depend on the corrupted value still passes its runtime test.
+
+The x86-64 allocatable integer pool is FOUR registers (`r10 r11 r12 r14`), so
+any body with real pressure spills — `os::resourcePath` has seven spill slots.
+What makes it safe there is that the hook's window contains **no
+allocator-visible vreg operand at all** (its body names physical ABI registers
+and its own frame slots), so the allocator has nothing to place inside it. That
+is a property to verify, not assume, whenever you call one of these hooks from a
+body that holds a value across it.
+
+Verify it on the emitted plan, not by reading the allocator: build `-ncode
+-target windows-x86_64`, find the hook's `sub_sp N` … `add_sp N`, and assert
+every `base: "rsp"` access strictly inside has `offset < N`. That is
+`tests/codegen_win64_resource_path.rs::nothing_addresses_outside_the_windows_acquisition_frame`.
+Watch out when counting `sub_sp` depth: the Win64 **prologue** for a frame over
+one page is itself `sub_sp 4096` / stack probe / `sub_sp <rest>` torn down by a
+single `add_sp`, so naive depth counting reads the whole body as nested — anchor
+on the `bl <Win32Fn>` instead.
+
+### Windows path bytes are `\`-delimited; MFB path JOINS stay `/`
+
+Two different rules, and mixing them up is a runtime-only failure:
+
+* **Bytes the OS produced** carry the native separator. `GetModuleFileNameW`
+  returns `C:\dir\app.exe` and `GetFullPathNameW` normalizes to `\`, so any
+  scan over them must compare against **92** on Windows. `fs::isWithin`'s
+  `within_sep` (`fs/gen_canonical.rs`) and `os::resourcePath`'s backward scan
+  (`os/func_resource_path.rs`) both do. bug-454's reported symptom was exactly
+  this: a `/`-only backward scan over `C:\...\app.exe` finds no separator, runs
+  the cursor to 0 and raises `ErrUnsupported` — proven by flipping the byte back
+  to 47 and running the `.exe` on box 2230 (`Error: 7-705-0007`).
+* **Portable MFB path strings** are `/`-delimited on every target, including
+  Windows: `fs::pathJoin`/`pathNormalize` use `SEP = 47` unconditionally
+  (`fs/gen_path_builder.rs`), and Win32 accepts `/` in every path it parses. So
+  `os::resourcePath` joins base and relative with `/` on Windows too, producing
+  `C:\proj\build/song.ogg` — which opens, and which keeps
+  `strings::endsWith(p, "/song.ogg")` true on every target.
+
+The one place Windows needs a *third* answer is **validating** a caller-supplied
+relative path: `\` is a directory separator to every Win32 API, so `..\secret`
+traverses out of a base exactly as `../secret` does. `os::resourcePath` therefore
+treats BOTH 47 and 92 as component boundaries on Windows when refusing a `.`/`..`
+component. That rejects strictly more traversal and nothing valid — a Windows
+filename cannot contain `\`.
 
 ### The compiler's own main-thread stack is 1 MiB on Windows, 8 MiB elsewhere
 
@@ -439,7 +535,7 @@ budget to check against is `COMPILER_STACK_BYTES`, not the host default.
 
 Repro without a Windows box (Unix only — the PE reserve is a link-time field with no runtime
 equivalent to lower): `sh -c 'ulimit -s 1024 && exec mfb build <proj>'`. That is exactly what
-`tests/cli_parse_expression_tree_depth.rs`'s two `*_on_a_1mb_main_stack` tests do, so the Windows-
+`tests/cli/cli_parse_expression_tree_depth.rs`'s two `*_on_a_1mb_main_stack` tests do, so the Windows-
 only failure is now reproducible on every Unix row.
 
 ### A Win64 emitter must write `return_register()` on EVERY path, not just the error one
@@ -537,3 +633,52 @@ Two guards, both RED-checked: `the_worker_frame_keeps_the_stack_16_byte_aligned`
 (`win_x86_64/code.rs`). The second covers the other half of that bug: **shadow space is
 the caller's job and lands above its own `rsp`**, so an emitter that calls out without
 reserving 32 bytes hands the callee 32 bytes of its own locals.
+
+## Spawning a child: what it inherits, per platform (bug-543)
+
+The guarantee is the same everywhere — **a child gets only the descriptors it was
+handed** — but the mechanism differs on every platform, and each has a trap.
+
+### macOS: `posix_spawnp` with `POSIX_SPAWN_SETEXEC`
+
+Flags are `POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETEXEC |
+POSIX_SPAWN_CLOEXEC_DEFAULT` = `0x0004 | 0x0040 | 0x4000` = **16452**.
+
+`POSIX_SPAWN_SETEXEC` is the part that keeps this small: it makes `posix_spawn`
+an **exec of the calling image**, so the fork stays. `chdir`/`setenv` stay where
+they were (no `addchdir_np`, no hand-built `envp`), and the self-pipe errno
+protocol stays — it now carries `posix_spawn`'s return value, which *is* the
+error number.
+
+**`POSIX_SPAWN_SETSIGDEF` is load-bearing, not belt-and-braces.** An ignored
+signal disposition survives `exec`, `io::` installs a process-wide
+`signal(SIGPIPE, SIG_IGN)` (bug-467), and `SETEXEC` means there is no longer a
+fork-child "between" in which to call `signal(SIGPIPE, SIG_DFL)`. Drop the
+attribute and a spawned `writer | head` **never terminates** — the writer takes
+`EPIPE` as a return code it ignores instead of dying. The sigset must be filled:
+Darwin's `sigset_t` is a single 32-bit word, so `sigfillset` is `0xFFFFFFFF`.
+
+Do **not** use a close-loop here. `getdtablesize()` measures **245,760** on a
+normal macOS host, so a loop is a quarter-million syscalls per spawn.
+
+### Linux: `close_range`, as a raw syscall
+
+`close_range` is **syscall 436 on x86-64, AArch64 and RISC-V alike**. It cannot
+be a libc import: **musl 1.2.6 exports no wrapper** (`nm -D` on
+`libc.musl-*.so.1` finds nothing and the header declaration is missing), and
+going raw also retires the glibc-2.34 floor. Keep a bounded `close(4..1024)`
+fallback for a kernel that returns `ENOSYS` — and prove the fallback is not dead
+code by forcing the syscall to fail (an invalid `flags` gives `EINVAL`).
+
+### Windows: `bInheritHandles` is TRUE
+
+A common misreading, and it was written down wrongly in this repo before bug-543:
+`gen_windows.rs` passes **`bInheritHandles = TRUE`**, not FALSE. Exhaustiveness
+comes from the `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` in the `STARTUPINFOEXA` — the
+list is what limits the child to the three stdio handles. With `FALSE` the list
+is **inert and the child gets nothing**, which is a different bug, not a stricter
+one.
+
+Windows PEs are only ever compile-tested here, so this path is pinned by the
+`spawn_tail_limits_inheritance_to_the_stdio_handle_list` codegen-inspection test
+rather than by execution.

@@ -188,7 +188,7 @@
     { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "distinct : " }, "right": { "kind": "call", "type": "String", "target": "joinInts", "args": [{ "kind": "call", "type": "List OF Integer", "target": "#collections_distinct$Integer", "args": [{ "kind": "local", "name": "xs" }] }] } }] } },
     { "op": "eval", "line": 62, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "drop     : " }, "right": { "kind": "call", "type": "String", "target": "joinInts", "args": [{ "kind": "call", "type": "List OF Integer", "target": "#collections_drop$Integer", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } }] } },
     { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "findIndex: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "#collections_findIndex$Integer", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "isPos", "type": "FUNC(Integer) AS Boolean" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } }] } },
-    { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "findLast : " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "#collections_findLastIndex$Integer", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "isPos", "type": "FUNC(Integer) AS Boolean" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] }] } }] } },
+    { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "findLast : " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "#collections_findLastIndexFromEnd$Integer", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "isPos", "type": "FUNC(Integer) AS Boolean" }] }] } }] } },
     { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sortBy   : " }, "right": { "kind": "call", "type": "String", "target": "joinInts", "args": [{ "kind": "call", "type": "List OF Integer", "target": "#collections_sortBy$Integer$Integer", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "negate", "type": "FUNC(Integer) AS Integer" }] }] } }] } },
     { "op": "eval", "line": 66, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "reduceR  : " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.reduceRight", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "subtract", "type": "FUNC(Integer, Integer) AS Integer" }] }] } }] } },
     { "op": "bind", "line": 68, "mutable": false, "name": "nested", "type": "List OF List OF Integer", "value": { "kind": "list", "type": "List OF List OF Integer", "values": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "3" }] }, { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } },
@@ -441,38 +441,27 @@
   },
   {
     "name": "#collections_findLastIndex$Integer",
-    "line": 182,
+    "line": 186,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 182, "type": "List OF Integer", "default": null },
-    { "name": "predicate", "line": 182, "type": "FUNC(Integer) AS Boolean", "default": null },
-    { "name": "endIndex", "line": 182, "type": "Integer", "default": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+    { "name": "value", "line": 186, "type": "List OF Integer", "default": null },
+    { "name": "predicate", "line": 186, "type": "FUNC(Integer) AS Boolean", "default": null },
+    { "name": "start", "line": 186, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 183, "mutable": true, "name": "e", "type": "Integer", "value": { "kind": "local", "name": "endIndex" } },
-    {
-      "op": "if",
-      "line": 184,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "e" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "assign", "line": 185, "name": "e", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] }, "right": { "kind": "local", "name": "e" } } }
-      ],
-      "else": [
-      ]
-    },
     {
       "op": "if",
       "line": 187,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "e" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "e" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "start" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "start" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } } },
       "then": [
       { "op": "fail", "line": 188, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050001" }, { "kind": "const", "type": "String", "value": "List or string index/range is outside valid bounds." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "188" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 190, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "e" } },
+    { "op": "bind", "line": 190, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "start" } },
     {
       "op": "while",
       "line": 191,
@@ -493,6 +482,20 @@
       ]
     },
     { "op": "fail", "line": 197, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "const", "type": "String", "value": "Requested item, key, file, or resource was not found." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "197" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    ]
+  },
+  {
+    "name": "#collections_findLastIndexFromEnd$Integer",
+    "line": 182,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 182, "type": "List OF Integer", "default": null },
+    { "name": "predicate", "line": 182, "type": "FUNC(Integer) AS Boolean", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 183, "value": { "kind": "call", "type": "Integer", "target": "#collections_findLastIndex$Integer", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "predicate" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
     ]
   },
   {

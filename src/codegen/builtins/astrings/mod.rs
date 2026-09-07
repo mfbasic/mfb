@@ -84,7 +84,9 @@ mod helper_normalize_nfc;
 mod helper_number_from_member;
 mod helper_number_member;
 mod helper_pad_left;
+mod helper_pad_left_to_width;
 mod helper_pad_right;
+mod helper_pad_right_to_width;
 mod helper_remap_segment;
 mod helper_repeat;
 mod helper_replace;
@@ -189,9 +191,11 @@ pub(crate) fn register(r: &mut Registry) {
     // `AttrSpan` registered in `validation.rs` (the `AttributedString` overlay
     // element). Not exported: only the injected helpers and the native bridge touch
     // it. `class`: 0=flag, 1=text, 2=number. `member`: the enum-member ordinal within
-    // that class. `text`/`number`: the flat attribute payload. `last` (not `end`)
-    // because `end` is a reserved keyword — it can be neither a member accessed with
-    // `.` nor a parameter/field identifier.
+    // that class. `text`/`number`: the flat attribute payload. The inclusive end of the
+    // range is `endIndex` (not `end`, a reserved keyword that can be neither a member
+    // accessed with `.` nor a parameter/field identifier) — `end<Noun>` is the
+    // language-wide spelling for a range bound, and it matches this package's public
+    // `addAttribute`/`removeAttribute` parameters (bug-527).
     pkg.add_record(RegistryRecord {
         name: "AttrSpan",
         export: false,
@@ -203,7 +207,7 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "",
             },
             RecordProp {
-                name: "last",
+                name: "endIndex",
                 ty: ParameterType::Integer,
                 description: "",
             },
@@ -427,6 +431,8 @@ pub(crate) fn register(r: &mut Registry) {
     helper_remap_segment::register(&mut pkg);
     helper_replace::register(&mut pkg);
     helper_concat::register(&mut pkg);
+    helper_pad_left_to_width::register(&mut pkg);
+    helper_pad_right_to_width::register(&mut pkg);
     // toMarkdown (plan-89-E): render resolved styling into a bespoke markdown-
     // flavored format. NOT CommonMark. Flags wrap each maximal run as nested pairs
     // in canonical order (bold ** , italic * , underline __ , strike ~~ , overline

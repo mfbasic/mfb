@@ -1,0 +1,21 @@
+' bug-57 companion covering the string-concat folder: a loop-invariant `String`
+' local (`tag`) concatenated with `toString(c)` in the condition. The `&` folder
+' collapsed `tag & toString(c)` to the rodata "step0" at loop entry (both
+' operands folded), freezing the comparison.
+IMPORT io
+
+FUNC main AS Integer
+  MUT c AS Integer = 0
+  MUT guard AS Integer = 0
+  MUT tag AS String = "step"
+  WHILE (tag & toString(c)) <> "step3"
+    c = c + 1
+    guard = guard + 1
+    IF guard > 20 THEN
+      io::print("looping c=" & toString(c))
+      RETURN 0
+    END IF
+  END WHILE
+  io::print("terminated c=" & toString(c))
+  RETURN 0
+END FUNC

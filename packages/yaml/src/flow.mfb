@@ -1,0 +1,279 @@
+' ---------------------------------------------------------------------------
+' yaml/flow.mfb — the flow (JSON-like) collections: `[a, b]` and `{a: b}`.
+'
+' Flow is the part of YAML that is not indentation-sensitive, so this file works
+' on raw byte offsets and freely crosses line breaks. It is bounded on the right
+' by `stop`, the byte offset at which the current document ends, so a flow
+' collection that is never closed fails at the end of ITS document instead of
+' swallowing the next one.
+'
+' Every valid JSON document is a valid flow node, which is why `yaml::parse`
+' reads JSON: `{"a": [1, true, null]}` takes exactly this path.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' Skip separation space between flow tokens: spaces, tabs, line breaks, and
+' comments. A `#` here always starts a comment, because this is only ever
+' called at a position that follows a separator or an opening bracket.
+PUBLIC FUNC skipFlowSpace(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Integer
+  MUT i AS Integer = from
+  WHILE i < stop
+    LET code AS Integer = byteAt(bytes, i)
+    IF isSpace(code) OR code = B_LF OR code = B_CR THEN
+      i = i + 1
+    ELSEIF code = B_HASH THEN
+      WHILE i < stop AND byteAt(bytes, i) <> B_LF
+        i = i + 1
+      END WHILE
+    ELSE
+      EXIT WHILE
+    END IF
+  END WHILE
+  RETURN i
+END FUNC
+
+' TRUE when a `:` followed by this byte separates a plain key from its value.
+' In flow context YAML requires the separator to be followed by space or by a
+' flow indicator, which is what keeps `{a:b}` the single scalar "a:b" while
+' `{a: b}` and the JSON-shaped `{"a":b}` are mappings.
+FUNC endsPlainKey(code AS Integer) AS Boolean
+  IF code = -1 THEN RETURN TRUE
+  IF isSpace(code) OR code = B_LF OR code = B_CR THEN RETURN TRUE
+  RETURN code = B_COMMA OR code = B_RBRACKET OR code = B_RBRACE
+END FUNC
+
+' Scan one plain (unquoted) scalar in flow context. It ends at a flow
+' indicator, at a key separator, at a comment, or at the end of the document.
+PUBLIC FUNC scanPlainFlow(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Scanned
+  MUT out AS String = ""
+  MUT run AS Integer = from
+  MUT i AS Integer = from
+  WHILE i < stop
+    LET code AS Integer = byteAt(bytes, i)
+    IF code = B_COMMA OR code = B_LBRACKET OR code = B_RBRACKET THEN EXIT WHILE
+    IF code = B_LBRACE OR code = B_RBRACE THEN EXIT WHILE
+    IF code = B_COLON AND endsPlainKey(byteWithin(bytes, i + 1, stop)) THEN EXIT WHILE
+    IF code = B_HASH AND i > from THEN
+      LET prev AS Integer = byteAt(bytes, i - 1)
+      IF isSpace(prev) OR prev = B_LF OR prev = B_CR THEN EXIT WHILE
+    END IF
+    IF code = B_LF THEN
+      out = out & textOf(bytes, run, trimEndAt(bytes, run, i))
+      LET fold AS Scanned = foldBreaks(bytes, i, stop)
+      out = out & fold.text
+      i = fold.index
+      run = i
+    ELSE
+      i = i + 1
+    END IF
+  END WHILE
+  out = out & textOf(bytes, run, i)
+  RETURN Scanned[strings::trimEnd(out), i]
+END FUNC
+
+' Parse one node in flow context. `from` must already be past any separation
+' space.
+PUBLIC FUNC parseFlowNode(bytes AS List OF Byte, from AS Integer, stop AS Integer, depth AS Integer, cur AS State) AS Node
+  checkDepth(depth)
+  LET code AS Integer = byteWithin(bytes, from, stop)
+  IF code = B_LBRACKET THEN RETURN parseFlowSeq(bytes, from, stop, depth, cur)
+  IF code = B_LBRACE THEN RETURN parseFlowMap(bytes, from, stop, depth, cur)
+  IF code = B_BANG THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: tags are not supported (" & textOf(bytes, from, scanName(bytes, from, stop)) & ")")
+  END IF
+  IF code = B_QUESTION AND endsPlainKey(byteWithin(bytes, from + 1, stop)) THEN
+    FAIL error(ERR_UNSUPPORTED, "yaml: an explicit `?` key is not supported -- a mapping key must be a plain or quoted string")
+  END IF
+  IF code = B_STAR THEN
+    LET nameEnd AS Integer = scanName(bytes, from + 1, stop)
+    LET alias AS Node = expandAlias(textOf(bytes, from + 1, nameEnd), cur)
+    RETURN Node[alias.value, nameEnd, alias.state]
+  END IF
+  IF code = B_AMP THEN
+    LET nameEnd AS Integer = scanName(bytes, from + 1, stop)
+    LET name AS String = textOf(bytes, from + 1, nameEnd)
+    LET after AS Integer = skipFlowSpace(bytes, nameEnd, stop)
+    LET following AS Integer = byteWithin(bytes, after, stop)
+    ' `&a` with nothing after it anchors the empty node, which is null.
+    IF following = -1 OR following = B_COMMA OR following = B_RBRACKET OR following = B_RBRACE THEN
+      LET empty AS json::Json = json::JsonNull[NOTHING]
+      LET nodes AS Integer = chargeNodes(cur.nodes, 1)
+      RETURN Node[empty, nameEnd, defineAnchor(name, empty, State[cur.anchors, nodes, cur.aliases])]
+    END IF
+    IF following = B_AMP THEN
+      FAIL error(ERR_FORMAT, "yaml: a node may carry only one anchor")
+    END IF
+    LET anchored AS Node = parseFlowNode(bytes, after, stop, depth, cur)
+    RETURN Node[anchored.value, anchored.index, defineAnchor(name, anchored.value, anchored.state)]
+  END IF
+  IF code = B_SQUOTE THEN
+    LET quoted AS Scanned = scanSingleQuoted(bytes, from + 1, stop)
+    LET text AS json::Json = json::JsonStr[quoted.text]
+    LET nodes AS Integer = chargeNodes(cur.nodes, 1)
+    RETURN Node[text, quoted.index, State[cur.anchors, nodes, cur.aliases]]
+  END IF
+  IF code = B_DQUOTE THEN
+    LET quoted AS Scanned = scanDoubleQuoted(bytes, from + 1, stop)
+    LET text AS json::Json = json::JsonStr[quoted.text]
+    LET nodes AS Integer = chargeNodes(cur.nodes, 1)
+    RETURN Node[text, quoted.index, State[cur.anchors, nodes, cur.aliases]]
+  END IF
+  rejectPlainStart(bytes, from, stop)
+  LET plain AS Scanned = scanPlainFlow(bytes, from, stop)
+  IF plain.index = from THEN
+    FAIL error(ERR_FORMAT, "yaml: expected a value inside a flow collection")
+  END IF
+  LET resolved AS json::Json = resolvePlain(plain.text)
+  LET nodes AS Integer = chargeNodes(cur.nodes, 1)
+  RETURN Node[resolved, plain.index, State[cur.anchors, nodes, cur.aliases]]
+END FUNC
+
+' `[ node, node, ... ]`. A trailing comma before `]` is accepted, as YAML
+' allows.
+PUBLIC FUNC parseFlowSeq(bytes AS List OF Byte, from AS Integer, stop AS Integer, depth AS Integer, cur AS State) AS Node
+  checkDepth(depth)
+  MUT items AS List OF json::Json = []
+  MUT running AS State = cur
+  MUT i AS Integer = from + 1
+  MUT closed AS Boolean = FALSE
+  WHILE NOT closed
+    i = skipFlowSpace(bytes, i, stop)
+    IF i >= stop THEN
+      FAIL error(ERR_FORMAT, "yaml: flow sequence is never closed with `]`")
+    END IF
+    IF byteAt(bytes, i) = B_RBRACKET THEN
+      i = i + 1
+      closed = TRUE
+    ELSE
+      LET item AS Node = parseFlowNode(bytes, i, stop, depth + 1, running)
+      running = item.state
+      i = skipFlowSpace(bytes, item.index, stop)
+      IF byteWithin(bytes, i, stop) = B_COLON THEN
+        ' A single-pair mapping written without braces: YAML reads `[a: 1]` as
+        ' `[{a: 1}]`, so the entry just parsed was a KEY, not the item itself.
+        LET key AS String = keyOfValue(item.value, json::stringify(item.value))
+        LET valueStart AS Integer = skipFlowSpace(bytes, i + 1, stop)
+        LET follows AS Integer = byteWithin(bytes, valueStart, stop)
+        MUT paired AS json::Json = json::JsonNull[NOTHING]
+        IF follows = -1 OR follows = B_COMMA OR follows = B_RBRACKET THEN
+          running = State[running.anchors, chargeNodes(running.nodes, 1), running.aliases]
+          i = valueStart
+        ELSE
+          LET child AS Node = parseFlowNode(bytes, valueStart, stop, depth + 1, running)
+          paired = child.value
+          running = child.state
+          i = skipFlowSpace(bytes, child.index, stop)
+        END IF
+        MUT pair AS Map OF String TO json::Json = Map OF String TO json::Json {}
+        pair = collections::set(pair, key, paired)
+        LET wrapped AS json::Json = json::JsonObj[pair]
+        items = collections::append(items, wrapped)
+        running = State[running.anchors, chargeNodes(running.nodes, 1), running.aliases]
+      ELSE
+        items = collections::append(items, item.value)
+      END IF
+      LET after AS Integer = byteWithin(bytes, i, stop)
+      IF after = B_COMMA THEN
+        i = i + 1
+      ELSEIF after = B_RBRACKET THEN
+        i = i + 1
+        closed = TRUE
+      ELSE
+        FAIL error(ERR_FORMAT, "yaml: expected `,` or `]` in a flow sequence")
+      END IF
+    END IF
+  END WHILE
+  LET value AS json::Json = json::JsonArr[items]
+  RETURN Node[value, i, State[running.anchors, chargeNodes(running.nodes, 1), running.aliases]]
+END FUNC
+
+' `{ key: node, key: node, ... }`. A key with no `:` takes the null value, as
+' YAML's `{a, b}` does. A trailing comma before `}` is accepted.
+PUBLIC FUNC parseFlowMap(bytes AS List OF Byte, from AS Integer, stop AS Integer, depth AS Integer, cur AS State) AS Node
+  checkDepth(depth)
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  MUT running AS State = cur
+  MUT i AS Integer = from + 1
+  MUT closed AS Boolean = FALSE
+  WHILE NOT closed
+    i = skipFlowSpace(bytes, i, stop)
+    IF i >= stop THEN
+      FAIL error(ERR_FORMAT, "yaml: flow mapping is never closed with `}`")
+    END IF
+    IF byteAt(bytes, i) = B_RBRACE THEN
+      i = i + 1
+      closed = TRUE
+    ELSE
+      LET keyStart AS Integer = i
+      LET code AS Integer = byteAt(bytes, i)
+      IF code = B_QUESTION AND endsPlainKey(byteWithin(bytes, i + 1, stop)) THEN
+        FAIL error(ERR_UNSUPPORTED, "yaml: an explicit `?` key is not supported -- a mapping key must be a plain or quoted string")
+      END IF
+      MUT key AS String = ""
+      IF code = B_SQUOTE THEN
+        LET scanned AS Scanned = scanSingleQuoted(bytes, i + 1, stop)
+        key = scanned.text
+        i = scanned.index
+      ELSEIF code = B_DQUOTE THEN
+        LET scanned AS Scanned = scanDoubleQuoted(bytes, i + 1, stop)
+        key = scanned.text
+        i = scanned.index
+      ELSE
+        ' A flow key is a plain scalar, so the same `ns-plain-first` rule
+        ' applies: `{!t: 2}` is a TAG, not the key "!t".
+        rejectPlainStart(bytes, i, stop)
+        LET scanned AS Scanned = scanPlainFlow(bytes, i, stop)
+        IF scanned.index = i THEN
+          FAIL error(ERR_FORMAT, "yaml: expected a key inside a flow mapping")
+        END IF
+        IF scanned.text = "<<" THEN
+          FAIL error(ERR_UNSUPPORTED, "yaml: the merge key `<<` is not supported")
+        END IF
+        key = resolveKey(scanned.text)
+        i = scanned.index
+      END IF
+      IF collections::hasKey(fields, key) THEN
+        FAIL error(ERR_DUPLICATE, "yaml: duplicate mapping key `" & key & "`")
+      END IF
+      LET beforeColon AS Integer = skipFlowSpace(bytes, i, stop)
+      MUT entry AS json::Json = json::JsonNull[NOTHING]
+      IF byteWithin(bytes, beforeColon, stop) = B_COLON THEN
+        LET valueStart AS Integer = skipFlowSpace(bytes, beforeColon + 1, stop)
+        LET after AS Integer = byteWithin(bytes, valueStart, stop)
+        IF after = -1 OR after = B_COMMA OR after = B_RBRACE THEN
+          ' `{a: }` -- an explicit separator with no value is the null node.
+          running = State[running.anchors, chargeNodes(running.nodes, 1), running.aliases]
+          i = valueStart
+        ELSE
+          LET child AS Node = parseFlowNode(bytes, valueStart, stop, depth + 1, running)
+          entry = child.value
+          running = child.state
+          i = child.index
+        END IF
+      ELSE
+        ' `{a, b}` -- a key with no separator at all also takes the null node.
+        running = State[running.anchors, chargeNodes(running.nodes, 1), running.aliases]
+        i = beforeColon
+      END IF
+      IF keyStart = i THEN
+        FAIL error(ERR_FORMAT, "yaml: expected a key inside a flow mapping")
+      END IF
+      fields = collections::set(fields, key, entry)
+      i = skipFlowSpace(bytes, i, stop)
+      LET after AS Integer = byteWithin(bytes, i, stop)
+      IF after = B_COMMA THEN
+        i = i + 1
+      ELSEIF after = B_RBRACE THEN
+        i = i + 1
+        closed = TRUE
+      ELSE
+        FAIL error(ERR_FORMAT, "yaml: expected `,` or `}` in a flow mapping")
+      END IF
+    END IF
+  END WHILE
+  LET value AS json::Json = json::JsonObj[fields]
+  RETURN Node[value, i, State[running.anchors, chargeNodes(running.nodes, 1), running.aliases]]
+END FUNC

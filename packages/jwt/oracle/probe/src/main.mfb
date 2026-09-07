@@ -1,0 +1,223 @@
+' ---------------------------------------------------------------------------
+' jwtprobe — the MFBASIC side of the Node differential oracle.
+'
+' It reads one JSON job file and writes ONE JSON document to stdout, holding one
+' result per case in the same order. A whole job per process rather than a
+' process per case: a fuzzing run asks tens of thousands of questions, and
+' starting a process costs more than answering one.
+'
+'   in   {"cases":[{"id":"c1","op":"sign","key":{...},"claims":{...}},
+'                  {"id":"c2","op":"verify","token":"...","keys":[...],
+'                   "options":{...}}]}
+'
+'   out  {"results":[{"id":"c1","ok":true,"token":"..."},
+'                    {"id":"c2","ok":false,"code":93130001,"message":"..."}]}
+'
+' A REFUSAL is a result, not a crash, so it is reported in the document with
+' exit 0. That leaves a non-zero exit or an unparseable document meaning exactly
+' one thing -- the probe itself broke -- which is what the runner's `mutate`
+' mode checks for.
+'
+' Keys cross the boundary as JWKs because that is the one key format both sides
+' already speak, and it puts `jwt::importJwk` on the hot path of every case
+' rather than in a corner of the test suite.
+' ---------------------------------------------------------------------------
+
+IMPORT jwt
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC main() AS Integer
+  LET args AS List OF String = os::args()
+  IF len(args) <> 1 THEN
+    io::printError("usage: jwtprobe <job.json>")
+    RETURN 2
+  END IF
+  LET job AS json::Json = json::parse(fs::readText(collections::get(args, 0)))
+  MUT results AS List OF json::Json = []
+  FOR EACH entry IN itemsOf(json::get(job, ["cases"]))
+    results = collections::append(results, runCase(entry))
+  NEXT
+  MUT document AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  document = collections::set(document, "results", jarr(results))
+  io::print(json::stringify(jobj(document)))
+  RETURN 0
+
+  TRAP(problem)
+    ' A failure out here is the harness's, not the package's: an unreadable
+    ' job file or a job that is not the shape agreed above. Say so on stderr
+    ' and exit non-zero, which is what the runner reads as "the probe broke".
+    io::printError("jwtprobe: " & problem.message)
+    RETURN 1
+  END TRAP
+END FUNC
+
+' Answer one case. Every failure inside is a RESULT, so the only thing that
+' escapes is a malformed job.
+PRIVATE FUNC runCase(entry AS json::Json) AS json::Json
+  LET id AS String = textOf(entry, "id", "")
+  LET operation AS String = textOf(entry, "op", "")
+  MUT out AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  out = collections::set(out, "id", jstr(id))
+  IF operation = "sign" THEN
+    out = collections::set(out, "ok", jbool(TRUE))
+    out = collections::set(out, "token", jstr(signCase(entry)))
+    RETURN jobj(out)
+  END IF
+  IF operation = "verify" THEN
+    LET checked AS jwt::Token = verifyCase(entry)
+    out = collections::set(out, "ok", jbool(TRUE))
+    out = collections::set(out, "header", checked.header)
+    out = collections::set(out, "claims", checked.claims)
+    out = collections::set(out, "algorithm", jstr(checked.algorithm))
+    out = collections::set(out, "kid", jstr(checked.kid))
+    RETURN jobj(out)
+  END IF
+  IF operation = "jwk" THEN
+    ' A key round trip on its own, so a JWK the two sides read differently is
+    ' found where it happens rather than as a signature that did not verify.
+    LET key AS jwt::Key = jwt::importJwk(json::stringify(json::get(entry, ["key"])))
+    out = collections::set(out, "ok", jbool(TRUE))
+    out = collections::set(out, "algorithm", jstr(key.algorithm))
+    out = collections::set(out, "curve", jstr(key.curve))
+    out = collections::set(out, "kid", jstr(key.kid))
+    out = collections::set(out, "jwk", json::parse(jwt::exportJwk(key, flagOf(entry, "withPrivate", FALSE))))
+    RETURN jobj(out)
+  END IF
+  FAIL error(77050002, "jwtprobe: unknown op `" & operation & "`")
+
+  TRAP(problem)
+    MUT failed AS Map OF String TO json::Json = Map OF String TO json::Json {}
+    failed = collections::set(failed, "id", jstr(id))
+    failed = collections::set(failed, "ok", jbool(FALSE))
+    failed = collections::set(failed, "code", jnum(toFloat(problem.code)))
+    failed = collections::set(failed, "message", jstr(problem.message))
+    RETURN jobj(failed)
+  END TRAP
+END FUNC
+
+PRIVATE FUNC signCase(entry AS json::Json) AS String
+  LET key AS jwt::Key = jwt::importJwk(json::stringify(json::get(entry, ["key"])))
+  LET claims AS json::Json = json::get(entry, ["claims"])
+  IF hasKey(entry, "header") THEN
+    RETURN jwt::signWithHeader(key, fieldsOf(json::get(entry, ["header"])), claims)
+  END IF
+  RETURN jwt::sign(key, claims)
+END FUNC
+
+PRIVATE FUNC verifyCase(entry AS json::Json) AS jwt::Token
+  MUT keys AS List OF jwt::Key = []
+  FOR EACH jwk IN itemsOf(json::get(entry, ["keys"]))
+    keys = collections::append(keys, jwt::importJwk(json::stringify(jwk)))
+  NEXT
+  RETURN jwt::verify(textOf(entry, "token", ""), keys, optionsOf(json::getOr(entry, ["options"], emptyObject())))
+END FUNC
+
+' Build a `jwt::Options` out of the job's options object.
+'
+' `timeSeconds` is what makes the comparison reproducible: both sides are told
+' the same instant, so a token that expires between the two runs cannot make
+' them disagree.
+PRIVATE FUNC optionsOf(value AS json::Json) AS jwt::Options
+  MUT built AS jwt::Options = jwt::options(textsOf(value, "algorithms"))
+  ' One statement: MFBASIC has no line continuation, so a record update is
+  ' written on one line however wide it gets.
+  built = WITH built { issuer := textOf(value, "issuer", ""), audience := textOf(value, "audience", ""), subject := textOf(value, "subject", ""), typeHeader := textOf(value, "typeHeader", ""), requiredClaims := textsOf(value, "requiredClaims"), leewaySeconds := countOf(value, "leewaySeconds", 0), maxAgeSeconds := countOf(value, "maxAgeSeconds", 0) }
+  IF hasKey(value, "timeSeconds") THEN
+    built = WITH built { fixedTime := TRUE, timeSeconds := countOf(value, "timeSeconds", 0) }
+  END IF
+  RETURN built
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Widening a `json::Json` member. Each of the six variants is a record and
+' `json::Json` is the union over them, so a value placed in a
+' `Map OF String TO json::Json` is widened first; these name that once.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC jstr(text AS String) AS json::Json
+  RETURN json::JsonStr[text]
+END FUNC
+
+PRIVATE FUNC jnum(value AS Float) AS json::Json
+  RETURN json::JsonNum[value]
+END FUNC
+
+PRIVATE FUNC jbool(value AS Boolean) AS json::Json
+  RETURN json::JsonBool[value]
+END FUNC
+
+PRIVATE FUNC jarr(items AS List OF json::Json) AS json::Json
+  RETURN json::JsonArr[items]
+END FUNC
+
+PRIVATE FUNC jobj(fields AS Map OF String TO json::Json) AS json::Json
+  RETURN json::JsonObj[fields]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Reading the job. Everything here is the harness's own JSON, so a shape it
+' does not expect is a harness bug and fails loudly.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC emptyObject() AS json::Json
+  RETURN jobj(Map OF String TO json::Json {})
+END FUNC
+
+PRIVATE FUNC hasKey(value AS json::Json, member AS String) AS Boolean
+  RETURN collections::hasKey(fieldsOf(value), member)
+END FUNC
+
+PRIVATE FUNC fieldsOf(value AS json::Json) AS Map OF String TO json::Json
+  MATCH value
+    CASE json::JsonObj(object) : RETURN object.fields
+    CASE ELSE : FAIL error(77050003, "jwtprobe: expected a JSON object in the job")
+  END MATCH
+END FUNC
+
+PRIVATE FUNC itemsOf(value AS json::Json) AS List OF json::Json
+  MATCH value
+    CASE json::JsonArr(list) : RETURN list.items
+    CASE ELSE : FAIL error(77050003, "jwtprobe: expected a JSON array in the job")
+  END MATCH
+END FUNC
+
+PRIVATE FUNC textOf(value AS json::Json, member AS String, fallback AS String) AS String
+  IF NOT hasKey(value, member) THEN RETURN fallback
+  MATCH collections::get(fieldsOf(value), member)
+    CASE json::JsonStr(text) : RETURN text.value
+    CASE ELSE : FAIL error(77050003, "jwtprobe: job member `" & member & "` is not a string")
+  END MATCH
+END FUNC
+
+PRIVATE FUNC countOf(value AS json::Json, member AS String, fallback AS Integer) AS Integer
+  IF NOT hasKey(value, member) THEN RETURN fallback
+  MATCH collections::get(fieldsOf(value), member)
+    CASE json::JsonNum(number) : RETURN toInt(number.value)
+    CASE ELSE : FAIL error(77050003, "jwtprobe: job member `" & member & "` is not a number")
+  END MATCH
+END FUNC
+
+PRIVATE FUNC flagOf(value AS json::Json, member AS String, fallback AS Boolean) AS Boolean
+  IF NOT hasKey(value, member) THEN RETURN fallback
+  MATCH collections::get(fieldsOf(value), member)
+    CASE json::JsonBool(flag) : RETURN flag.value
+    CASE ELSE : FAIL error(77050003, "jwtprobe: job member `" & member & "` is not a boolean")
+  END MATCH
+END FUNC
+
+PRIVATE FUNC textsOf(value AS json::Json, member AS String) AS List OF String
+  IF NOT hasKey(value, member) THEN RETURN []
+  MUT texts AS List OF String = []
+  FOR EACH entry IN itemsOf(collections::get(fieldsOf(value), member))
+    MATCH entry
+      CASE json::JsonStr(text) : texts = collections::append(texts, text.value)
+      CASE ELSE : FAIL error(77050003, "jwtprobe: job member `" & member & "` holds a non-string")
+    END MATCH
+  NEXT
+  RETURN texts
+END FUNC

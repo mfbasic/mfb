@@ -1,0 +1,17 @@
+plain: |
+  line one
+  line two
+with_blank: |
+  before
+
+  after
+leading_blank: |
+
+  after a blank
+indented_content: |
+    indented
+      more
+    back
+holds_a_marker: |
+  ---
+  not a document start

@@ -74,7 +74,7 @@ Byte-identity = the committed `.ncode` / `.ncodesum` codegen goldens (checked by
 
 ### Which targets byte-identity gates
 - **App-mode codegen coverage, and what is still uncovered.** `tests/syntax/app/macos-app-mode-term` is the only fixture that builds `--app`, and until bug-539 it carried sums for `macos-aarch64` and `windows-x86_64` ONLY — so the whole `linux_gtk` app backend (~250 KB of hand-written emitters) had **no byte-identity coverage on any target** and a change there was invisible to a green gate. It now also carries `linux-x86_64.app` and `linux-aarch64.app` sums. Adding a `<pkg>.<target>.app.ncodesum` file is all it takes: artifact-gate discovers targets from golden FILENAMES and splits the `.app` infix itself. Still uncovered by any fixture: `canvas::` in app mode.
-- **GTK app mode cannot be proven from this host, and only 2228 answers today.** A GTK `--app` runtime check means shipping the AppImage to a real box (see `.ai/remote_systems.md`). Practical recipe, from bug-539: extract once (`./x.AppImage --appimage-extract`) and run the INNER ELF — repeated `--appimage-extract-and-run` races its own temp dir and exits **127**, which reads exactly like a program crash and is not one. `GSK_RENDERER=cairo` is required under Xvfb or the window captures blank; screenshot the window id from `xwininfo -root -tree`, never `-window root`. `gdb -batch -ex run` on the inner ELF is what turns "it exits 127 sometimes" into a located SIGSEGV. **linux-aarch64 GTK had no reachable box at all** during bug-539 (2224/2225/2226 all refused ssh), so a hand-written aarch64 app body may have to land on lowering-level evidence plus structural assertions over the AArch64 plan (`tests/cli_linux_app_mode.rs:linux_app_mode_gtk_term_helpers_are_structurally_sound_on_aarch64`) — say so plainly rather than implying runtime coverage.
+- **GTK app mode cannot be proven from this host, and only 2228 answers today.** A GTK `--app` runtime check means shipping the AppImage to a real box (see `.ai/remote_systems.md`). Practical recipe, from bug-539: extract once (`./x.AppImage --appimage-extract`) and run the INNER ELF — repeated `--appimage-extract-and-run` races its own temp dir and exits **127**, which reads exactly like a program crash and is not one. `GSK_RENDERER=cairo` is required under Xvfb or the window captures blank; screenshot the window id from `xwininfo -root -tree`, never `-window root`. `gdb -batch -ex run` on the inner ELF is what turns "it exits 127 sometimes" into a located SIGSEGV. **linux-aarch64 GTK had no reachable box at all** during bug-539 (2224/2225/2226 all refused ssh), so a hand-written aarch64 app body may have to land on lowering-level evidence plus structural assertions over the AArch64 plan (`tests/cli/cli_linux_app_mode.rs:linux_app_mode_gtk_term_helpers_are_structurally_sound_on_aarch64`) — say so plainly rather than implying runtime coverage.
 - The byte-identity gate that MATTERS most is **AArch64 + RISC-V** (`linux-aarch64` / `linux-riscv64`). SysV-x86 (boxes 2227/2228) codegen is proven by rt-behavior / execution, not bytes.
 - **`windows-x86_64` now DOES carry byte-identity `.ncodesum` goldens** (21 of the 24 fixtures — see the per-target counts above). They are a per-target DETERMINISM/CHANGE sentinel: a Windows codegen change flips the hash and reds the gate, so regenerate the `windows-x86_64.ncodesum` like any other target (macOS host, `-ncode` is execution-free). This UPDATES the older "Win64 byte-identity is a non-goal / proven by execution not bytes" stance — Windows codegen IS change-gated by bytes now.
 - The non-goal that REMAINS: do not *shape a design* "to keep Windows byte-identical across a change" or treat a Windows golden churn as a defect to avoid — a churn just means "regenerate the golden," never "revert the change." The sentinel catches DRIFT, it is not a stability constraint.
@@ -114,6 +114,35 @@ ever shows a *behavior* mismatch, that is a real bug, not an expected difference
 `fuse_scalar_fma` is **not** on the dial. It is mandatory lowering in
 `src/codegen/compiler/opt/`, pinned by `rt-behavior/arithmetic/float-fma-fusion`
 plus `rt-error/arithmetic/arithmetic-float-fma-observed-rt`.)
+
+**A non-default `MFB_OPT` skips the per-target native dumps (bug-456).** Every
+`ARTIFACT_NATIVE_KINDS` golden — `.nir`, `.nplan`, `.nobj`, `.ncode`, `.mir` —
+is emitted downstream of the `-O`-gated passes: `build_nir_module` runs
+`optimizer::opt1::optimize_nir(module, active_opt_level())`
+(`src/target/shared/lower.rs:79`) and is the sole `NirModule` producer. Goldens
+were recorded at the default, so at any other level the dial rewrites them and
+they mismatch by design. The harness therefore compares none of them when
+`MFB_OPT` is a level other than `1`, and reports how many it skipped
+(`… , 69 level-variant golden(s) skipped at -O3`) — the sweep's real signal is
+`.run`/build.log, and burying it in a fixed list of expected mismatches is what
+made a healthy `MFB_OPT=3` run indistinguishable from a broken one. **A healthy
+tree now exits 0 at every level.** `MFB_OPT=1` still compares everything: the
+flagless build IS `-O1`, so that run is the "explicit `-O1` == default"
+byte-identity gate.
+
+The predicate is `artifact_kind_is_level_variant` in `scripts/artifact-kinds.sh`
+and it is keyed to the *kind family*, not to observed drift. That distinction is
+load-bearing: measured at `-O3` on 2026-09-06 only `.ncode`, `.mir` and
+`macos-app-mode-term`'s `.app.nir`/`.app.nplan` actually differ, and `.nobj`
+never does — but a 2026-08-31 measurement saw `.nir`/`.nplan` hold still too,
+and they moved when the fixture set changed (loop rotation only shows up in a
+fixture that has a loop). Which goldens drift is a property of the corpus; which
+kinds *can* is a property of the pipeline.
+
+`.ncodesum` is not in this picture. `test-accept.sh` compares no `.ncodesum` on
+any path — the `tests/byte-identity` fixtures do run, but nothing in the harness
+reads that extension — and `artifact-gate.sh` has no `MFB_OPT` switch. So no
+harness compares an `.ncodesum` at a non-default level at all.
 
 **The fixture count is a signal.** The summary line is `acceptance tests passed
 (N test(s) ran)`. If `N` moves between two runs of the same tree, the harness is
@@ -606,3 +635,92 @@ variable serialise nothing. Make it `pub(crate)` (its module too, if it is a
 `#[cfg(test)] mod tests`) and take it in every test that touches the state. Clearing
 the variable *on acquire*, as `env_guard` does, is worth copying — it means a test that
 panics mid-way cannot leak into the next one.
+
+## A `debug_assert!` runs on NO platform in CI (bug-550)
+
+Every job in `.github/workflows/coverage.yml` builds `--release`, on all five
+platforms. `debug_assert!`, `debug_assert_eq!` and anything behind
+`#[cfg(debug_assertions)]` are compiled OUT of every one of them. So an
+invariant expressed that way is not a weak check — it is **no check**, and the
+comment beside it saying "fails loudly in debug builds" is describing something
+that never happens to anybody.
+
+At the time of the audit that population was 35 `debug_assert*!` sites plus 8
+`cfg(debug_assertions)` gates:
+
+    grep -rn "debug_assert!(\|debug_assert_eq!(\|debug_assert_ne!(" src --include='*.rs' | grep -v '///' | wc -l
+    grep -rn "cfg(debug_assertions)" src --include='*.rs' | wc -l
+
+**How to decide where a new invariant goes.** Four instruments, in order of
+preference — reach for the cheapest one that can actually see the property:
+
+1. **`const _: () = assert!(…)`** when both sides are compile-time constants
+   (`ITEM_BLOCK_SIZE % 8 == 0`). Decided when the COMPILER is built; free at run
+   time. Strictly better than either assert spelling.
+2. **A real `#[test]` walking the data** when the property is over STATIC data —
+   the clean-room registry above all. A test pays once at test time instead of on
+   every user's compile, and it runs in CI. This is the file's own established
+   precedent (plan-116-E **E6**,
+   `the_consuming_parameters_name_real_members`; and
+   `every_registry_row_has_the_shape_its_builder_requires` beside it).
+3. **`assert!`** when the property is dynamic — a function of the program being
+   compiled — and the predicate is O(1), or bounded by something small and
+   fixed like the register file. Correctness of generated code beats a
+   micro-optimisation of the compiler.
+4. **`debug_assert!` only when the predicate is genuinely expensive** — O(code
+   size) with allocation, or worse. Then write down, at the site, that it is
+   debug-only ON PURPOSE and what it would cost otherwise; the next audit will
+   ask.
+
+**The trap that makes this worth a section.** `assert!` in release is on the hot
+path of every compile the user ever runs. Two predicates in this tree are
+disqualified by that and must stay debug-only: `regalloc/mod.rs`'s uncolored-vreg
+sweep renders EVERY field of EVERY instruction to a `String` and parses it
+(O(instructions × fields), one allocation each), and `riscv64/v128.rs`'s slot
+overlap check is O(n²). Measure before promoting anything that touches the
+instruction stream — interleave the runs, because a loaded box makes a 1% change
+look like 20%.
+
+**And do not promote a `debug_assert!(false)` that has a deliberate release
+fallback.** `arch/x86_64/select.rs` maps a residual ABI token to the call bank so
+it still encodes, and `rules/mod.rs` degrades to a visible `0-000-0000
+UNKNOWN_RULE` diagnostic. In both the release path is a designed, documented
+degradation, and replacing it with a panic is a product change, not an audit
+call — the right instrument for those is a test over the emit sites.
+
+## Where an oracle lives (and why a fixture without one rots)
+
+A committed expected value is a **pin**, not a proof. The thing that made it
+correct is the oracle, and if the oracle evaporates the next person changing the
+implementation has a number they cannot re-derive and cannot safely change. That
+happened with `crypto::argon2id` (bug-515): the Rust reference, the RustCrypto
+cross-check and the OpenSSL cross-check all lived in `/tmp` and did not survive
+the session.
+
+Three homes, by what is being validated — put a new oracle in the one that
+matches, do not invent a fourth:
+
+| Oracle for | Home | Example |
+|---|---|---|
+| An MFBASIC **package** under `packages/` | `packages/<pkg>/oracle/` | `packages/yaml/oracle` (Node, eemeli/yaml pinned 1.2 Core), `packages/mustache/oracle`, `packages/jwt/oracle`, `packages/json_schema/oracle` |
+| A **builtin** package or codegen kernel | `tools/<area>/` | `tools/oracles/crypto/argon2id`, `tools/math-kernels` |
+| A primitive whose independent implementation is small enough to run in CI | the test file itself | `tests/interop/rt_crypto_hpke_interop.rs` — 808 lines carrying its own RFC 9180 / RFC 7748 implementation, so the cross-check runs on every `cargo test` |
+
+The third is the best of the three when it is affordable, because it is the only
+one that executes in CI. Prefer it; fall back to `tools/` when the reference needs
+a dependency, a pinned third-party version, or minutes of compute.
+
+**Two rules for any of them.**
+
+1. **Fetch published vectors; never recite them.** A hallucinated vector is worse
+   than none because it looks like evidence. RFC texts are retrievable
+   (`curl -O https://www.rfc-editor.org/rfc/rfc9106.txt`).
+2. **Pin the cross-check's version, and commit the lockfile.** A cross-check whose
+   dependency floats is not a cross-check — the thing it agreed with is gone.
+
+**And check the oracle can be wrong.** Agreement between an implementation and a
+reference written by reading that implementation proves nothing; a wrong oracle is
+ratified, not caught. That is why `oracles/crypto/argon2id` carries *three*
+opinions (its own reference, RustCrypto, OpenSSL) and why `packages/yaml` keeps
+PyYAML alongside the sharper 1.2 oracle — where two references disagree with each
+other is where the spec is worth re-reading.

@@ -1,0 +1,218 @@
+' ---------------------------------------------------------------------------
+' Tests: block mappings, block sequences, block scalars, and flow collections.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT strings
+
+PRIVATE FUNC render(text AS String) AS String
+  RETURN json::stringify(parse(text))
+END FUNC
+
+TESTING
+  TGROUP "block mappings"
+    TCASE "keys keep document order"
+      expectString(render("b: 1\na: 2\nc: 3"), "{\"b\":1,\"a\":2,\"c\":3}")
+    END TCASE
+
+    TCASE "nesting is by indentation, with no closing token"
+      expectString(render("a:\n  b:\n    c: 1\nd: 2"), "{\"a\":{\"b\":{\"c\":1}},\"d\":2}")
+    END TCASE
+
+    TCASE "a key with no value is null"
+      expectString(render("a:\nb: 1"), "{\"a\":null,\"b\":1}")
+    END TCASE
+
+    TCASE "quoted keys"
+      expectString(render("'a b': 1\n\"c:d\": 2"), "{\"a b\":1,\"c:d\":2}")
+    END TCASE
+
+    TCASE "a colon glued to the next character is not a key separator"
+      expectString(render("url: http://example.com/x"), "{\"url\":\"http://example.com/x\"}")
+      expectString(render("at: 12:30"), "{\"at\":\"12:30\"}")
+    END TCASE
+
+    TCASE "a non-string key is refused, and quoting it fixes it"
+      expectTrap(parse("12: x"), 77050007)
+      expectTrap(parse("true: x"), 77050007)
+      expectTrap(parse("null: x"), 77050007)
+      expectTrap(parse(": x"), 77050007)
+      expectString(render("\"12\": x"), "{\"12\":\"x\"}")
+    END TCASE
+
+    TCASE "a duplicate key is refused rather than resolved last-wins"
+      expectTrap(parse("a: 1\na: 2"), 77050005)
+      expectTrap(parse("a: {b: 1, b: 2}"), 77050005)
+    END TCASE
+
+    TCASE "the merge key is refused"
+      expectTrap(parse("base: {a: 1}\nchild:\n  <<: {b: 2}\n"), 77050007)
+    END TCASE
+
+    TCASE "over-indenting a following key is an error, not a silent nesting"
+      expectTrap(parse("a: 1\n  b: 2"), 77050003)
+    END TCASE
+
+    TCASE "a mapping may not begin on the mapping key's own line"
+      ' `a: b: c` is not a nested mapping -- YAML reaches a block collection
+      ' only through a line break, so a reader that accepts this invents a
+      ' level of nesting the document never wrote. Both eemeli/yaml (1.2 Core)
+      ' and PyYAML reject it.
+      expectTrap(parse("a: b: c"), 77050003)
+      expectTrap(parse("a:\n  b: c: d"), 77050003)
+      ' ...but after a `- ` entry it is the everyday shape and must still work.
+      expectString(render("- a: 1\n  b: 2\n"), "[{\"a\":1,\"b\":2}]")
+    END TCASE
+
+    TCASE "a key may not begin with a tag, alias, or explicit-key indicator"
+      ' Only the FIRST key of a mapping passes through the node dispatcher, so
+      ' these all exercise a LATER key, where the indicator would otherwise be
+      ' scanned as ordinary text and the tag or alias would silently vanish.
+      expectTrap(parse("x: 1\n!k: 2\n"), 77050007)
+      expectTrap(parse("x: 1\n!!str k: 2\n"), 77050007)
+      expectTrap(parse("x: 1\n*k: 2\n"), 77050007)
+      expectTrap(parse("x: 1\n? k\n: 2\n"), 77050007)
+    END TCASE
+  END TGROUP
+
+  TGROUP "block sequences"
+    TCASE "a sequence at the key's own indentation belongs to the key"
+      expectString(render("a:\n- 1\n- 2\nb: 3"), "{\"a\":[1,2],\"b\":3}")
+    END TCASE
+
+    TCASE "a sequence indented under the key also belongs to it"
+      expectString(render("a:\n  - 1\n  - 2\n"), "{\"a\":[1,2]}")
+    END TCASE
+
+    TCASE "an entry with no value is null"
+      expectString(render("-\n- x\n"), "[null,\"x\"]")
+    END TCASE
+
+    TCASE "a mapping may start on the entry's own line"
+      expectString(render("- a: 1\n  b: 2\n- c: 3\n"), "[{\"a\":1,\"b\":2},{\"c\":3}]")
+    END TCASE
+
+    TCASE "sequences nest on one line and across lines"
+      expectString(render("- - 1\n  - 2\n- 3\n"), "[[1,2],3]")
+      expectString(render("- - - 1\n"), "[[[1]]]")
+    END TCASE
+
+    TCASE "a sequence may not begin on the mapping key's own line"
+      expectTrap(parse("a: - b"), 77050003)
+      expectTrap(parse("a: -"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "block scalars"
+    TCASE "literal keeps every line break"
+      expectString(render("a: |\n  one\n  two\n"), "{\"a\":\"one\\ntwo\\n\"}")
+      expectString(render("a: |\n  one\n\n  two\n"), "{\"a\":\"one\\n\\ntwo\\n\"}")
+    END TCASE
+
+    TCASE "folded turns single breaks into spaces and blank lines into breaks"
+      expectString(render("a: >\n  one\n  two\n"), "{\"a\":\"one two\\n\"}")
+      expectString(render("a: >\n  one\n\n  two\n"), "{\"a\":\"one\\ntwo\\n\"}")
+    END TCASE
+
+    TCASE "folding never joins a more-indented line to its neighbour"
+      expectString(render("a: >\n  one\n    deep\n  two\n"), "{\"a\":\"one\\n  deep\\ntwo\\n\"}")
+    END TCASE
+
+    TCASE "chomping: clip, strip, keep"
+      expectString(render("a: |\n  x\n\n\n"), "{\"a\":\"x\\n\"}")
+      expectString(render("a: |-\n  x\n\n\n"), "{\"a\":\"x\"}")
+      expectString(render("a: |+\n  x\n\n\n"), "{\"a\":\"x\\n\\n\\n\"}")
+    END TCASE
+
+    TCASE "an explicit indentation indicator fixes the content column"
+      expectString(render("a: |2\n    x\n"), "{\"a\":\"  x\\n\"}")
+    END TCASE
+
+    TCASE "leading blank lines are content"
+      expectString(render("a: |\n\n  x\n"), "{\"a\":\"\\nx\\n\"}")
+    END TCASE
+
+    TCASE "two chomping indicators are a malformed header"
+      expectTrap(parse("a: |-+\n  x\n"), 77050003)
+    END TCASE
+
+    TCASE "a block scalar ends where the indentation drops"
+      expectString(render("a: |\n  x\nb: 2\n"), "{\"a\":\"x\\n\",\"b\":2}")
+    END TCASE
+  END TGROUP
+
+  TGROUP "flow collections"
+    TCASE "every JSON document is a valid input"
+      expectString(render("{\"a\": [1, true, null], \"b\": {\"c\": \"d\"}}"), "{\"a\":[1,true,null],\"b\":{\"c\":\"d\"}}")
+      expectString(render("[]"), "[]")
+      expectString(render("{}"), "{}")
+    END TCASE
+
+    TCASE "flow collections may span lines and carry comments"
+      expectString(render("a: [\n  1, # one\n  2,\n]\n"), "{\"a\":[1,2]}")
+      expectString(render("a: {\n  b: 1,\n  c: 2\n}\n"), "{\"a\":{\"b\":1,\"c\":2}}")
+    END TCASE
+
+    TCASE "a trailing comma is allowed"
+      expectString(render("a: [1, 2,]"), "{\"a\":[1,2]}")
+      expectString(render("a: {b: 1,}"), "{\"a\":{\"b\":1}}")
+    END TCASE
+
+    TCASE "a key with no value, and a separator with no value, are both null"
+      expectString(render("a: {b}"), "{\"a\":{\"b\":null}}")
+      expectString(render("a: {b: }"), "{\"a\":{\"b\":null}}")
+    END TCASE
+
+    TCASE "a colon must be followed by space or a flow indicator to separate"
+      expectString(render("a: {b:c}"), "{\"a\":{\"b:c\":null}}")
+      expectString(render("a: {\"b\":c}"), "{\"a\":{\"b\":\"c\"}}")
+    END TCASE
+
+    TCASE "a single pair inside a flow sequence is a mapping"
+      expectString(render("a: [b: 1]"), "{\"a\":[{\"b\":1}]}")
+      expectString(render("a: [b: 1, c]"), "{\"a\":[{\"b\":1},\"c\"]}")
+    END TCASE
+
+    TCASE "an unclosed flow collection fails"
+      expectTrap(parse("a: [1, 2"), 77050003)
+      expectTrap(parse("a: {b: 1"), 77050003)
+    END TCASE
+
+    TCASE "content after a closed flow collection fails"
+      expectTrap(parse("a: [1] junk"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "comments and blank lines"
+    TCASE "a comment-only document holds nothing"
+      expectTrap(parse("# nothing here"), 77050003)
+      expectInteger(len(parseAll("# nothing here")), 0)
+      expectInteger(len(parseAll("")), 0)
+      expectInteger(len(parseAll("   \n\n")), 0)
+    END TCASE
+
+    TCASE "comments between entries are ignored"
+      expectString(render("# lead\na: 1\n# middle\nb: 2\n# tail\n"), "{\"a\":1,\"b\":2}")
+    END TCASE
+
+    TCASE "blank lines between entries are ignored"
+      expectString(render("a: 1\n\n\nb: 2\n"), "{\"a\":1,\"b\":2}")
+    END TCASE
+
+    TCASE "LF, CRLF and a lone CR all read the same"
+      ' YAML 1.2: `b-break ::= ( b-carriage-return b-line-feed ) |
+      ' b-carriage-return | b-line-feed`. All three are one line break, so the
+      ' same document in any of the three conventions is the same value --
+      ' including inside a block scalar, where the break is content.
+      expectString(render("a: 1\nb: 2\n"), "{\"a\":1,\"b\":2}")
+      expectString(render("a: 1\r\nb: 2\r\n"), "{\"a\":1,\"b\":2}")
+      expectString(render("a: 1\rb: 2\r"), "{\"a\":1,\"b\":2}")
+      expectString(render("a: |\r  one\r  two\r"), "{\"a\":\"one\\ntwo\\n\"}")
+      expectString(render("a: |\r\n  one\r\n  two\r\n"), "{\"a\":\"one\\ntwo\\n\"}")
+    END TCASE
+
+    TCASE "a tab may not indent"
+      expectTrap(parse("a:\n\tb: 1"), 77050003)
+    END TCASE
+  END TGROUP
+END TESTING

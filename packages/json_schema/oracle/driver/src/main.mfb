@@ -1,0 +1,250 @@
+' ---------------------------------------------------------------------------
+' jsvalidate — the command-line face of `json_schema`, and the program the Node
+' oracle drives.
+'
+'   jsvalidate <schema.json> <instance.json>   validate one instance
+'   jsvalidate --batch <job.json>              answer a whole job, as JSON
+'   jsvalidate --translate <pattern>           show a pattern's translation
+'   jsvalidate --match <pattern> <text>        test a pattern against a string
+'
+' The batch form is what makes differential testing affordable: a fuzzing run
+' asks thousands of questions, and starting a process per question would cost
+' more than answering them. One job file in, one JSON document out, in the same
+' order.
+' ---------------------------------------------------------------------------
+
+IMPORT json_schema
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT fs
+IMPORT io
+IMPORT os
+IMPORT errorCode
+
+PRIVATE FUNC usage() AS String
+  MUT out AS String = "jsvalidate - validate JSON against a JSON Schema Draft 2020-12 document\n"
+  out = out & "\n"
+  out = out & "Usage:\n"
+  out = out & "  jsvalidate <schema.json> <instance.json>   validate one instance\n"
+  out = out & "  jsvalidate --batch <job.json>              answer a job file, writing JSON\n"
+  out = out & "  jsvalidate --translate <pattern>           print a pattern's regex-dialect form\n"
+  out = out & "  jsvalidate --match <pattern> <text>        print true or false\n"
+  out = out & "\n"
+  out = out & "Exit status for the one-instance form is 0 when the instance is valid, 1 when\n"
+  out = out & "it is not, and 2 for a usage error. A schema that cannot be compiled exits 1\n"
+  out = out & "with the reason on standard error.\n"
+  out = out & "\n"
+  out = out & "A job file is {\"cases\":[{\"id\":..,\"schema\":..,\"instance\":..}],\n"
+  out = out & "\"patterns\":[{\"id\":..,\"pattern\":..,\"text\":..}]}; either member may be absent."
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Building the answer document.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC str(value AS String) AS json::Json
+  RETURN json::JsonStr[value]
+END FUNC
+
+PRIVATE FUNC put(fields AS Map OF String TO json::Json, name AS String, value AS json::Json) AS Map OF String TO json::Json
+  RETURN collections::set(fields, name, value)
+END FUNC
+
+' One validation error as JSON, with the same member names the record has.
+PRIVATE FUNC errorJson(problem AS json_schema::ValidationError) AS json::Json
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  fields = put(fields, "keyword", str(problem.keyword))
+  fields = put(fields, "instancePath", str(problem.instancePath))
+  fields = put(fields, "schemaPath", str(problem.schemaPath))
+  fields = put(fields, "message", str(problem.message))
+  RETURN json::JsonObj[fields]
+END FUNC
+
+' A raised failure as JSON. `stage` says which half of the work raised it,
+' which is the distinction the oracle cares about most: refusing to compile a
+' schema is a different claim from rejecting an instance.
+PRIVATE FUNC raisedJson(id AS String, stage AS String, problem AS Error) AS json::Json
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  fields = put(fields, "id", str(id))
+  fields = put(fields, "status", str(stage))
+  fields = put(fields, "code", json::JsonNum[toFloat(problem.code)])
+  fields = put(fields, "message", str(problem.message))
+  RETURN json::JsonObj[fields]
+END FUNC
+
+' Answer one case. Compiling and validating are attempted separately so that
+' `compile-error` and `validate-error` stay distinguishable.
+PRIVATE FUNC answerCase(request AS json::Json) AS json::Json
+  LET id AS String = caseId(request)
+  LET schema AS json::Json = json::get(request, ["schema"])
+  LET instance AS json::Json = json::getOr(request, ["instance"], json::JsonNull[NOTHING])
+
+  LET compiled AS json_schema::Schema = json_schema::compile(schema) TRAP(problem)
+    RETURN raisedJson(id, "compile-error", problem)
+  END TRAP
+
+  LET problems AS List OF json_schema::ValidationError = json_schema::validate(compiled, instance) TRAP(problem)
+    RETURN raisedJson(id, "validate-error", problem)
+  END TRAP
+
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  fields = put(fields, "id", str(id))
+  IF len(problems) = 0 THEN
+    fields = put(fields, "status", str("valid"))
+    RETURN json::JsonObj[fields]
+  END IF
+  fields = put(fields, "status", str("invalid"))
+  MUT reported AS List OF json::Json = []
+  FOR EACH problem IN problems
+    reported = collections::append(reported, errorJson(problem))
+  NEXT
+  fields = put(fields, "errors", json::JsonArr[reported])
+  RETURN json::JsonObj[fields]
+END FUNC
+
+PRIVATE FUNC caseId(request AS json::Json) AS String
+  LET id AS json::Json = json::getOr(request, ["id"], json::JsonStr[""])
+  MATCH id
+    CASE json::JsonStr(text) : RETURN text.value
+    CASE ELSE : RETURN json::stringify(id)
+  END MATCH
+END FUNC
+
+' Answer one pattern question.
+PRIVATE FUNC answerPattern(request AS json::Json) AS json::Json
+  LET id AS String = caseId(request)
+  LET pattern AS String = textMember(request, "pattern")
+  LET text AS String = textMember(request, "text")
+
+  LET matched AS Boolean = json_schema::patternMatches(pattern, text) TRAP(problem)
+    RETURN raisedJson(id, "pattern-error", problem)
+  END TRAP
+
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  fields = put(fields, "id", str(id))
+  fields = put(fields, "status", str("ok"))
+  fields = put(fields, "matched", json::JsonBool[matched])
+  fields = put(fields, "translated", str(json_schema::translatePattern(pattern)))
+  RETURN json::JsonObj[fields]
+END FUNC
+
+PRIVATE FUNC textMember(request AS json::Json, name AS String) AS String
+  MATCH json::get(request, [name])
+    CASE json::JsonStr(text) : RETURN text.value
+    CASE ELSE : FAIL error(errorCode::ErrInvalidArgument, "jsvalidate: `" & name & "` must be a string")
+  END MATCH
+END FUNC
+
+PRIVATE FUNC answerAll(job AS json::Json, member AS String, kind AS String) AS json::Json
+  LET requests AS json::Json = json::getOr(job, [member], json::JsonArr[[]])
+  MUT answers AS List OF json::Json = []
+  MATCH requests
+    CASE json::JsonArr(list)
+      FOR EACH request IN list.items
+        IF kind = "case" THEN
+          answers = collections::append(answers, answerCase(request))
+        ELSE
+          answers = collections::append(answers, answerPattern(request))
+        END IF
+      NEXT
+    CASE ELSE
+      FAIL error(errorCode::ErrInvalidArgument, "jsvalidate: `" & member & "` must be an array")
+  END MATCH
+  RETURN json::JsonArr[answers]
+END FUNC
+
+PRIVATE FUNC runBatch(path AS String) AS Integer
+  LET job AS json::Json = json::parse(fs::readText(path))
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  fields = put(fields, "cases", answerAll(job, "cases", "case"))
+  fields = put(fields, "patterns", answerAll(job, "patterns", "pattern"))
+  io::print(json::stringify(json::JsonObj[fields]))
+  RETURN 0
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The one-instance form.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC runOne(schemaPath AS String, instancePath AS String) AS Integer
+  LET compiled AS json_schema::Schema = json_schema::compileText(fs::readText(schemaPath))
+  LET instance AS json::Json = json::parse(fs::readText(instancePath))
+  LET problems AS List OF json_schema::ValidationError = json_schema::validate(compiled, instance)
+  IF len(problems) = 0 THEN
+    io::print("valid")
+    RETURN 0
+  END IF
+  FOR EACH problem IN problems
+    io::print(json_schema::describe(problem))
+  NEXT
+  RETURN 1
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Argument handling.
+' ---------------------------------------------------------------------------
+
+FUNC main() AS Integer
+  LET args AS List OF String = os::args()
+  IF len(args) = 0 THEN
+    io::print(usage())
+    RETURN 2
+  END IF
+
+  LET head AS String = collections::get(args, 0)
+
+  IF head = "--help" OR head = "-h" THEN
+    io::print(usage())
+    RETURN 0
+  END IF
+
+  IF head = "--batch" THEN
+    IF len(args) <> 2 THEN
+      io::printError("jsvalidate: --batch takes exactly one job file")
+      RETURN 2
+    END IF
+    RETURN runBatch(collections::get(args, 1))
+  END IF
+
+  IF head = "--translate" THEN
+    IF len(args) <> 2 THEN
+      io::printError("jsvalidate: --translate takes exactly one pattern")
+      RETURN 2
+    END IF
+    io::print(json_schema::translatePattern(collections::get(args, 1)))
+    RETURN 0
+  END IF
+
+  IF head = "--match" THEN
+    IF len(args) <> 3 THEN
+      io::printError("jsvalidate: --match takes a pattern and a string")
+      RETURN 2
+    END IF
+    IF json_schema::patternMatches(collections::get(args, 1), collections::get(args, 2)) THEN
+      io::print("true")
+      RETURN 0
+    END IF
+    io::print("false")
+    RETURN 1
+  END IF
+
+  IF strings::startsWith(head, "-") THEN
+    io::printError("jsvalidate: unknown option `" & head & "`")
+    io::printError(usage())
+    RETURN 2
+  END IF
+
+  IF len(args) <> 2 THEN
+    io::printError("jsvalidate: the one-instance form takes a schema file and an instance file")
+    io::printError(usage())
+    RETURN 2
+  END IF
+  RETURN runOne(head, collections::get(args, 1))
+
+  TRAP(problem)
+    io::printError("jsvalidate: [" & toString(problem.code) & "] " & problem.message)
+    RETURN 1
+  END TRAP
+END FUNC

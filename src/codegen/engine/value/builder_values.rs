@@ -6,6 +6,7 @@ use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::TrappedErrorSource;
 use crate::codegen::memory::data::*;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::target::shared::abi;
@@ -61,6 +62,26 @@ pub(super) fn flatten_concat_spine<'a>(value: &'a NirValue, out: &mut Vec<&'a Ni
     out.push(value);
 }
 
+/// bug-567: where the value a control transfer carries out lives, while that
+/// statement's INTERIOR temporaries are freed around it.
+///
+/// The two `RETURN` lowerings differ only here: the register fast path (no live
+/// cleanups) still holds the block in a register, and the cleanup-bearing path has
+/// already parked it in `pending_result_slots.value`. Both hand
+/// [`CodeBuilder::drop_interior_temps_before_branch`] a slot to compare against,
+/// so the runtime identity guard is emitted on both and neither can free the block
+/// the caller is about to own.
+#[derive(Clone)]
+pub(crate) enum EscapingValue {
+    /// Nothing leaves (a bare `RETURN`, or a `Nothing` result).
+    None,
+    /// Live in this operand; park it across the frees and reload it afterwards.
+    InRegister(Operand),
+    /// Already parked in this stack slot by the caller; guard against it, and do
+    /// not park or reload.
+    InSlot(usize),
+}
+
 impl CodeBuilder<'_> {
     pub(crate) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         // Track the source location of the node being lowered so that any error
@@ -86,7 +107,40 @@ impl CodeBuilder<'_> {
         // outside a `lower_value` frame, so this node can only ever be credited
         // with provenance its own lowering established.
         self.fresh_string_block = None;
+        // bug-572: decide, BEFORE the arguments are lowered, which of this call's
+        // capturing-`LAMBDA` arguments it may free. The decision gates the
+        // `NirValue::Closure` arm's registration, so a program that never passes a
+        // capturing lambda to a callback position emits exactly what it emitted
+        // before — the containment argument for the golden delta.
+        // Only a CALL node owns the flag AND the drain. Every other node inherits
+        // the enclosing call's answer and leaves its registrations alone: the
+        // `Closure` argument itself comes through here, so a non-call that
+        // cleared the flag would switch off the registration on the very node
+        // that performs it, and one that drained would take the entry away from
+        // the call that is going to free it.
+        let owns_closure_drain =
+            matches!(value, NirValue::Call { .. } | NirValue::CallResult { .. });
+        let freeable_closure_args = if owns_closure_drain {
+            self.freeable_closure_arguments(value)
+        } else {
+            Vec::new()
+        };
+        let closure_mark = self.pending_closure_temps.len();
+        let previous_wanted = owns_closure_drain.then(|| {
+            std::mem::replace(
+                &mut self.closure_temp_wanted,
+                freeable_closure_args.iter().any(|eligible| *eligible),
+            )
+        });
         let result = self.lower_value_inner(value);
+        if let Some(previous) = previous_wanted {
+            self.closure_temp_wanted = previous;
+        }
+        let result = if owns_closure_drain {
+            self.free_call_closure_temps(result, closure_mark, &freeable_closure_args)?
+        } else {
+            result
+        };
         // The mark a producer set while lowering THIS node. An operand's own
         // `lower_value` cleared and consumed its mark before returning, so what
         // survives here was set after the last operand — by this node's own
@@ -111,6 +165,146 @@ impl CodeBuilder<'_> {
             }
         }
         result
+    }
+
+    /// bug-572: for each capturing `LAMBDA` written **literally** in `value`'s
+    /// argument list, whether this call may free it once it returns — in argument
+    /// order, which is the order the `NirValue::Closure` arm registers them.
+    ///
+    /// Empty for everything that is not a `Call`/`CallResult`, and `false` for any
+    /// closure argument whose position is not provably a non-retaining callback.
+    /// `false` is the pre-fix behaviour (the closure leaks), so every unrecognised
+    /// shape keeps leaking rather than freeing a block someone still holds.
+    fn freeable_closure_arguments(&self, value: &NirValue) -> Vec<bool> {
+        let (target, args) = match value {
+            NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
+                (target.as_str(), args)
+            }
+            _ => return Vec::new(),
+        };
+        args.iter()
+            .enumerate()
+            .filter(|(_, arg)| {
+                matches!(arg, NirValue::Closure { captures, .. } if !captures.is_empty())
+            })
+            .map(|(index, _)| self.argument_position_is_nonretaining_callback(target, index))
+            .collect()
+    }
+
+    /// bug-572: whether `target`'s parameter at `index` is a callback the callee
+    /// invokes synchronously and never stores, forwards, or returns — so a closure
+    /// passed there is dead the moment the call returns.
+    ///
+    /// Two arms, because a callee is either an ordinary NIR body or a native
+    /// lowering with no body to read:
+    ///
+    /// * **NIR body** (a user `FUNC`, or a monomorphised `.mfb` builtin such as
+    ///   `collections::mapValues`): the parameter must be a non-isolated `FUNC`
+    ///   AND its name must never be read as a VALUE anywhere in the body.
+    ///   `collect_value_used_locals` answers exactly that — a `Call`'s target is a
+    ///   `String`, not a `NirValue`, so an invoke does not count as a use. It is
+    ///   the same proof `is_non_escaping_closure` makes for a closure BINDING,
+    ///   made one frame down for a parameter. A name shadowed by an inner local
+    ///   reads as "used", which declines — the fail-closed direction.
+    /// * **native builtin**: the registry's declared parameter type. Every
+    ///   non-isolated `FUNC` parameter in the registry is a synchronously-invoked
+    ///   callback (`collections`' fourteen HOF positions and `json::parse`'s
+    ///   reviver); the one retaining position, `thread::start`'s entry, is
+    ///   `ISOLATED FUNC` and excluded by the `false` in the match. That was a fact
+    ///   about a list, so it is a test —
+    ///   `every_registry_function_parameter_callback_is_synchronous`.
+    ///   `http::Route.handler` is a RECORD FIELD, not a parameter, and a record
+    ///   constructor is not a `Call`: storing a closure there is declined here
+    ///   because no arm ever sees it.
+    ///
+    /// A call through a callable VALUE (`f(x)` where `f` is a `FUNC` local) is
+    /// declined by both arms — the target names a binding, not a function — which
+    /// is right: nothing here can see what the invoked function does with it.
+    fn argument_position_is_nonretaining_callback(&self, target: &str, index: usize) -> bool {
+        if let Some(function) = self.functions.get(target) {
+            let Some(param) = function.params.get(index) else {
+                return false;
+            };
+            if !matches!(param.type_, ParameterType::Func(_, _, false)) {
+                return false;
+            }
+            let mut used = std::collections::HashSet::new();
+            crate::codegen::engine::function::collect_value_used_locals(&function.body, &mut used);
+            return !used.contains(&param.name);
+        }
+        crate::codegen::registry::synchronous_callback_parameter(target, index)
+    }
+
+    /// bug-572: free the capturing `LAMBDA`s this call was allowed to free, once
+    /// it has returned.
+    ///
+    /// The drained entries pair with `eligible` **by order**: both loops that
+    /// lower a call's arguments (`emit_prepared_call_args`,
+    /// `lower_abi_inline_args`) go left to right, a nested call drains its own
+    /// closures inside its own `lower_value` frame before this one runs, and
+    /// `freeable_closure_arguments` walks the same argument list in the same
+    /// direction. A count mismatch means a shape neither of those assumptions
+    /// covers, so nothing is freed — the fail-closed direction, and a leak rather
+    /// than a double free.
+    ///
+    /// The result must survive `emit_closure_drop`, which is three `arena_free`
+    /// calls and destroys every caller-saved register: it is materialised, parked
+    /// in a slot across the drops, and reloaded. A `Nothing` result
+    /// (`collections::forEach`) carries no value to park, and a register-native
+    /// vector is declined outright rather than forced into a block.
+    fn free_call_closure_temps(
+        &mut self,
+        result: Result<ValueResult, String>,
+        mark: usize,
+        eligible: &[bool],
+    ) -> Result<Result<ValueResult, String>, String> {
+        if self.pending_closure_temps.len() <= mark {
+            return Ok(result);
+        }
+        let drained: Vec<PendingClosure> = self.pending_closure_temps.split_off(mark);
+        let Ok(result) = result else {
+            return Ok(result);
+        };
+        if drained.len() != eligible.len() || Self::is_vector_native(&result) {
+            return Ok(Ok(result));
+        }
+        let doomed: Vec<&PendingClosure> = drained
+            .iter()
+            .zip(eligible)
+            .filter(|(_, keep)| **keep)
+            .map(|(closure, _)| closure)
+            .collect();
+        if doomed.is_empty() {
+            return Ok(Ok(result));
+        }
+        let captures: Vec<Vec<ParameterType>> = doomed.iter().map(|c| c.captures.clone()).collect();
+        let slots: Vec<usize> = doomed.iter().map(|c| c.slot).collect();
+        let parked = if result.type_ == ParameterType::Nothing {
+            None
+        } else {
+            let result = self.materialize_value(result.clone())?;
+            let slot = self.allocate_stack_object("closure_temp_result", 8);
+            self.store_value_at(&result, abi::stack_pointer(), slot);
+            Some((slot, result))
+        };
+        for (slot, capture_types) in slots.into_iter().zip(captures) {
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: ParameterType::Nothing,
+                stack_offset: slot,
+                closure_captures: Some(capture_types),
+                capacity_slot: None,
+                loop_alias_slot: None,
+            })?;
+        }
+        let Some((slot, parked_result)) = parked else {
+            return Ok(Ok(result));
+        };
+        let reloaded = self.allocate_register();
+        self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
+        Ok(Ok(ValueResult {
+            location: Operand::from(reloaded.render()),
+            ..parked_result
+        }))
     }
 
     /// Register a freshly produced, freeable-flat heap value as a statement-scope
@@ -143,30 +337,7 @@ impl CodeBuilder<'_> {
         if Self::is_vector_native(result) {
             return;
         }
-        if !self.is_freeable_flat_value(&result.type_)
-            || self.value_needs_owning_copy(value)
-            || Self::value_is_runtime_managed(value)
-        {
-            return;
-        }
-        // A bare `String` result is freed here only with **provenance**
-        // (bug-536 shape B). A record/union/Result/collection temp is a
-        // self-contained fresh arena block (a nested `String` field is
-        // byte-inlined, so one `arena_free` reclaims it), but a *standalone*
-        // `String` produced by a call may be a shared rodata constant NOT loaded
-        // through the tracked static-string path, or a non-owned view into an
-        // argument — freeing one is a wild `arena_free` (SIGBUS on rodata,
-        // free-list corruption on a borrow). plan-25 therefore exempted every
-        // String, which made `acc = acc + len(toString(i))` leak 64 bytes per
-        // evaluation for the life of the process.
-        //
-        // `fresh_string` is set only when the shared String producers
-        // (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
-        // `toString` formatter helpers — each of which returns the block of an
-        // `arena_alloc` it just made) marked THIS node's own result operand. It
-        // is fail-closed: a producer that does not mark keeps the old leak, and
-        // no unmarked value can ever be freed here.
-        if result.type_ == ParameterType::String && !fresh_string {
+        if !self.pending_temp_is_freeable(value, &result.type_, fresh_string) {
             return;
         }
         let slot = self.allocate_stack_object("pending_temp", 8);
@@ -176,6 +347,54 @@ impl CodeBuilder<'_> {
             slot,
             location: result.location.clone(),
         });
+    }
+
+    /// Whether a fresh block produced by `value` (of static type `type_`) may be
+    /// freed by THIS frame at statement scope — the one ownership question behind
+    /// [`Self::register_pending_temp`], extracted so the inline-`TRAP` `Result`
+    /// sites can ask it with the identical rules (bug-561).
+    ///
+    /// A bare `String` result is freed only with **provenance** (bug-536 shape B).
+    /// A record/union/Result/collection temp is a self-contained fresh arena block
+    /// (a nested `String` field is byte-inlined, so one `arena_free` reclaims it),
+    /// but a *standalone* `String` produced by a call may be a shared rodata
+    /// constant NOT loaded through the tracked static-string path, or a non-owned
+    /// view into an argument — freeing one is a wild `arena_free` (SIGBUS on
+    /// rodata, free-list corruption on a borrow). plan-25 therefore exempted every
+    /// String, which made `acc = acc + len(toString(i))` leak 64 bytes per
+    /// evaluation for the life of the process.
+    ///
+    /// `fresh_string` is set only when the shared String producers
+    /// (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
+    /// `toString` formatter helpers — each of which returns the block of an
+    /// `arena_alloc` it just made) marked THIS node's own result operand. It is
+    /// fail-closed: a producer that does not mark keeps the old leak, and no
+    /// unmarked value can ever be freed.
+    ///
+    /// bug-536 shape B-2: a *native* producer marks its own block, but a
+    /// `.mfb`-bodied / user callee's block is made inside the callee, where no
+    /// mark can reach this frame. `call_returns_fresh_string` is that callee's own
+    /// promise, read from its NIR before any lowering runs, so it is
+    /// order-independent and identical to the promise the callee delivered.
+    pub(crate) fn pending_temp_is_freeable(
+        &self,
+        value: &NirValue,
+        type_: &ParameterType,
+        fresh_string: bool,
+    ) -> bool {
+        if !self.is_freeable_flat_value(type_)
+            || self.value_needs_owning_copy(value)
+            || Self::value_is_runtime_managed(value)
+        {
+            return false;
+        }
+        if *type_ == ParameterType::String
+            && !fresh_string
+            && !self.call_returns_fresh_string(value)
+        {
+            return false;
+        }
+        true
     }
 
     /// bug-536 shape B: record that `block` names a `String` arena block this
@@ -215,6 +434,128 @@ impl CodeBuilder<'_> {
         });
     }
 
+    /// bug-561: the sibling of [`Self::register_call_result_payload_temp`] for the
+    /// raw inline-builtin `TRAP` paths, where the producer's block is still in a
+    /// register rather than a slot.
+    ///
+    /// `lower_inline_builtin_raw` / `lower_inline_infallible_raw` run the member's
+    /// ordinary lowering directly, BYPASSING `lower_value` — which is the only
+    /// place `register_pending_temp` is called. So a member that allocates a fresh
+    /// block (`strings::mid`, `collections::get` on a `List OF String`) had its
+    /// block copied into the `Result` and then abandoned, where the same member
+    /// outside a `TRAP` is freed at statement end. This re-runs the registration
+    /// the bypass skipped, on the exact node the non-raw path would have carried,
+    /// so the provenance answers are identical.
+    ///
+    /// Emit only on the member's success fall-through: an error exit has already
+    /// branched to the capture label, so the spill below never runs on it.
+    fn register_raw_member_result_temp(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+        success: &ValueResult,
+    ) {
+        // The mark the member's own producer set, matched against its result
+        // operand exactly as `lower_value` matches it (bug-536 shape B).
+        let fresh_string = self
+            .fresh_string_block
+            .take()
+            .is_some_and(|block| block == success.location);
+        let node = NirValue::Call {
+            target: target.to_string(),
+            args: args.to_vec(),
+            loc: self.current_loc,
+        };
+        self.register_pending_temp(&node, success, fresh_string);
+    }
+
+    /// bug-561: register the block a fallible callee returned as a
+    /// statement-scope temp, from the SLOT it was spilled into.
+    ///
+    /// The inline-`TRAP` desugar binds `$trap_resN : Result OF T = CallResult(f(..))`,
+    /// and the lowering builds that `Result` by **copying** the callee's block
+    /// into a freshly allocated `{tag, size, payload}` block
+    /// (`emit_build_result_inline`). The callee's own block is dead the instant
+    /// that copy finishes — and nothing freed it, so every fallible call in an
+    /// expression leaked its whole payload: measured 64 B per call for a `String`
+    /// and 256 B for a `List OF Integer`, 25 MB / 50 MB at 200k / 400k iterations.
+    /// A scalar payload has no block, which is why `Result OF Integer` never
+    /// leaked and the bug looked type-independent when it is not.
+    ///
+    /// The provenance is [`Self::pending_temp_is_freeable`] — the same question,
+    /// with the same answers, that the plain-`Call` path already asks before
+    /// freeing a call result. A `String` therefore still needs the callee's own
+    /// `function_returns_fresh_string` promise, a `thread.*` result is still
+    /// runtime-managed and untouched, and a param-borrow or rodata result is
+    /// still copied rather than freed. Anything unproven keeps leaking.
+    ///
+    /// **This must be emitted on the Ok path only.** `source_slot` holds the raw
+    /// success register, which on the error path holds an error code, not a
+    /// block. Registering here spills into a slot written only on that path; the
+    /// statement-end drop null-guards and nulls it (bug-246 / bug-440), exactly
+    /// as it does for any conditionally-initialized owned temp, so an iteration
+    /// that fails frees nothing.
+    pub(crate) fn register_call_result_payload_temp(
+        &mut self,
+        value: &NirValue,
+        type_: &ParameterType,
+        source_slot: usize,
+    ) {
+        if self.borrow_get_result {
+            return;
+        }
+        if !self.pending_temp_is_freeable(value, type_, false) {
+            return;
+        }
+        let slot = self.allocate_stack_object("call_result_payload_temp", 8);
+        let pointer = self.allocate_register();
+        self.emit(abi::load_u64(&pointer, abi::stack_pointer(), source_slot));
+        self.emit(abi::store_u64(&pointer, abi::stack_pointer(), slot));
+        // The identity token is this fresh register, which no owner's
+        // `ValueResult` names — the `Result` block the enclosing node yields is a
+        // different operand — so `claim_pending_temp` can never mistake this temp
+        // for the one an owning binding took over.
+        self.pending_temp_frees.push(PendingTemp {
+            type_: type_.clone(),
+            slot,
+            location: Operand::from(pointer.render()),
+        });
+    }
+
+    /// Re-identify the most recently registered pending temp, because an
+    /// **identity** lowering is about to return the same block under a different
+    /// operand.
+    ///
+    /// A `PendingTemp` carries two things: the `slot` its `arena_free` reads (the
+    /// block pointer) and the `location` that says which `ValueResult` *is* that
+    /// block. Only `location` is an identity token, and `claim_pending_temp` /
+    /// `lower_returned_value` compare against it to decide that an owner has taken
+    /// the block over. So a lowering that hands back its argument's block under a
+    /// NEW operand silently breaks the chain: the owner's claim no longer matches,
+    /// the statement-scope free still runs, and the owner is left holding freed
+    /// memory.
+    ///
+    /// That is not hypothetical — it is a **use-after-free** that predates
+    /// bug-536 shape B-2 and is fixed here because B-2 makes it reachable from far
+    /// more programs. `toString`'s `String` arm is the identity (it returns its own
+    /// argument), and it spills the argument and reloads it into a fresh register,
+    /// so `LET a AS String = toString("x" & toString(i))` bound `a` to the concat
+    /// block, freed that block at statement end, and read it back after reuse:
+    /// measured on the pre-fix compiler as a wrong value and then a SIGSEGV.
+    ///
+    /// Retargeting emits **nothing** — the free still reads the same slot — it only
+    /// moves the identity token forward so the one owner can still claim the one
+    /// block. Gated on the tail entry actually being this argument's registration
+    /// (`from`), so an identity applied to a value that registered no temp cannot
+    /// steal an enclosing expression's sibling temp.
+    pub(crate) fn retarget_pending_temp(&mut self, from: &Operand, to: &Operand) {
+        if let Some(temp) = self.pending_temp_frees.last_mut() {
+            if temp.location == *from {
+                temp.location = to.clone();
+            }
+        }
+    }
+
     /// Exempt the just-produced temporary from the statement-scope free because an
     /// owning consumer (a binding, a `RETURN`, a resource `STATE` store, a
     /// thread-spawn move) now owns its block and will free it exactly once. The
@@ -243,17 +584,129 @@ impl CodeBuilder<'_> {
                 type_: temp.type_,
                 stack_offset: temp.slot,
                 closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
             })?;
         }
         Ok(())
     }
 
-    /// Discard pending temporaries above `watermark` WITHOUT freeing them: used on
-    /// control-transfer statements (`RETURN`/`EXIT`/`CONTINUE`/`Fail`) where the
-    /// statement branches away (a returned temp is moved to the caller; any
-    /// interior temp's free would be unreachable dead code after the branch).
+    /// Discard pending temporaries above `watermark` WITHOUT freeing them.
+    ///
+    /// bug-567 corrected the reasoning this used to carry. The old comment gave two
+    /// justifications for truncating **every** temp a control-transfer statement
+    /// registered, and only the first is true:
+    ///
+    /// * *"a returned temp is moved to the caller"* — true, but only of the ONE
+    ///   temp [`Self::claim_pending_temp`] has already popped.
+    /// * *"an interior free would be unreachable dead code after the branch"* —
+    ///   **false.** It is unreachable only because it would be emitted *after* the
+    ///   branch, which is a property of where the free is placed, not of the
+    ///   program. `RETURN "v" & toString(n MOD 10)` leaked the inner `toString`
+    ///   block, 64 B per call, while `RETURN s & ">"` — one operator fewer, so no
+    ///   interior temp — was flat.
+    ///
+    /// So this is now reachable only from the one call site in `lower_ops_inner`,
+    /// and only for a [`TransferTemps`] class where forgetting is the *correct*
+    /// answer: the block is adopted by another owner (`Fail`) or the process ends
+    /// (`ExitProgram`). A `RETURN` frees its own interior temps before it branches
+    /// ([`Self::drop_interior_temps_before_branch`]), and reaching here with any
+    /// left is reported as a codegen error rather than silently truncated.
     pub(crate) fn clear_pending_temps_to(&mut self, watermark: usize) {
         self.pending_temp_frees.truncate(watermark);
+    }
+
+    /// bug-567: free the pending temporaries a control-transfer statement's own
+    /// expression left behind — the INTERIOR ones, that no owner claimed — at a
+    /// point that is still reachable, with the escaping value parked across the
+    /// `arena_free` calls (which clobber every caller-saved register).
+    ///
+    /// The soundness argument is not a new one: it is exactly the argument that
+    /// licenses [`Self::drop_pending_temps_to`] at the end of every *ordinary*
+    /// statement. A registered pending temp is by construction a fresh, solely
+    /// owned arena block — [`Self::register_pending_temp`] admits nothing else —
+    /// and `LET x AS String = wrap("ab")` already frees the identical interior
+    /// block at statement scope. The only thing a `RETURN` changed was *placement*.
+    ///
+    /// The caller must therefore call this only once the escaping value is
+    /// **standalone**: claimed, moved (`plan_returned_move`), or deep-copied by
+    /// `lower_returned_value` / `store_pending_success_result`. `escaping` says
+    /// where that value currently lives; the returned operand is where it lives
+    /// afterwards, and is `None` unless it had to be parked and reloaded here.
+    ///
+    /// Belt and braces on top of that argument, in the shape bugs 565/569/571/572
+    /// established: **every** interior free is guarded by a runtime
+    /// pointer-identity compare against the escaping block, so even a lowering that
+    /// handed the return the same pointer as an interior temp cannot have it freed
+    /// underneath the caller. Soundness is local, not a whole-program proof — and
+    /// it is uniform across both `RETURN` lowerings, because the guard reads a
+    /// SLOT and both paths have one (this routine parks a register-resident value;
+    /// the cleanup-bearing path hands over the slot
+    /// `store_pending_success_result` already wrote).
+    ///
+    /// Emits **nothing at all** when no interior temp is pending, which is every
+    /// `RETURN` in the tree bar the concat shapes — so codegen is byte-identical
+    /// wherever the bug was not.
+    pub(crate) fn drop_interior_temps_before_branch(
+        &mut self,
+        watermark: usize,
+        escaping: EscapingValue,
+    ) -> Result<Option<Operand>, String> {
+        if self.pending_temp_frees.len() <= watermark {
+            return Ok(match escaping {
+                EscapingValue::InRegister(location) => Some(location),
+                EscapingValue::InSlot(_) | EscapingValue::None => None,
+            });
+        }
+        // The slot the guard compares against. A register-resident value is spilled
+        // to one here, because `arena_free` clobbers every caller-saved register,
+        // and reloaded afterwards; a value the caller already stored is guarded
+        // against its existing slot and needs neither.
+        let (parked, reload) = match escaping {
+            EscapingValue::InRegister(location) => {
+                let slot = self.allocate_stack_object("return_escaping_value", 8);
+                self.emit(abi::store_u64(&location, abi::stack_pointer(), slot));
+                (Some(slot), true)
+            }
+            EscapingValue::InSlot(slot) => (Some(slot), false),
+            EscapingValue::None => (None, false),
+        };
+        while self.pending_temp_frees.len() > watermark {
+            let temp = self
+                .pending_temp_frees
+                .pop()
+                .expect("watermark within bounds");
+            let kept = match parked {
+                Some(escaping_slot) => {
+                    let kept = self.label("return_temp_escaped");
+                    let block = self.temporary_vreg();
+                    let escaped = self.temporary_vreg();
+                    self.emit(abi::load_u64(&block, abi::stack_pointer(), temp.slot));
+                    self.emit(abi::load_u64(&escaped, abi::stack_pointer(), escaping_slot));
+                    self.emit(abi::compare_registers(&block, &escaped));
+                    self.emit(abi::branch_eq(&kept));
+                    Some(kept)
+                }
+                None => None,
+            };
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: temp.type_,
+                stack_offset: temp.slot,
+                closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
+            })?;
+            if let Some(kept) = kept {
+                self.emit(abi::label(&kept));
+            }
+        }
+        if !reload {
+            return Ok(None);
+        }
+        let slot = parked.expect("a reloadable escaping value was parked");
+        let reloaded = self.allocate_register();
+        self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
+        Ok(Some(Operand::from(reloaded.render())))
     }
 
     /// Lower a value that is being stored into a longer-lived or independently
@@ -278,7 +731,10 @@ impl CodeBuilder<'_> {
             self.claim_pending_temp(&block);
             return Ok(block);
         }
-        if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_) {
+        if self.value_needs_owning_copy(value)
+            && self.is_freeable_flat_value(&result.type_)
+            && !Self::is_fresh_trapped_result_wrapper(value, &result.type_)
+        {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 origin: None,
@@ -292,6 +748,46 @@ impl CodeBuilder<'_> {
         // what scope-drop (or the consuming store) now owns (plan-25).
         self.claim_pending_temp(&result);
         Ok(result)
+    }
+
+    /// bug-568: whether `result_type` is the fresh `Result` WRAPPER an inline
+    /// `TRAP`'s lowering built, rather than the callee's own returned value.
+    ///
+    /// The three predicates [`Self::value_needs_owning_copy`] consults for a call
+    /// — `call_returns_param_borrow`, `call_returns_rodata_string`,
+    /// `static_string_value` — are all statements about the block the CALLEE
+    /// hands back. On a `NirValue::CallResult` that block is not what lowering
+    /// produced: every one of the three inline-`TRAP` lowerings ends at
+    /// [`CodeBuilder::fresh_trapped_result_value`] holding a `{tag, size,
+    /// payload}` block this frame's own `_mfb_arena_alloc` returned, with the
+    /// callee's value COPIED into it (that copy, and the free of what it copied
+    /// FROM, are bug-561's fix on the Ok branch and bug-565's on the error
+    /// branch). Asking a callee-keyed question about it answers about the wrong
+    /// block.
+    ///
+    /// Answering `true` there made `LET n AS Integer = risky(i) TRAP …` deep-copy
+    /// the whole `Result` and abandon the original — 134 B on every call, on a
+    /// path where the producer never fails, because `risky`'s body is
+    /// `RETURN i` and `i` is a parameter. 26.8 MB at 200 000 iterations and
+    /// 52.6 MB at 400 000, with the same loop over an infallible callee flat at
+    /// 1.06 MB. A `String` payload cost 195 B (38.2 → 75.4 MB).
+    ///
+    /// **Both halves of the conjunction are load-bearing, and it fails CLOSED.**
+    /// The `CallResult` node says the lowering went through a trapped-`Result`
+    /// path; the `ResultOf` type is the witness that it actually produced a
+    /// wrapper, since `fresh_trapped_result_value` is the only constructor of one
+    /// (asserted by `codegen_trap_result_wrapper.rs`). If a future `CallResult`
+    /// lowering ever returned something else, the type check fails and the copy
+    /// is kept — the old, merely wasteful behaviour — rather than handing a
+    /// binding an alias it would then `arena_free`.
+    ///
+    /// The plain-`Call` path is untouched and MUST be: there the lowered value IS
+    /// the callee's block, so a param-borrow really does need the copy, and
+    /// removing it would be a use-after-free of the caller's own argument
+    /// (`a_param_borrow_without_a_trap_still_copies` pins it).
+    fn is_fresh_trapped_result_wrapper(value: &NirValue, result_type: &ParameterType) -> bool {
+        matches!(value, NirValue::CallResult { .. })
+            && matches!(result_type, ParameterType::ResultOf(_))
     }
 
     /// Whether lowering `value` yields a pointer this scope does **not** own — an
@@ -326,6 +822,59 @@ impl CodeBuilder<'_> {
         )
     }
 
+    /// bug-536 shape B-2: whether `value` is a direct call to a user /
+    /// `.mfb`-bodied function that guarantees a **fresh** bare `String` result
+    /// (`function_returns_fresh_string`) — the one way a `String` call result with
+    /// no native provenance mark becomes eligible for the statement-scope free.
+    ///
+    /// It is the exact complement of `call_returns_param_borrow` above, keyed off
+    /// the same `functions` map and the same `callback_referenced_functions` set,
+    /// and the predicate itself checks the borrow case first so a function can
+    /// never be both. A target that is not in `functions` at all — every native
+    /// intrinsic, every `LINK` symbol — answers `false` and keeps the plan-25
+    /// exemption, which is the fail-closed direction: an unmarked, unpromised
+    /// producer keeps leaking and is never wild-freed.
+    fn call_returns_fresh_string(&self, value: &NirValue) -> bool {
+        let target = match value {
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => target.as_str(),
+            _ => return false,
+        };
+        if let Some(returns) = self.callable_value_return_type(target) {
+            return returns == ParameterType::String;
+        }
+        self.functions
+            .get(target)
+            .is_some_and(|f| function_returns_fresh_string(f, &self.callback_referenced_functions))
+    }
+
+    /// bug-569: the return type of a call made THROUGH a callable value — a
+    /// `FUNC(..) AS U` parameter, local or global — rather than to a named
+    /// function, or `None` when `target` does not name such a value.
+    ///
+    /// A `Call` carries only its target's NAME, so an indirect invocation
+    /// (`f(e.value)` in `__collections_mapValues`, `g(s)` in a user-written HOF)
+    /// is indistinguishable from a direct call by shape. Resolving it through
+    /// `functions` is wrong twice over: the usual answer is "not found", which
+    /// silently keeps the plan-25 exemption and leaks; and where a top-level
+    /// function happens to share the parameter's name, the answer is a promise
+    /// made by a function this call never reaches. A callable value is looked up
+    /// FIRST, so the binding wins over the shadowed name, exactly as it does at
+    /// the call itself.
+    ///
+    /// Locals before globals, matching `overload_arg_type`'s resolution of the
+    /// same three tables (bug-497).
+    fn callable_value_return_type(&self, target: &str) -> Option<ParameterType> {
+        let type_ = self
+            .locals
+            .get(target)
+            .map(|local| local.type_.clone())
+            .or_else(|| self.globals.get(target).map(|global| global.type_.clone()))?;
+        match type_ {
+            ParameterType::Func(_, returns, _) => Some(*returns),
+            _ => None,
+        }
+    }
+
     /// plan-86 K1: whether `value` is a call to a user function that returns a borrow
     /// of one of its parameters (`function_returns_param_borrow`). The result aliases
     /// the caller's argument block rather than a fresh allocation, so it is
@@ -341,6 +890,17 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => target.as_str(),
             _ => return false,
         };
+        // bug-569: a call through a callable value is never a param borrow. Every
+        // function reachable as a `FUNC` value is invoked through the
+        // `FunctionRef` ABI, which owns and frees its result, and
+        // `function_returns_param_borrow` excludes that set for exactly that
+        // reason (plan-86 K1). Answering from `functions` here would let a
+        // top-level function that shares the parameter's name decide, and a
+        // borrow verdict is the one that cannot be taken back: it tells the
+        // caller the block belongs to its own argument.
+        if self.callable_value_return_type(target).is_some() {
+            return false;
+        }
         self.functions
             .get(target)
             .is_some_and(|f| function_returns_param_borrow(f, &self.callback_referenced_functions))
@@ -797,6 +1357,31 @@ impl CodeBuilder<'_> {
                     ));
                 }
                 self.emit(abi::move_register(&closure_register, abi::mfb_return(1)));
+                // bug-572: a capturing `LAMBDA` allocates three arena blocks — the
+                // env, one deep copy per freeable-flat capture, and the 16-byte
+                // object — and as a call ARGUMENT it had no owner at all. It is not
+                // a `PendingTemp`: `pending_temp_is_freeable` requires
+                // `is_freeable_flat_value`, which `Func` is not, and must keep
+                // requiring it (a `Func` element in a collection is a shared
+                // POINTER, bug-73, so a flat free of the surrounding value must
+                // never chase it). Record the object for the enclosing call's own
+                // drain instead, and ONLY when that call has already decided it may
+                // free it — so a program without such a call emits not one extra
+                // instruction here.
+                if self.closure_temp_wanted && !captures.is_empty() {
+                    let capture_types: Vec<ParameterType> =
+                        captures.iter().map(|c| self.capture_free_type(c)).collect();
+                    let slot = self.allocate_stack_object("closure_temp", 8);
+                    self.emit(abi::store_u64(
+                        &closure_register,
+                        abi::stack_pointer(),
+                        slot,
+                    ));
+                    self.pending_closure_temps.push(PendingClosure {
+                        slot,
+                        captures: capture_types,
+                    });
+                }
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
@@ -1071,32 +1656,26 @@ impl CodeBuilder<'_> {
                         ));
                         self.emit(abi::branch(&have_payload_label));
                         self.emit(abi::label(&wrap_error_label));
-                        let error_register =
-                            self.emit_build_error_inline(value_slot, message_slot, source_slot)?;
-                        self.emit(abi::store_u64(
-                            &error_register,
-                            abi::stack_pointer(),
-                            payload_slot,
-                        ));
-                        let err_result = self.emit_build_result_inline(
+                        // bug-565: adopt a parked `ERR_BLOCK` instead of orphaning
+                        // it, and free the payload the `Result` copied. Shared with
+                        // the direct-callee path below and with
+                        // `materialize_current_result`.
+                        self.emit_trapped_error_result(
+                            scratch9,
                             tag_slot,
-                            &ParameterType::named("Error"),
+                            value_slot,
+                            message_slot,
+                            source_slot,
                             payload_slot,
-                        )?;
-                        self.emit(abi::store_u64(
-                            &err_result,
-                            abi::stack_pointer(),
                             result_slot,
-                        ));
+                            TrappedErrorSource::CalleeRegister,
+                        )?;
                         self.emit(abi::label(&have_payload_label));
-                        let register = self.allocate_register();
-                        self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
-                        return Ok(ValueResult {
-                            origin: None,
-                            type_: ParameterType::result_of(return_type_typed.clone()),
-                            location: Operand::from(register.render()),
-                            text: format!("callResult {target}"),
-                        });
+                        return Ok(self.fresh_trapped_result_value(
+                            result_slot,
+                            return_type_typed.clone(),
+                            format!("callResult {target}"),
+                        ));
                     }
                 }
                 // An inline `TRAP` on an inline-lowered conversion built-in
@@ -1233,34 +1812,30 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     result_slot,
                 ));
+                // bug-561: the `Result` above owns a COPY of the callee's block;
+                // the callee's own block is dead from here. Ok path only —
+                // `value_slot` holds an error code on the other branch.
+                self.register_call_result_payload_temp(value, &success_type, payload_slot);
                 self.emit(abi::branch(&have_payload_label));
                 self.emit(abi::label(&wrap_error_label));
-                let error_register =
-                    self.emit_build_error_inline(value_slot, message_slot, source_slot)?;
-                self.emit(abi::store_u64(
-                    &error_register,
-                    abi::stack_pointer(),
-                    payload_slot,
-                ));
-                let err_result = self.emit_build_result_inline(
+                // bug-565: adopt a parked `ERR_BLOCK` instead of orphaning it, and
+                // free the payload block the `Result` copied.
+                self.emit_trapped_error_result(
+                    scratch9,
                     tag_slot,
-                    &ParameterType::named("Error"),
+                    value_slot,
+                    message_slot,
+                    source_slot,
                     payload_slot,
-                )?;
-                self.emit(abi::store_u64(
-                    &err_result,
-                    abi::stack_pointer(),
                     result_slot,
-                ));
+                    TrappedErrorSource::CalleeRegister,
+                )?;
                 self.emit(abi::label(&have_payload_label));
-                let register = self.allocate_register();
-                self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
-                Ok(ValueResult {
-                    origin: None,
-                    type_: ParameterType::result_of(success_type_typed.clone()),
-                    location: Operand::from(register.render()),
-                    text: format!("callResult {target}"),
-                })
+                Ok(self.fresh_trapped_result_value(
+                    result_slot,
+                    success_type_typed.clone(),
+                    format!("callResult {target}"),
+                ))
             }
             NirValue::RuntimeCall {
                 helper,
@@ -2036,6 +2611,10 @@ impl CodeBuilder<'_> {
         };
         self.raw_result_capture = previous;
         let success = lowered?;
+        // bug-561: `materialize_current_result` COPIES this block into the
+        // `Result`; nothing else owns it afterwards, and `lower_value`'s
+        // registration was bypassed by lowering the member directly.
+        self.register_raw_member_result_temp(target, args, &success);
         // Success fall-through: tag the produced value as the `Ok` result.
         // `forEach` produces `Nothing` (a `void` location) — there is no value
         // register to carry, so set a benign 0 and materialize `Result OF Nothing`.
@@ -2068,6 +2647,10 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
         let success = self.lower_infallible_member(target, args)?;
+        // bug-561: same bypass, same abandoned block — see
+        // `register_raw_member_result_temp`. This member cannot fail, so the
+        // registration is unconditionally on the taken path.
+        self.register_raw_member_result_temp(target, args, &success);
         let success_type = success.type_.clone();
         self.emit(abi::move_register(RESULT_VALUE_REGISTER, &success.location));
         self.emit(abi::move_immediate(

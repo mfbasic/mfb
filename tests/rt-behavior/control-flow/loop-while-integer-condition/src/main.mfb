@@ -1,0 +1,13 @@
+' bug-57 guard case: the integer relational form of the same loop already
+' terminated (numeric lowering never consults `local.constant`) and must
+' continue to.
+IMPORT io
+
+FUNC main AS Integer
+  MUT c AS Integer = 0
+  WHILE c < 3
+    c = c + 1
+  END WHILE
+  io::print("terminated c=" & toString(c))
+  RETURN 0
+END FUNC

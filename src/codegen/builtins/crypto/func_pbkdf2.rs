@@ -36,9 +36,9 @@ The derivation is deterministic in all of its inputs.
 
 **PBKDF2 is not memory-hard.** It is CPU-only and cheap to parallelize on GPUs and
 ASICs, so an attacker's per-guess cost is far lower than yours. For *storing*
-passwords, prefer a memory-hard function (Argon2id, scrypt, or bcrypt) where one is
-available; reach for PBKDF2 mainly to derive a key from a passphrase or for
-compatibility with an existing PBKDF2 deployment.
+passwords use `crypto::argon2id`, this package's memory-hard Argon2id; reach for
+PBKDF2 mainly to derive a key from a passphrase or for compatibility with an existing
+PBKDF2 deployment.
 
 `iterations` and `length` must each be at least 1; a value below 1 for either raises
 `ErrInvalidArgument`. `password` and `salt` may be any length, including empty. There

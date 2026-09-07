@@ -359,6 +359,24 @@ pub(crate) struct RegistryHelper {
     // helper declares an ordering edge, so nothing reads it yet.
     #[allow(dead_code)]
     pub(crate) import_name: Option<&'static str>,
+    /// Whether a native lowering branches to this helper by its bare reserved
+    /// symbol (`_mfb_ifn_<name>`) rather than through an IR call.
+    ///
+    /// Several `crypto` members dispatch on an enum ordinal at run time and hand
+    /// the chosen branch to an MFBASIC helper: `hash` to a SHA core, `seal`/`open`
+    /// to an AEAD core, and `sign`/`verify`/`generate` to a software-curve core.
+    /// Each of those lowerings is emitted once per unit as a standalone
+    /// `abi_function` body with no calling function in scope, so the symbol it
+    /// branches to is fixed — it cannot be the identity-prefixed name a merged
+    /// package's copy carries. Marking the helper here is what tells
+    /// `ir::merge_packages` to make sure the bare name is defined even when the
+    /// program itself never imported the package (bug-557).
+    ///
+    /// Forgetting the mark on a NEW natively-called helper is not silent: the
+    /// build of an executable importing a package that reaches it fails with
+    /// `internal relocation target '_mfb_ifn_<name>' is not defined`. That is the
+    /// symptom bug-557 was found by, and the fix is to add the mark here.
+    pub(crate) natively_called: bool,
 }
 
 impl RegistryHelper {
@@ -371,6 +389,20 @@ impl RegistryHelper {
             gate: HelperGate::Always,
             body: Some(body),
             import_name: None,
+            natively_called: false,
+        }
+    }
+
+    /// An [`Always`](HelperGate::Always) source chunk that a native lowering also
+    /// branches to by its bare reserved symbol — see
+    /// [`natively_called`](RegistryHelper::natively_called). Declared on the helper
+    /// rather than beside the lowering so the two cannot drift: the `func_*.rs`
+    /// that emits the branch and the `helper_*.rs` that carries the body sit in
+    /// the same package directory.
+    pub(crate) fn always_natively_called(name: &'static str, body: &'static str) -> Self {
+        RegistryHelper {
+            natively_called: true,
+            ..Self::always(name, body)
         }
     }
 }
@@ -1826,7 +1858,7 @@ impl Registry {
                 ResolvedType::Resource(resource) => resource.name,
             };
             let (package, leaf) = qualified.split_once('.')?;
-            debug_assert_eq!(leaf, member, "registry row name disagrees with lookup");
+            assert_eq!(leaf, member, "registry row name disagrees with lookup");
             return Some(format!("{package}.{member}"));
         }
         // A source-declared value type (`datetime.Instant`) authored only in the
@@ -2771,6 +2803,30 @@ pub(crate) fn rewrite_target(qualified: &str, arg_types: &[ParameterType]) -> Op
     function.implementations.first()?.body.rewrite_target()
 }
 
+/// The internal symbol a call to `qualified` **with `argc` arguments** rewrites to.
+///
+/// The arity-routed twin of [`rewrite_target`]. That one selects the overload by
+/// argument TYPES, which is the right question for a member whose forms differ in
+/// shape (`http::handleRequest`'s two transports). It cannot answer the question an
+/// *optional-parameter split* asks, because both forms have the same types in the
+/// same order and differ only in how many of them are present — which is exactly
+/// `collections::findLastIndex`, whose two-argument form starts its backward scan at
+/// the last element and whose three-argument form starts where it is told, in two
+/// separate bodies (bug-527).
+///
+/// Falls back to the type-blind `rewrite_target` when no implementation declares
+/// exactly `argc` parameters — the ordinary case of a call that omits a defaulted
+/// trailing parameter, where the sole implementation is still the right answer.
+pub(crate) fn rewrite_target_for_arity(qualified: &str, argc: usize) -> Option<&'static str> {
+    let function = registry().resolve_func(qualified)?.function;
+    let exact = function
+        .implementations
+        .iter()
+        .find(|implementation| implementation.params.len() == argc)
+        .and_then(|implementation| implementation.body.rewrite_target());
+    exact.or_else(|| rewrite_target(qualified, &[]))
+}
+
 /// The qualified member whose call lowering rewrites to the internal symbol
 /// `target` (either spelling: the descriptor's `__pkg_name` or the internalized
 /// `#pkg_name` the IR carries), or `None` when no member rewrites to it. The
@@ -2801,6 +2857,27 @@ pub(crate) fn abi_inline_lower(qualified: &str) -> Option<AbiInline> {
         }
     }
     None
+}
+
+/// Every helper a native lowering branches to by its bare reserved name, as the
+/// sigil name the IR knows it by (`#crypto_ed25519Sign`).
+///
+/// Collected from the [`RegistryHelper::always_natively_called`] declarations so
+/// the list cannot drift from the bodies. `ir::merge_packages` is the one
+/// consumer: a lowering emitted for a package's call still branches to the bare
+/// symbol, so the bare name has to be defined even in a program that never
+/// imported the package itself (bug-557).
+pub(crate) fn natively_called_helpers() -> Vec<String> {
+    let mut names: Vec<String> = registry()
+        .packages()
+        .iter()
+        .flat_map(|package| package.helpers())
+        .filter(|helper| helper.natively_called)
+        .map(|helper| format!("{}{}", crate::internal_name::INTERNAL_SIGIL, helper.name))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// The [`AbiFunction`] lowering for `qualified`, plus the member's parameter count (so
@@ -2944,6 +3021,97 @@ pub(crate) fn callback_member_bare(member: &str) -> bool {
             .function(member)
             .is_some_and(function_has_unary_callback)
     })
+}
+
+/// bug-572: the declared type of `qualified`'s parameter at `index`, or `None`
+/// when the member does not exist, has no such parameter, or its overloads
+/// disagree there.
+///
+/// Deliberately NOT built on [`argument_types_typed`], which bails whenever any
+/// parameter is generic (`Var`/`Arg`) — that would answer `None` for exactly the
+/// members this exists for (`collections::filter` is `List OF T, FUNC(T) AS
+/// Boolean`). The caller asks a question about the parameter's SHAPE, which a
+/// `Var` in a sibling position does not affect.
+///
+/// Overloads that HAVE that position must agree: a member with a `FUNC` there in
+/// one overload and something else in another answers `None` rather than
+/// guessing. Overloads too short to reach `index` are skipped — they are a
+/// different arity, which a call passing an argument there did not select.
+pub(crate) fn parameter_type_at(qualified: &str, index: usize) -> Option<ParameterType> {
+    let resolved = registry().resolve_func(qualified)?;
+    let mut agreed: Option<ParameterType> = None;
+    for implementation in &resolved.function.implementations {
+        // An overload SHORTER than `index` says nothing about that position — it
+        // is a different arity, and a call that passes an argument there did not
+        // select it. `json::parse` is both `parse(String)` and
+        // `parse(String, FUNC(...) AS Json)`, and requiring every overload to
+        // carry the index answered `None` for its reviver.
+        let Some(param) = implementation.params.get(index) else {
+            continue;
+        };
+        match &agreed {
+            None => agreed = Some(param.ty.clone()),
+            Some(seen) if *seen == param.ty => {}
+            Some(_) => return None,
+        }
+    }
+    agreed
+}
+
+/// bug-572: the registry parameter positions whose callback the callee invokes
+/// SYNCHRONOUSLY during the call and never stores, forwards, or returns.
+///
+/// A capturing `LAMBDA` written at one of these positions is dead the moment the
+/// call returns, so `free_call_closure_temps` frees it there. For a native
+/// builtin there is no NIR body to prove that from, which is why this is an
+/// explicit ALLOW-list and not "any `FUNC` parameter": `http::route`'s handler
+/// is also a non-isolated `FUNC` parameter, and it is *stored on the returned
+/// `http::Route`* and invoked per request long after the call — freeing it would
+/// be a use-after-free in the server loop.
+///
+/// [`RETAINED_CALLBACK_PARAMETERS`] holds the other side of the partition, and
+/// `every_registry_function_parameter_callback_is_synchronous` asserts the two
+/// together are the WHOLE registry set — so a new `FUNC` parameter reds a test
+/// and forces the decision, instead of defaulting into either list.
+const SYNCHRONOUS_CALLBACK_PARAMETERS: &[(&str, usize)] = &[
+    ("collections.all", 1),
+    ("collections.any", 1),
+    ("collections.filter", 1),
+    ("collections.findIndex", 1),
+    ("collections.findLastIndex", 1),
+    ("collections.forEach", 1),
+    ("collections.groupBy", 1),
+    ("collections.groupBy", 2),
+    ("collections.mapValues", 1),
+    ("collections.partition", 1),
+    ("collections.reduce", 2),
+    ("collections.reduceRight", 2),
+    ("collections.sortBy", 1),
+    ("collections.transform", 1),
+    ("json.parse", 1),
+];
+
+/// bug-572: the registry parameter positions that KEEP their callback past the
+/// call. Never freed by the caller. See [`SYNCHRONOUS_CALLBACK_PARAMETERS`].
+///
+/// `thread::start`'s entry is retained too, and is excluded a second way: it is
+/// `ISOLATED FUNC`, and a capturing lambda is never isolated (`ir::lower` builds
+/// every lambda's type with `isolated = false`), so it cannot be typed there.
+const RETAINED_CALLBACK_PARAMETERS: &[(&str, usize)] = &[("http.route", 1)];
+
+/// bug-572: whether a capturing `LAMBDA` written at `qualified`'s parameter
+/// `index` may be freed once that call returns.
+///
+/// Both halves must hold: the position is on the allow-list AND it still
+/// declares a non-isolated `FUNC` there. The second half keeps the list honest —
+/// a signature change that moves or retypes the callback withdraws the licence
+/// rather than freeing the wrong argument.
+pub(crate) fn synchronous_callback_parameter(qualified: &str, index: usize) -> bool {
+    SYNCHRONOUS_CALLBACK_PARAMETERS.contains(&(qualified, index))
+        && matches!(
+            parameter_type_at(qualified, index),
+            Some(ParameterType::Func(_, _, false))
+        )
 }
 
 /// Whether any of `function`'s implementations declares a parameter of type
@@ -3798,6 +3966,179 @@ mod qualification_tests {
 mod tests {
     use super::*;
 
+    /// **A member's descriptor declares at least as many forms as its injected
+    /// source defines.**
+    ///
+    /// bug-530: `encoding::utf8Encode` has TWO `__encoding_utf8Encode` bodies —
+    /// `AS List OF Byte` and `AS List OF Integer`, the language's only return-type
+    /// overload — and its descriptor carried ONE `Implementation`. Nothing failed:
+    /// overload selection happens over the source bodies in the monomorphizer, so
+    /// the only consumer that noticed was `mfb man`, which rendered a single
+    /// `Declaration` ending `AS List OF Byte` and hid the other form from the two
+    /// places a reader looks for a signature.
+    ///
+    /// The check is one-directional on purpose. A descriptor may legitimately
+    /// declare MORE rows than there are same-named bodies — an overload routed to
+    /// its own differently-named body (`http::handleRequest`'s `__http_handleRequestSSL`)
+    /// or to a native seam has no `__pkg_member` `FUNC` at all. What is never right
+    /// is the reverse: a form that exists in the source and not on the page.
+    #[test]
+    fn no_member_defines_more_source_forms_than_its_descriptor_declares() {
+        let mut checked = 0usize;
+        for package in registry().packages() {
+            let source = package.get_mfb();
+            if source.is_empty() {
+                continue;
+            }
+            for function in package.functions() {
+                let needle = format!("FUNC __{}_{}(", package.import_name(), function.name);
+                let defined = source.matches(&needle).count();
+                if defined == 0 {
+                    continue;
+                }
+                checked += 1;
+                assert!(
+                    defined <= function.implementations.len(),
+                    "{}.{}: the package source defines {defined} `{needle}` form(s) but \
+                     the descriptor declares {} implementation(s), so `mfb man` cannot \
+                     show them all",
+                    package.import_name(),
+                    function.name,
+                    function.implementations.len(),
+                );
+            }
+        }
+        assert!(
+            checked > 100,
+            "the census matched only {checked} members against their source"
+        );
+    }
+
+    /// **Every range/index parameter is spelled from the documented vocabulary.**
+    ///
+    /// Parameter names are PUBLIC surface — each one is usable as a named argument
+    /// (`collections::findLastIndex(xs, isPos, start := 2)`) — and nothing in the
+    /// compiler reads them, so a name is a promise no build, test or golden checks.
+    /// Before bug-527 the end of a range was spelled five ways across the surface
+    /// (`endIndex`, `finish`, `last`, `count`, and a backward scan ORIGIN misnamed
+    /// `endIndex`), and `endIndex` itself carried two meanings on two packages. The
+    /// convention is written in `./mfb spec language builtin-functions` §18.5 and
+    /// `.ai/man-content.md` §2.1; this is the pin that fails when a new parameter
+    /// leaves it.
+    ///
+    /// Three rules, each of which a real descriptor broke:
+    ///
+    /// 1. The retired spellings of a range end are not used anywhere. `end` itself
+    ///    cannot be a parameter or field name at all (it is a reserved keyword),
+    ///    which is exactly why each author invented a different replacement; the
+    ///    convention's answer is `end` plus the noun for what the bound is —
+    ///    `endIndex`, `endTime`, `endPoint`, `endAngle`.
+    /// 2. An `end<Noun>` bound never stands alone: the same parameter list or record
+    ///    also declares `start` or `start<SameNoun>`. A lone `end…` is a scan ORIGIN
+    ///    wearing a bound's name, which is what `collections::findLastIndex` was.
+    /// 3. `start<Noun>` pairs with `end<Noun>` for the same noun. A `startIndex` with
+    ///    no `endIndex` is a scan origin and should be a bare `start`.
+    ///
+    /// Rules 2 and 3 are applied to every implementation's parameter list and to
+    /// every EXPORTED record's fields. A non-exported record is not public surface
+    /// and is exempt from the pairing rules (the `__regex_*` engine nodes carry a
+    /// `startPos` with no counterpart); rule 1 is tree-wide, because the retired
+    /// spellings are wrong wherever they appear.
+    #[test]
+    fn range_and_index_parameters_use_the_documented_vocabulary() {
+        // The spellings of "the end of a range" the convention retired. `end` is in
+        // the list even though the lexer already refuses it, so the reason it is
+        // absent is recorded here rather than inferred from a parse error.
+        const RETIRED: &[&str] = &["end", "endIdx", "endPos", "finish", "last", "stop"];
+
+        /// The noun after a `start`/`end` prefix, or `None` when `name` is not of that
+        /// shape. The capital is what separates `startPoint` (a bound) from
+        /// `startsWith` (a different word that happens to begin the same way).
+        fn noun<'a>(name: &'a str, prefix: &str) -> Option<&'a str> {
+            let rest = name.strip_prefix(prefix)?;
+            rest.chars()
+                .next()
+                .is_some_and(|first| first.is_ascii_uppercase())
+                .then_some(rest)
+        }
+
+        fn check(where_: &str, names: &[&str], pair: bool, failures: &mut Vec<String>) {
+            for name in names {
+                if RETIRED.contains(name) {
+                    failures.push(format!(
+                        "{where_}: `{name}` is a retired spelling of a range end; the \
+                         convention spells it `start` + `end<Noun>` (`endIndex`, \
+                         `endTime`, `endPoint`, `endAngle`)"
+                    ));
+                }
+                if !pair {
+                    continue;
+                }
+                if let Some(n) = noun(name, "end") {
+                    let paired = names
+                        .iter()
+                        .any(|other| *other == "start" || noun(other, "start") == Some(n));
+                    if !paired {
+                        failures.push(format!(
+                            "{where_}: `{name}` names the end of a range but there is \
+                             no `start` or `start{n}` beside it; a bound never stands \
+                             alone, and a scan origin is a bare `start`"
+                        ));
+                    }
+                }
+                if let Some(n) = noun(name, "start") {
+                    let paired = names.iter().any(|other| noun(other, "end") == Some(n));
+                    if !paired {
+                        failures.push(format!(
+                            "{where_}: `{name}` has no `end{n}` beside it; a start with \
+                             no bound is a scan origin and is spelled `start`"
+                        ));
+                    }
+                }
+            }
+        }
+
+        let mut failures = Vec::new();
+        let mut checked = 0usize;
+        for package in registry().packages() {
+            for function in package.functions() {
+                for (index, implementation) in function.implementations().iter().enumerate() {
+                    let names: Vec<&str> = implementation
+                        .params
+                        .iter()
+                        .map(|param| param.name)
+                        .collect();
+                    let where_ =
+                        format!("{}::{} impl {index}", package.import_name(), function.name);
+                    check(&where_, &names, true, &mut failures);
+                    checked += names.len();
+                    for param in &implementation.params {
+                        let where_ = format!("{where_} alias of `{}`", param.name);
+                        check(&where_, param.aliases, false, &mut failures);
+                        checked += param.aliases.len();
+                    }
+                }
+            }
+            for record in package.records() {
+                let names: Vec<&str> = record.props.iter().map(|prop| prop.name).collect();
+                let where_ = format!("{}::{} record", package.import_name(), record.name);
+                check(&where_, &names, record.export, &mut failures);
+                checked += names.len();
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "{} parameter name(s) leave the range/index vocabulary:\n  {}",
+            failures.len(),
+            failures.join("\n  "),
+        );
+        assert!(
+            checked > 1000,
+            "the census only reached {checked} names, so it is not covering the surface"
+        );
+    }
+
     /// **Every `add_consuming_parameter` names a real member and a real parameter of
     /// it.**
     ///
@@ -3841,6 +4182,88 @@ mod tests {
                         .flat_map(|imp| imp.params.iter().map(|p| p.name))
                         .collect::<Vec<_>>(),
                 );
+            }
+        }
+    }
+
+    /// **Every registry row satisfies the shape its `add_*` builder asserts.**
+    ///
+    /// bug-550: `add_record`, `add_union`, `add_enum`, `add_function` and
+    /// `add_constant` each carry a `debug_assert!` stating the shape they require,
+    /// and `Body::mfb`/`Body::mfb_with_fast_path` assert that the body actually
+    /// declares the `rewrite` symbol a call is redirected to. **None of them ran
+    /// anywhere**: CI builds `--release` on all five platforms, which is the whole
+    /// of bug-550.
+    ///
+    /// They stay where they are — at the construction site they give the sharper
+    /// message — and this walks the built registry so the same properties are
+    /// checked by something that actually executes. That is the shape plan-116-E
+    /// **E6** already chose for `the_consuming_parameters_name_real_members`
+    /// beside it, and it is better than promoting them to `assert!`: the registry
+    /// is static data, so a test pays once at test time instead of on every user's
+    /// compile.
+    ///
+    /// It walks 105 records, 8 unions, 22 enums, 123 constants, 587 functions and
+    /// 363 `Mfb` bodies — measured, because a shape test that iterates nothing
+    /// passes for free and reads exactly like one that works.
+    ///
+    /// What each row's absence would cost, since a shape check is only worth its
+    /// message: an empty record/union/enum renders a type with no members that
+    /// fails far from its declaration; a function with no implementation is a name
+    /// the resolver finds and codegen cannot lower; a constant setting neither
+    /// `value` nor `components` (or both) is read by whichever accessor asks
+    /// first; and an `Mfb` body that does not declare its `rewrite` target
+    /// redirects every call to a symbol that does not exist.
+    #[test]
+    fn every_registry_row_has_the_shape_its_builder_requires() {
+        for package in registry().packages() {
+            let pkg = package.import_name();
+            for record in package.records() {
+                assert!(
+                    !record.props.is_empty(),
+                    "{pkg}: record `{}` has no fields",
+                    record.name
+                );
+            }
+            for union in package.unions() {
+                assert!(
+                    !union.variants.is_empty(),
+                    "{pkg}: union `{}` has no variants",
+                    union.name
+                );
+            }
+            for r#enum in package.enums() {
+                assert!(
+                    !r#enum.variants.is_empty(),
+                    "{pkg}: enum `{}` has no variants",
+                    r#enum.name
+                );
+            }
+            for constant in package.constants() {
+                assert!(
+                    constant.value.is_some() != constant.components.is_some(),
+                    "{pkg}: constant `{}` must set exactly one of `value` (scalar) \
+                     / `components` (record)",
+                    constant.name
+                );
+            }
+            for function in package.functions() {
+                assert!(
+                    !function.implementations.is_empty(),
+                    "{pkg}: function `{}` has no implementations",
+                    function.name
+                );
+                for implementation in &function.implementations {
+                    if let Body::Mfb { body, rewrite, .. } = &implementation.body {
+                        assert!(
+                            body.contains(rewrite),
+                            "{pkg}.{}: the MFBASIC body does not declare its rewrite \
+                             target `{rewrite}`, so every call redirects to a symbol \
+                             that is not there",
+                            function.name
+                        );
+                    }
+                }
             }
         }
     }
@@ -5513,5 +5936,98 @@ mod tests {
         assert_eq!(agreed_argument_type("json.parse", 1), None);
         // An unknown member is not an answer.
         assert_eq!(agreed_argument_type("nope.missing", 0), None);
+    }
+
+    /// bug-572 load-bearing invariant: **every non-isolated `FUNC` PARAMETER in
+    /// the registry is a callback the callee invokes synchronously and never
+    /// stores, forwards, or returns.**
+    ///
+    /// `free_call_closure_temps` frees a capturing `LAMBDA` passed at such a
+    /// position as soon as the call returns, and for a native builtin there is no
+    /// NIR body to prove that from — the registry's declared parameter type is
+    /// the whole of the evidence. That was a fact about a list, and the free made
+    /// it load-bearing, so it is an invariant now: add a `FUNC` parameter to a
+    /// member that keeps the callback past its call and this goes red, instead of
+    /// the caller freeing a closure the callee still holds.
+    ///
+    /// `thread::start`'s entry is the one retaining position and it is
+    /// `ISOLATED FUNC`, which the `false` in the pattern excludes — and a
+    /// capturing lambda is never isolated (`ir::lower` builds every lambda type
+    /// with `isolated = false`), so it cannot be typed there in the first place.
+    ///
+    /// `http::Route.handler` is deliberately absent: it is a record FIELD, which
+    /// DOES retain the closure, and a record constructor is not a call — so no
+    /// arm of `freeable_closure_arguments` ever sees it.
+    #[test]
+    fn every_registry_function_parameter_callback_is_synchronous() {
+        let mut positions: Vec<String> = Vec::new();
+        let mut isolated: Vec<String> = Vec::new();
+        for package in registry().packages() {
+            for function in package.functions() {
+                for implementation in &function.implementations {
+                    for (index, param) in implementation.params.iter().enumerate() {
+                        match &param.ty {
+                            ParameterType::Func(_, _, false) => positions.push(format!(
+                                "{}.{}#{index}({})",
+                                package.import_name(),
+                                function.name,
+                                param.name
+                            )),
+                            ParameterType::Func(_, _, true) => isolated.push(format!(
+                                "{}.{}#{index}({})",
+                                package.import_name(),
+                                function.name,
+                                param.name
+                            )),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        positions.sort();
+        positions.dedup();
+        isolated.sort();
+        isolated.dedup();
+        let mut classified: Vec<String> = SYNCHRONOUS_CALLBACK_PARAMETERS
+            .iter()
+            .chain(RETAINED_CALLBACK_PARAMETERS)
+            .map(|(name, index)| format!("{name}#{index}"))
+            .collect();
+        classified.sort();
+        let mut found: Vec<String> = positions
+            .iter()
+            .map(|p| p[..p.find('(').expect("rendered with a name")].to_string())
+            .collect();
+        found.sort();
+        assert_eq!(
+            found, classified,
+            "the set of non-isolated `FUNC` parameters changed. Every new one must \
+             be classified: onto SYNCHRONOUS_CALLBACK_PARAMETERS only if the callee \
+             invokes it during the call and never stores, forwards, or returns it, \
+             and onto RETAINED_CALLBACK_PARAMETERS otherwise. `http.route#1` is the \
+             standing proof the distinction is real — it is a `FUNC` parameter that \
+             the returned `http::Route` KEEPS."
+        );
+        for (name, index) in SYNCHRONOUS_CALLBACK_PARAMETERS {
+            assert!(
+                synchronous_callback_parameter(name, *index),
+                "{name}#{index} is on the allow-list but no longer declares a \
+                 non-isolated `FUNC` there"
+            );
+        }
+        for (name, index) in RETAINED_CALLBACK_PARAMETERS {
+            assert!(
+                !synchronous_callback_parameter(name, *index),
+                "{name}#{index} is retained and must never be freed by its caller"
+            );
+        }
+        assert_eq!(
+            isolated,
+            vec!["thread.start#0(f)"],
+            "the ISOLATED callback set changed: {isolated:?}. An isolated entry IS \
+             retained (the thread runs it after the call returns), and the free is \
+             kept off it by the `false` in `argument_position_is_nonretaining_callback`"
+        );
     }
 }

@@ -1,0 +1,32 @@
+[package]
+name = "mackdfref"
+version = "0.1.0"
+edition = "2021"
+
+# Its OWN workspace, deliberately -- same reasoning as the sibling oracles. This
+# crate sits inside the mfb workspace's directory tree but is not a member of it:
+# it is offline oracle tooling, never linked into the compiler or the runtime,
+# and it pins dependency versions that must not be resolved against the
+# compiler's lockfile.
+[workspace]
+
+# PINNED exactly, because an oracle whose version floats is not an oracle -- the
+# thing that agreed is gone. None of these is hand-written here: the independence
+# that makes them an oracle is that RustCrypto is a different codebase whose
+# authors never read the MFBASIC cores.
+#
+# `sha3` is the reason this oracle exists at all. `ring` covers SHA-1 and the
+# SHA-2 widths, so `tests/interop/rt_crypto_mac_kdf_interop.rs` checks those on every
+# `cargo test`; ring has no SHA-3 and no SHA-224 KDF, and adding these four
+# crates to the compiler's own dev-dependencies to reach them would be new
+# compiled code in every CI job for a matrix only this tool needs.
+[dependencies]
+hmac = "=0.12.1"
+hkdf = "=0.12.4"
+pbkdf2 = "=0.12.2"
+sha1 = "=0.10.6"
+sha2 = "=0.10.8"
+sha3 = "=0.10.8"
+
+[profile.release]
+opt-level = 3

@@ -1644,7 +1644,7 @@ fn lower_link_thunk(
         // producer, so this deallocation can never run for a resource-wrapping
         // thunk (which keeps the handle live in FD@0). Lock the invariant here so
         // any future path that reintroduces the combination trips in debug.
-        debug_assert!(
+        assert!(
             !function.return_resource,
             "FREE on an AS RES producer must be rejected before codegen (sec-01)"
         );

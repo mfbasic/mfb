@@ -1,0 +1,15 @@
+{
+  "name": "mustacheprobe",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Renders one Mustache case with mustache::renderWith and writes a single line of JSON describing the outcome, so the Node oracle and the official specification suite can be compared against it.",
+  "sources": [
+    { "root": "src", "role": "main", "include": ["**/*.mfb"] }
+  ],
+  "packages": [
+    { "name": "mustache", "version": "=0.1.0", "source": "file:packages/mustache.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

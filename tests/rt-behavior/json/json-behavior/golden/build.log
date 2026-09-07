@@ -12,4 +12,6 @@ $ tests/rt-behavior/json/json-behavior/build/json_behavior.out
 "Ada"
 "\u0001\b\t\n\f\r\u000B\u001FA"
 roundtrip=TRUE
+"a\r\nb"
+roundtrip=TRUE
 [exit 0]

@@ -126,7 +126,12 @@ fn overload(
             default: DefaultValue::None,
         }],
         return_type: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID),
-        errors: vec![],
+        errors: vec![
+            "ErrAddressInvalid",
+            "ErrNetworkFailed",
+            "ErrOutOfMemory",
+            "ErrResourceClosed",
+        ],
         body: Body::abi_function_aliased(lower_local_address, os_aliases),
     }
 }

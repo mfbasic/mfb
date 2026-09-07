@@ -1,0 +1,41 @@
+' bug-556 positive pin: inferring an inline list literal's element type must not
+' reject anything that was valid, and must not change what a valid program does.
+'
+' The fix makes `[x]` at an argument position carry its real element type instead
+' of `List OF Unknown`. The risk the bug doc names is OVERLOAD RESOLUTION — the
+' concrete element type is what monomorph picks an overload by — so this fixture
+' exercises the shapes whose resolution could move, and prints the RESULTS rather
+' than merely compiling: a silently different overload would change a value, not
+' the exit code.
+IMPORT collections
+IMPORT io
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+FUNC main AS Integer
+  ' Comparable scalars, inline — the common case.
+  io::print("int=" & toString(collections::find([10, 20, 30], 20)))
+  io::print("str=" & toString(collections::find(["a", "b", "c"], "c")))
+  io::print("has=" & toString(collections::contains([1, 2, 3], 2)))
+
+  ' A LOCAL as the first element: this is the shape that used to infer Unknown,
+  ' because the element is not a literal.
+  LET n AS Integer = 42
+  io::print("local=" & toString(collections::find([n, 7], 7)))
+
+  ' A comparable RECORD (all scalar fields) stays comparable and accepted.
+  LET p AS Point = Point[1, 2]
+  LET q AS Point = Point[3, 4]
+  io::print("rec=" & toString(collections::find([p, q], q)))
+
+  ' The named spelling of the same thing must agree, element for element.
+  LET named AS List OF Integer = [10, 20, 30]
+  io::print("named=" & toString(collections::find(named, 20)))
+
+  ' A nested list literal: the inner element type must still resolve.
+  io::print("nested=" & toString(len(collections::flatten([[1, 2], [3]]))))
+  RETURN 0
+END FUNC

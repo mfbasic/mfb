@@ -45,9 +45,25 @@ FUNC json_control_escape_run AS Integer
   RETURN 0
 END FUNC
 
+' ---- CR immediately followed by LF ----
+' CR LF is ONE extended grapheme cluster (UAX #29 rule GB3), so an escaper that
+' walked the string grapheme by grapheme was handed "\r\n" as a single cluster:
+' it equalled neither "\r" nor "\n", and __json_isRawControlChar answered FALSE
+' because the cluster holds two scalars, so both control bytes were emitted RAW
+' inside the string -- a document no JSON parser accepts. The case above orders
+' its control characters so that CR is never followed by LF, which is why it
+' never saw this; a Windows line ending is the everyday input that does.
+FUNC json_crlf_escape_run AS Integer
+  LET s AS String = json::stringify(json::JsonStr["a\r\nb"])
+  io::print(s)
+  io::print("roundtrip=" & toString(json::stringify(json::parse(s)) = s))
+  RETURN 0
+END FUNC
+
 FUNC main AS Integer
   LET _json_read_valid AS Integer = json_read_valid_run()
   LET _json_write_valid AS Integer = json_write_valid_run()
   LET _json_control_escape AS Integer = json_control_escape_run()
+  LET _json_crlf_escape AS Integer = json_crlf_escape_run()
   RETURN 0
 END FUNC

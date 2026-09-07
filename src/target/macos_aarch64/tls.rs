@@ -13,13 +13,15 @@
 use crate::arch::aarch64::abi;
 use crate::codegen::builtins::tls::gen_macos::{
     verify_fn_slot, BLK_CAP, BLK_INVOKE, CFG_CAP_COPYFN, CFG_CAP_QUEUE, CFG_CAP_RELEASEFN,
-    CFG_CAP_SETFN, CFG_CAP_SETVERIFYFN, CFG_CAP_SNAME, CFG_CAP_VBLOCK, CFG_INVOKE, CTX_ERROR,
-    CTX_PCONTENT, CTX_PERROR, CTX_PSEM, CTX_RETAIN, CTX_SEM, CTX_SIGNAL, CTX_STATE, LCONN_INVOKE,
-    LCTX_HEAD, LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_POLL_INVOKE, SEND_INVOKE, STATE_INVOKE,
-    VERIFY_CAP_SNAME, VERIFY_FNS_SYMBOL, VERIFY_INVOKE,
+    CFG_CAP_SETFN, CFG_CAP_SETVERIFYFN, CFG_CAP_SNAME, CFG_CAP_VBLOCK, CFG_INVOKE, CTX_EDOM,
+    CTX_EDOMFN, CTX_ERROR, CTX_PCONTENT, CTX_PERROR, CTX_PSEM, CTX_RETAIN, CTX_SEM, CTX_SIGNAL,
+    CTX_STATE, LCONN_INVOKE, LCTX_HEAD, LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_POLL_INVOKE,
+    SEND_INVOKE, STATE_INVOKE, VERIFY_CAP_SNAME, VERIFY_FNS_SYMBOL, VERIFY_INVOKE,
 };
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::CodeFrame;
 use crate::codegen::engine::types::CodeFunction;
+use crate::codegen::engine::types::CodeInstruction;
 
 /// A leaf frame that only saves the link register (these trampolines call
 /// captured function pointers, so they are not true leaves).
@@ -27,39 +29,6 @@ fn frame(stack_size: usize) -> CodeFrame {
     CodeFrame {
         stack_size,
         callee_saved: vec![abi::link_register().to_string()],
-    }
-}
-
-/// A block invoke `void(block, ...)` that stores its argument registers into
-/// the captured ctx slots, then calls the captured signal fn on the
-/// semaphore. `stores` is a list of `(arg_register, ctx_offset)`.
-fn invoke_function(symbol: &str, stores: &[(&str, usize)]) -> CodeFunction {
-    let mut instructions = vec![
-        abi::label("entry"),
-        abi::subtract_stack(16),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::load_u64(abi::SCRATCH[0], abi::c_arg(0), BLK_CAP), // ctx = block->captured pointer
-    ];
-    for (reg, off) in stores {
-        instructions.push(abi::store_u64(reg, abi::SCRATCH[0], *off));
-    }
-    instructions.extend([
-        abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], CTX_SIGNAL),
-        abi::load_u64(abi::c_arg(0), abi::SCRATCH[0], CTX_SEM),
-        abi::branch_link_register(abi::SCRATCH[1]),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::add_stack(16),
-        abi::return_(),
-    ]);
-    CodeFunction {
-        name: format!("runtime.{symbol}"),
-        symbol: symbol.to_string(),
-        params: Vec::new(),
-        returns: "Nothing".to_string(),
-        frame: frame(16),
-        stack_slots: Vec::new(),
-        instructions,
-        relocations: Vec::new(),
     }
 }
 
@@ -104,6 +73,146 @@ fn recv_invoke_impl(
     CodeFunction {
         name: format!("runtime.{symbol}"),
         symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: frame(32),
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// bug-483: record the domain of a live `nw_error` into `CTX_EDOM`.
+///
+/// `err_reg` holds the error, `ctx_reg` the block's captured ctx; both must
+/// survive the call, so `ctx_reg` is a callee-saved register and `err_reg` is
+/// read before anything is clobbered. Emits nothing when the error is null and
+/// leaves `CTX_EDOM` alone in that case — it is a sticky "what killed this
+/// connection", so a later state change carrying no error must not erase what a
+/// send completion already learned.
+///
+/// This has to happen HERE rather than in the `tls::read`/`tls::write` helpers:
+/// the `nw_error_t` a completion block is handed is borrowed for the block's
+/// duration and released on return, so asking it anything after the helper's
+/// semaphore wakes is a use-after-free (measured — see `CTX_EDOMFN`).
+fn record_error_domain(
+    instructions: &mut Vec<CodeInstruction>,
+    ctx_reg: &str,
+    err_reg: Operand,
+    skip: &str,
+) {
+    instructions.extend([
+        abi::compare_immediate(err_reg.clone(), "0"),
+        abi::branch_eq(skip),
+        abi::load_u64(abi::SCRATCH[3], ctx_reg, CTX_EDOMFN),
+        abi::compare_immediate(abi::SCRATCH[3], "0"),
+        abi::branch_eq(skip),
+        abi::move_register(abi::c_arg(0), err_reg),
+        abi::branch_link_register(abi::SCRATCH[3]),
+        // nw_error_get_error_domain returns a C enum: 32 bits, upper half undefined.
+        abi::store_u32(abi::c_return(0), ctx_reg, CTX_EDOM),
+    ]);
+}
+
+/// The connection/listener state-changed handler
+/// `void(block @x0, nw_state_t state @x1, nw_error_t error @x2)`.
+///
+/// Stores state and error into the captured ctx slots, then calls the captured
+/// signal fn on the semaphore — and (bug-483) records the error's domain while
+/// the object is still alive. That is
+/// what lets `tls::write`'s terminal-state guard tell a transport loss from a
+/// protocol failure: measured against a departed peer, the connection can reach
+/// `failed` from this handler BEFORE the program's next write ever posts a send,
+/// so the send completion's own classification is not always there to read.
+fn state_invoke_function() -> CodeFunction {
+    let sig = format!("{STATE_INVOKE}_sig");
+    let instructions: Vec<CodeInstruction> = vec![
+        abi::label("entry"),
+        abi::subtract_stack(32),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
+        abi::move_register(abi::LOCAL[0], abi::c_arg(0)), // x19 = block
+        abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], BLK_CAP), // x19 = ctx
+        abi::store_u64(abi::c_arg(1), abi::LOCAL[0], CTX_STATE),
+        abi::store_u64(abi::c_arg(2), abi::LOCAL[0], CTX_ERROR),
+    ]
+    .into_iter()
+    .chain({
+        let mut tail = Vec::new();
+        record_error_domain(&mut tail, abi::LOCAL[0], abi::c_arg(2), &sig);
+        tail
+    })
+    .chain([
+        abi::label(&sig),
+        abi::load_u64(abi::SCRATCH[1], abi::LOCAL[0], CTX_SIGNAL),
+        abi::load_u64(abi::c_arg(0), abi::LOCAL[0], CTX_SEM),
+        abi::branch_link_register(abi::SCRATCH[1]),
+        abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::add_stack(32),
+        abi::return_(),
+    ])
+    .collect();
+    CodeFunction {
+        name: format!("runtime.{STATE_INVOKE}"),
+        symbol: STATE_INVOKE.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: frame(32),
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// The send completion `void(block @x0, nw_error_t error @x1)` (bug-483).
+///
+/// Stores the error into `CTX_ERROR` and signals the semaphore, and — this is
+/// the whole point — additionally records its **domain** while the object is
+/// still alive. The `nw_error_t` a completion block is
+/// handed is borrowed for the block's duration; Network.framework releases it on
+/// return, so `tls::write` cannot ask the object anything after its semaphore
+/// wakes (measured: a build that did SIGSEGV'd 2 runs in 6, and 3 in 5 under
+/// `MallocScribble`). Asking here, on the dispatch queue, is the only safe place.
+///
+/// `CTX_EDOMFN` is null-guarded so a ctx built by an older/other path simply
+/// records nothing and the write path falls back to `ErrTlsFailed`, which is
+/// what it reported before this bug.
+///
+/// `x19` is saved and restored: the domain call and the signal call both clobber
+/// the scratch registers, so the ctx pointer has to live in a callee-saved one —
+/// the same shape `recv_invoke_impl` uses.
+fn send_invoke_function() -> CodeFunction {
+    let sig = format!("{SEND_INVOKE}_sig");
+    let instructions: Vec<CodeInstruction> = vec![
+        abi::label("entry"),
+        abi::subtract_stack(32),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
+        abi::move_register(abi::LOCAL[0], abi::c_arg(0)), // x19 = block
+        abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], BLK_CAP), // x19 = ctx
+        abi::store_u64(abi::c_arg(1), abi::LOCAL[0], CTX_ERROR),
+    ]
+    .into_iter()
+    .chain({
+        let mut tail = Vec::new();
+        record_error_domain(&mut tail, abi::LOCAL[0], abi::c_arg(1), &sig);
+        tail
+    })
+    .chain([
+        abi::label(&sig),
+        abi::load_u64(abi::SCRATCH[1], abi::LOCAL[0], CTX_SIGNAL),
+        abi::load_u64(abi::c_arg(0), abi::LOCAL[0], CTX_SEM),
+        abi::branch_link_register(abi::SCRATCH[1]),
+        abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::add_stack(32),
+        abi::return_(),
+    ])
+    .collect();
+    CodeFunction {
+        name: format!("runtime.{SEND_INVOKE}"),
+        symbol: SEND_INVOKE.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: frame(32),
@@ -484,10 +593,8 @@ fn lconn_invoke_function() -> CodeFunction {
 /// TLS; reached via `CodegenPlatform::emit_tls_block_trampolines`.
 pub(crate) fn block_trampolines(server: bool) -> Vec<CodeFunction> {
     let mut trampolines = vec![
-        // state_changed(state @x1, error @x2)
-        invoke_function(STATE_INVOKE, &[("x1", CTX_STATE), ("x2", CTX_ERROR)]),
-        // send_completion(error @x1)
-        invoke_function(SEND_INVOKE, &[("x1", CTX_ERROR)]),
+        state_invoke_function(),
+        send_invoke_function(),
         recv_poll_invoke_function(),
         cfg_invoke_function(),
         verify_invoke_function(),

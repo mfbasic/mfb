@@ -1,0 +1,1238 @@
+//! The canvas software rasteriser matches its stored reference image exactly
+//! (plan-98-C Phase 2), and the tolerance comparator plan-98-E/F will use behaves at
+//! its documented thresholds.
+//!
+//! The fixture is the smiley from `planning/plan-98-api.md` — the scene that shaped
+//! the API — rendered headless. It exercises the analytic-SDF circle, the
+//! wedge-clipped stroked arc, overlapping opaque items, and antialiased edges over
+//! both the background and another shape, which between them cover every code path in
+//! the rasteriser that a single scene can.
+//!
+//! **A mismatch here is a bug hunt, not a re-baseline.** The software path is
+//! deterministic, so a difference means the rendering changed. Localize it from the
+//! reported coordinate and root-cause the primitive. Only once the *reference* has
+//! been proven wrong — per AGENTS.md's four-question rule — regenerate it with
+//! `MFB_UPDATE_CANVAS_GOLDEN=1`, and say in the commit what proved it.
+
+#[path = "../common/mod.rs"]
+mod common;
+
+use common::canvas_image::{compare_exact, compare_within_tolerance, Frame, Tolerance};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+const WIDTH: u32 = 900;
+const HEIGHT: u32 = 640;
+
+/// The smiley from `plan-98-api.md`, verbatim apart from being a `SUB` that returns
+/// rather than blocking on input — a golden run must terminate.
+const SMILEY: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  LET yellow AS color::Color = color::rgb(255, 255, 0)
+  LET green AS color::Color = color::rgb(0, 160, 0)
+
+  LET canvasSize AS canvas::Size = canvas::getSize()
+  LET cx AS Float = toFloat(canvasSize.width) / 2.0
+  LET cy AS Float = toFloat(canvasSize.height) / 2.0
+
+  LET face AS canvas::DrawItem = canvas::Circle[x := cx, y := cy, radius := 150.0, paint := canvas::fill(yellow)]
+  LET eyeL AS canvas::DrawItem = canvas::Circle[x := cx - 50.0, y := cy - 40.0, radius := 22.0, paint := canvas::fill(green)]
+  LET eyeR AS canvas::DrawItem = canvas::Circle[x := cx + 50.0, y := cy - 40.0, radius := 22.0, paint := canvas::fill(green)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := cx, y := cy + 15.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
+
+  LET scene AS List OF canvas::DrawItem = [face, eyeL, eyeR, smile]
+
+  canvas::present(scene)
+  io::print("rendered")
+END SUB
+"#;
+
+fn golden_path(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("golden")
+        .join("canvas")
+        .join(format!("{name}.png"))
+}
+
+/// Render a scene that needs a font, dropping the fixture beside the project first.
+///
+/// The same twelve-glyph TrueType `tests/rt_canvas_font.rs` and
+/// `scripts/test-canvas-vulkan.sh` build — `unitsPerEm` 1000, one square glyph — rather
+/// than a system font, so the reference cannot depend on which typefaces the machine
+/// happens to have. A solid square is also the right glyph for a *reference*: whether a
+/// rotated run landed correctly is a whole-pixel question rather than a judgement about
+/// an antialiased curve.
+fn render_with_font(name: &str, source: &str) -> Frame {
+    render_inner(name, source, true, &[]).0
+}
+
+fn render(name: &str, source: &str) -> Frame {
+    render_inner(name, source, false, &[]).0
+}
+
+/// The same render on the GPU, with the stats line that says whether it *was* the GPU.
+///
+/// The stats are not decoration here. A backend that declines a scene falls back to the
+/// software renderer and returns a frame that matches the reference perfectly — so a
+/// GPU comparison with no `gpuSelected=TRUE` check is a test that passes hardest
+/// exactly when the hardware path is broken enough to be refused.
+fn render_gpu_with_font(name: &str, source: &str) -> (Frame, String) {
+    render_inner(name, source, true, &[("MFB_CANVAS_GPU", "1")])
+}
+
+/// The same, for a scene that needs no font.
+fn render_gpu(name: &str, source: &str) -> (Frame, String) {
+    render_inner(name, source, false, &[("MFB_CANVAS_GPU", "1")])
+}
+
+fn render_inner(name: &str, source: &str, font: bool, extra: &[(&str, &str)]) -> (Frame, String) {
+    let project = common::temp_project(name, source);
+    if font {
+        std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
+            .expect("write the font fixture");
+    }
+    let frame_path = project.join("frame.rgba");
+    let stats_path = project.join("stats.txt");
+    let binary = common::build_app(&project, name);
+    let mut command = Command::new(&binary);
+    command
+        // The project directory, so a scene that opens `fixture.ttf` finds it. Running
+        // from the repository root instead would resolve the relative path against
+        // cargo's cwd, where the fixture is not.
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        // Wait for the frame this scene asked for. Without it `present` returns at
+        // once and `main` returns behind it, and the process tears down while the
+        // graphics thread is still reading the scene: the geometry survives (the ring
+        // holds a published copy) but a `canvas::Font`'s outlines do not, because they
+        // live in the worker's own arena, which is per-thread. The frame then lands
+        // with every shape and no text — silently, and identically on every run, so it
+        // reads as a reference rather than a truncated one. Measured on the transform
+        // scene: 0 text pixels without this, 840 with it. Every other canvas suite
+        // sets it; this one was the exception because no golden scene used a font
+        // until plan-116-C's did.
+        .env("MFB_CANVAS_SYNC", "1")
+        .env("MFB_CANVAS_STATS", &stats_path)
+        .env("MFB_CANVAS_DUMP", &frame_path);
+    for (key, value) in extra {
+        command.env(key, value);
+    }
+    let run = command
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&run.status),
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr),
+    );
+
+    let pixels = std::fs::read(&frame_path).expect("canvas dump written");
+    let stats = std::fs::read_to_string(&stats_path).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    (Frame::from_rgba(WIDTH, HEIGHT, pixels), stats)
+}
+
+/// The software rasteriser reproduces its reference image exactly.
+#[test]
+fn smiley_matches_its_reference_exactly() {
+    let rendered = render("canvas_golden_smiley", SMILEY);
+    let reference = golden_path("smiley");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the smiley no longer renders to its reference image: {diff}\n\
+             This is deterministic output, so something changed. Localize the \
+             primitive at that coordinate before considering the reference wrong.",
+        );
+    }
+}
+
+/// A frame is exactly equal to itself, and the tolerance comparator agrees.
+///
+/// The trivial case is worth pinning because it is the one both comparators must
+/// share: a tolerance path that somehow rejected an identical frame would make every
+/// GPU backend fail for a reason that has nothing to do with the GPU.
+#[test]
+fn identical_frames_pass_both_comparators() {
+    let frame = Frame::load_png(&golden_path("smiley"));
+    assert!(compare_exact(&frame, &frame).is_ok());
+    assert!(compare_within_tolerance(&frame, &frame, Tolerance::GPU_DEFAULT).is_ok());
+}
+
+/// Perturb one pixel by one step: exact-match rejects it, tolerance accepts it.
+///
+/// This is the whole point of having two comparators. One step on one pixel is
+/// exactly the drift a different-but-correct GPU rasteriser produces on an
+/// antialiased edge, and exactly the drift that must still fail the deterministic
+/// software gate.
+#[test]
+fn a_one_step_perturbation_fails_exact_but_passes_tolerance() {
+    let reference = Frame::load_png(&golden_path("smiley"));
+    let mut perturbed = reference.clone();
+    // A pixel inside the face, so the change is to a real rendered colour rather
+    // than to the background.
+    let index = ((HEIGHT / 2) as usize * WIDTH as usize + (WIDTH / 2) as usize) * 4;
+    perturbed.pixels[index] = perturbed.pixels[index].wrapping_sub(1);
+
+    let exact = compare_exact(&perturbed, &reference);
+    assert!(exact.is_err(), "exact match accepted a changed pixel");
+    let diff = exact.unwrap_err();
+    assert_eq!(diff.differing_pixels, 1);
+    assert_eq!(diff.max_channel_delta, 1);
+
+    assert!(
+        compare_within_tolerance(&perturbed, &reference, Tolerance::GPU_DEFAULT).is_ok(),
+        "tolerance rejected a one-step difference on a single pixel",
+    );
+}
+
+/// A difference beyond the per-channel epsilon fails tolerance too.
+///
+/// The channel limit is what stops a systematically wrong frame — a wrong gamma, a
+/// half-pixel offset — from passing as sampling noise.
+#[test]
+fn a_large_channel_delta_fails_tolerance() {
+    let reference = Frame::load_png(&golden_path("smiley"));
+    let mut perturbed = reference.clone();
+    let index = ((HEIGHT / 2) as usize * WIDTH as usize + (WIDTH / 2) as usize) * 4;
+    perturbed.pixels[index] = perturbed.pixels[index].wrapping_sub(40);
+
+    let diff = compare_within_tolerance(&perturbed, &reference, Tolerance::GPU_DEFAULT)
+        .expect_err("tolerance accepted a 40-step channel difference");
+    assert_eq!(diff.differing_pixels, 1);
+    assert_eq!(diff.max_channel_delta, 40);
+}
+
+/// Too many pixels differing fails tolerance even when each is within the epsilon.
+///
+/// The differing-pixel budget is the other half: every pixel being off by one is not
+/// noise, it is a systematic error, and a per-channel epsilon alone would wave it
+/// through.
+#[test]
+fn too_many_small_differences_fail_tolerance() {
+    let reference = Frame::load_png(&golden_path("smiley"));
+    let mut perturbed = reference.clone();
+    // Nudge a tenth of the frame by one step — five times the 2% budget, with every
+    // individual difference inside the 2-step channel epsilon.
+    let nudge = (WIDTH as usize * HEIGHT as usize) / 10;
+    for pixel in 0..nudge {
+        let index = pixel * 4;
+        perturbed.pixels[index] = perturbed.pixels[index].wrapping_add(1);
+    }
+
+    let diff = compare_within_tolerance(&perturbed, &reference, Tolerance::GPU_DEFAULT)
+        .expect_err("tolerance accepted a systematic one-step shift over 10% of the frame");
+    assert_eq!(
+        diff.max_channel_delta, 1,
+        "each difference is within the epsilon"
+    );
+    assert_eq!(diff.differing_pixels, nudge);
+}
+
+/// The four blend modes, each over the same mid-grey ground (plan-116-B).
+///
+/// A reference image rather than only channel assertions, because
+/// `rt_canvas_rasteriser`'s per-mode test samples **one pixel per mode** at full
+/// coverage. That is the right shape for pinning the equations, and it is blind to
+/// everything else: an antialiased edge under a non-`Normal` mode, a mode applied to a
+/// stroke rather than a fill, and the overlap where two blended items meet. Those are
+/// exactly the places a mode that is right at coverage 255 can still be wrong.
+///
+/// Mid grey is load-bearing. Over white or black the four modes collapse into each
+/// other — `Multiply` with white is the source, `Screen` and `Add` with white are both
+/// white — so a reference taken over either could not distinguish a correct renderer
+/// from one that had `Screen` and `Add` swapped.
+///
+/// Each pair is a filled circle over a stroked rounded rectangle, so every frame
+/// carries both paint channels under every mode.
+const BLEND_MODES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128))]
+
+  LET warm AS color::Color = color::rgb(230, 120, 40)
+  LET cool AS color::Color = color::rgb(40, 120, 230)
+
+  LET boxNormal AS canvas::DrawItem = canvas::RoundedRect[x := 40.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, color::rgb(255, 255, 255), 8.0)]
+  LET dotNormal AS canvas::DrawItem = canvas::Circle[x := 160.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Normal }]
+
+  LET boxMultiply AS canvas::DrawItem = canvas::RoundedRect[x := 260.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, color::rgb(255, 255, 255), 8.0)]
+  LET dotMultiply AS canvas::DrawItem = canvas::Circle[x := 380.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Multiply }]
+
+  LET boxScreen AS canvas::DrawItem = canvas::RoundedRect[x := 480.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, color::rgb(255, 255, 255), 8.0)]
+  LET dotScreen AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Screen }]
+
+  LET boxAdd AS canvas::DrawItem = canvas::RoundedRect[x := 700.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, color::rgb(255, 255, 255), 8.0)]
+  LET dotAdd AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Add }]
+
+  ' A stroked arc under each mode too: a mode has to reach the stroke channel, not
+  ' just the fill, and the stroke is the one that rides `salpha` rather than `alpha`.
+  LET arcNormal AS canvas::DrawItem = canvas::Arc[x := 160.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Normal }]
+  LET arcMultiply AS canvas::DrawItem = canvas::Arc[x := 380.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Multiply }]
+  LET arcScreen AS canvas::DrawItem = canvas::Arc[x := 600.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Screen }]
+  LET arcAdd AS canvas::DrawItem = canvas::Arc[x := 820.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Add }]
+
+  ' One clipped item, so the reference covers the other half of this letter as well:
+  ' a fractional clip edge that must stay antialiased.
+  LET clipped AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 560.0, w := 820.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 100.25, y := 560.0, w := 700.5, h := 60.0] }]
+
+  canvas::present([ground, boxNormal, dotNormal, boxMultiply, dotMultiply, boxScreen, dotScreen, boxAdd, dotAdd, arcNormal, arcMultiply, arcScreen, arcAdd, clipped])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The blend-mode reference renders exactly.
+///
+/// Same rule as `smiley_matches_its_reference_exactly`: a mismatch is a bug hunt, not
+/// a re-baseline. The software path is deterministic, so a difference here means one
+/// of the four equations, the clip's coverage, or the sRGB chain moved.
+#[test]
+fn blend_modes_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_blend", BLEND_MODES);
+    let reference = golden_path("blendmodes");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the blend-mode scene no longer renders to its reference image: {diff}\n\
+             This is deterministic output. Localize the mode at that coordinate: the \
+             four pairs run left to right as Normal, Multiply, Screen, Add, the arcs \
+             below them are the same four on the STROKE channel, and the band at the \
+             bottom is a fractional clip edge.",
+        );
+    }
+}
+
+/// A rotated rect, a non-uniformly scaled circle, a sheared polygon and rotated text
+/// (plan-116-C).
+///
+/// The four cases the transform work has to get right, and each is chosen to fail
+/// differently:
+///
+/// - **The rotated rect** is the bounds case: its transformed hull is wider than its
+///   shape-space box in both axes, so a renderer that kept the original box would slice
+///   the corners off.
+/// - **The non-uniformly scaled circle** is the distance-correction case. Phase 1
+///   measured `sqrt(|det M|)` as 37/255 coverage steps wrong here, so this ellipse's
+///   edge is where a wrong correction shows.
+/// - **The sheared polygon** exercises the correction on an edge that is neither
+///   axis-aligned nor curved, and the polygon SDF's crossing-count fill rule under a
+///   mapping that does not preserve angles.
+/// - **The rotated text** takes the separate inverse-sample arm, not the SDF path at
+///   all, and its per-glyph quad is the run's transformed hull.
+///
+/// Each is drawn beside its untransformed twin on a mid-grey ground, so the reference
+/// shows the transform's effect rather than just its result — a reader can see at a
+/// glance whether the pair differs the way the matrix says.
+const TRANSFORMS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(96, 96, 96))]
+
+  ' 45 degrees: the hull is 1.41x the shape-space box in both axes.
+  LET k AS Float = 0.7071067811865476
+  LET rotT AS canvas::Transform = canvas::Transform[a := k, b := k, c := 0.0 - k, d := k, tx := 200.0, ty := 160.0]
+  LET plainRect AS canvas::DrawItem = canvas::Rectangle[x := 480.0, y := 90.0, w := 140.0, h := 140.0, paint := canvas::fill(color::rgb(255, 190, 60))]
+  LET rotRect AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 70.0, y := 0.0 - 70.0, w := 140.0, h := 140.0, paint := WITH canvas::fill(color::rgb(255, 190, 60)) { transform := rotT }]
+
+  ' 2:1 in x only -- the case sqrt(|det M|) gets wrong.
+  LET scaleT AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 1.0, tx := 200.0, ty := 380.0]
+  LET plainCircle AS canvas::DrawItem = canvas::Circle[x := 550.0, y := 380.0, radius := 60.0, paint := canvas::fillStroke(color::rgb(90, 200, 255), color::rgb(255, 255, 255), 8.0)]
+  LET scaledCircle AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 60.0, paint := WITH canvas::fillStroke(color::rgb(90, 200, 255), color::rgb(255, 255, 255), 8.0) { transform := scaleT }]
+
+  ' A 30 degree shear in x.
+  LET shearT AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.5773502691896258, d := 1.0, tx := 660.0, ty := 480.0]
+  LET tri AS List OF canvas::Point = [canvas::Point[x := 0.0 - 60.0, y := 50.0], canvas::Point[x := 60.0, y := 50.0], canvas::Point[x := 0.0, y := 0.0 - 50.0]]
+  LET plainPoly AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 200.0, y := 590.0], canvas::Point[x := 320.0, y := 590.0], canvas::Point[x := 260.0, y := 490.0]], paint := canvas::fill(color::rgb(220, 120, 220))]
+  LET shearPoly AS canvas::DrawItem = canvas::Polygon[points := tri, paint := WITH canvas::fill(color::rgb(220, 120, 220)) { transform := shearT }]
+
+  ' 90 degrees, so the rotated run is a vertical column of the fixture's squares.
+  LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 860.0, ty := 120.0]
+  LET plainText AS canvas::DrawItem = canvas::Text[x := 380.0, y := 300.0, text := "AA", font := face, size := 50.0, paint := canvas::fill(color::rgb(200, 255, 120))]
+  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := face, size := 50.0, paint := WITH canvas::fill(color::rgb(200, 255, 120)) { transform := textT }]
+
+  canvas::present([ground, plainRect, rotRect, plainCircle, scaledCircle, plainPoly, shearPoly, plainText, rotText])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The transform reference renders exactly.
+///
+/// Same rule as the other two references: a mismatch is a bug hunt, not a re-baseline.
+#[test]
+fn transforms_match_their_reference_exactly() {
+    let rendered = render_with_font("canvas_golden_transforms", TRANSFORMS);
+    let reference = golden_path("transforms");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the transform scene no longer renders to its reference image: {diff}\n\
+             Deterministic output, so localize by pair: the rotated rect is the BOUNDS \
+             hull, the scaled circle is the distance correction (Phase 1 measured \
+             sqrt(|det M|) as 37/255 wrong exactly here), the sheared triangle is the \
+             polygon fill rule under a non-similarity, and the rotated label is the \
+             glyph inverse-sample arm.",
+        );
+    }
+}
+
+/// The hardware backend draws the transform scene the reference shows.
+///
+/// This is plan-116-C Phase 4's acceptance in the form the plan states it: the whole
+/// `transforms.png` scene — all four transformed items *and* their untransformed twins
+/// — rendered by whichever GPU backend this host has, compared against the stored
+/// reference within `Tolerance::GPU_DEFAULT`.
+///
+/// The reference rather than a fresh software render, deliberately. Comparing GPU
+/// against a same-run oracle would let a change that broke both in the same direction
+/// pass; comparing against the committed image means the picture a human looked at is
+/// the one the hardware has to reproduce.
+///
+/// A tolerance rather than `compare_exact` because the GPU composites in linear space
+/// with hardware blending while the oracle blends in sRGB, so antialiased edges land a
+/// step or two apart. `Tolerance::GPU_DEFAULT` bounds both how far one pixel may move
+/// and how many may move at all — it is not a lever to widen when something fails.
+#[test]
+fn the_gpu_draws_the_transform_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu_with_font("canvas_golden_transforms_gpu", TRANSFORMS);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
+         predicate declined the transform scene, and every pixel below would then be \
+         the software renderer marking its own work: {stats}"
+    );
+
+    let reference = golden_path("transforms");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's transform scene disagrees with the reference: {diff}\n\
+             Localize by pair against the picture: a rotated rect with sliced corners \
+             is a stale vertex quad, an ellipse whose stroke thickens along one axis \
+             is the distance correction, and a label that vanished or landed upright \
+             is the glyph inverse-sample arm."
+        );
+    }
+}
+
+/// Butt and round, on a line and on an arc, at a stroke width wide enough to read
+/// (plan-116-D).
+///
+/// Each style is drawn beside its twin with everything else held equal, so the picture
+/// shows the cap's effect rather than just its result — and so a reader can see at a
+/// glance whether the pair differs the way the type says. That matters more here than
+/// for the other references, because the two variants are asymmetric: a `Line` was
+/// **round** before this letter and an `Arc` was **butt**, so "the new one" is the
+/// right-hand shape in one row and the left-hand shape in the other.
+///
+/// The stroke is 28 px, so a cap is a 14 px feature — large enough that a wrong cap is
+/// a visible block rather than an antialiasing argument. Endpoints are marked with a
+/// thin crossing line at each end of the horizontal pair, because the whole claim about
+/// `Butt` is *where it stops*, and an unmarked end is only checkable against arithmetic.
+///
+/// The bottom row is the degenerate pair from the rasteriser tests, at reference scale:
+/// a zero-length round line is a dot and a zero-length butt line is nothing at all. The
+/// empty half is deliberately present in the picture as an absence — a reader comparing
+/// against the type's description should find nothing there.
+const ENDCAPS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(64, 68, 78))]
+
+  ' Row 1 -- lines. Butt left, round right, same geometry and paint otherwise.
+  LET ink AS color::Color = color::rgb(255, 214, 92)
+  LET buttLine AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 120.0, x2 := 340.0, y2 := 120.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(ink, 28.0)]
+  LET roundLine AS canvas::DrawItem = canvas::Line[x1 := 540.0, y1 := 120.0, x2 := 760.0, y2 := 120.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(ink, 28.0)]
+
+  ' The endpoints, marked. A butt cap's claim is that the stroke stops HERE, which is
+  ' only readable against something that says where "here" is.
+  LET mark AS color::Color = color::rgb(255, 255, 255)
+  LET markA AS canvas::DrawItem = canvas::Line[x1 := 340.0, y1 := 88.0, x2 := 340.0, y2 := 152.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(mark, 2.0)]
+  LET markB AS canvas::DrawItem = canvas::Line[x1 := 760.0, y1 := 88.0, x2 := 760.0, y2 := 152.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(mark, 2.0)]
+
+  ' Row 2 -- arcs, swept 0..0.6*PI so both ends are in view. Butt left, round right.
+  LET arcInk AS color::Color = color::rgb(120, 226, 255)
+  LET buttArc AS canvas::DrawItem = canvas::Arc[x := 230.0, y := 300.0, radius := 90.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Butt, paint := canvas::stroke(arcInk, 28.0)]
+  LET roundArc AS canvas::DrawItem = canvas::Arc[x := 650.0, y := 300.0, radius := 90.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(arcInk, 28.0)]
+
+  ' Row 3 -- a diagonal pair, so a cap is checked on an axis the two rows above miss.
+  LET diagInk AS color::Color = color::rgb(228, 148, 255)
+  LET buttDiag AS canvas::DrawItem = canvas::Line[x1 := 140.0, y1 := 470.0, x2 := 320.0, y2 := 560.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(diagInk, 28.0)]
+  LET roundDiag AS canvas::DrawItem = canvas::Line[x1 := 560.0, y1 := 470.0, x2 := 740.0, y2 := 560.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(diagInk, 28.0)]
+
+  ' Row 4 -- the degenerate pair. The butt one draws nothing, and its absence is part
+  ' of the reference.
+  LET dotInk AS color::Color = color::rgb(160, 255, 170)
+  LET buttDot AS canvas::DrawItem = canvas::Line[x1 := 230.0, y1 := 610.0, x2 := 230.0, y2 := 610.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(dotInk, 28.0)]
+  LET roundDot AS canvas::DrawItem = canvas::Line[x1 := 650.0, y1 := 610.0, x2 := 650.0, y2 := 610.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(dotInk, 28.0)]
+
+  canvas::present([ground, buttLine, roundLine, markA, markB, buttArc, roundArc, buttDiag, roundDiag, buttDot, roundDot])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The endcap reference renders exactly.
+///
+/// Same rule as the other three references: a mismatch is a bug hunt, not a
+/// re-baseline.
+#[test]
+fn endcaps_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_endcaps", ENDCAPS);
+    let reference = golden_path("endcaps");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the endcap scene no longer renders to its reference image: {diff}\n\
+             Localize by row: rows 1 and 3 are the line cap (butt left, round right), \
+             row 2 is the arc cap — and note the asymmetry, because a Line was ROUND \
+             before plan-116-D and an Arc was BUTT, so the pre-existing shape is on \
+             opposite sides in the two. Row 4 is the degenerate pair; the left half is \
+             meant to be empty."
+        );
+    }
+}
+
+/// The hardware backend draws the endcap scene the reference shows.
+///
+/// plan-116-D Phase 4's acceptance, in the form the plan states it. The same reasoning
+/// as the transform scene's GPU test: compared against the **committed reference**
+/// rather than a same-run oracle, so a change that broke both in the same direction
+/// cannot pass, and gated on `gpuSelected=TRUE` first, because a backend that declined
+/// the scene would fall back to software and reproduce the reference perfectly.
+#[test]
+fn the_gpu_draws_the_endcap_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu("canvas_golden_endcaps_gpu", ENDCAPS);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
+         predicate declined a cap, and every pixel below would then be the software \
+         renderer marking its own work: {stats}"
+    );
+
+    let reference = golden_path("endcaps");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's endcap scene disagrees with the reference: {diff}\n\
+             A butt end that still domes is the shader reading the wrong cap word; a \
+             round end that is cut square is the same in reverse. An arc whose cap \
+             disc is in the wrong place is the `arcCaps` ivec4 — check the vertex and \
+             fragment declarations of ItemBlock agree, since only one of them sets the \
+             std430 stride."
+        );
+    }
+}
+
+/// Axis-aligned, rotated, high-eccentricity, filled and stroked (plan-116-E).
+///
+/// The four cases the ellipse SDF has to get right, and each fails differently:
+///
+/// - **The axis-aligned pair** is the baseline. A 3:1 filled ellipse beside the circle
+///   its `radiusX` would give, so the picture shows the shape rather than just an oval.
+/// - **The high-eccentricity one** is where the solve is worst. The approximate ellipse
+///   distance this letter rejected has its largest error at the *flat* ends, where the
+///   curvature is lowest, so a 10:1 ellipse's rim is the thing to look at.
+/// - **The rotated pair** exercises the stored `cos`/`sin`. The two are the same shape a
+///   quarter turn apart, so a rotation applied with the wrong sign is visible as an
+///   asymmetry between them rather than as "some angle".
+/// - **The stroked one** is the signed-distance case: hollow inside, bounded outside.
+///   An unsigned distance fills the interior and every filled case above still passes.
+///
+/// The equal-radii ellipse in the bottom row is drawn beside a real `Circle` of the
+/// same radius and paint. In the reference they are indistinguishable, which is the
+/// picture of §1's load-bearing claim — and if the `rx == ry` guard ever stopped
+/// firing, this is where a reader would see the rim shift.
+const ELLIPSES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(58, 62, 72))]
+
+  ' Row 1 -- axis-aligned 3:1, beside the circle its radiusX would give.
+  LET warm AS color::Color = color::rgb(255, 196, 84)
+  LET wide AS canvas::DrawItem = canvas::Ellipse[x := 240.0, y := 100.0, radiusX := 180.0, radiusY := 60.0, angle := 0.0, paint := canvas::fill(warm)]
+  LET round AS canvas::DrawItem = canvas::Circle[x := 560.0, y := 100.0, radius := 60.0, paint := canvas::fill(warm)]
+
+  ' Row 2 -- 10:1, the eccentricity where an approximate distance is worst, and the
+  ' same shape turned a quarter turn. The turned one gets its own column on the right,
+  ' because a 10:1 ellipse a quarter turn round is as tall as the row is wide.
+  LET cool AS color::Color = color::rgb(120, 214, 255)
+  LET thin AS canvas::DrawItem = canvas::Ellipse[x := 220.0, y := 260.0, radiusX := 200.0, radiusY := 20.0, angle := 0.0, paint := canvas::fill(cool)]
+  LET thinTurned AS canvas::DrawItem = canvas::Ellipse[x := 800.0, y := 300.0, radiusX := 200.0, radiusY := 20.0, angle := 1.5707963267948966, paint := canvas::fill(cool)]
+
+  ' Row 3 -- rotated, filled-and-stroked and stroke-only, so the band's width is
+  ' readable all the way round a curve whose curvature varies ninefold.
+  LET violet AS color::Color = color::rgb(226, 150, 255)
+  LET tilted AS canvas::DrawItem = canvas::Ellipse[x := 200.0, y := 450.0, radiusX := 150.0, radiusY := 50.0, angle := 0.5235987755982988, paint := canvas::fillStroke(violet, color::rgb(255, 255, 255), 10.0)]
+  LET hollow AS canvas::DrawItem = canvas::Ellipse[x := 530.0, y := 450.0, radiusX := 120.0, radiusY := 70.0, angle := 0.0 - 0.5235987755982988, paint := canvas::stroke(violet, 16.0)]
+
+  ' Row 4 -- the load-bearing pair: an Ellipse with equal radii beside the Circle of
+  ' that radius, same paint. They must be indistinguishable.
+  LET mint AS color::Color = color::rgb(150, 255, 190)
+  LET asCircle AS canvas::DrawItem = canvas::Ellipse[x := 250.0, y := 585.0, radiusX := 38.0, radiusY := 38.0, angle := 0.0, paint := canvas::fillStroke(mint, color::rgb(255, 255, 255), 6.0)]
+  LET realCircle AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 585.0, radius := 38.0, paint := canvas::fillStroke(mint, color::rgb(255, 255, 255), 6.0)]
+
+  canvas::present([ground, wide, round, thin, thinTurned, tilted, hollow, asCircle, realCircle])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The ellipse reference renders exactly.
+///
+/// Same rule as the other three references: a mismatch is a bug hunt, not a
+/// re-baseline.
+#[test]
+fn ellipses_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_ellipses", ELLIPSES);
+    let reference = golden_path("ellipses");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the ellipse scene no longer renders to its reference image: {diff}\n\
+             Localize by row: row 1 is the axis-aligned baseline, row 2 is the 10:1 \
+             case where an approximate distance is worst (look at the flat ends), row \
+             3 is the stroke band under varying curvature, and row 4 is the equal-radii \
+             pair — a difference there is the `rx == ry` guard not firing, and the \
+             ellipse and the circle beside it will no longer match."
+        );
+    }
+}
+
+/// The hardware backend draws the ellipse scene the reference shows.
+///
+/// plan-116-E Phase 4's acceptance. Gated on `gpuSelected=TRUE` first for the reason
+/// `.ai/canvas-threading.md` §10 records from experience: a predicate that accepts a
+/// kind its shader does not know renders the item as *nothing* and reports success —
+/// 4,536 pixels wrong, reported as a pass. Since `Ellipse` is a brand-new kind, that is
+/// exactly the failure available here, and only the stats line separates it from a
+/// backend that declined the scene and let software draw a perfect picture.
+#[test]
+fn the_gpu_draws_the_ellipse_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu("canvas_golden_ellipses_gpu", ELLIPSES);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
+         predicate declined the new kind, and every pixel below would then be the \
+         software renderer marking its own work: {stats}"
+    );
+
+    let reference = golden_path("ellipses");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's ellipse scene disagrees with the reference: {diff}\n\
+             An ellipse missing entirely is the shader's kind-7 arm not being reached; \
+             a wrongly-oriented one is the `ellipse` ivec4 (check the vertex AND \
+             fragment ItemBlock declarations agree, since only one sets the std430 \
+             stride); a rim that is off by more than a step or two is the bisection \
+             count differing between the shader and the oracle — both are 24."
+        );
+    }
+}
+
+/// A linear ramp, a radial ramp, a multi-stop ramp, and a black→white ramp
+/// (plan-116-F).
+///
+/// The fourth row is the one that carries an argument rather than a demonstration.
+/// §4.3 chooses to interpolate **in linear light**, and black→white is where that
+/// choice is visible: in linear light the ramp's midpoint is a mid grey, whereas
+/// interpolating the sRGB-encoded bytes spends half the ramp below 22% of the light
+/// and reads as dark-heavy. Open the image to check the decision rather than take it
+/// on trust — which is what "decide by looking at the image" in §Open Decisions means.
+///
+/// The multi-stop row also carries the out-of-order rule: its stops are given
+/// `0.0, 0.75, 0.4, 1.0`, and the third is clamped up to 0.75 rather than sorted into
+/// place. The visible consequence is a hard edge at 0.75 instead of a fourth band, and
+/// a reader comparing against the type's description should find exactly that.
+const GRADIENTS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(48, 50, 58))]
+
+  ' Row 1 -- a two-stop linear ramp, and the same ramp on a rotated axis so the
+  ' gradient is visibly independent of the shape's own orientation.
+  LET warm AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
+  LET gLin AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 60.0, y := 0.0], endPoint := canvas::Point[x := 400.0, y := 0.0], stops := warm]
+  LET linBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 60.0, w := 340.0, h := 110.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gLin }]
+  LET gDiag AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 500.0, y := 60.0], endPoint := canvas::Point[x := 840.0, y := 170.0], stops := warm]
+  LET diagBar AS canvas::DrawItem = canvas::Rectangle[x := 500.0, y := 60.0, w := 340.0, h := 110.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gDiag }]
+
+  ' Row 2 -- radial, on a circle and on an ellipse. The ramp is measured in surface
+  ' pixels, so it does not follow the shape: the ellipse's ramp stays circular.
+  LET glow AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 244, 214)], canvas::GradientStop[offset := 1.0, color := color::rgb(90, 30, 120)]]
+  LET gRad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 200.0, y := 320.0], endPoint := canvas::Point[x := 300.0, y := 320.0], stops := glow]
+  LET orb AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 320.0, radius := 95.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gRad }]
+  LET gRad2 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 620.0, y := 320.0], endPoint := canvas::Point[x := 740.0, y := 320.0], stops := glow]
+  LET blob AS canvas::DrawItem = canvas::Ellipse[x := 620.0, y := 320.0, radiusX := 170.0, radiusY := 80.0, angle := 0.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gRad2 }]
+
+  ' A gradient-filled POLYGON, in the gap between the two round shapes of row 2. It is
+  ' here for one reason: a gradient's stops sit at the END of the geometry record, so a
+  ' polygon's tail is its edges and THEN its stops, and both emitters find the first
+  ' stop by subtracting from the record's own length. Every other kind puts the stops
+  ' directly after the header, where a base computed either way agrees — so a polygon
+  ' is the only shape that can tell a correct base from a lucky one.
+  LET gTri AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 330.0, y := 240.0], endPoint := canvas::Point[x := 330.0, y := 400.0], stops := warm]
+  LET triBar AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 330.0, y := 240.0], canvas::Point[x := 450.0, y := 240.0], canvas::Point[x := 390.0, y := 400.0]], paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gTri }]
+
+  ' Row 3 -- four stops, the third given OUT OF ORDER at 0.4 after 0.75. It clamps up
+  ' to 0.75 rather than sorting, so the picture has a hard edge there and no fourth
+  ' band. That is the rule made visible.
+  LET many AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 0.75, color := color::rgb(255, 220, 0)], canvas::GradientStop[offset := 0.4, color := color::rgb(0, 160, 255)], canvas::GradientStop[offset := 1.0, color := color::rgb(255, 255, 255)]]
+  LET gMany AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 60.0, y := 0.0], endPoint := canvas::Point[x := 840.0, y := 0.0], stops := many]
+  LET manyBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 440.0, w := 780.0, h := 70.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gMany }]
+
+  ' Row 4 -- black to white. THE case that makes the interpolation space inspectable.
+  LET mono AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(0, 0, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(255, 255, 255)]]
+  LET gMono AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 60.0, y := 0.0], endPoint := canvas::Point[x := 840.0, y := 0.0], stops := mono]
+  LET monoBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 540.0, w := 780.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gMono }]
+
+  canvas::present([ground, linBar, diagBar, orb, blob, triBar, manyBar, monoBar])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The gradient reference renders exactly.
+#[test]
+fn gradients_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_gradients", GRADIENTS);
+    let reference = golden_path("gradients");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the gradient scene no longer renders to its reference image: {diff}\n\
+             Localize by row: row 1 is the linear arm (the second bar's axis is \
+             diagonal, so a ramp that follows the shape rather than the axis shows \
+             there), row 2 is the radial arm (the ellipse's ramp must stay CIRCULAR — \
+             the gradient is measured in surface pixels, not in the shape's space), row \
+             3 is the out-of-order clamp (a fourth colour band means the stops were \
+             sorted), and row 4 is the interpolation space (a dark-heavy ramp means it \
+             moved to sRGB space)."
+        );
+    }
+}
+
+/// The hardware backend draws the gradient scene the reference shows.
+///
+/// plan-116-F Phase 4's acceptance, and gated on the stats line for the reason
+/// `.ai/canvas-threading.md` §10 records: a gradient the shader cannot read draws the
+/// flat `fill` underneath — every one of these bars is `rgb(0, 0, 0)` beneath its ramp
+/// precisely so that failure is a *black bar*, not a subtly wrong one. But a backend
+/// that DECLINED the scene hands it to software, which is the oracle, and every pixel
+/// then matches by construction. `gpuFrames` is the only thing that separates the two.
+#[test]
+fn the_gpu_draws_the_gradient_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu("canvas_golden_gradients_gpu", GRADIENTS);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
+         predicate declined the scene, and every pixel below would then be the \
+         software renderer marking its own work: {stats}"
+    );
+
+    let reference = golden_path("gradients");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's gradient scene disagrees with the reference: {diff}\n\
+             A solid BLACK bar is the shader never taking the gradient arm at all \
+             (`item.ellipse.z >= 2`), so the flat fill showed; a ramp that runs the \
+             wrong way or off the shape is the axis ivec4 (check the vertex AND \
+             fragment ItemBlock declarations agree — only one sets the std430 stride); \
+             a ramp whose midpoint is too DARK is the lerp having moved out of linear \
+             light, which is the one thing §4.3 fixes; and a ramp built from another \
+             item's colours is the per-item first-stop index, `item.ellipse.w`."
+        );
+    }
+}
+
+/// A frame whose gradient stops overflow the buffer's third region declines to
+/// software rather than drawing from the wrong place.
+///
+/// The cap is a frame SUM, not a per-item bound, because the stops of every item share
+/// one region — so past it an item's first-stop index addresses memory another item
+/// owns, and the shader reads it as a colour ramp. That draws a plausible wrong picture
+/// rather than failing, which is why the predicate declines instead of truncating.
+///
+/// Asserted on the stats line and NOT by comparing pixels: a declined frame is drawn by
+/// software, which is the oracle, so it matches any reference by construction. Pixel
+/// equality here would pass whether the cap worked or not — it is the false pass this
+/// test exists to avoid.
+#[test]
+fn a_frame_past_the_gradient_stop_cap_declines_to_software() {
+    let (_, stats) = render_gpu("canvas_golden_gradient_overflow", GRADIENT_OVERFLOW);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        stats.contains("gpuFrames=0"),
+        "a scene carrying more gradient stops than the frame's region holds was \
+         rendered on the GPU: `__CANVAS_MAX_FRAME_GRADIENT_STOPS` is a frame sum and \
+         this scene is past it, so accepting the frame means the stop uploads ran off \
+         the region and one item's ramp was read from another's stops: {stats}"
+    );
+}
+
+/// One gradient with more stops than the whole frame's region holds
+/// (`MAX_FRAME_GRADIENT_STOPS` is 4096).
+///
+/// Built in a loop rather than spelled out, and deliberately as a SINGLE item: the cap
+/// is a sum, so one item past it on its own proves the sum is consulted before the
+/// upload rather than after — the ordering that matters.
+const GRADIENT_OVERFLOW: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  MUT stops AS List OF canvas::GradientStop = []
+  MUT i AS Integer = 0
+  WHILE i < 4200
+    LET t AS Float = toFloat(i) / 4199.0
+    stops = collections::append(stops, canvas::GradientStop[offset := t, color := color::rgb(255 - i / 20, 40, i / 20)])
+    i = i + 1
+  END WHILE
+
+  LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 900.0, y := 0.0], stops := stops]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := g }]
+
+  canvas::present([bar])
+  io::print("rendered")
+END SUB
+"#;
+
+/// A gradient on a **stroked** `canvas::Text` is ignored, like every other kind with no
+/// interior.
+///
+/// plan-116-F **F18**, and the sibling of `a_gradient_on_a_stroke_only_kind_is_ignored`
+/// in `rt_canvas_rasteriser.rs` — the same defect reached a different way.
+/// `__canvas_paintHeader` decides "has this kind an interior?" by reading slot 0, and
+/// `__canvas_textHeader` sets slot 0 to `POLYGON` before calling it, because a stroked
+/// text really is lowered to one. So the `Text` skip did not fire: the header counted
+/// `stops * 5` into slot 1 while `__canvas_tailFor`'s `Text` arm appended only
+/// `__canvas_textEdges(t)`. The record declared ten floats it did not have,
+/// `__canvas_gradientStopBase` read from one past its end, and the run drew its fill
+/// out of the following record's header.
+///
+/// Measured before the fix: **874 pixels** differ, the glyph fill going from the
+/// `rgb(255, 255, 0)` it was given to `rgb(11, 0, 0)`. After the fix: 0.
+///
+/// **The stroke is what makes this test work.** An unstroked `Text` goes through
+/// `__canvas_glyphRunHeader`, which sets slot 0 to `TEXT` before `paintHeader` and was
+/// never affected — so a version of this test without `fillStroke` passes against the
+/// bug and proves nothing.
+#[test]
+fn a_gradient_on_a_stroked_text_is_ignored() {
+    const STROKED: &str =
+        "canvas::fillStroke(color::rgb(255, 255, 0), color::rgb(0, 128, 255), 4.0)";
+
+    fn program(paint: &str) -> String {
+        format!(
+            "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nSUB main()\n  \
+             app::setMode(app::Mode.Canvas)\n  \
+             RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    \
+             io::print(\"nofont\")\n    EXIT SUB\n  END TRAP\n  \
+             LET s AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+             color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, \
+             color := color::rgb(0, 0, 255)]]\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 0.0, y := 0.0], \
+             endPoint := canvas::Point[x := 400.0, y := 0.0], stops := s]\n  \
+             LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, \
+             text := \"AA\", font := face, size := 90.0, \
+             paint := {paint}]\n  \
+             LET box AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 380.0, \
+             w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+             canvas::present([label, box])\n  io::print(\"rendered\")\nEND SUB\n"
+        )
+    }
+
+    let plain = render_with_font("canvas_stroked_text_plain", &program(STROKED));
+    let ramped = render_with_font(
+        "canvas_stroked_text_ramped",
+        &program(&format!("WITH {STROKED} {{ fillGradient := g }}")),
+    );
+    if let Err(diff) = compare_exact(&ramped, &plain) {
+        panic!(
+            "a gradient changed what a stroked `Text` draws: {diff}\n\
+             `canvas::Text` ignores `fillGradient` — a glyph is a cached coverage \
+             bitmap and a stroked one is an outline polygon, and neither has a fill to \
+             replace. Before this was fixed the count was 874, with the glyph fill \
+             reading out of the following record's header."
+        );
+    }
+}
+
+/// A scene containing a `canvas::Group` reaches the GPU, on whichever backend this host
+/// has.
+///
+/// This assertion has been inverted once, deliberately, and the history is the point.
+/// plan-116-G added it as "a group scene DECLINES to software": neither backend knew the
+/// per-draw offset, so accepting the frame would have drawn every group's children at
+/// the **origin** — the item blocks carry each shape's own coordinates and the group
+/// translation lived only in the software walk. `.ai/canvas-threading.md` §10 records
+/// that as having happened once already, and it is a plausible wrong picture reported as
+/// success rather than a fault.
+///
+/// plan-116-H taught both backends the offset — Vulkan in Phase 2, Metal in Phase 3 —
+/// so the decline became a refusal to do work the backend can do, and this test now
+/// pins the other side of it.
+///
+/// **It asserts the frame count, not the pixels, and that is not laziness.** A declined
+/// frame is drawn by the software renderer, which is the oracle, so it matches any
+/// reference *by construction*: a pixel comparison here would pass whether the group
+/// reached the GPU or not. The pixels are asserted where a real GPU frame exists to
+/// compare — `every_group_case_matches_the_software_oracle` in `rt_canvas_metal.rs`, and
+/// the group stage of `scripts/test-canvas-vulkan.sh`.
+///
+/// The subtlety worth keeping from the original: a predicate cannot decline by searching
+/// the offsets list for a `Group` item, because by the time it sees that list the walk
+/// has expanded every group away and a search finds nothing. plan-116-G solved that with
+/// a flag the walk itself set; with both backends taught, the flag has no reader and is
+/// gone, so a future backend that needs to decline has to set one again.
+#[test]
+fn a_scene_containing_a_group_reaches_the_gpu() {
+    let (_, stats) = render_gpu("canvas_group_declines", GROUP_SCENE);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "a scene containing a `canvas::Group` was declined to software. Both backends \
+         have known the per-draw offset since plan-116-H, so declining means a \
+         predicate is refusing work the backend can do: {stats}"
+    );
+    // And the control: the same scene with the group replaced by the item itself is
+    // rendered on the GPU too, so a host that accepted everything would not make the
+    // assertion above look like it proved something about groups.
+    let (_, flat) = render_gpu("canvas_group_declines_control", FLAT_SCENE);
+    if flat.contains("metalReady=TRUE") || flat.contains("vulkanReady=TRUE") {
+        assert!(
+            !flat.contains("gpuFrames=0"),
+            "the group-free control scene was declined, so this host declines for some \
+             reason other than groups and the assertion above proves nothing: {flat}"
+        );
+    }
+}
+
+const GROUP_SCENE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
+  canvas::setGroup("panel", [red])
+  canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := "panel"]])
+  io::print("rendered")
+END SUB
+"#;
+
+const FLAT_SCENE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET red AS canvas::DrawItem = canvas::Rectangle[x := 200.0, y := 200.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
+  canvas::present([red])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The group reference scene (plan-116-H Phase 4).
+///
+/// Every drawn item lives inside a group, so a renderer that ignored the per-draw offset
+/// would still produce a complete, plausible picture — with everything stacked at the
+/// origin. That is the failure `.ai/canvas-threading.md` §10 records, and only a
+/// comparison at a NON-ZERO offset can see it.
+///
+/// The group's item list carries a **gradient-filled** item, a **`Text`** item and a
+/// **clipped** item on purpose (plan-116-H **H2**). Those are the three positional reads
+/// that do not follow the shifted query point for free: a gradient ramp and a glyph
+/// bitmap are sampled per fragment from the absolute point, and a clip is deliberately
+/// *not* shifted because it is a surface rectangle. A scene of plain filled shapes
+/// cannot see any of the three go wrong.
+///
+/// The same group is drawn twice — once at the origin and once at an offset — so the
+/// picture shows the offset's effect side by side rather than only its result. The
+/// nested group and the diamond are the two structural cases: a flattened diamond would
+/// change the picture, and so would a nested offset that failed to compose.
+const GROUPS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := color::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 160.0, y := 70.0], stops := stops]
+  ' The panel: a gradient-filled bar, a clipped white band, a plain circle and a text
+  ' run, all in the group's own coordinates.
+  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 160.0, h := 70.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := ramp }]
+  LET band AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 80.0, w := 160.0, h := 30.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 40.25, y := 0.0, w := 90.5, h := 640.0] }]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 30.0, y := 140.0, radius := 22.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 5.0)]
+  LET tag AS canvas::DrawItem = canvas::Text[x := 70.0, y := 155.0, text := "AA", font := face, size := 46.0, paint := canvas::fill(color::rgb(230, 60, 170))]
+  canvas::setGroup("panel", [bar, band, dot, tag])
+  ' A nested group: the outer holds the panel, so the two offsets compose.
+  canvas::setGroup("outer", [canvas::Group[name := "panel", dx := 20.0, dy := 30.0]])
+  ' A leaf referenced twice from the scene -- the diamond.
+  canvas::setGroup("leaf", [canvas::Rectangle[x := 0.0, y := 0.0, w := 70.0, h := 45.0, paint := canvas::fill(color::rgb(120, 220, 60))]])
+  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Group[name := "panel", dx := 340.0, dy := 210.0], canvas::Group[name := "outer", dx := 600.0, dy := 40.0], canvas::Group[name := "leaf", dx := 120.0, dy := 420.0], canvas::Group[name := "leaf", dx := 260.0, dy := 520.0]])
+END SUB
+"#;
+
+/// The software rasteriser reproduces the group reference exactly.
+///
+/// Exactly, not within tolerance: the software renderer *is* the oracle, so its own
+/// output against its own stored reference is a byte comparison. A tolerance here would
+/// let the oracle drift and take both GPU assertions with it.
+#[test]
+fn groups_match_their_reference_exactly() {
+    let rendered = render_with_font("canvas_golden_groups", GROUPS);
+    let reference = golden_path("groups");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the group scene no longer renders to its reference image: {diff}\n\
+             Localize against the picture: the panel appears twice, at (0,0) and at \
+             (340,210), so a difference in only one of them is the offset and a \
+             difference in both is the panel's own drawing. The pair of green leaves \
+             is the diamond — one group installed once and named twice — and the panel \
+             at (620,70) is the nested case, whose offset is the outer's plus the \
+             inner's."
+        );
+    }
+}
+
+/// Both GPU backends draw the group scene the reference shows.
+///
+/// Within `Tolerance::GPU_DEFAULT` rather than exactly, for the reason every GPU
+/// reference assertion here is: the hardware blends in float and the oracle blends
+/// through a 16-bit linear table, so a blended pixel agrees to within a step or two and
+/// rarely bit for bit.
+///
+/// The frame count is asserted first. A `*Renderable` predicate that declined this scene
+/// would hand the comparison a software frame — the very thing the reference was made
+/// from — and every pixel would match while proving nothing about the GPU. plan-116-G's
+/// decline did exactly that until Phase 2 and Phase 3 removed it.
+#[test]
+fn the_gpu_draws_the_group_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu_with_font("canvas_golden_groups_gpu", GROUPS);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
+         predicate declined the group scene, and every pixel below would then be the \
+         software renderer marking its own work: {stats}"
+    );
+
+    let reference = golden_path("groups");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's group scene disagrees with the reference: {diff}\n\
+             Localize by what moved and what did not. Every item at the ORIGIN means \
+             the per-draw offset never reached the backend. A shape in the right place \
+             whose gradient ramp or glyph ink is shifted means the offset reached the \
+             VERTEX stage only — the fragment stage evaluates distance, ramp and \
+             coverage at an absolute point and needs it too. A clipped band that moved \
+             with its group means the opposite mistake: the clip is a surface rectangle \
+             and must be evaluated at the un-shifted point."
+        );
+    }
+}

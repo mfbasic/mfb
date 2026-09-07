@@ -1,0 +1,14 @@
+{
+  "name": "mustache",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "A Mustache v1.4 template renderer over the json::Json value tree. mustache::render takes a template String and a json::Json context and returns the rendered String; mustache::renderWith adds a Map OF String TO String of partials. It implements the six required modules of the official Mustache specification -- interpolation, sections, inverted sections, comments, partials and set-delimiters -- including dotted-name lookup, the implicit iterator, standalone-line stripping and partial indentation.\n\nIt owns no filesystem access: read the template with fs::readText and hand the String over, exactly as csv::parse, json::parse and yaml::parse do. Lambdas -- the one optional module of the specification -- are not supported, because a json::Json value cannot hold a callable. Template size, section nesting, partial recursion and output size are all bounded, so an untrusted template cannot exhaust memory through recursive partials.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": ["**/*.mfb"]
+    }
+  ]
+}

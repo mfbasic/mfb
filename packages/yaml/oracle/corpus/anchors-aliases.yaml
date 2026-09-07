@@ -1,0 +1,19 @@
+scalar_anchor: &n 1
+scalar_alias: *n
+collection_anchor: &pair [1, 2]
+collection_alias: *pair
+mapping_anchor: &defaults
+  restart: on-failure
+  logLevel: info
+first: *defaults
+second: *defaults
+inside_flow: [&f 1, *f, *f]
+inside_sequence:
+  - &item {n: 1}
+  - *item
+empty_anchor: &e
+alias_of_empty: *e
+redefined: &r 1
+before: *r
+redefine: &r 2
+after: *r

@@ -1,0 +1,2 @@
+explicit_tag: !!str 1
+custom_tag: !mytype value

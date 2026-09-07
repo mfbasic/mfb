@@ -1,0 +1,125 @@
+' Emits crypto::hmac, crypto::hkdf and crypto::pbkdf2 over the FULL crypto::Hash
+' matrix -- all nine selectors -- in a form the RustCrypto reference next door
+' can re-derive independently. This program is the SUBJECT of the cross-check,
+' never its judge: it prints the inputs it used beside each result, and
+' `../run.sh` feeds those same inputs to `../rust`.
+'
+' Why this exists next to a CI test. `tests/interop/rt_crypto_mac_kdf_interop.rs` checks
+' the same three members on every `cargo test`, but only for the selectors `ring`
+' can compute: SHA-1 and the SHA-2 widths for hmac, and SHA-1/256/384/512 for the
+' two KDFs. The SHA-3 family has no `ring` equivalent at all, and neither does
+' SHA-224 for hkdf/pbkdf2. Reaching them needs four more crates, which would be
+' new compiled code in every CI job on five platforms for a matrix only this tool
+' needs -- so those selectors are checked here instead, and this covers all nine
+' so the two overlap rather than abut.
+'
+' Line format, one per case:
+'   case hmac   <hash> <key> <data>                        <mac>
+'   case hkdf   <hash> <ikm> <salt> <info> <outlen>        <okm>
+'   case pbkdf2 <hash> <password> <salt> <iters> <outlen>  <dk>
+' Byte fields are hex, "-" for empty -- an empty field would shift every later
+' field left when the shell splits the line on spaces.
+IMPORT collections
+IMPORT crypto
+IMPORT encoding
+IMPORT io
+IMPORT strings
+
+FUNC pattern(n AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    out = collections::append(out, toByte((i * 5 + 1) MOD 251))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC hexField(value AS List OF Byte) AS String
+  LET encoded AS String = encoding::hexEncode(value)
+  IF encoded = "" THEN
+    RETURN "-"
+  END IF
+  RETURN encoded
+END FUNC
+
+SUB emit(member AS String, algo AS String, params AS String, out AS List OF Byte)
+  io::print("case " & member & " " & algo & " " & params & " " & encoding::hexEncode(out))
+END SUB
+
+SUB hmacAll(key AS List OF Byte, data AS List OF Byte)
+  LET p AS String = hexField(key) & " " & hexField(data)
+  emit("hmac", "sha1", p, crypto::hmac(crypto::Hash.SHA1, key, data))
+  emit("hmac", "sha2-224", p, crypto::hmac(crypto::Hash.SHA2_224, key, data))
+  emit("hmac", "sha2-256", p, crypto::hmac(crypto::Hash.SHA2_256, key, data))
+  emit("hmac", "sha2-384", p, crypto::hmac(crypto::Hash.SHA2_384, key, data))
+  emit("hmac", "sha2-512", p, crypto::hmac(crypto::Hash.SHA2_512, key, data))
+  emit("hmac", "sha3-224", p, crypto::hmac(crypto::Hash.SHA3_224, key, data))
+  emit("hmac", "sha3-256", p, crypto::hmac(crypto::Hash.SHA3_256, key, data))
+  emit("hmac", "sha3-384", p, crypto::hmac(crypto::Hash.SHA3_384, key, data))
+  emit("hmac", "sha3-512", p, crypto::hmac(crypto::Hash.SHA3_512, key, data))
+END SUB
+
+SUB hkdfAll(ikm AS List OF Byte, salt AS List OF Byte, info AS List OF Byte, length AS Integer)
+  MUT p AS String = hexField(ikm) & " " & hexField(salt)
+  p = p & " " & hexField(info) & " " & toString(length)
+  emit("hkdf", "sha1", p, crypto::hkdf(crypto::Hash.SHA1, ikm, salt, info, length))
+  emit("hkdf", "sha2-224", p, crypto::hkdf(crypto::Hash.SHA2_224, ikm, salt, info, length))
+  emit("hkdf", "sha2-256", p, crypto::hkdf(crypto::Hash.SHA2_256, ikm, salt, info, length))
+  emit("hkdf", "sha2-384", p, crypto::hkdf(crypto::Hash.SHA2_384, ikm, salt, info, length))
+  emit("hkdf", "sha2-512", p, crypto::hkdf(crypto::Hash.SHA2_512, ikm, salt, info, length))
+  emit("hkdf", "sha3-224", p, crypto::hkdf(crypto::Hash.SHA3_224, ikm, salt, info, length))
+  emit("hkdf", "sha3-256", p, crypto::hkdf(crypto::Hash.SHA3_256, ikm, salt, info, length))
+  emit("hkdf", "sha3-384", p, crypto::hkdf(crypto::Hash.SHA3_384, ikm, salt, info, length))
+  emit("hkdf", "sha3-512", p, crypto::hkdf(crypto::Hash.SHA3_512, ikm, salt, info, length))
+END SUB
+
+SUB pbkdf2All(password AS List OF Byte, salt AS List OF Byte, iterations AS Integer, length AS Integer)
+  MUT p AS String = hexField(password) & " " & hexField(salt)
+  p = p & " " & toString(iterations) & " " & toString(length)
+  emit("pbkdf2", "sha1", p, crypto::pbkdf2(crypto::Hash.SHA1, password, salt, iterations, length))
+  emit("pbkdf2", "sha2-224", p, crypto::pbkdf2(crypto::Hash.SHA2_224, password, salt, iterations, length))
+  emit("pbkdf2", "sha2-256", p, crypto::pbkdf2(crypto::Hash.SHA2_256, password, salt, iterations, length))
+  emit("pbkdf2", "sha2-384", p, crypto::pbkdf2(crypto::Hash.SHA2_384, password, salt, iterations, length))
+  emit("pbkdf2", "sha2-512", p, crypto::pbkdf2(crypto::Hash.SHA2_512, password, salt, iterations, length))
+  emit("pbkdf2", "sha3-224", p, crypto::pbkdf2(crypto::Hash.SHA3_224, password, salt, iterations, length))
+  emit("pbkdf2", "sha3-256", p, crypto::pbkdf2(crypto::Hash.SHA3_256, password, salt, iterations, length))
+  emit("pbkdf2", "sha3-384", p, crypto::pbkdf2(crypto::Hash.SHA3_384, password, salt, iterations, length))
+  emit("pbkdf2", "sha3-512", p, crypto::pbkdf2(crypto::Hash.SHA3_512, password, salt, iterations, length))
+END SUB
+
+SUB main()
+  ' HMAC key lengths straddle every block size in the matrix: 64 for SHA-1/224/256,
+  ' 128 for SHA-384/512, and the SHA-3 rates 144/136/104/72. A key longer than the
+  ' block is HASHED first, and that reduction is the step most likely to be wrong.
+  hmacAll(pattern(0), strings::toBytes("message"))
+  hmacAll(pattern(1), pattern(0))
+  hmacAll(pattern(63), pattern(7))
+  hmacAll(pattern(64), pattern(64))
+  hmacAll(pattern(65), pattern(200))
+  hmacAll(pattern(71), pattern(1))
+  hmacAll(pattern(72), pattern(2))
+  hmacAll(pattern(103), pattern(3))
+  hmacAll(pattern(104), pattern(4))
+  hmacAll(pattern(127), pattern(5))
+  hmacAll(pattern(128), pattern(128))
+  hmacAll(pattern(129), pattern(6))
+  hmacAll(pattern(136), pattern(7))
+  hmacAll(pattern(144), pattern(8))
+
+  ' HKDF: an empty salt is not "no salt" by accident -- RFC 5869 substitutes
+  ' HashLen zero bytes, which HMAC's own zero padding makes equivalent. An output
+  ' length that is not a multiple of the hash length exercises Expand's final
+  ' truncated block; length 1 exercises the shortest possible one.
+  hkdfAll(pattern(22), pattern(13), pattern(10), 42)
+  hkdfAll(pattern(32), pattern(0), pattern(0), 32)
+  hkdfAll(pattern(1), pattern(64), pattern(80), 100)
+  hkdfAll(pattern(80), pattern(1), pattern(1), 1)
+
+  ' PBKDF2: 1 and 2 iterations separate "did the loop run" from "did it run the
+  ' right number of times"; a length past one hash block exercises the multi-block
+  ' concatenation, where the block counter is easy to get wrong.
+  pbkdf2All(strings::toBytes("password"), strings::toBytes("salt"), 1, 20)
+  pbkdf2All(strings::toBytes("password"), strings::toBytes("salt"), 2, 20)
+  pbkdf2All(strings::toBytes("passwordPASSWORDpassword"), strings::toBytes("saltSALTsaltSALT"), 100, 75)
+END SUB

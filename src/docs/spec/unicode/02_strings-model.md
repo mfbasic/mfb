@@ -39,6 +39,20 @@ wide grapheme reserves a trailing cell and wraps at the right edge.
 [[src/codegen/builtins/strings/func_display_width.rs:displayWidth]]
 [[src/unicode/runtime_tables.rs:charwidth]]
 
+**Padding has one member per unit, and they are not interchangeable.**
+`strings::padLeft`/`padRight` pad to a **scalar** count; `strings::padLeftToWidth`/
+`padRightToWidth` pad to a **display-column** count, the measure above. The two
+agree only on text whose scalars are all one column wide, so a table aligned with
+the scalar-counted pair is misaligned by exactly the wide/zero-width scalars it
+contains (`padLeft("日本", 4, "-")` is 4 scalars and 6 columns). The
+column-counted pair **undershoots**: it lays down whole copies of `padChar` and
+the result never exceeds the requested width, so a 2-column `padChar` filling an
+odd gap leaves the last column empty. A `padChar` of zero columns can never reach
+the target and is rejected with `ErrInvalidArgument` (`77050002`), which is the
+one input the scalar-counted pair accepts and the column-counted pair does not.
+Neither pair truncates.
+[[src/codegen/builtins/strings/helper_pad_to_width.rs:__strings_padToWidthCopies]]
+
 ## Scalar / byte mapping
 
 The runtime converts between a scalar index and a byte offset on demand; it never
@@ -173,11 +187,15 @@ with nothing between the parts).
 
 `regex::` lands on the same rule from the other direction. A zero-length pattern
 has a zero-width match at every position, so `regex::find(v, "")` and
-`strings::find(v, "")` both report `0`; and `regex::replace` refuses an empty
-`pattern` with the same `77050002`, so a run-time value routed to either
-`replace` gives the same outcome. That refusal is a guard on the empty pattern
-*string* only — `"a*"`, `"x?"` and `"(?:)"` still match at every position and
-still interleave. See ./mfb spec stdlib regex.
+`strings::find(v, "")` both report `0`; and `regex::count`, `regex::split` and
+`regex::replace` refuse an empty `pattern` with the same `77050002`, so a run-time
+value routed to either package's `count`, `split` or `replace` gives the same
+outcome. Those refusals are a guard on the empty pattern
+*string* only — `"a*"`, `"x?"` and `"(?:)"` still match at every position, and are
+still counted, split on and interleaved.
+[[src/codegen/builtins/regex/func_count.rs:__regex_count]]
+[[src/codegen/builtins/regex/func_split.rs:__regex_split]]
+See ./mfb spec stdlib regex.
 
 ## `split` and the empty-delimiter error
 
@@ -185,11 +203,19 @@ still interleave. See ./mfb spec stdlib regex.
 returns the parts. An empty `delimiter` is rejected (raising `ErrInvalidArgument`
 before scanning) — there is no per-scalar or per-grapheme split mode. [[src/codegen/builtins/strings/func_split.rs:lower]]
 
-Splitting delegates to `str::split`, so it follows Rust semantics: a leading or
-trailing delimiter yields an empty leading/trailing part, and N non-overlapping
-matches produce N+1 parts. The delimiter match is on raw UTF-8 bytes with no
-normalization. The inverse `join(parts, delimiter)` concatenates with the
+Splitting is a clean-room native lowering, not a call into any host library: a
+leading or trailing delimiter yields an empty leading/trailing part, and N
+non-overlapping matches produce N+1 parts, so the result is never empty. The
+delimiter match is on raw UTF-8 bytes with no
+normalization. There is no `limit` parameter. The inverse `join(parts, delimiter)`
+concatenates with the
 delimiter between parts and never errors. [[src/codegen/builtins/strings/func_join.rs:lower]]
+
+`regex::split(value, pattern)` is the pattern form, and it obeys this same
+counting rule over the matches `regex::findAll` reports — N matches, N+1 parts,
+every empty part kept. It is the member for a separator that is a run or an
+alternation, which a byte-exact delimiter cannot express.
+[[src/codegen/builtins/regex/func_split.rs:__regex_split]]
 
 ## See Also
 

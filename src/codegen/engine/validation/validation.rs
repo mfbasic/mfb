@@ -382,10 +382,11 @@ impl TypeModel {
             ParameterType::named("AttrSpan"),
             vec![
                 ("start".to_string(), ParameterType::Integer),
-                // `last` (not `end`): `end` is a reserved keyword and cannot follow
-                // `.` in the companion's member access. Field-identical to the
-                // companion's `AttrSpan`.
-                ("last".to_string(), ParameterType::Integer),
+                // `endIndex` (not `end`): `end` is a reserved keyword and cannot
+                // follow `.` in the companion's member access, and `end<Noun>` is the
+                // language-wide spelling for a range bound (bug-527).
+                // Field-identical to the companion's `AttrSpan`.
+                ("endIndex".to_string(), ParameterType::Integer),
                 ("seq".to_string(), ParameterType::Integer),
                 ("class".to_string(), ParameterType::Integer),
                 ("member".to_string(), ParameterType::Integer),
@@ -439,7 +440,6 @@ impl TypeModel {
         // the combined set.
         model.recompute_canonical_variant_tags();
         model.alias_bare_builtin_type_names();
-        #[cfg(debug_assertions)]
         model.assert_type_keys_are_bijective();
         Ok(model)
     }
@@ -632,7 +632,6 @@ impl TypeModel {
         // tag, and aliasing first would make the recompute count one variant twice
         // and renumber the tag space.
         model.alias_bare_builtin_type_names();
-        #[cfg(debug_assertions)]
         model.assert_type_keys_are_bijective();
         Ok(model)
     }
@@ -661,7 +660,11 @@ impl TypeModel {
     /// string tables, to be deleted once the corpus was clean. This form needs
     /// no shadow table and costs nothing in release, so it stays — see the
     /// letter's Corrections.)
-    #[cfg(debug_assertions)]
+    /// bug-550: NOT debug-only. Every CI job builds `--release`, so this ran on no
+    /// platform; and both failure modes it names are SILENT — a merge returns the
+    /// wrong record layout, union tag or close op, and a split turns a hit into a
+    /// miss. The cost is bounded by the number of distinct TYPES in the program and
+    /// paid twice per build, not per function or per instruction.
     fn assert_type_keys_are_bijective(&self) {
         use std::collections::HashMap as Keys;
         let mut seen: Keys<String, ParameterType> = Keys::new();

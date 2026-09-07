@@ -360,6 +360,65 @@ impl<'a> FileParser<'a> {
             }
         }
 
+        // bug-551: `pkg::Name = value` — a write to an imported package's
+        // `EXPORT MUT`. §13 calls an exported top-level `MUT` "package state
+        // visible to importers", and the IR merge is already built for it:
+        // `ir::package::rewrite_op_targets` rewrites an `AssignGlobal` naming a
+        // package global to the merged `<id>.package.Name` definition, which is
+        // one physical slot (a consumer's write IS visible to the package's own
+        // code). Only the parser was missing: `::` is its own token, so this
+        // matched neither the dotted-path guard above nor the plain-identifier
+        // arm below, and fell through to `parse_expression`, where the `=` binds
+        // as EQUALITY — the same silently-discarded comparison bug-468 closed for
+        // `a.b = c`, reached by the other spelling.
+        //
+        // Parsed as an assignment unconditionally, not gated on the name being a
+        // known global: the parser cannot answer that, and a bare comparison in
+        // statement position is never useful (bug-468). A name that is not an
+        // assignable imported binding is then reported by name resolution
+        // (`Package `pkg` does not export `X``) or, for an `EXPORT LET`, by the
+        // immutable-assignment rule that reads `global_muts` — both of which
+        // name the problem, where the comparison named nothing.
+        if let TokenKind::Identifier(package) = self.peek().kind.clone() {
+            if matches!(
+                self.tokens.get(self.current + 1).map(|token| &token.kind),
+                Some(TokenKind::DoubleColon)
+            ) {
+                if let Some(TokenKind::Identifier(member)) = self
+                    .tokens
+                    .get(self.current + 2)
+                    .map(|token| token.kind.clone())
+                {
+                    if self
+                        .tokens
+                        .get(self.current + 3)
+                        .is_some_and(|token| matches!(token.kind, TokenKind::Equal))
+                    {
+                        let token = self.advance().clone();
+                        self.advance();
+                        self.advance();
+                        self.advance();
+                        let value = self.parse_expression()?;
+                        let value = self.maybe_attach_postfix_trap(value, allow_else_terminator)?;
+                        if !matches!(value, Expression::Trapped { .. }) {
+                            self.consume_simple_statement_end(
+                                "Expected end of statement after assignment.",
+                                allow_else_terminator,
+                            );
+                        }
+                        // The dotted internal spelling every other qualified
+                        // reference carries; `IMPORT … AS` is normalized to the
+                        // package name later, in lowering.
+                        return Some(Statement::Assign {
+                            name: format!("{package}.{member}"),
+                            value,
+                            line: token.line,
+                        });
+                    }
+                }
+            }
+        }
+
         if let TokenKind::Identifier(name) = self.peek().kind.clone() {
             if self
                 .tokens
@@ -672,7 +731,7 @@ impl<'a> FileParser<'a> {
         // `CASE json::JsonBool(b)` was not recognized as a variant at all: the
         // MATCH read as covering nothing and reported every variant uncovered.
         let name = self.parse_qualified_name("")?;
-        let name = self.normalize_qualified_builtin_type(name);
+        let name = self.normalize_qualified_type_name(name);
         if self.check_kind(&TokenKind::LParen) {
             Some(name)
         } else {

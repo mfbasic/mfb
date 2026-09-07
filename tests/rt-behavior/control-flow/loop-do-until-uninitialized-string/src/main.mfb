@@ -1,0 +1,12 @@
+' bug-67, the `DO ... LOOP UNTIL` half: the same uninitialized `MUT String`
+' declared only inside a post-test loop body.
+IMPORT io
+
+SUB main()
+  MUT n AS Integer = 0
+  DO
+    MUT s AS String
+    io::print(s)
+    n = n + 1
+  LOOP UNTIL n >= 3
+END SUB

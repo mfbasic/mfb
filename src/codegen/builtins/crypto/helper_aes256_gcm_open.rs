@@ -30,5 +30,8 @@ r#"FUNC __crypto_aes256GcmOpen(key AS List OF Byte, nonce AS List OF Byte, ciphe
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    pkg.add_helper(RegistryHelper::always("crypto_aes256GcmOpen", BODY));
+    pkg.add_helper(RegistryHelper::always_natively_called(
+        "crypto_aes256GcmOpen",
+        BODY,
+    ));
 }

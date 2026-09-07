@@ -1,0 +1,83 @@
+' Argon2id (RFC 9106) known-answer vectors for crypto::argon2id (bug-515), plus its
+' parameter validation and the proof that the crypto::Argon2Profile spelling is a
+' wrapper over the explicit one rather than a second implementation.
+'
+' Oracles. Every digest below is agreed byte-for-byte by three independent
+' implementations, none of them this one:
+'   1. a clean-room Rust reference, itself pinned against RFC 9106 section 5.3's
+'      Argon2id tag (0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659)
+'      and RFC 7693 Appendix A's BLAKE2b-512("abc");
+'   2. OpenSSL 3.6.2's ARGON2ID KDF, e.g.
+'        openssl kdf -keylen 32 -kdfopt pass:password -kdfopt salt:somesalt12345678 \
+'          -kdfopt threads:1 -kdfopt lanes:4 -kdfopt memcost:32 -kdfopt iter:3 \
+'          -binary ARGON2ID
+'   3. the RustCrypto `argon2` crate, pinned at =0.5.3.
+' RFC 9106's published vector also carries a secret and associated data, which this
+' member does not offer; every vector here is the no-secret, no-associated-data case
+' at those same cost parameters.
+IMPORT collections
+IMPORT crypto
+IMPORT encoding
+IMPORT io
+IMPORT strings
+
+FUNC repeated(value AS Integer, count AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < count
+    out = collections::append(out, toByte(value))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' Report the failure of an out-of-range parameter set, or the length it produced.
+FUNC attempt(memoryKiB AS Integer, iterations AS Integer, parallelism AS Integer, length AS Integer, saltLen AS Integer) AS String
+  LET out AS List OF Byte = crypto::argon2id(strings::toBytes("p"), repeated(2, saltLen), memoryKiB, iterations, parallelism, length) TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+  RETURN "ok " & toString(len(out))
+END FUNC
+
+SUB main()
+  LET password AS List OF Byte = strings::toBytes("password")
+  LET salt AS List OF Byte = strings::toBytes("somesalt12345678")
+
+  ' Cost sweep: lanes, passes, memory and tag length all move the result.
+  io::print(encoding::hexEncode(crypto::argon2id(password, salt, 8, 1, 1, 32)))
+  io::print(encoding::hexEncode(crypto::argon2id(password, salt, 16, 2, 1, 32)))
+  io::print(encoding::hexEncode(crypto::argon2id(password, salt, 32, 3, 4, 32)))
+  io::print(encoding::hexEncode(crypto::argon2id(password, salt, 64, 4, 2, 64)))
+  io::print(encoding::hexEncode(crypto::argon2id(password, salt, 4096, 1, 1, 16)))
+
+  ' RFC 9106 section 5.3's password, salt and cost parameters, without the secret
+  ' and associated data that member does not take.
+  io::print(encoding::hexEncode(crypto::argon2id(repeated(1, 32), repeated(2, 16), 32, 3, 4, 32)))
+
+  ' An empty password and the 4-byte minimum tag; a long multi-block password.
+  LET empty AS List OF Byte = []
+  io::print(encoding::hexEncode(crypto::argon2id(empty, strings::toBytes("0123456789abcdef"), 32, 1, 1, 4)))
+  io::print(encoding::hexEncode(crypto::argon2id(strings::toBytes("a-much-longer-passphrase-with-unicode-\u{e9}"), strings::toBytes("abcdefgh"), 128, 2, 3, 100)))
+
+  ' memoryKiB is bound into the derivation, so 33 KiB does NOT equal 32 KiB even
+  ' though both round to the same 32 blocks at 4 lanes.
+  io::print(encoding::hexEncode(crypto::argon2id(password, salt, 33, 3, 4, 32)))
+
+  ' The profile spelling is a WRAPPER: Minimum must be byte-identical to the
+  ' explicit call it delegates to (19456 KiB, 2 iterations, 1 lane).
+  LET viaProfile AS List OF Byte = crypto::argon2id(password, salt, crypto::Argon2Profile.Minimum, 32)
+  LET viaExplicit AS List OF Byte = crypto::argon2id(password, salt, 19456, 2, 1, 32)
+  io::print("profile-minimum=" & encoding::hexEncode(viaProfile))
+  io::print("profile-is-a-wrapper=" & toString(crypto::constantTimeEqual(viaProfile, viaExplicit)))
+
+  ' Parameter validation. An over-large memoryKiB must RAISE, never try to use it.
+  io::print("memory-4GiB=" & attempt(4294967296, 1, 1, 32, 16))
+  io::print("memory-over-ceiling=" & attempt(2097153, 1, 4, 32, 16))
+  io::print("memory-below-8p=" & attempt(8, 1, 2, 32, 16))
+  io::print("iterations-0=" & attempt(32, 0, 1, 32, 16))
+  io::print("parallelism-0=" & attempt(32, 1, 0, 32, 16))
+  io::print("parallelism-over-max=" & attempt(32, 1, 16777216, 32, 16))
+  io::print("length-3=" & attempt(32, 1, 1, 3, 16))
+  io::print("salt-7=" & attempt(32, 1, 1, 32, 7))
+  io::print("salt-8=" & attempt(32, 1, 1, 4, 8))
+END SUB

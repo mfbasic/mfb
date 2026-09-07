@@ -1,0 +1,149 @@
+' ---------------------------------------------------------------------------
+' Tests: the stream layer (documents, markers, directives) and anchors/aliases.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+PRIVATE FUNC one(text AS String) AS String
+  RETURN json::stringify(parse(text))
+END FUNC
+
+' Render every document in a stream as one JSON array, so a test can assert on
+' the whole stream in a single string.
+PRIVATE FUNC all(text AS String) AS String
+  LET documents AS List OF json::Json = parseAll(text)
+  LET wrapped AS json::Json = json::JsonArr[documents]
+  RETURN json::stringify(wrapped)
+END FUNC
+
+TESTING
+  TGROUP "documents"
+    TCASE "a bare document needs no marker"
+      expectString(one("a: 1"), "{\"a\":1}")
+      expectString(all("a: 1"), "[{\"a\":1}]")
+    END TCASE
+
+    TCASE "a leading --- is one document, and a trailing ... closes it"
+      expectString(one("---\na: 1\n"), "{\"a\":1}")
+      expectString(one("---\na: 1\n...\n"), "{\"a\":1}")
+    END TCASE
+
+    TCASE "a scalar, a flow node or a block scalar may sit on the --- line"
+      expectString(one("--- 5\n"), "5")
+      expectString(one("--- [1, 2]\n"), "[1,2]")
+      expectString(one("--- {a: 1}\n"), "{\"a\":1}")
+      expectString(one("--- |\n  block\n"), "\"block\\n\"")
+    END TCASE
+
+    TCASE "a BLOCK collection may not sit on the --- line"
+      ' YAML 1.2 reaches a block collection only through a line break, so
+      ' `--- a: 1` is not a document with a mapping in it. Verified against two
+      ' independent readers: eemeli/yaml pinned to 1.2 Core says
+      ' `MISSING_CHAR: Block collection cannot start on same line with
+      ' directives-end marker`, and PyYAML says `mapping values are not allowed
+      ' here`.
+      expectTrap(parse("--- a: 1\n"), 77050003)
+      expectTrap(parse("--- - a\n"), 77050003)
+    END TCASE
+
+    TCASE "an empty document body is null"
+      expectString(one("---\n"), "null")
+      expectString(all("---\n---\n"), "[null,null]")
+    END TCASE
+
+    TCASE "parseAll reads a stream in order"
+      expectString(all("a: 1\n---\nb: 2\n"), "[{\"a\":1},{\"b\":2}]")
+      expectString(all("--- one\n--- two\n--- three\n"), "[\"one\",\"two\",\"three\"]")
+      expectString(all("---\n- 1\n...\n---\n- 2\n...\n"), "[[1],[2]]")
+    END TCASE
+
+    TCASE "parse needs exactly one document"
+      expectTrap(parse("a: 1\n---\nb: 2\n"), 77050003)
+      expectTrap(parse(""), 77050003)
+      expectTrap(parse("\n\n"), 77050003)
+    END TCASE
+
+    TCASE "parseAll of an empty stream is an empty list, not a failure"
+      expectInteger(len(parseAll("")), 0)
+      expectInteger(len(parseAll("# only a comment\n")), 0)
+    END TCASE
+
+    TCASE "content after a ... end marker must open a new document"
+      expectTrap(parse("---\na: 1\n...\nb: 2\n"), 77050003)
+      expectString(all("---\na: 1\n...\n---\nb: 2\n"), "[{\"a\":1},{\"b\":2}]")
+    END TCASE
+
+    TCASE "an unterminated scalar stops at its own document's end"
+      expectTrap(parseAll("--- 'x\n--- y\n"), 77050003)
+    END TCASE
+
+    TCASE "%YAML 1.2 is accepted; another version is not"
+      expectString(one("%YAML 1.2\n---\na: 1\n"), "{\"a\":1}")
+      expectTrap(parse("%YAML 1.1\n---\na: 1\n"), 77050007)
+    END TCASE
+
+    TCASE "%TAG and unknown directives are refused rather than ignored"
+      expectTrap(parse("%TAG ! tag:example.com,2026:\n---\na: 1\n"), 77050007)
+      expectTrap(parse("%FOO bar\n---\na: 1\n"), 77050007)
+    END TCASE
+
+    TCASE "a directive must be followed by a document start"
+      expectTrap(parse("%YAML 1.2\na: 1\n"), 77050003)
+    END TCASE
+
+    TCASE "a --- inside an indented block is content, not a marker"
+      expectString(one("a: |\n  ---\n  x\n"), "{\"a\":\"---\\nx\\n\"}")
+    END TCASE
+  END TGROUP
+
+  TGROUP "anchors and aliases"
+    TCASE "an alias reproduces the anchored scalar"
+      expectString(one("a: &x 1\nb: *x\n"), "{\"a\":1,\"b\":1}")
+    END TCASE
+
+    TCASE "an alias reproduces a whole anchored collection"
+      expectString(one("a: &x [1, 2]\nb: *x\n"), "{\"a\":[1,2],\"b\":[1,2]}")
+      expectString(one("a: &x\n  p: 1\n  q: 2\nb: *x\n"), "{\"a\":{\"p\":1,\"q\":2},\"b\":{\"p\":1,\"q\":2}}")
+    END TCASE
+
+    TCASE "anchors work inside flow and inside sequences"
+      expectString(one("a: [&x 1, *x, *x]"), "{\"a\":[1,1,1]}")
+      expectString(one("- &i {n: 1}\n- *i\n"), "[{\"n\":1},{\"n\":1}]")
+    END TCASE
+
+    TCASE "an anchor may be redefined, and the later one wins after it"
+      expectString(one("a: &x 1\nb: *x\nc: &x 2\nd: *x\n"), "{\"a\":1,\"b\":1,\"c\":2,\"d\":2}")
+    END TCASE
+
+    TCASE "an alias with no anchor fails"
+      expectTrap(parse("b: *missing\n"), 77050004)
+    END TCASE
+
+    TCASE "anchors do not survive into the next document"
+      expectTrap(parseAll("--- &x 1\n--- *x\n"), 77050004)
+    END TCASE
+
+    TCASE "a cyclic alias is refused, because the anchor is not defined yet"
+      expectTrap(parse("a: &x [*x]\n"), 77050004)
+      expectTrap(parse("a: &x\n  self: *x\n"), 77050004)
+    END TCASE
+
+    TCASE "an anchor on an empty node anchors null"
+      expectString(one("a: &x\nb: *x\n"), "{\"a\":null,\"b\":null}")
+    END TCASE
+
+    TCASE "two anchors on one node is malformed"
+      expectTrap(parse("a: &x &y 1\n"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "tags"
+    TCASE "every tag form is refused"
+      expectTrap(parse("a: !!str 1\n"), 77050007)
+      expectTrap(parse("a: !custom 1\n"), 77050007)
+      expectTrap(parse("a: [!!int 1]\n"), 77050007)
+    END TCASE
+  END TGROUP
+END TESTING

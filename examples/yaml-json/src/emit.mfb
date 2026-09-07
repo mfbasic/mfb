@@ -1,0 +1,223 @@
+' ---------------------------------------------------------------------------
+' emit.mfb — render a json::Json value as YAML.
+'
+' This is the writing half of the converter. It lives in the example rather than
+' in the `yaml` package because the package's job is READING: it turns YAML into
+' the JSON model and stops there. Writing is a separate decision -- how to quote,
+' when to use a block scalar, how to indent -- and an application is the right
+' place to make it.
+'
+' The one rule the emitter holds itself to: whatever it writes must read back as
+' the same value. Anything it is not certain a plain scalar would round-trip
+' gets quoted.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' `count` spaces.
+FUNC pad(count AS Integer) AS String
+  IF count <= 0 THEN RETURN ""
+  RETURN strings::repeat(" ", count)
+END FUNC
+
+'  The spellings a plain scalar must never accidentally become.
+'
+' This list is deliberately wider than the YAML 1.2 Core Schema the `yaml`
+' package reads: it also covers the 1.1 booleans (`yes`, `no`, `on`, `off`, `y`,
+' `n`). A 1.2 reader would take those back as the strings they are, but a 1.1
+' reader -- which is still most of them -- would take them as booleans, so
+' writing one unquoted produces a file two readers disagree about. Quoting costs
+' two characters and removes the disagreement.
+FUNC isReservedWord(text AS String) AS Boolean
+  MATCH text
+    CASE "true", "True", "TRUE" : RETURN TRUE
+    CASE "false", "False", "FALSE" : RETURN TRUE
+    CASE "null", "Null", "NULL", "~" : RETURN TRUE
+    CASE "yes", "Yes", "YES" : RETURN TRUE
+    CASE "no", "No", "NO" : RETURN TRUE
+    CASE "on", "On", "ON" : RETURN TRUE
+    CASE "off", "Off", "OFF" : RETURN TRUE
+    CASE "y", "Y", "n", "N" : RETURN TRUE
+    CASE ELSE : RETURN FALSE
+  END MATCH
+END FUNC
+
+' TRUE when `text` may be written without quotes.
+'
+' Deliberately conservative: it demands a letter, `_` or `/` first, which alone
+' rules out every number, every `.inf`/`.nan`, and every YAML indicator
+' character, and then rejects the two sequences that would start a comment or a
+' second mapping entry. A string this says no to is merely quoted, never
+' mis-written.
+FUNC isPlainSafe(text AS String) AS Boolean
+  LET scalars AS List OF Scalar = strings::toScalars(text)
+  IF len(scalars) = 0 THEN RETURN FALSE
+  IF isReservedWord(text) THEN RETURN FALSE
+  LET first AS Scalar = collections::get(scalars, 0)
+  IF NOT (strings::isLetter(first) OR first = `_` OR first = `/`) THEN RETURN FALSE
+  IF strings::contains(text, ": ") THEN RETURN FALSE
+  IF strings::contains(text, " #") THEN RETURN FALSE
+  IF strings::endsWith(text, ":") THEN RETURN FALSE
+  IF strings::endsWith(text, " ") THEN RETURN FALSE
+  FOR EACH scalar IN scalars
+    IF toInt(scalar) < 32 OR toInt(scalar) = 127 THEN RETURN FALSE
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' Render `text` as a double-quoted YAML scalar. YAML's double-quoted escapes are
+' JSON's plus a few more, so JSON's own string serializer produces a valid one --
+' and it is the serializer that already agrees with `yaml::parse`'s escape
+' decoding.
+FUNC quoteScalar(text AS String) AS String
+  LET value AS json::Json = json::JsonStr[text]
+  RETURN json::stringify(value)
+END FUNC
+
+' TRUE when `text` can be written as a literal (`|`) block scalar: it has more
+' than one line, holds no control character other than the line feeds, and no
+' line begins with a space or ends with one. A leading space on the first line
+' would need an explicit indentation indicator, and a trailing space would be
+' eaten by the reader -- both are reasons to fall back to quoting.
+FUNC isBlockSafe(text AS String) AS Boolean
+  IF NOT strings::contains(text, "\n") THEN RETURN FALSE
+  FOR EACH scalar IN strings::toScalars(text)
+    LET code AS Integer = toInt(scalar)
+    IF code <> 10 AND (code < 32 OR code = 127) THEN RETURN FALSE
+  NEXT
+  MUT body AS String = text
+  IF strings::endsWith(body, "\n") THEN
+    body = strings::stripSuffix(body, "\n")
+  END IF
+  IF strings::endsWith(body, "\n") THEN RETURN FALSE
+  IF body = "" THEN RETURN FALSE
+  FOR EACH line IN strings::split(body, "\n")
+    IF strings::startsWith(line, " ") THEN RETURN FALSE
+    IF strings::endsWith(line, " ") THEN RETURN FALSE
+    IF strings::contains(line, "\t") THEN RETURN FALSE
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' Render a multi-line string as a literal block scalar. The header carries the
+' chomping indicator that reproduces the string exactly: `|` keeps the single
+' trailing line feed, `|-` says there is none.
+FUNC blockScalar(text AS String, indent AS Integer) AS String
+  MUT body AS String = text
+  MUT header AS String = "|-"
+  IF strings::endsWith(body, "\n") THEN
+    body = strings::stripSuffix(body, "\n")
+    header = "|"
+  END IF
+  MUT out AS String = header
+  FOR EACH line IN strings::split(body, "\n")
+    out = out & "\n" & pad(indent) & line
+  NEXT
+  RETURN out
+END FUNC
+
+' Render a scalar node as it appears after a `key:` or a `- `.
+FUNC scalarText(value AS json::Json) AS String
+  MATCH value
+    CASE json::JsonNull(n) : RETURN "null"
+    CASE json::JsonBool(b)
+      IF b.value THEN RETURN "true"
+      RETURN "false"
+    CASE json::JsonNum(m)
+      LET number AS json::Json = json::JsonNum[m.value]
+      RETURN json::stringify(number)
+    CASE json::JsonStr(s)
+      IF isPlainSafe(s.value) THEN RETURN s.value
+      RETURN quoteScalar(s.value)
+    CASE json::JsonArr(a) : RETURN "[]"
+    CASE json::JsonObj(o) : RETURN "{}"
+  END MATCH
+END FUNC
+
+' TRUE when `value` is written on one line after its `key:` or `- `.
+FUNC isInline(value AS json::Json) AS Boolean
+  MATCH value
+    CASE json::JsonArr(a) : RETURN len(a.items) = 0
+    CASE json::JsonObj(o) : RETURN len(o.fields) = 0
+    CASE json::JsonNull(n) : RETURN TRUE
+    CASE json::JsonBool(b) : RETURN TRUE
+    CASE json::JsonNum(m) : RETURN TRUE
+    CASE json::JsonStr(s) : RETURN NOT isBlockSafe(s.value)
+  END MATCH
+END FUNC
+
+' Render `value` as a block whose FIRST line carries no indentation -- the
+' caller has already written the `key:` or `- ` that precedes it -- and whose
+' every later line is indented by `indent` spaces.
+FUNC emitBlock(value AS json::Json, indent AS Integer) AS String
+  MATCH value
+    CASE json::JsonObj(o)
+      IF len(o.fields) = 0 THEN RETURN "{}"
+      MUT out AS String = ""
+      MUT first AS Boolean = TRUE
+      FOR EACH entry IN o.fields
+        IF NOT first THEN
+          out = out & "\n" & pad(indent)
+        END IF
+        first = FALSE
+        MUT key AS String = entry.key
+        IF NOT isPlainSafe(key) THEN
+          key = quoteScalar(key)
+        END IF
+        out = out & key & ":" & emitAfterKey(entry.value, indent + 2)
+      NEXT
+      RETURN out
+    CASE json::JsonArr(a)
+      IF len(a.items) = 0 THEN RETURN "[]"
+      MUT out AS String = ""
+      MUT first AS Boolean = TRUE
+      FOR EACH item IN a.items
+        IF NOT first THEN
+          out = out & "\n" & pad(indent)
+        END IF
+        first = FALSE
+        out = out & "- " & emitBlock(item, indent + 2)
+      NEXT
+      RETURN out
+    CASE json::JsonNull(n) : RETURN scalarText(value)
+    CASE json::JsonBool(b) : RETURN scalarText(value)
+    CASE json::JsonNum(m) : RETURN scalarText(value)
+    CASE json::JsonStr(s)
+      IF isBlockSafe(s.value) THEN RETURN blockScalar(s.value, indent)
+      RETURN scalarText(value)
+  END MATCH
+END FUNC
+
+' Render what follows a `key:`: a space and the value when it fits on the line,
+' otherwise a break and the value's block, indented.
+FUNC emitAfterKey(value AS json::Json, indent AS Integer) AS String
+  IF isInline(value) THEN
+    RETURN " " & scalarText(value)
+  END IF
+  MATCH value
+    CASE json::JsonStr(s) : RETURN " " & blockScalar(s.value, indent)
+    CASE json::JsonNull(n) : RETURN " " & scalarText(value)
+    CASE json::JsonBool(b) : RETURN " " & scalarText(value)
+    CASE json::JsonNum(m) : RETURN " " & scalarText(value)
+    CASE json::JsonArr(a) : RETURN "\n" & pad(indent) & emitBlock(value, indent)
+    CASE json::JsonObj(o) : RETURN "\n" & pad(indent) & emitBlock(value, indent)
+  END MATCH
+END FUNC
+
+' Render a whole document, newline-terminated.
+'
+' A block scalar is the one node whose content cannot sit at the indentation of
+' the node itself -- it has to be indented past it -- so a document that IS one
+' gets its content indented by two here. Everywhere else the enclosing `key:` or
+' `- ` has already supplied that indentation.
+PUBLIC FUNC toYaml(value AS json::Json) AS String
+  MATCH value
+    CASE json::JsonStr(s)
+      IF isBlockSafe(s.value) THEN RETURN blockScalar(s.value, 2) & "\n"
+      RETURN emitBlock(value, 0) & "\n"
+    CASE ELSE
+      RETURN emitBlock(value, 0) & "\n"
+  END MATCH
+END FUNC

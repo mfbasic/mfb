@@ -1,0 +1,117 @@
+{
+  "project": "bug487_state_mutating_operand",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 19 },
+    { "module": "io", "line": 20 },
+    { "module": "fs", "line": 21 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "St",
+      "line": 23,
+      "fields": [
+      { "visibility": null, "name": "xs", "type": "List OF Integer", "line": 24 },
+      { "visibility": null, "name": "n", "type": "Integer", "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "sideEffect",
+      "line": 29,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "St", "default": null, "line": 29 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }, { "kind": "number", "value": "111" }] } }] }, "line": 30 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "n" }, "right": { "kind": "number", "value": "1" } } }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "number", "value": "222" }, "line": 32 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "indirectSideEffect",
+      "line": 37,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "St", "default": null, "line": 37 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "sideEffect", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 38 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pure",
+      "line": 43,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null, "line": 43 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "1" } }, "line": 44 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 47,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "St", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 48 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "number", "value": "0" } }] }, "line": 49 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 52 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3" } },
+        "line": 53,
+        "body": [
+        { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }, { "kind": "call", "callee": "sideEffect", "arguments": [{ "kind": "identifier", "value": "f" }] }] } }] }, "line": 54 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 55 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }] }] } }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "n=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "n" }] } }] }, "line": 58 },
+      { "kind": "binding", "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 59 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }] } },
+        "line": 60,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "e" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "j" }] } }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }, { "kind": "identifier", "value": "j" }] }] } }] }, "line": 61 },
+        { "kind": "assignment", "name": "j", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "1" } }, "line": 62 }
+        ]
+      },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }, { "kind": "call", "callee": "indirectSideEffect", "arguments": [{ "kind": "identifier", "value": "f" }] }] } }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "len2=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }] }] } }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "last2=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }, { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }] }, "right": { "kind": "number", "value": "1" } }] }] } }] }, "line": 68 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "n" }, "right": { "kind": "call", "callee": "sideEffect", "arguments": [{ "kind": "identifier", "value": "f" }] } } }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "len3=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }] }] } }] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "n3=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "n" }] } }] }, "line": 74 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }, { "kind": "call", "callee": "pure", "arguments": [{ "kind": "number", "value": "41" }] }] } }] }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "last4=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }, { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "xs" }] }, "right": { "kind": "number", "value": "1" } }] }] } }] }, "line": 79 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 81 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 82 }
+      ]
+    }
+    ]
+  }
+  ]
+}

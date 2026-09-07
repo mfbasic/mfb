@@ -1,15 +1,15 @@
 $ mfb build -ast -ir tests/syntax/packages/package-comparable-import-invalid
 uses package_comparable_types - [Unsigned]
-   3 | 
-   4 | FUNC main AS Integer
-   5 |   LET first AS comparable::Box = comparable::Box[[1, 2]]
-     | ^
-tests/syntax/packages/package-comparable-import-invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `first` does not have a known type.
-   4 | FUNC main AS Integer
-   5 |   LET first AS comparable::Box = comparable::Box[[1, 2]]
    6 |   LET second AS comparable::Box = comparable::Box[[3, 4]]
+   7 |   LET items AS List OF comparable::Box = [first, second]
+   8 |   LET badMap = Map OF comparable::Box TO Integer { first := 1 }
      | ^
-tests/syntax/packages/package-comparable-import-invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `second` does not have a known type.
+tests/syntax/packages/package-comparable-import-invalid/src/main.mfb:8 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Map key type requires a comparable type, got `Box`.
+   7 |   LET items AS List OF comparable::Box = [first, second]
+   8 |   LET badMap = Map OF comparable::Box TO Integer { first := 1 }
+   9 |   LET badFind AS Integer = collections::find(items, second)
+     | ^
+tests/syntax/packages/package-comparable-import-invalid/src/main.mfb:9 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `collections.find` requires a comparable type, got `Box`.
 [exit 1]

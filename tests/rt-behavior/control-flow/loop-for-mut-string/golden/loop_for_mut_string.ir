@@ -1,0 +1,43 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "loop_for_mut_string",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 5, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "Z" } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "4" } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 6,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 6, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "assign", "line": 7, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": "X" } } }
+      ]
+    },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

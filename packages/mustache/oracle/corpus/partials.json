@@ -1,0 +1,22 @@
+{
+  "template": "<ul>\n{{#people}}\n{{>row}}\n{{/people}}\n</ul>\ninline [{{>row}}] and missing [{{>nosuch}}]\n",
+  "data": {
+    "people": [
+      {
+        "name": "Ada",
+        "tags": [
+          "x",
+          "y"
+        ]
+      },
+      {
+        "name": "Alan",
+        "tags": []
+      }
+    ],
+    "name": "root"
+  },
+  "partials": {
+    "row": "<li>\n  {{name}}\n  {{#tags}}<b>{{.}}</b>{{/tags}}\n  {{^tags}}<i>none</i>{{/tags}}\n</li>\n"
+  }
+}

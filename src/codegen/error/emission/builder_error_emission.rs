@@ -19,7 +19,7 @@ impl CodeBuilder<'_> {
         function_id: &str,
         error_name: &'static str,
     ) -> Result<(), String> {
-        debug_assert!(
+        assert!(
             // General conversions (`toByte`/`toScalar`/`toFloat`/`toFixed`/`toMoney`)
             // emit a BARE `function_id`; their declared errors live in the clean-room
             // registry's unqualified-global `general` package under the `general.<name>`

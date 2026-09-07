@@ -173,6 +173,89 @@ pub(crate) fn function_returns_param_borrow(
         .any(|p| reassigned.contains(p) || address_taken.contains(p))
 }
 
+/// bug-536 shape B-2: whether a caller may free the bare `String` this function
+/// returns — i.e. whether `f` **guarantees** every value it returns is a fresh,
+/// solely-owned arena block.
+///
+/// This is the callee half of the same contract `function_returns_param_borrow`
+/// expresses for the opposite answer, and the two are deliberately disjoint: a
+/// param-borrow function returns the caller's own argument block, so freeing its
+/// result would free a live `String` the caller still owns. The order matters —
+/// `function_returns_param_borrow` is checked FIRST and wins.
+///
+/// The guarantee is **delivered**, not merely observed. `lower_returned_value`
+/// copies any returned `String` whose freshness lowering could not establish (no
+/// move-elision, no owning copy, no claimed pending temp), so every return site of
+/// a function this predicate admits hands the caller a block with exactly one
+/// owner. That is why the predicate needs no fixpoint over calls: a
+/// `RETURN <call to another such function>` is fresh *by this same guarantee*,
+/// and any mutual recursion bottoms out at a return that is either provably fresh
+/// or copied.
+///
+/// Gated in the safe direction. Excluded, each of which keeps bug-536 shape B's
+/// leak rather than risking a wild free:
+///
+/// * a non-`String` return type — the bare-`String` exemption in
+///   `register_pending_temp` is the only thing this lifts;
+/// * a param-borrow function (above);
+/// * a function with no value return at all, so there is no returned block to
+///   own.
+///
+/// **bug-562: a callback-referenced function is NOT excluded, and must not be.**
+/// It was, when B-2 landed, purely to keep callback lowering byte-identical for
+/// one change — and that exclusion was the live half of a SIGSEGV.
+///
+/// The `FunctionRef` ABI hands a callback a per-iteration block it owns and frees
+/// (`free_collection_loop_item`), on the stated assumption that "a callback that
+/// *returns* something derived from it returns a separate allocation". Nothing
+/// enforced that assumption for a return that is not a bare parameter.
+/// `function_returns_param_borrow` excludes this same set to FORCE a copy, which
+/// covers `RETURN <param>`; but `RETURN toString(s)` returns a `Call`, so it is
+/// not a param-borrow function and that exclusion never applied — while
+/// `toString`'s `String` arm is the identity, so it handed the HOF back the very
+/// block the HOF was about to free. `collections::transform(xs, identish)` with
+/// `FUNC identish(s AS String) AS String / RETURN toString(s)` was `[exit 139]`.
+///
+/// Admitting the set here is what closes it: the predicate is the callee's
+/// obligation, so a `String`-returning callback now copies on exactly the return
+/// sites whose freshness lowering could not prove — the same delivery
+/// `function_returns_param_borrow`'s exclusion buys for the borrow shape, applied
+/// to the shape that escaped it.
+///
+/// This can only ever ADD an owner-establishing copy; it never removes a free.
+/// `lower_returned_value`'s arms are mutually exclusive early returns, so a return
+/// site already made fresh (a move-elided owned local, a copied literal or
+/// parameter, a claimed pending temp) is untouched — a callback that already
+/// worked is byte-identical, and no value is copied twice.
+pub(crate) fn function_returns_fresh_string(
+    f: &NirFunction,
+    callback_referenced: &HashSet<String>,
+) -> bool {
+    use nir::visit::{walk_op, NirVisitor};
+    if f.returns != ParameterType::String {
+        return false;
+    }
+    // A borrow and a fresh block are mutually exclusive answers to the same
+    // question; the borrow contract is the older one and wins.
+    if function_returns_param_borrow(f, callback_referenced) {
+        return false;
+    }
+    struct AnyValueReturn {
+        any: bool,
+    }
+    impl NirVisitor for AnyValueReturn {
+        fn visit_op(&mut self, op: &NirOp) {
+            if matches!(op, NirOp::Return { value: Some(_) }) {
+                self.any = true;
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut r = AnyValueReturn { any: false };
+    r.visit_ops(&f.body);
+    r.any
+}
+
 /// plan-77 M6: names of every local used as a VALUE — read (`Local`) or
 /// address-taken (`LocalRef`) — anywhere in `ops`. A closure binding whose name
 /// is NOT in this set never flows anywhere except as a direct call target (an
@@ -882,6 +965,7 @@ pub(crate) fn lower_function(
         borrow_get_locals: HashSet::new(),
         borrow_get_result: false,
         current_returns_param_borrow: false,
+        current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.
         synthesized_constructors: synthesized_constructors.clone(),
@@ -912,6 +996,8 @@ pub(crate) fn lower_function(
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
+        pending_closure_temps: Vec::new(),
+        closure_temp_wanted: false,
         fresh_string_block: None,
         operand_snapshot_wanted: Vec::new(),
         for_each_iterable_locals: Vec::new(),
@@ -1022,6 +1108,12 @@ pub(crate) fn lower_function(
     builder.callback_referenced_functions = callback_referenced_functions.clone();
     builder.current_returns_param_borrow =
         function_returns_param_borrow(function, callback_referenced_functions);
+    // bug-536 shape B-2: the callee half of "a caller may free this `String`". Set
+    // from the SAME predicate every call site consults, so the obligation this
+    // function takes on (return a solely-owned block on every path) and the licence
+    // the caller takes (free the result at statement end) can never disagree.
+    builder.current_returns_fresh_string =
+        function_returns_fresh_string(function, callback_referenced_functions);
     {
         // `-vv` span (`crate::trace`): emission is one of the four big
         // per-function costs, and separating it from allocation is what says
@@ -1029,7 +1121,7 @@ pub(crate) fn lower_function(
         let _span = crate::trace::span("emit ops");
         builder.lower_ops(&function.body)?;
         if !builder.current_block_returns() {
-            builder.emit_return_exit(None)?;
+            builder.emit_return_exit(None, None)?;
         }
     }
     // Fuse single-use `a*b ± c` float chains into one single-rounded fused op
@@ -1326,6 +1418,7 @@ pub(crate) fn lower_abi_function_helper(
         borrow_get_locals: HashSet::new(),
         borrow_get_result: false,
         current_returns_param_borrow: false,
+        current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.
         synthesized_constructors: HashSet::new(),
@@ -1349,6 +1442,8 @@ pub(crate) fn lower_abi_function_helper(
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
+        pending_closure_temps: Vec::new(),
+        closure_temp_wanted: false,
         fresh_string_block: None,
         operand_snapshot_wanted: Vec::new(),
         for_each_iterable_locals: Vec::new(),
@@ -1474,6 +1569,7 @@ pub(crate) fn lower_thread_copy_function(
         borrow_get_locals: HashSet::new(),
         borrow_get_result: false,
         current_returns_param_borrow: false,
+        current_returns_fresh_string: false,
         callback_referenced_functions: HashSet::new(),
         // A helper body constructs nothing through the NIR arm.
         synthesized_constructors: HashSet::new(),
@@ -1497,6 +1593,8 @@ pub(crate) fn lower_thread_copy_function(
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
+        pending_closure_temps: Vec::new(),
+        closure_temp_wanted: false,
         fresh_string_block: None,
         operand_snapshot_wanted: Vec::new(),
         for_each_iterable_locals: Vec::new(),

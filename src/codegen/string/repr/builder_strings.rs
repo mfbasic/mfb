@@ -860,12 +860,23 @@ impl CodeBuilder<'_> {
             1,
         );
         match &value.type_ {
-            ParameterType::String => Ok(ValueResult {
-                origin: None,
-                type_: ParameterType::String,
-                location: Operand::from(value_register.render()),
-                text: format!("toString({})", value.text),
-            }),
+            // The IDENTITY arm: `toString` of a `String` IS its argument. The
+            // block is the same one, but it leaves here under a different operand
+            // (the argument was spilled and reloaded across
+            // `reset_temporary_registers`), so the argument's pending-temp
+            // registration must be re-identified onto this result or the
+            // statement-scope free outlives the owner that claims it — a
+            // use-after-free, not a leak. See `retarget_pending_temp`.
+            ParameterType::String => {
+                let location = Operand::from(value_register.render());
+                self.retarget_pending_temp(&value.location, &location);
+                Ok(ValueResult {
+                    origin: None,
+                    type_: ParameterType::String,
+                    location,
+                    text: format!("toString({})", value.text),
+                })
+            }
             ParameterType::Boolean => self.lower_boolean_to_string(&value_register),
             ParameterType::Byte => self.emit_integer_to_string_value(&value_register, false),
             type_ if type_.is_named("Scalar") => self.emit_to_string_helper_call(

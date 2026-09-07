@@ -123,6 +123,17 @@ pub(super) struct FileParser<'a> {
     /// parsed, because the grammar permits an `IMPORT` after the first item and
     /// a name may be written before the line that binds it.
     pub(super) import_bindings: HashMap<String, String>,
+    /// The TYPE names each imported non-builtin package exports, keyed by package
+    /// name (`crate::manifest::package::imported_type_names`).
+    ///
+    /// Only the project parse path can supply this — it is read off the
+    /// dependencies' `.mfp`s, which `build` has already resolved by then — so
+    /// every other entry point leaves it EMPTY, and an empty index simply means
+    /// "no `pkg::Leaf` is known to be that package's type". That is the safe
+    /// direction: the name stays qualified and name resolution reports the
+    /// spelling the author wrote. See
+    /// [`normalize_qualified_type_name`](FileParser::normalize_qualified_type_name).
+    pub(super) package_type_names: HashMap<String, HashSet<String>>,
     /// The built-in package this file is the injected companion of, or `None` for
     /// user source. See [`builtin_package_of`].
     pub(super) builtin_package: Option<String>,
@@ -164,6 +175,7 @@ impl<'a> FileParser<'a> {
             depth_exceeded: false,
             expr_tree_depth: 0,
             import_bindings,
+            package_type_names: HashMap::new(),
             builtin_package,
         }
     }

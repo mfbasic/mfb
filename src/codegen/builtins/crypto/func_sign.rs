@@ -1649,7 +1649,9 @@ raw bytes of `message` using `privateKey`, for the NIST prime curve, `Ed25519`, 
 that `crypto::generate(type)` returned for the same `type` — for the NIST curves
 the SEC1 uncompressed point followed by the secret scalar (`0x04‖X‖Y‖d`,
 97/145/199 bytes for `P256`/`P384`/`P521`), for `Ed25519` the 32-byte seed, and
-for `Ed448` the 57-byte seed.
+for `Ed448` the 57-byte seed. That NIST form is this package's own, not one
+OpenSSL or a JWK reads — see `mfb man crypto generate` for how to convert a key
+in either direction.
 
 For the NIST curves this is **FIPS 186-4 ECDSA** with the curve's mandated digest
 (**SHA-256** for `P256`, **SHA-384** for `P384`, **SHA-512** for `P521`) over the

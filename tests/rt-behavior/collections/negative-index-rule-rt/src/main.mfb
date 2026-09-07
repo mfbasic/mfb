@@ -1,0 +1,115 @@
+IMPORT astrings
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+' bug-527 Phase 1: the language-wide answer to a NEGATIVE index argument.
+'
+' Every member below takes a zero-based index or range bound. This fixture is
+' the census of what each one answers when that argument is negative, so the
+' rule is a golden rather than a claim spread over six man pages. `ERR 77050001`
+' is ErrIndexOutOfRange and `ERR 77050002` is ErrInvalidArgument; a bare number
+' is a successful call, which for a negative argument means the member resolved
+' it as an offset from the end instead of rejecting it.
+'
+' The rule (bug-527 USER DECISION): a negative index is OUT OF RANGE everywhere.
+' Every line that prints a number for a negative argument is a divergence.
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC findIndexAt(nums AS List OF Integer, start AS Integer) AS String
+  RETURN toString(collections::findIndex(nums, isPos, start))
+
+  TRAP(e)
+    RETURN "ERR " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC findLastIndexAt(nums AS List OF Integer, start AS Integer) AS String
+  RETURN toString(collections::findLastIndex(nums, isPos, start))
+
+  TRAP(e)
+    RETURN "ERR " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC findLastIndexWhole(nums AS List OF Integer) AS String
+  RETURN toString(collections::findLastIndex(nums, isPos))
+
+  TRAP(e)
+    RETURN "ERR " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC stringsFindAt(value AS String, needle AS String, start AS Integer) AS String
+  RETURN toString(strings::find(value, needle, start))
+
+  TRAP(e)
+    RETURN "ERR " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC stringsMidAt(value AS String, start AS Integer, count AS Integer) AS String
+  RETURN strings::mid(value, start, count)
+
+  TRAP(e)
+    RETURN "ERR " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC collectionsMidAt(nums AS List OF Integer, start AS Integer, count AS Integer) AS String
+  RETURN toString(len(collections::mid(nums, start, count)))
+
+  TRAP(e)
+    RETURN "ERR " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC addAttributeOver(start AS Integer, endIndex AS Integer) AS String
+  LET plain AS AttributedString = astrings::fromString("hello")
+  LET styled AS AttributedString = astrings::addAttribute(plain, start, endIndex, astrings::bold())
+  RETURN toString(len(astrings::getAttributes(styled, 0)))
+
+  TRAP(e)
+    RETURN "ERR " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 0, 3]
+  LET empty AS List OF Integer = []
+
+  ' A forward scan origin: negative is rejected.
+  io::print("findIndex(nums, isPos, 0) = " & findIndexAt(nums, 0))
+  io::print("findIndex(nums, isPos, -1) = " & findIndexAt(nums, -1))
+  io::print("findIndex(nums, isPos, -4) = " & findIndexAt(nums, -4))
+
+  ' A backward scan origin: the same question, and it must get the same answer.
+  io::print("findLastIndex(nums, isPos, 3) = " & findLastIndexAt(nums, 3))
+  io::print("findLastIndex(nums, isPos, 0) = " & findLastIndexAt(nums, 0))
+  io::print("findLastIndex(nums, isPos, -1) = " & findLastIndexAt(nums, -1))
+  io::print("findLastIndex(nums, isPos, -2) = " & findLastIndexAt(nums, -2))
+  io::print("findLastIndex(nums, isPos, -4) = " & findLastIndexAt(nums, -4))
+  io::print("findLastIndex(nums, isPos, -5) = " & findLastIndexAt(nums, -5))
+
+  ' Omitting the argument scans the whole list from its last element, and an
+  ' empty list has no last element to start from.
+  io::print("findLastIndex(nums, isPos) = " & findLastIndexWhole(nums))
+  io::print("findLastIndex(empty, isPos) = " & findLastIndexWhole(empty))
+
+  ' The members the convention leaves alone, pinned so a rename cannot move them.
+  io::print("strings::find(abcabc, b, 2) = " & stringsFindAt("abcabc", "b", 2))
+  io::print("strings::find(abcabc, b, -1) = " & stringsFindAt("abcabc", "b", -1))
+  io::print("strings::mid(abcdef, 1, 2) = " & stringsMidAt("abcdef", 1, 2))
+  io::print("strings::mid(abcdef, -1, 2) = " & stringsMidAt("abcdef", -1, 2))
+  io::print("strings::mid(abcdef, 1, -1) = " & stringsMidAt("abcdef", 1, -1))
+  io::print("collections::mid(nums, 1, 2) = " & collectionsMidAt(nums, 1, 2))
+  io::print("collections::mid(nums, -1, 2) = " & collectionsMidAt(nums, -1, 2))
+  io::print("collections::mid(nums, 1, -1) = " & collectionsMidAt(nums, 1, -1))
+  io::print("astrings::addAttribute(0, 2) = " & addAttributeOver(0, 2))
+  io::print("astrings::addAttribute(-1, 2) = " & addAttributeOver(-1, 2))
+  io::print("astrings::addAttribute(0, -1) = " & addAttributeOver(0, -1))
+  RETURN 0
+END FUNC

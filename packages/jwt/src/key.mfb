@@ -1,0 +1,419 @@
+' ---------------------------------------------------------------------------
+' jwt/key.mfb — the `Key` value, the algorithm table, and JWK import/export.
+'
+' A JWS algorithm alone does not determine a key: `EdDSA` is Ed25519 in one
+' token and Ed448 in the next, and RFC 8037 puts that distinction in the KEY's
+' `crv` rather than in the header. That is the shape this file preserves. A
+' `Key` always knows its own algorithm and curve, so `jwt::verify` never has to
+' ask the token what kind of key to use -- it asks the key, and compares.
+'
+' JWK is the wire format because it is the one every other JOSE implementation
+' already speaks, and because `crypto` has no key import of its own: it takes
+' a NIST private key as the SEC1 form `0x04 || X || Y || d` and a public key as
+' `0x04 || X || Y` (`mfb man crypto sign`), which is exactly a JWK's `x`, `y`
+' and `d` concatenated. Nothing is parsed here that is not assembled from those
+' three members.
+'
+' Every length below is checked EXACTLY rather than as a minimum. A JWK whose
+' `x` is 31 bytes is not an Ed25519 key with a short coordinate; it is a
+' different key, and left-padding it silently would produce a key that verifies
+' nothing while looking like it works.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT crypto
+
+' A signing or verification key, together with the algorithm it is for.
+'
+' Exactly one of the two shapes below is populated, and which one follows from
+' `algorithm`:
+'
+'   * A MAC key (`HS256`, `HS384`, `HS512`) holds its shared secret in
+'     `secret`, and `curve`, `privateKey` and `publicKey` are empty. The same
+'     value signs and verifies, which is what "symmetric" means and why an
+'     `HS*` key must never be published.
+'   * A signature key (`EdDSA`, `ES256`, `ES384`, `ES512`) names its curve and
+'     holds `privateKey`, `publicKey`, or both, and `secret` is empty. A key
+'     with only `publicKey` verifies and cannot sign.
+'
+' The byte fields are the exact representations `crypto::sign` and
+' `crypto::verify` take, so a `Key` can be built from a `crypto::KeyPair`
+' without conversion.
+EXPORT TYPE Key
+  ' The JWS algorithm this key is for: `HS256`, `HS384`, `HS512`, `EdDSA`,
+  ' `ES256`, `ES384`, or `ES512`.
+  algorithm AS String
+  ' The JWK curve name -- `Ed25519`, `Ed448`, `P-256`, `P-384` or `P-521` --
+  ' or "" for a MAC key. `EdDSA` names two different curves, so this is what
+  ' distinguishes them; nothing reads the curve off the token.
+  curve AS String
+  ' The key identifier from a JWK's `kid`, or "" when the key has none. A
+  ' token whose header names a `kid` is only ever verified against keys that
+  ' carry the same one.
+  kid AS String
+  ' The shared secret of a MAC key, empty for every other kind.
+  secret AS List OF Byte
+  ' The private key bytes, empty when this key can only verify. For `EdDSA`
+  ' this is the RFC 8032 seed (32 bytes for Ed25519, 57 for Ed448); for `ES*`
+  ' it is the SEC1 form `0x04 || X || Y || d`.
+  privateKey AS List OF Byte
+  ' The public key bytes, empty when this key can only sign. For `EdDSA` this
+  ' is the compressed point (32 or 57 bytes); for `ES*` it is the SEC1
+  ' uncompressed point `0x04 || X || Y`.
+  publicKey AS List OF Byte
+END TYPE
+
+' ---------------------------------------------------------------------------
+' The algorithm table.
+' ---------------------------------------------------------------------------
+
+' Which family of primitive `algorithm` names: "MAC", "EdDSA" or "ECDSA".
+'
+' Everything outside the seven this package implements is refused HERE, once,
+' so no later step has to decide what to do with an algorithm it does not know.
+' The two refusals are told apart because they mean different things to a
+' caller: a registered JOSE algorithm this package has not implemented is a gap
+' it may one day fill, while `alg: "none"` is a thing it will never accept.
+PUBLIC FUNC algorithmFamily(algorithm AS String) AS String
+  IF algorithm = "HS256" OR algorithm = "HS384" OR algorithm = "HS512" THEN RETURN "MAC"
+  IF algorithm = "EdDSA" THEN RETURN "EdDSA"
+  IF algorithm = "ES256" OR algorithm = "ES384" OR algorithm = "ES512" THEN RETURN "ECDSA"
+  IF algorithm = "none" THEN
+    FAIL error(ERR_ALGORITHM, "jwt: `alg: \"none\"` is an unsecured JWS -- it carries no signature at all, so nothing about it can be verified")
+  END IF
+  IF algorithm = "" THEN
+    FAIL error(ERR_ALGORITHM, "jwt: no algorithm was named")
+  END IF
+  FAIL error(ERR_UNSUPPORTED, "jwt: `" & algorithm & "` is not an algorithm this package implements -- it signs and verifies HS256, HS384, HS512, EdDSA, ES256, ES384 and ES512")
+END FUNC
+
+' The hash underlying a MAC algorithm.
+PUBLIC FUNC macHash(algorithm AS String) AS crypto::Hash
+  IF algorithm = "HS256" THEN RETURN crypto::Hash.SHA2_256
+  IF algorithm = "HS384" THEN RETURN crypto::Hash.SHA2_384
+  IF algorithm = "HS512" THEN RETURN crypto::Hash.SHA2_512
+  FAIL error(ERR_UNSUPPORTED, "jwt: `" & algorithm & "` is not a MAC algorithm")
+END FUNC
+
+' The smallest secret RFC 7518 §3.2 allows for a MAC algorithm: the digest
+' length, in bytes. A shorter secret weakens the MAC to its own length rather
+' than the hash's, so it is refused at import rather than at use.
+PUBLIC FUNC macSecretSize(algorithm AS String) AS Integer
+  IF algorithm = "HS256" THEN RETURN 32
+  IF algorithm = "HS384" THEN RETURN 48
+  IF algorithm = "HS512" THEN RETURN 64
+  FAIL error(ERR_UNSUPPORTED, "jwt: `" & algorithm & "` is not a MAC algorithm")
+END FUNC
+
+' The `crypto::Certificate` a curve name selects.
+PUBLIC FUNC certificateFor(curve AS String) AS crypto::Certificate
+  IF curve = "Ed25519" THEN RETURN crypto::Certificate.Ed25519
+  IF curve = "Ed448" THEN RETURN crypto::Certificate.Ed448
+  IF curve = "P-256" THEN RETURN crypto::Certificate.P256
+  IF curve = "P-384" THEN RETURN crypto::Certificate.P384
+  IF curve = "P-521" THEN RETURN crypto::Certificate.P521
+  FAIL error(ERR_UNSUPPORTED, "jwt: `" & curve & "` is not a curve this package holds")
+END FUNC
+
+' The curve an `ES*` algorithm fixes. RFC 7518 §3.4 pairs each one with exactly
+' one curve, which is why an `ES*` key's curve is never in doubt and an `EdDSA`
+' key's always is.
+PUBLIC FUNC ecdsaCurve(algorithm AS String) AS String
+  IF algorithm = "ES256" THEN RETURN "P-256"
+  IF algorithm = "ES384" THEN RETURN "P-384"
+  IF algorithm = "ES512" THEN RETURN "P-521"
+  FAIL error(ERR_UNSUPPORTED, "jwt: `" & algorithm & "` is not an ECDSA algorithm")
+END FUNC
+
+' The exact length of a signature on `curve`, in bytes.
+'
+' Ed25519 and Ed448 produce the fixed raw `R || S` a JWS wants directly (64 and
+' 114 bytes, `mfb man crypto sign`); an `ES*` signature is two coordinates.
+PUBLIC FUNC signatureSize(curve AS String) AS Integer
+  IF curve = "Ed25519" THEN RETURN 64
+  IF curve = "Ed448" THEN RETURN 114
+  RETURN coordinateSize(curve) * 2
+END FUNC
+
+' The exact length of an EdDSA seed and of an EdDSA public key on `curve`.
+PUBLIC FUNC edwardsKeySize(curve AS String) AS Integer
+  IF curve = "Ed25519" THEN RETURN 32
+  IF curve = "Ed448" THEN RETURN 57
+  FAIL error(ERR_UNSUPPORTED, "jwt: `" & curve & "` is not an Edwards curve")
+END FUNC
+
+' Refuse a `Key` whose parts do not agree with each other.
+'
+' Every constructor ends here, so a `Key` that exists is a key whose material
+' is the right size for the algorithm it claims -- which is what lets
+' `jwt::sign` and `jwt::verify` hand the bytes straight to `crypto` without
+' re-checking them.
+PUBLIC FUNC checkKey(key AS Key) AS Nothing
+  LET family AS String = algorithmFamily(key.algorithm)
+  IF family = "MAC" THEN
+    IF key.curve <> "" OR len(key.privateKey) > 0 OR len(key.publicKey) > 0 THEN
+      FAIL error(ERR_ARGUMENT, "jwt: a " & key.algorithm & " key is a shared secret and holds no curve or key pair")
+    END IF
+    LET wanted AS Integer = macSecretSize(key.algorithm)
+    IF len(key.secret) < wanted THEN
+      FAIL error(ERR_ARGUMENT, "jwt: a " & key.algorithm & " secret is " & toString(len(key.secret)) & " bytes, and RFC 7518 §3.2 requires at least the " & toString(wanted) & "-byte digest length")
+    END IF
+    RETURN NOTHING
+  END IF
+  IF len(key.secret) > 0 THEN
+    FAIL error(ERR_ARGUMENT, "jwt: a " & key.algorithm & " key is a key pair and holds no shared secret")
+  END IF
+  IF family = "ECDSA" THEN
+    LET wanted AS String = ecdsaCurve(key.algorithm)
+    IF key.curve <> wanted THEN
+      FAIL error(ERR_ARGUMENT, "jwt: " & key.algorithm & " is defined over " & wanted & ", and this key is on " & describeCurve(key.curve))
+    END IF
+    LET size AS Integer = coordinateSize(key.curve)
+    checkPart(key.publicKey, 1 + size * 2, key.curve, "public key")
+    checkPart(key.privateKey, 1 + size * 3, key.curve, "private key")
+    checkPoint(key.publicKey, key.curve)
+    checkPoint(key.privateKey, key.curve)
+  ELSE
+    LET size AS Integer = edwardsKeySize(key.curve)
+    checkPart(key.publicKey, size, key.curve, "public key")
+    checkPart(key.privateKey, size, key.curve, "private key")
+  END IF
+  IF len(key.publicKey) = 0 AND len(key.privateKey) = 0 THEN
+    FAIL error(ERR_ARGUMENT, "jwt: a " & key.algorithm & " key holds neither a public nor a private half, so it can neither sign nor verify")
+  END IF
+  RETURN NOTHING
+END FUNC
+
+' A curve name for a failure message, with "" spelled out rather than shown as
+' an empty pair of backticks.
+PRIVATE FUNC describeCurve(curve AS String) AS String
+  IF curve = "" THEN RETURN "no curve"
+  RETURN curve
+END FUNC
+
+' An absent half is allowed; a present one must be exactly `wanted` bytes.
+PRIVATE FUNC checkPart(part AS List OF Byte, wanted AS Integer, curve AS String, what AS String) AS Nothing
+  IF len(part) = 0 THEN RETURN NOTHING
+  IF len(part) <> wanted THEN
+    FAIL error(ERR_ARGUMENT, "jwt: an " & curve & " " & what & " is " & toString(wanted) & " bytes, and this one is " & toString(len(part)))
+  END IF
+  RETURN NOTHING
+END FUNC
+
+' A SEC1 point starts with the uncompressed-form marker `0x04`. The compressed
+' forms `0x02` and `0x03` are legal SEC1 and are not what `crypto` takes, so
+' they are refused here rather than three layers down.
+PRIVATE FUNC checkPoint(part AS List OF Byte, curve AS String) AS Nothing
+  IF len(part) = 0 THEN RETURN NOTHING
+  IF byteAt(part, 0) <> 4 THEN
+    FAIL error(ERR_ARGUMENT, "jwt: an " & curve & " key is the SEC1 uncompressed point `0x04 || X || Y`, and this one starts with 0x" & toString(byteAt(part, 0)))
+  END IF
+  RETURN NOTHING
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Building a key
+' ---------------------------------------------------------------------------
+
+PUBLIC FUNC makeMacKey(algorithm AS String, secret AS List OF Byte, kid AS String) AS Key
+  LET key AS Key = Key[algorithm := algorithm, curve := "", kid := kid, secret := secret, privateKey := [], publicKey := []]
+  checkKey(key)
+  RETURN key
+END FUNC
+
+PUBLIC FUNC makePairKey(algorithm AS String, curve AS String, privateKey AS List OF Byte, publicKey AS List OF Byte, kid AS String) AS Key
+  LET key AS Key = Key[algorithm := algorithm, curve := curve, kid := kid, secret := [], privateKey := privateKey, publicKey := publicKey]
+  checkKey(key)
+  RETURN key
+END FUNC
+
+' ---------------------------------------------------------------------------
+' JWK (RFC 7517), with the OKP key type of RFC 8037.
+' ---------------------------------------------------------------------------
+
+' Read one JWK out of an already-parsed JSON object.
+PUBLIC FUNC jwkToKey(jwk AS json::Json) AS Key
+  LET kty AS String = stringMember(jwk, "kty", "JWK")
+  LET kid AS String = stringMember(jwk, "kid", "JWK")
+  LET declared AS String = stringMember(jwk, "alg", "JWK")
+  checkKeyUse(jwk)
+  IF kty = "oct" THEN
+    IF declared = "" THEN
+      FAIL error(ERR_ARGUMENT, "jwt: a symmetric JWK must name its `alg` -- HS256, HS384 and HS512 all take an opaque secret, so nothing in the key says which MAC it is for, and reading that off the token would let the token choose")
+    END IF
+    IF algorithmFamily(declared) <> "MAC" THEN
+      FAIL error(ERR_ARGUMENT, "jwt: the JWK is `kty: \"oct\"` but names `alg: \"" & declared & "\"`, which is not a MAC algorithm")
+    END IF
+    RETURN makeMacKey(declared, requiredBytes(jwk, "k"), kid)
+  END IF
+  IF kty = "OKP" THEN
+    LET curve AS String = requiredString(jwk, "crv")
+    IF declared <> "" AND declared <> "EdDSA" THEN
+      FAIL error(ERR_ARGUMENT, "jwt: the JWK is on " & curve & " but names `alg: \"" & declared & "\"`, and RFC 8037 §3.1 signs on that curve with EdDSA")
+    END IF
+    RETURN makePairKey("EdDSA", curve, optionalBytes(jwk, "d"), requiredBytes(jwk, "x"), kid)
+  END IF
+  IF kty = "EC" THEN
+    LET curve AS String = requiredString(jwk, "crv")
+    LET size AS Integer = coordinateSize(curve)
+    LET algorithm AS String = ecdsaAlgorithm(curve)
+    IF declared <> "" AND declared <> algorithm THEN
+      FAIL error(ERR_ARGUMENT, "jwt: the JWK is on " & curve & " but names `alg: \"" & declared & "\"`, and RFC 7518 §3.4 signs on that curve with " & algorithm)
+    END IF
+    LET x AS List OF Byte = exactBytes(jwk, "x", size)
+    LET y AS List OF Byte = exactBytes(jwk, "y", size)
+    LET publicKey AS List OF Byte = concat([toByte(4)], concat(x, y))
+    MUT privateKey AS List OF Byte = []
+    IF hasMember(jwk, "d") THEN
+      privateKey = concat(publicKey, exactBytes(jwk, "d", size))
+    END IF
+    RETURN makePairKey(algorithm, curve, privateKey, publicKey, kid)
+  END IF
+  IF kty = "RSA" THEN
+    FAIL error(ERR_UNSUPPORTED, "jwt: `kty: \"RSA\"` needs RS* or PS*, which this package does not implement -- `crypto` has no RSA primitive")
+  END IF
+  IF kty = "" THEN
+    FAIL error(ERR_ARGUMENT, "jwt: a JWK must name its `kty`")
+  END IF
+  FAIL error(ERR_UNSUPPORTED, "jwt: `kty: \"" & kty & "\"` is not a key type this package holds -- it reads `oct`, `OKP` and `EC`")
+END FUNC
+
+' The `ES*` algorithm a NIST curve is used with.
+PRIVATE FUNC ecdsaAlgorithm(curve AS String) AS String
+  IF curve = "P-256" THEN RETURN "ES256"
+  IF curve = "P-384" THEN RETURN "ES384"
+  IF curve = "P-521" THEN RETURN "ES512"
+  FAIL error(ERR_UNSUPPORTED, "jwt: `crv: \"" & curve & "\"` is not a curve this package signs on")
+END FUNC
+
+' Refuse a key its own JWK says is not for signatures.
+'
+' `use` and `key_ops` are how a JWK set says "this one is for encryption" or
+' "this one only verifies". Honouring them is what keeps one key out of two
+' roles, which is a real attack surface rather than bookkeeping: the same EC
+' key used for both ECDH-ES and ECDSA leaks across the two uses.
+PRIVATE FUNC checkKeyUse(jwk AS json::Json) AS Nothing
+  LET use AS String = stringMember(jwk, "use", "JWK")
+  IF use <> "" AND use <> "sig" THEN
+    FAIL error(ERR_ARGUMENT, "jwt: the JWK is `use: \"" & use & "\"`, and a JWT signature key must be `use: \"sig\"`")
+  END IF
+  IF NOT hasMember(jwk, "key_ops") THEN RETURN NOTHING
+  LET ops AS json::Json = collections::get(fieldsOf(jwk), "key_ops")
+  MATCH ops
+    CASE json::JsonArr(list)
+      MUT signs AS Boolean = FALSE
+      FOR EACH entry IN list.items
+        MATCH entry
+          CASE json::JsonStr(name)
+            IF name.value = "sign" OR name.value = "verify" THEN signs = TRUE
+          CASE ELSE
+            FAIL error(ERR_ARGUMENT, "jwt: a JWK `key_ops` entry is a JSON " & jsonKind(entry) & ", and every one is a string")
+        END MATCH
+      NEXT
+      IF NOT signs THEN
+        FAIL error(ERR_ARGUMENT, "jwt: the JWK's `key_ops` names neither `sign` nor `verify`, so it is not a signature key")
+      END IF
+    CASE ELSE
+      FAIL error(ERR_ARGUMENT, "jwt: a JWK `key_ops` is a JSON " & jsonKind(ops) & ", and it must be an array")
+  END MATCH
+  RETURN NOTHING
+END FUNC
+
+' A required string member of a JWK.
+PRIVATE FUNC requiredString(jwk AS json::Json, member AS String) AS String
+  LET value AS String = stringMember(jwk, member, "JWK")
+  IF value = "" THEN
+    FAIL error(ERR_ARGUMENT, "jwt: the JWK has no `" & member & "`")
+  END IF
+  RETURN value
+END FUNC
+
+' A required Base64url member of a JWK, decoded.
+PRIVATE FUNC requiredBytes(jwk AS json::Json, member AS String) AS List OF Byte
+  RETURN decodeSegment(requiredString(jwk, member), "JWK `" & member & "`")
+END FUNC
+
+' An optional Base64url member of a JWK, decoded, or the empty list.
+PRIVATE FUNC optionalBytes(jwk AS json::Json, member AS String) AS List OF Byte
+  IF NOT hasMember(jwk, member) THEN RETURN []
+  RETURN requiredBytes(jwk, member)
+END FUNC
+
+' A required Base64url member that must decode to exactly `wanted` bytes.
+'
+' RFC 7518 §6.2.1.2 is explicit that an EC coordinate is left-padded to the
+' full field size, so a 31-byte `x` on P-256 is a malformed JWK rather than a
+' small number: accepting it would make two different texts name one key.
+PRIVATE FUNC exactBytes(jwk AS json::Json, member AS String, wanted AS Integer) AS List OF Byte
+  LET bytes AS List OF Byte = requiredBytes(jwk, member)
+  IF len(bytes) <> wanted THEN
+    FAIL error(ERR_ARGUMENT, "jwt: the JWK's `" & member & "` decodes to " & toString(len(bytes)) & " bytes, and RFC 7518 §6.2.1.2 fixes it at the " & toString(wanted) & "-byte field size")
+  END IF
+  RETURN bytes
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Writing a JWK
+' ---------------------------------------------------------------------------
+
+' Render `key` as a JWK. `withPrivate` decides whether the private half is
+' written; with it FALSE the result is the public key alone, which is what a
+' JWK Set published at a `jwks_uri` holds.
+PUBLIC FUNC keyToJwk(key AS Key, withPrivate AS Boolean) AS json::Json
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  LET family AS String = algorithmFamily(key.algorithm)
+  IF family = "MAC" THEN
+    IF NOT withPrivate THEN
+      FAIL error(ERR_ARGUMENT, "jwt: a " & key.algorithm & " key IS its secret, so there is no public form of it to publish")
+    END IF
+    fields = collections::set(fields, "kty", jsonString("oct"))
+    fields = collections::set(fields, "k", jsonString(encodeSegment(key.secret)))
+  ELSEIF family = "EdDSA" THEN
+    fields = collections::set(fields, "kty", jsonString("OKP"))
+    fields = collections::set(fields, "crv", jsonString(key.curve))
+    fields = collections::set(fields, "x", jsonString(encodeSegment(publicHalf(key))))
+    IF withPrivate THEN
+      fields = collections::set(fields, "d", jsonString(encodeSegment(requirePrivate(key))))
+    END IF
+  ELSE
+    LET size AS Integer = coordinateSize(key.curve)
+    LET point AS List OF Byte = publicHalf(key)
+    fields = collections::set(fields, "kty", jsonString("EC"))
+    fields = collections::set(fields, "crv", jsonString(key.curve))
+    fields = collections::set(fields, "x", jsonString(encodeSegment(slice(point, 1, size))))
+    fields = collections::set(fields, "y", jsonString(encodeSegment(slice(point, 1 + size, size))))
+    IF withPrivate THEN
+      fields = collections::set(fields, "d", jsonString(encodeSegment(slice(requirePrivate(key), 1 + size * 2, size))))
+    END IF
+  END IF
+  fields = collections::set(fields, "alg", jsonString(key.algorithm))
+  fields = collections::set(fields, "use", jsonString("sig"))
+  IF key.kid <> "" THEN
+    fields = collections::set(fields, "kid", jsonString(key.kid))
+  END IF
+  RETURN json::JsonObj[fields]
+END FUNC
+
+' The public half of an `EdDSA`/`ES*` key, derived from the private one when it
+' is the only half present.
+'
+' For both shapes the public key is a prefix of the private key's SEC1 form, so
+' this is a slice rather than a scalar multiplication -- except for `EdDSA`,
+' where the private key is a seed and the public key cannot be recovered
+' without hashing it, so a seed-only key has no public form to write.
+PUBLIC FUNC publicHalf(key AS Key) AS List OF Byte
+  IF len(key.publicKey) > 0 THEN RETURN key.publicKey
+  IF algorithmFamily(key.algorithm) = "ECDSA" THEN
+    RETURN slice(key.privateKey, 0, 1 + coordinateSize(key.curve) * 2)
+  END IF
+  FAIL error(ERR_ARGUMENT, "jwt: this " & key.curve & " key holds only its seed, and an Edwards public key is derived from the seed by hashing rather than by slicing it -- build the key from a crypto::KeyPair, which carries both halves")
+END FUNC
+
+PRIVATE FUNC requirePrivate(key AS Key) AS List OF Byte
+  IF len(key.privateKey) = 0 THEN
+    FAIL error(ERR_ARGUMENT, "jwt: this " & key.algorithm & " key holds no private half")
+  END IF
+  RETURN key.privateKey
+END FUNC

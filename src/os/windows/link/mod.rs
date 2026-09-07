@@ -365,7 +365,7 @@ pub(crate) fn write_executable(
     // wherever .data starts.
     let data_base_rva = if has_rdata { rdata_rva } else { data_rva };
     if has_rdata && has_data {
-        debug_assert_eq!(
+        assert_eq!(
             rdata_rva + rodata_size as u32,
             data_rva,
             "the .rdata/.data split must keep data symbol RVAs contiguous (§4.4)"
@@ -382,7 +382,7 @@ pub(crate) fn write_executable(
     } else {
         None
     };
-    debug_assert_eq!(
+    assert_eq!(
         text.len(),
         text_len_final,
         "final .text length must match the reserved layout"

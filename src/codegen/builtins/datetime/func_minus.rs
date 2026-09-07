@@ -49,8 +49,8 @@ IMPORT datetime
 
 SUB main()
   LET start AS datetime::Duration = datetime::monotonic()
-  LET finish AS datetime::Duration = datetime::monotonic()
-  LET elapsed AS datetime::Duration = datetime::minus(finish, start)
+  LET endTime AS datetime::Duration = datetime::monotonic()
+  LET elapsed AS datetime::Duration = datetime::minus(endTime, start)
 END SUB
 ```"#;
 

@@ -1,0 +1,102 @@
+' ---------------------------------------------------------------------------
+' Tests: the four limits that make an untrusted template safe to render.
+'
+' Each case asserts BOTH that the limit fires and that an input just inside it
+' still renders -- a guard that refuses everything protects nothing.
+'
+' The partial limit is the load-bearing one. A partial may name any partial,
+' including itself, and the specification's own recursion test relies on that,
+' so the construct cannot be refused outright; bounding its depth is what turns
+' `{{>a}}` inside partial `a` from a stack overflow into a catchable failure.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' `depth` nested sections around one character of body.
+PRIVATE FUNC nested(depth AS Integer) AS String
+  RETURN strings::repeat("{{#a}}", depth) & "x" & strings::repeat("{{/a}}", depth)
+END FUNC
+
+' A list of `count` integers, as a context whose only member is `l`.
+PRIVATE FUNC listOf(count AS Integer) AS json::Json
+  MUT items AS String = ""
+  FOR i = 0 TO count - 1
+    IF i > 0 THEN items = items & ","
+    items = items & toString(i)
+  NEXT
+  RETURN json::parse("{\"l\":[" & items & "]}")
+END FUNC
+
+' Two nested sections over `l` around `width` characters, so the output is
+' len(l) * len(l) * width bytes for a template a few kilobytes long.
+PRIVATE FUNC amplify(width AS Integer) AS String
+  RETURN "{{#l}}{{#l}}" & strings::repeat("y", width) & "{{/l}}{{/l}}"
+END FUNC
+
+' A chain of `count` partials, each including the next; the last is a plain "e".
+PRIVATE FUNC chain(count AS Integer) AS Map OF String TO String
+  MUT out AS Map OF String TO String = Map OF String TO String {}
+  FOR i = 0 TO count - 1
+    MUT body AS String = "e"
+    IF i < count - 1 THEN body = "{{>p" & toString(i + 1) & "}}"
+    out = collections::set(out, "p" & toString(i), body)
+  NEXT
+  RETURN out
+END FUNC
+
+TESTING
+  TGROUP "limits"
+    TCASE "sections may nest to the limit and no further"
+      LET yes AS json::Json = json::parse("{\"a\":true}")
+      expectString(render(nested(SECTION_DEPTH_LIMIT), yes), "x")
+      expectTrap(render(nested(SECTION_DEPTH_LIMIT + 1), yes), ERR_DEPTH)
+    END TCASE
+
+    TCASE "a partial may expand to the limit and no further"
+      LET empty AS json::Json = json::parse("{}")
+      expectString(renderWith("{{>p0}}", empty, chain(PARTIAL_DEPTH_LIMIT)), "e")
+      expectTrap(renderWith("{{>p0}}", empty, chain(PARTIAL_DEPTH_LIMIT + 1)), ERR_DEPTH)
+    END TCASE
+
+    TCASE "a partial that includes itself is reported as depth, not as a hang"
+      MUT cycle AS Map OF String TO String = Map OF String TO String {}
+      cycle = collections::set(cycle, "self", "x{{>self}}")
+      expectTrap(renderWith("{{>self}}", json::parse("{}"), cycle), ERR_DEPTH)
+      ' ...and so is a cycle through two partials.
+      MUT pair AS Map OF String TO String = Map OF String TO String {}
+      pair = collections::set(pair, "a", "{{>b}}")
+      pair = collections::set(pair, "b", "{{>a}}")
+      expectTrap(renderWith("{{>a}}", json::parse("{}"), pair), ERR_DEPTH)
+    END TCASE
+
+    TCASE "output may grow to the limit and no further"
+      ' 64 * 64 * 4000 bytes is inside the 16777216-byte budget; 64 * 64 * 4100
+      ' is past it. Both are 4096 section iterations, so the limit is what stops
+      ' the second one rather than the clock.
+      LET data AS json::Json = listOf(64)
+      expectInteger(strings::byteLen(render(amplify(4000), data)), 16384000)
+      expectTrap(render(amplify(4100), data), ERR_LIMIT)
+    END TCASE
+
+    TCASE "a template may be as large as the limit and no larger"
+      LET empty AS json::Json = json::parse("{}")
+      expectInteger(strings::byteLen(render(strings::repeat("t", TEMPLATE_LIMIT), empty)), TEMPLATE_LIMIT)
+      expectTrap(render(strings::repeat("t", TEMPLATE_LIMIT + 1), empty), ERR_LIMIT)
+    END TCASE
+
+    TCASE "a partial BODY is bounded by the same template limit"
+      MUT big AS Map OF String TO String = Map OF String TO String {}
+      big = collections::set(big, "p", strings::repeat("t", TEMPLATE_LIMIT + 1))
+      expectTrap(renderWith("{{>p}}", json::parse("{}"), big), ERR_LIMIT)
+    END TCASE
+
+    TCASE "the limits are the values the documentation names"
+      expectInteger(TEMPLATE_LIMIT, 1048576)
+      expectInteger(SECTION_DEPTH_LIMIT, 64)
+      expectInteger(PARTIAL_DEPTH_LIMIT, 16)
+      expectInteger(OUTPUT_LIMIT, 16777216)
+    END TCASE
+  END TGROUP
+END TESTING

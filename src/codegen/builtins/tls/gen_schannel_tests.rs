@@ -65,3 +65,55 @@ fn listen_accepts_a_pkcs1_key_not_only_pkcs8() {
         "both key encodings must join at one PKCS_RSA_PRIVATE_KEY decode (bug-461)"
     );
 }
+
+// bug-483: the Schannel `tls::write` collapsed every `send` failure into
+// `ErrNetworkFailed`. Measured on box 2230 before the fix, an MFBASIC TLS server
+// writing to a client that had gone away reported "Network operation failed
+// before a connection was established" — for a connection that WAS established
+// and had been used — where the OpenSSL backend reported `ErrConnectionClosed`,
+// which is what `mfb man tls write` and `mfb man tcp write` both state.
+//
+// The same arm swallowed the `tls::setWriteTimeout` deadline: `SO_SNDTIMEO`
+// expiry is `WSAETIMEDOUT` (10060) on Winsock, and `mfb man tls setWriteTimeout`
+// says a write that reaches its deadline raises `ErrTimeout`. The read side was
+// taught exactly this in plan-110-D; the write side never was.
+//
+// Windows codegen cannot be executed from this host, so this lowering test is
+// the instrument that covers the change here (`.ncodesum` only says a hash
+// moved). Runtime proof is box 2230, recorded in the bug document.
+#[test]
+fn write_classifies_the_winsock_error_behind_a_failed_send() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    for text in [false, true] {
+        let (ins, rel, _slots) = lower_tls_write("t_write", &imports, &TestPlatform, text)
+            .expect("lower schannel tls::write");
+        let has_label = |name: &str| ins.iter().any(|i| i.get("name").as_deref() == Some(name));
+        assert!(
+            has_label("t_write_send_fail"),
+            "`send` needs a failure arm of its own to classify (text={text})"
+        );
+        for arm in ["t_write_peer_closed", "t_write_timed_out"] {
+            assert!(has_label(arm), "missing {arm} (text={text})");
+        }
+        // The positive half, and the one that matters: `EncryptMessage`'s own
+        // negative return and any unrecognised Winsock error are NOT transport
+        // failures and must keep the code they always had. A fix that routed
+        // every write failure to `ErrConnectionClosed` would pass the runtime
+        // proof and be a worse bug than the one it replaced.
+        for code in [
+            "ErrConnectionClosed",
+            "ErrTimeout",
+            "ErrNetworkFailed",
+            "ErrResourceClosed",
+        ] {
+            let symbol = crate::codegen::registry::runtime_error_emission(code)
+                .expect("errorCode name")
+                .1;
+            assert!(
+                rel.iter().any(|r| r.to == symbol),
+                "schannel tls::write must keep {code} reachable (text={text})"
+            );
+        }
+    }
+}

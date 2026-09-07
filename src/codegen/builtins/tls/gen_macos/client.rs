@@ -598,6 +598,29 @@ pub(crate) fn lower_tls_connect_macos(
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
         abi::store_u64(&v10, &v9, CTX_SIGNAL),
     ]);
+    // bug-483: ctx->edomfn = &nw_error_get_error_domain, and edom = 0 ("no error
+    // classified yet"). Only the send trampoline may touch an `nw_error` — it is
+    // released when the completion block returns — so the pointer is parked here
+    // for it.
+    dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        HANDLE,
+        "nw_error_get_error_domain",
+        FNPTR,
+        &load_fail,
+    )?;
+    ins.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), FNPTR),
+        abi::load_u64(&v9, abi::stack_pointer(), CTX),
+        abi::store_u64(&v10, &v9, CTX_EDOMFN),
+        abi::store_u64(abi::ZERO, &v9, CTX_EDOM),
+    ]);
     // nw_connection_set_queue(conn, queue)
     dlsym(
         &mut EmitCtx {
@@ -1371,6 +1394,10 @@ pub(crate) fn lower_tls_write_macos(
     // plan-110-D: the write deadline installed by `tls::setWriteTimeout`.
     let write_timeout = format!("{symbol}_write_timeout");
     let no_pending_send = format!("{symbol}_no_pending_send");
+    // bug-483: the two write-time terminal conditions route here to ask what
+    // killed the session before naming the error.
+    let write_classify = format!("{symbol}_write_classify");
+    let peer_closed = format!("{symbol}_peer_closed");
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
@@ -1529,14 +1556,22 @@ pub(crate) fn lower_tls_write_macos(
     // bug-386: skip the send + FOREVER wait if the connection is already in a
     // terminal state (failed=4 / cancelled=5). The send completion would be
     // dropped and, with no further state transition to fire the state-changed
-    // handler, the wait would hang. Route to write-fail (ErrTlsFailed) — a write
-    // to a dead connection is an error, not success. See the read path for the
-    // full rationale (the state handler still covers a mid-wait transition).
+    // handler, the wait would hang. A write to a dead connection is an error,
+    // not success. See the read path for the full rationale (the state handler
+    // still covers a mid-wait transition).
+    //
+    // bug-483: which error it is depends on what killed the session, so this
+    // goes through `write_classify` rather than straight to `ErrTlsFailed`. It
+    // has to: measured against a departed peer, only the FIRST failing write
+    // takes the CTX_ERROR path below — every write after it lands here, because
+    // Network.framework has moved the connection to `failed` (4; never 5) by
+    // then. Reporting `ErrConnectionClosed` once and `ErrTlsFailed` forever
+    // after, for one disconnect, is what this bug is about.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
         abi::load_u32(&v10, &v9, CTX_STATE),
         abi::compare_immediate(&v10, "4"),
-        abi::branch_ge(&write_fail),
+        abi::branch_ge(&write_classify),
     ]);
     // nw_connection_send(conn, content, context, is_complete=true, &block)
     dlsym(
@@ -1610,7 +1645,7 @@ pub(crate) fn lower_tls_write_macos(
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
         abi::load_u64(&v10, &v9, CTX_ERROR),
         abi::compare_immediate(&v10, "0"),
-        abi::branch_ne(&write_fail),
+        abi::branch_ne(&write_classify),
         abi::label(&empty),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1621,8 +1656,26 @@ pub(crate) fn lower_tls_write_macos(
     // owns a reference until its completion runs.
     ins.push(abi::label(&write_timeout));
     emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
+    // bug-483: name the failure from the domain the send completion recorded
+    // (CTX_EDOM, written by SEND_INVOKE while the `nw_error` was still alive).
+    // `nw_error_domain_posix` = 1 is the transport underneath the session going
+    // away -- EPIPE/ECONNRESET -- which `tcp::write`, `tcp::read` and
+    // `tls::read` all already call `ErrConnectionClosed`, and which
+    // `mfb man tls write` promises. A `dns`(2)/`tls`(3) domain, or no error
+    // classified at all (0), keeps the `ErrTlsFailed` this always reported: the
+    // guard is NOT reclassified wholesale, only when a POSIX-domain send error
+    // was actually observed on this connection.
+    ins.push(abi::label(&write_classify));
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), CTX),
+        abi::load_u32(&v10, &v9, CTX_EDOM),
+        abi::compare_immediate(&v10, "1"), // nw_error_domain_posix
+        abi::branch_eq(&peer_closed),
+    ]);
     ins.push(abi::label(&write_fail));
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&peer_closed));
+    emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));

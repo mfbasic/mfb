@@ -1,0 +1,232 @@
+' ---------------------------------------------------------------------------
+' Tests: the registered claims of RFC 7519 §4.1, and the checks a caller adds
+' on top of them.
+'
+' Every case pins the clock with `fixedTime`, which is the whole reason that
+' field exists: a test of an expiry rule that reads the host clock is a test
+' that passes today and fails on a slow machine at a second boundary.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+IMPORT crypto
+
+PRIVATE LET NOW AS Integer = 1700000000
+
+PRIVATE FUNC testKey() AS Key
+  RETURN macKey("HS256", crypto::hash(crypto::Hash.SHA2_256, "claims test secret"))
+END FUNC
+
+PRIVATE FUNC at(seconds AS Integer) AS Options
+  RETURN WITH options(["HS256"]) { fixedTime := TRUE, timeSeconds := seconds }
+END FUNC
+
+' A token carrying exactly the claims given, signed with the test key.
+PRIVATE FUNC tokenWith(claims AS Map OF String TO json::Json) AS String
+  RETURN sign(testKey(), jsonObject(claims))
+END FUNC
+
+PRIVATE FUNC one(name AS String, value AS json::Json) AS String
+  MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  fields = collections::set(fields, name, value)
+  RETURN tokenWith(fields)
+END FUNC
+
+PRIVATE FUNC seconds(value AS Integer) AS json::Json
+  RETURN jsonNumber(toFloat(value))
+END FUNC
+
+TESTING
+  TGROUP "exp"
+    TCASE "a token past its exp is refused"
+      LET token AS String = one("exp", seconds(NOW))
+      expectTrap(verify(token, [testKey()], at(NOW + 1)), 93130001)
+    END TCASE
+
+    TCASE "a token AT its exp is refused"
+      ' RFC 7519 §4.1.4: "the current date/time MUST be before the expiration
+      ' time". Equal is not before, so the boundary belongs to the refusal.
+      expectTrap(verify(one("exp", seconds(NOW)), [testKey()], at(NOW)), 93130001)
+      expectNTrap(verify(one("exp", seconds(NOW)), [testKey()], at(NOW - 1)))
+    END TCASE
+
+    TCASE "leeway moves the boundary and nothing else"
+      LET token AS String = one("exp", seconds(NOW))
+      LET lenient AS Options = WITH at(NOW + 30) { leewaySeconds := 60 }
+      expectNTrap(verify(token, [testKey()], lenient))
+      LET stillLate AS Options = WITH at(NOW + 61) { leewaySeconds := 60 }
+      expectTrap(verify(token, [testKey()], stillLate), 93130001)
+    END TCASE
+
+    TCASE "a token with no exp is accepted unless one is required"
+      LET token AS String = one("sub", jsonString("user-1"))
+      expectNTrap(verify(token, [testKey()], at(NOW)))
+      LET strict AS Options = WITH at(NOW) { requiredClaims := ["exp"] }
+      expectTrap(verify(token, [testKey()], strict), 93130003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "nbf"
+    TCASE "a token before its nbf is refused"
+      LET token AS String = one("nbf", seconds(NOW))
+      expectTrap(verify(token, [testKey()], at(NOW - 1)), 93130002)
+      expectNTrap(verify(token, [testKey()], at(NOW)))
+    END TCASE
+
+    TCASE "leeway admits a token whose nbf is barely in the future"
+      LET token AS String = one("nbf", seconds(NOW + 30))
+      expectTrap(verify(token, [testKey()], at(NOW)), 93130002)
+      expectNTrap(verify(token, [testKey()], WITH at(NOW) { leewaySeconds := 60 }))
+    END TCASE
+  END TGROUP
+
+  TGROUP "iat and maxAgeSeconds"
+    TCASE "iat is not compared unless a maximum age is set"
+      ' An `iat` in the future is not an error on its own: RFC 7519 gives `iat`
+      ' no validity rule, and clocks disagree. `nbf` is the claim that says
+      ' "not yet".
+      expectNTrap(verify(one("iat", seconds(NOW + 86400)), [testKey()], at(NOW)))
+    END TCASE
+
+    TCASE "a token older than the maximum age is refused"
+      LET token AS String = one("iat", seconds(NOW - 3600))
+      expectNTrap(verify(token, [testKey()], WITH at(NOW) { maxAgeSeconds := 7200 }))
+      expectTrap(verify(token, [testKey()], WITH at(NOW) { maxAgeSeconds := 1800 }), 93130003)
+    END TCASE
+
+    TCASE "an iat in the future has no measurable age"
+      LET token AS String = one("iat", seconds(NOW + 300))
+      expectNTrap(verify(token, [testKey()], at(NOW)))
+      expectTrap(verify(token, [testKey()], WITH at(NOW) { maxAgeSeconds := 60 }), 93130003)
+      expectNTrap(verify(token, [testKey()], WITH at(NOW) { maxAgeSeconds := 60, leewaySeconds := 600 }))
+    END TCASE
+
+    TCASE "a maximum age makes iat mandatory"
+      LET token AS String = one("sub", jsonString("user-1"))
+      expectTrap(verify(token, [testKey()], WITH at(NOW) { maxAgeSeconds := 60 }), 93130003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "iss, sub and aud"
+    TCASE "iss must match when one is required"
+      LET token AS String = one("iss", jsonString("https://issuer.example"))
+      expectNTrap(verify(token, [testKey()], WITH at(NOW) { issuer := "https://issuer.example" }))
+      expectTrap(verify(token, [testKey()], WITH at(NOW) { issuer := "https://other.example" }), 93130003)
+      expectNTrap(verify(token, [testKey()], at(NOW)))
+    END TCASE
+
+    TCASE "a missing iss fails the check rather than passing it"
+      LET token AS String = one("sub", jsonString("user-1"))
+      expectTrap(verify(token, [testKey()], WITH at(NOW) { issuer := "https://issuer.example" }), 93130003)
+    END TCASE
+
+    TCASE "sub must match when one is required"
+      LET token AS String = one("sub", jsonString("user-1"))
+      expectNTrap(verify(token, [testKey()], WITH at(NOW) { subject := "user-1" }))
+      expectTrap(verify(token, [testKey()], WITH at(NOW) { subject := "user-2" }), 93130003)
+    END TCASE
+
+    TCASE "aud may be one string"
+      LET token AS String = one("aud", jsonString("https://api.example"))
+      expectNTrap(verify(token, [testKey()], WITH at(NOW) { audience := "https://api.example" }))
+      expectTrap(verify(token, [testKey()], WITH at(NOW) { audience := "https://other.example" }), 93130003)
+    END TCASE
+
+    TCASE "aud may be an array, and naming you anywhere in it is enough"
+      LET token AS String = one("aud", jsonArray([jsonString("a"), jsonString("b"), jsonString("c")]))
+      expectNTrap(verify(token, [testKey()], WITH at(NOW) { audience := "a" }))
+      expectNTrap(verify(token, [testKey()], WITH at(NOW) { audience := "c" }))
+      expectTrap(verify(token, [testKey()], WITH at(NOW) { audience := "d" }), 93130003)
+    END TCASE
+
+    TCASE "an aud that is neither a string nor an array of strings is malformed"
+      expectTrap(verify(one("aud", seconds(1)), [testKey()], WITH at(NOW) { audience := "a" }), 77050003)
+      expectTrap(verify(one("aud", jsonArray([seconds(1)])), [testKey()], WITH at(NOW) { audience := "a" }), 77050003)
+    END TCASE
+
+    TCASE "a missing aud fails the check"
+      expectTrap(verify(one("sub", jsonString("s")), [testKey()], WITH at(NOW) { audience := "a" }), 93130003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "required claims"
+    TCASE "every named claim must be present, whatever its value"
+      MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      fields = collections::set(fields, "sub", jsonString("user-1"))
+      fields = collections::set(fields, "jti", jsonString(""))
+      LET token AS String = tokenWith(fields)
+      expectNTrap(verify(token, [testKey()], WITH at(NOW) { requiredClaims := ["sub", "jti"] }))
+      expectTrap(verify(token, [testKey()], WITH at(NOW) { requiredClaims := ["sub", "exp"] }), 93130003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "NumericDate"
+    TCASE "a fractional time claim is refused rather than rounded"
+      ' A NumericDate is a whole number of seconds (RFC 7519 §2). Rounding
+      ' 1699999999.9 either way changes whether a token has expired, so the
+      ' package refuses to choose.
+      expectTrap(verify(one("exp", jsonNumber(1700000000.5)), [testKey()], at(NOW)), 77050003)
+      expectTrap(verify(one("nbf", jsonNumber(0.5)), [testKey()], at(NOW)), 77050003)
+    END TCASE
+
+    TCASE "a time claim past the exactly-representable range is refused"
+      ' `json::JsonNum` holds a Float, so beyond 2^53 the value that came back
+      ' is not the value that was written, and comparing it against a clock
+      ' would be comparing something else.
+      expectTrap(verify(one("exp", jsonNumber(1.0e19)), [testKey()], at(NOW)), 77050003)
+    END TCASE
+
+    TCASE "a time claim that is not a number is refused"
+      expectTrap(verify(one("exp", jsonString("2026-09-06")), [testKey()], at(NOW)), 77050003)
+      expectTrap(verify(one("nbf", json::JsonNull[NOTHING]), [testKey()], at(NOW)), 77050003)
+    END TCASE
+
+    TCASE "an iat that is not a NumericDate is refused even when nothing compares it"
+      ' Otherwise a malformed claim would be a malformed claim only when the
+      ' caller happened to switch on `maxAgeSeconds`.
+      expectTrap(verify(one("iat", jsonString("yesterday")), [testKey()], at(NOW)), 77050003)
+    END TCASE
+
+    TCASE "a negative NumericDate is a date before 1970, not an error"
+      expectNTrap(verify(one("nbf", seconds(-86400)), [testKey()], at(NOW)))
+      expectTrap(verify(one("exp", seconds(-86400)), [testKey()], at(NOW)), 93130001)
+    END TCASE
+  END TGROUP
+
+  TGROUP "numericDate"
+    TCASE "a whole second count becomes the JSON number a time claim holds"
+      MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      fields = collections::set(fields, "exp", numericDate(NOW + 3600))
+      LET built AS String = sign(testKey(), jsonObject(fields))
+      expectNTrap(verify(built, [testKey()], at(NOW)))
+      expectTrap(verify(built, [testKey()], at(NOW + 3600)), 93130001)
+    END TCASE
+
+    TCASE "it round-trips through the reader that refuses a non-NumericDate"
+      ' The builder and the reader are the two halves of one rule, so a value
+      ' this writes must be a value that reads back -- including at the extremes
+      ' of the range and below the epoch.
+      FOR EACH seconds IN [0, 1, -1, -86400, 9007199254740992, -9007199254740992]
+        MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+        fields = collections::set(fields, "nbf", numericDate(seconds))
+        LET built AS json::Json = jsonObject(fields)
+        expectInteger(secondsMember(built, "nbf", "claims"), seconds)
+      NEXT
+    END TCASE
+
+    TCASE "a count past the exactly-representable range is refused"
+      expectTrap(numericDate(9007199254740993), 77050002)
+      expectTrap(numericDate(-9007199254740993), 77050002)
+    END TCASE
+  END TGROUP
+
+  TGROUP "the host clock"
+    TCASE "an unpinned Options reads the real clock"
+      ' The default path, exercised once: a token that expired in 2001 is
+      ' expired whenever this runs, and one that expires in 2033 is not.
+      expectTrap(verify(one("exp", seconds(1000000000)), [testKey()], options(["HS256"])), 93130001)
+      expectNTrap(verify(one("exp", seconds(2000000000)), [testKey()], options(["HS256"])))
+    END TCASE
+  END TGROUP
+END TESTING

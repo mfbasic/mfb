@@ -170,7 +170,32 @@ pub(crate) const CTX_WTO: usize = 112;
 // mistaking it for its own. This is the same outstanding-operation model
 // plan-76-B gave the receive side with `CTX_ARMED`.
 pub(crate) const CTX_WARMED: usize = 120;
-const CTX_SIZE: &str = "128";
+// bug-483: the send completion's `nw_error` classification, captured where the
+// error is still ALIVE.
+//
+// `CTX_ERROR` holds the `nw_error_t` the completion block was handed. That
+// reference is **borrowed for the block's duration only** — Network.framework
+// releases it once the block returns — so reading the object from `tls::write`
+// after the semaphore wakes is a use-after-free. Measured: an instrumented build
+// that called `nw_error_get_error_domain` on `CTX_ERROR` from the write path
+// SIGSEGV'd in 2 of 6 runs, and in 3 of 5 under `MallocScribble=1`; the surviving
+// runs disagreed with each other about the domain. So the classification has to
+// happen inside the trampoline.
+//
+// `CTX_EDOMFN` is `nw_error_get_error_domain`, resolved once at connection-ctx
+// setup; `CTX_EDOM` is the domain of the last non-null error a send completion
+// observed (`nw_error_domain_posix` = 1, `dns` = 2, `tls` = 3; 0 = none seen
+// yet). It is deliberately **sticky** — never cleared by `emit_fresh_sem` — so
+// the terminal-state guard on a LATER write can still tell what killed the
+// connection.
+// The two slots sit ABOVE the listener ctx's ring (which runs 64..192) on
+// purpose: the state-changed trampoline is shared by connection and listener
+// contexts, so any slot it writes must mean the same thing in BOTH layouts.
+// At 128/136 it would have written ring entries 8 and 9 — and read one back as
+// a function pointer to call.
+pub(crate) const CTX_EDOMFN: usize = 192;
+pub(crate) const CTX_EDOM: usize = 200;
+const CTX_SIZE: &str = "208";
 
 // The listener context extends the shared ctx prefix (the listener's
 // state-changed handler is the plain STATE_INVOKE trampoline over the same
@@ -183,7 +208,7 @@ pub(crate) const LCTX_HEAD: usize = 48; // producer count (trampoline-owned)
 pub(crate) const LCTX_TAIL: usize = 56; // consumer count (accept-owned)
 pub(crate) const LCTX_RING: usize = 64; // LCTX_RING_CAP pointer slots
 pub(crate) const LCTX_RING_CAP: usize = 16; // power of two (index mask 15)
-const LCTX_SIZE: &str = "192"; // 64 + 16*8
+const LCTX_SIZE: &str = "208"; // 64 + 16*8, then the shared CTX_EDOMFN/CTX_EDOM tail
 
 // Block literal: isa, flags, invoke, descriptor, one captured ctx pointer.
 const BLK_ISA: usize = 0;
@@ -324,6 +349,11 @@ const SYMBOLS: &[&str] = &[
     // One extra C string is the honest price; it is the only server-side symbol
     // the listener-address body touches.
     "nw_listener_get_port",
+    // bug-483: reads the domain of a send completion's `nw_error` so `tls::write`
+    // can tell a departed peer (POSIX domain) from a protocol failure. Resolved
+    // into the connection ctx because only the block trampoline may touch the
+    // error object — see CTX_EDOMFN.
+    "nw_error_get_error_domain",
 ];
 
 /// The additional server-side entry points (`tls::listen`/`tls::accept`).

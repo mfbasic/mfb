@@ -119,7 +119,17 @@ pub(crate) fn lower_strings_left_right(
 
     builder.emit(abi::branch(&build));
     builder.emit(abi::label(&invalid));
-    builder.raise_error_bare("ErrInvalidArgument")?;
+    // `raise_error`, not `raise_error_bare`: see the note in `gen_pad.rs`. The
+    // bare form skips the declaration assertion, and an undeclared error reads as
+    // INFALLIBLE to the inline-`TRAP` fallibility census.
+    builder.raise_error(
+        if right {
+            "strings.right"
+        } else {
+            "strings.left"
+        },
+        "ErrInvalidArgument",
+    )?;
     builder.emit(abi::label(&build));
     builder.emit(abi::load_u64(&scratch13, abi::stack_pointer(), ptr_slot));
     builder.emit(abi::load_u64(&scratch12, abi::stack_pointer(), len_slot));

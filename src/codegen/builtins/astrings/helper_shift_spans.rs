@@ -12,7 +12,7 @@ r#"REM Shift every span by +delta (padLeft inserts plain scalars at the front).
 FUNC __astrings_shiftSpans(spans AS List OF AttrSpan, delta AS Integer) AS List OF AttrSpan
   MUT out AS List OF AttrSpan = []
   FOR EACH s IN spans
-    out = collections::append(out, AttrSpan[s.start + delta, s.last + delta, s.seq, s.class, s.member, s.text, s.number])
+    out = collections::append(out, AttrSpan[s.start + delta, s.endIndex + delta, s.seq, s.class, s.member, s.text, s.number])
   NEXT
   RETURN out
 END FUNC"#;

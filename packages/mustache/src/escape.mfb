@@ -1,0 +1,42 @@
+' ---------------------------------------------------------------------------
+' mustache/escape.mfb — the HTML escaping a `{{name}}` tag applies.
+'
+' Not `encoding::htmlEscape`, and the difference is deliberate. That function
+' escapes the five XML metacharacters and writes an apostrophe as `&apos;`,
+' which is correct XML and correct HTML5 but is NOT what a Mustache template
+' produces: every reference implementation writes `&#39;`, and `&apos;` is not a
+' character reference HTML 4 or an XHTML-as-text/html document defines. A
+' template rendered here has to be byte-comparable with one rendered anywhere
+' else, so the escaping is the reference implementation's, character for
+' character, and that means three characters `encoding::htmlEscape` leaves
+' alone:
+'
+'   /  as `&#x2F;`   closes a `<script>` block early inside a string literal
+'   `  as `&#x60;`   is an attribute delimiter in older Internet Explorer
+'   =  as `&#x3D;`   starts an attribute in an unquoted attribute value
+'
+' Each of those turns an unquoted or single-quoted attribute into an injection
+' point, which is why mustache.js, Handlebars and their descendants all escape
+' them. Escaping more than the minimum is always safe -- an over-escaped
+' document renders identically -- so this is strictly the stronger of the two.
+'
+' The ampersand is replaced FIRST so that the `&` each replacement introduces is
+' not escaped a second time; none of the other seven replacements produces a
+' character any later replacement matches.
+' ---------------------------------------------------------------------------
+
+IMPORT strings
+
+' Escape the eight characters a Mustache `{{name}}` tag escapes. Exported from
+' the package as `mustache::escapeHtml`; named differently here so the public
+' wrapper in lib.mfb can carry the DOC block without shadowing this one.
+PUBLIC FUNC escapeText(text AS String) AS String
+  MUT out AS String = strings::replace(text, "&", "&amp;")
+  out = strings::replace(out, "<", "&lt;")
+  out = strings::replace(out, ">", "&gt;")
+  out = strings::replace(out, "\"", "&quot;")
+  out = strings::replace(out, "'", "&#39;")
+  out = strings::replace(out, "/", "&#x2F;")
+  out = strings::replace(out, "`", "&#x60;")
+  RETURN strings::replace(out, "=", "&#x3D;")
+END FUNC

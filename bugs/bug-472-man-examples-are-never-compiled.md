@@ -8,6 +8,34 @@ Class: Missing gate / documentation correctness
 Status: Open
 Regression Test: — (the gate IS the regression test; see "What a fix must produce")
 
+
+## USER DECISION (2026-09-06) — build the gate, as its own CI step
+
+This document opens by recording a user decision AGAINST building this gate
+(plan-108-A rejected-alternatives: "this is a docs plan and needs no test
+infrastructure; examples are verified by compiling/running them at authoring
+time"). **That decision is overturned.** The ruling is:
+
+> Build the gate. Add it as a separate CI step like the fmt step.
+
+Two things changed since plan-108: `scripts/man-run-examples.sh` now exists, so
+this is WIRING an existing tool rather than new infrastructure; and
+authoring-time verification demonstrably did not hold — three of eighteen
+examples in one package were wrong and all three read fine.
+
+"Like the fmt step" is the shape, and it is specific:
+
+- Its own CI step, not folded into `cargo test`. It fails on its own line with
+  its own message, so a red says "a documentation example does not build" rather
+  than being one row of a suite.
+- It runs over the whole corpus, the way `cargo fmt --all --check` does; the
+  change-detection variant was NOT chosen, so do not build one.
+- Like fmt, it is a check, not a fixer: it must not rewrite an example.
+
+Watch the cost and state it: the corpus is several hundred examples across every
+package, each of which is a compile AND a run. Measure the wall clock before
+wiring it, and if it is large, say so rather than quietly making CI slower.
+
 ## A user decision constrains this bug — read it first
 
 `planning/completed/plan-108-A-census-standard-pilot.md`'s
@@ -105,7 +133,7 @@ Most of the mechanism already exists and should be reused rather than rewritten:
   Examples block out of **rendered** man output — so what is checked is what a
   developer would actually type — writes it into a scratch project, builds it,
   and optionally runs it.
-* **`tests/cli_canvas_man_examples_compile.rs`** (plan-98) is the in-tree
+* **`tests/cli/cli_canvas_man_examples_compile.rs`** (plan-98) is the in-tree
   precedent: it already does exactly this for one package. Generalising it across
   the registry is the shape of the fix.
 
@@ -181,7 +209,7 @@ line, or rule code to act on.
 
 References: `src/cli/man.rs` (man rendering);
 `src/codegen/builtins/<pkg>/func_*.rs` (the `example` prose fields);
-`tests/cli_canvas_man_examples_compile.rs` (the in-tree precedent);
+`tests/cli/cli_canvas_man_examples_compile.rs` (the in-tree precedent);
 `scripts/man-run-examples.sh` (plan-108 branch — the mechanism to reuse);
 `planning/completed/plan-108-A-census-standard-pilot.md` Rejected alternatives
 (the user decision quoted above);

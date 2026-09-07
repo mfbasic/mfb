@@ -17,7 +17,7 @@ FUNC __astrings_concat(a AS AttributedString, b AS AttributedString) AS Attribut
   LET aLen AS Integer = astrings::scalarLen(a)
   MUT out AS List OF AttrSpan = astrings::readSpans(a)
   FOR EACH s IN astrings::readSpans(b)
-    out = collections::append(out, AttrSpan[s.start + aLen, s.last + aLen, s.seq, s.class, s.member, s.text, s.number])
+    out = collections::append(out, AttrSpan[s.start + aLen, s.endIndex + aLen, s.seq, s.class, s.member, s.text, s.number])
   NEXT
   RETURN __astrings_assemble(newText, out)
 END FUNC"#;
