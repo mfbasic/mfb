@@ -1849,6 +1849,7 @@ name = "mfb"
 version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
+ "hmac 0.12.1",
  "icns",
  "image",
  "libc",

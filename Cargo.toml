@@ -50,6 +50,11 @@ serde_json = "1"
 # so they resolve offline and add no new compiled code.
 ring = "0.17"
 curve25519-dalek = "4"
+# `tests/rt_crypto_mac_kdf_interop.rs` checks every `crypto::Hash` selector of
+# `hmac`, and `ring` has no SHA-224 — this covers that one selector (over `sha2`,
+# already a normal dependency). Already in the lockfile through the repository
+# crate's argon2/pbkdf2 deps, so it resolves offline and adds no new compiled code.
+hmac = "0.12"
 # The repository acceptance test needs to age a `package_blobs` row to exercise
 # `mfb-repo gc`'s 24h grace period (plan-49 §3.1) without waiting a day. Same
 # version/features as the repository crate's, so it reuses the compiled SQLite.
