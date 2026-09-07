@@ -15,6 +15,48 @@
 use crate::codegen::engine::types::NativeCodePlan;
 use crate::testutil::{app_code_cached, code_for_src_cached, CodeTarget};
 
+/// A scene GROUP, which is the only call in the language that consumes a
+/// resource held inside its argument.
+///
+/// `canvas::setGroup` is the sole `add_consuming_parameter` row in the whole
+/// registry (`func_set_group.rs`), so it is the only way to reach
+/// `deactivate_consumed_cleanups` — 40 lines of `builder_resource_cleanup.rs`
+/// that drop the caller's close obligation for every resource reachable from
+/// the items list, transitively.
+///
+/// The obligation has to move, not be shared. A group takes over closing the
+/// images its items name, which is what lets `img` go out of scope here without
+/// the group losing its picture; if the scope ALSO closed it, the group would be
+/// drawing a closed image, and `canvas::imageHandle` answers 0 for one — the
+/// same 0 that means "no such object". So the failure mode is a silently blank
+/// picture with no error anywhere, which is why
+/// `tests/syntax/resources/canvas-setgroup-consumes-items` refuses the sharing
+/// case at compile time. That fixture stops at the diagnostic, so nothing had
+/// ever lowered the ACCEPTED half.
+///
+/// The image is reached through `Picture.image`, not named in the argument at
+/// all: the list holds `a`, whose type is a `DrawItem` union. That is the
+/// transitive step, and a walk that only looked at the names written in the
+/// argument would find `a` and deactivate nothing.
+const CANVAS_GROUP: &str = "\
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+FUNC main() AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
+  RES img AS canvas::Image = canvas::createImage(1, 1, px) TRAP(e)
+    RETURN 1
+  END TRAP
+  LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  canvas::setGroup(\"one\", [a])
+  io::print(\"grouped\")
+  RETURN 0
+END FUNC
+";
+
 /// The image surface: create, size, read back, write, and the resize flag.
 const CANVAS_SURFACE: &str = "\
 IMPORT app
@@ -218,4 +260,36 @@ fn runtime_members(plan: &NativeCodePlan, prefix: &str) -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+/// The consuming call lowers on every app-capable backend.
+///
+/// One assertion beyond "it lowered": `main` must still be a real body. A
+/// cleanup deactivation that removed the wrong obligation would not fail to
+/// build -- it would emit a function whose scope exit closes nothing, or closes
+/// something twice -- so what this pins is that the four backends agree the
+/// program is lowerable at all, which is what the acceptance matrix cannot check
+/// without four runners.
+#[test]
+fn the_scene_group_lowers_on_every_app_capable_backend() {
+    let source = CANVAS_GROUP.to_string();
+    let mut lowered = 0;
+    for target in CodeTarget::ALL {
+        let Some(_) = target.app_mode() else {
+            continue;
+        };
+        let plan = app_code_cached(&source, target);
+        assert!(
+            plan.functions
+                .iter()
+                .any(|function| function.name.contains("main")),
+            "{}: the group program must lower to a real program",
+            target.name()
+        );
+        lowered += 1;
+    }
+    assert_eq!(
+        lowered, 4,
+        "four of the five backends have an app mode; a count that fell would          mean this ran on fewer than it reads as covering"
+    );
 }
