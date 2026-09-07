@@ -52,7 +52,10 @@ have a program and its arguments already separated — prefer `process::spawn`, 
 avoids the shell entirely.
 
 The child is wired to three pipes for its standard streams exactly as with
-`process::spawn`, and the returned handle behaves the same way: it closes itself
+`process::spawn` — and, exactly as there, those three are all it gets: no other
+open handle of the program's crosses into the shell or into anything the shell
+itself runs, and the child starts with default signal handling. The returned
+handle behaves the same way too: it closes itself
 when its binding goes out of scope, force-killing and reaping a still-running child unless
 it is first awaited with `process::waitFor` or ended with `process::detach`."#;
 const EX: &str = r#"Run a pipeline and read the result. `echo` and `sort` are spelled the

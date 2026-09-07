@@ -833,6 +833,19 @@ impl plan::NativePlanPlatform for Platform {
                     "_setenv",
                     "_unsetenv",
                     "__NSGetEnviron",
+                    // bug-543: the child execs through `posix_spawnp` with
+                    // POSIX_SPAWN_SETEXEC so the spawn carries
+                    // POSIX_SPAWN_CLOEXEC_DEFAULT (no ambient descriptor reaches
+                    // the child) and POSIX_SPAWN_SETSIGDEF (no ignored disposition
+                    // survives the exec).
+                    "_posix_spawnp",
+                    "_posix_spawn_file_actions_init",
+                    "_posix_spawn_file_actions_adddup2",
+                    "_posix_spawn_file_actions_destroy",
+                    "_posix_spawnattr_init",
+                    "_posix_spawnattr_setflags",
+                    "_posix_spawnattr_setsigdefault",
+                    "_posix_spawnattr_destroy",
                 ]
                 .into_iter()
                 .map(|symbol| PlatformImport {

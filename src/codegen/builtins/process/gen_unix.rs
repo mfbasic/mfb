@@ -1,5 +1,8 @@
 //! Unix native backend for the `process` package: fork + exec + three pipes +
-//! waitpid/kill, emitted as self-contained runtime helpers. Every libc call goes
+//! waitpid/kill, emitted as self-contained runtime helpers. The exec is `execvp`
+//! on Linux and `posix_spawnp` with `POSIX_SPAWN_SETEXEC` on macOS — the latter
+//! is an exec that also carries `POSIX_SPAWN_CLOEXEC_DEFAULT` and
+//! `POSIX_SPAWN_SETSIGDEF` (bug-543). Every libc call goes
 //! through `platform.emit_external_call` so the four Unix targets (macOS-aarch64,
 //! Linux x86_64/aarch64/riscv64) share one body. Values live in numeric virtual
 //! registers (`Vregs`; the shared allocator spills them across each `bl`); only
@@ -164,18 +167,25 @@ pub(crate) fn lower_process_drop_helper(
 // ---------------------------------------------------------------------------
 // process.spawn — argv-only. Builds a NUL-terminated C `argv` from a
 // `List OF String`, creates three stdio pipes + a close-on-exec self-pipe,
-// forks, and execvp's in the child. The child reports an exec failure to the
+// forks, and execs in the child. The child reports an exec failure to the
 // parent over the self-pipe (the parent's read returns >0 bytes = errno);
 // a successful exec closes the O_CLOEXEC self-pipe, so the parent reads EOF (0).
 // ---------------------------------------------------------------------------
 // Frame for a spawn/shell helper: three stdio pipes + a self-pipe (each an
-// `int[2]`) + a 4-byte errno readback buffer.
+// `int[2]`) + a 4-byte errno readback buffer, then (macOS only, bug-543) the
+// `posix_spawn` attribute objects: `posix_spawn_file_actions_t` and
+// `posix_spawnattr_t` are each a single opaque pointer on Darwin, and
+// `sigset_t` is a 32-bit word. The three slots are reserved on every Unix so one
+// frame layout serves all four targets; Linux simply never writes them.
 pub(crate) const STDIN_P: usize = 0;
 pub(crate) const STDOUT_P: usize = 8;
 pub(crate) const STDERR_P: usize = 16;
 pub(crate) const ERR_P: usize = 24;
 pub(crate) const ERRBUF: usize = 32;
-pub(crate) const SPAWN_LOCAL: usize = 48;
+pub(crate) const SPAWN_FA: usize = 40;
+pub(crate) const SPAWN_ATTR: usize = 48;
+pub(crate) const SPAWN_SIGSET: usize = 56;
+pub(crate) const SPAWN_LOCAL: usize = 64;
 
 /// Copy `len` bytes from `src` into a freshly arena-allocated NUL-terminated C
 /// string (allocated `len + 1`), returning it in `mfb_return(1)`. Leaves the
@@ -493,12 +503,36 @@ pub(crate) fn emit_spawn_tail(
     const FD_CLOEXEC: &str = "1";
     /// Linux `O_CLOEXEC` (0x80000; same on x86-64/AArch64/RISC-V) for `pipe2`.
     const LINUX_O_CLOEXEC: &str = "524288";
+    /// `sigfillset` over Darwin's 32-bit `sigset_t` (bug-543).
+    const DARWIN_SIGFILLSET: &str = "4294967295";
+    /// `POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETEXEC | POSIX_SPAWN_CLOEXEC_DEFAULT`
+    /// = `0x0004 | 0x0040 | 0x4000` (bug-543). `setflags` takes a `short`, and the
+    /// value is positive in 16 bits.
+    const DARWIN_SPAWN_FLAGS: &str = "16452";
+    /// The descriptor the child parks the self-pipe write end on before sweeping
+    /// everything above it away (Linux, bug-543).
+    const SELF_PIPE_FD: &str = "3";
+    /// `close_range(2)` — syscall 436 on x86-64, AArch64 and RISC-V alike (it was
+    /// added to the asm-generic table and x86-64 took the same number). musl 1.2.6
+    /// still exports no wrapper for it, so it goes out as a raw syscall rather than
+    /// a libc import that would fail to link on Alpine.
+    const SYS_CLOSE_RANGE: &str = "436";
+    /// `close_range`'s inclusive upper bound: every descriptor there could be.
+    const CLOSE_RANGE_LAST: &str = "4294967295";
+    /// The pre-5.9-kernel fallback sweeps [4, 1024) one `close` at a time. A loop is
+    /// only defensible because it is bounded and unreachable on any kernel from 2020
+    /// on: `getdtablesize()` measures 245,760 on macOS, so a full-table loop as the
+    /// primary mechanism would be a quarter-million syscalls per spawn.
+    const FALLBACK_FD_LIMIT: &str = "1024";
     let pid = v.next();
     let rec = v.next();
     let tmp = v.next();
     let errno = v.next();
     let child = format!("{symbol}_child");
     let spawn_fail = format!("{symbol}_spawn_fail");
+    let spawn_attr_fail = format!("{symbol}_spawn_attr_fail");
+    let sweep_done = format!("{symbol}_sweep_done");
+    let sweep_loop = format!("{symbol}_sweep_loop");
     // Create the three stdio pipes and the self-pipe, every end close-on-exec
     // (bug-499): Linux `pipe2(fds, O_CLOEXEC)` sets it atomically; macOS has no
     // pipe2, so each end gets `fcntl(F_SETFD, FD_CLOEXEC)` right after `pipe`.
@@ -555,15 +589,126 @@ pub(crate) fn emit_spawn_tail(
             }
         }
     }
+    // bug-543 (macOS): build the `posix_spawn` file-actions + attributes the child
+    // execs through. They are built HERE, in the parent, and not in the fork child:
+    // `posix_spawn_file_actions_init` mallocs, and the child deliberately does as
+    // little as possible after the fork. `fork` copies them, so the child sees a
+    // finished pair.
+    //
+    // `POSIX_SPAWN_CLOEXEC_DEFAULT` is the whole point: the kernel hands the new
+    // image ONLY the descriptors named in the file-actions, so a descriptor this
+    // process was itself handed by its launcher — one MFBASIC never opened, and so
+    // never marked close-on-exec — cannot reach the child. That is the same
+    // exhaustive, process-side gate Windows already has: `bInheritHandles = TRUE`
+    // is only what ARMS inheritance there, and the `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`
+    // in the `STARTUPINFOEXA` then names the three handles that may cross and
+    // excludes every other (see `gen_windows.rs`). The three `adddup2(fd, fd)`
+    // entries are what keeps 0/1/2 — by then they are the pipe ends the child's own
+    // `dup2` dance put there.
+    //
+    // `POSIX_SPAWN_SETSIGDEF` over a full `sigset_t` is NOT optional (bug-467): an
+    // *ignored* disposition survives an exec, MFBASIC's entry installs a
+    // process-wide `signal(SIGPIPE, SIG_IGN)`, and `POSIX_SPAWN_SETEXEC` means there
+    // is no longer a fork-child "between" in which to call `signal(SIGPIPE,
+    // SIG_DFL)`. Without it a spawned `writer | head` never ends — the writer takes
+    // EPIPE forever instead of dying.
+    if !linux {
+        // A destroy on a NULL slot is a no-op, so zero both before the inits and
+        // one cleanup path serves every failure after this point.
+        instructions.extend([
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), SPAWN_FA),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), SPAWN_ATTR),
+            abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), SPAWN_FA),
+        ]);
+        platform.emit_external_call(
+            "posix_spawn_file_actions_init",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+            abi::compare_immediate(abi::c_return(0), "0"),
+            abi::branch_ne(&spawn_attr_fail),
+        ]);
+        for fd in ["0", "1", "2"] {
+            instructions.extend([
+                abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), SPAWN_FA),
+                abi::move_immediate(abi::c_arg(1), "Integer", fd),
+                abi::move_immediate(abi::c_arg(2), "Integer", fd),
+            ]);
+            platform.emit_external_call(
+                "posix_spawn_file_actions_adddup2",
+                symbol,
+                platform_imports,
+                instructions,
+                relocations,
+            )?;
+        }
+        instructions.push(abi::add_immediate(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            SPAWN_ATTR,
+        ));
+        platform.emit_external_call(
+            "posix_spawnattr_init",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+            abi::compare_immediate(abi::c_return(0), "0"),
+            abi::branch_ne(&spawn_attr_fail),
+            // sigfillset: Darwin's `sigset_t` is a single 32-bit word.
+            abi::move_immediate(&tmp, "Integer", DARWIN_SIGFILLSET),
+            abi::store_u32(&tmp, abi::stack_pointer(), SPAWN_SIGSET),
+            abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), SPAWN_ATTR),
+            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), SPAWN_SIGSET),
+        ]);
+        platform.emit_external_call(
+            "posix_spawnattr_setsigdefault",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), SPAWN_ATTR),
+            abi::move_immediate(abi::c_arg(1), "Integer", DARWIN_SPAWN_FLAGS),
+        ]);
+        platform.emit_external_call(
+            "posix_spawnattr_setflags",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+    }
     // fork()
     platform.emit_external_call("fork", symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::sign_extend_word(&pid, abi::c_return(0)),
         abi::compare_immediate(&pid, "0"),
         abi::branch_eq(&child),
-        abi::branch_lt(fork_fail),
+        abi::branch_lt(if linux { fork_fail } else { &spawn_attr_fail }),
     ]);
     // ---- parent ----
+    // The child got its own copy of the spawn objects across the fork, so the
+    // parent's pair is dead the moment the fork succeeds: release it here rather
+    // than leaking one `posix_spawn_file_actions_t` + one `posix_spawnattr_t` per
+    // spawn for the life of the process.
+    if !linux {
+        emit_spawn_attr_destroy(
+            symbol,
+            platform,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+    }
     for slot in [STDIN_P, STDOUT_P + 4, STDERR_P + 4, ERR_P + 4] {
         instructions.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), slot));
         platform.emit_external_call(
@@ -646,6 +791,71 @@ pub(crate) fn emit_spawn_tail(
             relocations,
         )?;
     }
+    // bug-543 (Linux): everything above is what MFBASIC itself opened, and bug-499
+    // made all of it close-on-exec. What is left is what MFBASIC never opened — a
+    // descriptor this process's own launcher handed it without FD_CLOEXEC (a CI
+    // runner leaking its pipes at fds 142/145 was the real case) — and nothing has
+    // ever closed those, so they crossed the exec into the child. macOS gets the
+    // same guarantee structurally from `POSIX_SPAWN_CLOEXEC_DEFAULT` above; Linux
+    // gets it here, in one syscall.
+    //
+    // The self-pipe write end is the one descriptor above 2 that must survive: it
+    // carries `errno` back on exec failure, and its being close-on-exec is what
+    // makes the parent's read return EOF on success. Park it on fd 3, restore the
+    // flag `dup2` just cleared, and sweep from 4.
+    if linux {
+        instructions.extend([
+            abi::load_u32(abi::c_arg(0), abi::stack_pointer(), ERR_P + 4),
+            abi::move_immediate(abi::c_arg(1), "Integer", SELF_PIPE_FD),
+        ]);
+        platform.emit_external_call("dup2", symbol, platform_imports, instructions, relocations)?;
+        instructions.extend([
+            abi::move_immediate(abi::c_arg(0), "Integer", SELF_PIPE_FD),
+            abi::move_immediate(abi::c_arg(1), "Integer", F_SETFD),
+            abi::move_immediate(abi::c_arg(2), "Integer", FD_CLOEXEC),
+        ]);
+        platform.emit_variadic_external_call(
+            "fcntl",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            // The exec-failure report below reads its fd out of the frame, so point
+            // the slot at the descriptor the write end now lives on.
+            abi::move_immediate(&tmp, "Integer", SELF_PIPE_FD),
+            abi::store_u32(&tmp, abi::stack_pointer(), ERR_P + 4),
+            // close_range(4, ~0u, 0)
+            abi::move_immediate(abi::sys_arg(0), "Integer", "4"),
+            abi::move_immediate(abi::sys_arg(1), "Integer", CLOSE_RANGE_LAST),
+            abi::move_immediate(abi::sys_arg(2), "Integer", "0"),
+            abi::move_immediate(abi::syscall_register(), "Integer", SYS_CLOSE_RANGE),
+            abi::syscall(),
+            // A kernel older than 5.9 answers -ENOSYS. Fall back to the bounded
+            // loop rather than silently handing the child the leak back.
+            abi::move_register(&tmp, abi::sys_return()),
+            abi::compare_immediate(&tmp, "0"),
+            abi::branch_ge(&sweep_done),
+            abi::move_immediate(&tmp, "Integer", "4"),
+            abi::label(&sweep_loop),
+            abi::compare_immediate(&tmp, FALLBACK_FD_LIMIT),
+            abi::branch_eq(&sweep_done),
+            abi::move_register(abi::c_arg(0), &tmp),
+        ]);
+        platform.emit_external_call(
+            "close",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::add_immediate(&tmp, &tmp, 1),
+            abi::branch(&sweep_loop),
+            abi::label(&sweep_done),
+        ]);
+    }
     // Child-side working directory + environment, applied before execvp (safe in
     // the single-threaded fork child). A chdir/env failure is best-effort: the
     // subsequent execvp still runs and any real failure surfaces via the
@@ -688,35 +898,72 @@ pub(crate) fn emit_spawn_tail(
     // `mfbprog` running `sh -c 'yes | head'` would leave `yes` running forever.
     // Restore the default in the child, after the fork and before the exec, where
     // it affects nobody else.
-    instructions.extend([
-        abi::move_immediate(abi::c_arg(0), "Integer", SIGPIPE_SIGNO),
-        abi::move_immediate(abi::c_arg(1), "Integer", SIG_DFL),
-    ]);
-    platform.emit_external_call(
-        "signal",
-        symbol,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    instructions.extend([
-        abi::load_u64(abi::c_arg(0), argv, 0),
-        abi::move_register(abi::c_arg(1), argv),
-    ]);
-    platform.emit_external_call(
-        "execvp",
-        symbol,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
-    platform.emit_errno(
-        symbol,
-        errno.as_str().into(),
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
+    //
+    // macOS does the same job from `POSIX_SPAWN_SETSIGDEF` over a full `sigset_t`
+    // in the spawn attributes above, which covers every signal rather than just
+    // SIGPIPE -- see the note there. Emitting the `signal` call as well would make
+    // that attribute untestable.
+    if linux {
+        instructions.extend([
+            abi::move_immediate(abi::c_arg(0), "Integer", SIGPIPE_SIGNO),
+            abi::move_immediate(abi::c_arg(1), "Integer", SIG_DFL),
+        ]);
+        platform.emit_external_call(
+            "signal",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::load_u64(abi::c_arg(0), argv, 0),
+            abi::move_register(abi::c_arg(1), argv),
+        ]);
+        platform.emit_external_call(
+            "execvp",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        platform.emit_errno(
+            symbol,
+            errno.as_str().into(),
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+    } else {
+        // `posix_spawnp(NULL, argv[0], &fa, &attr, argv, environ)` with
+        // `POSIX_SPAWN_SETEXEC` set: it does not fork, it replaces this image, so
+        // it is an `execvp` that also carries the file-actions and the attributes
+        // -- the exhaustive descriptor gate and the signal-default set. PATH search,
+        // and the `ENOEXEC` fallback that runs a shebang-less script through `sh`,
+        // are the same as `execvp`'s (both measured).
+        //
+        // It returns ONLY on failure, and it returns the error NUMBER rather than
+        // setting `errno`, so the self-pipe report takes the return value directly.
+        // The remaining protocol is unchanged: on success `CLOEXEC_DEFAULT` closes
+        // the self-pipe write end for us, so the parent still reads EOF.
+        platform.emit_environ_pointer(symbol, platform_imports, instructions, relocations)?;
+        instructions.extend([
+            abi::move_register(&tmp, abi::return_register()),
+            abi::load_u64(abi::c_arg(1), argv, 0),
+            abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), SPAWN_FA),
+            abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), SPAWN_ATTR),
+            abi::move_register(abi::c_arg(4), argv),
+            abi::move_register(abi::c_arg(5), &tmp),
+            abi::move_immediate(abi::c_arg(0), "Integer", "0"),
+        ]);
+        platform.emit_external_call(
+            "posix_spawnp",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.push(abi::sign_extend_word(&errno, abi::c_return(0)));
+    }
     instructions.extend([
         abi::store_u32(&errno, abi::stack_pointer(), ERRBUF),
         abi::load_u32(abi::c_arg(0), abi::stack_pointer(), ERR_P + 4),
@@ -741,7 +988,57 @@ pub(crate) fn emit_spawn_tail(
         relocations,
     )?;
     instructions.push(abi::branch(fork_fail));
+    // ---- spawn-object cleanup on a failed fork or a failed attribute init ----
+    // Reached only on macOS, and only from a path that has already zeroed both
+    // slots, so a destroy of a slot whose init never ran is a defined no-op.
+    if !linux {
+        instructions.push(abi::label(&spawn_attr_fail));
+        emit_spawn_attr_destroy(
+            symbol,
+            platform,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.push(abi::branch(fork_fail));
+    }
     Ok(())
+}
+
+/// Release the `posix_spawn` file-actions + attributes built in the spawn frame
+/// (macOS, bug-543). Both are opaque pointers a libc `*_init` malloc'd, and both
+/// `*_destroy` calls answer `EINVAL` harmlessly on a NULL slot.
+fn emit_spawn_attr_destroy(
+    symbol: &str,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        SPAWN_FA,
+    ));
+    platform.emit_external_call(
+        "posix_spawn_file_actions_destroy",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        SPAWN_ATTR,
+    ));
+    platform.emit_external_call(
+        "posix_spawnattr_destroy",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )
 }
 
 /// Emit `store_u8` bytes materializing a NUL-terminated ASCII literal at
