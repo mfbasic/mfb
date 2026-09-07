@@ -341,3 +341,319 @@ fn a_callback_whose_result_is_already_fresh_is_not_copied_twice() {
         flat_copies(&identity, "_mfb_fn_f")
     );
 }
+
+// ------------------------------------------------------------------ bug-569
+
+/// How many loop items `symbol` frees. `free_collection_loop_item` allocates
+/// exactly one `loop_item_free_size` stack slot per emission and is a no-op for
+/// every non-`String` type, so this counts the `String` blocks a callback-driving
+/// loop takes ownership of — the ARGUMENT it materialises, plus (after bug-569)
+/// the RESULT it collects.
+fn loop_item_frees(plan: &Value, symbol: &str) -> usize {
+    function(plan, symbol)["stackSlots"]
+        .as_array()
+        .expect("stack slots array")
+        .iter()
+        .filter(|slot| slot["type"].as_str() == Some("loop_item_free_size"))
+        .count()
+}
+
+/// The symbol a monomorphized `.mfb` collections body is emitted under. The `$`
+/// separators of `#collections_<name>$<args>` are mangled to `_24`, and the
+/// leading `_` of the runtime target to `_5F`.
+fn mfb_hof(name: &str, args: &str) -> String {
+    let args: String = args.split('$').collect::<Vec<_>>().join("_24");
+    format!("_mfb_ifn_collections_5F{name}_24{args}")
+}
+
+/// bug-569, per HOF, as the one comparison that isolates the callback's RESULT:
+/// the same HOF, the same source collection, the same callback ARGUMENT type —
+/// only the callback's RETURN type differs. A `String` return is a standalone
+/// arena block the HOF must free; any fixed-width return materialises nothing.
+///
+/// So the `String` instantiation must own exactly ONE more block than its
+/// fixed-width twin. Before the fix it owned the SAME number: the HOF freed the
+/// argument it materialised and simply abandoned the result, 64 B per element per
+/// call, on the most ordinary `collections::transform` there is.
+///
+/// Asserted as a delta rather than an absolute so it survives any unrelated
+/// change to how many blocks these loops handle, and stated per HOF because each
+/// frees on its own path — `transform`'s pin says nothing about `groupBy`'s.
+///
+/// `transform`: `abi_inline`, so the loop is emitted into the caller.
+#[test]
+fn transform_owns_the_string_block_its_callback_returns() {
+    let to_string = ncode(
+        "b569_transform_string",
+        "IMPORT io\n\
+         IMPORT collections\n\
+         FUNC pick(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
+         SUB main()\n\
+        \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
+        \x20 io::print(collections::get(collections::transform(xs, pick), 0))\n\
+         END SUB\n",
+    );
+    let to_integer = ncode(
+        "b569_transform_integer",
+        "IMPORT io\n\
+         IMPORT collections\n\
+         FUNC pick(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
+         SUB main()\n\
+        \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
+        \x20 io::print(toString(collections::get(collections::transform(xs, pick), 0)))\n\
+         END SUB\n",
+    );
+    let string_frees = loop_item_frees(&to_string, "_mfb_fn_main");
+    let integer_frees = loop_item_frees(&to_integer, "_mfb_fn_main");
+    assert_eq!(
+        string_frees,
+        integer_frees + 1,
+        "`collections::transform` over the same `List OF String` must free exactly \
+         one more block for a `String`-returning callback ({string_frees}) than for \
+         an `Integer`-returning one ({integer_frees}): the argument it materialised, \
+         plus the result it collected. Equal counts are bug-569's leak; two more is \
+         a double free"
+    );
+}
+
+/// `sortBy` with a `String` key declines the native fast path (its merge sorts
+/// 8-byte keys), so the `.mfb` body runs and reaches the callback through
+/// `collections::transform`. Measured on the monomorphized body, against the same
+/// body with a `Float` key — which declines the fast path for the same reason and
+/// so takes the identical route.
+#[test]
+fn sort_by_owns_the_string_key_its_callback_returns() {
+    let string_key = ncode(
+        "b569_sortby_string",
+        "IMPORT io\n\
+         IMPORT collections\n\
+         FUNC key(v AS Integer) AS String\n  RETURN toString(v)\nEND FUNC\n\
+         SUB main()\n\
+        \x20 LET xs AS List OF Integer = [3, 1, 2]\n\
+        \x20 io::print(toString(collections::get(collections::sortBy(xs, key), 0)))\n\
+         END SUB\n",
+    );
+    let float_key = ncode(
+        "b569_sortby_float",
+        "IMPORT io\n\
+         IMPORT collections\n\
+         FUNC key(v AS Integer) AS Float\n  RETURN toFloat(v)\nEND FUNC\n\
+         SUB main()\n\
+        \x20 LET xs AS List OF Integer = [3, 1, 2]\n\
+        \x20 io::print(toString(collections::get(collections::sortBy(xs, key), 0)))\n\
+         END SUB\n",
+    );
+    let string_frees = loop_item_frees(&string_key, &mfb_hof("sortBy", "Integer$String"));
+    let float_frees = loop_item_frees(&float_key, &mfb_hof("sortBy", "Integer$Float"));
+    assert_eq!(
+        string_frees,
+        float_frees + 1,
+        "`collections::sortBy` must free the `String` key its callback returns \
+         (String key {string_frees}, Float key {float_frees}); the source is a \
+         `List OF Integer` in both, so the ONLY block either loop can own is the key"
+    );
+}
+
+/// `groupBy` takes the native fast path here (Integer key, re-eval-safe source),
+/// which reaches both callbacks through `collections::transform` and emits the
+/// whole thing into the caller. The twin differs only in `valFn`'s return type.
+#[test]
+fn group_by_owns_the_string_value_its_callback_returns() {
+    let string_value = ncode(
+        "b569_groupby_string",
+        "IMPORT io\n\
+         IMPORT collections\n\
+         FUNC kf(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
+         FUNC vf(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
+         SUB main()\n\
+        \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
+        \x20 io::print(collections::get(collections::get(collections::groupBy(xs, kf, vf), 1), 0))\n\
+         END SUB\n",
+    );
+    let integer_value = ncode(
+        "b569_groupby_integer",
+        "IMPORT io\n\
+         IMPORT collections\n\
+         FUNC kf(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
+         FUNC vf(s AS String) AS Integer\n  RETURN len(s) + 1\nEND FUNC\n\
+         SUB main()\n\
+        \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
+        \x20 io::print(toString(collections::get(collections::get(collections::groupBy(xs, kf, vf), 1), 0)))\n\
+         END SUB\n",
+    );
+    let string_frees = loop_item_frees(&string_value, "_mfb_fn_main");
+    let integer_frees = loop_item_frees(&integer_value, "_mfb_fn_main");
+    // TWO more, and the decomposition is the point. With `V = String` the fast
+    // path owns the projected value twice over:
+    //
+    //   * the block `valFn` RETURNED, freed by the `transform` that produced the
+    //     values list — this fix;
+    //   * the block the bucket loop materialises out of that list and copies into
+    //     the bucket, freed by `func_group_by.rs`'s own
+    //     `free_collection_loop_item(val_slot, value_type)` — pre-existing.
+    //
+    // With `V = Integer` neither exists, and both `keyFn` transforms contribute
+    // their `String` ARGUMENT free either way. Pre-fix the delta was 1: the bucket
+    // free alone.
+    assert_eq!(
+        string_frees,
+        integer_frees + 2,
+        "`collections::groupBy` must free the `String` value its `valFn` returns \
+         AND the one it materialises into the bucket (String value {string_frees}, \
+         Integer value {integer_frees}); `keyFn` is the identical `Integer` \
+         projection in both, so nothing else differs"
+    );
+}
+
+/// `mapValues` is the one HOF that does NOT reach its callback through
+/// `transform`: its `.mfb` body invokes `f(e.value)` directly, so the result is
+/// owned by the ordinary statement-scope temp rather than by a loop-item free.
+/// The measurement is therefore the temp and its drop, not `loop_item_free_size`.
+///
+/// Both instantiations decline the native fast path (which requires `V == U`), so
+/// they differ in nothing but the callback's return type.
+#[test]
+fn map_values_owns_the_string_value_its_callback_returns() {
+    let string_value = ncode("b569_mapvalues_string", MAP_VALUES_STRING);
+    let float_value = ncode(
+        "b569_mapvalues_float",
+        "IMPORT io\n\
+         IMPORT collections\n\
+         FUNC deco(v AS Integer) AS Float\n  RETURN toFloat(v)\nEND FUNC\n\
+         SUB main()\n\
+        \x20 MUT xs AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
+        \x20 xs = collections::set(xs, 1, 7)\n\
+        \x20 io::print(toString(collections::get(collections::mapValues(xs, deco), 1)))\n\
+         END SUB\n",
+    );
+    let string_body = mfb_hof("mapValues", "Integer$Integer$String");
+    let float_body = mfb_hof("mapValues", "Integer$Integer$Float");
+    assert_eq!(
+        pending_temps(&string_value, &string_body),
+        pending_temps(&float_value, &float_body) + 1,
+        "`collections::mapValues` must register a statement-scope temp for the \
+         `String` its callback returns (String {}, Float {})",
+        pending_temps(&string_value, &string_body),
+        pending_temps(&float_value, &float_body)
+    );
+    assert_eq!(
+        string_drops(&string_value, &string_body),
+        string_drops(&float_value, &float_body) + 1,
+        "…and must actually FREE it: one more owned-String drop than the Float \
+         instantiation (String {}, Float {})",
+        string_drops(&string_value, &string_body),
+        string_drops(&float_value, &float_body)
+    );
+}
+
+/// The `mapValues` probe above, with the callback named `deco`.
+const MAP_VALUES_STRING: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC deco(v AS Integer) AS String\n  RETURN toString(v)\nEND FUNC\n\
+SUB main()\n\
+\x20 MUT xs AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
+\x20 xs = collections::set(xs, 1, 7)\n\
+\x20 io::print(collections::get(collections::mapValues(xs, deco), 1))\n\
+END SUB\n";
+
+/// The same program with the callback renamed to `f` — which is also the name of
+/// `__collections_mapValues`'s own callable PARAMETER.
+const MAP_VALUES_STRING_SHADOWING: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC f(v AS Integer) AS String\n  RETURN toString(v)\nEND FUNC\n\
+SUB main()\n\
+\x20 MUT xs AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
+\x20 xs = collections::set(xs, 1, 7)\n\
+\x20 io::print(collections::get(collections::mapValues(xs, f), 1))\n\
+END SUB\n";
+
+/// A `Call` carries only its target's NAME, so `f(e.value)` inside
+/// `__collections_mapValues` is indistinguishable by shape from a direct call to
+/// a top-level `f`. Resolving it through the function table therefore made the
+/// answer depend on whether the user happened to name their callback `f`: with
+/// any other name the lookup missed and the result leaked; named `f` it hit a
+/// function this call never reaches and — by luck, because that function also
+/// returned a fresh `String` — got the right answer for the wrong reason.
+///
+/// The two programs below are the same program modulo that name, so their owner
+/// counts must be equal. Pre-fix they were 1 and 2.
+///
+/// The luck is the point: a top-level `f` that returned a parameter BORROW would
+/// have answered "this result aliases the caller's argument, do not free it" for
+/// an indirect call that reaches something else entirely.
+#[test]
+fn an_indirect_callback_result_is_owned_regardless_of_a_shadowing_name() {
+    let plain = ncode("b569_mapvalues_plain", MAP_VALUES_STRING);
+    let shadowing = ncode("b569_mapvalues_shadow", MAP_VALUES_STRING_SHADOWING);
+    let body = mfb_hof("mapValues", "Integer$Integer$String");
+    assert_eq!(
+        pending_temps(&plain, &body),
+        pending_temps(&shadowing, &body),
+        "who owns `f(e.value)`'s block must not depend on whether a top-level \
+         function shares the callable parameter's name (plain {}, shadowing {})",
+        pending_temps(&plain, &body),
+        pending_temps(&shadowing, &body)
+    );
+    assert_eq!(
+        string_drops(&plain, &body),
+        string_drops(&shadowing, &body),
+        "…and neither must how many times it is freed (plain {}, shadowing {})",
+        string_drops(&plain, &body),
+        string_drops(&shadowing, &body)
+    );
+}
+
+/// The POSITIVE pin for bug-569, and the shape the whole change has to survive: a
+/// callback that returns its own bare parameter. The block it hands back is the
+/// one `free_collection_loop_item` released on the way in, so a second free is a
+/// double free — and the arena turns a wrong `arena_free` into "Allocation
+/// failed" at some later, unrelated allocation rather than a red assertion.
+///
+/// plan-86 K1 makes this safe by FORCING the callee to copy (a callback-referenced
+/// function is excluded from the borrow elision), and bug-562 extends that to
+/// every unprovable return. This pin says the free does not RELY on it: the loop
+/// compares the returned pointer against the item it materialised — `reduce`'s
+/// model — and skips the free on identity, so a callee that ever handed back the
+/// item block still leaves exactly one free.
+///
+/// Read as a count: a bare-parameter callback must own its result exactly as many
+/// times as an identity callback does, because after the callee's copy the two
+/// shapes are the same shape.
+#[test]
+fn a_callback_that_returns_its_own_parameter_is_freed_exactly_once() {
+    let bare = ncode(
+        "b569_transform_bare_param",
+        "IMPORT io\n\
+         IMPORT collections\n\
+         FUNC pick(s AS String) AS String\n  RETURN s\nEND FUNC\n\
+         SUB main()\n\
+        \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
+        \x20 io::print(collections::get(collections::transform(xs, pick), 0))\n\
+         END SUB\n",
+    );
+    let identity = ncode(
+        "b569_transform_identity",
+        "IMPORT io\n\
+         IMPORT collections\n\
+         FUNC pick(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
+         SUB main()\n\
+        \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
+        \x20 io::print(collections::get(collections::transform(xs, pick), 0))\n\
+         END SUB\n",
+    );
+    assert_eq!(
+        loop_item_frees(&bare, "_mfb_fn_main"),
+        loop_item_frees(&identity, "_mfb_fn_main"),
+        "a `RETURN <param>` callback and a `RETURN toString(<param>)` callback \
+         hand the loop the same kind of block — the callee copies for both — so \
+         the loop must own the same number either way (bare {}, identity {})",
+        loop_item_frees(&bare, "_mfb_fn_main"),
+        loop_item_frees(&identity, "_mfb_fn_main")
+    );
+    assert!(
+        flat_copies(&bare, "_mfb_fn_pick") >= 1,
+        "…and the reason it is the same kind of block is plan-86 K1: a \
+         callback-referenced `RETURN <param>` callee still copies. Without that \
+         copy the loop would be freeing a block the source list owns"
+    );
+}

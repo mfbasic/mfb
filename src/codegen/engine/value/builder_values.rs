@@ -491,9 +491,40 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => target.as_str(),
             _ => return false,
         };
+        if let Some(returns) = self.callable_value_return_type(target) {
+            return returns == ParameterType::String;
+        }
         self.functions
             .get(target)
             .is_some_and(|f| function_returns_fresh_string(f, &self.callback_referenced_functions))
+    }
+
+    /// bug-569: the return type of a call made THROUGH a callable value — a
+    /// `FUNC(..) AS U` parameter, local or global — rather than to a named
+    /// function, or `None` when `target` does not name such a value.
+    ///
+    /// A `Call` carries only its target's NAME, so an indirect invocation
+    /// (`f(e.value)` in `__collections_mapValues`, `g(s)` in a user-written HOF)
+    /// is indistinguishable from a direct call by shape. Resolving it through
+    /// `functions` is wrong twice over: the usual answer is "not found", which
+    /// silently keeps the plan-25 exemption and leaks; and where a top-level
+    /// function happens to share the parameter's name, the answer is a promise
+    /// made by a function this call never reaches. A callable value is looked up
+    /// FIRST, so the binding wins over the shadowed name, exactly as it does at
+    /// the call itself.
+    ///
+    /// Locals before globals, matching `overload_arg_type`'s resolution of the
+    /// same three tables (bug-497).
+    fn callable_value_return_type(&self, target: &str) -> Option<ParameterType> {
+        let type_ = self
+            .locals
+            .get(target)
+            .map(|local| local.type_.clone())
+            .or_else(|| self.globals.get(target).map(|global| global.type_.clone()))?;
+        match type_ {
+            ParameterType::Func(_, returns, _) => Some(*returns),
+            _ => None,
+        }
     }
 
     /// plan-86 K1: whether `value` is a call to a user function that returns a borrow
@@ -511,6 +542,17 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => target.as_str(),
             _ => return false,
         };
+        // bug-569: a call through a callable value is never a param borrow. Every
+        // function reachable as a `FUNC` value is invoked through the
+        // `FunctionRef` ABI, which owns and frees its result, and
+        // `function_returns_param_borrow` excludes that set for exactly that
+        // reason (plan-86 K1). Answering from `functions` here would let a
+        // top-level function that shares the parameter's name decide, and a
+        // borrow verdict is the one that cannot be taken back: it tells the
+        // caller the block belongs to its own argument.
+        if self.callable_value_return_type(target).is_some() {
+            return false;
+        }
         self.functions
             .get(target)
             .is_some_and(|f| function_returns_param_borrow(f, &self.callback_referenced_functions))

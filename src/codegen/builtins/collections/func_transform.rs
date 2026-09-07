@@ -225,6 +225,42 @@ pub(crate) fn lower_transform(
     // each transformed item in place with geometric headroom (plan-01 §4.2)
     // — amortized O(1) instead of the O(n) splice the singleton+insert did.
     builder.lower_list_append_in_place(output_slot, item_slot, &output_list_type, &output_type)?;
+    // bug-569: the `FunctionRef` ABI owns the callback's RESULT as well as its
+    // argument, and this is where that ownership ends. The append above copied
+    // the result's payload bytes into the output buffer, so the returned block
+    // has no remaining reader — and nothing freed it, so every `String` callback
+    // leaked one block per element per call (56.8 -> 112.6 MB at 50k/100k passes
+    // over an 8-element list). Only a `String` result is a standalone block;
+    // every fixed-width `U` materializes nothing and this is a no-op for it.
+    //
+    // Guarded by a runtime pointer-identity check against the loop item, which
+    // is `collections::reduce`'s model (`gen_memory.rs` compares the reducer's
+    // result against both the item and the superseded accumulator before freeing
+    // either). bug-562 makes a `String`-returning callback hand back a
+    // solely-owned block on every return site, so the unguarded free would be
+    // sound today; the guard is what keeps THIS free correct without depending
+    // on that, for the one alias that has ever existed here — a callback that
+    // returns its own bare parameter, i.e. the very block `free_collection_loop_item`
+    // released above. Skipping the free on identity leaves exactly one.
+    //
+    // Emitted only when the item is itself a block: for a fixed-width element
+    // the item register holds a scalar, which cannot compare equal to an arena
+    // pointer, and the comparison would be pure noise in the loop.
+    if output_type == ParameterType::String {
+        if element_type == ParameterType::String {
+            let kept = builder.label("transform_result_kept");
+            let carried = builder.temporary_vreg();
+            let produced = builder.temporary_vreg();
+            builder.emit(abi::load_u64(&carried, abi::stack_pointer(), free_slot));
+            builder.emit(abi::load_u64(&produced, abi::stack_pointer(), item_slot));
+            builder.emit(abi::compare_registers(&carried, &produced));
+            builder.emit(abi::branch_eq(&kept));
+            builder.free_collection_loop_item(item_slot, &output_type)?;
+            builder.emit(abi::label(&kept));
+        } else {
+            builder.free_collection_loop_item(item_slot, &output_type)?;
+        }
+    }
     builder.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
     builder.emit(abi::label(&done));
     let result = builder.allocate_register();

@@ -722,6 +722,65 @@ mod tests {
         assert!(!is_general_call("collections.get"));
     }
 
+    /// bug-569 load-bearing invariant: **no builtin that can be passed directly
+    /// as a callback returns a `String`.**
+    ///
+    /// A built-in used as a `FunctionRef` is the one callback source that is not
+    /// in `module.functions` at all, so it is invisible to
+    /// `function_returns_fresh_string` — the promise every other callback source
+    /// makes about owning the block it returns (bug-562). The HOFs now FREE that
+    /// block (`collections::transform`, `sortBy`, `groupBy`, `mapValues`), and
+    /// the only reason a builtin cannot break that is that the whole admitted set
+    /// is `Boolean`-returning predicates, which allocate nothing.
+    ///
+    /// That was a fact about the list rather than an invariant, and the free made
+    /// it load-bearing. It is an invariant now: admit a `String`-returning name to
+    /// `builtin_function_id` and this goes red, instead of the HOF freeing a block
+    /// it does not own.
+    #[test]
+    fn every_builtin_that_can_be_a_callback_returns_boolean() {
+        const ARGUMENT_TYPES: &[&str] = &[
+            "Integer",
+            "Float",
+            "Fixed",
+            "Money",
+            "Byte",
+            "Scalar",
+            "Boolean",
+            "String",
+            "List OF Integer",
+            "List OF String",
+            "Set OF Integer",
+            "Map OF String TO Integer",
+        ];
+        let admitted: Vec<&&str> = ALL_GENERAL
+            .iter()
+            .filter(|name| builtin_function_id(name).is_some())
+            .collect();
+        assert_eq!(
+            admitted.len(),
+            8,
+            "the callback-capable builtin set changed: {admitted:?}. Every member \
+             must be re-checked against the HOF free in bug-569 before this count \
+             is updated"
+        );
+        for name in admitted {
+            for spelling in ARGUMENT_TYPES {
+                let Some(resolved) = resolve_call(name, &types(&[spelling])) else {
+                    continue;
+                };
+                assert_eq!(
+                    resolved.return_type,
+                    ParameterType::Boolean,
+                    "{name}({spelling}) returns {} — a builtin reachable as a \
+                     `FunctionRef` must return `Boolean`, because it makes no \
+                     promise about owning a returned block and the HOFs free one",
+                    resolved.return_type.name()
+                );
+            }
+        }
+    }
+
     #[test]
     fn overridable_and_reserved() {
         assert!(!is_overridable(ERROR));

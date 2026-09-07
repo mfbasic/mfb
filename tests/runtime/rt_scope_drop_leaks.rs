@@ -1555,3 +1555,307 @@ fn every_trap_bound_result_still_produces_the_right_value() {
     );
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// -------------------------------------------------------------- bug-569
+
+/// bug-569, per HOF. Each of these is the bug report's own reproduction: a
+/// `String`-returning callback whose block the HOF collected and never freed —
+/// 64 B per element per call, on programs that were otherwise entirely correct.
+///
+/// The callback is `RETURN toString(s)` rather than a concat on purpose: a concat
+/// return leaks a SECOND block (bug-567, untouched here), so it would read as a
+/// leak at both counts and say nothing about this one. The identity leaks exactly
+/// the block this bug is about.
+const SHAPE_569_TRANSFORM: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC pick(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET c AS List OF String = collections::transform(xs, pick)\n\
+    acc = acc + len(collections::get(c, 0))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `sortBy`'s key projection. String items + a String key declines the native
+/// fast path, so this is the `.mfb` body's route to the callback.
+const SHAPE_569_SORT_BY: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC key(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n3\", \"n1\", \"n7\", \"n0\", \"n5\", \"n2\", \"n6\", \"n4\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET c AS List OF String = collections::sortBy(xs, key)\n\
+    acc = acc + len(collections::get(c, 0))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `groupBy`'s value projection, on the native fast path (Integer key).
+const SHAPE_569_GROUP_BY: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC kf(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
+FUNC vf(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET c AS Map OF Integer TO List OF String = collections::groupBy(xs, kf, vf)\n\
+    acc = acc + len(collections::get(c, 2))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `mapValues`, the one HOF that invokes its callback directly rather than
+/// through `transform`. The source map is `Map OF Integer TO Integer` on purpose:
+/// a `String` key or value would materialise its own per-entry block in the
+/// `FOR EACH`, and that is a DIFFERENT leak (a bare `FOR EACH` over a
+/// `Map OF String TO String` reading `e.key`/`e.value` grows 50 -> 99 MB at these
+/// counts with no callback in the program at all). With fixed-width keys and
+/// values, the callback's result is the only block either loop can own.
+const SHAPE_569_MAP_VALUES: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC deco(v AS Integer) AS String\n  RETURN toString(v)\nEND FUNC\n\
+SUB main()\n\
+  MUT xs AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
+  MUT j AS Integer = 0\n\
+  WHILE j < 8\n\
+    xs = collections::set(xs, j, j)\n\
+    j = j + 1\n\
+  END WHILE\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET c AS Map OF Integer TO String = collections::mapValues(xs, deco)\n\
+    acc = acc + len(collections::get(c, 1))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The POSITIVE pin, and the one shape where the HOF must NOT free: a callback
+/// that returns its own bare parameter. The block it hands back is the very one
+/// `free_collection_loop_item` released on the way in, so a second free is a
+/// double free — which the arena reports as "Allocation failed" at some later,
+/// unrelated allocation, or as a wrong value read back from reused memory, not as
+/// a crash at the site.
+///
+/// It is measured as RSS *and* as a value (`acc` counts the characters actually
+/// read back out of the result list), because the two failure directions are
+/// invisible to each other: a missing free shows only in the RSS, a double free
+/// only in the bytes.
+const SHAPE_569_BARE_PARAM_CALLBACK: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC pick(s AS String) AS String\n  RETURN s\nEND FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET c AS List OF String = collections::transform(xs, pick)\n\
+    acc = acc + len(collections::get(c, 0)) + len(collections::get(c, 7))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc) & \" src=\" & collections::get(xs, 0))\n\
+END SUB\n";
+
+/// A fixed-width callback over the same list. It never allocated and was always
+/// flat, and it must stay flat: a fix that freed something here would be freeing
+/// a scalar.
+const SHAPE_569_FIXED_WIDTH_CONTRAST: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC pick(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET c AS List OF Integer = collections::transform(xs, pick)\n\
+    acc = acc + collections::get(c, 0)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// 56.8 MB -> 112.6 MB at 50k/100k passes over an 8-element list, before.
+#[cfg(unix)]
+#[test]
+fn transform_runs_at_constant_rss_with_a_string_callback() {
+    assert_flat("b569_transform", SHAPE_569_TRANSFORM, 50_000, 100_000);
+}
+
+/// Each HOF frees on its OWN path, so a pin on `transform` says nothing about
+/// this one even though both reach the callback through the same lowering today.
+#[cfg(unix)]
+#[test]
+fn sort_by_runs_at_constant_rss_with_a_string_key() {
+    assert_flat("b569_sort_by", SHAPE_569_SORT_BY, 50_000, 100_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn group_by_runs_at_constant_rss_with_a_string_value() {
+    assert_flat("b569_group_by", SHAPE_569_GROUP_BY, 50_000, 100_000);
+}
+
+/// 33 MB -> 66 MB before. `mapValues` reaches its callback by an entirely
+/// different route (a direct indirect invocation in its `.mfb` body, not
+/// `transform`), which is why it needs its own case and its own fix.
+#[cfg(unix)]
+#[test]
+fn map_values_runs_at_constant_rss_with_a_string_callback() {
+    assert_flat("b569_map_values", SHAPE_569_MAP_VALUES, 50_000, 100_000);
+}
+
+/// The POSITIVE pin, as RSS: freeing nothing here is a leak, freeing twice is
+/// heap corruption.
+#[cfg(unix)]
+#[test]
+fn a_bare_parameter_callback_runs_at_constant_rss() {
+    assert_flat(
+        "b569_bare_param",
+        SHAPE_569_BARE_PARAM_CALLBACK,
+        50_000,
+        100_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fixed_width_callback_stays_flat() {
+    assert_flat(
+        "b569_fixed_width",
+        SHAPE_569_FIXED_WIDTH_CONTRAST,
+        50_000,
+        100_000,
+    );
+}
+
+/// The VALUES half of bug-569, run REPEATEDLY, because the failure mode a free
+/// introduces is not a red assertion: a double free corrupts the arena's free
+/// list and surfaces later — as "Allocation failed" on an unrelated allocation, as
+/// a block read back empty, or as a fault — and none of those are deterministic
+/// from one run.
+///
+/// One program exercises all four HOFs plus a callback reached through a
+/// user-written function, over five callback shapes including the two that bracket
+/// the danger: `RETURN s` (the block the loop already freed) and
+/// `RETURN toString(s)` (the identity, bug-562's crash). Every pass re-reads the
+/// SOURCE list as well as the results, so a free that reached into the collection
+/// shows up as a changed source.
+#[test]
+fn every_hof_frees_its_callback_result_exactly_once() {
+    const SOURCE: &str = "IMPORT io\n\
+IMPORT collections\n\
+IMPORT strings\n\
+FUNC bare(s AS String) AS String\n  RETURN s\nEND FUNC\n\
+FUNC iden(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
+FUNC deco(s AS String) AS String\n  RETURN \"<\" & s & \">\"\nEND FUNC\n\
+FUNC up(s AS String) AS String\n  RETURN strings::upper(s)\nEND FUNC\n\
+FUNC lit(s AS String) AS String\n  RETURN \"K\"\nEND FUNC\n\
+FUNC klen(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
+FUNC apply(via AS FUNC(String) AS String, s AS String) AS String\n  RETURN via(s)\nEND FUNC\n\
+FUNC digest(xs AS List OF String) AS String\n\
+  MUT d AS String = \"\"\n\
+  FOR EACH e IN xs\n\
+    d = d & e & \";\"\n\
+  NEXT\n\
+  RETURN d\n\
+END FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"ab\", \"cd\", \"ef\", \"gh\", \"ij\", \"kl\", \"mn\", \"op\"]\n\
+  MUT ms AS Map OF Integer TO String = Map OF Integer TO String {}\n\
+  MUT j AS Integer = 0\n\
+  WHILE j < 8\n\
+    ms = collections::set(ms, j, \"v\" & toString(j))\n\
+    j = j + 1\n\
+  END WHILE\n\
+  MUT rep AS Integer = 0\n\
+  MUT sig AS String = \"\"\n\
+  WHILE rep < 400\n\
+    LET a AS List OF String = collections::transform(xs, bare)\n\
+    LET b AS List OF String = collections::transform(xs, iden)\n\
+    LET c AS List OF String = collections::transform(xs, deco)\n\
+    LET d AS List OF String = collections::transform(xs, up)\n\
+    LET e AS List OF String = collections::transform(xs, lit)\n\
+    LET f AS List OF String = collections::transform(xs, LAMBDA(s AS String) -> toString(s))\n\
+    LET g AS List OF String = collections::sortBy(xs, deco)\n\
+    LET h AS Map OF Integer TO List OF String = collections::groupBy(xs, klen, bare)\n\
+    LET k AS Map OF Integer TO String = collections::mapValues(ms, deco)\n\
+    LET m AS Map OF Integer TO String = collections::mapValues(ms, bare)\n\
+    LET n AS String = apply(iden, \"held-\" & toString(rep))\n\
+    LET cur AS String = digest(a) & digest(b) & digest(c) & digest(d) & digest(e) & digest(f) & digest(g) & digest(collections::get(h, 2)) & collections::get(k, 3) & collections::get(m, 4)\n\
+    IF rep = 0 THEN\n\
+      sig = cur\n\
+    END IF\n\
+    IF cur <> sig THEN\n\
+      io::print(\"DRIFT at rep=\" & toString(rep) & \" now=\" & cur)\n\
+      EXIT SUB\n\
+    END IF\n\
+    IF n <> \"held-\" & toString(rep) THEN\n\
+      io::print(\"INDIRECT WRONG at rep=\" & toString(rep) & \" n=\" & n)\n\
+      EXIT SUB\n\
+    END IF\n\
+    IF collections::get(xs, 0) <> \"ab\" OR collections::get(xs, 7) <> \"op\" THEN\n\
+      io::print(\"SOURCE CLOBBERED at rep=\" & toString(rep))\n\
+      EXIT SUB\n\
+    END IF\n\
+    rep = rep + 1\n\
+  END WHILE\n\
+  io::print(sig)\n\
+  io::print(\"ok\")\n\
+END SUB\n";
+
+    let expected_digest = {
+        let xs = ["ab", "cd", "ef", "gh", "ij", "kl", "mn", "op"];
+        let join = |v: Vec<String>| -> String {
+            v.into_iter().map(|s| format!("{s};")).collect::<String>()
+        };
+        let identity = join(xs.iter().map(|s| s.to_string()).collect());
+        let decorated: Vec<String> = xs.iter().map(|s| format!("<{s}>")).collect();
+        let mut sorted_by_deco = xs.to_vec();
+        sorted_by_deco.sort_by_key(|s| format!("<{s}>"));
+        format!(
+            "{identity}{identity}{}{}{}{identity}{}{identity}{}{}",
+            join(decorated),
+            join(xs.iter().map(|s| s.to_uppercase()).collect()),
+            join(xs.iter().map(|_| "K".to_string()).collect()),
+            join(sorted_by_deco.iter().map(|s| s.to_string()).collect()),
+            "<v3>",
+            "v4",
+        )
+    };
+
+    let project = common::temp_project("b569_hof_values", SOURCE);
+    let exe = common::build_project(&project);
+    // A double free is not deterministic: it corrupts the free list and surfaces
+    // on some later allocation, which may or may not happen in a given run.
+    for run in 1..=25 {
+        let output = std::process::Command::new(&exe)
+            .output()
+            .expect("run the HOF callback-ownership probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout.trim(),
+            format!("{expected_digest}\nok"),
+            "run {run}: a HOF callback result changed — a block was freed twice, \
+             or freed while the collection still owned it"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}

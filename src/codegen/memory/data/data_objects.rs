@@ -1566,6 +1566,16 @@ pub(crate) fn builtin_function_refs(module: &NirModule) -> Vec<(String, Paramete
 /// double-free / UAF (observed: grouped String values came back empty). So a
 /// function used as a `FunctionRef` MUST keep returning a fresh owned copy;
 /// `function_returns_param_borrow` excludes every name in this set.
+///
+/// bug-569: "and frees the callee's returned block after use" described no code
+/// until then — the ABI freed only the per-iteration ARGUMENT
+/// (`free_collection_loop_item`), never the RESULT, so every `String` callback
+/// leaked one block per element per call. `lower_transform` frees it now, which
+/// is `transform`, `sortBy` and `groupBy` (both reach the callback through it);
+/// `mapValues` invokes its callback directly from its `.mfb` body and is owned by
+/// the ordinary statement-scope temp instead. Both halves of this contract are
+/// therefore live: the callee owes a solely-owned block (bug-562) and the ABI
+/// drops it.
 pub(crate) fn collect_function_ref_names(module: &NirModule) -> HashSet<String> {
     use nir::visit::{walk_value, NirVisitor};
     struct Collector<'a> {
