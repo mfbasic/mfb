@@ -442,7 +442,11 @@ these files, and is not for `repository/src/**`).
 | after the validator sweep and three more corruption shapes | 158 | 4,374 |
 | after the DOC-header misses | 157 | 4,369 |
 | after the driver chunking and the verify-status labels | 155 | 4,359 |
-| after the bignum edges and the malformed TESTING block | **153** | **4,348** |
+| after the bignum edges and the malformed TESTING block | 153 | 4,348 |
+| after the app-mode resource-path base suffix | 152 | 4,343 |
+| after the opt2 hoister, GVN and branch-folder refusals | 149 | 4,323 |
+| after the store-forwarder's unreadable-instruction flush | 148 | 4,314 |
+| after the induction-variable and postdominator refusals | **148** | **4,310** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
