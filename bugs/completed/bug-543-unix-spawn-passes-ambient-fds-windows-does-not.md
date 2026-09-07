@@ -5,7 +5,7 @@ Effort: medium (3h–1d)
 Severity: LOW–MEDIUM (defense-in-depth; a platform-inconsistent security contract)
 Class: security / cross-platform consistency
 
-Status: **FIXED** (2026-09-06, `5eb765a58`). The guarantee is now the same on all
+Status: **FIXED** (2026-09-06, `e36ebcedf`). The guarantee is now the same on all
 three platforms. Linux sweeps with `close_range`; macOS execs through
 `posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT`; Windows was already exhaustive
 and is unchanged. See "What was actually done" at the bottom, including three
