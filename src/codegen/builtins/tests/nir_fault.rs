@@ -88,6 +88,22 @@ FUNC label(d AS Dot) AS String
   RETURN d.tag & ":" & toString(d.x + d.y)
 END FUNC
 
+' The two MATCH pattern shapes nothing else in either probe carries. A
+' multi-value `CASE a, b` is `NirMatchPattern::OneOf`, which the validator walks
+' with a loop of its own, and a `WHEN` guard is validated against the arm's OWN
+' locals rather than the function's -- two arms that no single-value CASE
+' reaches, and both are places a corrupted value has to be caught.
+FUNC classify(n AS Integer, limit AS Integer) AS String
+  MATCH n
+    CASE 0, 1, 2
+      RETURN "small"
+    CASE 3 WHEN n < limit
+      RETURN "under"
+    CASE ELSE
+      RETURN "other"
+  END MATCH
+END FUNC
+
 SUB bump(by AS Integer)
   counter = counter + by
 END SUB
@@ -96,6 +112,7 @@ FUNC main() AS Integer
   MUT dot AS Dot = Dot[1, 2, "origin"]
   dot = WITH dot { x := 10 }
   io::print(label(dot))
+  io::print(classify(1, 9) & classify(3, 9) & classify(7, 9))
 
   MUT xs AS List OF Integer = [1, 2, 3]
   xs = collections::append(xs, 4)
@@ -156,6 +173,16 @@ FUNC main() AS Integer
 
   LET doubled AS List OF Integer = collections::transform(xs, LAMBDA(v AS Integer) -> v * 2)
   io::print("doubled=" & toString(len(doubled)))
+
+  ' A capture BY REFERENCE, which is the only thing that lowers to a
+  ' `NirValue::LocalRef` -- the address of a binding's slot rather than a read of
+  ' it. `collections::forEach` is the one callback position proven non-escaping,
+  ' so it is the one place the compiler will hand a callback a parent slot. The
+  ' validator resolves that name through an arm of its own, and no other value in
+  ' either probe reaches it.
+  MUT running AS Integer = 0
+  collections::forEach(xs, LAMBDA(v AS Integer) -> running = running + v)
+  io::print("running=" & toString(running))
 
   LET safe AS Integer = collections::get(xs, 99) TRAP(e)
     RECOVER 0
@@ -287,8 +314,60 @@ fn corrupt(value: &mut NirValue) -> bool {
             *target = "__no_such_function__".to_string();
             true
         }
+        // A runtime call names a helper AND a target, and the validator checks
+        // that the two agree (`helper_for_call(target) == *helper`) -- a check
+        // no corrupted `Call` reaches, because a `Call` has no helper to
+        // disagree with.
+        NirValue::RuntimeCall { target, .. } => {
+            *target = "__no_such_runtime_call__".to_string();
+            true
+        }
+        // A closure names the function its environment is built for; the
+        // validator resolves that name like any other call target
+        // ("NIR closure target '{name}' does not resolve").
+        NirValue::Closure { name, .. } => {
+            *name = "__no_such_closure__".to_string();
+            true
+        }
         _ => false,
     }
+}
+
+/// Blank a name or a type rather than replacing it with a wrong one.
+///
+/// The three families above all substitute something PRESENT but unresolvable.
+/// An empty string is the other failure an upstream pass produces -- a name it
+/// forgot to fill in rather than one it got wrong -- and the validator refuses
+/// it through different arms entirely: `validate_type_name`'s "must not be
+/// empty", and the "empty name or type" guards on the loop ops. Neither is
+/// reachable by any substitution.
+fn corrupt_blank(value: &mut NirValue) -> bool {
+    match value {
+        NirValue::Local(name) => {
+            *name = String::new();
+            true
+        }
+        NirValue::LocalRef { name, .. } | NirValue::Global { name, .. } => {
+            *name = String::new();
+            true
+        }
+        NirValue::Const { type_, .. } => {
+            *type_ = ParameterType::declared("");
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Whether [`corrupt_blank`] would do anything to this value.
+fn blank_corruptible(value: &NirValue) -> bool {
+    matches!(
+        value,
+        NirValue::Local(_)
+            | NirValue::LocalRef { .. }
+            | NirValue::Global { .. }
+            | NirValue::Const { .. }
+    )
 }
 
 /// Corrupt the NAME an op writes through, or the type it declares.
@@ -391,6 +470,8 @@ fn corruptible(value: &NirValue) -> bool {
             | NirValue::Global { .. }
             | NirValue::MemberAccess { .. }
             | NirValue::Call { .. }
+            | NirValue::RuntimeCall { .. }
+            | NirValue::Closure { .. }
     )
 }
 
@@ -578,6 +659,27 @@ fn corrupt_nth(module: &mut NirModule, index: usize) -> bool {
     false
 }
 
+/// [`corrupt_nth`] for the blank family; `false` past the end.
+fn corrupt_nth_blank(module: &mut NirModule, index: usize) -> bool {
+    let mut seen = 0usize;
+    let mut applied = false;
+    for function in &mut module.functions {
+        walk_ops_mut(&mut function.body, &mut |_| {}, &mut |value| {
+            if applied || !blank_corruptible(value) {
+                return;
+            }
+            if seen == index {
+                applied = corrupt_blank(value);
+            }
+            seen += 1;
+        });
+        if applied {
+            return true;
+        }
+    }
+    false
+}
+
 /// [`corrupt_nth`] for the arity family; `false` past the end.
 fn corrupt_nth_arity(module: &mut NirModule, index: usize) -> bool {
     let mut seen = 0usize;
@@ -665,13 +767,14 @@ fn sweep() {
                 )
             });
 
-            for family in ["value", "op", "arity"] {
+            for family in ["value", "op", "arity", "blank"] {
                 for index in 0.. {
                     restore(&mut module, &pristine);
                     let applied = match family {
                         "value" => corrupt_nth(&mut module, index),
                         "op" => corrupt_nth_op(&mut module, index),
-                        _ => corrupt_nth_arity(&mut module, index),
+                        "arity" => corrupt_nth_arity(&mut module, index),
+                        _ => corrupt_nth_blank(&mut module, index),
                     };
                     if !applied {
                         break;
@@ -736,9 +839,9 @@ fn sweep() {
     // the exception, and is a ratio rather than "all of them" because a `Const`
     // type is advisory in some positions and claiming otherwise would be false.
     assert!(
-        swept > 3700,
-        "the sweep corrupted only {swept} nodes; it measured 3,785 (two probe \
-         programs x three corruption families x five backends), and a walker that \
+        swept > 5900,
+        "the sweep corrupted only {swept} nodes; it measured 6,045 (two probe \
+         programs x four corruption families x five backends), and a walker that \
          stopped descending would show up here rather than as a green run over \
          nothing"
     );
@@ -766,7 +869,7 @@ fn sweep() {
     );
 
     // The validator is WEAKER than the backends, and by how much is worth
-    // stating: it refused 1,890 of the 3,785 while the backends refused 3,185.
+    // stating: it refused 4,025 of the 6,045 while the backends refused 5,315.
     // That gap is not a defect. A `Const`'s type is advisory in some positions,
     // and an argument count outside a member's declared range is a codegen-side
     // rule the validator has no table for -- both are refusals only the builder
@@ -774,9 +877,9 @@ fn sweep() {
     // a name that resolves to nothing, an op that writes through one, a type
     // that disagrees with the value bound to it.
     assert!(
-        validator_refused > 1800,
+        validator_refused > 3900,
         "`validate_nir` refused only {validator_refused} of {swept} corrupted \
-         modules; it measured 1,890, and a validator that stopped checking shows \
+         modules; it measured 4,025, and a validator that stopped checking shows \
          up here rather than as a green run over a gate that waves everything \
          through"
     );
@@ -784,7 +887,7 @@ fn sweep() {
     assert!(
         refused * 4 > swept * 3,
         "only {refused} of {swept} corrupted modules were refused; it measured \
-         3,185, and a builder that stopped checking its inputs shows up here as \
+         5,315, and a builder that stopped checking its inputs shows up here as \
          this ratio falling"
     );
 }
