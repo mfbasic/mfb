@@ -2341,7 +2341,7 @@ impl CodeBuilder<'_> {
             other if self.is_enum_type(other) => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
-                Ok(result)
+                result
             }
             // A function value reads back its 8-byte closure pointer; the closure
             // object stays shared (reference semantics, bug-73).

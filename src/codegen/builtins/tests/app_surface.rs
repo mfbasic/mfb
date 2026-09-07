@@ -31,10 +31,8 @@ use crate::testutil::{app_code_cached, code_for_src_cached, CodeTarget};
 /// directory that does not exist -- which reads as "the resource was not
 /// installed" rather than as a compiler bug.
 ///
-/// Windows-app is the fourth shape and it is NOT here: `os.resourcePath` is
-/// unimplemented on `windows-x86_64` (bug-454). Its suffix would be empty in any
-/// case -- the `.exe` sits beside its resources -- so nothing about this arm is
-/// lost by its absence.
+/// Windows-app is the fourth shape and its suffix is empty -- the `.exe` sits
+/// beside its resources -- so it exercises the other arm, not this one.
 const OS_RESOURCE_PATH: &str = "\
 IMPORT app
 IMPORT io
@@ -49,22 +47,17 @@ END FUNC
 
 /// The suffix-appending arm lowers on the two backends that HAVE a suffix.
 ///
-/// Three of the four app-capable backends are excluded, and for two different
-/// reasons that are both worth naming.
+/// macOS-app appends `Resources` and Linux-app appends `share/<module>`; they
+/// are two different strings through the same branch, which is why both are
+/// driven. `linux-aarch64` and `linux-riscv64` share `LinuxApp` with
+/// `linux-x86_64` and compute the same suffix through the same emitter, so
+/// driving all three would cost three lowerings for one code path.
 ///
-/// `windows-x86_64` does not implement `os.resourcePath` at all -- it is absent
-/// from that backend's `SUPPORTED_RUNTIME_CALLS`, and the shared exe-path
-/// acquisition answers "not implemented for Windows" rather than emitting, which
-/// `gen_paths.rs` documents as deliberate: a diagnostic instead of an ICE for
-/// whoever opens the gate first. That is bug-454, still Open, and this test is
-/// not the place to work around it -- when the gate opens, adding the target
-/// here is one line.
-///
-/// `linux-aarch64` and `linux-riscv64` share `LinuxApp` with `linux-x86_64`, so
-/// they compute the same `share/<module>` suffix through the same emitter; one
-/// Linux backend is what makes the arm run, and driving three costs three
-/// lowerings for one code path. macOS is separate because its suffix is a
-/// different string (`Resources`) through the same branch.
+/// Windows-app is the fourth app shape and is not here for a different reason:
+/// its suffix is EMPTY (the `.exe` sits beside its resources), so it takes the
+/// arm this test is not about. It does lower — bug-454 landed on main
+/// (94b2ec1e1) and `os.resourcePath` is now in `win_x86_64`'s supported calls;
+/// `os::resource_path_lowers_on_every_backend` is what holds that.
 #[test]
 fn the_resource_path_base_suffix_lowers_where_the_base_has_one() {
     let source = OS_RESOURCE_PATH.to_string();

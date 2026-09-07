@@ -371,7 +371,6 @@ const DIAGNOSTIC_CORPUS: &[&str] = &[
     "ownership-conditional-double-close-invalid",
     "ownership-resource-double-close-invalid",
     "ownership-use-after-move-invalid",
-    "package-comparable-import-invalid",
     "perpendicular_invalid",
     "pid_invalid",
     "poll_invalid",
@@ -525,6 +524,16 @@ fn the_syntax_corpus_reproduces_its_goldens_in_process() {
 /// deliberately corrupt — and three name a member the package does not export
 /// (`thread::sleep` was removed).
 const PACKAGE_DIAGNOSTIC_CORPUS: &[&str] = &[
+    // Moved here from the single-source corpus above, where it had no business
+    // being: its `project.json` declares a package and its source names
+    // `comparable::Box`, so `check_src` reached the two passes with no type
+    // table and could only ever have been agreeing with its golden by accident.
+    // It did agree, until main changed how an unresolvable qualified type is
+    // reported (TYPE_UNKNOWN_VALUE rather than TYPE_REQUIRES_COMPARABLE) and the
+    // accident stopped holding. The real binary reproduces the golden either way
+    // -- `scripts/test-accept.sh package-comparable-import-invalid` passes -- so
+    // what was wrong was the list, not the compiler.
+    "package-comparable-import-invalid",
     "func_thread_cancel_valid",
     "func_thread_emit_valid",
     "func_thread_isCancelled_valid",

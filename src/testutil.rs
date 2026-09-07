@@ -107,7 +107,13 @@ pub fn concrete_hir_from_src(source: &str) -> crate::hir::HirProject {
 /// Lowering an app program with `None` therefore fails validation on a dangling
 /// `_mfb_gtkapp_reconcile_idle`, which reads as a codegen bug.
 pub fn lower_src_concrete(source: &str, entry: Option<crate::ir::EntryPoint>) -> IrProject {
-    crate::ir::lower_augmented_project(&concrete_hir_from_src(source), entry, &HashMap::new(), &[])
+    crate::ir::lower_augmented_project(
+        &concrete_hir_from_src(source),
+        entry,
+        &HashMap::new(),
+        &[],
+        &[],
+    )
 }
 
 /// The entry the harness declares for `source`.
@@ -163,14 +169,18 @@ pub fn check_src_with_imports(
         project_dir,
         &concrete,
         imported,
+        &[],
         &no_signatures,
         &[],
     );
-    let lowered = crate::ir::lower_augmented_project(&concrete, None, &no_signatures, imported);
+    let lowered =
+        crate::ir::lower_augmented_project(&concrete, None, &no_signatures, imported, &[]);
     let link_spans = crate::ir::link_spans(&concrete);
     diagnostics.extend(crate::ir::verify_source_diagnostics(
         &lowered,
         project_dir,
+        &[],
+        imported,
         &[],
         &link_spans,
     ));
@@ -910,6 +920,11 @@ pub struct FixtureProject {
     pub packages: Vec<PathBuf>,
     pub signatures: HashMap<String, crate::ir::ExternalSignature>,
     pub imported_types: Vec<crate::ir::ImportedTypeDef>,
+    /// The `EXPORT` globals imported packages declare. Threaded alongside
+    /// `imported_types` because `ir::shape`, `ir::lower` and `ir::verify` each
+    /// take both — a fixture whose package exports a global types its reads as
+    /// `Unknown` without them.
+    pub imported_globals: Vec<crate::ir::ImportedGlobal>,
     /// The `RESOURCE_TABLE` rows imported packages declare. `ir::verify`'s
     /// resource rules cannot see that an imported type IS a resource without
     /// them, so a package-bearing fixture reports different codes when they are
@@ -976,6 +991,7 @@ pub fn fixture_project(name: &str) -> Result<FixtureProject, String> {
     let imported_resources = crate::manifest::package::imported_resource_closers(&dir, &manifest);
     Ok(FixtureProject {
         imported_types: crate::manifest::package::imported_type_defs_from_files(&packages),
+        imported_globals: crate::manifest::package::imported_global_defs_from_files(&packages),
         signatures: crate::manifest::package::external_package_function_types_from_files(&packages)
             .map_err(|err| format!("{name}: {err}"))?,
         imported_resource_types: imported_resources
@@ -1003,6 +1019,7 @@ pub fn check_fixture_project(name: &str) -> Result<Vec<String>, String> {
         &project.dir,
         &project.concrete,
         &project.imported_types,
+        &project.imported_globals,
         &project.signatures,
         &project.imported_resource_types,
     );
@@ -1011,12 +1028,15 @@ pub fn check_fixture_project(name: &str) -> Result<Vec<String>, String> {
         None,
         &project.signatures,
         &project.imported_types,
+        &project.imported_globals,
     );
     let link_spans = crate::ir::link_spans(&project.concrete);
     diagnostics.extend(crate::ir::verify_source_diagnostics(
         &lowered,
         &project.dir,
         &project.imported_resources,
+        &project.imported_types,
+        &project.imported_globals,
         &link_spans,
     ));
     Ok(diagnostics.into_iter().map(|d| d.rule).collect())
@@ -1051,6 +1071,7 @@ pub fn try_code_for_fixture_project(
         packages,
         signatures,
         imported_types,
+        imported_globals,
         ..
     } = fixture_project(name)?;
 
@@ -1062,7 +1083,13 @@ pub fn try_code_for_fixture_project(
             returns: crate::types::ParameterType::Integer,
             accepts_args: false,
         });
-    let mut ir = crate::ir::lower_augmented_project(&concrete, entry, &signatures, &imported_types);
+    let mut ir = crate::ir::lower_augmented_project(
+        &concrete,
+        entry,
+        &signatures,
+        &imported_types,
+        &imported_globals,
+    );
     // A `LINK` block's locators can come from either side, and a fixture that
     // declares its LINK inside a package has them on the package's side only:
     // the consumer's `project.json` carries no `libraries` section at all, so

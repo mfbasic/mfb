@@ -69,7 +69,7 @@
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "200" } },
       "body": [
-      { "op": "eval", "line": 81, "value": { "kind": "call", "type": "Nothing", "target": "collections.forEach", "args": [{ "kind": "list", "type": "List OF Unknown", "values": [{ "kind": "local", "name": "i" }] }, { "kind": "closure", "name": "$lambda6", "type": "FUNC(Integer) AS Nothing", "captures": [{ "kind": "localRef", "name": "big", "type": "List OF Integer" }] }] } },
+      { "op": "eval", "line": 81, "value": { "kind": "call", "type": "Nothing", "target": "collections.forEach", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "local", "name": "i" }] }, { "kind": "closure", "name": "$lambda6", "type": "FUNC(Integer) AS Nothing", "captures": [{ "kind": "localRef", "name": "big", "type": "List OF Integer" }] }] } },
       { "op": "assign", "line": 82, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },

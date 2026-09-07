@@ -433,16 +433,22 @@ fn register_publishes_the_whole_os_surface() {
     );
 }
 
-/// `os::resourcePath` refuses to lower on Windows, with a reason.
+/// `os::resourcePath` lowers on EVERY backend, Windows included.
 ///
-/// The member reads the executable's own directory through a raw-buffer helper
-/// that has no Windows implementation. Refusing at compile time is the whole
-/// point: the alternative is an executable that computes a resource path from an
-/// empty buffer and then reports "file not found" for every bundled asset, on
-/// the one platform nobody building it is running. The message must say which
-/// symbol and what is missing.
+/// This test used to assert the opposite, and it was right when it was written:
+/// the member reads the executable's own directory through a raw-buffer helper
+/// that had no Windows implementation, so `os.resourcePath` was absent from
+/// `win_x86_64`'s `SUPPORTED_RUNTIME_CALLS` and a cross-build for Windows was
+/// refused. That was bug-454, and main fixed it (94b2ec1e1) -- Windows now
+/// shares `os.executablePath`'s `GetModuleFileNameW` acquisition.
+///
+/// Rewritten rather than deleted, because the property is worth more now than
+/// the refusal was. `os::resourcePath` is how a program finds the assets the
+/// build copied beside it, and a project that uses it must be buildable for
+/// every target the compiler claims to support -- a member that lowers on four
+/// of five makes the fifth a build failure discovered at release time.
 #[test]
-fn resource_path_refuses_to_lower_on_windows() {
+fn resource_path_lowers_on_every_backend() {
     const SRC: &str = "\
 IMPORT io
 IMPORT os
@@ -452,25 +458,13 @@ FUNC main() AS Integer
   RETURN 0
 END FUNC
 ";
-    for target in [
-        CodeTarget::MacosAarch64,
-        CodeTarget::LinuxAarch64,
-        CodeTarget::LinuxX86_64,
-        CodeTarget::LinuxRiscv64,
-    ] {
+    for target in CodeTarget::ALL {
         assert!(
             try_code_for_src(SRC, target, Console).is_ok(),
-            "os::resourcePath must lower on {}",
+            "os::resourcePath must lower on {} -- a member that lowers on four \
+             of the five targets makes the fifth a build failure nobody sees \
+             until a release runner reaches it",
             target.name()
-        );
-    }
-    let refusal = try_code_for_src(SRC, CodeTarget::WindowsX86_64, Console)
-        .err()
-        .unwrap_or_default();
-    for want in ["resourcePath", "not implemented for Windows"] {
-        assert!(
-            refusal.contains(want),
-            "the Windows refusal must mention {want:?}; it said {refusal:?}"
         );
     }
 }

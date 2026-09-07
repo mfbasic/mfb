@@ -165,26 +165,46 @@ fn only_a_single_element_of_the_element_type_appends_in_place() {
     );
 }
 
-/// A single element whose type is itself a collection declines the fast path.
+/// A single element whose type is itself a collection takes the fast path, and
+/// COPIES its payload rather than aliasing it.
 ///
-/// The element is one value of the element type, so G11 is satisfied — the
-/// decline happens further down, and the program rebuilds through the general
-/// insert. Pinned because the in-place write for a pointer payload would store
-/// the source block's pointer into the destination and leave two lists sharing
-/// one buffer.
+/// **This test asserted the opposite until main changed the lowering, and the
+/// old assertion was pinning a proxy.** It said a collection-typed element must
+/// decline the fast path and rebuild through the general insert, on the stated
+/// grounds that "the in-place write for a pointer payload would store the source
+/// block's pointer into the destination and leave two lists sharing one buffer".
+///
+/// The hazard is real; the premise about the mechanism was not. A *flat* nested
+/// collection is not a pointer payload — `emit_collection_payload_store` inlines
+/// it as its own block in the data region and copies `len` bytes verbatim
+/// (`collection_copy_inline`). The fast path can take it precisely because
+/// nothing is shared.
+///
+/// Checked behaviourally before it was rewritten, not by reading the diff: the
+/// NESTED program built and run appends 21 rows of three integers and prints
+/// `count=21 total=693 first0=0 last0=20` — every row still holds its own
+/// values, which an aliased buffer could not produce.
+///
+/// So the assertion moves to the property the old one was standing in for: the
+/// element's bytes are COPIED. A future lowering that stored a pointer here
+/// would drop `collection_copy_inline` and fail this, which the old
+/// `!has_family("append_inplace")` would not have — it would have failed for
+/// taking the fast path at all, which is not the defect.
 #[test]
-fn a_collection_element_rebuilds_through_the_general_insert() {
+fn a_collection_element_copies_its_payload_into_the_slot() {
     let nested = label_stems(NESTED);
     assert!(
-        has_family(&nested, "list_insert"),
-        "appending to a `List OF List OF Integer` must go through the general \
-         insert: {nested:?}"
+        has_family(&nested, "append_inplace"),
+        "appending to a `List OF List OF Integer` takes the in-place path: \
+         {nested:?}"
     );
     assert!(
-        !has_family(&nested, "append_inplace"),
-        "the in-place write for a collection payload would store the source \
-         block's pointer into the destination, leaving two lists sharing one \
-         buffer: {nested:?}"
+        has_family(&nested, "collection_copy_inline"),
+        "the element's payload must be COPIED into the destination slot. This is \
+         what makes the in-place path safe for a collection element: an \
+         implementation that stored the source block's pointer instead would \
+         leave two lists sharing one buffer, and would emit no copy loop at all: \
+         {nested:?}"
     );
 }
 

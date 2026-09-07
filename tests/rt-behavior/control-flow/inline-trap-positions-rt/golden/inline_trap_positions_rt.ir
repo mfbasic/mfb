@@ -651,7 +651,7 @@
         "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res67" } },
         "then": [
         { "op": "bind", "line": 163, "mutable": false, "name": "$trap_arg66", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res67" } } },
-        { "op": "assign", "line": 163, "name": "$trap_val69", "value": { "kind": "list", "type": "List OF Unknown", "values": [{ "kind": "local", "name": "$trap_arg64" }, { "kind": "local", "name": "$trap_arg66" }] } }
+        { "op": "assign", "line": 163, "name": "$trap_val69", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "local", "name": "$trap_arg64" }, { "kind": "local", "name": "$trap_arg66" }] } }
         ],
         "else": [
         { "op": "assign", "line": 163, "name": "$trap_failed70", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
@@ -696,7 +696,7 @@
           "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res76" } },
           "then": [
           { "op": "bind", "line": 166, "mutable": false, "name": "$trap_arg75", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res76" } } },
-          { "op": "assign", "line": 166, "name": "$trap_val78", "value": { "kind": "list", "type": "List OF Unknown", "values": [{ "kind": "local", "name": "$trap_arg71" }, { "kind": "local", "name": "$trap_arg75" }] } }
+          { "op": "assign", "line": 166, "name": "$trap_val78", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "local", "name": "$trap_arg71" }, { "kind": "local", "name": "$trap_arg75" }] } }
           ],
           "else": [
           { "op": "assign", "line": 166, "name": "$trap_failed79", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
