@@ -5,7 +5,7 @@ Effort: medium (the free is small; proving who owns `x3` on the propagate path i
 Severity: **HIGH** (unbounded leak on any loop whose builtin call raises)
 Class: Memory / correctness
 
-Status: **Fixed** (this branch)
+Status: **FIXED** (2026-09-07, `982a52e17`)
 Regression Test: bug-565's negative pin
 (`an_inline_builtins_own_domain_error_still_leaks_its_error_loc`, which asserted
 the RSS GROWS) is flipped to `assert_flat` and renamed

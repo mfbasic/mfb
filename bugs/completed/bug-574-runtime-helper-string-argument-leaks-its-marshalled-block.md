@@ -5,7 +5,7 @@ Effort: small–medium
 Severity: **HIGH** (unbounded leak on every `fs::`/`os::`/`net::`/`process::` call that takes a path or a name — proportional to the path's length)
 Class: Memory / correctness
 
-Status: **Fixed** (this branch)
+Status: **FIXED** (2026-09-07, `e2880f25b`)
 Regression Test:
 `tests/runtime/rt_scope_drop_leaks.rs` — seven RSS cases (`b574_short_path`,
 `b574_long_path`, `b574_local_path`, `b574_env_name`, `b574_two_args`,
