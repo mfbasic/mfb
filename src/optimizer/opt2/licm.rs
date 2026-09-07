@@ -265,6 +265,133 @@ mod tests {
         with_opt_level(OptLevel(level), || hoist(stream, &model));
     }
 
+    /// The hoist point stops ABOVE a flag setter, not between it and its branch.
+    ///
+    /// A preheader that ends `cmp` + conditional branch has the comparison's
+    /// flags live across exactly those two instructions. Landing a hoisted
+    /// instruction between them is not slower, it is WRONG: the arithmetic
+    /// clobbers the condition flags and the branch then tests whatever the
+    /// hoisted instruction left, so the loop is entered (or skipped) on the
+    /// wrong condition. Nothing downstream can detect that -- the register
+    /// values are all correct.
+    ///
+    /// Two flag setters in a row, because the walk is a `while` and a version
+    /// written as an `if` steps over one and stops inside the pair.
+    #[test]
+    fn a_hoist_lands_above_the_flag_setter_that_feeds_the_branch() {
+        let mut stream = vec![
+            ci("mov", &[("dst", "%v1"), ("src", "%v8")]),
+            ci("mov", &[("dst", "%v2"), ("src", "%v9")]),
+            ci("cmp", &[("lhs", "%v1"), ("rhs", "%v2")]),
+            ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "0")]),
+            ci("b", &[("target", "head")]),
+            ci("label", &[("name", "head")]),
+            ci("mul", &[("dst", "%v3"), ("lhs", "%v1"), ("rhs", "%v2")]),
+            ci("cmp_imm", &[("lhs", "%v3"), ("rhs", "10")]),
+            ci("b.lt", &[("target", "head")]),
+            ci("ret", &[]),
+        ];
+        run(&mut stream, 3);
+
+        let ops = ops(&stream);
+        let hoisted = ops
+            .iter()
+            .position(|op| *op == CodeOp::Mul)
+            .expect("the invariant multiply is still in the stream");
+        let first_flag = ops
+            .iter()
+            .position(|op| *op == CodeOp::Cmp)
+            .expect("the preheader's first flag setter");
+        assert!(
+            hoisted < first_flag,
+            "the hoist must land ABOVE both flag setters. Between a `cmp` and \
+             the branch that reads it, the multiply clobbers the condition flags \
+             and the branch tests the wrong thing -- with every register value \
+             still correct, so nothing downstream can notice. Got {ops:?}"
+        );
+    }
+
+    /// Two invariant instructions hoisted to the SAME point keep their order.
+    ///
+    /// The arrival list groups by destination, and a second instruction landing
+    /// at a point that already holds one takes a different branch from the
+    /// first. Both read only outer values here, so both are invariant and both
+    /// arrive at the same place -- which is the case a list keyed by point has
+    /// to get right, and the case a single-slot map would silently drop one of.
+    #[test]
+    fn two_hoists_to_one_point_keep_their_order() {
+        let mut stream = vec![
+            ci("mov", &[("dst", "%v1"), ("src", "%v8")]),
+            ci("mov", &[("dst", "%v2"), ("src", "%v9")]),
+            ci("b", &[("target", "head")]),
+            ci("label", &[("name", "head")]),
+            ci("add", &[("dst", "%v3"), ("lhs", "%v1"), ("rhs", "%v2")]),
+            ci("mul", &[("dst", "%v4"), ("lhs", "%v1"), ("rhs", "%v2")]),
+            ci("cmp_imm", &[("lhs", "%v4"), ("rhs", "10")]),
+            ci("b.lt", &[("target", "head")]),
+            ci("ret", &[]),
+        ];
+        run(&mut stream, 3);
+
+        let ops = ops(&stream);
+        let add = ops.iter().position(|op| *op == CodeOp::Add);
+        let mul = ops.iter().position(|op| *op == CodeOp::Mul);
+        let (Some(add), Some(mul)) = (add, mul) else {
+            panic!("both instructions must still be in the stream: {ops:?}");
+        };
+        assert!(
+            add < mul,
+            "both land at the same point, and the arrival list must preserve the \
+             order they had -- a group that reversed them would emit a different \
+             program for any pair where the second reads the first. Got {ops:?}"
+        );
+        let head = ops
+            .iter()
+            .position(|op| *op == CodeOp::Label)
+            .expect("the loop header label");
+        assert!(
+            mul < head,
+            "both are invariant and both belong above the loop; got {ops:?}"
+        );
+    }
+
+    /// A CALL inside the loop is never hoisted, however invariant its operands.
+    ///
+    /// `sole_def` declines anything that is a call or that defines other than
+    /// exactly one register, and a call is the case where declining is a
+    /// correctness rule rather than a conservatism: it may write memory, raise,
+    /// or read state the loop changes, and running it once instead of N times
+    /// is a different program.
+    #[test]
+    fn a_call_is_never_hoisted_out_of_a_loop() {
+        let mut stream = vec![
+            ci("mov", &[("dst", "%v1"), ("src", "%v8")]),
+            ci("b", &[("target", "head")]),
+            ci("label", &[("name", "head")]),
+            ci("bl", &[("target", "runtime.tick")]),
+            ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "10")]),
+            ci("b.lt", &[("target", "head")]),
+            ci("ret", &[]),
+        ];
+        run(&mut stream, 3);
+
+        let ops = ops(&stream);
+        let head = ops
+            .iter()
+            .position(|op| *op == CodeOp::Label)
+            .expect("the loop header label");
+        let call = ops
+            .iter()
+            .position(|op| *op == CodeOp::BranchLink)
+            .expect("the call is still in the stream");
+        assert!(
+            call > head,
+            "the call must stay INSIDE the loop: it may write memory, raise, or \
+             read state the loop changes, so running it once instead of N times \
+             is a different program. Got {ops:?}"
+        );
+    }
+
     /// An invariant multiply inside a loop moves to the preheader.
     #[test]
     fn an_invariant_computation_leaves_the_loop() {
