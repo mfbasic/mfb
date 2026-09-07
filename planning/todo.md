@@ -362,7 +362,7 @@ genuinely absent, with a shape verdict. Absence for each row confirmed with
 | 12 | Platform standard directories | `dirs` #359, `home` #290 | **Builtin — `os::*`** (decided) | Naming and the `fs::tempDirectory` move are settled below. |
 | 13 | semver | #59 | Pure MFB package | Absent, and pointed: this repo HAS a package registry (`repository/`, `.mfp`, `project.json`'s `version`), so range resolution exists in Rust but is unavailable to MFB programs. Any tooling written in MFB needs it. Tiny. |
 | 14 | Word wrap + width-aware layout | `textwrap` #287 | Pure MFB package | Absent. The missing half of bug-528 (pad counts scalars, `displayWidth` counts columns). `strings::displayWidth` + `strings::graphemes` are the primitives; nothing composes them into wrapping or table layout. What makes `term` usable for real TUIs. |
-| 15 | Arbitrary-precision integers | `num-bigint` #182 | **New language type, delivered as a builtin package** (decided) | The `Money` pattern. See below. |
+| 15 | Arbitrary-precision integers | `num-bigint` #182 | **Builtin package — `bigint`** (decided) | Function-based math, no operators; a value record like `net.Address`. See below. |
 | 16 | Protocol Buffers / binary serde | `prost` #183, `bincode` #367 | Pure MFB package | Sits directly on #9. Service-to-service wire format. |
 
 Seven of these eight are composition over primitives that already exist, which is why most
@@ -417,30 +417,52 @@ music, fonts, templates, public). Note that `homePath` and `tempPath` are the tw
 interesting members — they barely differ across platforms. **config / cache / data are the
 ones worth having**, and are the reason the crate exists.
 
-### #15 — new language type, delivered as a builtin package
+### #15 — a builtin package, not a language type
 
-Decided: the `Money` pattern. `ParameterType::Money` is a variant in the closed numeric set
-(`src/numeric.rs:426-435`) AND `src/codegen/builtins/money/` is a builtin package carrying
-`setRounding`/`round` plus the math emitters. A new numeric system type is delivered as
-exactly that pair — a type-enum variant plus a builtin package. There is no operator
-overloading, so a package-only bignum could never use `+`, `*` or `<`; that is what forces
-the type-system half.
+Decided: `bigint` is a **package**, not a numeric type. Arithmetic is function-based
+(`bigint.add`, `bigint.mul`, `bigint.divMod`, `bigint.pow`, `bigint.cmp`) — there is no
+operator overloading, so `+`, `*` and `<` are not available on a big integer. That cost is
+real but bounded: the use cases are library-shaped (modexp, factorials, overflow-proof
+accumulation) — a handful of functions written once, not long arithmetic expressions in
+application code. The type-system alternative costs a `ParameterType` variant, promotion
+rows against four existing numerics, literal grammar and static range-checking, per-operator
+codegen across five targets, a new storage class in escape analysis, and a numeric-tower
+rewrite in both `man` and `spec`. The package is a strict subset of that work: if it ever
+earns operators, the function surface is the explicit-conversion API the operator version
+needs anyway.
 
-**The one thing to design around, recorded because it is not obvious from the `Money`
-precedent:** every primitive today is fixed-size and <= 8 bytes
-(`src/docs/spec/memory/01_scalar-storage.md` — Integer 8, Float 8, Fixed 8, Money 8,
-Scalar 4, Byte 1, Boolean 1). `Money` and `Fixed` are i64s wearing different semantics. A
-BigInt is unbounded, so it cannot be a `Money`-shaped scalar — it is a **`String`-shaped
-type**: heap/arena-managed, variable-length, copy semantics, escape analysis, per-operator
-codegen across five targets. `String` is not even in that storage table. Scope it against
-`String`, not against `Money`.
+**Represent it as a value record, not a resource** — the `net.Address` precedent
+(`src/codegen/builtins/net/mod.rs:112-118`): a package-owned record, copy semantics, no
+`RES`, no `close`. A resource makes every intermediate a leak (`bigint.add` returning a
+handle means every temporary needs a `close`), and a resource can never be promoted to a
+value type later.
 
-**Cheap hedge worth taking regardless of when #15 lands:** expose the widening multiply as
-`bits::mulHigh`. The 64x64->128 emitter already exists and is proven in the RNG path
+**Keep the encoding canonical** — no leading zeros, one representation of zero, no `-0`. A
+single-`String`-field record then has structural `=` equal to numeric equality, which may
+recover `=`/`<>` for free (the built-in `Error`/`ErrorLoc` records are comparable — check
+whether a new one can opt in the same way), leaving `cmp` needed only for ordering.
+
+**Ship `bigint.fromInteger` infallible.** `bigint.parse(String)` must be fallible, so every
+constant it builds drags a `TRAP` or an `AS Error` propagation. Any `Integer` fits by
+construction, so seeding from a small value and growing stays total; only genuinely >64-bit
+literals pay the parse cost.
+
+**Bind `num-bigint` transiently.** The natural way to bind the crate is a Rust-side
+allocation behind a handle — exactly the resource shape to avoid. Decode the record's bytes
+-> `num-bigint` -> compute -> encode back into an arena buffer -> return a record. That is a
+copy per operation, irrelevant at bignum scale where the arithmetic dominates.
+
+**Cheap hedge, independent of #15:** expose the widening multiply as `bits::mulHigh`. The
+64x64->128 emitter already exists and is proven in the RNG path
 (`src/codegen/builtins/math/gen_math.rs:1013`, `gen_rng_pcg64.rs`) but is unreachable from
 MFB source — the `bits` surface has `bswap*`, `rl*`, `rr*`, `clz`, `ctz`, `popCount` and no
-`mulHigh`. Exposing it roughly halves the limb count for any bignum work and is
-independently useful for checked 64-bit arithmetic.
+`mulHigh`. It is independently useful for checked 64-bit arithmetic; it matters less to #15
+itself now that the limbs live in Rust.
+
+**Arbitrary-precision decimal is a separate question, not decided here.** Unbounded
+fractions are not closed under division, so a decimal needs a rounding context and a
+non-terminating-division policy — a policy surface alongside `money::setRounding`, not a
+`bigint` with a decimal point.
 
 ### Considered and left out of 9-16
 
