@@ -5,7 +5,7 @@ Effort: medium (needs a per-helper ownership audit)
 Severity: MEDIUM–HIGH (unbounded leak on `fs::`/`net::`/`http::` reads in a loop)
 Class: Memory / correctness
 
-Status: **FIXED**
+Status: **FIXED** (2026-09-07, `be8ed99ff`)
 Regression Test: `tests/runtime/rt_scope_drop_leaks.rs` —
 `a_trapped_runtime_helper_string_result_grows_no_faster_than_the_plain_call`,
 `a_trapped_runtime_helper_collection_result_grows_no_faster_than_the_plain_call`,
