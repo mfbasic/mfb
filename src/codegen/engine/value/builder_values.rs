@@ -286,6 +286,7 @@ impl CodeBuilder<'_> {
                 type_: temp.type_,
                 stack_offset: temp.slot,
                 closure_captures: None,
+                capacity_slot: None,
             })?;
         }
         Ok(())

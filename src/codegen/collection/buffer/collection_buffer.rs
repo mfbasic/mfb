@@ -25,6 +25,7 @@ impl CodeBuilder<'_> {
             type_: type_.clone(),
             stack_offset: block_slot,
             closure_captures: None,
+            capacity_slot: None,
         })?;
         let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), keep));

@@ -284,6 +284,30 @@ impl CodeBuilder<'_> {
             return Ok(());
         }
         if cleanup.type_ == ParameterType::String {
+            // bug-560: a `String` this function self-appends to in place carries
+            // geometric capacity headroom that its `byteLength` header does not
+            // record, so the tight `byteLength + 9` free orphaned `spare` bytes on
+            // every drop — 31 B per iteration on `out = "" / out = out & "a"`, and
+            // a third of the string on a decoder that builds one and returns it.
+            // The capacity-aware helper adds the shadow's spare bytes, which is
+            // the size `arena_alloc` was actually given. It ADDS no free and
+            // removes none: only the size argument changes, and only upward by an
+            // amount this frame itself recorded.
+            if let Some(capacity_slot) = cleanup.capacity_slot {
+                self.emit(abi::add_immediate(
+                    abi::c_arg(0),
+                    abi::stack_pointer(),
+                    cleanup.stack_offset,
+                ));
+                self.emit(abi::load_u64(
+                    abi::c_arg(1),
+                    abi::stack_pointer(),
+                    capacity_slot,
+                ));
+                self.emit(abi::branch_link(DROP_OWNED_STRING_CAP_SYMBOL));
+                self.push_internal_call_relocation(DROP_OWNED_STRING_CAP_SYMBOL);
+                return Ok(());
+            }
             self.emit(abi::add_immediate(
                 abi::c_arg(0),
                 abi::stack_pointer(),

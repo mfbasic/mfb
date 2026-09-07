@@ -146,8 +146,83 @@ pub(crate) fn lower_drop_owned_string_helper<'a>(
     string_symbols: &'a HashMap<String, String>,
     type_model: TypeModel,
 ) -> Result<CodeFunction, String> {
+    lower_drop_owned_string_body(
+        false,
+        function_symbols,
+        functions,
+        package_return_types,
+        platform_imports,
+        platform,
+        build_mode,
+        globals,
+        string_symbols,
+        type_model,
+    )
+}
+
+/// bug-560: synthesize `_mfb_rt_drop_owned_string_cap` — the same drop for a
+/// `String` binding that is the target of an in-place self-append, so its block
+/// carries geometric capacity headroom the `byteLength` header does not record.
+///
+/// `x1` is the binding's capacity shadow (spare bytes), so the freed size is
+/// `byteLength + spare + 9`: exactly the size
+/// `lower_string_self_append_one`'s regrow passed to `arena_alloc`. It is a
+/// SEPARATE symbol rather than an extra argument to the plain helper so every
+/// existing drop site stays byte-identical — only a function that actually
+/// self-appends a `String` emits this one.
+///
+/// The size can only ever be LARGER than the tight one, never smaller, and only
+/// by the shadow the regrow itself wrote — so this corrects an under-free and
+/// can never over-free.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lower_drop_owned_string_cap_helper<'a>(
+    function_symbols: &'a HashMap<String, String>,
+    functions: &'a HashMap<String, &'a NirFunction>,
+    package_return_types: &'a HashMap<String, ParameterType>,
+    platform_imports: &'a HashMap<String, String>,
+    platform: &'a dyn CodegenPlatform,
+    build_mode: crate::target::NativeBuildMode,
+    globals: &'a HashMap<String, GlobalValue>,
+    string_symbols: &'a HashMap<String, String>,
+    type_model: TypeModel,
+) -> Result<CodeFunction, String> {
+    lower_drop_owned_string_body(
+        true,
+        function_symbols,
+        functions,
+        package_return_types,
+        platform_imports,
+        platform,
+        build_mode,
+        globals,
+        string_symbols,
+        type_model,
+    )
+}
+
+/// The one body behind both owned-`String` drops. `with_capacity` adds the
+/// shadow's spare bytes to the freed size and nothing else; the vreg allocation
+/// order of the plain form is unchanged, so its codegen is byte-identical.
+#[allow(clippy::too_many_arguments)]
+fn lower_drop_owned_string_body<'a>(
+    with_capacity: bool,
+    function_symbols: &'a HashMap<String, String>,
+    functions: &'a HashMap<String, &'a NirFunction>,
+    package_return_types: &'a HashMap<String, ParameterType>,
+    platform_imports: &'a HashMap<String, String>,
+    platform: &'a dyn CodegenPlatform,
+    build_mode: crate::target::NativeBuildMode,
+    globals: &'a HashMap<String, GlobalValue>,
+    string_symbols: &'a HashMap<String, String>,
+    type_model: TypeModel,
+) -> Result<CodeFunction, String> {
+    let symbol = if with_capacity {
+        DROP_OWNED_STRING_CAP_SYMBOL
+    } else {
+        DROP_OWNED_STRING_SYMBOL
+    };
     let mut builder = CodeBuilder::for_synthetic_function(
-        DROP_OWNED_STRING_SYMBOL,
+        symbol,
         function_symbols,
         functions,
         package_return_types,
@@ -162,6 +237,16 @@ pub(crate) fn lower_drop_owned_string_helper<'a>(
     let slot = builder.allocate_register();
     let ptr = builder.allocate_register();
     let size = builder.allocate_register();
+    // bug-560: the spare-byte count arrives in `x1`; capture it before the
+    // header load and the free call reuse the argument bank. Allocated AFTER the
+    // three registers above so the plain form's vreg numbering is untouched.
+    let spare = if with_capacity {
+        let spare = builder.allocate_register();
+        builder.emit(abi::move_register(&spare, abi::c_arg(1)));
+        Some(spare)
+    } else {
+        None
+    };
     builder.emit(abi::move_register(&slot, abi::c_arg(0)));
     builder.emit(abi::load_u64(&ptr, &slot, 0));
     builder.emit(abi::compare_immediate(&ptr, "0"));
@@ -171,6 +256,13 @@ pub(crate) fn lower_drop_owned_string_helper<'a>(
     // `emit_inlined_block_size_from_ptr_slot` performs for `ParameterType::String`.
     builder.emit(abi::load_u64(&size, &ptr, 0));
     builder.emit(abi::add_immediate(&size, &size, 9));
+    // …plus the self-append headroom the header cannot record. `spare` is the
+    // binding's capacity shadow, which `lower_string_self_append_one` keeps equal
+    // to `alloc_payload - byteLength` for the block currently in the slot, so
+    // `byteLength + spare + 9` is the allocated size exactly.
+    if let Some(spare) = &spare {
+        builder.emit(abi::add_registers(&size, &size, spare));
+    }
     builder.emit(abi::move_register(abi::c_arg(0), &ptr));
     builder.emit(abi::move_register(abi::c_arg(1), &size));
     builder.emit_arena_free_call();
@@ -199,8 +291,12 @@ pub(crate) fn lower_drop_owned_string_helper<'a>(
         builder.used_callee_saved,
     );
     Ok(CodeFunction {
-        name: "runtime.dropOwnedString".to_string(),
-        symbol: DROP_OWNED_STRING_SYMBOL.to_string(),
+        name: if with_capacity {
+            "runtime.dropOwnedStringCap".to_string()
+        } else {
+            "runtime.dropOwnedString".to_string()
+        },
+        symbol: symbol.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame,

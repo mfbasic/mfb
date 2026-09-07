@@ -31,7 +31,8 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::park_error_helper::{
-    lower_drop_owned_collection_helper, lower_drop_owned_string_helper, lower_park_error_helper,
+    lower_drop_owned_collection_helper, lower_drop_owned_string_cap_helper,
+    lower_drop_owned_string_helper, lower_park_error_helper,
 };
 use crate::codegen::error::result::*;
 use crate::codegen::memory::arena::*;
@@ -724,6 +725,17 @@ pub(crate) struct OwnedValueCleanup {
     /// each freeable-flat capture (skipping by-value scalars/floats) instead of a
     /// single flat `arena_free`.
     pub(crate) closure_captures: Option<Vec<ParameterType>>,
+    /// bug-560: for a `String` binding that an in-place self-append targets, the
+    /// frame offset of its capacity shadow (`string_capacity_slots`). The block in
+    /// `stack_offset` was then allocated at `byteLength + spare + 9`, not
+    /// `byteLength + 9`, so the drop must add the shadow's spare bytes or it
+    /// under-frees and orphans the headroom on every drop.
+    ///
+    /// FAIL-CLOSED: `None` keeps the historical tight size. It is set only where
+    /// the binding's NAME is in scope and `prescan_string_self_appends` has
+    /// already claimed a shadow for it, so an unrecognized shape keeps leaking
+    /// rather than freeing bytes it cannot prove were allocated.
+    pub(crate) capacity_slot: Option<usize>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free
@@ -2201,6 +2213,28 @@ pub(crate) fn lower_module_for_platform(
     });
     if uses_drop_owned_string {
         code_functions.push(lower_drop_owned_string_helper(
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
+    }
+    // bug-560: the capacity-aware variant, emitted only when some function
+    // actually drops a `String` binding that an in-place self-append grew. Same
+    // relocation gate, so a module with no self-append is byte-identical.
+    let uses_drop_owned_string_cap = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == DROP_OWNED_STRING_CAP_SYMBOL)
+    });
+    if uses_drop_owned_string_cap {
+        code_functions.push(lower_drop_owned_string_cap_helper(
             &function_symbols,
             &functions,
             &package_return_types,

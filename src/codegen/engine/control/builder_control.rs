@@ -595,6 +595,10 @@ impl CodeBuilder<'_> {
                                             type_: type_.clone(),
                                             stack_offset,
                                             closure_captures: None,
+                                            // A promoted-vector fallback block is never a
+                                            // `String`, so it never carries self-append
+                                            // headroom.
+                                            capacity_slot: None,
                                         },
                                     ));
                                     self.owned_value_slots.push(stack_offset);
@@ -762,6 +766,11 @@ impl CodeBuilder<'_> {
                                     type_: type_.clone(),
                                     stack_offset,
                                     closure_captures: None,
+                                    // bug-560: if an in-place self-append targets this
+                                    // name, its block carries capacity headroom the
+                                    // `byteLength` header does not record, and the tight
+                                    // drop would orphan it on every scope exit.
+                                    capacity_slot: self.string_capacity_slot_for(name, type_),
                                 },
                             ));
                             self.owned_value_slots.push(stack_offset);
@@ -782,6 +791,8 @@ impl CodeBuilder<'_> {
                                         type_: type_.clone(),
                                         stack_offset,
                                         closure_captures: Some(capture_types),
+                                        // A closure object, not a `String`.
+                                        capacity_slot: None,
                                     },
                                 ));
                                 self.owned_value_slots.push(stack_offset);
@@ -848,6 +859,9 @@ impl CodeBuilder<'_> {
                                 type_: value_type.clone(),
                                 stack_offset: old_slot,
                                 closure_captures: None,
+                                // A global has no frame-local capacity shadow: the
+                                // self-append arm only ever fires on a `MUT` local.
+                                capacity_slot: None,
                             })?;
                             let new_ptr = self.allocate_register();
                             self.emit(abi::load_u64(&new_ptr, abi::stack_pointer(), new_slot));
@@ -1071,6 +1085,14 @@ impl CodeBuilder<'_> {
                                     type_: result.type_.clone(),
                                     stack_offset,
                                     closure_captures: None,
+                                    // bug-560: this drop runs BEFORE the new value is
+                                    // stored and before `reset_string_capacity_shadow`,
+                                    // so the shadow still describes the block being
+                                    // freed — which is the one an earlier self-append
+                                    // grew. Freeing it tight orphaned the headroom on
+                                    // every reassignment.
+                                    capacity_slot: self
+                                        .string_capacity_slot_for(name, &result.type_),
                                 })?;
                                 Some(slot)
                             } else {
@@ -1487,6 +1509,7 @@ impl CodeBuilder<'_> {
                                 type_: ParameterType::named("Error"),
                                 stack_offset: trap_offset,
                                 closure_captures: None,
+                                capacity_slot: None,
                             }));
                         self.owned_value_slots.push(trap_offset);
                         let handler_result = self.lower_ops_inner(body, handler_scope_start);
@@ -1842,6 +1865,30 @@ impl CodeBuilder<'_> {
     /// Reset a `String` local's capacity shadow to 0 ("tight, no spare") after any
     /// non-self-append bind/assign installs a fresh tight buffer. Keeps the shadow
     /// from claiming spare that the new buffer does not have (plan-02 §4.1).
+    /// bug-560: the self-append capacity shadow that describes the block in
+    /// `name`'s slot, when there is one.
+    ///
+    /// `prescan_string_self_appends` claims a shadow per NAME, and
+    /// `SYMBOL_DUPLICATE_LOCAL` makes a local name unique within a function, so
+    /// one shadow describes exactly one binding — there is no live outer binding
+    /// of the same name whose (tight) block this could over-free. The shadow is
+    /// reset to 0 by every non-self-append bind/assign to the slot and is only
+    /// made non-zero by the regrow that allocated the block it describes, so
+    /// `byteLength + shadow + 9` is the block's allocation size exactly.
+    ///
+    /// Answers `None` for anything but a `String` and for a name with no shadow —
+    /// fail-closed: the drop then frees the historical tight size.
+    pub(crate) fn string_capacity_slot_for(
+        &self,
+        name: &str,
+        type_: &ParameterType,
+    ) -> Option<usize> {
+        if *type_ != ParameterType::String {
+            return None;
+        }
+        self.string_capacity_slots.get(name).copied()
+    }
+
     pub(crate) fn reset_string_capacity_shadow(&mut self, name: &str) {
         let zero = self.temporary_vreg();
         if let Some(&slot) = self.string_capacity_slots.get(name) {

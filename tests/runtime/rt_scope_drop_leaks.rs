@@ -753,3 +753,271 @@ fn every_string_return_shape_still_produces_the_right_value() {
     );
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------- bug-560
+
+/// bug-560: `out = out & <expr>` on a `MUT String` leaked ~190 B per evaluation
+/// once the binding was also *reassigned* in the loop. The in-place self-append
+/// grows the block with geometric capacity headroom recorded only in a frame
+/// shadow slot, and the reassignment's drop
+/// (`_mfb_rt_drop_owned_string`) sized the free from the `byteLength` header
+/// alone — freeing `len + 9` of a `len + spare + 9` block and orphaning `spare`
+/// on every iteration. Measured on the pre-fix compiler: 38 MB at 200k, 75 MB at
+/// 400k.
+const B560_REASSIGNED_SELF_APPEND: &str = "IMPORT io\n\
+SUB main()\n\
+  MUT out AS String = \"\"\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    out = \"\"\n\
+    out = out & \"a\"\n\
+    acc = acc + len(out)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The same defect through the RETURN seam, and the shape that owns the size of
+/// the bug: `plan_returned_move` moved the headroom-carrying block to the caller,
+/// where nothing knows the shadow, so the caller under-freed by `spare` on every
+/// call. This is `__encoding_utf32Decode` / `__csv_decodeRange` exactly — build a
+/// String with `out = out & …` in a loop and return it. Measured on the pre-fix
+/// compiler: 63 MB at 2 000 calls, 126 MB at 4 000 (a 9 000-byte string in a
+/// 16 384-byte buffer, so ~7 KB orphaned per call).
+const B560_RETURNED_SELF_APPEND: &str = "IMPORT io\n\
+FUNC build(n AS Integer) AS String\n\
+  MUT out AS String = \"\"\n\
+  MUT k AS Integer = 0\n\
+  WHILE k < n\n\
+    out = out & \"abc\"\n\
+    k = k + 1\n\
+  END WHILE\n\
+  RETURN out\n\
+END FUNC\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = build(3000)\n\
+    acc = acc + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The same defect reached through the shipped `.mfb` decoder rather than a
+/// hand-written loop: `encoding::utf32Decode` is `out = out & fromCodepoint(cp)`
+/// once per scalar and returns `out`, so it inherited the RETURN-seam leak
+/// without a single line of user code being at fault.
+const B560_DECODER: &str = "IMPORT io\n\
+IMPORT collections\n\
+IMPORT encoding\n\
+SUB main()\n\
+  MUT units AS List OF Integer = []\n\
+  MUT k AS Integer = 0\n\
+  WHILE k < 400\n\
+    units = collections::append(units, 65 + (k MOD 26))\n\
+    k = k + 1\n\
+  END WHILE\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(encoding::utf32Decode(units))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The bug report's contrast line, kept as a POSITIVE pin: a self-append with no
+/// intervening reassignment and no return was ALREADY flat — bug-77 gave the
+/// regrow its own exactly-sized free — and must stay flat. It is the case that
+/// would go RED if the fix's extra `spare` were ever double-counted (the regrow
+/// frees the old block itself; the capacity-aware drop must not also fire on it).
+const B560_CONTRAST_PLAIN: &str = "IMPORT io\n\
+SUB main()\n\
+  MUT out AS String = \"\"\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    out = out & \"a\"\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"len=\" & toString(len(out)))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn a_reassigned_string_self_append_runs_at_constant_rss() {
+    assert_flat(
+        "b560_reassigned",
+        B560_REASSIGNED_SELF_APPEND,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_returned_string_self_append_runs_at_constant_rss() {
+    assert_flat("b560_returned", B560_RETURNED_SELF_APPEND, 2_000, 4_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_utf32_decoder_runs_at_constant_rss() {
+    assert_flat("b560_decoder", B560_DECODER, 20_000, 40_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_plain_string_self_append_still_runs_at_constant_rss() {
+    assert_flat("b560_plain", B560_CONTRAST_PLAIN, 200_000, 400_000);
+}
+
+/// The positive behaviour pin for bug-560, and the one that matters: the fix
+/// makes an existing `arena_free` free MORE bytes, so its failure mode is an
+/// OVER-free — arena free-list corruption, which surfaces as a fault or a wrong
+/// value at some later allocation, never as a red assertion. Every shape that
+/// reaches the capacity-aware drop is exercised here in a churning loop with
+/// unrelated allocations interleaved, so a corrupted free list is very likely to
+/// be handed back to a later `String`/`List` and read wrong:
+///
+/// * a self-append target reassigned from a literal (the shadow describes the
+///   OLD block at the drop, and the new block is tight);
+/// * a self-append target reassigned from a call result;
+/// * a self-append target that is only ever appended (bug-77's exact-size regrow
+///   free must remain the only free on that path);
+/// * a self-append target RETURNED — now copied rather than moved, so the caller
+///   must still see exactly the built bytes;
+/// * a conditional append, so a drop can be reached on a path where the shadow
+///   is 0 and on one where it is not;
+/// * a self-append inside a nested loop, appended after the inner loop too;
+/// * the shipped `encoding::utf32Decode`, which is this shape in `.mfb`.
+const B560_BEHAVIOUR: &str = "IMPORT io\n\
+IMPORT collections\n\
+IMPORT encoding\n\
+FUNC build(n AS Integer) AS String\n\
+  MUT out AS String = \"\"\n\
+  MUT k AS Integer = 0\n\
+  WHILE k < n\n\
+    out = out & \"ab\"\n\
+    k = k + 1\n\
+  END WHILE\n\
+  RETURN out\n\
+END FUNC\n\
+FUNC nested(n AS Integer) AS String\n\
+  MUT out AS String = \"<\"\n\
+  MUT k AS Integer = 0\n\
+  WHILE k < n\n\
+    MUT inner AS String = \"\"\n\
+    MUT j AS Integer = 0\n\
+    WHILE j < 3\n\
+      inner = inner & toString(j)\n\
+      j = j + 1\n\
+    END WHILE\n\
+    out = out & inner\n\
+    k = k + 1\n\
+  END WHILE\n\
+  out = out & \">\"\n\
+  RETURN out\n\
+END FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT reset AS String = \"\"\n\
+  MUT dyn AS String = \"\"\n\
+  MUT grow AS String = \"\"\n\
+  MUT cond AS String = \"\"\n\
+  MUT units AS List OF Integer = []\n\
+  MUT k AS Integer = 0\n\
+  WHILE k < 12\n\
+    units = collections::append(units, 97 + k)\n\
+    k = k + 1\n\
+  END WHILE\n\
+  MUT last AS String = \"\"\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < 400\n\
+    reset = \"\"\n\
+    reset = reset & \"a\" & toString(i MOD 10)\n\
+    total = total + len(reset)\n\
+    dyn = toString(i MOD 100)\n\
+    dyn = dyn & \"-\"\n\
+    total = total + len(dyn)\n\
+    grow = grow & \"g\"\n\
+    total = total + len(grow)\n\
+    IF i MOD 3 = 0 THEN\n\
+      cond = \"\"\n\
+      cond = cond & \"c\"\n\
+    END IF\n\
+    total = total + len(cond)\n\
+    LET b AS String = build(i MOD 40)\n\
+    total = total + len(b)\n\
+    LET d AS String = encoding::utf32Decode(units)\n\
+    total = total + len(d)\n\
+    LET churn AS List OF Integer = [i, i + 1, i + 2]\n\
+    total = total + collections::get(churn, 2)\n\
+    last = nested(i MOD 5)\n\
+    total = total + len(last)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+  io::print(\"grow=\" & toString(len(grow)))\n\
+  io::print(\"last=\" & last)\n\
+  io::print(\"build=\" & build(4))\n\
+  io::print(\"nested=\" & nested(2))\n\
+  io::print(\"decode=\" & encoding::utf32Decode(units))\n\
+END SUB\n";
+
+#[test]
+fn every_string_self_append_shape_still_produces_the_right_value() {
+    let project = common::temp_project("b560_behaviour", B560_BEHAVIOUR);
+    let exe = common::build_project(&project);
+    let output = std::process::Command::new(&exe)
+        .output()
+        .expect("run the bug-560 behaviour probe");
+    assert!(
+        output.status.success(),
+        "{}",
+        common::exit_description(&output.status)
+    );
+    let out = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let decoded: String = (0..12u32)
+        .map(|k| char::from_u32(97 + k).expect("ascii"))
+        .collect();
+    let nested = |n: i64| {
+        let mut s = String::from("<");
+        for _ in 0..n {
+            s.push_str("012");
+        }
+        s.push('>');
+        s
+    };
+    let mut total: i64 = 0;
+    let mut grow = 0i64;
+    let mut cond = 0i64;
+    let mut last = String::new();
+    for i in 0..400i64 {
+        total += format!("a{}", i % 10).len() as i64;
+        total += format!("{}-", i % 100).len() as i64;
+        grow += 1;
+        total += grow;
+        if i % 3 == 0 {
+            cond = 1;
+        }
+        total += cond;
+        total += (i % 40) * 2;
+        total += decoded.len() as i64;
+        total += i + 2;
+        last = nested(i % 5);
+        total += last.len() as i64;
+    }
+    let expected = format!(
+        "total={total}\ngrow={grow}\nlast={last}\nbuild=abababab\nnested={}\ndecode={decoded}",
+        nested(2)
+    );
+    assert_eq!(
+        out.trim(),
+        expected,
+        "a String self-append shape changed its value — a block was freed twice or too far"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}

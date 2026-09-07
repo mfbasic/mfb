@@ -353,6 +353,20 @@ impl CodeBuilder<'_> {
         if self.static_string_value(value).is_some() {
             return None;
         }
+        // bug-560: a `String` local grown by an in-place self-append carries
+        // capacity headroom recorded ONLY in this frame's shadow slot. Moving the
+        // block to the caller moves it out of the shadow's reach: the caller sizes
+        // its own free from the `byteLength` header alone and under-frees by
+        // `spare` on every call (measured at 32 KB per call on a 9 KB string, the
+        // shape `__csv_decodeRange` and `__encoding_utf32Decode` both have).
+        // Declining sends the return through `copy_flat_block`, which copies
+        // exactly `byteLength` bytes into a tight block the caller CAN free, and
+        // leaves this binding's own capacity-aware drop to reclaim the whole
+        // buffer. Same remedy, and same reason, as the `static_string_value`
+        // decline above: an unmovable carrier is copied, never handed on.
+        if self.string_capacity_slots.contains_key(name) {
+            return None;
+        }
         let local = self.locals.get(name)?;
         if local.by_ref {
             return None;
