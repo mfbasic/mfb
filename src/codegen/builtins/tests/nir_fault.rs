@@ -27,6 +27,7 @@
 //! takes the process down — a panic is not a diagnostic.
 
 use crate::target::shared::nir::{NirMatchPattern, NirModule, NirOp, NirValue};
+use crate::target::shared::validate::validate_nir;
 use crate::target::NativeBuildMode::Console;
 use crate::testutil::{code_for_nir, nir_for_src, CodeTarget};
 use crate::types::ParameterType;
@@ -624,7 +625,8 @@ fn corrupt_nth_op(module: &mut NirModule, index: usize) -> bool {
 }
 
 /// Every backend refuses a module whose values have been corrupted, one at a
-/// time, and none of them dies doing it.
+/// time, and none of them dies doing it -- and neither does the validator that
+/// gates them.
 #[test]
 fn a_corrupted_value_is_refused_rather_than_lowered() {
     // 64 MiB, matching every other lowering entry in `testutil`: the code stage
@@ -641,7 +643,12 @@ fn a_corrupted_value_is_refused_rather_than_lowered() {
 fn sweep() {
     let mut swept = 0usize;
     let mut refused = 0usize;
+    let mut validator_refused = 0usize;
     let mut panicked = Vec::new();
+    // (probe, family, index) -> the verdict each backend's run recorded. The
+    // validator does not read the target, so every entry must be unanimous.
+    let mut validator_verdicts: std::collections::BTreeMap<(&str, &str, usize), Vec<(&str, bool)>> =
+        std::collections::BTreeMap::new();
 
     for (which, source) in [("plain", SRC), ("stateful", STATEFUL_SRC)] {
         for target in CodeTarget::ALL {
@@ -670,6 +677,34 @@ fn sweep() {
                         break;
                     }
                     swept += 1;
+
+                    // The VALIDATOR's verdict on the same module. It is the gate
+                    // every backend sits behind (`validate_nir` is called at the
+                    // top of all five `lower_module`s), and it is target-neutral,
+                    // so its answer must not depend on which backend is about to
+                    // run -- checked below by requiring the same verdict on every
+                    // one. What is asserted here is that it does not PANIC: a
+                    // validator that dies on malformed NIR replaces a diagnostic
+                    // with a build that stops for no stated reason, which is the
+                    // whole failure this sweep exists to find.
+                    let verdict = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        validate_nir(&module).is_err()
+                    }));
+                    match verdict {
+                        Ok(true) => validator_refused += 1,
+                        Ok(false) => {}
+                        Err(_) => panicked.push(format!(
+                            "{which} {family} {} #{index}: the VALIDATOR panicked",
+                            target.name()
+                        )),
+                    }
+                    if let Ok(refused_by_validator) = verdict {
+                        validator_verdicts
+                            .entry((which, family, index))
+                            .or_default()
+                            .push((target.name(), refused_by_validator));
+                    }
+
                     match code_for_nir(&module, target) {
                         Ok(_) => {}
                         Err(message) if message.starts_with("panicked: ") => {
@@ -707,6 +742,45 @@ fn sweep() {
          stopped descending would show up here rather than as a green run over \
          nothing"
     );
+    // The validator reads no target, so a verdict that differs between two
+    // backends' runs of the SAME corrupted module means it read something it
+    // should not have -- a global, a thread-local, or state left behind by the
+    // previous lowering.
+    let inconsistent: Vec<String> = validator_verdicts
+        .iter()
+        .filter(|(_, verdicts)| {
+            verdicts
+                .iter()
+                .any(|(_, refused)| *refused != verdicts[0].1)
+        })
+        .map(|((which, family, index), verdicts)| {
+            format!("{which} {family} #{index}: {verdicts:?}")
+        })
+        .collect();
+    assert!(
+        inconsistent.is_empty(),
+        "{} corrupted module(s) got different verdicts from `validate_nir` on \
+         different backends, though it never reads the target:\n  {}",
+        inconsistent.len(),
+        inconsistent.join("\n  ")
+    );
+
+    // The validator is WEAKER than the backends, and by how much is worth
+    // stating: it refused 1,890 of the 3,785 while the backends refused 3,185.
+    // That gap is not a defect. A `Const`'s type is advisory in some positions,
+    // and an argument count outside a member's declared range is a codegen-side
+    // rule the validator has no table for -- both are refusals only the builder
+    // can make. What the bound holds is that the validator does its own half:
+    // a name that resolves to nothing, an op that writes through one, a type
+    // that disagrees with the value bound to it.
+    assert!(
+        validator_refused > 1800,
+        "`validate_nir` refused only {validator_refused} of {swept} corrupted \
+         modules; it measured 1,890, and a validator that stopped checking shows \
+         up here rather than as a green run over a gate that waves everything \
+         through"
+    );
+
     assert!(
         refused * 4 > swept * 3,
         "only {refused} of {swept} corrupted modules were refused; it measured \
