@@ -391,6 +391,7 @@ impl CodeBuilder<'_> {
                 stack_offset: temp.slot,
                 closure_captures: None,
                 capacity_slot: None,
+                loop_alias_slot: None,
             })?;
         }
         Ok(())

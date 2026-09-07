@@ -736,6 +736,21 @@ pub(crate) struct OwnedValueCleanup {
     /// already claimed a shadow for it, so an unrecognized shape keeps leaking
     /// rather than freeing bytes it cannot prove were allocated.
     pub(crate) capacity_slot: Option<usize>,
+    /// bug-571: for a `FOR EACH` loop item, the frame offset holding the ALIAS
+    /// pointer the payload load would have returned had it not materialised —
+    /// `emit_load_collection_payload_with_alias_base`'s second register, spilled
+    /// once per iteration.
+    ///
+    /// A `FOR EACH` element is immutable and, for every payload type but `String`,
+    /// IS a pointer into the container's own block; freeing that corrupts the
+    /// collection. The drop compares the two at runtime and frees only when they
+    /// differ, so "the loop materialised this" is decided by the emitter that
+    /// materialised it rather than by a second copy of its type enumeration —
+    /// `collections::reduce`'s model (`gen_memory.rs`), applied to the one value
+    /// the loop provably does not own.
+    ///
+    /// `None` everywhere else: an ordinary binding's block has no container.
+    pub(crate) loop_alias_slot: Option<usize>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free

@@ -1859,3 +1859,451 @@ END SUB\n";
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// -------------------------------------------------------------- bug-571
+
+/// bug-571: `FOR EACH e IN <List OF String>` reading only `len(e)` — the bug
+/// report's own twelve-line reproduction, with no callback and no HOF anywhere in
+/// the program. A packed `String` element has no standalone header to point at,
+/// so the loop materialises a fresh arena block per element per pass; nothing
+/// freed it. 25 MB at 50 000 passes over an 8-element list, 50 MB at 100 000.
+const SHAPE_571_LIST_OF_STRING: &str = "IMPORT io\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    FOR EACH e IN xs\n\
+      acc = acc + len(e)\n\
+    NEXT\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// A `Map OF String TO String` materialises BOTH sides per entry — the key and
+/// the value are separate loads — so it leaked twice as fast: 50 MB at 50 000,
+/// 99 MB at 100 000.
+const SHAPE_571_MAP_OF_STRING: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT xs AS Map OF String TO String = Map OF String TO String {}\n\
+  MUT j AS Integer = 0\n\
+  WHILE j < 8\n\
+    xs = collections::set(xs, \"k\" & toString(j), \"v\" & toString(j))\n\
+    j = j + 1\n\
+  END WHILE\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    FOR EACH e IN xs\n\
+      acc = acc + len(e.key) + len(e.value)\n\
+    NEXT\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// A `Set OF String` reaches the same materialising arm on its own code path in
+/// `lower_for_each`; it leaked identically (25 -> 50 MB) and is the arm a
+/// `List`/`Map` enumeration silently omits.
+const SHAPE_571_SET_OF_STRING: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT xs AS Set OF String = Set OF String {}\n\
+  MUT j AS Integer = 0\n\
+  WHILE j < 8\n\
+    xs = collections::add(xs, \"k\" & toString(j))\n\
+    j = j + 1\n\
+  END WHILE\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    FOR EACH e IN xs\n\
+      acc = acc + len(e)\n\
+    NEXT\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The bug report's contrast, and the case that says it is the `String` element
+/// and not the loop: `FOR EACH` over a `Map OF Integer TO Integer` reading
+/// `e.key`/`e.value` was 1.0 MB flat at both counts before the fix, and must stay
+/// flat after it — its payload arms materialise nothing, so a fix that freed
+/// anything here would be freeing a scalar.
+const SHAPE_571_CONTRAST_MAP_OF_INTEGER: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT xs AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
+  MUT j AS Integer = 0\n\
+  WHILE j < 8\n\
+    xs = collections::set(xs, j, j)\n\
+    j = j + 1\n\
+  END WHILE\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    FOR EACH e IN xs\n\
+      acc = acc + e.key + e.value\n\
+    NEXT\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The `List` half of the same contrast.
+const SHAPE_571_CONTRAST_LIST_OF_INTEGER: &str = "IMPORT io\n\
+SUB main()\n\
+  LET xs AS List OF Integer = [0, 1, 2, 3, 4, 5, 6, 7]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    FOR EACH e IN xs\n\
+      acc = acc + e\n\
+    NEXT\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `EXIT FOR` leaves the loop from the MIDDLE of an iteration, branching straight
+/// to the end label past the fall-through drop. 16 -> 31 MB before.
+const SHAPE_571_EXIT_FOR: &str = "IMPORT io\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    FOR EACH e IN xs\n\
+      IF e = \"n4\" THEN\n\
+        EXIT FOR\n\
+      END IF\n\
+      acc = acc + len(e)\n\
+    NEXT\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `CONTINUE FOR` branches to the TOP of the loop, also past the fall-through
+/// drop. 25 -> 50 MB before.
+const SHAPE_571_CONTINUE_FOR: &str = "IMPORT io\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    FOR EACH e IN xs\n\
+      IF e = \"n4\" THEN\n\
+        CONTINUE FOR\n\
+      END IF\n\
+      acc = acc + len(e)\n\
+    NEXT\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `RETURN e` from inside the loop — the escape direction, and the one shape
+/// where freeing the item would be a use-after-free in the CALLER. It stays
+/// correct because the item is registered as an ordinary `OwnedValue` cleanup, so
+/// `plan_returned_move` finds it by stack offset and moves the block out instead
+/// of freeing it on that path. 16 -> 31 MB before (the returned block's ORIGINAL
+/// was leaked); the printed `src=` proves the caller still reads it.
+const SHAPE_571_RETURN_ITEM: &str = "IMPORT io\n\
+FUNC pick(xs AS List OF String) AS String\n\
+  FOR EACH e IN xs\n\
+    IF e = \"n4\" THEN\n\
+      RETURN e\n\
+    END IF\n\
+  NEXT\n\
+  RETURN \"none\"\n\
+END FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET got AS String = pick(xs)\n\
+    acc = acc + len(got)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc) & \" src=\" & pick(xs))\n\
+END SUB\n";
+
+/// A body that USES the element beyond `len` — appends it to a collection and
+/// concatenates it into a string. Both are owning consumers that COPY (§14.6:
+/// "inserting into a container copies or moves the inserted value into the
+/// container; it never stores a non-owning alias"), so the block stays the
+/// loop's to drop — but that has to be measured, not assumed. 27 -> 54 MB before;
+/// the printed `src=` proves the source list is intact afterward.
+const SHAPE_571_USES_THE_ITEM: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT out AS List OF String = []\n\
+    MUT s AS String = \"\"\n\
+    FOR EACH e IN xs\n\
+      out = collections::append(out, e)\n\
+      s = s & e\n\
+    NEXT\n\
+    acc = acc + len(collections::get(out, 7)) + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc) & \" src=\" & collections::get(xs, 0))\n\
+END SUB\n";
+
+/// 25 MB at 50 000 passes over an 8-element list, 50 MB at 100 000, before.
+#[cfg(unix)]
+#[test]
+fn a_for_each_over_a_list_of_string_does_not_leak_its_element() {
+    assert_flat(
+        "b571_list_of_string",
+        SHAPE_571_LIST_OF_STRING,
+        50_000,
+        100_000,
+    );
+}
+
+/// 50 -> 99 MB before: both sides of every entry.
+#[cfg(unix)]
+#[test]
+fn a_for_each_over_a_map_of_string_does_not_leak_either_side() {
+    assert_flat(
+        "b571_map_of_string",
+        SHAPE_571_MAP_OF_STRING,
+        50_000,
+        100_000,
+    );
+}
+
+/// 25 -> 50 MB before, on `lower_for_each`'s own Set arm.
+#[cfg(unix)]
+#[test]
+fn a_for_each_over_a_set_of_string_does_not_leak_its_element() {
+    assert_flat(
+        "b571_set_of_string",
+        SHAPE_571_SET_OF_STRING,
+        50_000,
+        100_000,
+    );
+}
+
+/// The contrast that attributes the leak to the `String` element rather than to
+/// the loop: flat before, and it must stay flat.
+#[cfg(unix)]
+#[test]
+fn a_for_each_over_fixed_width_elements_stays_flat() {
+    assert_flat(
+        "b571_contrast_map_int",
+        SHAPE_571_CONTRAST_MAP_OF_INTEGER,
+        50_000,
+        100_000,
+    );
+    assert_flat(
+        "b571_contrast_list_int",
+        SHAPE_571_CONTRAST_LIST_OF_INTEGER,
+        50_000,
+        100_000,
+    );
+}
+
+/// `EXIT FOR` (16 -> 31 MB) and `CONTINUE FOR` (25 -> 50 MB) both jump around the
+/// fall-through drop, so each is its own case.
+#[cfg(unix)]
+#[test]
+fn an_early_exit_from_a_for_each_does_not_leak_the_item() {
+    assert_flat("b571_exit_for", SHAPE_571_EXIT_FOR, 50_000, 100_000);
+    assert_flat("b571_continue_for", SHAPE_571_CONTINUE_FOR, 50_000, 100_000);
+}
+
+/// The escape direction: `RETURN e` hands the block to the caller. 16 -> 31 MB
+/// before, and the value half is checked by
+/// `every_for_each_body_shape_still_produces_the_right_value` below — a fix that
+/// freed the returned block would read as a wrong value or a later "Allocation
+/// failed", never as this assertion.
+#[cfg(unix)]
+#[test]
+fn returning_the_loop_item_neither_leaks_nor_double_frees() {
+    assert_flat("b571_return_item", SHAPE_571_RETURN_ITEM, 50_000, 100_000);
+}
+
+/// A body that stores and concatenates the element. 27 -> 54 MB before.
+#[cfg(unix)]
+#[test]
+fn a_for_each_body_that_uses_the_item_does_not_leak_it() {
+    assert_flat("b571_uses_item", SHAPE_571_USES_THE_ITEM, 50_000, 100_000);
+}
+
+/// The VALUE half of bug-571, and the half a leak test cannot see.
+///
+/// Adding a free is the double-free direction, and the arena reports a double
+/// free as "Allocation failed" at some later, unrelated allocation — or as a
+/// wrong value read back out of reused memory — not as a crash at the site. So
+/// every shape whose block might have another owner is exercised for its VALUE,
+/// 25 times, against an expectation computed here rather than by the program:
+///
+/// * `RETURN e` — the block leaves the loop (moved, not freed).
+/// * `append(out, e)` / `s = s & e` — owning consumers that copy (§14.6).
+/// * a record element and a nested-collection element — these ALIAS the
+///   container's own block (`emit_load_payload_with_stride` hands back its `data`
+///   pointer for both arms), so freeing one corrupts the collection. Reading the
+///   container again afterward is what catches it.
+/// * a `Set OF String` and both one-sided `Map`s — the arms an enumeration built
+///   from `List` alone would omit.
+#[test]
+fn every_for_each_body_shape_still_produces_the_right_value() {
+    const SOURCE: &str = "IMPORT io\n\
+IMPORT collections\n\
+TYPE Row\n  name AS String\n  n AS Integer\nEND TYPE\n\
+FUNC firstLong(xs AS List OF String) AS String\n\
+  FOR EACH e IN xs\n\
+    IF len(e) > 2 THEN\n\
+      RETURN e\n\
+    END IF\n\
+  NEXT\n\
+  RETURN \"none\"\n\
+END FUNC\n\
+FUNC joined(xs AS List OF String) AS String\n\
+  MUT out AS String = \"\"\n\
+  FOR EACH e IN xs\n\
+    out = out & e & \"|\"\n\
+  NEXT\n\
+  RETURN out\n\
+END FUNC\n\
+FUNC copied(xs AS List OF String) AS List OF String\n\
+  MUT out AS List OF String = []\n\
+  FOR EACH e IN xs\n\
+    out = collections::append(out, e)\n\
+  NEXT\n\
+  RETURN out\n\
+END FUNC\n\
+FUNC exitAt(xs AS List OF String, stop AS String) AS Integer\n\
+  MUT n AS Integer = 0\n\
+  FOR EACH e IN xs\n\
+    IF e = stop THEN\n\
+      EXIT FOR\n\
+    END IF\n\
+    n = n + len(e)\n\
+  NEXT\n\
+  RETURN n\n\
+END FUNC\n\
+FUNC skipping(xs AS List OF String, skip AS String) AS Integer\n\
+  MUT n AS Integer = 0\n\
+  FOR EACH e IN xs\n\
+    IF e = skip THEN\n\
+      CONTINUE FOR\n\
+    END IF\n\
+    n = n + len(e)\n\
+  NEXT\n\
+  RETURN n\n\
+END FUNC\n\
+FUNC nested(xs AS List OF String, ys AS List OF String) AS Integer\n\
+  MUT n AS Integer = 0\n\
+  FOR EACH a IN xs\n\
+    FOR EACH b IN ys\n\
+      n = n + len(a) + len(b)\n\
+    NEXT\n\
+  NEXT\n\
+  RETURN n\n\
+END FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"aa\", \"bbb\", \"cccc\", \"d\"]\n\
+  io::print(firstLong(xs))\n\
+  io::print(joined(xs))\n\
+  LET c AS List OF String = copied(xs)\n\
+  io::print(collections::get(c, 0) & collections::get(c, 3) & toString(len(c)))\n\
+  io::print(collections::get(xs, 0) & collections::get(xs, 2))\n\
+  io::print(toString(exitAt(xs, \"cccc\")))\n\
+  io::print(toString(skipping(xs, \"bbb\")))\n\
+  io::print(toString(nested(xs, xs)))\n\
+  LET ps AS List OF Row = [Row[\"one\", 1], Row[\"two\", 2], Row[\"three\", 3]]\n\
+  MUT pacc AS String = \"\"\n\
+  MUT pn AS Integer = 0\n\
+  FOR EACH p IN ps\n\
+    pacc = pacc & p.name & \";\"\n\
+    pn = pn + p.n\n\
+  NEXT\n\
+  io::print(pacc & toString(pn))\n\
+  LET p0 AS Row = collections::get(ps, 0)\n\
+  LET p2 AS Row = collections::get(ps, 2)\n\
+  io::print(p0.name & p2.name)\n\
+  LET ls AS List OF List OF Integer = [[1, 2], [3, 4, 5], [6]]\n\
+  MUT lacc AS Integer = 0\n\
+  FOR EACH inner IN ls\n\
+    lacc = lacc + len(inner)\n\
+  NEXT\n\
+  io::print(toString(lacc) & toString(len(collections::get(ls, 1))))\n\
+  MUT st AS Set OF String = Set OF String {}\n\
+  st = collections::add(st, \"pp\")\n\
+  st = collections::add(st, \"qqq\")\n\
+  MUT sacc AS Integer = 0\n\
+  FOR EACH s IN st\n\
+    sacc = sacc + len(s)\n\
+  NEXT\n\
+  io::print(toString(sacc) & toString(len(st)))\n\
+  MUT msi AS Map OF String TO Integer = Map OF String TO Integer {}\n\
+  msi = collections::set(msi, \"kk\", 7)\n\
+  msi = collections::set(msi, \"lll\", 9)\n\
+  MUT m1 AS Integer = 0\n\
+  FOR EACH e IN msi\n\
+    m1 = m1 + len(e.key) + e.value\n\
+  NEXT\n\
+  io::print(toString(m1) & toString(collections::get(msi, \"lll\")))\n\
+  MUT mis AS Map OF Integer TO String = Map OF Integer TO String {}\n\
+  mis = collections::set(mis, 1, \"xx\")\n\
+  mis = collections::set(mis, 2, \"yyy\")\n\
+  MUT m2 AS Integer = 0\n\
+  FOR EACH e IN mis\n\
+    m2 = m2 + e.key + len(e.value)\n\
+  NEXT\n\
+  io::print(toString(m2) & collections::get(mis, 2))\n\
+END SUB\n";
+
+    // Computed here, not read off the program: a value derived from the producer
+    // is true by construction.
+    let xs = ["aa", "bbb", "cccc", "d"];
+    let expected = [
+        "bbb".to_string(),
+        format!("{}|{}|{}|{}|", xs[0], xs[1], xs[2], xs[3]),
+        format!("{}{}{}", xs[0], xs[3], xs.len()),
+        format!("{}{}", xs[0], xs[2]),
+        (xs[0].len() + xs[1].len()).to_string(),
+        (xs[0].len() + xs[2].len() + xs[3].len()).to_string(),
+        (xs.len() * xs.iter().map(|s| s.len()).sum::<usize>() * 2).to_string(),
+        "one;two;three;6".to_string(),
+        "onethree".to_string(),
+        "63".to_string(),
+        "52".to_string(),
+        "219".to_string(),
+        "8yyy".to_string(),
+    ]
+    .join("\n");
+
+    let project = common::temp_project("b571_for_each_values", SOURCE);
+    let exe = common::build_project(&project);
+    // A double free is not deterministic: it corrupts the free list and surfaces
+    // on some later allocation, which may or may not happen in a given run.
+    for run in 1..=25 {
+        let output = std::process::Command::new(&exe)
+            .output()
+            .expect("run the FOR EACH item-ownership probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected,
+            "run {run}: a `FOR EACH` body read a different value — the loop freed \
+             a block the container or the caller still owned"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}

@@ -2190,7 +2190,48 @@ impl CodeBuilder<'_> {
         offset: impl Into<Operand>,
         length: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
+        Ok(self
+            .emit_load_payload_with_stride(type_, type_, collection, offset, length)?
+            .0)
+    }
+
+    /// bug-571: [`Self::emit_load_collection_payload`], plus the ALIAS pointer its
+    /// non-materialising arms hand back — `dataBase + offset`, a pointer INTO the
+    /// container's own block.
+    ///
+    /// A caller that intends to FREE the payload needs to tell "the load
+    /// materialised this" from "this is the container's". Every arm that aliases
+    /// (an inlined record/union slot, a flat nested collection, any other
+    /// collection payload) returns exactly this register; only the `String` arm
+    /// allocates, and a fresh `arena_alloc` block can never equal it. Comparing
+    /// the two at runtime is therefore an exact test, and it keeps the free's
+    /// soundness LOCAL to this one emitter instead of resting on the caller's copy
+    /// of the type enumeration staying in step with the `match` below.
+    pub(crate) fn emit_load_collection_payload_with_alias_base(
+        &mut self,
+        type_: &ParameterType,
+        collection: impl Into<Operand>,
+        offset: impl Into<Operand>,
+        length: impl Into<Operand>,
+    ) -> Result<(VirtualRegister, VirtualRegister), String> {
         self.emit_load_payload_with_stride(type_, type_, collection, offset, length)
+    }
+
+    /// The MAP twin of [`Self::emit_load_collection_payload_with_alias_base`].
+    pub(crate) fn emit_load_map_payload_with_alias_base(
+        &mut self,
+        type_: &ParameterType,
+        collection: impl Into<Operand>,
+        offset: impl Into<Operand>,
+        length: impl Into<Operand>,
+    ) -> Result<(VirtualRegister, VirtualRegister), String> {
+        self.emit_load_payload_with_stride(
+            type_,
+            &ParameterType::named(""),
+            collection,
+            offset,
+            length,
+        )
     }
 
     /// Load a payload out of a MAP block. Identical to
@@ -2205,15 +2246,21 @@ impl CodeBuilder<'_> {
         offset: impl Into<Operand>,
         length: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
-        self.emit_load_payload_with_stride(
-            type_,
-            &ParameterType::named(""),
-            collection,
-            offset,
-            length,
-        )
+        Ok(self
+            .emit_load_payload_with_stride(
+                type_,
+                &ParameterType::named(""),
+                collection,
+                offset,
+                length,
+            )?
+            .0)
     }
 
+    /// Returns `(payload, dataBase + offset)`. The second register is the alias
+    /// pointer described on [`Self::emit_load_collection_payload_with_alias_base`];
+    /// for every arm but `String` it IS the payload (or the word read from it), so
+    /// only a caller that frees the payload has any use for it.
     fn emit_load_payload_with_stride(
         &mut self,
         type_: &ParameterType,
@@ -2221,7 +2268,7 @@ impl CodeBuilder<'_> {
         collection: impl Into<Operand>,
         offset: impl Into<Operand>,
         length: impl Into<Operand>,
-    ) -> Result<VirtualRegister, String> {
+    ) -> Result<(VirtualRegister, VirtualRegister), String> {
         // Inputs held in vregs, never in registers that are x86-64 ABI argument
         // registers on one backend and free scratch on another.
         let collection_input_v = self.temporary_vreg();
@@ -2236,16 +2283,16 @@ impl CodeBuilder<'_> {
         let data = self.allocate_register();
         self.emit_collection_data_pointer_for(&data, collection_input, stride_type);
         self.emit(abi::add_registers(&data, &data, offset_input));
-        match type_ {
+        let payload = match type_ {
             ParameterType::Boolean | ParameterType::Byte => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u8(&result, &data, 0));
-                Ok(result)
+                result
             }
             type_ if type_.is_named("Scalar") => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u32(&result, &data, 0));
-                Ok(result)
+                result
             }
             ParameterType::Integer
             | ParameterType::Float
@@ -2253,30 +2300,38 @@ impl CodeBuilder<'_> {
             | ParameterType::Money => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
-                Ok(result)
+                result
             }
             // A function value reads back its 8-byte closure pointer; the closure
             // object stays shared (reference semantics, bug-73).
             other if matches!(other, ParameterType::Func(..)) => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
-                Ok(result)
+                result
             }
-            ParameterType::String => self.emit_materialize_string_from_bytes(&data, length_input),
+            // The ONE arm that allocates. Every other arm below hands back `data`
+            // itself or a word read out of it, which is why `data` is the exact
+            // runtime witness for "this payload belongs to the container" (bug-571).
+            ParameterType::String => {
+                self.emit_materialize_string_from_bytes(&data, length_input)?
+            }
             other if self.is_pointer_collection_payload_type(other) => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
-                Ok(result)
+                result
             }
             // An inlined record/union slot block or a flat nested collection block
             // is read as an alias pointer to the block within the data region
             // (plan-02 §4.2–§4.4). Its own offsets are relative to that base.
-            other if self.inline_collection_payload_size(other).is_some() => Ok(data),
-            other if typed_is_collection_type(other) => Ok(data),
-            other => Err(format!(
-                "native collection packed payload does not support type '{other}'"
-            )),
-        }
+            other if self.inline_collection_payload_size(other).is_some() => data.clone(),
+            other if typed_is_collection_type(other) => data.clone(),
+            other => {
+                return Err(format!(
+                    "native collection packed payload does not support type '{other}'"
+                ))
+            }
+        };
+        Ok((payload, data))
     }
 
     /// Copy an existing heap `String` value (a pointer to `[u64 len][bytes][nul]`)

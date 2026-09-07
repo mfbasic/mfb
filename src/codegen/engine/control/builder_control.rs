@@ -599,6 +599,7 @@ impl CodeBuilder<'_> {
                                             // `String`, so it never carries self-append
                                             // headroom.
                                             capacity_slot: None,
+                                            loop_alias_slot: None,
                                         },
                                     ));
                                     self.owned_value_slots.push(stack_offset);
@@ -771,6 +772,7 @@ impl CodeBuilder<'_> {
                                     // `byteLength` header does not record, and the tight
                                     // drop would orphan it on every scope exit.
                                     capacity_slot: self.string_capacity_slot_for(name, type_),
+                                    loop_alias_slot: None,
                                 },
                             ));
                             self.owned_value_slots.push(stack_offset);
@@ -793,6 +795,7 @@ impl CodeBuilder<'_> {
                                         closure_captures: Some(capture_types),
                                         // A closure object, not a `String`.
                                         capacity_slot: None,
+                                        loop_alias_slot: None,
                                     },
                                 ));
                                 self.owned_value_slots.push(stack_offset);
@@ -862,6 +865,7 @@ impl CodeBuilder<'_> {
                                 // A global has no frame-local capacity shadow: the
                                 // self-append arm only ever fires on a `MUT` local.
                                 capacity_slot: None,
+                                loop_alias_slot: None,
                             })?;
                             let new_ptr = self.allocate_register();
                             self.emit(abi::load_u64(&new_ptr, abi::stack_pointer(), new_slot));
@@ -1093,6 +1097,7 @@ impl CodeBuilder<'_> {
                                     // every reassignment.
                                     capacity_slot: self
                                         .string_capacity_slot_for(name, &result.type_),
+                                    loop_alias_slot: None,
                                 })?;
                                 Some(slot)
                             } else {
@@ -1510,6 +1515,7 @@ impl CodeBuilder<'_> {
                                 stack_offset: trap_offset,
                                 closure_captures: None,
                                 capacity_slot: None,
+                                loop_alias_slot: None,
                             }));
                         self.owned_value_slots.push(trap_offset);
                         let handler_result = self.lower_ops_inner(body, handler_scope_start);
@@ -2167,6 +2173,12 @@ impl CodeBuilder<'_> {
             remaining_slot,
         ));
 
+        // bug-571: `(item slot, alias-witness slot)` for every payload this loop
+        // MATERIALISES — the `String` arms below and nothing else. Filled inside
+        // the loop (the spill must re-record the witness each iteration) and
+        // registered as scope-drop obligations of the body's own cleanup scope
+        // once the body scope is opened.
+        let mut owned_item_slots: Vec<(usize, usize)> = Vec::new();
         let loop_label = self.label("for_each_loop");
         let end_label = self.label("for_each_end");
         self.emit(abi::label(&loop_label));
@@ -2196,8 +2208,21 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 collection_slot,
             ));
-            let key_value =
-                self.emit_load_map_payload(key_type, &collection, &payload_off, &payload_len)?;
+            let (key_value, key_alias) = self.emit_load_map_payload_with_alias_base(
+                key_type,
+                &collection,
+                &payload_off,
+                &payload_len,
+            )?;
+            // bug-571: only the `String` arm allocates, so only it spills the alias
+            // witness and only it registers a drop. Every other key type emits
+            // exactly what it emitted before.
+            if *key_type == ParameterType::String {
+                owned_item_slots.push((
+                    entry_payload_slot,
+                    self.spill_to_slot("for_each_key_alias", &key_alias),
+                ));
+            }
             self.emit(abi::store_u64(
                 key_value,
                 abi::stack_pointer(),
@@ -2219,8 +2244,18 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 collection_slot,
             ));
-            let item_value =
-                self.emit_load_map_payload(value_type, &collection, &payload_off, &payload_len)?;
+            let (item_value, value_alias) = self.emit_load_map_payload_with_alias_base(
+                value_type,
+                &collection,
+                &payload_off,
+                &payload_len,
+            )?;
+            if *value_type == ParameterType::String {
+                owned_item_slots.push((
+                    entry_payload_slot + 8,
+                    self.spill_to_slot("for_each_value_alias", &value_alias),
+                ));
+            }
             self.emit(abi::store_u64(
                 item_value,
                 abi::stack_pointer(),
@@ -2255,12 +2290,18 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 collection_slot,
             ));
-            let item_value = self.emit_load_map_payload(
+            let (item_value, item_alias) = self.emit_load_map_payload_with_alias_base(
                 set_element_type,
                 &collection,
                 &payload_off,
                 &payload_len,
             )?;
+            if *set_element_type == ParameterType::String {
+                owned_item_slots.push((
+                    local_slot,
+                    self.spill_to_slot("for_each_item_alias", &item_alias),
+                ));
+            }
             self.emit(abi::store_u64(item_value, abi::stack_pointer(), local_slot));
         } else {
             let item_value_type = item_value_type.ok_or_else(|| {
@@ -2293,12 +2334,18 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 collection_slot,
             ));
-            let item_value = self.emit_load_collection_payload(
+            let (item_value, item_alias) = self.emit_load_collection_payload_with_alias_base(
                 item_value_type,
                 &collection,
                 &payload_off,
                 &payload_len,
             )?;
+            if *item_value_type == ParameterType::String {
+                owned_item_slots.push((
+                    local_slot,
+                    self.spill_to_slot("for_each_item_alias", &item_alias),
+                ));
+            }
             self.emit(abi::store_u64(item_value, abi::stack_pointer(), local_slot));
         }
         self.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
@@ -2330,14 +2377,50 @@ impl CodeBuilder<'_> {
             },
         );
         self.clear_local_constants();
+        // bug-571: open the body's cleanup scope HERE rather than inside
+        // `lower_loop_body`, so the per-iteration item drops registered just below
+        // live INSIDE it and every exit runs them. `body_scope_start` is the depth
+        // `lower_ops` would have captured on its own, so with no item registered
+        // this is the identical scope and the identical code.
+        //
+        // §14.7: "At normal scope exit, `RETURN`, `EXIT FOR`…, `CONTINUE FOR`…,
+        // `FAIL`, `PROPAGATE`, or auto-propagated errors, live bindings are dropped
+        // in reverse declaration order within each scope." The loop variable is
+        // such a binding, and this is the scope. Every one of those edges is served
+        // by an existing emitter — the tail of `lower_ops_inner` (fall-through),
+        // `emit_cleanup_branch_to_depth` (`EXIT FOR`/`CONTINUE FOR`, which jump
+        // around the fall-through path entirely), and `emit_current_result_exit`
+        // (`RETURN`/`FAIL`/auto-propagate) — so the fix is the registration, not a
+        // new drop point per edge.
+        let body_scope_start = self.active_cleanups.len();
+        self.cleanup_scope_starts.push(body_scope_start);
+        for (item_slot, alias_slot) in &owned_item_slots {
+            self.active_cleanups
+                .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
+                    type_: ParameterType::String,
+                    stack_offset: *item_slot,
+                    closure_captures: None,
+                    capacity_slot: None,
+                    loop_alias_slot: Some(*alias_slot),
+                }));
+            self.owned_value_slots.push(*item_slot);
+        }
         self.loop_stack.push(LoopLabels {
             kind: crate::ast::LoopKind::For,
             continue_label: loop_label.clone(),
             exit_label: end_label.clone(),
-            cleanup_depth: self.active_cleanups.len(),
+            // Captured BEFORE the item drops were pushed, so `EXIT FOR` and
+            // `CONTINUE FOR` unwind through them.
+            cleanup_depth: body_scope_start,
         });
-        self.lower_loop_body(body)?;
+        self.enclosing_loop_reassigned.push(
+            crate::codegen::engine::function::collect_reassigned_locals(body),
+        );
+        let body_result = self.lower_ops_inner(body, body_scope_start);
+        self.enclosing_loop_reassigned.pop();
+        self.cleanup_scope_starts.pop();
         self.loop_stack.pop();
+        body_result?;
         if pushed_iterable {
             self.for_each_iterable_locals.pop();
         }
