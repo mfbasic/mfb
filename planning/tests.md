@@ -432,7 +432,13 @@ these files, and is not for `repository/src/**`).
 | after its second probe program (STATE and record fields) | 183 | 4,810 |
 | after its op-corruption family | 183 | 4,786 |
 | after the -nir/-nplan dump tests | 182 | 4,739 |
-| after moving nine inline test modules out of the denominator (C15) | **175** | **4,649** |
+| after moving nine inline test modules out of the denominator (C15) | 175 | 4,649 |
+| after deleting the codegen-side copy of the strings case fold | 165 | 4,585 |
+| after the global-substitution shape sweep and the app-mode io refusal | 162 | 4,524 |
+| after the NIR arity guard, the sublist search and the consumed-resource group | 162 | 4,471 |
+| after the collection accelerators' decline paths | 160 | 4,454 |
+| after the optimizer loop-shape fixture | 159 | 4,448 |
+| after splitting the CLI dispatcher and driving every command | **159** | **4,447** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
