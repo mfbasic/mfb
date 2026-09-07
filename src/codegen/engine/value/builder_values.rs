@@ -87,7 +87,40 @@ impl CodeBuilder<'_> {
         // outside a `lower_value` frame, so this node can only ever be credited
         // with provenance its own lowering established.
         self.fresh_string_block = None;
+        // bug-572: decide, BEFORE the arguments are lowered, which of this call's
+        // capturing-`LAMBDA` arguments it may free. The decision gates the
+        // `NirValue::Closure` arm's registration, so a program that never passes a
+        // capturing lambda to a callback position emits exactly what it emitted
+        // before — the containment argument for the golden delta.
+        // Only a CALL node owns the flag AND the drain. Every other node inherits
+        // the enclosing call's answer and leaves its registrations alone: the
+        // `Closure` argument itself comes through here, so a non-call that
+        // cleared the flag would switch off the registration on the very node
+        // that performs it, and one that drained would take the entry away from
+        // the call that is going to free it.
+        let owns_closure_drain =
+            matches!(value, NirValue::Call { .. } | NirValue::CallResult { .. });
+        let freeable_closure_args = if owns_closure_drain {
+            self.freeable_closure_arguments(value)
+        } else {
+            Vec::new()
+        };
+        let closure_mark = self.pending_closure_temps.len();
+        let previous_wanted = owns_closure_drain.then(|| {
+            std::mem::replace(
+                &mut self.closure_temp_wanted,
+                freeable_closure_args.iter().any(|eligible| *eligible),
+            )
+        });
         let result = self.lower_value_inner(value);
+        if let Some(previous) = previous_wanted {
+            self.closure_temp_wanted = previous;
+        }
+        let result = if owns_closure_drain {
+            self.free_call_closure_temps(result, closure_mark, &freeable_closure_args)?
+        } else {
+            result
+        };
         // The mark a producer set while lowering THIS node. An operand's own
         // `lower_value` cleared and consumed its mark before returning, so what
         // survives here was set after the last operand — by this node's own
@@ -112,6 +145,146 @@ impl CodeBuilder<'_> {
             }
         }
         result
+    }
+
+    /// bug-572: for each capturing `LAMBDA` written **literally** in `value`'s
+    /// argument list, whether this call may free it once it returns — in argument
+    /// order, which is the order the `NirValue::Closure` arm registers them.
+    ///
+    /// Empty for everything that is not a `Call`/`CallResult`, and `false` for any
+    /// closure argument whose position is not provably a non-retaining callback.
+    /// `false` is the pre-fix behaviour (the closure leaks), so every unrecognised
+    /// shape keeps leaking rather than freeing a block someone still holds.
+    fn freeable_closure_arguments(&self, value: &NirValue) -> Vec<bool> {
+        let (target, args) = match value {
+            NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
+                (target.as_str(), args)
+            }
+            _ => return Vec::new(),
+        };
+        args.iter()
+            .enumerate()
+            .filter(|(_, arg)| {
+                matches!(arg, NirValue::Closure { captures, .. } if !captures.is_empty())
+            })
+            .map(|(index, _)| self.argument_position_is_nonretaining_callback(target, index))
+            .collect()
+    }
+
+    /// bug-572: whether `target`'s parameter at `index` is a callback the callee
+    /// invokes synchronously and never stores, forwards, or returns — so a closure
+    /// passed there is dead the moment the call returns.
+    ///
+    /// Two arms, because a callee is either an ordinary NIR body or a native
+    /// lowering with no body to read:
+    ///
+    /// * **NIR body** (a user `FUNC`, or a monomorphised `.mfb` builtin such as
+    ///   `collections::mapValues`): the parameter must be a non-isolated `FUNC`
+    ///   AND its name must never be read as a VALUE anywhere in the body.
+    ///   `collect_value_used_locals` answers exactly that — a `Call`'s target is a
+    ///   `String`, not a `NirValue`, so an invoke does not count as a use. It is
+    ///   the same proof `is_non_escaping_closure` makes for a closure BINDING,
+    ///   made one frame down for a parameter. A name shadowed by an inner local
+    ///   reads as "used", which declines — the fail-closed direction.
+    /// * **native builtin**: the registry's declared parameter type. Every
+    ///   non-isolated `FUNC` parameter in the registry is a synchronously-invoked
+    ///   callback (`collections`' fourteen HOF positions and `json::parse`'s
+    ///   reviver); the one retaining position, `thread::start`'s entry, is
+    ///   `ISOLATED FUNC` and excluded by the `false` in the match. That was a fact
+    ///   about a list, so it is a test —
+    ///   `every_registry_function_parameter_callback_is_synchronous`.
+    ///   `http::Route.handler` is a RECORD FIELD, not a parameter, and a record
+    ///   constructor is not a `Call`: storing a closure there is declined here
+    ///   because no arm ever sees it.
+    ///
+    /// A call through a callable VALUE (`f(x)` where `f` is a `FUNC` local) is
+    /// declined by both arms — the target names a binding, not a function — which
+    /// is right: nothing here can see what the invoked function does with it.
+    fn argument_position_is_nonretaining_callback(&self, target: &str, index: usize) -> bool {
+        if let Some(function) = self.functions.get(target) {
+            let Some(param) = function.params.get(index) else {
+                return false;
+            };
+            if !matches!(param.type_, ParameterType::Func(_, _, false)) {
+                return false;
+            }
+            let mut used = std::collections::HashSet::new();
+            crate::codegen::engine::function::collect_value_used_locals(&function.body, &mut used);
+            return !used.contains(&param.name);
+        }
+        crate::codegen::registry::synchronous_callback_parameter(target, index)
+    }
+
+    /// bug-572: free the capturing `LAMBDA`s this call was allowed to free, once
+    /// it has returned.
+    ///
+    /// The drained entries pair with `eligible` **by order**: both loops that
+    /// lower a call's arguments (`emit_prepared_call_args`,
+    /// `lower_abi_inline_args`) go left to right, a nested call drains its own
+    /// closures inside its own `lower_value` frame before this one runs, and
+    /// `freeable_closure_arguments` walks the same argument list in the same
+    /// direction. A count mismatch means a shape neither of those assumptions
+    /// covers, so nothing is freed — the fail-closed direction, and a leak rather
+    /// than a double free.
+    ///
+    /// The result must survive `emit_closure_drop`, which is three `arena_free`
+    /// calls and destroys every caller-saved register: it is materialised, parked
+    /// in a slot across the drops, and reloaded. A `Nothing` result
+    /// (`collections::forEach`) carries no value to park, and a register-native
+    /// vector is declined outright rather than forced into a block.
+    fn free_call_closure_temps(
+        &mut self,
+        result: Result<ValueResult, String>,
+        mark: usize,
+        eligible: &[bool],
+    ) -> Result<Result<ValueResult, String>, String> {
+        if self.pending_closure_temps.len() <= mark {
+            return Ok(result);
+        }
+        let drained: Vec<PendingClosure> = self.pending_closure_temps.split_off(mark);
+        let Ok(result) = result else {
+            return Ok(result);
+        };
+        if drained.len() != eligible.len() || Self::is_vector_native(&result) {
+            return Ok(Ok(result));
+        }
+        let doomed: Vec<&PendingClosure> = drained
+            .iter()
+            .zip(eligible)
+            .filter(|(_, keep)| **keep)
+            .map(|(closure, _)| closure)
+            .collect();
+        if doomed.is_empty() {
+            return Ok(Ok(result));
+        }
+        let captures: Vec<Vec<ParameterType>> = doomed.iter().map(|c| c.captures.clone()).collect();
+        let slots: Vec<usize> = doomed.iter().map(|c| c.slot).collect();
+        let parked = if result.type_ == ParameterType::Nothing {
+            None
+        } else {
+            let result = self.materialize_value(result.clone())?;
+            let slot = self.allocate_stack_object("closure_temp_result", 8);
+            self.store_value_at(&result, abi::stack_pointer(), slot);
+            Some((slot, result))
+        };
+        for (slot, capture_types) in slots.into_iter().zip(captures) {
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: ParameterType::Nothing,
+                stack_offset: slot,
+                closure_captures: Some(capture_types),
+                capacity_slot: None,
+                loop_alias_slot: None,
+            })?;
+        }
+        let Some((slot, parked_result)) = parked else {
+            return Ok(Ok(result));
+        };
+        let reloaded = self.allocate_register();
+        self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
+        Ok(Ok(ValueResult {
+            location: Operand::from(reloaded.render()),
+            ..parked_result
+        }))
     }
 
     /// Register a freshly produced, freeable-flat heap value as a statement-scope
@@ -392,6 +565,7 @@ impl CodeBuilder<'_> {
                 stack_offset: temp.slot,
                 closure_captures: None,
                 capacity_slot: None,
+                loop_alias_slot: None,
             })?;
         }
         Ok(())
@@ -1053,6 +1227,31 @@ impl CodeBuilder<'_> {
                     ));
                 }
                 self.emit(abi::move_register(&closure_register, abi::mfb_return(1)));
+                // bug-572: a capturing `LAMBDA` allocates three arena blocks — the
+                // env, one deep copy per freeable-flat capture, and the 16-byte
+                // object — and as a call ARGUMENT it had no owner at all. It is not
+                // a `PendingTemp`: `pending_temp_is_freeable` requires
+                // `is_freeable_flat_value`, which `Func` is not, and must keep
+                // requiring it (a `Func` element in a collection is a shared
+                // POINTER, bug-73, so a flat free of the surrounding value must
+                // never chase it). Record the object for the enclosing call's own
+                // drain instead, and ONLY when that call has already decided it may
+                // free it — so a program without such a call emits not one extra
+                // instruction here.
+                if self.closure_temp_wanted && !captures.is_empty() {
+                    let capture_types: Vec<ParameterType> =
+                        captures.iter().map(|c| self.capture_free_type(c)).collect();
+                    let slot = self.allocate_stack_object("closure_temp", 8);
+                    self.emit(abi::store_u64(
+                        &closure_register,
+                        abi::stack_pointer(),
+                        slot,
+                    ));
+                    self.pending_closure_temps.push(PendingClosure {
+                        slot,
+                        captures: capture_types,
+                    });
+                }
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),

@@ -3023,6 +3023,97 @@ pub(crate) fn callback_member_bare(member: &str) -> bool {
     })
 }
 
+/// bug-572: the declared type of `qualified`'s parameter at `index`, or `None`
+/// when the member does not exist, has no such parameter, or its overloads
+/// disagree there.
+///
+/// Deliberately NOT built on [`argument_types_typed`], which bails whenever any
+/// parameter is generic (`Var`/`Arg`) — that would answer `None` for exactly the
+/// members this exists for (`collections::filter` is `List OF T, FUNC(T) AS
+/// Boolean`). The caller asks a question about the parameter's SHAPE, which a
+/// `Var` in a sibling position does not affect.
+///
+/// Overloads that HAVE that position must agree: a member with a `FUNC` there in
+/// one overload and something else in another answers `None` rather than
+/// guessing. Overloads too short to reach `index` are skipped — they are a
+/// different arity, which a call passing an argument there did not select.
+pub(crate) fn parameter_type_at(qualified: &str, index: usize) -> Option<ParameterType> {
+    let resolved = registry().resolve_func(qualified)?;
+    let mut agreed: Option<ParameterType> = None;
+    for implementation in &resolved.function.implementations {
+        // An overload SHORTER than `index` says nothing about that position — it
+        // is a different arity, and a call that passes an argument there did not
+        // select it. `json::parse` is both `parse(String)` and
+        // `parse(String, FUNC(...) AS Json)`, and requiring every overload to
+        // carry the index answered `None` for its reviver.
+        let Some(param) = implementation.params.get(index) else {
+            continue;
+        };
+        match &agreed {
+            None => agreed = Some(param.ty.clone()),
+            Some(seen) if *seen == param.ty => {}
+            Some(_) => return None,
+        }
+    }
+    agreed
+}
+
+/// bug-572: the registry parameter positions whose callback the callee invokes
+/// SYNCHRONOUSLY during the call and never stores, forwards, or returns.
+///
+/// A capturing `LAMBDA` written at one of these positions is dead the moment the
+/// call returns, so `free_call_closure_temps` frees it there. For a native
+/// builtin there is no NIR body to prove that from, which is why this is an
+/// explicit ALLOW-list and not "any `FUNC` parameter": `http::route`'s handler
+/// is also a non-isolated `FUNC` parameter, and it is *stored on the returned
+/// `http::Route`* and invoked per request long after the call — freeing it would
+/// be a use-after-free in the server loop.
+///
+/// [`RETAINED_CALLBACK_PARAMETERS`] holds the other side of the partition, and
+/// `every_registry_function_parameter_callback_is_synchronous` asserts the two
+/// together are the WHOLE registry set — so a new `FUNC` parameter reds a test
+/// and forces the decision, instead of defaulting into either list.
+const SYNCHRONOUS_CALLBACK_PARAMETERS: &[(&str, usize)] = &[
+    ("collections.all", 1),
+    ("collections.any", 1),
+    ("collections.filter", 1),
+    ("collections.findIndex", 1),
+    ("collections.findLastIndex", 1),
+    ("collections.forEach", 1),
+    ("collections.groupBy", 1),
+    ("collections.groupBy", 2),
+    ("collections.mapValues", 1),
+    ("collections.partition", 1),
+    ("collections.reduce", 2),
+    ("collections.reduceRight", 2),
+    ("collections.sortBy", 1),
+    ("collections.transform", 1),
+    ("json.parse", 1),
+];
+
+/// bug-572: the registry parameter positions that KEEP their callback past the
+/// call. Never freed by the caller. See [`SYNCHRONOUS_CALLBACK_PARAMETERS`].
+///
+/// `thread::start`'s entry is retained too, and is excluded a second way: it is
+/// `ISOLATED FUNC`, and a capturing lambda is never isolated (`ir::lower` builds
+/// every lambda's type with `isolated = false`), so it cannot be typed there.
+const RETAINED_CALLBACK_PARAMETERS: &[(&str, usize)] = &[("http.route", 1)];
+
+/// bug-572: whether a capturing `LAMBDA` written at `qualified`'s parameter
+/// `index` may be freed once that call returns.
+///
+/// Both halves must hold: the position is on the allow-list AND it still
+/// declares a non-isolated `FUNC` there. The second half keeps the list honest —
+/// a signature change that moves or retypes the callback withdraws the licence
+/// rather than freeing the wrong argument.
+pub(crate) fn synchronous_callback_parameter(qualified: &str, index: usize) -> bool {
+    SYNCHRONOUS_CALLBACK_PARAMETERS.contains(&(qualified, index))
+        && matches!(
+            parameter_type_at(qualified, index),
+            Some(ParameterType::Func(_, _, false))
+        )
+}
+
 /// Whether any of `function`'s implementations declares a parameter of type
 /// `FUNC(<one param>) AS <ret>` (a unary function value).
 fn function_has_unary_callback(function: &RegistryFunction) -> bool {
@@ -5845,5 +5936,98 @@ mod tests {
         assert_eq!(agreed_argument_type("json.parse", 1), None);
         // An unknown member is not an answer.
         assert_eq!(agreed_argument_type("nope.missing", 0), None);
+    }
+
+    /// bug-572 load-bearing invariant: **every non-isolated `FUNC` PARAMETER in
+    /// the registry is a callback the callee invokes synchronously and never
+    /// stores, forwards, or returns.**
+    ///
+    /// `free_call_closure_temps` frees a capturing `LAMBDA` passed at such a
+    /// position as soon as the call returns, and for a native builtin there is no
+    /// NIR body to prove that from — the registry's declared parameter type is
+    /// the whole of the evidence. That was a fact about a list, and the free made
+    /// it load-bearing, so it is an invariant now: add a `FUNC` parameter to a
+    /// member that keeps the callback past its call and this goes red, instead of
+    /// the caller freeing a closure the callee still holds.
+    ///
+    /// `thread::start`'s entry is the one retaining position and it is
+    /// `ISOLATED FUNC`, which the `false` in the pattern excludes — and a
+    /// capturing lambda is never isolated (`ir::lower` builds every lambda type
+    /// with `isolated = false`), so it cannot be typed there in the first place.
+    ///
+    /// `http::Route.handler` is deliberately absent: it is a record FIELD, which
+    /// DOES retain the closure, and a record constructor is not a call — so no
+    /// arm of `freeable_closure_arguments` ever sees it.
+    #[test]
+    fn every_registry_function_parameter_callback_is_synchronous() {
+        let mut positions: Vec<String> = Vec::new();
+        let mut isolated: Vec<String> = Vec::new();
+        for package in registry().packages() {
+            for function in package.functions() {
+                for implementation in &function.implementations {
+                    for (index, param) in implementation.params.iter().enumerate() {
+                        match &param.ty {
+                            ParameterType::Func(_, _, false) => positions.push(format!(
+                                "{}.{}#{index}({})",
+                                package.import_name(),
+                                function.name,
+                                param.name
+                            )),
+                            ParameterType::Func(_, _, true) => isolated.push(format!(
+                                "{}.{}#{index}({})",
+                                package.import_name(),
+                                function.name,
+                                param.name
+                            )),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        positions.sort();
+        positions.dedup();
+        isolated.sort();
+        isolated.dedup();
+        let mut classified: Vec<String> = SYNCHRONOUS_CALLBACK_PARAMETERS
+            .iter()
+            .chain(RETAINED_CALLBACK_PARAMETERS)
+            .map(|(name, index)| format!("{name}#{index}"))
+            .collect();
+        classified.sort();
+        let mut found: Vec<String> = positions
+            .iter()
+            .map(|p| p[..p.find('(').expect("rendered with a name")].to_string())
+            .collect();
+        found.sort();
+        assert_eq!(
+            found, classified,
+            "the set of non-isolated `FUNC` parameters changed. Every new one must \
+             be classified: onto SYNCHRONOUS_CALLBACK_PARAMETERS only if the callee \
+             invokes it during the call and never stores, forwards, or returns it, \
+             and onto RETAINED_CALLBACK_PARAMETERS otherwise. `http.route#1` is the \
+             standing proof the distinction is real — it is a `FUNC` parameter that \
+             the returned `http::Route` KEEPS."
+        );
+        for (name, index) in SYNCHRONOUS_CALLBACK_PARAMETERS {
+            assert!(
+                synchronous_callback_parameter(name, *index),
+                "{name}#{index} is on the allow-list but no longer declares a \
+                 non-isolated `FUNC` there"
+            );
+        }
+        for (name, index) in RETAINED_CALLBACK_PARAMETERS {
+            assert!(
+                !synchronous_callback_parameter(name, *index),
+                "{name}#{index} is retained and must never be freed by its caller"
+            );
+        }
+        assert_eq!(
+            isolated,
+            vec!["thread.start#0(f)"],
+            "the ISOLATED callback set changed: {isolated:?}. An isolated entry IS \
+             retained (the thread runs it after the call returns), and the free is \
+             kept off it by the `false` in `argument_position_is_nonretaining_callback`"
+        );
     }
 }
