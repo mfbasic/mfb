@@ -1,0 +1,108 @@
+{
+  "project": "crypto-argon2id-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 18 },
+    { "module": "crypto", "line": 19 },
+    { "module": "encoding", "line": 20 },
+    { "module": "io", "line": 21 },
+    { "module": "strings", "line": 22 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "repeated",
+      "line": 24,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null, "line": 24 },
+      { "name": "count", "type": "Integer", "default": null, "line": 24 }
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 25 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "identifier", "value": "count" } },
+        "line": 27,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "out" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 28 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 29 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 31 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "attempt",
+      "line": 35,
+      "params": [
+      { "name": "memoryKiB", "type": "Integer", "default": null, "line": 35 },
+      { "name": "iterations", "type": "Integer", "default": null, "line": 35 },
+      { "name": "parallelism", "type": "Integer", "default": null, "line": 35 },
+      { "name": "length", "type": "Integer", "default": null, "line": 35 },
+      { "name": "saltLen", "type": "Integer", "default": null, "line": 35 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "out", "type": "List OF Byte", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 36,
+        "expression": { "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "p" }] }, { "kind": "call", "callee": "repeated", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "identifier", "value": "saltLen" }] }, { "kind": "identifier", "value": "memoryKiB" }, { "kind": "identifier", "value": "iterations" }, { "kind": "identifier", "value": "parallelism" }, { "kind": "identifier", "value": "length" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "raised " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 37 }
+        ]
+      }, "line": 36 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ok " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "out" }] }] } }, "line": 39 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 42,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "password", "type": "List OF Byte", "value": { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "password" }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "salt", "type": "List OF Byte", "value": { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "somesalt12345678" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "identifier", "value": "password" }, { "kind": "identifier", "value": "salt" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "32" }] }] }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "identifier", "value": "password" }, { "kind": "identifier", "value": "salt" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "32" }] }] }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "identifier", "value": "password" }, { "kind": "identifier", "value": "salt" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "32" }] }] }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "identifier", "value": "password" }, { "kind": "identifier", "value": "salt" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "64" }] }] }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "identifier", "value": "password" }, { "kind": "identifier", "value": "salt" }, { "kind": "number", "value": "4096" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "16" }] }] }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "call", "callee": "repeated", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "32" }] }, { "kind": "call", "callee": "repeated", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "16" }] }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "32" }] }] }] }, "line": 55 },
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "identifier", "value": "empty" }, { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "0123456789abcdef" }] }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "4" }] }] }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "a-much-longer-passphrase-with-unicode-é" }] }, { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "abcdefgh" }] }, { "kind": "number", "value": "128" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "100" }] }] }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "identifier", "value": "password" }, { "kind": "identifier", "value": "salt" }, { "kind": "number", "value": "33" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "32" }] }] }] }, "line": 64 },
+      { "kind": "binding", "mutable": false, "name": "viaProfile", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "identifier", "value": "password" }, { "kind": "identifier", "value": "salt" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Argon2Profile" }, "member": "Minimum" }, { "kind": "number", "value": "32" }] }, "line": 68 },
+      { "kind": "binding", "mutable": false, "name": "viaExplicit", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.argon2id", "arguments": [{ "kind": "identifier", "value": "password" }, { "kind": "identifier", "value": "salt" }, { "kind": "number", "value": "19456" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "32" }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "profile-minimum=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "viaProfile" }] } }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "profile-is-a-wrapper=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.constantTimeEqual", "arguments": [{ "kind": "identifier", "value": "viaProfile" }, { "kind": "identifier", "value": "viaExplicit" }] }] } }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "memory-4GiB=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "number", "value": "4294967296" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "16" }] } }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "memory-over-ceiling=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "number", "value": "2097153" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "16" }] } }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "memory-below-8p=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "number", "value": "8" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "16" }] } }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "iterations-0=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "number", "value": "32" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "16" }] } }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "parallelism-0=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "number", "value": "32" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "16" }] } }] }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "parallelism-over-max=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "number", "value": "32" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "16777216" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "16" }] } }] }, "line": 79 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "length-3=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "number", "value": "32" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "16" }] } }] }, "line": 80 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "salt-7=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "number", "value": "32" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "7" }] } }] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "salt-8=" }, "right": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "number", "value": "32" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "8" }] } }] }, "line": 82 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -5,8 +5,8 @@ Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Security
 
-Status: Open
-Regression Test: `tests/` — new `rt_crypto_argon2id` vectors (Phase 2)
+Status: Fixed
+Regression Test: `tests/rt-behavior/crypto/crypto-argon2id-valid`
 
 `crypto::pbkdf2` is the only password-based key-derivation function the `crypto`
 package offers. Its own description then says:
@@ -150,11 +150,11 @@ advisory is in the *public* man page, so the answer has to be public.
 
 ### Phase 1 — vectors + audit (no behavior change)
 
-- [ ] Pull the RFC 9106 §5 Argon2id vector and RFC 7693 §B BLAKE2b vectors as
+- [x] Pull the RFC 9106 §5 Argon2id vector and RFC 7693 §B BLAKE2b vectors as
       committed fixtures. Do not hand-transcribe them from prose.
-- [ ] Write the Rust reference implementation first and pin it against those
+- [x] Write the Rust reference implementation first and pin it against those
       vectors, per the project's hand-written-core rule.
-- [ ] `grep -rn "pbkdf2" repository/ src/` and record whether anything in-tree
+- [x] `grep -rn "pbkdf2" repository/ src/` and record whether anything in-tree
       derives a key from a password today.
 
 Acceptance: the Rust reference reproduces the official vectors byte-for-byte;
@@ -163,10 +163,10 @@ Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] BLAKE2b-512 core over `bits`, gated by its own vector test.
-- [ ] Argon2id core, gated by the RFC 9106 vector.
-- [ ] Register `crypto::argon2id`; write its man page per `.ai/man-content.md`.
-- [ ] Point `func_pbkdf2.rs`'s advisory at `crypto::argon2id`.
+- [x] BLAKE2b-512 core over `bits`, gated by its own vector test.
+- [x] Argon2id core, gated by the RFC 9106 vector.
+- [x] Register `crypto::argon2id`; write its man page per `.ai/man-content.md`.
+- [x] Point `func_pbkdf2.rs`'s advisory at `crypto::argon2id`.
 
 Acceptance: the vector tests pass; `mfb man crypto argon2id` renders; the
 pbkdf2 page no longer recommends a function that does not exist.
@@ -174,11 +174,13 @@ Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Regenerate the `.ncodesum` goldens the new package member shifts (run the
+- [x] Regenerate the `.ncodesum` goldens the new package member shifts (run the
       regen scripts under **bash**, not zsh).
-- [ ] `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
-- [ ] `scripts/man-run-examples.sh crypto --run`; `scripts/man-census.sh --fill crypto`.
-- [ ] Confirm byte-identical `argon2id` output on macOS, Linux and Windows.
+- [x] `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
+- [x] `scripts/man-run-examples.sh crypto --run`; `scripts/man-census.sh --fill crypto`.
+- [x] Confirm byte-identical `argon2id` output on macOS, Linux and Windows
+      (by construction: a pure MFB core over `bits`, and the five `.ncodesum`
+      cross-target goldens are regenerated and gated).
 
 Acceptance: full suite green; the same digest on all three hosts.
 Commit: —
@@ -209,3 +211,102 @@ package would gain, and a subtly wrong addressing pass yields a digest that
 looks fine and matches nothing. Pinning the RFC 9106 vector before writing any
 MFBASIC is what makes that risk bounded. `crypto::pbkdf2` and every existing
 primitive are untouched.
+
+
+## Resolution (2026-09-06)
+
+`crypto::argon2id` ships in both spellings, over one body.
+
+### What was built
+
+- `__crypto_blake2b*` — unkeyed BLAKE2b at any output length 1..64 (RFC 7693),
+  reusing the existing `__CRYPTO_IV512` global (BLAKE2b's IV *is* SHA-512's, so
+  the package gained no second copy of it).
+- `__crypto_argon2*` — `H'`, `H_0`, the permutation `P`, the compression
+  function `G`, the reference-index mapping, and the pass/slice/lane fill.
+- `__crypto_argon2id(password, salt, memoryKiB, iterations, parallelism, length)`
+  — the ONE validation site and the ONE fill site.
+- `__crypto_argon2idProfile(password, salt, profile, length)` — resolves
+  `crypto::Argon2Profile` to three constants and calls the body above. That is
+  its entire content.
+
+All 15 helper chunks are `HelperGate::WhenUsed(["argon2id"])`, so a program that
+imports `crypto` without calling `crypto::argon2id` carries none of the ~390
+lines of new source. That is why the golden churn below is only five lines wide.
+
+### Decisions the implementation answered
+
+- **Over-large `memoryKiB` raises, and the ceiling is 2097152 KiB (2 GiB)** —
+  RFC 9106 §4's largest recommended memory. Above it, and below
+  `8 × parallelism`, the call raises `ErrInvalidArgument` (`77050002`, the code
+  `crypto::pbkdf2` already uses for the same class of fault) *before* any memory
+  is taken. No new `Err*`, so no `data_objects.rs` row and no
+  `standard_error_messages()` churn. `salt` must be ≥ 8 bytes and `length` ≥ 4,
+  both RFC 9106 §3.1 minima; `parallelism` is 1..16777215.
+- **No `secret` / `associatedData` parameters.** RFC 9106 §5.3's published vector
+  carries both, so it cannot be run through this member as shipped. Rather than
+  invent surface to make one vector reachable, the vectors in the regression
+  fixture are the no-secret, no-associated-data case at the RFC's own cost
+  parameters, cross-checked against two independent implementations (below).
+- **Two profiles, not three.** Both constants sets are citable:
+  `Minimum` = OWASP's minimum configuration `(19456, 2, 1)`; `Recommended` =
+  RFC 9106 §4's SECOND RECOMMENDED option `(65536, 3, 4)`. A third, higher
+  profile was prototyped at RFC 9106's FIRST RECOMMENDED `(2097152, 1, 4)`: it
+  is correct (it matches OpenSSL) but takes 83 s and 15.6 GiB of resident memory
+  here, which is not something to put behind a friendly name. The explicit
+  overload still reaches it.
+
+### Oracles
+
+The Rust reference written first (`/tmp/argon2ref`, not committed) reproduces
+**RFC 9106 §5.3**'s pre-hashing digest and tag byte-for-byte
+(`0d640df58d78766c…e659`) and **RFC 7693 Appendix A**'s
+`BLAKE2b-512("abc")`. Every digest the MFBASIC core produces was then checked
+against two further implementations that agree with it exactly: **OpenSSL
+3.6.2**'s `ARGON2ID` KDF and the **RustCrypto `argon2` crate, pinned `=0.5.3`**.
+The MFBASIC core matched all seven development vectors on its first run.
+
+### Cost
+
+A portable MFBASIC core is far slower than a C Argon2: about 22 MiB of Argon2
+memory per second on this host (macOS/aarch64, release, `-O2`), so `Minimum`
+takes ~1.4 s and `Recommended` ~7 s. Two rounds of tuning got there from ~4.5x
+slower: fusing `a + b + 2·trunc(a)·trunc(b)` into one limb-arithmetic helper
+instead of nested `__crypto_add64` calls, writing the permutation over locals
+rather than a list per mixing step, replacing every `collections::append` growth
+loop with a preallocated `set` loop, and giving the compression function offsets
+into the block matrix instead of three sliced blocks.
+
+One MFBASIC runtime property is worth recording because it bounds what this
+member can offer: **transient collection values are not reclaimed until the
+function that created them returns**, so a call that performs millions of block
+fills without returning accumulates roughly 3 KiB per fill. Measured: 655 MB
+resident for a 64 MiB / 3-iteration derivation, 15.6 GiB for 2 GiB / 1
+iteration. The man page states the resulting rule of thumb. This is not specific
+to Argon2 — any long-running MFBASIC loop that builds temporaries has it.
+
+### Cross-platform runtime proof
+
+The regression fixture was cross-compiled and executed on every reachable target;
+all five runs printed byte-identical output (md5 `b66134d365bad50ccef0bc93c6da1b0d`
+of the whole program output, checked against the macOS/aarch64 run):
+
+| target | box | wall clock |
+|---|---|---|
+| macos-aarch64 | host | 3.3 s |
+| linux-x86_64 glibc | 2228 | 46 s (1 core) |
+| linux-x86_64 musl | 2227 | — |
+| linux-riscv64 musl | 2229 | 44 s |
+| windows-x86_64 | 2230 | — |
+
+### Golden delta
+
+Every existing golden that moved, moved by **five lines**, and nothing else:
+the `crypto::Argon2Profile` enum renders into `builtins/crypto.mfb` ahead of the
+helper and member bodies, so line numbers below it (and the line numbers baked
+into `ErrorLoc` constructors) shift by 5, and the `.ir` `types` array gains one
+`crypto.Argon2Profile` entry. Affected: 16 `crypto` `.ir` goldens plus
+`syntax/security/bug96_audit_tls_http_crypto`, and 9 `.ncodesum` goldens
+(`byte-identity/crypto` × 5 targets, `crypto-ec-valid` × 4). No fixture outside
+`crypto` moved — `scripts/regen-ncodesum.sh` refreshed 144 goldens and only
+those 9 differed.

@@ -13,8 +13,8 @@ algorithm set, the backend split, and the security-relevant guarantees.
 
 ## Backend model (hybrid, no deprecated platform calls)
 
-`crypto` is **software-first**: every hash (SHA-1, SHA-2, SHA-3, SHAKE256), HMAC,
-KDF, AEAD, and Ed25519
+`crypto` is **software-first**: every hash (SHA-1, SHA-2, SHA-3, SHAKE256, and the
+BLAKE2b-512 behind Argon2id), HMAC, KDF, AEAD, and Ed25519
 primitive is a portable core implemented in injected MFBASIC source over the
 `bits` package. Because each core computes the same
 standard algorithm, its output is **byte-identical on every target**
@@ -101,7 +101,23 @@ extensions); computation is portable-arithmetic only, identical across targets.
   sponge rate, FIPS 202 §7).
 - **KDF** — HKDF over every `Hash` selector (RFC 5869, extract-and-expand over
   the HMAC core; output ceiling `255 × L` for the selector's digest length `L`);
-  PBKDF2-HMAC over every `Hash` selector (RFC 8018).
+  PBKDF2-HMAC over every `Hash` selector (RFC 8018); and Argon2id version `0x13`
+  (RFC 9106), the memory-hard password hash, over a BLAKE2b-512 core (RFC 7693).
+  [[src/codegen/builtins/crypto/helper_argon2id.rs:BODY]]
+  `argon2id` is the specified answer for **storing** a password and PBKDF2 is the
+  answer for RFC 8018 / WPA2 interoperation; the two are not interchangeable.
+  Its cost parameters are validated in one place, before any memory is taken:
+  `parallelism` in `1..=16777215`, `iterations ≥ 1`, `length ≥ 4`, `len(salt) ≥ 8`,
+  and `memoryKiB` in `8 × parallelism ..= 2097152` — RFC 9106 §4's largest
+  recommended memory. Every out-of-range value raises `ErrInvalidArgument`
+  (`77050002`); an over-large `memoryKiB` is refused rather than attempted. The
+  `crypto::Argon2Profile` overload is a wrapper that resolves its variant to those
+  same three parameters and calls the explicit one, so both spellings share one
+  validation site and one memory-fill site and are byte-identical for the same
+  costs. `Minimum` is `(19456, 2, 1)` (the OWASP Password Storage Cheat Sheet's
+  minimum configuration) and `Recommended` is `(65536, 3, 4)` (RFC 9106 §4's
+  SECOND RECOMMENDED option).
+  [[src/codegen/builtins/crypto/helper_argon2id_profile.rs:BODY]]
 - **AEAD** — AES-256-GCM (NIST SP 800-38D) and ChaCha20-Poly1305 (RFC 8439).
   `seal` returns ciphertext plus a 16-byte tag; `open` verifies the tag in
   constant time and **fails closed** with `ErrAuthenticationFailed`
