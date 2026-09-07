@@ -16,7 +16,7 @@ edition = "2021"
 # authors never read the MFBASIC cores.
 #
 # `sha3` is the reason this oracle exists at all. `ring` covers SHA-1 and the
-# SHA-2 widths, so `tests/rt_crypto_mac_kdf_interop.rs` checks those on every
+# SHA-2 widths, so `tests/interop/rt_crypto_mac_kdf_interop.rs` checks those on every
 # `cargo test`; ring has no SHA-3 and no SHA-224 KDF, and adding these four
 # crates to the compiler's own dev-dependencies to reach them would be new
 # compiled code in every CI job for a matrix only this tool needs.

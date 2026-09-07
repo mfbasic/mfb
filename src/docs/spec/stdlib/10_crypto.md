@@ -155,7 +155,7 @@ extensions); computation is portable-arithmetic only, identical across targets.
   a box shorter than `Nenc` + 16 bytes (48 / 72), a wrong-length recipient key,
   or a low-order `enc`. Proven against the RFC's Appendix A vectors and both
   ways, for all four profiles, against an independent implementation
-  (`tests/rt_crypto_hpke_interop.rs`).
+  (`tests/interop/rt_crypto_hpke_interop.rs`).
   [[src/codegen/builtins/crypto/helper_hpke_profile.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_hpke_seal_with.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_hpke_key_schedule.rs:BODY]]

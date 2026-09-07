@@ -11,7 +11,7 @@ edition = "2021"
 # the entire source of this tool's authority.
 #
 # These are the curves the compiler's own dev-dependencies cannot reach.
-# `tests/rt_crypto_key_interop.rs` covers Ed25519, X25519 and P-256/P-384 on
+# `tests/interop/rt_crypto_key_interop.rs` covers Ed25519, X25519 and P-256/P-384 on
 # every `cargo test`, because ring/dalek were already in the lockfile. Ed448,
 # X448 and P-521 have no implementation there, and pulling six more crates into
 # the compiler's dev-dependencies would mean new compiled code in every CI job on

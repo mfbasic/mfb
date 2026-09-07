@@ -28,6 +28,7 @@
 //! `tools/oracles/crypto/keys/` where a pinned third-party crate is allowed.
 //! `crypto::encrypt`/`decrypt` are covered by `rt_crypto_hpke_interop`.
 
+#[path = "../common/mod.rs"]
 mod common;
 use common::{build_project, run_capture_with_env, temp_project};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};

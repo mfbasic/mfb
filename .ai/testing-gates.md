@@ -704,7 +704,7 @@ matches, do not invent a fourth:
 |---|---|---|
 | An MFBASIC **package** under `packages/` | `packages/<pkg>/oracle/` | `packages/yaml/oracle` (Node, eemeli/yaml pinned 1.2 Core), `packages/mustache/oracle`, `packages/jwt/oracle`, `packages/json_schema/oracle` |
 | A **builtin** package or codegen kernel | `tools/<area>/` | `tools/oracles/crypto/argon2id`, `tools/math-kernels` |
-| A primitive whose independent implementation is small enough to run in CI | the test file itself | `tests/rt_crypto_hpke_interop.rs` — 808 lines carrying its own RFC 9180 / RFC 7748 implementation, so the cross-check runs on every `cargo test` |
+| A primitive whose independent implementation is small enough to run in CI | the test file itself | `tests/interop/rt_crypto_hpke_interop.rs` — 808 lines carrying its own RFC 9180 / RFC 7748 implementation, so the cross-check runs on every `cargo test` |
 
 The third is the best of the three when it is affordable, because it is the only
 one that executes in CI. Prefer it; fall back to `tools/` when the reference needs

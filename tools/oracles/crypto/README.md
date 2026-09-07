@@ -30,10 +30,10 @@ decides what lives here:
 | Member | Checked by | Why there |
 |---|---|---|
 | `hash`, `shake256`, `argon2id` | `tools/` (here) | needs a pinned third-party crate |
-| `hmac`, `hkdf`, `pbkdf2` | **both** | `tests/rt_crypto_mac_kdf_interop.rs` for every selector `ring` can compute; here for the SHA-3 family and SHA-224, which it cannot |
-| `seal`, `open` | `tests/rt_crypto_aead_interop.rs` | `ring` was already a dev-dependency |
-| `generate`, `sign`, `verify`, `exchange`, `convert` | **both** | `tests/rt_crypto_key_interop.rs` for Ed25519/X25519/P-256/P-384; here for Ed448, X448, P-521 |
-| `encrypt`, `decrypt` | `tests/rt_crypto_hpke_interop.rs` | already a bidirectional RFC 9180 interop proof, pinned to Appendix A.1/A.6 |
+| `hmac`, `hkdf`, `pbkdf2` | **both** | `tests/interop/rt_crypto_mac_kdf_interop.rs` for every selector `ring` can compute; here for the SHA-3 family and SHA-224, which it cannot |
+| `seal`, `open` | `tests/interop/rt_crypto_aead_interop.rs` | `ring` was already a dev-dependency |
+| `generate`, `sign`, `verify`, `exchange`, `convert` | **both** | `tests/interop/rt_crypto_key_interop.rs` for Ed25519/X25519/P-256/P-384; here for Ed448, X448, P-521 |
+| `encrypt`, `decrypt` | `tests/interop/rt_crypto_hpke_interop.rs` | already a bidirectional RFC 9180 interop proof, pinned to Appendix A.1/A.6 |
 | `randomBytes`, `randomInt`, `uuid4`, `uuid7`, `ulid` | nothing, deliberately | no oracle is possible for a random value; only distributional or format properties, which are not what an oracle is for |
 | `constantTimeEqual` | nothing, deliberately | it computes equality; a second opinion on `==` adds no information |
 
@@ -241,7 +241,7 @@ as `hash/`: `mfb/` emits `case` lines carrying the inputs it used, `run.sh`
 feeds those to `rust/`, and the digests are compared byte for byte.
 
 189 cases — 21 input sets across the full nine-selector `crypto::Hash` matrix.
-`tests/rt_crypto_mac_kdf_interop.rs` already covers SHA-1 and the SHA-2 widths
+`tests/interop/rt_crypto_mac_kdf_interop.rs` already covers SHA-1 and the SHA-2 widths
 on every `cargo test`; what only exists here is the **SHA-3 family** (no `ring`
 equivalent) and **SHA-224 for the two KDFs**. Reaching those needs `sha3`,
 `hkdf` and `pbkdf2`, which would be new compiled code in every CI job.

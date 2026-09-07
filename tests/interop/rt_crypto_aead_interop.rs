@@ -23,6 +23,7 @@
 //! already a dev-dependency: no new compiled code, and it runs on every
 //! `cargo test`. See `.ai/testing-gates.md` on where an oracle lives.
 
+#[path = "../common/mod.rs"]
 mod common;
 use common::{build_project, run_capture_with_env, temp_project};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, CHACHA20_POLY1305};

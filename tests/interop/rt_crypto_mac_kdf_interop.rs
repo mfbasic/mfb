@@ -20,6 +20,7 @@
 //! have no `ring` equivalent at all and are covered by
 //! `tools/oracles/crypto/mac-kdf/`, which can pin the extra crates.
 
+#[path = "../common/mod.rs"]
 mod common;
 use common::{build_project, run_capture_with_env, temp_project};
 use hmac::{Hmac, Mac};

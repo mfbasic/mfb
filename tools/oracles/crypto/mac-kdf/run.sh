@@ -3,7 +3,7 @@
 # `crypto::pbkdf2` against the RustCrypto reference in `rust/`, over the FULL
 # `crypto::Hash` matrix -- all nine selectors.
 #
-# `tests/rt_crypto_mac_kdf_interop.rs` already checks the subset `ring` can
+# `tests/interop/rt_crypto_mac_kdf_interop.rs` already checks the subset `ring` can
 # compute, on every `cargo test`. This covers the rest (the SHA-3 family, and
 # SHA-224 for the two KDFs) and overlaps the rest rather than abutting it, so a
 # disagreement between the two references would show up here.

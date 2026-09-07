@@ -8,7 +8,7 @@
 ' one of them. The `legacy-*` boxes are real pre-plan-109-E `mfb-box-v1` sealed boxes
 ' for the same recipient and must be rejected. Round trips use MFB's own random
 ' ephemeral key; the two-way interop with the independent implementation is
-' `tests/rt_crypto_hpke_interop.rs`.
+' `tests/interop/rt_crypto_hpke_interop.rs`.
 IMPORT bits
 IMPORT collections
 IMPORT crypto

@@ -24,7 +24,7 @@
 //!                         public key; the secrets must match.
 //!
 //! Coverage is the full `crypto::Certificate` matrix plus both `KeyConvert`
-//! directions. `tests/rt_crypto_key_interop.rs` checks the Ed25519 / X25519 /
+//! directions. `tests/interop/rt_crypto_key_interop.rs` checks the Ed25519 / X25519 /
 //! P-256 / P-384 subset on every `cargo test` (those crates were already in the
 //! compiler's lockfile); Ed448, X448 and P-521 are only reachable here, and the
 //! overlap is deliberate -- if the two references ever disagreed, this would say

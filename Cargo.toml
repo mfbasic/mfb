@@ -43,19 +43,19 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(perf)'] }
 [dev-dependencies]
 tempfile = "3"
 serde_json = "1"
-# plan-109-E/F: the RFC 9180 HPKE interop harness (`tests/rt_crypto_hpke_interop.rs`)
+# plan-109-E/F: the RFC 9180 HPKE interop harness (`tests/interop/rt_crypto_hpke_interop.rs`)
 # needs an implementation independent of the MFB package — X25519 from
 # curve25519-dalek and HKDF/AES-256-GCM/ChaCha20Poly1305 from ring. Both are
 # already in the lockfile through the repository crate's rustls/ed25519 deps,
 # so they resolve offline and add no new compiled code.
 ring = "0.17"
 curve25519-dalek = "4"
-# `tests/rt_crypto_mac_kdf_interop.rs` checks every `crypto::Hash` selector of
+# `tests/interop/rt_crypto_mac_kdf_interop.rs` checks every `crypto::Hash` selector of
 # `hmac`, and `ring` has no SHA-224 — this covers that one selector (over `sha2`,
 # already a normal dependency). Already in the lockfile through the repository
 # crate's argon2/pbkdf2 deps, so it resolves offline and adds no new compiled code.
 hmac = "0.12"
-# `tests/rt_crypto_key_interop.rs` checks MFB's Ed25519 signatures against TWO
+# `tests/interop/rt_crypto_key_interop.rs` checks MFB's Ed25519 signatures against TWO
 # independent verifiers, not one — agreement with a single implementation is
 # weaker evidence, and Ed25519 being deterministic means the signature can be
 # compared byte for byte rather than only round-tripped. Already in the lockfile
@@ -71,3 +71,34 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 # `mfb build` child). Already in the lockfile through ring/rustls, so it resolves
 # offline and adds no new compiled code.
 libc = "0.2"
+
+# The interop proofs live in `tests/interop/` rather than loose in `tests/`.
+# Cargo only auto-discovers `tests/*.rs` and `tests/<dir>/main.rs`, so a plain
+# subdirectory of test files is invisible to it — these stanzas are what keep
+# them running. Declaring them explicitly (rather than adding a
+# `tests/interop/main.rs` that pulls each in as a module) keeps ONE BINARY PER
+# TEST and keeps the target names unchanged, so `cargo test --test
+# rt_crypto_hpke_interop` still works exactly as the plan-109 docs record it.
+#
+# `autotests` stays at its edition-2021 default of true: explicit `[[test]]`
+# sections are additive there, and the other ~139 files in `tests/` are still
+# discovered automatically. (Under edition 2015 the first `[[test]]` would have
+# silently switched the rest off.)
+#
+# Adding an interop test means adding a stanza here — it will NOT be picked up
+# on its own.
+[[test]]
+name = "rt_crypto_hpke_interop"
+path = "tests/interop/rt_crypto_hpke_interop.rs"
+
+[[test]]
+name = "rt_crypto_mac_kdf_interop"
+path = "tests/interop/rt_crypto_mac_kdf_interop.rs"
+
+[[test]]
+name = "rt_crypto_aead_interop"
+path = "tests/interop/rt_crypto_aead_interop.rs"
+
+[[test]]
+name = "rt_crypto_key_interop"
+path = "tests/interop/rt_crypto_key_interop.rs"

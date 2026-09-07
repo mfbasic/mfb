@@ -4,7 +4,7 @@
 ' never its judge: it prints the inputs it used beside each result, and
 ' `../run.sh` feeds those same inputs to `../rust`.
 '
-' Why this exists next to a CI test. `tests/rt_crypto_mac_kdf_interop.rs` checks
+' Why this exists next to a CI test. `tests/interop/rt_crypto_mac_kdf_interop.rs` checks
 ' the same three members on every `cargo test`, but only for the selectors `ring`
 ' can compute: SHA-1 and the SHA-2 widths for hmac, and SHA-1/256/384/512 for the
 ' two KDFs. The SHA-3 family has no `ring` equivalent at all, and neither does

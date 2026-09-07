@@ -5,7 +5,7 @@
 ' implementation (Python over OpenSSL X448/AEAD primitives, validated on the RFC's
 ' A.1 vector) for the RFC 8032 §7.4 test-1 Ed448 recipient, and the same boxes are
 ' cross-checked by the from-scratch Rust implementation in
-' `tests/rt_crypto_hpke_interop.rs` (which also interoperates both ways at run
+' `tests/interop/rt_crypto_hpke_interop.rs` (which also interoperates both ways at run
 ' time). Cross-curve inputs (an Ed25519 key or a 48-byte X25519 box under an
 ' X448 suite) must fail closed as malformed, never decrypt.
 IMPORT bits

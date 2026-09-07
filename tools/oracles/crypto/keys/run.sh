@@ -8,7 +8,7 @@
 # that key), so `rust/` is the DRIVER rather than a reference the shell compares
 # against. It spawns the MFB program with a job in the environment.
 #
-# `tests/rt_crypto_key_interop.rs` covers the Ed25519 / X25519 / P-256 / P-384
+# `tests/interop/rt_crypto_key_interop.rs` covers the Ed25519 / X25519 / P-256 / P-384
 # subset on every `cargo test`. Ed448, X448 and P-521 need crates that are not
 # in the compiler's lockfile, and adding them would be new compiled code in
 # every CI job on five platforms -- so they are checked here.

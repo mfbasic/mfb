@@ -14,6 +14,7 @@
 //! Appendix A.1 vector (`hpke_rust_side_reproduces_rfc9180_a1`) before it is
 //! trusted as the oracle.
 
+#[path = "../common/mod.rs"]
 mod common;
 use common::{build_project, run_capture_with_env, temp_project};
 use ring::aead::{
