@@ -208,7 +208,7 @@ fn a_project_created_by_init_builds_tests_docs_formats_and_audits() {
          directory and still exited 0"
     );
 
-    for command in ["build", "test", "doc", "fmt", "audit"] {
+    for command in ["build", "test", "fmt", "audit"] {
         assert_eq!(
             run(&[command, &project]),
             0,
@@ -217,6 +217,22 @@ fn a_project_created_by_init_builds_tests_docs_formats_and_audits() {
              command that cannot run over it is broken for everyone's first hour"
         );
     }
+
+    // `doc` is given an explicit `--out` inside the temp directory. Its default
+    // is `doc.html` in the process's CURRENT directory, which for a unit test is
+    // the crate root -- the first version of this test left one there, and an
+    // untracked file in the repo is a test writing outside its own scratch.
+    let page = dir.path().join("doc.html");
+    assert_eq!(
+        run(&["doc", &project, "--out", &page.to_string_lossy()]),
+        0,
+        "`mfb doc <project> --out <file>` must render the template project"
+    );
+    assert!(
+        page.is_file(),
+        "`--out` names where the page goes, so the page must be THERE and not at \
+         the default path in whatever directory the process happened to be in"
+    );
 }
 
 /// `init` on a location it cannot create is a FAILURE, not a usage error.
