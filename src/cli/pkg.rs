@@ -33,6 +33,10 @@ use super::build::{build_project, BuildOptions, Verbosity};
 /// [`crate::cli::CommandError`] (bug-340 B2): one enum, two domain-facing names.
 pub(crate) use super::CommandError as PkgCommandError;
 
+#[cfg(test)]
+#[path = "pkg/command_tests.rs"]
+mod command_tests;
+
 pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
     match args {
         [command, rest @ ..] if command == "add" => {
