@@ -687,3 +687,40 @@ it still encodes, and `rules/mod.rs` degrades to a visible `0-000-0000
 UNKNOWN_RULE` diagnostic. In both the release path is a designed, documented
 degradation, and replacing it with a panic is a product change, not an audit
 call — the right instrument for those is a test over the emit sites.
+
+## Where an oracle lives (and why a fixture without one rots)
+
+A committed expected value is a **pin**, not a proof. The thing that made it
+correct is the oracle, and if the oracle evaporates the next person changing the
+implementation has a number they cannot re-derive and cannot safely change. That
+happened with `crypto::argon2id` (bug-515): the Rust reference, the RustCrypto
+cross-check and the OpenSSL cross-check all lived in `/tmp` and did not survive
+the session.
+
+Three homes, by what is being validated — put a new oracle in the one that
+matches, do not invent a fourth:
+
+| Oracle for | Home | Example |
+|---|---|---|
+| An MFBASIC **package** under `packages/` | `packages/<pkg>/oracle/` | `packages/yaml/oracle` (Node, eemeli/yaml pinned 1.2 Core), `packages/mustache/oracle`, `packages/jwt/oracle`, `packages/json_schema/oracle` |
+| A **builtin** package or codegen kernel | `tools/<area>/` | `tools/crypto-oracles/argon2id`, `tools/math-kernels` |
+| A primitive whose independent implementation is small enough to run in CI | the test file itself | `tests/rt_crypto_hpke_interop.rs` — 808 lines carrying its own RFC 9180 / RFC 7748 implementation, so the cross-check runs on every `cargo test` |
+
+The third is the best of the three when it is affordable, because it is the only
+one that executes in CI. Prefer it; fall back to `tools/` when the reference needs
+a dependency, a pinned third-party version, or minutes of compute.
+
+**Two rules for any of them.**
+
+1. **Fetch published vectors; never recite them.** A hallucinated vector is worse
+   than none because it looks like evidence. RFC texts are retrievable
+   (`curl -O https://www.rfc-editor.org/rfc/rfc9106.txt`).
+2. **Pin the cross-check's version, and commit the lockfile.** A cross-check whose
+   dependency floats is not a cross-check — the thing it agreed with is gone.
+
+**And check the oracle can be wrong.** Agreement between an implementation and a
+reference written by reading that implementation proves nothing; a wrong oracle is
+ratified, not caught. That is why `crypto-oracles/argon2id` carries *three*
+opinions (its own reference, RustCrypto, OpenSSL) and why `packages/yaml` keeps
+PyYAML alongside the sharper 1.2 oracle — where two references disagree with each
+other is where the spec is worth re-reading.
