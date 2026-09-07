@@ -5,7 +5,7 @@ Effort: small-to-medium (the renderer change is small; deciding the LAYOUT is th
 Severity: LOW-MEDIUM (documentation correctness; no miscompile — see "Why this is not urgent")
 Class: Documentation correctness / man renderer
 
-Status: **FIXED** (2026-09-06, `b1b336077`)
+Status: **FIXED** (2026-09-06, `744773ea6`)
 Regression Test: `src/cli/man.rs` —
 `a_multi_overload_errors_table_names_the_overloads_that_raise_each_error`,
 `every_errors_overload_number_names_a_rendered_signature`,
