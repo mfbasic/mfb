@@ -235,130 +235,101 @@ So the typed machinery exists and works — it was applied to exactly one vocabu
 
 ---
 
-## Man-page review notes — FILED as bug-514 … bug-535 (2026-09-04)
+# Ecosystem gaps: what to build next, and in which shape (2026-09-06, read-only survey)
 
-Everything below this line up to the `term::` section has been verified and
-written up. **Do not re-file from these notes** — work the bug documents, which
-carry the reproduction, the root cause and the decisions. Each has a runnable
-spike in `spikes/api-review/<bug-id>/`.
+Survey question: given the most-downloaded Rust crates as a proxy for what programs
+actually need, what is missing from MFB's ecosystem — and for each gap, should it be a
+builtin, a binding package, or a pure MFB package?
 
-| note | bug |
-| --- | --- |
-| KeyPair untagged | bug-514 |
-| no memory-hard password KDF | bug-515 |
-| NIST private-key encoding interop | bug-516 |
-| SHA-1 advisory vs HMAC | bug-517 |
-| `withZone` contradiction | bug-518 |
-| `parse` does not validate | bug-519 |
-| named zones / portable `Local` | bug-520 |
-| `toIso` nanoseconds | bug-521 |
-| RES-transfer contradiction | bug-522 |
-| RES shapes missing from type pages | bug-523 |
-| `process::close` naming | bug-524 |
-| tcp/tls close + backlog asymmetry | bug-525 |
-| `tls::poll` signature slip | bug-526 |
-| inclusive range naming, language-wide | bug-527 |
-| pad width vs display width | bug-528 |
-| byte search vs scalar index / empty needle | bug-529 |
-| `utf8Encode` return-type overload | bug-530 |
-| absence: `ErrNotFound` vs `-1` | bug-531 |
-| regex reports where, not what | bug-532 |
-| empty-pattern `replace` | bug-533 |
-| regex `split` / `count` / AttributedString | bug-534 |
+Finding on the premise: the crates.io top-20 by all-time downloads is the *wrong* map.
+MFB already has a builtin equivalent for 15 of those 20 (`hashbrown`→`Map`/`Set`,
+`getrandom`/`rand`→`crypto::randomBytes`+`math::rand`, `bitflags`→`bits`,
+`base64`→`encoding`, `indexmap`→`Set OF T`, `itertools`→`collections`,
+`thiserror`→`errorcode`, `regex-syntax`→`regex`, `memchr`→`strings::find`,
+`serde`→`json`, …), and the other five (`syn`, `quote`, `proc-macro2`, `cfg-if`,
+`libc`) are Rust-specific plumbing MFB structurally does not need. The signal is one
+tier down: the crates people reach for *on top of* those primitives.
 
-Three notes were **wrong or understated** and the bug documents supersede them:
+Source: `curl -s "https://crates.io/api/v1/crates?page=1&per_page=60&sort=downloads"`.
 
-- `parse` does not "carry the out-of-range component into the result" as the man
-  page claims — it silently rolls it over (`2026-13-45` → `2027-02-15`). bug-519.
-- The RES-transfer contradiction resolves in favour of the **package intro**;
-  `thread::transfer`'s list is the stale one. bug-522 carries the 11-resource
-  census.
-- The `strings` empty-needle split is four-way, not two-way: `contains` TRUE,
-  `find` 0, `count` raises, `replace` no-op. bug-529.
+## The four shapes that already exist in this repo
 
-One bug was found while verifying the rest and is not a note below: bug-535, a
-`RES` bind off a thread channel failing the build with a bare internal error.
+There are four, not three; the fourth ("builtin + dlopen") changes two of the verdicts.
 
-**Still unfiled from this review: the `term::` coordinate-order item at the
-bottom of this file.** It was not part of the batch that was worked up.
+| Shape | Where | Mechanism | Examples |
+|---|---|---|---|
+| Builtin | `src/codegen/builtins/<pkg>/` | Rust descriptors, emitted as native code. Always present, nothing to resolve. | `json`, `csv`, `regex`, `strings` |
+| Builtin + dlopen | same | Builtin that reaches a *system* lib at runtime via dlopen | `tls` → libssl (`emit_dlopen_libssl`, `src/target/shared/code/tls/mod.rs:199`) |
+| Binding package | `packages/<pkg>/` | `LINK` block + `"libraries"` in `project.json`; `type: system` or `type: vendor` | `sqlite3` (system libsqlite3), `libsnd` (7 vendored builds) |
+| Pure MFB package | `packages/<pkg>/` | Only `.mfb` under `src/` | `yaml` 2,795 ln, `jwt` 3,286 ln, `mustache` 1,839 ln |
 
----
+Spec defines the binding shape at `src/docs/spec/language/17_native-libraries.md:3-9`:
+"A source package that declares `LINK` is a binding package."
 
-KeyPair is untagged. A 32-byte pair might be Ed25519 or X25519; a 57-byte pair is Ed448, a 56-byte pair is X448. convert only checks length. encrypt / decrypt take signing keys and convert internally, so a raw X25519 public key of the same length would be run through the Ed→Montgomery map and silently produce garbage (or a box nobody can open). The docs admit this. The type system does not. A Certificate tag on KeyPair, or distinct record types, would make the “no curve tagging” paragraph unnecessary.
+Shape-selection criteria the repo's own choices reveal:
 
-Password hashing is the weak spot they already named. The only password KDF is PBKDF2. The docs tell you to prefer Argon2id/scrypt/bcrypt and then do not provide them. For a “software-first” package that already has SHAKE and a bits layer, Argon2id would be the one addition that changes real-world advice from “use this for compatibility” to “use this to store passwords.”
+* **Builtin** when a builtin already consumes it (`http` needs gzip, `net` needs TLS), when
+  it needs syscalls/arch code MFB source cannot express, or when it is a hot byte loop at
+  scale (why `json`/`csv`/`regex` are Rust and not packages).
+* **Binding package** when a mature ubiquitous C library exists, the surface is large, and
+  reimplementing is a correctness or security liability — and only user code needs it.
+* **Pure MFB package** when it is composition over existing builtins with no syscalls and
+  no perf cliff.
 
-NIST private-key encoding is bespoke. 0x04‖X‖Y‖d is neither raw d nor PKCS#8. Wire-compatible across this package’s platforms, yes; drop-in with OpenSSL PEM/DER, no. That belongs in a migration note next to the size table.
+## The gaps, ranked, with a shape verdict
 
-SHA-1 as a hard warning (build still works) is the right severity. HMAC-SHA1 is still fine; hashing with SHA-1 is not. The advisory does not distinguish those, which will annoy people doing HMAC-SHA1 for TLS-era interop.
+| # | Thing | Shape | Why |
+|---|---|---|---|
+| 1 | CLI arg parsing (`clap`, #34) | Pure MFB package | Whole surface today is `os::args`; `grep -rl "os::args" examples/ packages/` = 7 files each hand-rolling a loop, incl. four of our own oracle probes. argv is tiny — no perf argument. |
+| 2 | Logging (`log`, #29) | Pure MFB package (condition below) | Composition over `io`, `os::getEnv`, `datetime`. Today the surface is `io::print`/`io::printError`. |
+| 3 | TOML | Pure MFB package | Exact `yaml` precedent — parse to `json::Json`, let `json::get`/`stringify` do the rest. Config-scale text, no perf cliff. Oracle is free (Python `tomllib`). |
+| 4 | gzip/deflate | Builtin + dlopen — already decided | plan-93-A specifies `compress::` mirroring the libssl dlopen against system zlib. Reasoning holds: 64 MiB bodies, dynamic Huffman + 32 KiB LZ77 window, and `http::` is a consumer. Unblocks 93-B/C. |
+| 5 | zip/tar archives | Pure MFB package | Container formats are header parsing and offsets; delegate DEFLATE to `compress::`. Matches http's own contract — "all protocol work is string manipulation; only the transport branches reach native code" (`src/builtins/http.rs:5`, quoted in plan-93-A). Unblocks `.docx`/`.xlsx`/`.odt`/`.epub`/`.jar`. |
+| 6 | XML | Pure MFB package | See note below. `grep -ril xml src/codegen/builtins/ packages/` hits only HTML *escaping* and MIME tables — zero parsing coverage. |
+| 7 | WebSocket | Split: builtin seam + pure MFB package | Blocker is builtin (connection hijack out of `http::handleRequest`); RFC 6455 framing is masking-XOR + header parsing, with SHA-1 and base64 already builtin. See the `# websockets` section above for the full diagnosis. |
+| 8 | PostgreSQL client | Pure MFB package | See note below. |
 
----
+Deliberately **not** recommended: a web framework (`http::route` already does `:name`,
+`:name?` and `*` path params) and image codecs (canvas already decodes PNG via
+`helper_png.rs`).
 
-If this is heading toward a v2, I would (1) fix the withZone contradiction, (2) make parse validate or return a distinct unchecked type, (3) add named zones or at least a way to serialize “local at this offset on this host” portably, and (4) give toIso an overload that keeps nanoseconds.
+Suggested order: **#1 first** — smallest thing on the list, no compiler change, seven files
+in-tree waiting for it, and it shortens every later package's oracle probe and example.
+Then **#4**, because it is already scoped, already half-implemented, and three written
+plans queue behind it.
 
-If you want a deeper pass, the highest-value follow-ups are a DST worked example for civil/addDays, or a critique of the format mini-language versus strftime / Temporal.
+## The three calls worth defending
 
----
+**Postgres as pure MFB, not a binding package.** Looks wrong next to `sqlite3`; isn't.
+SQLite is a *file format plus query engine* — reimplementing is absurd, so binding is
+correct. Postgres is a *wire protocol*: a stable, well-specified message stream over a
+socket. Essentially no ecosystem binds libpq — Go, JS, and Rust's `tokio-postgres` all
+speak it directly. Every primitive is present: `tcp`, `tls`, and SCRAM-SHA-256 falls out of
+`crypto::hmac` + `crypto::pbkdf2` + `crypto::hash` + `crypto::constantTimeEqual`. The
+decisive factor for a compile-to-native language is deployment: a binding needs libpq
+installed (absent by default on macOS and Windows) or seven vendored builds like `libsnd`;
+a wire implementation ships as one binary with no host dependency. Shape it like `jwt`.
+Caveat: `grep` over `src/codegen/builtins/crypto/` shows no MD5, so legacy `md5` auth is
+out — deprecated and gone in PG 18, but say so in the README.
 
-review all man pages - RES can be a a record, RES can be in a collection, RES can transfer threads.
-review all RES types - in the thread::transfer | thread::accept man list any that **can't** be transfered and why.
+**XML as pure MFB, not a libxml2 binding.** `yaml` at 2,795 lines is the precedent and XML
+is comparable. libxml2 would mean a large wrapper surface, an inherited CVE history, and —
+because it is not a system library on Windows — the full `libsnd` vendoring treatment.
+Scope to **XML only**: HTML5 tag-soup parsing is a different animal (the WHATWG
+error-recovery algorithm is a spec unto itself) and deserves its own decision later.
 
-The package intro says every built-in socket and listener may cross:
+**Logging, with one condition.** Package is right *unless* the `http` builtin server should
+emit through the same facade. Builtins cannot depend on packages, so that requirement alone
+forces it into `io::` as a builtin. Decide that first — cheap now, expensive after adoption.
 
-fs::File, tcp::Socket, udp::Socket, tcp::Listener, tls::Socket and tls::Listener
+## Design question to fold into plan-93-A before starting it
 
-thread::transfer says the opposite:
-
-fs::File, tcp::Socket and udp::Socket may; listeners and tls::Socket may not
-
-Those cannot both be true. The intro is also the one that motivates “accept on one thread, hand each connection to a worker,” which is exactly the listener/TLS case. Either the intro is aspirational and transfer is current, or transfer is stale. Pick one and make See also match (transfer currently links tls::Socket after forbidding it).
-
----
-
-process::close is named wrong. It closes the child’s stdin. The docs have to say “does not close the handle” in three places, and the parameter tables still say “you still close it.” In a language where drop is close, this will be the first support question. closeInput / endInput would have been cheaper than the entire “despite the name” paragraph.
-
----
-
-The documented inconsistencies are more interesting than the APIs. tcp::close errors on double-close; tls::close does not. tcp::listen backlog defaults to 128; tls::listen defaults to 0 (host default). Those are called out as not going to be papered over because each side already has callers. That is rare. Most libraries would “fix” one and break the other quietly.
-
-List-form tls::poll is documented as List OF tls::Socket in one place and List OF RES tls::Socket in another. The RES rule is the real one; the signature table looks like a slip.
-
----
-
-Inclusive [start, endIndex] ranges plus end being reserved is a BASIC-language scar... Maybe we should do something lanuage wide for all builtins? start/stop, startIdx/endIdx, startIndex/endIndex...
-
----
-
-displayWidth vs pad width. Padding is in scalars, display is in columns. padLeft("x", 3, "😀") is "😀😀x" — three scalars, five columns. Anyone building a table will hit this. Either that is intentional (pad is a string operation, alignment is the caller’s problem) or there is a missing padToDisplayWidth.
-Byte search vs scalar index. contains/count/replace scan bytes; find returns a scalar index. Fine because UTF-8 is self-synchronizing, but count advancing “one byte on mismatch” is an implementation detail leaking into the man page. For well-formed UTF-8 it cannot land mid-scalar, so it is safe — just a bit of C showing through the BASIC.
-utf8Encode as a return-type overload. Needing contextual type to pick List OF Byte vs List OF Integer is the sharpest language-level edge in the whole set. strings::toBytes exists as the unambiguous byte path; I would default to that in new code.
-
----
-
-Absence is the one place it breaks the strings package’s religion. strings::find raises ErrNotFound. regex::find returns -1. The man page even points at the difference. Both are defensible:
-
-literal search: absence is exceptional if you already contains-guarded
-regex search: absence is the common case, and -1 is unambiguous because every real index is >= 0
+`src/codegen/builtins/canvas/helper_inflate.rs` is 460 lines of inflate, and
+`grep -rn inflate src/codegen/builtins/ --include=mod.rs` shows it registered only by
+`canvas/mod.rs:1052` — canvas-private, for PNG. Landing `compress::` as written yields
+**two inflate implementations**, one hand-written in Rust and one via dlopen'd zlib, with
+different bug surfaces. Resolve it in the plan: either point canvas at `compress::`, or
+state explicitly why PNG keeps its own (canvas may need it without a zlib dependency on
+some target). Not a defect at HEAD — a design question for the plan.
 
 ---
-
-The API reports where, almost never what. find/findAll return start indices only. No end index, no match text, no capture list, no Match record. Extraction is replace with $N, or you take the start and re-slice yourself — except you cannot slice without the end. That is the hole. With only starts, findAll("a1b2c3", "\\d+") tells you where digits begin, not how long they are. For a fixed pattern you can reconstruct; for a general one you cannot without matching again or using replace as a poor man’s extractor ("$0" into a side channel you do not have).
-
----
-
-Empty-pattern replace is the opposite of strings::replace. Documented clearly:
-
-strings::replace("hi", "", "x") → "hi" (empty needle never matches)
-regex::replace("abc", "", "-") → "-a-b-c-" (zero-width match at every position, plus the end)
-
----
-
-Match span (start and end), or the matched substring. Without this, find is half a locator.
-Capture access that is not replace. Named groups in the replacement template imply the engine already has them.
-split. strings::split is literal-only; regex split is how you tokenize. You can fake it with findAll if you have ends.
-AttributedString overloads. Every strings::* query has one. Regex does not. Visible-text search would be the obvious analog; rewrite-with-span-remap is harder and maybe correctly omitted.
-count. Trivial given findAll, but strings::count exists and people will look for it.
-
----
-
-
