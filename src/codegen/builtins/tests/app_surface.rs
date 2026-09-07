@@ -15,6 +15,77 @@
 use crate::codegen::engine::types::NativeCodePlan;
 use crate::testutil::{app_code_cached, code_for_src_cached, CodeTarget};
 
+/// `os::resourcePath` in APP mode, where the base has a suffix to append.
+///
+/// `resource_base_offset` gives every build shape a `(strip, suffix)` pair, and
+/// the suffix is empty for exactly two of the four: console and Windows-app,
+/// where the executable sits beside its resources. macOS-app appends
+/// `Resources` and Linux-app appends `share/<module>` — and the emitter has a
+/// whole branch for that, one store per suffix byte plus the separator, plus a
+/// different length calculation (`suffix.len() + 2` rather than `1`).
+///
+/// The corpus lowers in console mode, so only the empty-suffix arm had run: the
+/// bytes that actually distinguish an app build's resource lookup were emitted
+/// by nothing. A wrong length there is a heap write past the string it just
+/// sized, and a missing separator is a path that silently resolves to a
+/// directory that does not exist -- which reads as "the resource was not
+/// installed" rather than as a compiler bug.
+///
+/// Windows-app is the fourth shape and it is NOT here: `os.resourcePath` is
+/// unimplemented on `windows-x86_64` (bug-454). Its suffix would be empty in any
+/// case -- the `.exe` sits beside its resources -- so nothing about this arm is
+/// lost by its absence.
+const OS_RESOURCE_PATH: &str = "\
+IMPORT app
+IMPORT io
+IMPORT os
+
+FUNC main() AS Integer
+  app::setMode(app::Mode.Canvas)
+  io::print(os::resourcePath(\"music/song.ogg\"))
+  RETURN 0
+END FUNC
+";
+
+/// The suffix-appending arm lowers on the two backends that HAVE a suffix.
+///
+/// Three of the four app-capable backends are excluded, and for two different
+/// reasons that are both worth naming.
+///
+/// `windows-x86_64` does not implement `os.resourcePath` at all -- it is absent
+/// from that backend's `SUPPORTED_RUNTIME_CALLS`, and the shared exe-path
+/// acquisition answers "not implemented for Windows" rather than emitting, which
+/// `gen_paths.rs` documents as deliberate: a diagnostic instead of an ICE for
+/// whoever opens the gate first. That is bug-454, still Open, and this test is
+/// not the place to work around it -- when the gate opens, adding the target
+/// here is one line.
+///
+/// `linux-aarch64` and `linux-riscv64` share `LinuxApp` with `linux-x86_64`, so
+/// they compute the same `share/<module>` suffix through the same emitter; one
+/// Linux backend is what makes the arm run, and driving three costs three
+/// lowerings for one code path. macOS is separate because its suffix is a
+/// different string (`Resources`) through the same branch.
+#[test]
+fn the_resource_path_base_suffix_lowers_where_the_base_has_one() {
+    let source = OS_RESOURCE_PATH.to_string();
+    for target in [CodeTarget::MacosAarch64, CodeTarget::LinuxX86_64] {
+        assert!(
+            target.app_mode().is_some(),
+            "{}: this test is about the APP-mode base suffix, so the target must \
+             have an app mode",
+            target.name()
+        );
+        let plan = app_code_cached(&source, target);
+        assert!(
+            plan.functions
+                .iter()
+                .any(|function| function.name.contains("main")),
+            "{}: an -app program calling os::resourcePath must lower",
+            target.name()
+        );
+    }
+}
+
 /// A scene GROUP, which is the only call in the language that consumes a
 /// resource held inside its argument.
 ///
