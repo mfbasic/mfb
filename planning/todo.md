@@ -346,6 +346,115 @@ error-recovery algorithm is a spec unto itself) and deserves its own decision la
 emit through the same facade. Builtins cannot depend on packages, so that requirement alone
 forces it into `io::` as a builtin. Decide that first — cheap now, expensive after adoption.
 
+## Gaps 9-16 — the second tier (2026-09-06)
+
+Same method, one tier deeper: crates.io ranks 61-400 as the lens, filtered to what is
+genuinely absent, with a shape verdict. Absence for each row confirmed with
+`grep -rilE <concept> src/codegen/builtins/ packages/`; glob's only hits are
+`http::route`'s URL `*` matching (not paths) and bigint/semver's only hits are
+`node_modules` noise inside oracle directories.
+
+| # | Thing | Rank | Shape | Why |
+| --- | --- | --- | --- | --- |
+| 9 | Binary struct reader/writer | `byteorder` #101 | Pure MFB package | Read/write fixed-width ints at an offset in a `List OF Byte`, LE/BE. `bits::bswap16/32/64` is the primitive; nothing composes it into a cursor. Foundation for #5 (zip/tar), #16, image formats, every wire protocol. `packages/jwt/src/ecdsa.mfb` already hand-rolls byte assembly. |
+| 10 | ASN.1 DER + PEM key encoding | `pem` #376, `der` #274, `pkcs8` #303 | **Builtin — `crypto::*`** (decided) | Belongs with the keys, not in a sibling package. Closes bug-516 (`0x04‖X‖Y‖d` is neither raw `d` nor PKCS#8, so keys do not move between MFB and OpenSSL). |
+| 11 | Path glob + recursive walk | `glob` #173, `walkdir` #168 | Pure MFB package | Both absent; `fs::listDirectory` is single-level. Table stakes for any CLI or build tool. Pairs with #1. |
+| 12 | Platform standard directories | `dirs` #359, `home` #290 | **Builtin — `os::*`** (decided) | Naming and the `fs::tempDirectory` move are settled below. |
+| 13 | semver | #59 | Pure MFB package | Absent, and pointed: this repo HAS a package registry (`repository/`, `.mfp`, `project.json`'s `version`), so range resolution exists in Rust but is unavailable to MFB programs. Any tooling written in MFB needs it. Tiny. |
+| 14 | Word wrap + width-aware layout | `textwrap` #287 | Pure MFB package | Absent. The missing half of bug-528 (pad counts scalars, `displayWidth` counts columns). `strings::displayWidth` + `strings::graphemes` are the primitives; nothing composes them into wrapping or table layout. What makes `term` usable for real TUIs. |
+| 15 | Arbitrary-precision integers | `num-bigint` #182 | **New language type, delivered as a builtin package** (decided) | The `Money` pattern. See below. |
+| 16 | Protocol Buffers / binary serde | `prost` #183, `bincode` #367 | Pure MFB package | Sits directly on #9. Service-to-service wire format. |
+
+Seven of these eight are composition over primitives that already exist, which is why most
+are small — calibrated against `libsnd` (863 lines) and `sqlite3` (1,078), items 11, 12, 13
+and 14 are each plausibly under 500. The connect-time-TLS constraint above does not bite
+anywhere in this batch; none of these are network protocols.
+
+### #10 — the ASN.1 split still has to be decided
+
+Two different things live under "DER" and only one is unambiguously crypto's:
+
+* **Key import/export** (PKCS#8, SPKI, SEC1, PEM armor) — clearly `crypto::`, and it is what
+  closes bug-516.
+* **Generic ASN.1 parsing** — `packages/jwt/src/ecdsa.mfb` hand-writes a DER parser to
+  unpack the signature `crypto::sign` already returns, with a comment about "a short-form
+  length byte here, a long-form length there -- and any of them verifies". If `crypto::`
+  gains only key import/export, that parser stays hand-rolled.
+
+Decide whether the goal includes deleting jwt's parser (via a signature-to-raw conversion,
+or an exposed DER reader). It changes the scope.
+
+### #12 — naming, and what `dirs` actually provides
+
+Settled convention: `os::` owns standard locations and spells them `*Path`, matching the
+two that already exist (`os::executablePath`, `os::resourcePath`).
+
+* `fs::tempDirectory` moves to **`os::tempPath`**.
+* Add **`os::homePath`** (or `os::userPath`).
+
+The move is a breaking rename with a measured blast radius:
+`grep -rn "fs::tempDirectory"` excluding `.git`/`target`/`node_modules` → **161 call sites**,
+of which **116 are generated** `.mfb` under `benchmark/mfb/src/` and **3 are the Python
+generators** that emit them (`benchmark/mfb/gen_list.py`, `gen_map.py`, `gen_set.py`). Edit
+the three generators and regenerate; do not hand-edit the 116.
+
+What the `dirs` crate provides, since the name is opaque: the per-platform answer to "where
+does this OS expect me to put things". The value is entirely in the divergence — the three
+platforms disagree completely, and guessing means littering `~` on macOS or writing to the
+wrong hive on Windows.
+
+| purpose | Linux | macOS | Windows |
+| --- | --- | --- | --- |
+| home | `$HOME` | `$HOME` | `%USERPROFILE%` |
+| config | `$XDG_CONFIG_HOME` or `~/.config` | `~/Library/Application Support` | `%APPDATA%` (Roaming) |
+| cache | `$XDG_CACHE_HOME` or `~/.cache` | `~/Library/Caches` | `%LOCALAPPDATA%` |
+| data | `$XDG_DATA_HOME` or `~/.local/share` | `~/Library/Application Support` | `%APPDATA%` |
+| state / logs | `$XDG_STATE_HOME` or `~/.local/state` | `~/Library/Logs` | `%LOCALAPPDATA%` |
+| runtime | `$XDG_RUNTIME_DIR` | (none) | (none) |
+
+It also exposes the user media folders (desktop, documents, downloads, pictures, videos,
+music, fonts, templates, public). Note that `homePath` and `tempPath` are the two LEAST
+interesting members — they barely differ across platforms. **config / cache / data are the
+ones worth having**, and are the reason the crate exists.
+
+### #15 — new language type, delivered as a builtin package
+
+Decided: the `Money` pattern. `ParameterType::Money` is a variant in the closed numeric set
+(`src/numeric.rs:426-435`) AND `src/codegen/builtins/money/` is a builtin package carrying
+`setRounding`/`round` plus the math emitters. A new numeric system type is delivered as
+exactly that pair — a type-enum variant plus a builtin package. There is no operator
+overloading, so a package-only bignum could never use `+`, `*` or `<`; that is what forces
+the type-system half.
+
+**The one thing to design around, recorded because it is not obvious from the `Money`
+precedent:** every primitive today is fixed-size and <= 8 bytes
+(`src/docs/spec/memory/01_scalar-storage.md` — Integer 8, Float 8, Fixed 8, Money 8,
+Scalar 4, Byte 1, Boolean 1). `Money` and `Fixed` are i64s wearing different semantics. A
+BigInt is unbounded, so it cannot be a `Money`-shaped scalar — it is a **`String`-shaped
+type**: heap/arena-managed, variable-length, copy semantics, escape analysis, per-operator
+codegen across five targets. `String` is not even in that storage table. Scope it against
+`String`, not against `Money`.
+
+**Cheap hedge worth taking regardless of when #15 lands:** expose the widening multiply as
+`bits::mulHigh`. The 64x64->128 emitter already exists and is proven in the RNG path
+(`src/codegen/builtins/math/gen_math.rs:1013`, `gen_rng_pcg64.rs`) but is unreachable from
+MFB source — the `bits` surface has `bswap*`, `rl*`, `rr*`, `clz`, `ctz`, `popCount` and no
+`mulHigh`. Exposing it roughly halves the limb count for any bignum work and is
+independently useful for checked 64-bit arithmetic.
+
+### Considered and left out of 9-16
+
+* **gRPC** (`tonic` #310) — passes the connect-time-TLS rule, but needs HTTP/2, which
+  `http` does not speak. Builtin-scale project, not a package.
+* **`strsim`** (#41) — high rank, but ~80 lines of Levenshtein. Fold into the CLI package
+  (#1) as the "did you mean" backing rather than shipping standalone.
+* **`ipnet`** (#187), **`httpdate`** (#181) — small enough to belong inside `net` and `http`.
+* **`petgraph`** (#248), **`lru`** (#340), **`memmap2`** (#342) — real but niche; memmap
+  needs a builtin for the syscall.
+* **`criterion`** (#400) — a `perf` builtin exists, but its surface is in `perf.rs` rather
+  than `func_*.rs` and could not be extracted the usual way. Check what it covers before
+  scoping anything here.
+
 ## Design question to fold into plan-93-A before starting it
 
 `src/codegen/builtins/canvas/helper_inflate.rs` is 460 lines of inflate, and
