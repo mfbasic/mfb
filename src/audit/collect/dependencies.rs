@@ -64,6 +64,10 @@ pub(super) fn collect_dependencies(
     entries
 }
 
+#[cfg(test)]
+#[path = "dependencies/label_tests.rs"]
+mod label_tests;
+
 fn verify_status_label(status: crate::cli::pkg::PackageVerifyStatus) -> String {
     match status {
         crate::cli::pkg::PackageVerifyStatus::Ok => "ok",
