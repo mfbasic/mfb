@@ -9,20 +9,108 @@ use crate::operators::BinaryOp;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
+/// bug-567: what becomes of the pending temporaries a statement registered, once
+/// that statement is done.
+///
+/// This is the whole vocabulary, and it is closed by the compiler:
+/// [`CodeBuilder::transfer_temp_disposition`] matches every `NirOp` variant with
+/// **no wildcard arm**, so a new statement kind cannot be added without choosing a
+/// class here — it is a build error, not a silent inheritance of the previous
+/// default. `the_transfer_temp_classifier_has_no_wildcard_arm` keeps the wildcard
+/// out.
+///
+/// The default is what bug-567 was: every control transfer truncated every temp,
+/// so `RETURN "v" & toString(n MOD 10)` dropped `toString`'s block unfreed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TransferTemps {
+    /// Not a control transfer. The statement falls through, so its own temps are
+    /// freed right there by `drop_pending_temps_to` — the ordinary case, and the
+    /// one whose soundness argument every arm below borrows.
+    StatementScope,
+    /// The statement branches away, and its exit emitter frees the interior temps
+    /// **itself, before the branch**, handing the escaping value out around them
+    /// (`drop_interior_temps_before_branch`). Reaching the end of the statement
+    /// with temps still above the watermark means the emitter missed a shape, and
+    /// `forget_pending_temps_to` reports that as a codegen error instead of
+    /// truncating it into a leak.
+    FreedBeforeBranch,
+    /// The statement lowers no expression at all, so it can register no temp:
+    /// `EXIT`/`CONTINUE` carry only a `LoopKind`. Enforced, not assumed — if one
+    /// ever grows an operand this reds rather than leaking it.
+    NoExpression,
+    /// The temp is **adopted** by whoever catches the error:
+    /// `emit_direct_error_return` parks the `Error` block in the per-thread
+    /// current-error slot *precisely because* the `Fail`'s control transfer
+    /// FORGETS it, and the catcher then frees it exactly once (design "b").
+    /// Freeing it here is the double free that design exists to avoid, so this
+    /// class must keep truncating — and that is the only reason `RETURN` and
+    /// `FAIL` cannot share one answer.
+    ///
+    /// bug-567's report predicted a residual interior leak here, and MEASUREMENT
+    /// says there is none: `error(...)`'s own constructor lowering already frees
+    /// the message temps before the branch. `FAIL error(7, repeat("x",4000) & "y")`
+    /// and `FAIL error(7, repeat("x",4000))` — the second has no interior temp at
+    /// all — read 626 MB at 20 000 trapped errors and 1251 MB at 40 000, the same
+    /// to within 16 KB, where an abandoned 4 KB interior block would have shown as
+    /// +80 MB. (Both grow: that growth is bug-565's open error path, not this.)
+    /// `a_failing_trap_does_not_leak_its_interior_temp` pins the equality.
+    AdoptedByTheCatcher,
+    /// The process ends at this statement. Any abandoned temp is an O(1) leak in a
+    /// heap that is about to be torn down whole, and the escaping value is the
+    /// exit code — a scalar with no block.
+    ProcessTerminates,
+}
+
 impl CodeBuilder<'_> {
-    /// Whether a statement unconditionally branches away (so the fall-through
-    /// statement-scope temp free would be unreachable): `RETURN`, `EXIT`,
-    /// `CONTINUE`, program exit, or `Fail`. A returned/failed fresh temp is moved
-    /// to the target and must not be freed here.
-    fn op_transfers_control(op: &NirOp) -> bool {
-        matches!(
-            op,
-            NirOp::Return { .. }
-                | NirOp::ExitLoop { .. }
-                | NirOp::ContinueLoop { .. }
-                | NirOp::ExitProgram { .. }
-                | NirOp::Fail { .. }
-        )
+    /// Classify `op` for [`TransferTemps`]. **Exhaustive on purpose** — see that
+    /// type. Every arm is a decision about ownership; none may become a wildcard.
+    fn transfer_temp_disposition(op: &NirOp) -> TransferTemps {
+        match op {
+            NirOp::Return { .. } => TransferTemps::FreedBeforeBranch,
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => TransferTemps::NoExpression,
+            NirOp::Fail { .. } => TransferTemps::AdoptedByTheCatcher,
+            NirOp::ExitProgram { .. } => TransferTemps::ProcessTerminates,
+            NirOp::Bind { .. }
+            | NirOp::StoreGlobal { .. }
+            | NirOp::Assign { .. }
+            | NirOp::StateAssign { .. }
+            | NirOp::Eval { .. }
+            | NirOp::If { .. }
+            | NirOp::Match { .. }
+            | NirOp::While { .. }
+            | NirOp::For { .. }
+            | NirOp::DoUntil { .. }
+            | NirOp::ForEach { .. }
+            | NirOp::Trap { .. } => TransferTemps::StatementScope,
+        }
+    }
+
+    /// Retire the pending temporaries a control-transfer statement registered.
+    ///
+    /// The two classes that claim their temps are already gone — `FreedBeforeBranch`
+    /// froze them before branching, `NoExpression` never made any — are *checked*,
+    /// not trusted. Anything left is a shape the exit emitter did not recognise,
+    /// and an unrecognised ownership shape is exactly what must not fall back to
+    /// the old truncation: that is the leak this bug was.
+    fn forget_pending_temps_to(
+        &mut self,
+        watermark: usize,
+        disposition: TransferTemps,
+    ) -> Result<(), String> {
+        if matches!(
+            disposition,
+            TransferTemps::FreedBeforeBranch | TransferTemps::NoExpression
+        ) && self.pending_temp_frees.len() > watermark
+        {
+            return Err(format!(
+                "native code control transfer classified {disposition:?} left {} \
+                 pending temporaries unfreed; its exit emitter must free them \
+                 before it branches (bug-567)",
+                self.pending_temp_frees.len() - watermark
+            ));
+        }
+        self.clear_pending_temps_to(watermark);
+        Ok(())
     }
 
     pub(crate) fn lower_ops(&mut self, ops: &[NirOp]) -> Result<(), String> {
@@ -1207,7 +1295,10 @@ impl CodeBuilder<'_> {
                         self.lower_value(value)?;
                     }
                     NirOp::Return { value } => {
-                        self.emit_return_exit(value.as_ref())?;
+                        // bug-567: the watermark travels with the statement so the
+                        // return can free its own interior temps while the code is
+                        // still reachable — before the `ret`, not after it.
+                        self.emit_return_exit(value.as_ref(), Some(temp_watermark))?;
                     }
                     NirOp::ExitLoop { kind } => {
                         let target = self
@@ -1552,13 +1643,13 @@ impl CodeBuilder<'_> {
                 }
                 _ => {}
             }
-            // A control-transfer statement branches away, so any interior-temp free
-            // would be unreachable and a returned/moved temp belongs to the target;
-            // just forget them. Every other statement frees its interior temps here.
-            if Self::op_transfers_control(op) {
-                self.clear_pending_temps_to(temp_watermark);
-            } else {
-                self.drop_pending_temps_to(temp_watermark)?;
+            // Every statement retires its own temps here. A fall-through statement
+            // frees them; a control transfer has already dealt with them according
+            // to its `TransferTemps` class, and `forget_pending_temps_to` checks
+            // the two classes that claim to have nothing left (bug-567).
+            match Self::transfer_temp_disposition(op) {
+                TransferTemps::StatementScope => self.drop_pending_temps_to(temp_watermark)?,
+                disposition => self.forget_pending_temps_to(temp_watermark, disposition)?,
             }
             self.reset_temporary_registers();
         }
@@ -2581,5 +2672,131 @@ fn nir_value_context(value: &NirValue) -> String {
         NirValue::Checked { type_, .. } => format!("checked {type_}"),
         NirValue::WithUpdate { type_, .. } => format!("with update {type_}"),
         NirValue::Capture { index, .. } => format!("capture {index}"),
+    }
+}
+
+#[cfg(test)]
+mod transfer_temp_classification_tests {
+    //! bug-567: the pending-temp disposition vocabulary must stay TOTAL.
+    //!
+    //! The primary enforcement is the compiler: `transfer_temp_disposition`
+    //! matches every `NirOp` variant with no wildcard, so a new statement kind is
+    //! a build error until someone classifies it. These read the source to keep
+    //! that property from being "fixed" away — a wildcard arm would turn the
+    //! build error back into the silent default that bug-567 was.
+
+    /// This file's own text, and the file that defines the vocabulary it
+    /// classifies.
+    const CLASSIFIER: &str = include_str!("builder_control.rs");
+    const NIR: &str = include_str!("../../../target/shared/nir/mod.rs");
+
+    /// The body of `fn transfer_temp_disposition`, from its signature to the
+    /// closing brace of its `match`.
+    fn classifier_body() -> &'static str {
+        let start = CLASSIFIER
+            .find("fn transfer_temp_disposition(op: &NirOp) -> TransferTemps {")
+            .expect("the classifier is defined in this file");
+        let rest = &CLASSIFIER[start..];
+        let end = rest
+            .find("\n    }\n")
+            .expect("the classifier's closing brace");
+        &rest[..end]
+    }
+
+    /// Every variant name declared by `enum NirOp`.
+    fn nir_op_variants() -> Vec<String> {
+        let start = NIR.find("pub(crate) enum NirOp {").expect("the NirOp enum");
+        let rest = &NIR[start..];
+        let end = rest.find("\n}\n").expect("the NirOp enum's closing brace");
+        let mut variants: Vec<String> = rest[..end]
+            .lines()
+            // A variant is declared at exactly one indent level inside the enum,
+            // and its fields at two — so the four-space prefix is the filter.
+            .filter_map(|line| {
+                let name = line.strip_prefix("    ")?;
+                if name.starts_with(' ') || name.starts_with("//") || name.starts_with('/') {
+                    return None;
+                }
+                let name = name.trim_end_matches(" {");
+                if name.is_empty() || !name.starts_with(char::is_uppercase) {
+                    return None;
+                }
+                Some(name.to_string())
+            })
+            .collect();
+        variants.sort();
+        variants.dedup();
+        variants
+    }
+
+    /// The one that would have let bug-567 back in. A `_ =>` arm means a new
+    /// statement kind inherits some existing ownership answer without anyone
+    /// deciding it does — and the answer it would inherit is a truncation, which
+    /// is a leak when the statement carries an expression and a double free when
+    /// it does not.
+    #[test]
+    fn the_transfer_temp_classifier_has_no_wildcard_arm() {
+        let body = classifier_body();
+        assert!(
+            !body.contains("_ =>"),
+            "`transfer_temp_disposition` grew a wildcard arm. Every `NirOp` must \
+             pick a `TransferTemps` class explicitly; the exhaustive match is the \
+             assertion that it did. Body:\n{body}"
+        );
+    }
+
+    /// And the classifier must actually enumerate the whole `NirOp` vocabulary —
+    /// a variant reachable only through a nested `|` group that someone deleted,
+    /// or a rename that left the arm matching nothing, would compile but stop
+    /// being a decision.
+    #[test]
+    fn every_nir_op_is_classified_by_name() {
+        let body = classifier_body();
+        let variants = nir_op_variants();
+        assert!(
+            variants.len() >= 15,
+            "the NirOp scrape found only {} variants, so the parse is wrong \
+             before the assertion below means anything: {variants:?}",
+            variants.len()
+        );
+        let missing: Vec<&String> = variants
+            .iter()
+            .filter(|v| !body.contains(&format!("NirOp::{v} ")))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "these `NirOp` variants are not named in `transfer_temp_disposition`: \
+             {missing:?}. Each one owes an answer to a single question — what \
+             happens to the pending temporaries the statement registered — and \
+             the four non-`StatementScope` answers are not interchangeable: \
+             `FreedBeforeBranch` frees them (a leak if wrong), \
+             `AdoptedByTheCatcher` must NOT (a double free if wrong)"
+        );
+    }
+
+    /// The classification itself, pinned so a reshuffle is a deliberate act. Each
+    /// line is a claim about ownership that was measured, not assumed.
+    #[test]
+    fn the_control_transfer_classes_are_the_measured_ones() {
+        use super::TransferTemps::*;
+        let body = classifier_body();
+        for (arm, class) in [
+            ("NirOp::Return { .. } => TransferTemps::FreedBeforeBranch", FreedBeforeBranch),
+            (
+                "NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => TransferTemps::NoExpression",
+                NoExpression,
+            ),
+            ("NirOp::Fail { .. } => TransferTemps::AdoptedByTheCatcher", AdoptedByTheCatcher),
+            ("NirOp::ExitProgram { .. } => TransferTemps::ProcessTerminates", ProcessTerminates),
+        ] {
+            assert!(
+                body.contains(arm),
+                "the `{class:?}` classification changed. `{arm}` is no longer in \
+                 `transfer_temp_disposition`. Reclassifying is allowed, but each \
+                 direction has a measured consequence: moving a statement OFF \
+                 `FreedBeforeBranch` restores bug-567's 64 B per call, and moving \
+                 `Fail` ONTO it frees the `Error` block the catcher adopts"
+            );
+        }
     }
 }

@@ -334,6 +334,10 @@ name = "codegen_closure_temp_drop"
 path = "tests/codegen/codegen_closure_temp_drop.rs"
 
 [[test]]
+name = "codegen_return_interior_temp_drop"
+path = "tests/codegen/codegen_return_interior_temp_drop.rs"
+
+[[test]]
 name = "codegen_for_each_item_drop"
 path = "tests/codegen/codegen_for_each_item_drop.rs"
 

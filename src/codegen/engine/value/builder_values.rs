@@ -62,6 +62,26 @@ pub(super) fn flatten_concat_spine<'a>(value: &'a NirValue, out: &mut Vec<&'a Ni
     out.push(value);
 }
 
+/// bug-567: where the value a control transfer carries out lives, while that
+/// statement's INTERIOR temporaries are freed around it.
+///
+/// The two `RETURN` lowerings differ only here: the register fast path (no live
+/// cleanups) still holds the block in a register, and the cleanup-bearing path has
+/// already parked it in `pending_result_slots.value`. Both hand
+/// [`CodeBuilder::drop_interior_temps_before_branch`] a slot to compare against,
+/// so the runtime identity guard is emitted on both and neither can free the block
+/// the caller is about to own.
+#[derive(Clone)]
+pub(crate) enum EscapingValue {
+    /// Nothing leaves (a bare `RETURN`, or a `Nothing` result).
+    None,
+    /// Live in this operand; park it across the frees and reload it afterwards.
+    InRegister(Operand),
+    /// Already parked in this stack slot by the caller; guard against it, and do
+    /// not park or reload.
+    InSlot(usize),
+}
+
 impl CodeBuilder<'_> {
     pub(crate) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         // Track the source location of the node being lowered so that any error
@@ -571,12 +591,122 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    /// Discard pending temporaries above `watermark` WITHOUT freeing them: used on
-    /// control-transfer statements (`RETURN`/`EXIT`/`CONTINUE`/`Fail`) where the
-    /// statement branches away (a returned temp is moved to the caller; any
-    /// interior temp's free would be unreachable dead code after the branch).
+    /// Discard pending temporaries above `watermark` WITHOUT freeing them.
+    ///
+    /// bug-567 corrected the reasoning this used to carry. The old comment gave two
+    /// justifications for truncating **every** temp a control-transfer statement
+    /// registered, and only the first is true:
+    ///
+    /// * *"a returned temp is moved to the caller"* — true, but only of the ONE
+    ///   temp [`Self::claim_pending_temp`] has already popped.
+    /// * *"an interior free would be unreachable dead code after the branch"* —
+    ///   **false.** It is unreachable only because it would be emitted *after* the
+    ///   branch, which is a property of where the free is placed, not of the
+    ///   program. `RETURN "v" & toString(n MOD 10)` leaked the inner `toString`
+    ///   block, 64 B per call, while `RETURN s & ">"` — one operator fewer, so no
+    ///   interior temp — was flat.
+    ///
+    /// So this is now reachable only from the one call site in `lower_ops_inner`,
+    /// and only for a [`TransferTemps`] class where forgetting is the *correct*
+    /// answer: the block is adopted by another owner (`Fail`) or the process ends
+    /// (`ExitProgram`). A `RETURN` frees its own interior temps before it branches
+    /// ([`Self::drop_interior_temps_before_branch`]), and reaching here with any
+    /// left is reported as a codegen error rather than silently truncated.
     pub(crate) fn clear_pending_temps_to(&mut self, watermark: usize) {
         self.pending_temp_frees.truncate(watermark);
+    }
+
+    /// bug-567: free the pending temporaries a control-transfer statement's own
+    /// expression left behind — the INTERIOR ones, that no owner claimed — at a
+    /// point that is still reachable, with the escaping value parked across the
+    /// `arena_free` calls (which clobber every caller-saved register).
+    ///
+    /// The soundness argument is not a new one: it is exactly the argument that
+    /// licenses [`Self::drop_pending_temps_to`] at the end of every *ordinary*
+    /// statement. A registered pending temp is by construction a fresh, solely
+    /// owned arena block — [`Self::register_pending_temp`] admits nothing else —
+    /// and `LET x AS String = wrap("ab")` already frees the identical interior
+    /// block at statement scope. The only thing a `RETURN` changed was *placement*.
+    ///
+    /// The caller must therefore call this only once the escaping value is
+    /// **standalone**: claimed, moved (`plan_returned_move`), or deep-copied by
+    /// `lower_returned_value` / `store_pending_success_result`. `escaping` says
+    /// where that value currently lives; the returned operand is where it lives
+    /// afterwards, and is `None` unless it had to be parked and reloaded here.
+    ///
+    /// Belt and braces on top of that argument, in the shape bugs 565/569/571/572
+    /// established: **every** interior free is guarded by a runtime
+    /// pointer-identity compare against the escaping block, so even a lowering that
+    /// handed the return the same pointer as an interior temp cannot have it freed
+    /// underneath the caller. Soundness is local, not a whole-program proof — and
+    /// it is uniform across both `RETURN` lowerings, because the guard reads a
+    /// SLOT and both paths have one (this routine parks a register-resident value;
+    /// the cleanup-bearing path hands over the slot
+    /// `store_pending_success_result` already wrote).
+    ///
+    /// Emits **nothing at all** when no interior temp is pending, which is every
+    /// `RETURN` in the tree bar the concat shapes — so codegen is byte-identical
+    /// wherever the bug was not.
+    pub(crate) fn drop_interior_temps_before_branch(
+        &mut self,
+        watermark: usize,
+        escaping: EscapingValue,
+    ) -> Result<Option<Operand>, String> {
+        if self.pending_temp_frees.len() <= watermark {
+            return Ok(match escaping {
+                EscapingValue::InRegister(location) => Some(location),
+                EscapingValue::InSlot(_) | EscapingValue::None => None,
+            });
+        }
+        // The slot the guard compares against. A register-resident value is spilled
+        // to one here, because `arena_free` clobbers every caller-saved register,
+        // and reloaded afterwards; a value the caller already stored is guarded
+        // against its existing slot and needs neither.
+        let (parked, reload) = match escaping {
+            EscapingValue::InRegister(location) => {
+                let slot = self.allocate_stack_object("return_escaping_value", 8);
+                self.emit(abi::store_u64(&location, abi::stack_pointer(), slot));
+                (Some(slot), true)
+            }
+            EscapingValue::InSlot(slot) => (Some(slot), false),
+            EscapingValue::None => (None, false),
+        };
+        while self.pending_temp_frees.len() > watermark {
+            let temp = self
+                .pending_temp_frees
+                .pop()
+                .expect("watermark within bounds");
+            let kept = match parked {
+                Some(escaping_slot) => {
+                    let kept = self.label("return_temp_escaped");
+                    let block = self.temporary_vreg();
+                    let escaped = self.temporary_vreg();
+                    self.emit(abi::load_u64(&block, abi::stack_pointer(), temp.slot));
+                    self.emit(abi::load_u64(&escaped, abi::stack_pointer(), escaping_slot));
+                    self.emit(abi::compare_registers(&block, &escaped));
+                    self.emit(abi::branch_eq(&kept));
+                    Some(kept)
+                }
+                None => None,
+            };
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: temp.type_,
+                stack_offset: temp.slot,
+                closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
+            })?;
+            if let Some(kept) = kept {
+                self.emit(abi::label(&kept));
+            }
+        }
+        if !reload {
+            return Ok(None);
+        }
+        let slot = parked.expect("a reloadable escaping value was parked");
+        let reloaded = self.allocate_register();
+        self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
+        Ok(Some(Operand::from(reloaded.render())))
     }
 
     /// Lower a value that is being stored into a longer-lived or independently

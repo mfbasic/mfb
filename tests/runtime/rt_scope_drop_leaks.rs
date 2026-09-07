@@ -3206,3 +3206,342 @@ fn every_param_borrow_shape_still_produces_the_right_value() {
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------- bug-567
+
+/// bug-567: `RETURN <nested concat>`. `"<" & s & ">"` is
+/// `Binary{ Binary{ "<", s }, ">" }`, so the inner concat's block is an INTERIOR
+/// temp — not the value that leaves — and the `RETURN`'s
+/// `clear_pending_temps_to` truncated it away unfreed. Two
+/// `_mfb_rt_string_concat` calls in the callee, zero frees: 64 B per call,
+/// 13.3 MB at 200k and 25.6 MB at 400k on the pre-fix compiler.
+const SHAPE_567_NESTED_CONCAT: &str = "IMPORT io\n\
+FUNC wrap(s AS String) AS String\n  RETURN \"<\" & s & \">\"\nEND FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(wrap(\"ab\"))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The same defect where the interior temp is a CALL result rather than a nested
+/// concat — the bug report's own second row, and the commonest real body shape.
+/// 13.3 MB at 200k, 25.6 MB at 400k.
+const SHAPE_567_CONCAT_OF_A_CALL: &str = "IMPORT io\n\
+FUNC f(n AS Integer) AS String\n  RETURN \"v\" & toString(n MOD 10)\nEND FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(f(i))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The bug report's CONTROL, and the row that makes the other two attributable:
+/// one operator fewer, so both operands are already-owned values and the concat
+/// registers exactly one temp — the one that leaves. Flat at 1.0 MB before the
+/// fix and after. A POSITIVE pin: the fix ADDS frees, so a shape with nothing
+/// interior must gain none.
+const SHAPE_567_CONTRAST_TWO_OPERANDS: &str = "IMPORT io\n\
+FUNC tail(s AS String) AS String\n  RETURN s & \">\"\nEND FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(tail(\"ab\"))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `RETURN <collection literal built from interior concats>` — the interior temps
+/// are the two element `String`s, and the value that leaves is the `List` block.
+/// A different escaping type on the same `RETURN` path.
+const SHAPE_567_RETURNED_LIST_OF_CONCATS: &str = "IMPORT io\n\
+IMPORT strings\n\
+FUNC pair(n AS Integer) AS List OF String\n\
+  RETURN [\"a\" & toString(n MOD 10), \"b\" & toString(n MOD 10)]\n\
+END FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(strings::join(pair(i), \",\"))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The cleanup-bearing `RETURN` path: the function owns a local, so
+/// `active_cleanups` is NOT empty and the return goes through
+/// `store_pending_success_result` + `emit_cleanup_sequence` instead of the
+/// register fast path. Same interior temp, different placement for its free.
+const SHAPE_567_INTERIOR_TEMP_WITH_A_LIVE_LOCAL: &str = "IMPORT io\n\
+FUNC decorate(n AS Integer) AS String\n\
+  LET tag AS String = \"t\" & toString(n MOD 7)\n\
+  RETURN tag & (\"-\" & toString(n MOD 10))\n\
+END FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(decorate(i))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `FAIL error(7, <concat with a 4 KB interior temp>)`, whose `TransferTemps`
+/// class is `AdoptedByTheCatcher` and which therefore keeps truncating. The block
+/// is deliberately large: abandoning it would be 40 MB at 10 000 trapped errors,
+/// where the whole program now runs at 1.0 MB. See the pin below, and its
+/// contrast.
+const SHAPE_567_FAIL_WITH_AN_INTERIOR_TEMP: &str = "IMPORT io\n\
+IMPORT strings\n\
+FUNC boom(n AS Integer) AS String\n\
+  FAIL error(7, strings::repeat(\"x\", 4000) & \"y\")\n\
+END FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = boom(i) TRAP(e)\n\
+      RECOVER \"f\"\n\
+    END TRAP\n\
+    acc = acc + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The same program with the `& "y"` removed — one operator fewer, so the 4 KB
+/// block IS the message and nothing is interior. The control that makes the
+/// equality above attributable.
+const SHAPE_567_FAIL_CONTRAST_NO_INTERIOR: &str = "IMPORT io\n\
+IMPORT strings\n\
+FUNC boom(n AS Integer) AS String\n\
+  FAIL error(7, strings::repeat(\"x\", 4000))\n\
+END FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = boom(i) TRAP(e)\n\
+      RECOVER \"f\"\n\
+    END TRAP\n\
+    acc = acc + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn returning_a_nested_concat_runs_at_constant_rss() {
+    assert_flat(
+        "b567_nested_concat",
+        SHAPE_567_NESTED_CONCAT,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn returning_a_concat_of_a_call_result_runs_at_constant_rss() {
+    assert_flat(
+        "b567_concat_of_a_call",
+        SHAPE_567_CONCAT_OF_A_CALL,
+        200_000,
+        400_000,
+    );
+}
+
+/// The attributing control: no interior temp, flat before and after.
+#[cfg(unix)]
+#[test]
+fn returning_a_two_operand_concat_still_runs_at_constant_rss() {
+    assert_flat(
+        "b567_contrast_two_operands",
+        SHAPE_567_CONTRAST_TWO_OPERANDS,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn returning_a_collection_built_from_interior_concats_runs_at_constant_rss() {
+    assert_flat(
+        "b567_returned_list",
+        SHAPE_567_RETURNED_LIST_OF_CONCATS,
+        200_000,
+        400_000,
+    );
+}
+
+/// The other `RETURN` lowering path — the one with live cleanups, where the
+/// escaping value is parked in `pending_result_slots.value` rather than held in a
+/// register across the frees.
+#[cfg(unix)]
+#[test]
+fn returning_an_interior_temp_beside_a_live_local_runs_at_constant_rss() {
+    assert_flat(
+        "b567_interior_with_local",
+        SHAPE_567_INTERIOR_TEMP_WITH_A_LIVE_LOCAL,
+        200_000,
+        400_000,
+    );
+}
+
+/// `Fail` is classified `AdoptedByTheCatcher` and must keep truncating: the
+/// `Error` block it registers is parked in the per-thread current-error slot for
+/// the CATCHER to free (`emit_direct_error_return`, design "b"), so a free here is
+/// a double free, not a leak fix.
+///
+/// bug-567's report predicted a residual interior leak on this path. It does not
+/// exist: `error(...)`'s own constructor lowering already frees the message temps
+/// before the branch. This is that re-derivation as a pin, in two halves.
+///
+/// The FLAT half says nothing is abandoned: with bug-565 landed the whole shape
+/// runs at 1.0 MB, and an abandoned 4 KB interior block would be 40 MB at 10 000
+/// trapped errors.
+///
+/// The EQUALITY half is what attributes that to the interior temp rather than to
+/// bug-565: the same program with `& "y"` removed — one operator fewer, so the
+/// 4 KB block IS the message and nothing is interior — reads the same.
+///
+/// Flatness alone could not say the block was "correctly declined" rather than
+/// "wrongly freed"; that half is
+/// `codegen_return_interior_temp_drop::a_fail_is_never_given_an_interior_free`,
+/// which reads the decision off the emitted code, and the value probe below,
+/// which would surface a double free of the adopted `Error` as a wrong message.
+#[cfg(unix)]
+#[test]
+fn a_failing_trap_does_not_leak_its_interior_temp() {
+    assert_flat(
+        "b567_fail_interior",
+        SHAPE_567_FAIL_WITH_AN_INTERIOR_TEMP,
+        5_000,
+        10_000,
+    );
+    let interior = peak_rss(
+        "b567_fail_interior",
+        SHAPE_567_FAIL_WITH_AN_INTERIOR_TEMP,
+        10_000,
+    );
+    let contrast = peak_rss(
+        "b567_fail_contrast",
+        SHAPE_567_FAIL_CONTRAST_NO_INTERIOR,
+        10_000,
+    );
+    let delta = interior.abs_diff(contrast);
+    assert!(
+        delta < 4 * 1024 * 1024,
+        "the interior-temp `FAIL` and its no-interior contrast diverged by {} MB \
+         ({} MB vs {} MB) at 10 000 trapped errors. More on the interior side \
+         means the 4 KB block is being abandoned at the `Fail`; less means \
+         something started freeing on this path, and the block a `Fail` registers \
+         is the `Error` the catcher ADOPTS",
+        delta / (1024 * 1024),
+        interior / (1024 * 1024),
+        contrast / (1024 * 1024),
+    );
+}
+
+/// The VALUE half. Freeing a block the caller still owns is a use-after-free that
+/// surfaces as a wrong string, not as a failing free — so every `RETURN` shape the
+/// new interior drop touches is read back, 25 times, against an expectation
+/// computed here.
+#[test]
+fn every_returned_concat_shape_still_produces_the_right_value() {
+    const SOURCE: &str = "IMPORT io\n\
+IMPORT strings\n\
+FUNC wrap(s AS String) AS String\n  RETURN \"<\" & s & \">\"\nEND FUNC\n\
+FUNC tail(s AS String) AS String\n  RETURN s & \">\"\nEND FUNC\n\
+FUNC v(n AS Integer) AS String\n  RETURN \"v\" & toString(n MOD 10)\nEND FUNC\n\
+FUNC three(a AS String) AS String\n  RETURN \"[\" & wrap(a) & \"]\" & toString(len(a))\nEND FUNC\n\
+FUNC pair(n AS Integer) AS List OF String\n  RETURN [\"a\" & toString(n), \"b\" & toString(n)]\nEND FUNC\n\
+FUNC decorate(n AS Integer) AS String\n\
+  LET tag AS String = \"t\" & toString(n)\n\
+  RETURN tag & (\"-\" & toString(n + 1))\n\
+END FUNC\n\
+FUNC guarded(n AS Integer) AS String\n\
+  IF n > 0 THEN\n\
+    RETURN \"pos:\" & toString(n) & \"!\" & strings::upper(\"x\" & toString(n))\n\
+  END IF\n\
+  RETURN \"neg\"\n\
+END FUNC\n\
+FUNC boom(n AS Integer) AS String\n  FAIL error(7, \"x\" & toString(n))\nEND FUNC\n\
+SUB main()\n\
+  io::print(wrap(\"ab\"))\n\
+  io::print(tail(\"q\"))\n\
+  io::print(v(37))\n\
+  io::print(three(\"zz\"))\n\
+  io::print(strings::join(pair(4), \",\"))\n\
+  io::print(decorate(9))\n\
+  io::print(guarded(3))\n\
+  io::print(guarded(0))\n\
+  LET caught AS String = boom(5) TRAP(e)\n\
+    RECOVER \"caught:\" & e.message\n\
+  END TRAP\n\
+  io::print(caught)\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS String = \"\"\n\
+  WHILE i < 5\n\
+    acc = acc & wrap(toString(i)) & three(toString(i))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(acc)\n\
+END SUB\n";
+
+    // Computed here, not read off the program.
+    let wrap = |s: &str| format!("<{s}>");
+    let three = |a: &str| format!("[{}]{}", wrap(a), a.len());
+    let mut acc = String::new();
+    for i in 0..5 {
+        acc.push_str(&wrap(&i.to_string()));
+        acc.push_str(&three(&i.to_string()));
+    }
+    let expected = [
+        wrap("ab"),
+        "q>".to_string(),
+        "v7".to_string(),
+        three("zz"),
+        "a4,b4".to_string(),
+        "t9-10".to_string(),
+        "pos:3!X3".to_string(),
+        "neg".to_string(),
+        "caught:x5".to_string(),
+        acc,
+    ]
+    .join("\n");
+
+    let project = common::temp_project("b567_return_values", SOURCE);
+    let exe = common::build_project(&project);
+    // A use-after-free is not deterministic: it depends on whether the arena
+    // reuses the block before the read.
+    for run in 1..=25 {
+        let output = std::process::Command::new(&exe)
+            .output()
+            .expect("run the returned-concat ownership probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected,
+            "run {run}: a returned string read back wrong — an interior free took \
+             a block the caller still owned"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}

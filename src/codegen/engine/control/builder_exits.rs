@@ -2,6 +2,7 @@
 use crate::arch::ops::CodeOp;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
+use crate::codegen::engine::value::builder_values::EscapingValue;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
@@ -388,14 +389,25 @@ impl CodeBuilder<'_> {
         Some(saved)
     }
 
-    pub(crate) fn emit_return_exit(&mut self, value: Option<&NirValue>) -> Result<(), String> {
+    /// `interior_temp_watermark` is the pending-temp depth this `RETURN` STATEMENT
+    /// started at (bug-567). Everything the return expression registered above it
+    /// and no owner claimed is an interior temp, and this is the last reachable
+    /// point at which it can be freed — `clear_pending_temps_to` runs after the
+    /// branch. `None` for the synthesized fall-off-the-end return, which lowers no
+    /// expression and can register nothing.
+    pub(crate) fn emit_return_exit(
+        &mut self,
+        value: Option<&NirValue>,
+        interior_temp_watermark: Option<usize>,
+    ) -> Result<(), String> {
         // Plan a return-copy elision (plan-25-C C1) before emitting: a movable
         // `RETURN <owned-local>` removes the binding's scope-drop free for this
         // path so the block moves to the caller uncopied. Restore the live cleanup
         // set afterward so a sibling return path or the block's normal exit still
         // frees the binding.
         let restore_cleanups = self.plan_returned_move(value);
-        let result = self.emit_return_exit_inner(value, restore_cleanups.is_some());
+        let result =
+            self.emit_return_exit_inner(value, restore_cleanups.is_some(), interior_temp_watermark);
         if let Some(saved) = restore_cleanups {
             self.active_cleanups = saved;
         }
@@ -406,7 +418,10 @@ impl CodeBuilder<'_> {
         &mut self,
         value: Option<&NirValue>,
         move_elided: bool,
+        interior_temp_watermark: Option<usize>,
     ) -> Result<(), String> {
+        let interior_temp_watermark =
+            interior_temp_watermark.unwrap_or(self.pending_temp_frees.len());
         let lowered = if let Some(value) = value {
             Some(self.lower_returned_value(value, move_elided)?)
         } else {
@@ -431,23 +446,39 @@ impl CodeBuilder<'_> {
             None => None,
         };
         if self.active_cleanups.is_empty() {
+            let mut escaping = None;
             if let Some(result) = &result {
                 if result.type_ != ParameterType::Nothing {
-                    let location = if !already_standalone
-                        && self.inline_collection_payload_size(&result.type_).is_some()
-                    {
-                        Operand::from(
-                            self.materialize_inline_value_in_arena(
-                                &result.type_,
-                                &result.location,
-                            )?
-                            .render(),
-                        )
-                    } else {
-                        result.location.clone()
-                    };
-                    self.emit(abi::move_register(RESULT_VALUE_REGISTER, &location));
+                    escaping = Some(
+                        if !already_standalone
+                            && self.inline_collection_payload_size(&result.type_).is_some()
+                        {
+                            Operand::from(
+                                self.materialize_inline_value_in_arena(
+                                    &result.type_,
+                                    &result.location,
+                                )?
+                                .render(),
+                            )
+                        } else {
+                            result.location.clone()
+                        },
+                    );
                 }
+            }
+            // bug-567: the escaping value is standalone by here — claimed, moved,
+            // or copied — so the statement's remaining temps are interior and this
+            // is the last reachable instruction slot before the `ret`. Emits
+            // nothing when there are none.
+            let escaping = self.drop_interior_temps_before_branch(
+                interior_temp_watermark,
+                match escaping {
+                    Some(location) => EscapingValue::InRegister(location),
+                    None => EscapingValue::None,
+                },
+            )?;
+            if let Some(location) = &escaping {
+                self.emit(abi::move_register(RESULT_VALUE_REGISTER, location));
             }
             self.emit(abi::move_immediate(
                 RESULT_TAG_REGISTER,
@@ -458,6 +489,16 @@ impl CodeBuilder<'_> {
             return Ok(());
         }
         self.store_pending_success_result(result.as_ref(), already_standalone)?;
+        // bug-567, the same free on the cleanup-bearing path. The escaping value is
+        // already parked — `store_pending_success_result` wrote
+        // `pending_result_slots.value` — so nothing needs holding across the frees,
+        // but that slot is still handed over so the interior frees carry the same
+        // pointer-identity guard the fast path emits.
+        let escaping_slot = self
+            .pending_result_slots
+            .map(|slots| slots.value)
+            .map_or(EscapingValue::None, EscapingValue::InSlot);
+        self.drop_interior_temps_before_branch(interior_temp_watermark, escaping_slot)?;
         if let Some(value) = value {
             if let NirValue::Local(name) = value {
                 if result

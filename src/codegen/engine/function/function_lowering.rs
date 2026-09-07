@@ -1121,7 +1121,7 @@ pub(crate) fn lower_function(
         let _span = crate::trace::span("emit ops");
         builder.lower_ops(&function.body)?;
         if !builder.current_block_returns() {
-            builder.emit_return_exit(None)?;
+            builder.emit_return_exit(None, None)?;
         }
     }
     // Fuse single-use `a*b ± c` float chains into one single-rounded fused op
