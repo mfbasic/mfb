@@ -446,7 +446,8 @@ these files, and is not for `repository/src/**`).
 | after the app-mode resource-path base suffix | 152 | 4,343 |
 | after the opt2 hoister, GVN and branch-folder refusals | 149 | 4,323 |
 | after the store-forwarder's unreadable-instruction flush | 148 | 4,314 |
-| after the induction-variable and postdominator refusals | **148** | **4,310** |
+| after the induction-variable and postdominator refusals | 148 | 4,310 |
+| after three more members in the fault sweep's probe | **147** | **4,293** |
 
 **Two rows in this table are measurement changes, not work**, and both moved the
 number in a direction that has nothing to do with tests. C6 (`drop_never_executed
