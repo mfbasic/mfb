@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Fixed (pending land)
+Status: **FIXED** (2026-09-06, `177cdd2e7`..`8110c5de3`)
 Regression Test: `tests/rt-behavior/collections/negative-index-rule-rt` (the
 negative-index rule, per member) and
 `codegen::registry::tests::range_and_index_parameters_use_the_documented_vocabulary`
