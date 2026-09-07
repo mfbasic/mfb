@@ -1,6 +1,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
+use crate::codegen::memory::arena::builder_arena_transfer::RawSuccessBlock;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 impl CodeBuilder<'_> {
@@ -437,10 +438,20 @@ impl CodeBuilder<'_> {
             self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             let _ = arg_values;
+            // bug-566: THE leak site. The helper allocated its result in this
+            // thread's arena and handed back the only pointer; the `Result` is
+            // built by copying it, after which nothing owned it. The predicate is
+            // the `Bind` gate for the same call, asked here.
+            let raw_success = if self.raw_runtime_result_is_caller_owned(target, result_type) {
+                RawSuccessBlock::OwnedByThisFrame
+            } else {
+                RawSuccessBlock::OwnedElsewhere
+            };
             return self.materialize_current_result(
                 result_type,
                 format!("callResult {target}"),
                 target == "thread.waitFor",
+                raw_success,
             );
         }
 
