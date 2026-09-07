@@ -172,3 +172,71 @@ fn man_and_spec_answer_for_a_real_name_and_refuse_a_missing_one() {
         "a spec section that does not exist is a usage error"
     );
 }
+
+/// The dispatcher actually RUNS each working command, on a project it creates.
+///
+/// Everything above stops at the arm's guard — a help flag, a refused operand, a
+/// missing subcommand — which is where the uncovered lines were. What none of it
+/// reaches is the other side of the handler call: `init` writing a project, and
+/// `build`/`test`/`doc`/`fmt`/`audit` running one and answering `0`.
+///
+/// One project through all six, because that is the sequence a developer
+/// performs and because each command has to be handed something the previous one
+/// produced. `mfb init` first, so nothing here depends on a fixture in the tree
+/// that another test might be building at the same moment.
+///
+/// The temp directory is the point of the `init` call: an arm that ignored its
+/// `<location>` operand and wrote to the current directory would pass every
+/// assertion above and be caught only here.
+#[test]
+fn a_project_created_by_init_builds_tests_docs_formats_and_audits() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let project = dir.path().join("demo");
+    let project = project.to_string_lossy().to_string();
+
+    assert_eq!(
+        run(&["init", &project]),
+        0,
+        "`mfb init <dir>` must create the project and succeed"
+    );
+    assert!(
+        std::path::Path::new(&project)
+            .join("project.json")
+            .is_file(),
+        "`mfb init` must have written the manifest at the location it was GIVEN; \
+         an arm that ignored the operand would have written it to the current \
+         directory and still exited 0"
+    );
+
+    for command in ["build", "test", "doc", "fmt", "audit"] {
+        assert_eq!(
+            run(&[command, &project]),
+            0,
+            "`mfb {command} <project>` must succeed on the project `mfb init` \
+             just wrote — the template is what a new developer starts from, so a \
+             command that cannot run over it is broken for everyone's first hour"
+        );
+    }
+}
+
+/// `init` on a location it cannot create is a FAILURE, not a usage error.
+///
+/// The other half of `init`'s arm, and the distinction the two codes exist for:
+/// the command line was well formed, so `2` would be wrong; the command ran and
+/// could not do its job, which is `1`.
+#[test]
+fn init_into_an_uncreatable_location_fails() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    // A path whose PARENT is a file: `create_dir_all` cannot make a directory
+    // under it, on every platform this compiler runs on.
+    let blocker = dir.path().join("not-a-directory");
+    std::fs::write(&blocker, b"").expect("write the blocking file");
+    let target = blocker.join("demo");
+
+    assert_eq!(
+        run(&["init", &target.to_string_lossy()]),
+        1,
+        "the command line was well formed and the command could not do its job, \
+         which is a failure rather than a usage error"
+    );
+}
