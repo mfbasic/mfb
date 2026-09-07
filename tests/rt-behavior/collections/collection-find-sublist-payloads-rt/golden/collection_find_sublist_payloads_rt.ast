@@ -1,0 +1,72 @@
+{
+  "project": "collection_find_sublist_payloads_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 25 },
+    { "module": "io", "line": 26 }
+    ],
+    "items": [
+    {
+      "kind": "enum",
+      "visibility": "public",
+      "name": "Suit",
+      "line": 28,
+      "members": [
+      { "name": "Hearts", "line": 29 },
+      { "name": "Spades", "line": 30 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 33,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "flags", "type": "List OF Boolean", "value": { "kind": "list", "values": [{ "kind": "boolean", "value": true }, { "kind": "boolean", "value": false }, { "kind": "boolean", "value": true }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "flagPair", "type": "List OF Boolean", "value": { "kind": "list", "values": [{ "kind": "boolean", "value": false }, { "kind": "boolean", "value": true }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bool=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "flags" }, { "kind": "identifier", "value": "flagPair" }] }] } }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "1" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "2" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "3" }] }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "bytePair", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "2" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "3" }] }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "byte=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "bytes" }, { "kind": "identifier", "value": "bytePair" }] }] } }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "scalars", "type": "List OF Scalar", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toScalar", "arguments": [{ "kind": "string", "value": "a" }] }, { "kind": "call", "callee": "toScalar", "arguments": [{ "kind": "string", "value": "b" }] }, { "kind": "call", "callee": "toScalar", "arguments": [{ "kind": "string", "value": "c" }] }] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "scalarPair", "type": "List OF Scalar", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toScalar", "arguments": [{ "kind": "string", "value": "b" }] }, { "kind": "call", "callee": "toScalar", "arguments": [{ "kind": "string", "value": "c" }] }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "scalar=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "scalars" }, { "kind": "identifier", "value": "scalarPair" }] }] } }] }, "line": 46 },
+      { "kind": "binding", "mutable": false, "name": "nums", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "name": "numPair", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "identifier", "value": "numPair" }] }] } }] }, "line": 51 },
+      { "kind": "binding", "mutable": false, "name": "reals", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1.5" }, { "kind": "number", "value": "2.5" }, { "kind": "number", "value": "3.5" }] }, "line": 53 },
+      { "kind": "binding", "mutable": false, "name": "realPair", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "number", "value": "2.5" }, { "kind": "number", "value": "3.5" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "float=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "reals" }, { "kind": "identifier", "value": "realPair" }] }] } }] }, "line": 55 },
+      { "kind": "binding", "mutable": false, "name": "prices", "type": "List OF Money", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1.00M" }, { "kind": "number", "value": "2.00M" }, { "kind": "number", "value": "3.00M" }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "name": "pricePair", "type": "List OF Money", "value": { "kind": "list", "values": [{ "kind": "number", "value": "2.00M" }, { "kind": "number", "value": "3.00M" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "money=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "prices" }, { "kind": "identifier", "value": "pricePair" }] }] } }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "suits", "type": "List OF Suit", "value": { "kind": "list", "values": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Suit" }, "member": "Hearts" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Suit" }, "member": "Spades" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Suit" }, "member": "Hearts" }] }, "line": 62 },
+      { "kind": "binding", "mutable": false, "name": "suitPair", "type": "List OF Suit", "value": { "kind": "list", "values": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Suit" }, "member": "Spades" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Suit" }, "member": "Hearts" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "enum=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "suits" }, { "kind": "identifier", "value": "suitPair" }] }] } }] }, "line": 64 },
+      { "kind": "binding", "mutable": false, "name": "words", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "alpha" }, { "kind": "string", "value": "beta" }, { "kind": "string", "value": "gamma" }] }, "line": 69 },
+      { "kind": "binding", "mutable": false, "name": "wordPair", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "beta" }, { "kind": "string", "value": "gamma" }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "string=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "words" }, { "kind": "identifier", "value": "wordPair" }] }] } }] }, "line": 71 },
+      { "kind": "binding", "mutable": false, "name": "absent", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "2" }] }, "line": 80 },
+      { "kind": "binding", "mutable": false, "name": "missing", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 81,
+        "expression": { "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "nums" }, { "kind": "identifier", "value": "absent" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }, "line": 82 }
+        ]
+      }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "absent=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "missing" }] } }] }, "line": 84 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 86 }
+      ]
+    }
+    ]
+  }
+  ]
+}

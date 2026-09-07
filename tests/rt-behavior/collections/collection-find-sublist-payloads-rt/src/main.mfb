@@ -1,0 +1,87 @@
+' Searching a list for a SUBLIST, once per packed-payload element type.
+'
+' `collections::find(haystack, needle)` with a list needle lowers to
+' `lower_list_find_sublist`, whose inner comparison is
+' `emit_collection_payloads_match_branch` — a match on the element type with one
+' arm per payload width, and each arm decides how many bytes of each element are
+' compared:
+'
+'   Boolean/Byte   one byte           Scalar   four bytes
+'   Integer/Float/Fixed/Money  eight bytes
+'   an enum        eight bytes        String   length, then bytes
+'
+' An arm that loaded the wrong width would not fail to build. A `Scalar` read as
+' eight bytes compares three neighbouring elements at once, and a `Byte` read as
+' eight compares seven; both answer "not equal" for elements that ARE equal, so
+' the search silently reports NOTHING. This finds the same overlapping window in
+' every one of them, so a wrong width shows up as a missing index rather than as
+' nothing at all.
+'
+' Every needle is the last two elements, so the answer is 1 in each case, and
+' every haystack repeats a value that also appears in the needle — so an arm
+' that compared only the FIRST element of the window would answer 0 for the
+' Boolean and enum lists and be caught here rather than passing on lists whose
+' elements happen to be distinct.
+IMPORT collections
+IMPORT io
+
+ENUM Suit
+  Hearts
+  Spades
+END ENUM
+
+FUNC main() AS Integer
+  ' One byte per element.
+  LET flags AS List OF Boolean = [TRUE, FALSE, TRUE]
+  LET flagPair AS List OF Boolean = [FALSE, TRUE]
+  io::print("bool=" & toString(collections::find(flags, flagPair)))
+
+  LET bytes AS List OF Byte = [toByte(1), toByte(2), toByte(3)]
+  LET bytePair AS List OF Byte = [toByte(2), toByte(3)]
+  io::print("byte=" & toString(collections::find(bytes, bytePair)))
+
+  ' Four bytes per element: a Scalar is a Unicode scalar value, not a word.
+  LET scalars AS List OF Scalar = [toScalar("a"), toScalar("b"), toScalar("c")]
+  LET scalarPair AS List OF Scalar = [toScalar("b"), toScalar("c")]
+  io::print("scalar=" & toString(collections::find(scalars, scalarPair)))
+
+  ' Eight bytes per element, three types through one arm.
+  LET nums AS List OF Integer = [1, 2, 3]
+  LET numPair AS List OF Integer = [2, 3]
+  io::print("int=" & toString(collections::find(nums, numPair)))
+
+  LET reals AS List OF Float = [1.5, 2.5, 3.5]
+  LET realPair AS List OF Float = [2.5, 3.5]
+  io::print("float=" & toString(collections::find(reals, realPair)))
+
+  LET prices AS List OF Money = [1.00M, 2.00M, 3.00M]
+  LET pricePair AS List OF Money = [2.00M, 3.00M]
+  io::print("money=" & toString(collections::find(prices, pricePair)))
+
+  ' An enum is its own arm (bug-549), reached only after the named-type checks.
+  LET suits AS List OF Suit = [Suit.Hearts, Suit.Spades, Suit.Hearts]
+  LET suitPair AS List OF Suit = [Suit.Spades, Suit.Hearts]
+  io::print("enum=" & toString(collections::find(suits, suitPair)))
+
+  ' A String element compares its LENGTH first and only then its bytes, so a
+  ' needle whose strings share a prefix with the wrong window is the case that
+  ' separates a real comparison from a pointer one.
+  LET words AS List OF String = ["alpha", "beta", "gamma"]
+  LET wordPair AS List OF String = ["beta", "gamma"]
+  io::print("string=" & toString(collections::find(words, wordPair)))
+
+  ' A needle that is NOT present, on a list above. Without it every line here
+  ' would pass against a search that answered its start index without comparing
+  ' anything. `[3, 2]` is the reverse of a window that IS present, so an arm
+  ' that compared the window as a SET rather than in order fails here too.
+  '
+  ' `find` raises when the needle is absent rather than answering an index, so
+  ' reaching the handler is the not-found answer.
+  LET absent AS List OF Integer = [3, 2]
+  LET missing AS Integer = collections::find(nums, absent) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  io::print("absent=" & toString(missing))
+
+  RETURN 0
+END FUNC
