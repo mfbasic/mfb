@@ -5,7 +5,7 @@ Effort: small–medium
 Severity: **HIGH** (unbounded leak on the commonest String-returning function shape)
 Class: Memory / correctness
 
-Status: **FIXED**
+Status: **FIXED** (2026-09-07, `2ed1cfd45`)
 Regression Test: `tests/runtime/rt_scope_drop_leaks.rs` —
 `returning_a_nested_concat_runs_at_constant_rss`,
 `returning_a_concat_of_a_call_result_runs_at_constant_rss`,

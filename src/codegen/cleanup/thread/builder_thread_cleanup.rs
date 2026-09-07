@@ -3,6 +3,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::builder_arena_transfer::RawSuccessBlock;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::target::shared::runtime;
@@ -259,10 +260,14 @@ impl CodeBuilder<'_> {
             self.deactivate_moved_resource_arguments(target, args);
             let _ = arg_values;
             // thread.send/emit errors originate at this call site, not a worker.
+            // bug-566: `thread.send`/`emit`/`transferResource`/`emitResource` all
+            // return `Nothing` — there is no success block at all — and every
+            // `thread.*` target is foreign-arena anyway.
             let result = self.materialize_current_result(
                 result_type,
                 format!("callResult {target}"),
                 false,
+                RawSuccessBlock::OwnedElsewhere,
             )?;
             if let (Some(tag_slot), Some(source_slot)) = (send_tag_slot, source_resource_slot) {
                 // Flag the source moved only on the Ok tag; a trapped failure keeps

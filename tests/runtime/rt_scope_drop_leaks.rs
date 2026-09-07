@@ -3545,3 +3545,273 @@ END SUB\n";
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------- bug-566
+
+/// Assert `trapped` grows no faster with its iteration count than `plain` does.
+///
+/// bug-566's shapes cannot use `assert_flat`: a runtime-helper call with a
+/// `String` ARGUMENT leaks ~128 B per call on this compiler whether or not a
+/// `TRAP` is anywhere near it (`fs::exists(path)` alone, no `TRAP`, no block
+/// result, grows 3.6 -> 6.2 MB at 20k/40k). That is a different defect, filed
+/// separately, and it would swamp a flatness assertion here.
+///
+/// So the pin is COMPARATIVE and it isolates exactly what bug-566 changed: the
+/// same call, once under an inline `TRAP` and once not. Before the fix the
+/// trapped form grew twice as fast (5.2 MB vs 2.6 MB over the same 20k extra
+/// iterations); after it, the two growths match. When the argument leak is fixed
+/// both sides go flat and this still holds.
+#[cfg(unix)]
+fn assert_no_extra_growth(name: &str, trapped: &str, plain: &str, small: u64, large: u64) {
+    let trapped_growth =
+        peak_rss(name, trapped, large).saturating_sub(peak_rss(name, trapped, small));
+    let plain_growth = peak_rss(&format!("{name}_plain"), plain, large).saturating_sub(peak_rss(
+        &format!("{name}_plain"),
+        plain,
+        small,
+    ));
+    assert!(
+        trapped_growth <= plain_growth + 2 * 1024 * 1024,
+        "{name}: under an inline `TRAP` the loop grew {} MB between {small} and \
+         {large} iterations, but the SAME call bound without a `TRAP` grew only \
+         {} MB. The `TRAP` lowering copies the helper's block into the `Result` \
+         and must free the original (bug-566)",
+        trapped_growth / (1024 * 1024),
+        plain_growth / (1024 * 1024),
+    );
+}
+
+/// bug-566: `fs::readText` under an inline `TRAP`. The helper allocates the
+/// `String` in this thread's arena; `materialize_current_result` copies it into an
+/// intermediate, copies that into the `Result`, frees the intermediate (bug-379)
+/// and abandoned the original. 6.2 -> 11.4 MB at 20k/40k before, against
+/// 3.6 -> 6.2 MB for the same call bound plainly.
+const SHAPE_566_TRAPPED_READ_TEXT: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  fs::writeText(\"b566_probe.txt\", \"hello world!\")\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = fs::readText(\"b566_probe.txt\") TRAP(e)\n\
+      RECOVER \"x\"\n\
+    END TRAP\n\
+    acc = acc + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  fs::deleteFile(\"b566_probe.txt\")\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The same call with the `TRAP` removed — the contrast that attributes the extra
+/// growth to the `Result` lowering and not to `fs::readText` itself.
+const SHAPE_566_PLAIN_READ_TEXT: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  fs::writeText(\"b566_probe.txt\", \"hello world!\")\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = fs::readText(\"b566_probe.txt\")\n\
+    acc = acc + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  fs::deleteFile(\"b566_probe.txt\")\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// A COLLECTION payload on the same path — `List OF Byte`, whose block is freed
+/// by the collection drop rather than the `String` one.
+const SHAPE_566_TRAPPED_READ_BYTES: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  fs::writeText(\"b566_probe_b.txt\", \"hello world!\")\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET b AS List OF Byte = fs::readBytes(\"b566_probe_b.txt\") TRAP(e)\n\
+      RECOVER []\n\
+    END TRAP\n\
+    acc = acc + len(b)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  fs::deleteFile(\"b566_probe_b.txt\")\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+const SHAPE_566_PLAIN_READ_BYTES: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  fs::writeText(\"b566_probe_b.txt\", \"hello world!\")\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET b AS List OF Byte = fs::readBytes(\"b566_probe_b.txt\")\n\
+    acc = acc + len(b)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  fs::deleteFile(\"b566_probe_b.txt\")\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// A SCALAR payload under the same `TRAP` machinery: `fs::exists` returns a
+/// `Boolean`, so `result_payload_is_block` is false and bug-566 emits nothing at
+/// all. Its growth is the shared argument leak, and it is identical before and
+/// after — the control that says the `TRAP` lowering itself is not what changed.
+const SHAPE_566_TRAPPED_SCALAR: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  fs::writeText(\"b566_probe_s.txt\", \"hello world!\")\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET b AS Boolean = fs::exists(\"b566_probe_s.txt\") TRAP(e)\n\
+      RECOVER FALSE\n\
+    END TRAP\n\
+    IF b THEN\n\
+      acc = acc + 1\n\
+    END IF\n\
+    i = i + 1\n\
+  END WHILE\n\
+  fs::deleteFile(\"b566_probe_s.txt\")\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+const SHAPE_566_PLAIN_SCALAR: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  fs::writeText(\"b566_probe_s.txt\", \"hello world!\")\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET b AS Boolean = fs::exists(\"b566_probe_s.txt\")\n\
+    IF b THEN\n\
+      acc = acc + 1\n\
+    END IF\n\
+    i = i + 1\n\
+  END WHILE\n\
+  fs::deleteFile(\"b566_probe_s.txt\")\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn a_trapped_runtime_helper_string_result_grows_no_faster_than_the_plain_call() {
+    assert_no_extra_growth(
+        "b566_read_text",
+        SHAPE_566_TRAPPED_READ_TEXT,
+        SHAPE_566_PLAIN_READ_TEXT,
+        20_000,
+        40_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trapped_runtime_helper_collection_result_grows_no_faster_than_the_plain_call() {
+    assert_no_extra_growth(
+        "b566_read_bytes",
+        SHAPE_566_TRAPPED_READ_BYTES,
+        SHAPE_566_PLAIN_READ_BYTES,
+        20_000,
+        40_000,
+    );
+}
+
+/// The scalar control. It held before the fix too — which is the point: the extra
+/// growth the two cases above measured was the PAYLOAD BLOCK, not the `TRAP`.
+#[cfg(unix)]
+#[test]
+fn a_trapped_runtime_helper_scalar_result_was_never_the_leak() {
+    assert_no_extra_growth(
+        "b566_scalar",
+        SHAPE_566_TRAPPED_SCALAR,
+        SHAPE_566_PLAIN_SCALAR,
+        20_000,
+        40_000,
+    );
+}
+
+/// The VALUE half, and the half that matters most here: freeing a block this
+/// thread does not own is not a leak fix but memory corruption, and it shows up as
+/// a wrong value or an unrelated allocation failure rather than as a failing free.
+///
+/// `thread::waitFor` is the counter-example the whole audit turns on — its result
+/// was allocated in the WORKER's arena — so it is exercised beside the helpers that
+/// ARE freed, 25 times, with the values computed here.
+#[test]
+fn every_trapped_runtime_helper_result_still_produces_the_right_value() {
+    const SOURCE: &str = "IMPORT io\n\
+IMPORT fs\n\
+IMPORT os\n\
+IMPORT thread\n\
+ISOLATED FUNC worker(w AS ThreadWorker OF String TO String, seed AS String) AS String\n\
+  RETURN seed & \"-done\"\n\
+END FUNC\n\
+SUB main()\n\
+  fs::writeText(\"b566_values.txt\", \"hello world!\")\n\
+  LET s AS String = fs::readText(\"b566_values.txt\") TRAP(e)\n\
+    RECOVER \"x\"\n\
+  END TRAP\n\
+  io::print(s)\n\
+  LET b AS List OF Byte = fs::readBytes(\"b566_values.txt\") TRAP(e)\n\
+    RECOVER []\n\
+  END TRAP\n\
+  io::print(toString(len(b)))\n\
+  LET missing AS String = fs::readText(\"b566_absent_file.txt\") TRAP(e)\n\
+    RECOVER \"recovered\"\n\
+  END TRAP\n\
+  io::print(missing)\n\
+  LET names AS List OF String = fs::listDirectory(\".\") TRAP(e)\n\
+    RECOVER []\n\
+  END TRAP\n\
+  io::print(toString(len(names) > 0))\n\
+  LET env AS String = os::getEnvOr(\"B566_NOT_SET\", \"fallback\") TRAP(e)\n\
+    RECOVER \"x\"\n\
+  END TRAP\n\
+  io::print(env)\n\
+  LET t AS Thread OF String TO String = thread::start(worker, \"worker\")\n\
+  LET out AS String = thread::waitFor(t) TRAP(e)\n\
+    RECOVER \"thread-failed\"\n\
+  END TRAP\n\
+  io::print(out)\n\
+  io::print(s & \"/\" & missing & \"/\" & env)\n\
+  fs::deleteFile(\"b566_values.txt\")\n\
+END SUB\n";
+
+    let expected = [
+        "hello world!",
+        "12",
+        "recovered",
+        "TRUE",
+        "fallback",
+        "worker-done",
+        "hello world!/recovered/fallback",
+    ]
+    .join("\n");
+
+    let project = common::temp_project("b566_values", SOURCE);
+    let exe = common::build_project(&project);
+    // A cross-arena free is not deterministic: it depends on whether the other
+    // arena reuses the block before the read.
+    for run in 1..=25 {
+        let output = std::process::Command::new(&exe)
+            .current_dir(&project)
+            .output()
+            .expect("run the trapped-runtime-helper ownership probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected,
+            "run {run}: a trapped runtime-helper result read back wrong. If it is \
+             the `thread::waitFor` line, the free reached a block the WORKER's \
+             arena owns — `x19` is per-thread"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}

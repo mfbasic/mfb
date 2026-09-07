@@ -6031,3 +6031,255 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod raw_result_block_ownership {
+    //! bug-566: the per-helper ownership audit behind
+    //! [`CodeBuilder::raw_runtime_result_is_caller_owned`](crate::codegen::engine::builder::CodeBuilder::raw_runtime_result_is_caller_owned).
+    //!
+    //! A runtime helper called under an inline `TRAP` has its result copied into a
+    //! `Result` block, after which the helper's ORIGINAL block is dead. Freeing it
+    //! needs an answer to one question per helper — is that block a fresh
+    //! allocation in the CALLING thread's arena? — and getting it wrong is a
+    //! cross-arena wild free, not a missed optimisation: `x19` is per-thread.
+    //!
+    //! The emitter does not consult a name list; it asks the same gate a `Bind` of
+    //! the same call asks (`is_freeable_flat_value` + not foreign-arena). These
+    //! tests are the audit that the gate's ANSWERS are the intended ones, and that
+    //! the vocabulary they cover is the whole catalog: a new runtime helper that
+    //! returns a block, or a new one whose result type is generic, reds a test and
+    //! forces the decision rather than inheriting one.
+
+    use super::runtime_specs;
+    use crate::codegen::engine::builder::CodeBuilder;
+    use crate::types::ParameterType;
+
+    /// Runtime calls whose result block is allocated by ANOTHER thread.
+    ///
+    /// Every one is in the `thread` family, and every one's declared return type is
+    /// a type VARIABLE — `thread::waitFor` is `Out`, `thread::receive` is `Msg` —
+    /// so the concrete type is only known at the instantiation, and it can perfectly
+    /// well be a `String`. The block behind it was allocated by the WORKER, in the
+    /// worker's arena; `materialize_current_result`'s `worker_error_source` flag
+    /// exists for exactly that reason on the error side. Freeing one from the
+    /// calling thread writes this thread's free list into another thread's heap.
+    ///
+    /// This is the counter-example that makes the runtime-helper question an audit
+    /// and not a blanket rule.
+    const FOREIGN_ARENA_RESULTS: &[&str] = &[
+        "thread.accept",
+        "thread.acceptResource",
+        "thread.read",
+        "thread.readResource",
+        "thread.receive",
+        "thread.start",
+        "thread.waitFor",
+    ];
+
+    /// Every runtime call with a CONCRETE block-carrying return type. Each one's
+    /// block is a fresh `_mfb_arena_alloc` in the caller's arena — which is not a
+    /// new claim: `LET x AS T = <this call>` has always registered a scope-drop
+    /// `arena_free` for it (`owns_freeable_value` excludes only the runtime-managed
+    /// ones), so a helper that broke this would already be a wild free at every
+    /// binding. bug-566 asks that same question at the site the `TRAP` desugar
+    /// bypassed.
+    const CALLER_ARENA_BLOCK_RESULTS: &[&str] = &[
+        "app.getMode",              // app.Mode
+        "audio.devices",            // List OF audio.AudioDevice
+        "audio.read",               // List OF Byte
+        "audio.readTimeout",        // List OF Byte
+        "canvas.fontBlobUnchecked", // List OF Byte
+        "canvas.fontBytes",         // List OF Byte
+        "canvas.getBytes",          // List OF Byte
+        "canvas.getSize",           // canvas.Size
+        "canvas.groupItems",        // List OF canvas.DrawItem
+        "canvas.installedHashes",   // List OF Integer
+        "canvas.installedItems",    // List OF canvas.DrawItem
+        "canvas.installedLayers",   // List OF canvas.DrawLayer
+        "canvas.newSurface",        // List OF Byte
+        "canvas.retiredItems",      // List OF canvas.DrawItem
+        "crypto.generate",          // crypto.KeyPair
+        "crypto.hash",              // List OF Byte
+        "crypto.open",              // List OF Byte
+        "crypto.randomBytes",       // List OF Byte
+        "crypto.seal",              // crypto.Sealed
+        "crypto.sign",              // List OF Byte
+        "fs.canonicalPath",         // String
+        "fs.currentDirectory",      // String
+        "fs.listDirectory",         // List OF String
+        "fs.readAll",               // String
+        "fs.readAllBytes",          // List OF Byte
+        "fs.readBytes",             // List OF Byte
+        "fs.readLine",              // String
+        "fs.readText",              // String
+        "fs.tempDirectory",         // String
+        "io.input",                 // String
+        "io.readChar",              // String
+        "io.readLine",              // String
+        "net.lookup",               // List OF net.Address
+        "net.ping",                 // net.PingResult
+        "net.pingAddr",             // net.PingResult
+        "os.arch",                  // String
+        "os.args",                  // List OF String
+        "os.environ",               // Map OF String TO String
+        "os.executablePath",        // String
+        "os.getEnv",                // String
+        "os.getEnvOr",              // String
+        "os.hostName",              // String
+        "os.name",                  // String
+        "os.resourcePath",          // String
+        "os.userName",              // String
+        "os.version",               // String
+        "process.didSignal",        // process.Signal
+        "process.receive",          // String
+        "process.receiveBytes",     // List OF Byte
+        "process.receiveBytesFrom", // List OF Byte
+        "process.receiveFrom",      // String
+        "tcp.localAddress",         // net.Address
+        "tcp.read",                 // List OF Byte
+        "tcp.remoteAddress",        // net.Address
+        "term.getBackground",       // color.Color
+        "term.getForeground",       // color.Color
+        "term.terminalSize",        // term.TermSize
+        "tls.localAddress",         // net.Address
+        "tls.localAddressListener", // net.Address
+        "tls.read",                 // List OF Byte
+        "tls.remoteAddress",        // net.Address
+        "udp.localAddress",         // net.Address
+        "udp.receive",              // udp.Datagram
+    ];
+
+    /// Whether `ty` is a concrete type whose values are carried by an arena block —
+    /// the shapes `is_freeable_flat_value` admits, asked without a builder (which
+    /// needs a program's type model). A record/union NAME is included: it is
+    /// block-carrying in every program that can call the helper at all.
+    fn carries_a_block(ty: &ParameterType) -> bool {
+        // A resource HANDLE is a `Named` type too, but it is not a flat value
+        // block: `is_freeable_flat_value` excludes it, and its lifetime is the
+        // §15 close obligation, not an `arena_free`. `fs.openFile` and
+        // `tcp.accept` are therefore in neither list.
+        if crate::codegen::builtins::is_resource_type(ty) {
+            return false;
+        }
+        matches!(
+            ty,
+            ParameterType::String | ParameterType::ResultOf(_) | ParameterType::Named(_)
+        ) || crate::codegen::engine::types::typed_is_collection_type(ty)
+    }
+
+    /// Whether `ty` is not yet a concrete type — a generic parameter or a thread
+    /// handle carrying them. The emitter sees the SUBSTITUTED type, so these say
+    /// nothing about whether a block is involved, which is why they are classified
+    /// by call name instead.
+    fn is_generic(ty: &ParameterType) -> bool {
+        matches!(
+            ty,
+            ParameterType::Var(_) | ParameterType::ThreadHandle { .. }
+        )
+    }
+
+    #[test]
+    fn every_block_returning_runtime_helper_is_classified() {
+        let mut generic: Vec<&str> = Vec::new();
+        let mut concrete_block: Vec<&str> = Vec::new();
+        let mut no_block: Vec<&str> = Vec::new();
+        for call in runtime_specs() {
+            if is_generic(&call.return_type) {
+                generic.push(call.name);
+            } else if carries_a_block(&call.return_type) {
+                concrete_block.push(call.name);
+            } else {
+                no_block.push(call.name);
+            }
+        }
+        generic.sort();
+        generic.dedup();
+        concrete_block.sort();
+        concrete_block.dedup();
+        no_block.sort();
+        no_block.dedup();
+
+        assert_eq!(
+            generic, FOREIGN_ARENA_RESULTS,
+            "the set of runtime calls with a GENERIC result type changed. The \
+             emitter sees the substituted type, so it cannot tell from the type \
+             whether a block is involved — it declines these by call name. Every \
+             one must therefore be a call whose result really is another arena's, \
+             which today means the `thread` family. A NON-thread helper appearing \
+             here is the dangerous case: it would be freed on the strength of a \
+             concrete type the catalog never declared"
+        );
+        assert_eq!(
+            concrete_block, CALLER_ARENA_BLOCK_RESULTS,
+            "the set of runtime calls returning a concrete block-carrying type \
+             changed. Each new one is licensed to have its block freed by the \
+             caller after an inline `TRAP` copies it into the `Result` — the same \
+             licence its `LET` binding already exercises. Add it here only after \
+             confirming the helper allocates the result in the CALLER's arena \
+             (`_mfb_arena_alloc` on this thread) and hands back the only pointer"
+        );
+
+        for name in FOREIGN_ARENA_RESULTS {
+            assert!(
+                CodeBuilder::runtime_call_result_is_foreign_arena(name),
+                "{name} is catalogued as another arena's but the emitter would \
+                 free its block"
+            );
+        }
+        for name in CALLER_ARENA_BLOCK_RESULTS {
+            assert!(
+                !CodeBuilder::runtime_call_result_is_foreign_arena(name),
+                "{name} is catalogued as caller-owned but the emitter declines it, \
+                 so its block keeps leaking under an inline `TRAP`"
+            );
+        }
+        // The third class is the complement: a scalar / `Nothing` / resource-handle
+        // result has no block at all, so `result_payload_is_block` is false and
+        // nothing is emitted for it. Asserted disjoint rather than assumed, so a
+        // call cannot be read as both "no block" and "freed".
+        assert!(
+            no_block
+                .iter()
+                .all(|name| !FOREIGN_ARENA_RESULTS.contains(name)
+                    && !CALLER_ARENA_BLOCK_RESULTS.contains(name)),
+            "a runtime call is in two classes at once"
+        );
+        assert_eq!(
+            generic.len() + concrete_block.len() + no_block.len(),
+            runtime_specs()
+                .iter()
+                .map(|call| call.name)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            "the three classes must cover the whole runtime-call catalog"
+        );
+    }
+
+    /// The whole `thread` family is declined, not just the seven above: a thread
+    /// member that today returns `Nothing` and tomorrow returns a `String` must not
+    /// be freeable by the calling thread the moment its signature changes.
+    #[test]
+    fn no_thread_family_result_is_ever_freed_by_the_calling_thread() {
+        let mut thread_calls: Vec<&str> = runtime_specs()
+            .iter()
+            .map(|call| call.name)
+            .filter(|name| name.starts_with("thread."))
+            .collect();
+        thread_calls.sort();
+        thread_calls.dedup();
+        assert!(
+            thread_calls.len() >= 15,
+            "the thread-family scrape found only {} calls, so the assertion below \
+             means nothing: {thread_calls:?}",
+            thread_calls.len()
+        );
+        for name in &thread_calls {
+            assert!(
+                CodeBuilder::runtime_call_result_is_foreign_arena(name),
+                "{name} would have its result block freed by the CALLING thread. \
+                 A `thread` member marshals across the arena boundary; its block \
+                 belongs to the worker"
+            );
+        }
+    }
+}

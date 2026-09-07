@@ -8,6 +8,28 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 use std::collections::HashMap;
 
+/// bug-566: who owns the block that the RAW success value points at, on the `Ok`
+/// path of [`CodeBuilder::materialize_current_result`].
+///
+/// The lowering copies that block twice — once into an intermediate
+/// (`copy_value_to_current_arena`), then out of the intermediate INTO the flat
+/// `Result` (`emit_build_result_inline`) — and frees the intermediate (bug-379).
+/// The producer's ORIGINAL is dead from that moment. Whether this frame may free
+/// it is not a property of the `Result` lowering at all; it is a property of the
+/// PRODUCER, so every one of the six call sites states it, and there is no
+/// default. Answering `OwnedByThisFrame` wrongly is a double free or, for a
+/// worker's block, a cross-arena wild free — `x19` is per-thread.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum RawSuccessBlock {
+    /// This frame allocated it (through a callee that allocated in THIS thread's
+    /// arena and handed the only pointer back), and no other owner will free it.
+    /// Free it after the copy.
+    OwnedByThisFrame,
+    /// Someone else frees it, or it is not this arena's to free at all. Emit
+    /// nothing.
+    OwnedElsewhere,
+}
+
 /// How much to copy for a resource live slot that points into the sender's arena
 /// (bug-464): a size the descriptor knows at compile time, or a NUL-terminated
 /// string measured at run time.
@@ -182,6 +204,9 @@ impl CodeBuilder<'_> {
         // into the caller arena. Otherwise the error originates at this inline
         // expression and its `ErrorLoc` is built from the current source location.
         worker_error_source: bool,
+        // bug-566: who owns the block the raw success value points at. See
+        // [`RawSuccessBlock`] — every call site answers explicitly.
+        raw_success: RawSuccessBlock,
     ) -> Result<ValueResult, String> {
         // The single parse this function already performed for its result
         // type, hoisted so the block-free above shares it (plan-111-D). Letter F
@@ -242,6 +267,37 @@ impl CodeBuilder<'_> {
         // so there is nothing to free.
         if self.result_payload_is_block(success_type) {
             self.emit_free_flat_block_from_slot(&success, payload_slot)?;
+            // bug-566: and the PRODUCER's own block — step 1's source — which the
+            // copy above made dead and which nothing else owned. This is the third
+            // of the three lowerings that build a `Result` for an inline `TRAP`;
+            // bug-561 fixed the other two by re-running `register_pending_temp` on
+            // the node the bypass skipped, and left this one fail-closed because a
+            // runtime helper's block carries no `mark_fresh_string` provenance and
+            // `call_returns_fresh_string` only knows about `.mfb` / user functions.
+            //
+            // `RawSuccessBlock` supplies the missing half. Only a call site that has
+            // audited its producer says `OwnedByThisFrame`; every other site — an
+            // operator temp already registered for the statement-scope free, a
+            // `.mfb` callee's block bug-561 already owns, a `thread::waitFor` result
+            // that lives in the WORKER's arena — says `OwnedElsewhere` and nothing
+            // is emitted at all.
+            if raw_success == RawSuccessBlock::OwnedByThisFrame {
+                // The runtime guard: `copy_value_to_current_arena` is a deep copy
+                // for every block shape reached here, so the two pointers differ —
+                // but if any producer or copy path ever made it an identity, the
+                // free above already released this block and freeing it again is a
+                // double free. Compare and skip, so soundness is local to these
+                // four instructions rather than resting on the copy's behaviour.
+                let kept = self.label("raw_helper_result_kept");
+                let produced = self.temporary_vreg();
+                let copied = self.temporary_vreg();
+                self.emit(abi::load_u64(&produced, abi::stack_pointer(), value_slot));
+                self.emit(abi::load_u64(&copied, abi::stack_pointer(), payload_slot));
+                self.emit(abi::compare_registers(&produced, &copied));
+                self.emit(abi::branch_eq(&kept));
+                self.emit_free_flat_block_from_slot(&success, value_slot)?;
+                self.emit(abi::label(&kept));
+            }
         }
         self.emit(abi::branch(&have_payload_label));
 

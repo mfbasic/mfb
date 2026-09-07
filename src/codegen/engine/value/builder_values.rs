@@ -6,6 +6,7 @@ use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::builder_arena_transfer::RawSuccessBlock;
 use crate::codegen::memory::arena::TrappedErrorSource;
 use crate::codegen::memory::data::*;
 use crate::operators::{BinaryOp, UnaryOp};
@@ -921,7 +922,59 @@ impl CodeBuilder<'_> {
             NirValue::MemberAccess { member, .. } if member == "result" => return true,
             _ => return false,
         };
+        Self::runtime_call_result_is_foreign_arena(target)
+    }
+
+    /// bug-566: whether the block a RUNTIME HELPER returns lives outside the
+    /// calling thread's arena — the one exclusion that separates "this frame may
+    /// free it" from a cross-arena wild free.
+    ///
+    /// `x19` (the arena state) is PER-THREAD. A block produced by
+    /// `thread::waitFor`, `thread::receive` or `thread.result` was allocated by the
+    /// WORKER, in the worker's arena, and `materialize_current_result`'s
+    /// `worker_error_source` flag exists for exactly that reason on the error side.
+    /// Freeing one of those from this thread writes this thread's free list into
+    /// another thread's heap.
+    ///
+    /// It is a package prefix rather than a per-member list because the property is
+    /// a property of the `thread` FAMILY: every member of it marshals across the
+    /// boundary. `every_block_returning_runtime_helper_is_classified` (in
+    /// `codegen::registry`) asserts that the calls this answers `true` for are
+    /// exactly the block-returning `thread.*` entries of the runtime-call catalog,
+    /// so a new thread member with a block return reds a test rather than silently
+    /// joining the freed side.
+    ///
+    /// Everything else — `fs.readText`, `os.getEnv`, `process.receive`,
+    /// `net.resolve`, … — allocates its result in the CALLER's arena with
+    /// `_mfb_arena_alloc`, which is why `LET s AS String = fs::readText(p)` has
+    /// always freed it at scope drop (`owns_freeable_value` in `lower_ops_inner`
+    /// excludes only the runtime-managed ones). A helper that broke that would
+    /// already be a wild free at every `LET`.
+    pub(crate) fn runtime_call_result_is_foreign_arena(target: &str) -> bool {
         target.starts_with("thread.") || target.starts_with("thread::")
+    }
+
+    /// bug-566: whether the block a raw (inline-`TRAP`) runtime-helper call
+    /// returned is this frame's to free once `materialize_current_result` has
+    /// copied it into the `Result`.
+    ///
+    /// This is the SAME gate a `Bind` of the same call already applies —
+    /// `owns_freeable_value` in `lower_ops_inner` registers a scope-drop
+    /// `arena_free` for exactly `!runtime_managed && is_freeable_flat_value(T)` —
+    /// so the licence is not new: it is the licence the non-trapped spelling of the
+    /// same call has always used, asked at the site where the `TRAP` desugar
+    /// bypassed it. `LET s AS String = fs::readText(p)` is flat; the same call under
+    /// a `TRAP` leaked ~130 B per iteration until this answered.
+    ///
+    /// A resource handle, a `Thread`, a scalar: `is_freeable_flat_value` is false,
+    /// so nothing is emitted. A `thread.*` result: foreign arena, likewise nothing.
+    pub(crate) fn raw_runtime_result_is_caller_owned(
+        &self,
+        target: &str,
+        result_type: &ParameterType,
+    ) -> bool {
+        !Self::runtime_call_result_is_foreign_arena(target)
+            && self.is_freeable_flat_value(result_type)
     }
 
     /// Whether a `RES` bind's initializer merely names an **already-live**
@@ -2224,10 +2277,15 @@ impl CodeBuilder<'_> {
                             std::slice::from_ref(target.as_ref()),
                             "thread_result_arg",
                         )?;
+                        // bug-566: the worker allocated this block in ITS arena
+                        // (`x19` is per-thread). Freeing it here is not a leak fix,
+                        // it is a cross-arena wild free — the counter-example that
+                        // makes the runtime-helper question an audit.
                         return self.materialize_current_result(
                             &output_type,
                             "thread.result".to_string(),
                             true,
+                            RawSuccessBlock::OwnedElsewhere,
                         );
                     }
                     self.lower_field_access(target, member)
@@ -2389,7 +2447,15 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::label(&capture));
-        self.materialize_current_result(success_type, "checked".to_string(), false)
+        // bug-566: a `Checked` operand is lowered by `lower_value`, which
+        // registered its own pending temp — the statement-scope drop frees it, and
+        // a second free here would be a double free.
+        self.materialize_current_result(
+            success_type,
+            "checked".to_string(),
+            false,
+            RawSuccessBlock::OwnedElsewhere,
+        )
     }
 
     /// Lower an inline conversion built-in (`toInt`/`toFloat`/`toFixed`/`toByte`)
@@ -2425,7 +2491,16 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::label(&capture));
-        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
+        // bug-566: `toInt`/`toFloat`/`toByte`/`toMoney`/`toScalar` produce scalars,
+        // for which `result_payload_is_block` is false and nothing is emitted.
+        // `toFixed` produces a `Fixed`, also a scalar. No conversion here allocates
+        // a block, so there is none to own.
+        self.materialize_current_result(
+            &success_type,
+            format!("callResult {target}"),
+            false,
+            RawSuccessBlock::OwnedElsewhere,
+        )
     }
 
     /// Inline `TRAP` on a fallible inline member (plan-21-B): the member-agnostic
@@ -2615,6 +2690,9 @@ impl CodeBuilder<'_> {
         // `Result`; nothing else owns it afterwards, and `lower_value`'s
         // registration was bypassed by lowering the member directly.
         self.register_raw_member_result_temp(target, args, &success);
+        // bug-566: the line above is bug-561's answer for this site — the block is
+        // registered as a statement-scope pending temp, so THIS frame frees it
+        // there, not here. Two frees would be a double free.
         // Success fall-through: tag the produced value as the `Ok` result.
         // `forEach` produces `Nothing` (a `void` location) — there is no value
         // register to carry, so set a benign 0 and materialize `Result OF Nothing`.
@@ -2630,7 +2708,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::label(&capture));
         let success_type = success.type_.clone();
-        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
+        self.materialize_current_result(
+            &success_type,
+            format!("callResult {target}"),
+            false,
+            RawSuccessBlock::OwnedElsewhere,
+        )
     }
 
     /// Inline `TRAP` on a provably-infallible inline built-in (plan-26-A). Unlike
@@ -2658,7 +2741,12 @@ impl CodeBuilder<'_> {
             "Integer",
             RESULT_OK_TAG,
         ));
-        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
+        self.materialize_current_result(
+            &success_type,
+            format!("callResult {target}"),
+            false,
+            RawSuccessBlock::OwnedElsewhere,
+        )
     }
 
     /// Dispatch a provably-infallible inline built-in to its normal lowering. The
