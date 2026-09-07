@@ -282,14 +282,43 @@ impl CodeBuilder<'_> {
         }
 
         self.emit(abi::label(&have_payload_label));
+        Ok(self.fresh_trapped_result_value(result_slot, success, text))
+    }
+
+    /// bug-568: the ONE constructor of a `Result`-typed [`ValueResult`], and the
+    /// single place the claim "an inline `TRAP`'s value is a block THIS FRAME
+    /// allocated" is made.
+    ///
+    /// `result_slot` holds what [`Self::emit_build_result_inline`] returned: a
+    /// `{tag, size, payload}` block from this frame's own `_mfb_arena_alloc`,
+    /// into which the payload — scalar or block, `Ok` or `Error` — has been
+    /// COPIED. No other owner can name it.
+    ///
+    /// That matters because `lower_value_owned` decides whether a bind must deep
+    /// copy by asking predicates about the CALLEE (`call_returns_param_borrow`,
+    /// `call_returns_rodata_string`), and those describe the callee's SUCCESS
+    /// value, not this wrapper. A callee whose `RETURN` names a parameter made
+    /// `LET n AS Integer = risky(i) TRAP …` copy the whole `Result` and abandon
+    /// the one it copied — 134 B per call, 26.8 MB at 200 000 and 52.6 MB at
+    /// 400 000, on a call that never fails. Funnelling the construction here is
+    /// what makes "every `Result`-typed value is fresh" a checkable statement
+    /// rather than three separate sites agreeing by accident;
+    /// `codegen_trap_result_wrapper.rs::the_result_wrapper_has_exactly_one_constructor`
+    /// asserts nothing else builds one.
+    pub(crate) fn fresh_trapped_result_value(
+        &mut self,
+        result_slot: usize,
+        success: ParameterType,
+        text: String,
+    ) -> ValueResult {
         let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
-        Ok(ValueResult {
+        ValueResult {
             origin: None,
             type_: ParameterType::result_of(success),
             location: Operand::from(register.render()),
             text,
-        })
+        }
     }
 
     /// The full error-payload assembly for an inline-`TRAP`'s error branch: put

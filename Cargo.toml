@@ -338,6 +338,10 @@ name = "codegen_trap_error_free"
 path = "tests/codegen/codegen_trap_error_free.rs"
 
 [[test]]
+name = "codegen_trap_result_wrapper"
+path = "tests/codegen/codegen_trap_result_wrapper.rs"
+
+[[test]]
 name = "codegen_string_set_shift"
 path = "tests/codegen/codegen_string_set_shift.rs"
 

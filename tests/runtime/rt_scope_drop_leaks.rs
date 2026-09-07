@@ -2218,3 +2218,246 @@ fn every_trapped_error_shape_still_produces_the_right_value() {
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------- bug-568
+
+/// bug-568: `LET n AS Integer = risky(i) TRAP … END TRAP` leaked 134 B on every
+/// call — on the SUCCESS path, with a producer that never fails.
+///
+/// The bind is `$trap_resN : Result OF T = CallResult(risky(i))`, and
+/// `lower_value_owned` decides whether an owning store must deep-copy by asking
+/// `call_returns_param_borrow` — a question about the block the CALLEE returns.
+/// `risky`'s body is `RETURN i`, so the answer is "borrowed"; but what lowering
+/// produced is the `{tag, size, payload}` WRAPPER this frame's own
+/// `_mfb_arena_alloc` returned, with the callee's value copied into it. The bind
+/// deep-copied that wrapper and abandoned the original.
+///
+/// It is the callee's `RETURN` shape that decides it, not the payload type, which
+/// is why bug-561 read `Result OF Integer` as "never leaked at all": its contrast
+/// case (`a_trap_bound_scalar_result_still_runs_at_constant_rss`, still here and
+/// still green) returns `n / 2`. `RETURN i` and `RETURN i + 0` leaked;
+/// `RETURN i / 2` and `LET r AS Integer = i` + `RETURN r` did not.
+///
+/// | | N=200k | N=400k |
+/// | --- | --- | --- |
+/// | before | 26.8 MB | 52.6 MB |
+/// | after | 1.0 MB | 1.0 MB |
+const B568_TRAP_PARAM_BORROW: &str = "IMPORT io\n\
+FUNC risky(i AS Integer) AS Integer\n\
+  IF i < 0 THEN\n    FAIL error(1, \"neg\")\n  END IF\n\
+  RETURN i\n\
+END FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET n AS Integer = risky(i) TRAP(e)\n\
+      RECOVER 0\n\
+    END TRAP\n\
+    total = total + n\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// The report asked for every scalar payload type, so all four are in one loop:
+/// the wrapper is the same 24 bytes whatever the scalar is, and each of the four
+/// callees returns a PARAMETER, which is what triggers the copy. Four traps per
+/// iteration, so four times the rate: **99.5 MB at 200 000 and 197.8 MB at
+/// 400 000 before; 1.0 and 1.0 MB after.**
+const B568_TRAP_EVERY_SCALAR: &str = "IMPORT io\n\
+FUNC ri(i AS Integer) AS Integer\n\
+  IF i < 0 THEN\n    FAIL error(1, \"neg\")\n  END IF\n  RETURN i\n\
+END FUNC\n\
+FUNC rf(f AS Float, i AS Integer) AS Float\n\
+  IF i < 0 THEN\n    FAIL error(1, \"neg\")\n  END IF\n  RETURN f\n\
+END FUNC\n\
+FUNC rb(b AS Boolean, i AS Integer) AS Boolean\n\
+  IF i < 0 THEN\n    FAIL error(1, \"neg\")\n  END IF\n  RETURN b\n\
+END FUNC\n\
+FUNC ry(y AS Byte, i AS Integer) AS Byte\n\
+  IF i < 0 THEN\n    FAIL error(1, \"neg\")\n  END IF\n  RETURN y\n\
+END FUNC\n\
+SUB main()\n\
+  LET one AS Byte = toByte(1)\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET n AS Integer = ri(i) TRAP(e)\n      RECOVER 0\n    END TRAP\n\
+    LET f AS Float = rf(1.5, i) TRAP(e2)\n      RECOVER 0.0\n    END TRAP\n\
+    LET b AS Boolean = rb(TRUE, i) TRAP(e3)\n      RECOVER FALSE\n    END TRAP\n\
+    LET y AS Byte = ry(one, i) TRAP(e4)\n      RECOVER toByte(0)\n    END TRAP\n\
+    total = total + n\n\
+    IF f > 1.0 THEN\n      total = total + 1\n    END IF\n\
+    IF b THEN\n      total = total + 1\n    END IF\n\
+    IF y = one THEN\n      total = total + 1\n    END IF\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// The same defect with a `String` payload, where the abandoned wrapper inlines
+/// the whole string rather than an 8-byte scalar — 195 B per call: **38.2 MB at
+/// 200 000 and 75.4 MB at 400 000 before; 1.0 and 1.0 MB after.**
+const B568_TRAP_STRING_BORROW: &str = "IMPORT io\n\
+FUNC pick(s AS String, i AS Integer) AS String\n\
+  IF i < 0 THEN\n    FAIL error(1, \"neg\")\n  END IF\n\
+  RETURN s\n\
+END FUNC\n\
+SUB main()\n\
+  LET base AS String = \"abcdefghijklmnop\"\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET n AS String = pick(base, i) TRAP(e)\n\
+      RECOVER \"x\"\n\
+    END TRAP\n\
+    total = total + len(n)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// The POSITIVE pin: the identical param-borrow callee called WITHOUT a `TRAP`.
+///
+/// There the lowered value really IS the caller's own argument block, the copy is
+/// what makes the binding an owner, and removing it would `arena_free` a live
+/// local at scope drop. Flat before and after — and the source `base` is read
+/// back on every iteration, so a wrong free shows up as a wrong total rather than
+/// only as a fault.
+const B568_CONTRAST_NO_TRAP: &str = "IMPORT io\n\
+FUNC pick(s AS String) AS String\n  RETURN s\nEND FUNC\n\
+SUB main()\n\
+  LET base AS String = \"abcdefghijklmnop\"\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET n AS String = pick(base)\n\
+    total = total + len(n) + len(base)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn a_trap_over_a_param_returning_callee_runs_at_constant_rss() {
+    assert_flat(
+        "b568_param_borrow",
+        B568_TRAP_PARAM_BORROW,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trap_over_every_scalar_payload_runs_at_constant_rss() {
+    assert_flat("b568_scalars", B568_TRAP_EVERY_SCALAR, 200_000, 400_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trap_over_a_param_returning_string_callee_runs_at_constant_rss() {
+    assert_flat(
+        "b568_string_borrow",
+        B568_TRAP_STRING_BORROW,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_param_borrow_without_a_trap_still_runs_at_constant_rss() {
+    assert_flat("b568_no_trap", B568_CONTRAST_NO_TRAP, 200_000, 400_000);
+}
+
+/// The behaviour pin for bug-568. The fix REMOVES a deep copy, so its failure
+/// mode is a use-after-free — the binding freeing a block the caller still owns —
+/// which surfaces as a wrong value or a fault at some later allocation, never as
+/// a red assertion. Every shape whose block the binding must NOT alias is here:
+///
+/// * a param-borrow callee under a `TRAP`, with the SOURCE read back after the
+///   trapped binding has been freed at the end of each iteration;
+/// * the same callee WITHOUT a `TRAP`, where the copy is still emitted;
+/// * a param-borrow callee whose trapped call FAILS, so the wrapper carries an
+///   `Error` rather than the borrowed block;
+/// * a record and a collection payload, which are freeable-flat like `String` and
+///   so took the same copy;
+/// * a callee returning a rodata literal, and one returning its own `toString`
+///   argument — the two other `value_needs_owning_copy` verdicts that reach the
+///   same `if`.
+const B568_BORROW_SHAPES: &str = "IMPORT io\n\
+IMPORT collections\n\
+TYPE Duo\n  a AS Integer\n  b AS Integer\nEND TYPE\n\
+FUNC pick(s AS String, i AS Integer) AS String\n\
+  IF i MOD 5 = 0 THEN\n    FAIL error(3, \"five\")\n  END IF\n  RETURN s\n\
+END FUNC\n\
+FUNC plain(s AS String) AS String\n  RETURN s\nEND FUNC\n\
+FUNC lit(i AS Integer) AS String\n\
+  IF i < 0 THEN\n    FAIL error(3, \"neg\")\n  END IF\n  RETURN \"literal\"\n\
+END FUNC\n\
+FUNC ident(s AS String, i AS Integer) AS String\n\
+  IF i < 0 THEN\n    FAIL error(3, \"neg\")\n  END IF\n  RETURN toString(s)\n\
+END FUNC\n\
+FUNC pair(p AS Duo, i AS Integer) AS Duo\n\
+  IF i < 0 THEN\n    FAIL error(3, \"neg\")\n  END IF\n  RETURN p\n\
+END FUNC\n\
+FUNC same(xs AS List OF Integer, i AS Integer) AS List OF Integer\n\
+  IF i < 0 THEN\n    FAIL error(3, \"neg\")\n  END IF\n  RETURN xs\n\
+END FUNC\n\
+SUB main()\n\
+  LET base AS String = \"abcdefghij\"\n\
+  LET p AS Duo = Duo[7, 9]\n\
+  LET xs AS List OF Integer = [1, 2, 3, 4]\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < 4000\n\
+    LET a AS String = pick(base, i) TRAP(e)\n      RECOVER \"zz\"\n    END TRAP\n\
+    LET b AS String = plain(base)\n\
+    LET c AS String = lit(i) TRAP(e2)\n      RECOVER \"zz\"\n    END TRAP\n\
+    LET d AS String = ident(base, i) TRAP(e3)\n      RECOVER \"zz\"\n    END TRAP\n\
+    LET q AS Duo = pair(p, i) TRAP(e4)\n      RECOVER Duo[0, 0]\n    END TRAP\n\
+    LET ys AS List OF Integer = same(xs, i) TRAP(e5)\n      RECOVER []\n    END TRAP\n\
+    total = total + len(a) + len(b) + len(c) + len(d)\n\
+    total = total + q.a + q.b + collections::get(ys, 3) + len(base)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+  io::print(\"base=\" & base)\n\
+  io::print(\"pair=\" & toString(p.a) & \",\" & toString(p.b))\n\
+  io::print(\"xs=\" & toString(collections::get(xs, 3)))\n\
+END SUB\n";
+
+#[test]
+fn every_param_borrow_shape_still_produces_the_right_value() {
+    let project = common::temp_project("b568_borrow_values", B568_BORROW_SHAPES);
+    let exe = common::build_project(&project);
+    // 4 000 iterations. `pick` fails on the 800 where `i MOD 5 = 0` (recovering
+    // "zz", 2) and returns `base` (10) on the other 3 200. `plain` is 10 every
+    // time; `lit` is "literal" (7); `ident` is `base` (10). `q` is 7 + 9 = 16 and
+    // `collections::get(ys, 3)` is 4, plus `len(base)` = 10.
+    let expected_total: i64 = (800 * 2 + 3_200 * 10) + 4_000 * (10 + 7 + 10 + 16 + 4 + 10);
+    let expected = format!("total={expected_total}\nbase=abcdefghij\npair=7,9\nxs=4");
+    // A use-after-free is not deterministic: it corrupts the free list and
+    // surfaces on some later allocation, which may or may not happen in a run.
+    for run in 1..=25 {
+        let output = std::process::Command::new(&exe)
+            .output()
+            .expect("run the param-borrow ownership probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected,
+            "run {run}: a param-borrow result changed — the binding freed a block \
+             the caller still owns, or the wrapper lost its payload"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}

@@ -427,7 +427,10 @@ impl CodeBuilder<'_> {
             self.claim_pending_temp(&block);
             return Ok(block);
         }
-        if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_) {
+        if self.value_needs_owning_copy(value)
+            && self.is_freeable_flat_value(&result.type_)
+            && !Self::is_fresh_trapped_result_wrapper(value, &result.type_)
+        {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 origin: None,
@@ -441,6 +444,46 @@ impl CodeBuilder<'_> {
         // what scope-drop (or the consuming store) now owns (plan-25).
         self.claim_pending_temp(&result);
         Ok(result)
+    }
+
+    /// bug-568: whether `result_type` is the fresh `Result` WRAPPER an inline
+    /// `TRAP`'s lowering built, rather than the callee's own returned value.
+    ///
+    /// The three predicates [`Self::value_needs_owning_copy`] consults for a call
+    /// — `call_returns_param_borrow`, `call_returns_rodata_string`,
+    /// `static_string_value` — are all statements about the block the CALLEE
+    /// hands back. On a `NirValue::CallResult` that block is not what lowering
+    /// produced: every one of the three inline-`TRAP` lowerings ends at
+    /// [`CodeBuilder::fresh_trapped_result_value`] holding a `{tag, size,
+    /// payload}` block this frame's own `_mfb_arena_alloc` returned, with the
+    /// callee's value COPIED into it (that copy, and the free of what it copied
+    /// FROM, are bug-561's fix on the Ok branch and bug-565's on the error
+    /// branch). Asking a callee-keyed question about it answers about the wrong
+    /// block.
+    ///
+    /// Answering `true` there made `LET n AS Integer = risky(i) TRAP …` deep-copy
+    /// the whole `Result` and abandon the original — 134 B on every call, on a
+    /// path where the producer never fails, because `risky`'s body is
+    /// `RETURN i` and `i` is a parameter. 26.8 MB at 200 000 iterations and
+    /// 52.6 MB at 400 000, with the same loop over an infallible callee flat at
+    /// 1.06 MB. A `String` payload cost 195 B (38.2 → 75.4 MB).
+    ///
+    /// **Both halves of the conjunction are load-bearing, and it fails CLOSED.**
+    /// The `CallResult` node says the lowering went through a trapped-`Result`
+    /// path; the `ResultOf` type is the witness that it actually produced a
+    /// wrapper, since `fresh_trapped_result_value` is the only constructor of one
+    /// (asserted by `codegen_trap_result_wrapper.rs`). If a future `CallResult`
+    /// lowering ever returned something else, the type check fails and the copy
+    /// is kept — the old, merely wasteful behaviour — rather than handing a
+    /// binding an alias it would then `arena_free`.
+    ///
+    /// The plain-`Call` path is untouched and MUST be: there the lowered value IS
+    /// the callee's block, so a param-borrow really does need the copy, and
+    /// removing it would be a use-after-free of the caller's own argument
+    /// (`a_param_borrow_without_a_trap_still_copies` pins it).
+    fn is_fresh_trapped_result_wrapper(value: &NirValue, result_type: &ParameterType) -> bool {
+        matches!(value, NirValue::CallResult { .. })
+            && matches!(result_type, ParameterType::ResultOf(_))
     }
 
     /// Whether lowering `value` yields a pointer this scope does **not** own — an
@@ -1299,14 +1342,11 @@ impl CodeBuilder<'_> {
                             TrappedErrorSource::CalleeRegister,
                         )?;
                         self.emit(abi::label(&have_payload_label));
-                        let register = self.allocate_register();
-                        self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
-                        return Ok(ValueResult {
-                            origin: None,
-                            type_: ParameterType::result_of(return_type_typed.clone()),
-                            location: Operand::from(register.render()),
-                            text: format!("callResult {target}"),
-                        });
+                        return Ok(self.fresh_trapped_result_value(
+                            result_slot,
+                            return_type_typed.clone(),
+                            format!("callResult {target}"),
+                        ));
                     }
                 }
                 // An inline `TRAP` on an inline-lowered conversion built-in
@@ -1462,14 +1502,11 @@ impl CodeBuilder<'_> {
                     TrappedErrorSource::CalleeRegister,
                 )?;
                 self.emit(abi::label(&have_payload_label));
-                let register = self.allocate_register();
-                self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
-                Ok(ValueResult {
-                    origin: None,
-                    type_: ParameterType::result_of(success_type_typed.clone()),
-                    location: Operand::from(register.render()),
-                    text: format!("callResult {target}"),
-                })
+                Ok(self.fresh_trapped_result_value(
+                    result_slot,
+                    success_type_typed.clone(),
+                    format!("callResult {target}"),
+                ))
             }
             NirValue::RuntimeCall {
                 helper,

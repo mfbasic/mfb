@@ -239,11 +239,34 @@ invisible once a caller is licensed to free:
 
 Still leaking after B-2, and unchanged by it — measure before attributing:
 `s = s & ch` on a `MUT String` (~190 B per iteration, the in-place self-append
-path; the assignment does NOT free the old block, unlike `s = <call>`), and a
-`Result OF T` bound through `TRAP` (128 B per call for `Integer`,
-type-independent — the `$trap_resN` binding gets no scope-drop free). Together
-they are the whole of `csv::parse`'s residual 112 MB per repeat call, so do not
-attribute that to B-2.
+path; the assignment does NOT free the old block, unlike `s = <call>`). **That
+one is now fixed (bug-560).**
+
+**The `TRAP` row here was wrong twice and is now closed; do not re-derive it.**
+It read "a `Result OF T` bound through `TRAP` (128 B per call for `Integer`,
+type-independent — the `$trap_resN` binding gets no scope-drop free)". The
+`$trap_resN` binding always DID get a scope-drop free (`ResultOf` is a freeable
+flat value). What leaked was, in order:
+
+* the block the PRODUCER returned, which `emit_build_result_inline` copies into
+  the `Result` and nothing then owned — bug-561, fixed;
+* the trapped `Error` block(s) on the error branch, including the one the raiser
+  had PARKED for the catcher to adopt — bug-565, fixed;
+* the `Result` WRAPPER itself, deep-copied and abandoned whenever the callee's
+  body was `RETURN <parameter>`, because `lower_value_owned` asked
+  `call_returns_param_borrow` — a question about the callee's success value —
+  about a wrapper this frame had just allocated. That is the "128 B per call for
+  `Integer`" row, and it is **not** type-independent: the discriminator is the
+  callee's `RETURN` shape, not the payload type. bug-568, fixed.
+
+Also do not re-attribute `csv::parse`'s "residual 112 MB per repeat call" to any
+of these: re-measured over 1.26 MB of empty fields at 1/2/4/16 calls it is a flat
+382.8 MB peak both before and after, so that number needs its own input recorded
+before anyone tracks it again.
+
+Still open on this path: an error raised by an inline builtin's own domain check
+orphans the `ErrorLoc` `_mfb_make_error_result` built, on the RAISE side
+(bug-573).
 
 ## Producer-side `Operand::imm` is an allocation trap
 
