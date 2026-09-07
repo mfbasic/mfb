@@ -288,8 +288,18 @@ fn ed25519_x25519_and_convert_interoperate_both_ways() {
     let replies = mfb.ask(&[
         "gen,ed25519".to_string(),
         "gen,x25519".to_string(),
-        format!("verify,ed25519,{},{},{}", hex(&rust_ed_pub), hex(MESSAGE), hex(&rust_ed_sig)),
-        format!("verify,ed25519,{},{},{}", hex(&rust_ed_pub), hex(MESSAGE), hex(&bad_sig)),
+        format!(
+            "verify,ed25519,{},{},{}",
+            hex(&rust_ed_pub),
+            hex(MESSAGE),
+            hex(&rust_ed_sig)
+        ),
+        format!(
+            "verify,ed25519,{},{},{}",
+            hex(&rust_ed_pub),
+            hex(MESSAGE),
+            hex(&bad_sig)
+        ),
     ]);
     let (ed_seed, ed_pub) = parse_gen(&replies[0]);
     let (x_secret, x_public) = parse_gen(&replies[1]);
@@ -332,7 +342,11 @@ fn ed25519_x25519_and_convert_interoperate_both_ways() {
     let mfb_sig = parse_one("sign", &replies[0]);
     let mfb_shared = parse_one("exchange", &replies[1]);
     let convert_fields: Vec<&str> = replies[2].split_whitespace().collect();
-    assert_eq!(convert_fields[0], "convert", "convert failed: {}", replies[2]);
+    assert_eq!(
+        convert_fields[0], "convert",
+        "convert failed: {}",
+        replies[2]
+    );
     let (conv_secret, conv_public) = (unhex(convert_fields[2]), unhex(convert_fields[3]));
 
     // Ed25519 is deterministic, so the signature is not merely valid -- it is
@@ -349,7 +363,10 @@ fn ed25519_x25519_and_convert_interoperate_both_ways() {
     // ... and it verifies under two independent verifiers.
     VerifyingKey::from_bytes(&ed_pub.clone().try_into().unwrap())
         .expect("dalek public key")
-        .verify(MESSAGE, &Signature::from_bytes(&mfb_sig.clone().try_into().unwrap()))
+        .verify(
+            MESSAGE,
+            &Signature::from_bytes(&mfb_sig.clone().try_into().unwrap()),
+        )
         .expect("ed25519-dalek rejected MFB's signature");
     UnparsedPublicKey::new(&ED25519, &ed_pub)
         .verify(MESSAGE, &mfb_sig)
@@ -452,7 +469,11 @@ fn nist_ecdsa_interoperates_both_ways() {
         let ring_pair =
             EcdsaKeyPair::from_pkcs8(curve.signing, pkcs8.as_ref(), &rng).expect("ring from_pkcs8");
         let ring_public = ring_pair.public_key().as_ref().to_vec();
-        let ring_sig = ring_pair.sign(&rng, MESSAGE).expect("ring sign").as_ref().to_vec();
+        let ring_sig = ring_pair
+            .sign(&rng, MESSAGE)
+            .expect("ring sign")
+            .as_ref()
+            .to_vec();
         let mut bad_sig = ring_sig.clone();
         let last = bad_sig.len() - 1;
         bad_sig[last] ^= 1;
@@ -509,7 +530,11 @@ fn nist_ecdsa_interoperates_both_ways() {
             "{}: the private key does not carry its own public key as a prefix",
             curve.label
         );
-        assert_eq!(mfb_public[0], 0x04, "{}: uncompressed point marker", curve.label);
+        assert_eq!(
+            mfb_public[0], 0x04,
+            "{}: uncompressed point marker",
+            curve.label
+        );
 
         // MFB signs with the pair it generated; ring must accept both the key
         // encoding and the DER signature.
