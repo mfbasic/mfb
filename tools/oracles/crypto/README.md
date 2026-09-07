@@ -34,15 +34,50 @@ The oracle for `crypto::argon2id` and the BLAKE2b-512 it is built on.
 
 | Piece | Role |
 |---|---|
-| `argon2id/src/main.rs` | Clean-room reference, structured to mirror the MFBASIC core it validates, so a divergence localises to a step rather than to "the tag is wrong". |
-| `argon2id/Cargo.toml` | Its OWN `[workspace]` — deliberately not a member of the mfb workspace. See the comment in the file. |
-| `argon2id/Cargo.lock` | Committed. The pin IS the oracle: `argon2 = "=0.5.3"` is the version whose agreement was measured. |
-| `argon2id/openssl-xcheck.sh` | The third opinion, from OpenSSL's own `ARGON2ID` KDF. |
+The directory has two halves — `mfb/` is the **subject**, `rust/` is the
+**judge** — and `run.sh` plays them against each other.
 
-### Running it
+| Piece | Role |
+|---|---|
+| `argon2id/run.sh` | The differential check. Builds `mfb/`, runs it, re-derives every tag with `rust/`, compares. Start here. |
+| `argon2id/mfb/` | An MFBASIC project calling `crypto::argon2id` over a spread of costs and edges. It prints the parameters it used next to each digest. |
+| `argon2id/rust/src/main.rs` | Clean-room reference, structured to mirror the MFBASIC core it validates, so a divergence localises to a step rather than to "the tag is wrong". |
+| `argon2id/rust/Cargo.toml` | Its OWN `[workspace]` — deliberately not a member of the mfb workspace. See the comment in the file. |
+| `argon2id/rust/Cargo.lock` | Committed. The pin IS the oracle: `argon2 = "=0.5.3"` is the version whose agreement was measured. |
+| `argon2id/rust/openssl-xcheck.sh` | The third opinion, from OpenSSL's own `ARGON2ID` KDF. |
+
+### Running the differential check
 
 ```sh
-cd tools/oracles/crypto/argon2id
+tools/oracles/crypto/argon2id/run.sh          # builds mfb + rust, compares
+tools/oracles/crypto/argon2id/run.sh /path/to/mfb   # or point it at an mfb binary
+```
+
+It builds the `mfb` compiler if `target/release/mfb` is missing. Expected tail:
+
+```
+OK   m=19456 t=2 p=1 l=32 pw=70617373776f7264 salt=736f6d…  0c4c0b6db2…
+argon2id mfb-vs-rust: 12 case(s), 0 failure(s)
+```
+
+Exit codes match `openssl-xcheck.sh`: `0` all agreed, `1` a case disagreed,
+`2` the harness could not run (build failure, no cases, or a case COUNT other
+than the `EXPECTED_CASES` pinned in `run.sh`).
+
+Two things make the comparison honest rather than circular:
+
+- **`mfb/` prints its own inputs, and `run.sh` feeds those to `rust/`.** There is
+  no case table duplicated between the two, so the sides cannot silently drift
+  onto different parameters and still agree.
+- **The case count is pinned in `run.sh`, not counted from `mfb/`'s output.** A
+  count derived from the producer is true by construction — if the program died
+  after case 3, "3 of 3 agreed" would read as a pass. Keep `EXPECTED_CASES` in
+  step with the `emit(...)` calls in `mfb/src/main.mfb`.
+
+### Running the Rust reference alone
+
+```sh
+cd tools/oracles/crypto/argon2id/rust
 cargo run --release            # self-check + RustCrypto cross-check
 ```
 
@@ -63,6 +98,9 @@ expose — so the reference reaches it and the shipped member cannot. That is wh
 the committed fixture pins the no-secret case at the RFC's cost parameters
 instead of surface being invented to reach one vector.
 
+The third opinion, also from `rust/` (its `target/release/argon2ref` path is
+relative, so run it from there):
+
 ```sh
 ./openssl-xcheck.sh                                       # needs OpenSSL >= 3.2
 ./openssl-xcheck.sh /opt/homebrew/opt/openssl@3/bin/openssl
@@ -73,6 +111,8 @@ detects that and exits 2 (skip) rather than reporting a pass. It also refuses to
 exit 0 having run zero cases — a harness that runs nothing must not read as green.
 
 ### Deriving a new vector
+
+Also from `rust/`. This is the mode `run.sh` drives, one case per invocation:
 
 ```sh
 cargo run --release -- run <password-hex> <salt-hex> <m> <t> <p> <len>

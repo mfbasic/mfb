@@ -1,0 +1,90 @@
+' Emits a spread of crypto::argon2id results in a form the Rust reference next
+' door can re-derive independently. This program is the SUBJECT of the
+' cross-check, never its judge: it prints the inputs it used alongside the digest
+' it got, and `../run.sh` feeds those same inputs to `../rust` and compares.
+'
+' Printing the inputs rather than duplicating a case table in the shell is what
+' makes the comparison honest -- the two sides cannot drift apart, because the
+' shell reads the parameters out of this program's own output. The case COUNT is
+' pinned separately in run.sh, so a truncated or short-circuited run here shows
+' up as a count mismatch instead of a silent pass.
+'
+' Line format, one per case:
+'   case <password-hex> <salt-hex> <memoryKiB> <iterations> <parallelism> <length> <digest-hex>
+' An empty password or salt is written "-", because an empty field would shift
+' every later field left when the shell splits the line on spaces.
+IMPORT collections
+IMPORT crypto
+IMPORT encoding
+IMPORT io
+IMPORT strings
+
+' A `count`-long list of the same byte, for the RFC 9106 section 5.3 inputs
+' (a 32-byte password of 0x01, a 16-byte salt of 0x02).
+FUNC repeated(value AS Integer, count AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < count
+    out = collections::append(out, toByte(value))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' Hex, with "-" standing in for empty so the field count never changes.
+FUNC hexField(value AS List OF Byte) AS String
+  LET encoded AS String = encoding::hexEncode(value)
+  IF encoded = "" THEN
+    RETURN "-"
+  END IF
+  RETURN encoded
+END FUNC
+
+' Derive one tag and report it with the parameters that produced it.
+SUB emit(password AS List OF Byte, salt AS List OF Byte, memoryKiB AS Integer, iterations AS Integer, parallelism AS Integer, length AS Integer)
+  LET tag AS List OF Byte = crypto::argon2id(password, salt, memoryKiB, iterations, parallelism, length)
+  MUT line AS String = "case " & hexField(password) & " " & hexField(salt)
+  line = line & " " & toString(memoryKiB) & " " & toString(iterations)
+  line = line & " " & toString(parallelism) & " " & toString(length)
+  line = line & " " & encoding::hexEncode(tag)
+  io::print(line)
+END SUB
+
+SUB main()
+  LET password AS List OF Byte = strings::toBytes("password")
+  LET salt AS List OF Byte = strings::toBytes("somesalt12345678")
+
+  ' Cost sweep: memory, passes, lanes and tag length each move the result, so a
+  ' reference that ignored any one of them would still match on the others.
+  emit(password, salt, 8, 1, 1, 32)
+  emit(password, salt, 16, 2, 1, 32)
+  emit(password, salt, 32, 3, 4, 32)
+  emit(password, salt, 64, 4, 2, 64)
+  emit(password, salt, 256, 1, 8, 32)
+  emit(password, salt, 4096, 1, 1, 16)
+
+  ' memoryKiB is bound into H_0, so 33 KiB is NOT 32 KiB even though both round
+  ' to the same 32 blocks at 4 lanes. Rounding is not equivalence, and these two
+  ' lines are what proves the reference agrees about that.
+  emit(password, salt, 33, 3, 4, 32)
+
+  ' RFC 9106 section 5.3's password, salt and costs, minus the secret and
+  ' associated data this member deliberately does not expose.
+  emit(repeated(1, 32), repeated(2, 16), 32, 3, 4, 32)
+
+  ' Edges: an empty password, the 4-byte minimum tag, the 8-byte minimum salt,
+  ' and a multi-block password carrying a non-ASCII scalar.
+  LET empty AS List OF Byte = []
+  emit(empty, strings::toBytes("0123456789abcdef"), 32, 1, 1, 4)
+  emit(password, strings::toBytes("saltsalt"), 32, 1, 1, 4)
+  emit(strings::toBytes("a-much-longer-passphrase-with-unicode-\u{e9}"), strings::toBytes("abcdefgh"), 128, 2, 3, 100)
+
+  ' The Argon2Profile spelling is a WRAPPER, not a second implementation. Emit
+  ' its tag under the explicit parameters it delegates to (19456 KiB, 2 passes,
+  ' 1 lane): the Rust reference computes those numbers from scratch, so a match
+  ' proves the delegation rather than merely restating it.
+  LET viaProfile AS List OF Byte = crypto::argon2id(password, salt, crypto::Argon2Profile.Minimum, 32)
+  MUT profileLine AS String = "case " & hexField(password) & " " & hexField(salt)
+  profileLine = profileLine & " 19456 2 1 32 " & encoding::hexEncode(viaProfile)
+  io::print(profileLine)
+END SUB
