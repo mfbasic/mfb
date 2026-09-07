@@ -1341,3 +1341,40 @@ runs `cargo test` on a fresh checkout in a job that never runs the acceptance
 harness — so this would have been red there and green on every developer machine
 that had run `test-accept.sh` once. The coverage loop caught it only because
 `coverage-bins.sh` happens to run after acceptance in this session's order.
+
+### C17 — two commits improved files the gate already excuses, and the delta said so
+
+`scripts/coverage-src-gaps.py` applies `scripts/coverage-exceptions.txt` exactly
+as `coverage-check.sh` does, so the "N files below 98%" number this plan tracks
+has always been the GATE's number. What I did not do before choosing two
+commits' worth of work is read that file. `src/cli/dispatch.rs`,
+`src/cli/pkg.rs`, `src/cli/resolve.rs`, `src/cli/repo.rs`,
+`src/cli/build/signing.rs` and `src/main.rs` are all listed there — a Tier-D
+class whose remainder drives a live HTTP registry.
+
+The measurement said so immediately and I did not read it either. Both cycles
+reported:
+
+    below 98%: 159 -> 159   (3 files moved, 0 new)
+
+`3 files moved` with the count unchanged is exactly what an excepted file looks
+like, and it is the one line in the delta output that distinguishes "I closed
+something" from "I improved something the gate does not count".
+
+**The work stands and is not reverted.** `cli/dispatch.rs` went 0.00% -> 90.87%,
+and 0.00% was not a Tier-D remainder: it was the whole file, including
+`is_help_flag`, the usage screens and the exit-code mapping every acceptance
+golden's `[exit N]` line depends on. Its exception is now measurably
+overstated — "none reachable in-process" is false, because `dispatch` is
+reachable and tested — so the entry is NARROWED in place to name what is
+actually left: `run()` (the `process::exit`) and the six registry-command
+success arms.
+
+**The rule for the rest of the plan.** Rank with `coverage-src-gaps.py` and
+believe the `below 98%:` line rather than a per-directory census of the raw JSON;
+an ad-hoc census over `pcov-*.json` does not apply the exceptions and will point
+at `src/cli` as the biggest remaining block when the gate does not count a line
+of it. The largest NON-excepted files are
+`codegen/engine/value/builder_values.rs` (177 short), `ir/lower.rs` (167),
+`codegen/link/thunk/link_thunk.rs` (160) and
+`codegen/memory/value/builder_value_semantics.rs` (149).
