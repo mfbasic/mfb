@@ -5,7 +5,7 @@ Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Security
 
-Status: **FIXED** (2026-09-06, `0a9471621`)
+Status: **FIXED** (2026-09-06, `b399e3363`)
 Regression Test: `tests/rt-behavior/crypto/crypto-argon2id-valid`
 
 `crypto::pbkdf2` is the only password-based key-derivation function the `crypto`
