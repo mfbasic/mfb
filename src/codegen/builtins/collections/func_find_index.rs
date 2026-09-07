@@ -23,11 +23,14 @@ worth stating precisely:
 
 - `start` equal to `len(value)` is **legal**. It selects an empty scan, so the
   call raises `ErrNotFound`, not `ErrIndexOutOfRange`. `start` strictly greater
-  than `len(value)` is the out-of-range case.
+  than `len(value)` is the out-of-range case. `collections::findLastIndex` is
+  asymmetric here: its `start` names an element the backward scan *begins* at,
+  so its upper bound is `len(value) - 1`.
 - A negative `start` is **not** interpreted as an offset from the end of the
-  list. It is simply out of range and raises `ErrIndexOutOfRange`. This is
-  deliberately asymmetric with `collections::findLastIndex`, whose `endIndex`
-  parameter *does* resolve negative values from the end.
+  list. It is simply out of range and raises `ErrIndexOutOfRange`. That is the
+  rule for every index in the language, `collections::findLastIndex` included:
+  `-1` never means the last element. `findLastIndex` scans from the last element
+  when its `start` is **omitted**, not when it is negative.
 
 On an empty list every legal `start` is `0`, which is `len(value)`, so
 `findIndex` on an empty list raises `ErrNotFound`.
