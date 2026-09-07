@@ -5,7 +5,7 @@ Effort: small-to-medium (the change is one arm; the AUDIT is the work)
 Severity: **HIGH** (a crash on ordinary source; no diagnostic)
 Class: Memory / callback ABI
 
-Status: **Fixed** (pending land)
+Status: **FIXED** (2026-09-07, `1bba27392`) — but see "What this converts the crash INTO".
 Regression Test:
 - `tests/rt-behavior/collections/callback-string-return-identity-rt` — the crash,
   plus every callback shape below, 40 repetitions with a digest-drift check.
