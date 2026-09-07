@@ -1,5 +1,19 @@
 # Agent Instructions
 
+## Questions
+
+**"Thoughts?" means discuss.** A design question is not a request to implement.
+Answering clarifying questions settles the design; it is not a green light.
+Wait for an explicit go-ahead before editing any file. This outranks "finish the task."
+
+**A question is not permission.** Any question, not just "thoughts?", asks for an answer and
+grants no permission to change anything. Nothing on disk changes until an explicit go-ahead:
+"do it", "implement it", "go". Unsure whether you have one → you don't. Ask.
+
+**The user answering your questions is not permission to make changes.** Asking clarifying
+questions and getting answers is still discussion. Collecting decisions is not being handed a
+spec, and an answered question is not a go-ahead. Go back to discussing, and ask for one.
+
 ## Never edit a test/golden to pass
 
 Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
@@ -11,31 +25,22 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   (4) proof it's wrong (repro/spec cite/sibling contract; your change is never proof).
 
 * Not all 4 → test wins, STOP.
-* Run full `cargo test`, never one module.
+* Run the full suite, never one module.
 * Once proven wrong: fix the bug AND correct only the disproved line (never re-baseline a whole file); show proof in commit.
-* This rule guards *behavioral/semantic* tests (correctness contracts). It is NOT about
-  byte-identity codegen goldens (`.ncode`/`.ncodesum`): those are DRIFT SENTINELS, not
-  behavior — a churn from a correct change means "regenerate the golden" (`sync-goldens.sh`
-  / `regen-ncodesum.sh`), NEVER "revert the change." The 4-question gate does not apply to them.
-* Byte-identity is NOT a design constraint or a goal in itself (`.ai/testing-gates.md`): it was
-  the explicit north star ONLY for the builtin-migration project (pure code motion). For all
-  other work, do NOT shape, shrink, or abandon a correct change to keep bytes identical, and do
-  NOT revert because a change "can't be byte-identical." Make the right change, then regenerate
-  and PROVE the golden delta is only yours. Reverting a correct change to preserve bytes is a bug.
 
 ## A claim is measured or a guess
 
 * Number/count/status/"X does Y" → give the command behind it in the same sentence,
   else say "guess" (not "~").
 * Green gate = nothing *covered* changed.
-* Unexpected golden/`.ncode`/objdump diff (incl. a step predicted byte-identical/neutral)
-  = bug-hunt trigger, NEVER proof a design is dead: objdump ONE fixture to localize before
+* Unexpected diff in a golden or generated artifact (incl. a step predicted neutral)
+  = bug-hunt trigger, NEVER proof a design is dead: inspect ONE fixture to localize before
   concluding. Almost always a bug you just introduced or a wrong prediction — fix/correct it,
   continue. A diff on a target you EXPECTED to change is the plan working, not failing.
 * Cite symbol+command, never a line alone.
 * Sources disagree → run the command.
-* Before calling a citation dangling, check all: `bug-N` in `bugs/`|`completed-bugs/`|`skipped/`;
-  `plan-N` in `planning/`|`old-plans/`; a fixed bug may have no doc.
+* Before calling a citation dangling, check every directory that kind of document can live in,
+  including archive/completed ones; a fixed bug may have no doc.
 
 ## Always
 * Done means verified. Asked if done: yes/no on line 1;
@@ -55,13 +60,8 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
 * Git. Never create/switch/rename a branch unless asked;
   Never tree-wide `checkout`/`reset`/`restore`/`stash`;
   touch+commit only files you changed. Itemized commits.
-* MCP tools arrive deferred. Run `ToolSearch` each context to
-  load `mfbasic` (`mfb_man`,`mfb_spec`); prefer over reading files.
 * No compound background jobs — one command each. Don't wait on completion notices;
   poll the effect (`pgrep -f` ERE `"a|b"`). No-completion-record job = dead; re-derive.
-* Run `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
-  at the end of any session with Rust code changes (root `--all` does NOT reach the
-  `repository/` path dependency — no `[workspace]` table; see `.ai/build-tooling.md`).
 
 ## Auto memory rules
 * Record only durable, transferable lessons — things that would burn a future session
@@ -70,6 +70,13 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   "next: ...", commit hashes, or worktree state. Git and the bug tracker own that.
 * When a bug is fixed: do NOT leave it in memory as a status line. If the fix taught a durable lesson,
   record ONLY the lesson, stripped of ticket state. If it didn't, record nothing. Never keep a completed/archived plan in MEMORY.md.
+* Edit memory in a sub-agent, never on the main thread (`.ai/sub-agents.md`). A memory write
+  drags the index in with it — read it, rewrite it, keep it under its size limit — and none of
+  that concerns the task the user actually asked for, so doing it inline floods the
+  conversation with index content. Dispatch ONE agent with the whole job; take back a one-line
+  confirmation, not the file. Apparent size is no excuse to skip this: a one-line index edit
+  can trip a size limit and become a full-file rewrite. If a rule forbids delegating, say so
+  and ask before spending the context.
 
 ## Read before that kind of work
 
