@@ -440,3 +440,316 @@ fn every_string_producer_still_produces_the_right_value() {
     );
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// -------------------------------------------------------------- shape B-2
+
+/// The bug document's own standalone repro of the CALLEE half: a `String`
+/// returned by a user / `.mfb`-bodied function, left unbound as an `append`
+/// argument. This is the shape `csv::parse` is built out of —
+/// `row = collections::append(row, __csv_fieldValue(...))`.
+///
+/// It needs BOTH halves of the fix, which is why it is the first case:
+///
+/// * the callee's `RETURN out` was move-elided, but `out`'s value is a constant
+///   `String` so every read of it constant-folds back to rodata — the caller got
+///   a READ-ONLY pointer and the arena copy `out` actually owns was orphaned
+///   (that orphan IS the pre-fix 64 B per call). `plan_returned_move` now
+///   declines, so the return is a real block;
+/// * `register_pending_temp` then took the plan-25 bare-`String` early return at
+///   the call site, because native provenance (`mark_fresh_string`) cannot see
+///   through a call. `function_returns_fresh_string` is the callee's own promise,
+///   and it is what lets the `append` argument be freed at statement end.
+///
+/// Either fix alone is worse than neither: the decline without the caller free
+/// just moves the leak, and the caller free without the decline `arena_free`s
+/// rodata — observed as an immediate SIGBUS. Measured 400k/800k: 25 → 50 MB
+/// before, 0 → 0 MB after.
+const SHAPE_B2_APPEND_ARGUMENT: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC mkEmpty(i AS Integer) AS String\n\
+  MUT out AS String = \"\"\n\
+  RETURN out\n\
+END FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT xs AS List OF String = []\n\
+    xs = collections::append(xs, mkEmpty(i))\n\
+    acc = acc + len(collections::get(xs, 0))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The TRANSITIVE form, which is what the decoders actually need: `top` returns
+/// `middle`'s result, `middle` returns `leaf`'s, and only `leaf` reaches a native
+/// producer. A per-return-site classification that stopped at the first call would
+/// leak every level; the guarantee is inductive, so each level's result is a
+/// claimed pending temp and no copy is inserted anywhere.
+/// Pre-fix 13 MB -> 25 MB at 200k/400k; after: 0 MB -> 0 MB.
+const SHAPE_B2_TRANSITIVE: &str = "IMPORT io\n\
+FUNC leaf(i AS Integer) AS String\n  RETURN toString(i)\nEND FUNC\n\
+FUNC middle(i AS Integer) AS String\n  RETURN leaf(i)\nEND FUNC\n\
+FUNC top(i AS Integer) AS String\n  RETURN middle(i)\nEND FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(top(i))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `RETURN "literal"`. The bug document listed this as the reason a caller could
+/// NOT free a user callee's `String` — "a rodata pointer (`arena_free` on it is
+/// SIGBUS)". It is not: `static_string_value` classifies the literal as needing an
+/// owning copy, so `lower_returned_value` already `copy_flat_block`s it and the
+/// callee returns a fresh arena block. The measurement is the proof — pre-fix this
+/// leaked 64 B per call (13 MB -> 25 MB at 200k/400k), which a rodata pointer
+/// cannot do because nothing would have been allocated.
+const SHAPE_B2_RETURNED_LITERAL: &str = "IMPORT io\n\
+FUNC lit(i AS Integer) AS String\n\
+  IF i MOD 2 = 0 THEN\n    RETURN \"even\"\n  END IF\n  RETURN \"odd\"\n\
+END FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(lit(i))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// `toString` of a fresh `String` — a pre-existing USE-AFTER-FREE this change
+/// also fixes, because shape B-2 would otherwise widen its reach from native
+/// producers to every user callee.
+///
+/// `toString`'s `String` arm is the IDENTITY: it hands back its argument's block.
+/// It also spills the argument and reloads it into a fresh register, so the block
+/// leaves under a DIFFERENT operand than it arrived, and that operand is the
+/// pending temp's identity token. The owning binding's `claim_pending_temp` no
+/// longer matched, so the statement-scope `arena_free` ran anyway and the binding
+/// was left holding freed memory. `retarget_pending_temp` moves the token forward
+/// instead: one block, one owner.
+///
+/// On the pre-fix compiler this program does not merely leak — it **SIGSEGVs**
+/// (`[exit 139]`, measured at both counts). It is RED as a crash, not as a number.
+const SHAPE_B2_TOSTRING_IDENTITY: &str = "IMPORT io\n\
+FUNC mk(i AS Integer) AS String\n  RETURN toString(i)\nEND FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET a AS String = toString(\"x\" & toString(i))\n\
+    LET b AS String = toString(mk(i))\n\
+    LET c AS String = toString(toString(mk(i)))\n\
+    acc = acc + len(a) + len(b) + len(c)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The POSITIVE pin for B-2, and the one that decides the design: a callee whose
+/// every value-return is a bare parameter is a plan-86 K1 BORROW of the caller's
+/// argument block. Freeing that result frees a `String` the caller still owns, so
+/// `function_returns_fresh_string` must keep excluding it. The loop keeps the
+/// borrowed source live and re-reads it after every call, and allocates a fresh
+/// list each iteration so a corrupted free list faults a later allocation rather
+/// than passing silently.
+const SHAPE_B2_PARAM_BORROW_CONTRAST: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC pick(a AS String, b AS String, useA AS Boolean) AS String\n\
+  IF useA THEN\n    RETURN a\n  END IF\n  RETURN b\n\
+END FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  MUT held AS String = \"held-value\"\n\
+  WHILE i < {N}\n\
+    acc = acc + len(pick(held, \"fallback\", i MOD 2 = 0))\n\
+    acc = acc + len(held)\n\
+    LET churn AS List OF Integer = [i, i + 1]\n\
+    acc = acc + collections::get(churn, 1)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"held=\" & held)\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_user_string_call_result_runs_at_constant_rss() {
+    assert_flat(
+        "b536_b2_append_arg",
+        SHAPE_B2_APPEND_ARGUMENT,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_transitive_user_string_call_chain_runs_at_constant_rss() {
+    assert_flat("b536_b2_transitive", SHAPE_B2_TRANSITIVE, 400_000, 800_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_returned_string_literal_runs_at_constant_rss() {
+    assert_flat(
+        "b536_b2_literal",
+        SHAPE_B2_RETURNED_LITERAL,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn tostring_of_a_fresh_string_runs_at_constant_rss() {
+    assert_flat(
+        "b536_b2_tostring_identity",
+        SHAPE_B2_TOSTRING_IDENTITY,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_param_borrow_string_callee_still_runs_at_constant_rss() {
+    assert_flat(
+        "b536_b2_param_borrow",
+        SHAPE_B2_PARAM_BORROW_CONTRAST,
+        400_000,
+        800_000,
+    );
+}
+
+/// The B-2 behaviour pin: every shape a `String`-returning user function can
+/// take, each consumed in every position a `String` call result can appear in
+/// (bare bind, `&` operand, `append` argument, another call's argument, `RETURN`
+/// operand, comparison operand, reassignment source), run in a churning loop with
+/// exact expected values.
+///
+/// It is the counterpart to the RSS cases above, and the more important half: the
+/// fix ADDS `arena_free`s at every user-`String`-call site, so its failure mode is
+/// a wild free — a value read back wrong, or a corrupted free list that faults a
+/// later allocation. Every shape the predicate must NOT admit is in here on
+/// purpose: a param-borrow callee (`pick`), the `toString` identity (`ident`), a
+/// rodata literal return (`litOnly`), a `collections::get` borrow re-returned
+/// (`viaGet`), and a fallible callee reached through `TRAP` (`failable`).
+///
+/// Byte-identical to the pre-fix compiler's output on this program, which is what
+/// makes it a pin on the fix rather than on the bug.
+const SHAPE_B2_BEHAVIOUR: &str = "IMPORT io\n\
+IMPORT collections\n\
+IMPORT strings\n\
+FUNC mk(i AS Integer) AS String\n\
+  MUT out AS String = \"v\"\n\
+  RETURN out & toString(i)\n\
+END FUNC\n\
+FUNC pick(a AS String, b AS String, useA AS Boolean) AS String\n\
+  IF useA THEN\n    RETURN a\n  END IF\n  RETURN b\n\
+END FUNC\n\
+FUNC ident(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
+FUNC litOnly(i AS Integer) AS String\n\
+  IF i MOD 2 = 0 THEN\n    RETURN \"even\"\n  END IF\n  RETURN \"odd\"\n\
+END FUNC\n\
+FUNC viaGet(i AS Integer) AS String\n\
+  LET xs AS List OF String = [\"g0\", \"g1\", \"g2\"]\n\
+  RETURN collections::get(xs, i MOD 3)\n\
+END FUNC\n\
+FUNC recurse(i AS Integer) AS String\n\
+  IF i <= 0 THEN\n    RETURN \"z\"\n  END IF\n  RETURN \"r\" & recurse(i - 1)\n\
+END FUNC\n\
+FUNC failable(i AS Integer) AS String\n\
+  IF i < 0 THEN\n    FAIL error(77050003, \"neg\")\n  END IF\n  RETURN \"ok\" & toString(i)\n\
+END FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT total AS Integer = 0\n\
+  MUT names AS List OF String = []\n\
+  MUT sink AS String = \"seed\"\n\
+  WHILE i < 2000\n\
+    total = total + len(toString(mk(i)))\n\
+    total = total + len(toString(toString(mk(i))))\n\
+    total = total + len(ident(mk(i)))\n\
+    total = total + len(strings::upper(mk(i)))\n\
+    total = total + len(mk(i) & \"-\" & mk(i))\n\
+    total = total + len(pick(mk(i), \"fallback\", i MOD 2 = 0))\n\
+    total = total + len(litOnly(i))\n\
+    total = total + len(viaGet(i))\n\
+    total = total + len(recurse(3))\n\
+    names = [ ]\n\
+    names = collections::append(names, mk(i))\n\
+    names = collections::append(names, ident(mk(i)))\n\
+    total = total + len(collections::get(names, 0) & collections::get(names, 1))\n\
+    IF mk(i) = \"v3\" THEN\n      total = total + 1\n    END IF\n\
+    sink = ident(mk(i))\n\
+    total = total + len(sink)\n\
+    LET fv AS String = failable(i) TRAP\n      total = total - 1\n      EXIT SUB\n    END TRAP\n\
+    total = total + len(fv)\n\
+    LET churn AS List OF Integer = [i, i + 1, i + 2]\n\
+    total = total + collections::get(churn, 2)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+  io::print(\"sink=\" & sink)\n\
+  io::print(\"mk=\" & mk(7) & \",\" & toString(mk(7)) & \",\" & ident(mk(7)))\n\
+  io::print(\"pick=\" & pick(mk(7), \"fb\", TRUE) & pick(mk(7), \"fb\", FALSE))\n\
+  io::print(\"lit=\" & litOnly(2) & litOnly(3) & \",\" & viaGet(1) & \",\" & recurse(2))\n\
+END SUB\n";
+
+#[test]
+fn every_string_return_shape_still_produces_the_right_value() {
+    let project = common::temp_project("b536_b2_behaviour", SHAPE_B2_BEHAVIOUR);
+    let exe = common::build_project(&project);
+    let output = std::process::Command::new(&exe)
+        .output()
+        .expect("run the B-2 behaviour probe");
+    assert!(
+        output.status.success(),
+        "{}",
+        common::exit_description(&output.status)
+    );
+    let out = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let mut total: i64 = 0;
+    let mut sink = String::new();
+    for i in 0..2000i64 {
+        let mk = format!("v{i}");
+        let lit = if i % 2 == 0 { "even" } else { "odd" };
+        total += mk.len() as i64; // toString(mk(i))
+        total += mk.len() as i64; // toString(toString(mk(i)))
+        total += mk.len() as i64; // ident(mk(i))
+        total += mk.len() as i64; // strings::upper(mk(i)) — same length
+        total += (mk.len() * 2 + 1) as i64; // mk & "-" & mk
+        total += if i % 2 == 0 {
+            mk.len() as i64
+        } else {
+            "fallback".len() as i64
+        };
+        total += lit.len() as i64;
+        total += 2; // viaGet — "g0"/"g1"/"g2"
+        total += 4; // recurse(3) — "rrrz"
+        total += (mk.len() * 2) as i64; // names[0] & names[1]
+        if mk == "v3" {
+            total += 1;
+        }
+        sink = mk.clone();
+        total += sink.len() as i64;
+        total += format!("ok{i}").len() as i64;
+        total += i + 2;
+    }
+    let expected =
+        format!("total={total}\nsink={sink}\nmk=v7,v7,v7\npick=v7fb\nlit=evenodd,g1,rrz");
+    assert_eq!(
+        out.trim(),
+        expected,
+        "a String return shape changed its value — a freed block was read back"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}

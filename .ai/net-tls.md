@@ -205,6 +205,28 @@ certificates with `-days 397 -addext extendedKeyUsage=serverAuth`.
 
 Upgrading an established `tcp::Socket` in place needs to adopt its fd. On macOS nothing supported can: Network.framework fixes TLS in `nw_parameters` at creation and cannot graft it onto a live connection; `nw_connection_create_with_connected_socket` is exported but declared in no SDK header and fails `ENETDOWN` for every parameter shape; Secure Transport can adopt an fd but is deprecated and rejects `kTLSProtocol13` (`errSSLIllegalParam`), capping at TLS 1.2. The system LibreSSL (`/usr/lib/libssl.48.dylib`) *can* do it at TLS 1.3 — measured — but ships no headers and the unversioned path deliberately aborts, so it is unsupported. Shipping `wrap` on Linux and Windows alone would let a program compile for five targets and fail at runtime on one, so the member exists nowhere (plan-110-D §C9). Do not reintroduce it on two platforms.
 
+### What that costs downstream: no in-band TLS upgrade, ever
+
+The absence is not only an API gap — it decides which network protocols can be an MFB
+package at all. A protocol is implementable in pure MFBASIC only if TLS is established at
+**connect time**, before any protocol bytes flow (`tls::connect` / `tls::accept`). A
+protocol that negotiates encryption **in band**, on an already-open plaintext socket,
+needs the wrap that cannot exist:
+
+| Pure-MFB viable (TLS at connect) | Binding-package only (in-band upgrade) |
+| --- | --- |
+| HTTPS, `wss://` | PostgreSQL — SSLRequest, then handshake on the same socket |
+| Redis (TLS-on-connect), MongoDB | MySQL — TLS after the initial handshake packet |
+| gRPC | SMTP / IMAP / POP3 — `STARTTLS` |
+| | FTPS (`AUTH TLS`), LDAP StartTLS |
+
+Establish which side a protocol falls on before scoping a package for it. The failure mode
+is not a compile error: the driver works, and simply cannot encrypt on macOS.
+
+Note that a WebSocket package is on the *left*, despite "upgrade" appearing in RFC 6455 —
+`wss://` completes the TLS handshake first and then speaks HTTP over it. An HTTP
+`101 Switching Protocols` upgrade and a TLS upgrade are unrelated operations.
+
 ## Repository client transport security is per-URL, not per-hop
 
 In `repository/src/client.rs`, `ensure_transport_security(repo_url)` validates ONLY the initial URL (https, or http-loopback for local dev). It is called at each network entry point (`get_json`/`post_json`/`fetch_blob`/…) but does NOT follow redirects, so a 302 target is never re-checked by it.

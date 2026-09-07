@@ -279,6 +279,34 @@ impl CodeBuilder<'_> {
             self.claim_pending_temp(&lowered);
             return Ok((lowered, true));
         }
+        // bug-536 shape B-2: reaching here means lowering could NOT establish that
+        // the value is a fresh, solely-owned block — it is not a move-elided owned
+        // local, not an aliasing source or static string (both copied above), and no
+        // pending temp was registered for it. For a bare `String` that is exactly the
+        // set the caller cannot classify either: `RETURN toString(s)` hands back the
+        // *argument* (`toString`'s `String` arm is the identity), and an unopted
+        // native producer's block has no provenance mark.
+        //
+        // `function_returns_fresh_string` promised every caller a solely-owned block,
+        // so deliver it here rather than weakening the promise — one copy on exactly
+        // the return sites whose freshness is unprovable, and none on the ones the
+        // three arms above already made fresh (an owned local moves, a literal or a
+        // parameter is already copied, a marked native producer's temp is claimed).
+        // The alternative — classifying per return site at the caller — would need a
+        // seed set of "fresh" native targets, which is the audited call-target
+        // allowlist bug-536 rejected as design 2.
+        if self.current_returns_fresh_string && lowered.type_ == ParameterType::String {
+            let copied = self.copy_flat_block(&lowered.type_, &lowered.location)?;
+            return Ok((
+                ValueResult {
+                    origin: None,
+                    type_: lowered.type_,
+                    location: Operand::from(copied.render()),
+                    text: lowered.text,
+                },
+                true,
+            ));
+        }
         Ok((lowered, false))
     }
 
@@ -303,9 +331,28 @@ impl CodeBuilder<'_> {
         &mut self,
         value: Option<&NirValue>,
     ) -> Option<Vec<ActiveCleanup>> {
-        let NirValue::Local(name) = value? else {
+        let value = value?;
+        let NirValue::Local(name) = value else {
             return None;
         };
+        // bug-536 shape B-2: a local whose value is a compile-time `String`
+        // constant is constant-FOLDED at every read — `lower_value` re-materialises
+        // the rodata pointer (`adrp _mfb_str_N`) instead of loading the local's
+        // slot. So there is no block to move: the move would hand the caller a
+        // READ-ONLY constant and orphan the arena copy the binding actually made.
+        //
+        // That was already wrong before B-2 (the orphaned copy leaks 64 B per call,
+        // and any owner that frees the result frees rodata), but it was invisible
+        // while no caller ever freed a bare `String`. It stops being invisible the
+        // moment `function_returns_fresh_string` licenses that free: measured on
+        // `FUNC mkEmpty(i) AS String / MUT out AS String = "" / RETURN out` as an
+        // immediate **SIGBUS**. Declining the move sends the value through
+        // `value_needs_owning_copy`'s `copy_flat_block` instead, which copies the
+        // rodata bytes into a fresh block — the caller gets a real arena block and
+        // the binding's own cleanup still frees its copy.
+        if self.static_string_value(value).is_some() {
+            return None;
+        }
         let local = self.locals.get(name)?;
         if local.by_ref {
             return None;

@@ -5,13 +5,17 @@ Effort: x-large (1d–3d) — three independent shapes; the recursive-drop one i
 Severity: HIGH
 Class: Memory-safety / Security (denial of service — unbounded memory growth on ordinary programs; the real amplifier behind audit-3 DEC-03)
 
-Status: **Shape A FIXED** (2026-09-04, `f9be6e128`, merged `c210cc67d`).
-**Shape B's NATIVE half FIXED** (2026-09-05, `cd8699103`) — every
-unbound `String` a *native* producer makes is now freed at statement end. Shape
-B's **callee half** (a `String` returned by a user / `.mfb`-bodied function) is
-open and is what still costs the decoders; shape C is
+Status: **shapes A, B, B-2 FIXED** (B-2: 2026-09-06, `b845db0de`). **Shape C remains, and is NOT a bug fix** — see the ruling below.
+**Shape B's NATIVE half FIXED** (2026-09-05, `cd8699103`).
+**Shape B-2 (the callee half) FIXED** (2026-09-06, branch `bug-536-shape-b2`) —
+a `String` returned by a user / `.mfb`-bodied function may now be freed by its
+caller, plus two pre-existing memory-safety defects the licence exposed (a
+use-after-free through the `toString` identity, and a rodata pointer escaping
+`RETURN <constant-folded String local>`). Shape C is
 **larger than this document assumed** — see "Shape C is blocked on recursive
-copy-insertion" below, which is a finding, not an excuse.
+copy-insertion" below, which is a finding, not an excuse. Two *separate*
+pre-existing leaks found while measuring B-2 are recorded under "Found while
+fixing B-2" and are NOT fixed here.
 Regression Test: `tests/rt_scope_drop_leaks.rs` (builds each minimal program at
 two iteration counts, reads the child's `ru_maxrss` through
 `common::run_bounded_with_rss`, and asserts peak RSS does not grow with the count;
@@ -58,6 +62,19 @@ References:
   a fix must keep NOT freeing.
 - Found during `bugs/bug-510-text-decoder-dos-cluster.md` (DEC-03); the decoder
   measurements above are its reproduction.
+
+## USER DECISION (2026-09-06) — shape C leaves the bug backlog
+
+Ruling: **write a plan-NN design doc for shape C.** Stop calling it a bug.
+
+A value of a recursive type is never freed, and the fix needs recursive
+copy-insertion, which does not exist in this compiler; the naive fix is a double
+free. That is a design pass, and the doc must be reviewable before any code is
+written. It should not be dispatched as a bug fix, and this document should not
+keep carrying it as one.
+
+Shapes A, B and B-2 are landed and stay here.
+
 
 ## Failing Reproduction
 
@@ -350,10 +367,12 @@ fragmentation — and is **unchanged by this fix** (544 / 667 / 913 MB at 1 / 2 
 calls, byte-identical before and after), which is the expected result for a
 native-only provenance fix and confirms the attribution.
 
-### Shape B — what remains: callee-side freshness (shape B-2)
+### Shape B — the callee-side analysis as first written (superseded)
 
-A `String` returned by a user / `.mfb`-bodied function cannot be freed by the
-caller today, because a callee may return a non-fresh block on some path:
+**Kept for the record; two of its four cases were wrong.** See "Shape B-2 —
+FIXED" above for the corrections (measured, not argued). The reasoning at the
+time was that a `String` returned by a user / `.mfb`-bodied function cannot be
+freed by the caller, because a callee may return a non-fresh block on some path:
 
 1. `RETURN "literal"` — a rodata pointer (`arena_free` on it is SIGBUS).
 2. `RETURN <param>` — already handled: `function_returns_param_borrow` (plan-86
@@ -367,18 +386,19 @@ caller today, because a callee may return a non-fresh block on some path:
    free the CALLER's live `String`.
 4. `RETURN <global>` — an alias into a global's block.
 
-The sound fix is a callee-side NIR predicate in the shape of
-`function_returns_param_borrow` — `function_returns_fresh_string(f)`, computed
-over `f.body` before lowering so it is order-independent, requiring EVERY
-`NirOp::Return` to be provably fresh, with a fixpoint over calls to other user
-functions and a seed set of native producers (the `mark_fresh_string` list above).
-`RETURN <owned String local>` is the easy arm (every String bind deep-copies an
-aliasing source, so the local owns its own block and `plan_returned_move` moves
-it), and it alone fixes `__csv_decodeRange`; it does NOT fix `csv::parse`, whose
-leaking site calls `__csv_fieldValue`, which itself returns call results — so the
-transitive form is what the decoders need. Getting it wrong is a double free of
-the caller's live String, not a leak, so it wants its own change with its own
-audit rather than being bolted on here.
+The predicate's name and shape were right; the "requiring EVERY `NirOp::Return`
+to be provably fresh, with a fixpoint … and a seed set of native producers" part
+was not needed and is not what landed — the callee DELIVERS the guarantee with one
+copy on the unprovable arm, so there is nothing to seed and nothing to iterate.
+The original sketch read:
+
+> `RETURN <owned String local>` is the easy arm (every String bind deep-copies an
+> aliasing source, so the local owns its own block and `plan_returned_move` moves
+> it), and it alone fixes `__csv_decodeRange`; it does NOT fix `csv::parse`, whose
+> leaking site calls `__csv_fieldValue`, which itself returns call results — so the
+> transitive form is what the decoders need. Getting it wrong is a double free of
+> the caller's live String, not a leak, so it wants its own change with its own
+> audit rather than being bolted on here.
 
 Two designs were on the table; design 1 is what landed for natives, and design 2
 remains rejected:
@@ -387,6 +407,221 @@ remains rejected:
 2. **An audited allowlist of call targets** — rejected: it has the same
    per-member audit cost with none of the structural proof, and it cannot
    express "this block came from the alloc two lines up".
+
+### Shape B-2 — FIXED (2026-09-06, branch `bug-536-shape-b2`)
+
+`function_returns_fresh_string(f)` is the callee half of the same contract
+`function_returns_param_borrow` states for the opposite answer, and the two are
+disjoint by construction (the fresh predicate checks the borrow one first and
+loses). It admits a function whose declared return is a bare `String`, that has at
+least one value return, that is not a param-borrow function, and that is not
+callback-referenced. Every call site consults the identical predicate over the
+identical `functions` map, so caller and callee cannot disagree.
+
+The callback-referenced exclusion is **conservative, not principled**, and it is
+the one place this predicate is knowingly weaker than it should be — see finding
+3 under "Found while fixing B-2". Where K1 excludes the same set to FORCE a copy,
+excluding it here removes the copy obligation, which leaves a pre-existing HOF
+SIGSEGV live. It keeps callback lowering byte-identical, which is why it is here.
+
+**The guarantee is DELIVERED, not observed — which is why no fixpoint and no
+native seed set are needed.** The document above proposed "a fixpoint over calls
+to other user functions and a seed set of native producers (the
+`mark_fresh_string` list)". That seed set is design 2 — the audited call-target
+allowlist — wearing a different hat, and it turns out to be unnecessary.
+`lower_returned_value` already makes three of its four return shapes fresh:
+
+| return shape | what already happens | fresh? |
+| --- | --- | --- |
+| move-elided owned local | the block moves to the caller (plan-25-C C1) | yes |
+| aliasing source / static string | `copy_flat_block` | yes |
+| a claimed pending temp | the producer's own `arena_alloc` (marked, or a B-2 callee) | yes |
+| anything else (fall-through) | returned as-is | **unprovable** |
+
+so the callee inserts one `copy_flat_block` on the fourth and only the fourth.
+`RETURN <call to another such function>` is then fresh *by this same guarantee*,
+and mutual recursion bottoms out at a return that is provably fresh or copied.
+Measured over the whole builtin corpus: the inserted copy fires **zero** times —
+`artifact-gate all` adds no `_mfb_arena_alloc` in any fixture — because every
+shipped `.mfb` body already returns one of the three provable shapes.
+
+**Two pre-existing memory-safety defects the licence exposed**, both fixed here
+because B-2 would otherwise have widened their reach (a partial fix that
+introduces a double free is not a fix):
+
+1. **The `toString` identity broke the pending-temp chain — a use-after-free.**
+   `toString`'s `String` arm returns its own argument's block, but spills the
+   argument and reloads it, so the block leaves under a NEW operand. That operand
+   *is* the `PendingTemp` identity token `claim_pending_temp` compares against, so
+   the owning binding's claim missed: the statement-scope free ran anyway and the
+   binding was left holding freed memory. On the pre-fix compiler
+   `LET a AS String = toString("x" & toString(i))` in a loop printed the wrong
+   text and then **SIGSEGVed** (`[exit 139]`); codegen inspection shows it
+   emitting **4** `_mfb_rt_drop_owned_string` calls where the unwrapped
+   `LET a AS String = "x" & toString(i)` emits 3 — one extra free for the same
+   three blocks. `retarget_pending_temp` moves the token forward and emits
+   nothing, because the free reads the temp's *slot*, not its location. Pinned by
+   `the_tostring_identity_adds_no_owner`.
+2. **`RETURN <constant-folded String local>` returned a RODATA pointer.**
+   `MUT out AS String = "abc" … RETURN out` copies the literal into the arena at
+   the bind, but every *read* of `out` constant-folds back to `adrp _mfb_str_N`.
+   `plan_returned_move` therefore "moved" a read-only constant and orphaned the
+   arena copy — a 64 B-per-call leak before, and an immediate **SIGBUS** the
+   moment a caller frees it (observed the first time B-2 licensed the free).
+   `plan_returned_move` now declines on `static_string_value(value).is_some()`,
+   routing the return through the existing `copy_flat_block`.
+
+**What this document got wrong, corrected by measurement:**
+
+- "`RETURN "literal"` — a rodata pointer (`arena_free` on it is SIGBUS)" is
+  **false**. `static_string_value` classifies the literal as needing an owning
+  copy, so `lower_returned_value` has always `copy_flat_block`ed it and the callee
+  has always returned a fresh arena block. The proof is that it *leaked*: 25 MB at
+  400 000 calls and 50 MB at 800 000, which a rodata pointer cannot do because
+  nothing would have been allocated. It is now freed
+  (`a_returned_string_literal_runs_at_constant_rss`).
+- "`RETURN <param>` — already handled" is right, but for a subtler reason than
+  stated: it is handled only while `function_returns_param_borrow` holds for the
+  WHOLE function. A function that returns a param on one path and a fresh block on
+  another is not a param-borrow function, and its `RETURN <param>` takes the
+  ordinary `copy_flat_block` — so it is fresh, not a borrow. B-2 admits it.
+- "`RETURN toString(s)` … is a live counter-example" is right about the aliasing
+  and wrong about the remedy: it needs no special case. `toString`'s identity arm
+  registers no fresh mark, so the return falls through to the unprovable arm and
+  the callee copies it — one alloc per call on a shape that previously allocated
+  nothing, which is the price of the guarantee.
+
+**Evidence.**
+
+- **RED → GREEN.** `tests/rt_scope_drop_leaks.rs` gains four cases; run against a
+  binary built at the base commit (`MFB_TEST_EXE=<pre-fix mfb>`) all four fail,
+  and all four pass after:
+
+  | case | pre-fix | post-fix |
+  | --- | --- | --- |
+  | `an_unbound_user_string_call_result` (`append(xs, mkEmpty(i))`) | 25 → 50 MB | 0 → 0 MB |
+  | `a_transitive_user_string_call_chain` (`top → middle → leaf`) | 25 → 50 MB | 0 → 0 MB |
+  | `a_returned_string_literal` (`RETURN "even"`) | 25 → 50 MB | 1 → 1 MB |
+  | `tostring_of_a_fresh_string` | **SIGSEGV** | 0 → 0 MB |
+
+- **POSITIVE pins, green on BOTH compilers** (so they pin the fix, not the bug):
+  `a_param_borrow_string_callee_still_runs_at_constant_rss`,
+  `every_string_return_shape_still_produces_the_right_value` (every return shape,
+  every consuming position, exact values), and the whole pre-existing shape-A/B
+  suite. The structural pin
+  `a_param_borrow_string_callee_result_is_never_given_an_owner`
+  (`tests/codegen_string_return_freshness.rs`) is the one that decides the design:
+  it asserts that introducing a param-borrow call adds NO owner at the call site,
+  i.e. that the new permission does not admit the one thing it must not.
+- **A 25-shape differential battery** (every `String` producer and consumer,
+  natives and `.mfb` callees, identity wrappers, recursion, mutual recursion, a
+  `TRAP`ped fallible callee, `MATCH`-free comparisons) is **byte-identical in
+  output** between the pre-fix and post-fix compilers, and the churning form runs
+  the same values at 20 000 and 40 000 iterations with peak RSS 138/281 MB before
+  and 80/164 MB after.
+- **Golden containment.** `artifact-gate all`: 1945 goldens checked, 83 diffs
+  across 17 fixtures, 0 after `bash scripts/regen-ncodesum.sh`. Attributed at the
+  instruction level (pre vs post `-ncode` for every changed fixture): **zero
+  functions added or removed, zero `bl` targets removed, zero new stack-slot
+  KINDS, and exactly one added `bl` target everywhere —
+  `_mfb_rt_drop_owned_string`** — alongside `pending_temp` slots. Per fixture:
+  csv +26 drops/+41 slots, json +29/+73, regex +28/+57, encoding +32/+46,
+  http +16/+81, tls +18/+52, crypto +18/+30, datetime +15/+46, strings +18/+28,
+  resource-xfer-slots +16/+24, vector +123/+123, net +2/+25, tcp/udp/term +1 each.
+  No `_mfb_arena_alloc` added anywhere — the callee-side copy never fires in the
+  shipped packages. Every fixture with no `.mfb`-bodied `String` producer
+  (`collections`, `math`, `money`, `bits`, `os`, `process`, `fs`, `io`, `audio`,
+  `thread`, `general`) is byte-identical.
+- **Semantics.** `mfb spec language memory-semantics` **§14.3** — *"Returning a
+  value moves it into the caller's return slot"* — and **§14.3.1**, whose native
+  heap-value contract is the exact sentence this realizes: *"copies are
+  independent, returns never point into a shorter-lived frame or arena"*. A
+  `RETURN` that hands back a rodata constant or the caller's own argument block
+  violates the second clause; `function_returns_fresh_string` is that clause
+  written as a predicate. §14.6's *"Reads produce owned values, not aliases into
+  the buffer"* is what keeps the `collections::get` borrow and the param-borrow
+  callee OUT of it. Every change is an added check, an added copy, or a moved
+  identity token; no value's lifetime or identity changes, and
+  `retarget_pending_temp` emits no instruction at all.
+  (Note: the shape-A entry above cites §14.2 for the same "returning a value
+  moves it" sentence — the sentence is in §14.3; §14.2 is assignment and
+  initialization.)
+- **Decoder movement.** `csv::parse` of 1.26 MB of empty fields (1 260 000
+  fields), at 1 / 2 / 4 calls: 853 / 1088 / 1558 MB before, 731 / 842 / 1066 MB
+  after — **235 MB → 112 MB per repeat call**. The residual is two separate
+  pre-existing leaks (findings 1 and 2 below), not shape B-2.
+
+### Found while fixing B-2 — three SEPARATE pre-existing defects, not fixed here
+
+All three reproduce unchanged on the base commit and are unaffected by B-2. The
+first two are the whole of `csv::parse`'s residual 112 MB per repeat call, so
+anyone tracking DEC-03 should not attribute that to B-2. Each wants its own
+bug number; they are recorded here rather than filed so the numbering does not
+race with a peer session.
+
+1. **`s = s & <expr>` on a `MUT String` leaks ~190 B per evaluation.** The
+   document's own shape-B table records `s = toString(i)` as "flat — the
+   assignment frees the old block"; a **self-append** is not. Minimal repro, flat
+   `SUB main`, no functions involved:
+
+   ```
+   MUT out AS String = ""
+   out = out & "a"          ' 38 MB at 200k, 75 MB at 400k
+   ```
+
+   `MUT out AS String = ""` alone is flat at both counts, so it is the assignment.
+   This is the in-place string self-append path (`prescan_string_self_appends` /
+   `string_capacity_slots`). It is what `__encoding_utf32Decode` and
+   `__csv_decodeRange` are built out of (`out = out & __encoding_fromCodepoint(cp)`,
+   once per scalar), and `s = s & ch` is the idiom `.ai` recommends for
+   performance — so this is the hottest leaking line in the tree.
+2. **A `Result OF T` bound through `TRAP` is never freed — type-independent.**
+   `LET n AS Integer = fallibleFn(i) TRAP … END TRAP` in a loop leaks **128 B per
+   call** (25 MB at 200k, 50 MB at 400k); `String` leaks 64 B, `List OF Integer`
+   256 B. The `TRAP` desugar binds `$trap_resN AS Result OF T = callResult …` and
+   that binding gets no scope-drop free. Every fallible call in an expression goes
+   through it, which is every `__csv_fieldValue` call in `csv::parse`.
+
+3. **A `String`-returning function used as a CALLBACK whose body is the
+   `toString` identity SIGSEGVs.** Fourteen lines, identical on the base commit
+   and after this change:
+
+   ```
+   IMPORT io
+   IMPORT collections
+   FUNC identish(s AS String) AS String
+     RETURN toString(s)
+   END FUNC
+   SUB main()
+     MUT xs AS List OF String = []
+     MUT k AS Integer = 0
+     WHILE k < 3
+       xs = collections::append(xs, "n" & toString(k))
+       k = k + 1
+     END WHILE
+     LET c AS List OF String = collections::transform(xs, identish)   ' [exit 139]
+     io::print("c=" & collections::get(c, 0))
+   END SUB
+   ```
+
+   Mechanism: the `FunctionRef` ABI **owns and frees** the callback's return value
+   (that is exactly why plan-86 K1 excludes callback-referenced functions from the
+   param-borrow elision — the exclusion FORCES the copy). `identish` is not a
+   param-borrow function (it returns a `Call`, not a bare `Local`), so K1's forced
+   copy does not apply to it, and `toString`'s identity arm hands the HOF the
+   caller's own list-element block, which the HOF then frees. B-2 does not fix it
+   because `function_returns_fresh_string` **excludes** callback-referenced
+   functions, and that exclusion is deliberately conservative here — it keeps
+   callback lowering byte-identical rather than changing a second ABI in this
+   change. **The fix is one word:** drop the `callback_referenced` arm from
+   `function_returns_fresh_string`, which turns the exclusion from "no obligation"
+   into "the callee copies", i.e. exactly what K1's exclusion achieves for the
+   borrow shape. It needs its own change with its own callback-ABI audit.
+
+A fourth, already recorded here, also still stands: Phase 2's second checkbox —
+`RETURN f(g(i))` clears rather than drops `g`'s interior temp
+(`clear_pending_temps_to`), so `RETURN "v" & toString(i)` leaks 64 B per call even
+when the caller binds the result. Measured identical pre and post.
 
 ## Root Cause
 
@@ -569,16 +804,14 @@ Commit: —
       fail-closed provenance (`mark_fresh_string`). 23 producers opted in, 5
       classes deliberately excluded; `strings::padLeft`/`padRight`'s interior pad
       String freed via `register_fresh_string_temp`.
-- [ ] **Shape B-2, open:** callee-side `function_returns_fresh_string` so a
+- [x] **Shape B-2, DONE:** callee-side `function_returns_fresh_string` so a
       `String` returned by a user / `.mfb`-bodied function may be freed by its
-      caller. This is what `csv::parse` / `json::parse` / `regex::findAll` need;
-      the static-string return copy the Fix Design proposes is one half of it and
-      is not sufficient on its own (`RETURN toString(s)` still returns the
-      argument).
+      caller. See "Shape B-2 — FIXED" below.
 
 Acceptance: the four shape-B RSS tests pass (they do); `csv::parse` ×2 ≈ ×1 + rows
-(NOT yet — blocked on B-2).
-Commit: (branch `bug-536-shape-b`)
+(HALVED — 235 MB → 112 MB per repeat call; the residual is two *separate*
+pre-existing leaks, see "Found while fixing B-2").
+Commit: (branches `bug-536-shape-b`, `bug-536-shape-b2`)
 
 ### Phase 5 — regenerate expected outputs + full validation
 
