@@ -143,39 +143,7 @@ impl CodeBuilder<'_> {
         if Self::is_vector_native(result) {
             return;
         }
-        if !self.is_freeable_flat_value(&result.type_)
-            || self.value_needs_owning_copy(value)
-            || Self::value_is_runtime_managed(value)
-        {
-            return;
-        }
-        // A bare `String` result is freed here only with **provenance**
-        // (bug-536 shape B). A record/union/Result/collection temp is a
-        // self-contained fresh arena block (a nested `String` field is
-        // byte-inlined, so one `arena_free` reclaims it), but a *standalone*
-        // `String` produced by a call may be a shared rodata constant NOT loaded
-        // through the tracked static-string path, or a non-owned view into an
-        // argument — freeing one is a wild `arena_free` (SIGBUS on rodata,
-        // free-list corruption on a borrow). plan-25 therefore exempted every
-        // String, which made `acc = acc + len(toString(i))` leak 64 bytes per
-        // evaluation for the life of the process.
-        //
-        // `fresh_string` is set only when the shared String producers
-        // (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
-        // `toString` formatter helpers — each of which returns the block of an
-        // `arena_alloc` it just made) marked THIS node's own result operand. It
-        // is fail-closed: a producer that does not mark keeps the old leak, and
-        // no unmarked value can ever be freed here.
-        //
-        // bug-536 shape B-2: a *native* producer marks its own block, but a
-        // `.mfb`-bodied / user callee's block is made inside the callee, where no
-        // mark can reach this frame. `call_returns_fresh_string` is that callee's
-        // own promise, read from its NIR before any lowering runs, so it is
-        // order-independent and identical to the promise the callee delivered.
-        if result.type_ == ParameterType::String
-            && !fresh_string
-            && !self.call_returns_fresh_string(value)
-        {
+        if !self.pending_temp_is_freeable(value, &result.type_, fresh_string) {
             return;
         }
         let slot = self.allocate_stack_object("pending_temp", 8);
@@ -185,6 +153,54 @@ impl CodeBuilder<'_> {
             slot,
             location: result.location.clone(),
         });
+    }
+
+    /// Whether a fresh block produced by `value` (of static type `type_`) may be
+    /// freed by THIS frame at statement scope — the one ownership question behind
+    /// [`Self::register_pending_temp`], extracted so the inline-`TRAP` `Result`
+    /// sites can ask it with the identical rules (bug-561).
+    ///
+    /// A bare `String` result is freed only with **provenance** (bug-536 shape B).
+    /// A record/union/Result/collection temp is a self-contained fresh arena block
+    /// (a nested `String` field is byte-inlined, so one `arena_free` reclaims it),
+    /// but a *standalone* `String` produced by a call may be a shared rodata
+    /// constant NOT loaded through the tracked static-string path, or a non-owned
+    /// view into an argument — freeing one is a wild `arena_free` (SIGBUS on
+    /// rodata, free-list corruption on a borrow). plan-25 therefore exempted every
+    /// String, which made `acc = acc + len(toString(i))` leak 64 bytes per
+    /// evaluation for the life of the process.
+    ///
+    /// `fresh_string` is set only when the shared String producers
+    /// (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
+    /// `toString` formatter helpers — each of which returns the block of an
+    /// `arena_alloc` it just made) marked THIS node's own result operand. It is
+    /// fail-closed: a producer that does not mark keeps the old leak, and no
+    /// unmarked value can ever be freed.
+    ///
+    /// bug-536 shape B-2: a *native* producer marks its own block, but a
+    /// `.mfb`-bodied / user callee's block is made inside the callee, where no
+    /// mark can reach this frame. `call_returns_fresh_string` is that callee's own
+    /// promise, read from its NIR before any lowering runs, so it is
+    /// order-independent and identical to the promise the callee delivered.
+    pub(crate) fn pending_temp_is_freeable(
+        &self,
+        value: &NirValue,
+        type_: &ParameterType,
+        fresh_string: bool,
+    ) -> bool {
+        if !self.is_freeable_flat_value(type_)
+            || self.value_needs_owning_copy(value)
+            || Self::value_is_runtime_managed(value)
+        {
+            return false;
+        }
+        if *type_ == ParameterType::String
+            && !fresh_string
+            && !self.call_returns_fresh_string(value)
+        {
+            return false;
+        }
+        true
     }
 
     /// bug-536 shape B: record that `block` names a `String` arena block this
@@ -221,6 +237,94 @@ impl CodeBuilder<'_> {
             type_: ParameterType::String,
             slot,
             location,
+        });
+    }
+
+    /// bug-561: the sibling of [`Self::register_call_result_payload_temp`] for the
+    /// raw inline-builtin `TRAP` paths, where the producer's block is still in a
+    /// register rather than a slot.
+    ///
+    /// `lower_inline_builtin_raw` / `lower_inline_infallible_raw` run the member's
+    /// ordinary lowering directly, BYPASSING `lower_value` — which is the only
+    /// place `register_pending_temp` is called. So a member that allocates a fresh
+    /// block (`strings::mid`, `collections::get` on a `List OF String`) had its
+    /// block copied into the `Result` and then abandoned, where the same member
+    /// outside a `TRAP` is freed at statement end. This re-runs the registration
+    /// the bypass skipped, on the exact node the non-raw path would have carried,
+    /// so the provenance answers are identical.
+    ///
+    /// Emit only on the member's success fall-through: an error exit has already
+    /// branched to the capture label, so the spill below never runs on it.
+    fn register_raw_member_result_temp(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+        success: &ValueResult,
+    ) {
+        // The mark the member's own producer set, matched against its result
+        // operand exactly as `lower_value` matches it (bug-536 shape B).
+        let fresh_string = self
+            .fresh_string_block
+            .take()
+            .is_some_and(|block| block == success.location);
+        let node = NirValue::Call {
+            target: target.to_string(),
+            args: args.to_vec(),
+            loc: self.current_loc,
+        };
+        self.register_pending_temp(&node, success, fresh_string);
+    }
+
+    /// bug-561: register the block a fallible callee returned as a
+    /// statement-scope temp, from the SLOT it was spilled into.
+    ///
+    /// The inline-`TRAP` desugar binds `$trap_resN : Result OF T = CallResult(f(..))`,
+    /// and the lowering builds that `Result` by **copying** the callee's block
+    /// into a freshly allocated `{tag, size, payload}` block
+    /// (`emit_build_result_inline`). The callee's own block is dead the instant
+    /// that copy finishes — and nothing freed it, so every fallible call in an
+    /// expression leaked its whole payload: measured 64 B per call for a `String`
+    /// and 256 B for a `List OF Integer`, 25 MB / 50 MB at 200k / 400k iterations.
+    /// A scalar payload has no block, which is why `Result OF Integer` never
+    /// leaked and the bug looked type-independent when it is not.
+    ///
+    /// The provenance is [`Self::pending_temp_is_freeable`] — the same question,
+    /// with the same answers, that the plain-`Call` path already asks before
+    /// freeing a call result. A `String` therefore still needs the callee's own
+    /// `function_returns_fresh_string` promise, a `thread.*` result is still
+    /// runtime-managed and untouched, and a param-borrow or rodata result is
+    /// still copied rather than freed. Anything unproven keeps leaking.
+    ///
+    /// **This must be emitted on the Ok path only.** `source_slot` holds the raw
+    /// success register, which on the error path holds an error code, not a
+    /// block. Registering here spills into a slot written only on that path; the
+    /// statement-end drop null-guards and nulls it (bug-246 / bug-440), exactly
+    /// as it does for any conditionally-initialized owned temp, so an iteration
+    /// that fails frees nothing.
+    pub(crate) fn register_call_result_payload_temp(
+        &mut self,
+        value: &NirValue,
+        type_: &ParameterType,
+        source_slot: usize,
+    ) {
+        if self.borrow_get_result {
+            return;
+        }
+        if !self.pending_temp_is_freeable(value, type_, false) {
+            return;
+        }
+        let slot = self.allocate_stack_object("call_result_payload_temp", 8);
+        let pointer = self.allocate_register();
+        self.emit(abi::load_u64(&pointer, abi::stack_pointer(), source_slot));
+        self.emit(abi::store_u64(&pointer, abi::stack_pointer(), slot));
+        // The identity token is this fresh register, which no owner's
+        // `ValueResult` names — the `Result` block the enclosing node yields is a
+        // different operand — so `claim_pending_temp` can never mistake this temp
+        // for the one an owning binding took over.
+        self.pending_temp_frees.push(PendingTemp {
+            type_: type_.clone(),
+            slot,
+            location: Operand::from(pointer.render()),
         });
     }
 
@@ -1299,6 +1403,10 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     result_slot,
                 ));
+                // bug-561: the `Result` above owns a COPY of the callee's block;
+                // the callee's own block is dead from here. Ok path only —
+                // `value_slot` holds an error code on the other branch.
+                self.register_call_result_payload_temp(value, &success_type, payload_slot);
                 self.emit(abi::branch(&have_payload_label));
                 self.emit(abi::label(&wrap_error_label));
                 let error_register =
@@ -2137,6 +2245,10 @@ impl CodeBuilder<'_> {
         };
         self.raw_result_capture = previous;
         let success = lowered?;
+        // bug-561: `materialize_current_result` COPIES this block into the
+        // `Result`; nothing else owns it afterwards, and `lower_value`'s
+        // registration was bypassed by lowering the member directly.
+        self.register_raw_member_result_temp(target, args, &success);
         // Success fall-through: tag the produced value as the `Ok` result.
         // `forEach` produces `Nothing` (a `void` location) — there is no value
         // register to carry, so set a benign 0 and materialize `Result OF Nothing`.
@@ -2169,6 +2281,10 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
         let success = self.lower_infallible_member(target, args)?;
+        // bug-561: same bypass, same abandoned block — see
+        // `register_raw_member_result_temp`. This member cannot fail, so the
+        // registration is unconditionally on the taken path.
+        self.register_raw_member_result_temp(target, args, &success);
         let success_type = success.type_.clone();
         self.emit(abi::move_register(RESULT_VALUE_REGISTER, &success.location));
         self.emit(abi::move_immediate(

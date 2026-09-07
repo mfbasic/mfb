@@ -1021,3 +1021,391 @@ fn every_string_self_append_shape_still_produces_the_right_value() {
     );
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------- bug-561
+
+/// bug-561: `LET s AS String = fallible(i) TRAP … END TRAP` leaked the block the
+/// CALLEE returned. The inline-`TRAP` desugar binds
+/// `$trap_resN : Result OF T = CallResult(f(..))`, and the lowering builds that
+/// `Result` by COPYING the callee's block into a fresh `{tag, size, payload}`
+/// block — after which the callee's own block has no owner at all. Measured on
+/// the pre-fix compiler: 13.3 MB at 200k, 25.6 MB at 400k.
+///
+/// The callee deliberately returns `toString(...)` and not a `&` concat: a user
+/// function that returns a concatenation leaks 64 B per call *without any*
+/// `TRAP`, which is a separate defect (bug-567) and would mask this one.
+const B561_TRAP_STRING: &str = "IMPORT io\n\
+FUNC fname(n AS Integer) AS String\n\
+  IF n < 0 THEN\n    FAIL error(7, \"negative\")\n  END IF\n\
+  RETURN toString(n MOD 10)\n\
+END FUNC\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = fname(i) TRAP(e)\n\
+      RECOVER \"x\"\n\
+    END TRAP\n\
+    acc = acc + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The same defect with a collection payload — 256 B per call, 50.6 MB at 200k
+/// and 100.2 MB at 400k. It is in its own case because the leak is the PAYLOAD,
+/// not a fixed-size wrapper: the bug report's "type-independent, it is the
+/// `Result` wrapper" reading is wrong, and `Result OF Integer` (a scalar payload,
+/// stored inline in the `Result`'s own block) never leaked at all.
+const B561_TRAP_LIST: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC trio(n AS Integer) AS List OF Integer\n\
+  IF n < 0 THEN\n    FAIL error(7, \"negative\")\n  END IF\n\
+  RETURN [n, n + 1, n + 2]\n\
+END FUNC\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET xs AS List OF Integer = trio(i) TRAP(e)\n\
+      RECOVER []\n\
+    END TRAP\n\
+    acc = acc + collections::get(xs, 2)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The second lowering path with the same defect: an inline builtin under a
+/// `TRAP` (`lower_inline_builtin_raw`) runs the member's ordinary lowering
+/// DIRECTLY, bypassing `lower_value` — the only place `register_pending_temp` is
+/// called — so `strings::mid`'s and `collections::get`'s fresh blocks were
+/// copied into the `Result` and abandoned. 13.3 MB at 200k, 25.6 MB at 400k
+/// each. Outside a `TRAP` the identical calls are flat, which is the contrast
+/// that identifies the bypass.
+const B561_TRAP_INLINE_BUILTIN: &str = "IMPORT io\n\
+IMPORT collections\n\
+IMPORT strings\n\
+SUB main()\n\
+  LET base AS String = \"abcdefghijklmnop\"\n\
+  LET xs AS List OF String = [\"aa\", \"bb\", \"cc\"]\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET a AS String = strings::mid(base, i MOD 4, 5) TRAP(e)\n\
+      RECOVER \"x\"\n\
+    END TRAP\n\
+    LET b AS String = collections::get(xs, i MOD 3) TRAP(e)\n\
+      RECOVER \"y\"\n\
+    END TRAP\n\
+    acc = acc + len(a) + len(b)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The ERROR path, which is the one the fix could get catastrophically wrong:
+/// the payload temp's slot is written on the Ok branch ONLY, because on the
+/// error branch the raw success register holds an error code and not a block.
+/// Every call here fails, so the slot is never written and the statement-end
+/// drop must see the prologue zero (or the previous iteration's free-and-null)
+/// and skip. A fix that spilled before the branch would free an error code —
+/// a wild `arena_free` — rather than leak, so this is asserted on the VALUE and
+/// the exit status.
+///
+/// It is deliberately NOT an RSS case: the inline-`TRAP` error path leaks
+/// ~780 B per trapped error on its own (149 MB at 200k, 298 MB at 400k), a
+/// SEPARATE pre-existing defect this change does not touch — measured
+/// byte-identical on the base compiler and after (bug-565).
+const B561_TRAP_ALWAYS_FAILS: &str = "IMPORT io\n\
+FUNC always(n AS Integer) AS String\n\
+  IF n >= 0 THEN\n    FAIL error(7, \"always\")\n  END IF\n\
+  RETURN toString(n)\n\
+END FUNC\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = always(i) TRAP(e)\n\
+      RECOVER \"fallback\"\n\
+    END TRAP\n\
+    acc = acc + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The bug report's own claim, kept as a POSITIVE pin: it recorded
+/// `Result OF Integer` as the WORST case at 128 B per call. It never leaked —
+/// a scalar payload lives in the `Result`'s own block, which was always freed —
+/// and it must stay flat, because the fix adds a free next to it.
+const B561_CONTRAST_SCALAR: &str = "IMPORT io\n\
+FUNC half(n AS Integer) AS Integer\n\
+  IF n < 0 THEN\n    FAIL error(7, \"negative\")\n  END IF\n\
+  RETURN n / 2\n\
+END FUNC\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET n AS Integer = half(i) TRAP(e)\n\
+      RECOVER 0\n\
+    END TRAP\n\
+    acc = acc + n\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The other POSITIVE pin: the same producers with NO `TRAP` were already flat
+/// (their block is bound and freed by the binding's own scope drop). The fix
+/// must not give them a second free.
+const B561_CONTRAST_NO_TRAP: &str = "IMPORT io\n\
+IMPORT collections\n\
+IMPORT strings\n\
+FUNC fname(n AS Integer) AS String\n  RETURN toString(n MOD 10)\nEND FUNC\n\
+FUNC trio(n AS Integer) AS List OF Integer\n  RETURN [n, n + 1, n + 2]\nEND FUNC\n\
+SUB main()\n\
+  LET base AS String = \"abcdefghijklmnop\"\n\
+  LET xs AS List OF String = [\"aa\", \"bb\", \"cc\"]\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = fname(i)\n\
+    LET ys AS List OF Integer = trio(i)\n\
+    LET a AS String = strings::mid(base, i MOD 4, 5)\n\
+    LET b AS String = collections::get(xs, i MOD 3)\n\
+    acc = acc + len(s) + collections::get(ys, 2) + len(a) + len(b)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn a_trap_bound_string_result_runs_at_constant_rss() {
+    assert_flat("b561_trap_string", B561_TRAP_STRING, 200_000, 400_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trap_bound_collection_result_runs_at_constant_rss() {
+    assert_flat("b561_trap_list", B561_TRAP_LIST, 200_000, 400_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trap_bound_inline_builtin_result_runs_at_constant_rss() {
+    assert_flat(
+        "b561_trap_builtin",
+        B561_TRAP_INLINE_BUILTIN,
+        200_000,
+        400_000,
+    );
+}
+
+#[test]
+fn a_trap_whose_call_always_fails_still_produces_the_right_value() {
+    let program = B561_TRAP_ALWAYS_FAILS.replace("{N}", "20000");
+    let project = common::temp_project("b561_trap_fails", &program);
+    let exe = common::build_project(&project);
+    let output = std::process::Command::new(&exe)
+        .output()
+        .expect("run the always-failing TRAP probe");
+    assert!(
+        output.status.success(),
+        "the always-failing TRAP faulted: {}",
+        common::exit_description(&output.status)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        format!("acc={}", 20_000 * "fallback".len()),
+        "the error path's recovery value changed — the Ok-path payload free ran \
+         on a branch where the success register holds an error code"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trap_bound_scalar_result_still_runs_at_constant_rss() {
+    assert_flat("b561_trap_scalar", B561_CONTRAST_SCALAR, 200_000, 400_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_same_producers_without_a_trap_still_run_at_constant_rss() {
+    assert_flat("b561_no_trap", B561_CONTRAST_NO_TRAP, 200_000, 400_000);
+}
+
+/// The positive behaviour pin for bug-561. The fix ADDS an `arena_free` on the
+/// success path of every inline `TRAP`, so its failure mode is a double free or
+/// a use-after-free — a wrong value or a fault at some later allocation, never a
+/// red assertion. Every shape whose block the guard must NOT free is exercised
+/// here alongside the ones it must:
+///
+/// * a fallible user callee returning a fresh `String`, and one returning a
+///   `List` and a record;
+/// * the ERROR path of each, taken on a third of the iterations, so the
+///   conditionally-written temp slot is re-reached unwritten;
+/// * a param-borrow callee (`pick`) — its result is the caller's OWN argument
+///   block, so freeing it would be a use-after-free;
+/// * a callee that returns a rodata literal;
+/// * the `toString` identity, whose `String` arm returns its own argument;
+/// * inline builtins under `TRAP` (`strings::mid`, `collections::get`) whose
+///   containers must survive the read;
+/// * a nested `TRAP` inside a `TRAP` handler;
+/// * a scalar payload, which has no block at all;
+/// * a fresh list every iteration, so a corrupted free list surfaces as a
+///   later fault or a wrong element.
+const B561_BEHAVIOUR: &str = "IMPORT io\n\
+IMPORT collections\n\
+IMPORT strings\n\
+FUNC fstr(n AS Integer) AS String\n\
+  IF n MOD 3 = 0 THEN\n    FAIL error(7, \"three\")\n  END IF\n\
+  RETURN toString(n MOD 10)\n\
+END FUNC\n\
+FUNC flist(n AS Integer) AS List OF Integer\n\
+  IF n MOD 3 = 1 THEN\n    FAIL error(8, \"one\")\n  END IF\n\
+  RETURN [n, n + 1, n + 2]\n\
+END FUNC\n\
+FUNC pick(a AS String, b AS String, useA AS Boolean) AS String\n\
+  IF useA THEN\n    RETURN a\n  END IF\n  RETURN b\n\
+END FUNC\n\
+FUNC fpick(a AS String, n AS Integer) AS String\n\
+  IF n MOD 5 = 0 THEN\n    FAIL error(9, \"five\")\n  END IF\n\
+  RETURN pick(a, \"fb\", n MOD 2 = 0)\n\
+END FUNC\n\
+FUNC flit(n AS Integer) AS String\n\
+  IF n MOD 7 = 0 THEN\n    FAIL error(10, \"seven\")\n  END IF\n\
+  IF n MOD 2 = 0 THEN\n    RETURN \"even\"\n  END IF\n  RETURN \"odd\"\n\
+END FUNC\n\
+FUNC fident(s AS String, n AS Integer) AS String\n\
+  IF n MOD 11 = 0 THEN\n    FAIL error(11, \"eleven\")\n  END IF\n\
+  RETURN toString(s)\n\
+END FUNC\n\
+FUNC fnum(n AS Integer) AS Integer\n\
+  IF n MOD 3 = 2 THEN\n    FAIL error(12, \"two\")\n  END IF\n\
+  RETURN n MOD 100\n\
+END FUNC\n\
+SUB main()\n\
+  LET base AS String = \"abcdefghijklmnop\"\n\
+  LET names AS List OF String = [\"aa\", \"bb\", \"cc\"]\n\
+  MUT total AS Integer = 0\n\
+  MUT sink AS String = \"seed\"\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < 3000\n\
+    LET s AS String = fstr(i) TRAP(e)\n      RECOVER \"S\"\n    END TRAP\n\
+    total = total + len(s)\n\
+    LET xs AS List OF Integer = flist(i) TRAP(e)\n      RECOVER [9]\n    END TRAP\n\
+    total = total + collections::get(xs, 0)\n\
+    LET p AS String = fpick(sink, i) TRAP(e)\n      RECOVER \"P\"\n    END TRAP\n\
+    total = total + len(p)\n\
+    LET l AS String = flit(i) TRAP(e)\n      RECOVER \"L\"\n    END TRAP\n\
+    total = total + len(l)\n\
+    LET d AS String = fident(sink, i) TRAP(e)\n      RECOVER \"D\"\n    END TRAP\n\
+    total = total + len(d)\n\
+    LET n AS Integer = fnum(i) TRAP(e)\n      RECOVER -1\n    END TRAP\n\
+    total = total + n\n\
+    LET m AS String = strings::mid(base, i MOD 4, 5) TRAP(e)\n      RECOVER \"M\"\n    END TRAP\n\
+    total = total + len(m)\n\
+    LET g AS String = collections::get(names, i MOD 3) TRAP(e)\n      RECOVER \"G\"\n    END TRAP\n\
+    total = total + len(g)\n\
+    LET nest AS String = fstr(i) TRAP(e)\n\
+      LET inner AS String = flit(i) TRAP(e2)\n        RECOVER \"NI\"\n      END TRAP\n\
+      RECOVER \"N\" & inner\n\
+    END TRAP\n\
+    total = total + len(nest)\n\
+    LET churn AS List OF Integer = [i, i + 1, i + 2]\n\
+    total = total + collections::get(churn, 2)\n\
+    sink = \"s\" & toString(i MOD 13)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+  io::print(\"sink=\" & sink)\n\
+  io::print(\"names=\" & collections::get(names, 0) & collections::get(names, 2))\n\
+  io::print(\"base=\" & base)\n\
+END SUB\n";
+
+#[test]
+fn every_trap_bound_result_still_produces_the_right_value() {
+    let project = common::temp_project("b561_behaviour", B561_BEHAVIOUR);
+    let exe = common::build_project(&project);
+    let output = std::process::Command::new(&exe)
+        .output()
+        .expect("run the bug-561 behaviour probe");
+    assert!(
+        output.status.success(),
+        "{}",
+        common::exit_description(&output.status)
+    );
+    let out = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let mut total: i64 = 0;
+    let mut sink = String::from("seed");
+    for i in 0..3000i64 {
+        // fstr
+        let s = if i % 3 == 0 {
+            "S".to_string()
+        } else {
+            (i % 10).to_string()
+        };
+        total += s.len() as i64;
+        // flist
+        total += if i % 3 == 1 { 9 } else { i };
+        // fpick — reads `sink` as it stood at the top of this iteration
+        let p = if i % 5 == 0 {
+            "P".to_string()
+        } else if i % 2 == 0 {
+            sink.clone()
+        } else {
+            "fb".to_string()
+        };
+        total += p.len() as i64;
+        // flit
+        let l = if i % 7 == 0 {
+            "L"
+        } else if i % 2 == 0 {
+            "even"
+        } else {
+            "odd"
+        };
+        total += l.len() as i64;
+        // fident
+        let d = if i % 11 == 0 {
+            "D".to_string()
+        } else {
+            sink.clone()
+        };
+        total += d.len() as i64;
+        // fnum
+        total += if i % 3 == 2 { -1 } else { i % 100 };
+        // strings::mid — always in range
+        total += 5;
+        // collections::get
+        total += 2;
+        // nested TRAP
+        let nest = if i % 3 == 0 {
+            // the INNER trap's own recovery text, not the outer one's
+            let inner = if i % 7 == 0 {
+                "NI"
+            } else if i % 2 == 0 {
+                "even"
+            } else {
+                "odd"
+            };
+            format!("N{inner}")
+        } else {
+            (i % 10).to_string()
+        };
+        total += nest.len() as i64;
+        total += i + 2;
+        sink = format!("s{}", i % 13);
+    }
+    let expected = format!("total={total}\nsink={sink}\nnames=aacc\nbase=abcdefghijklmnop");
+    assert_eq!(
+        out.trim(),
+        expected,
+        "a TRAP-bound value changed — a block was freed twice or while still live"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
