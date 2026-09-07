@@ -354,6 +354,10 @@ name = "codegen_helper_scratch_release"
 path = "tests/codegen/codegen_helper_scratch_release.rs"
 
 [[test]]
+name = "codegen_parked_error_source_free"
+path = "tests/codegen/codegen_parked_error_source_free.rs"
+
+[[test]]
 name = "codegen_trap_error_free"
 path = "tests/codegen/codegen_trap_error_free.rs"
 

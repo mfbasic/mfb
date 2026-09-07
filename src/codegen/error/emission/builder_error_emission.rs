@@ -3,6 +3,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::ParkedErrorSource;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
@@ -457,7 +458,7 @@ impl CodeBuilder<'_> {
         // and origin have been deep-copied into the caller arena and stamped. Build
         // the single owned Error block (in the caller arena) and park it so the
         // catcher ADOPTS it, matching every other propagated error.
-        self.emit_park_error_call();
+        self.emit_park_error_call(ParkedErrorSource::WorkerArenaCopy);
         Ok(())
     }
 
@@ -507,7 +508,7 @@ impl CodeBuilder<'_> {
         // origin. Build the single owned Error block and park it so the catcher
         // ADOPTS it (freed once) rather than rebuilding — the same funnel every
         // domain error uses.
-        self.emit_park_error_call();
+        self.emit_park_error_call(ParkedErrorSource::StampedCallSite);
         Ok(())
     }
 
@@ -575,7 +576,7 @@ impl CodeBuilder<'_> {
         // is no memory to park a block, so those stay the loose `RESULT_ERR_TAG`
         // legacy path that the catcher rebuilds.
         if !self.building_error_block && !self.emitting_error_route {
-            self.emit_park_error_call();
+            self.emit_park_error_call(ParkedErrorSource::MakeErrorResult);
         }
         // Inside a raw-capture region (inline `TRAP` on an inline built-in) the
         // error is not propagated: leave the raw `Result` in the standard
@@ -752,6 +753,14 @@ impl CodeBuilder<'_> {
         let base = self.emit_build_error_inline(code_slot, message_slot, source_slot)?;
         self.building_error_block = previous;
         self.emit_store_current_error(&base);
+        // bug-573: the `ErrorLoc` in `source_slot` has just been COPIED into the
+        // parked block, which is now the single owner of the origin (design "b").
+        // The original is a second, ownerless copy — ~200 B per raised error for
+        // `src/main.mfb`, ~682 B for a 117-character path, because the filename is
+        // inlined into it. Release it and re-point `x3` at the parked block's own
+        // copy, so any later read of the loose source register still sees a live,
+        // byte-identical `ErrorLoc`.
+        self.emit_release_parked_error_source(&base, source_slot)?;
         // Restore the loose registers (the build's `arena_alloc` clobbered them) and
         // stamp the ERR_BLOCK tag.
         self.emit(abi::load_u64(
@@ -764,16 +773,92 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             message_slot,
         ));
-        self.emit(abi::load_u64(
-            RESULT_ERROR_SOURCE_REGISTER,
-            abi::stack_pointer(),
-            source_slot,
-        ));
         self.emit(abi::move_immediate(
             RESULT_TAG_REGISTER,
             "Integer",
             RESULT_ERR_BLOCK_TAG,
         ));
+        Ok(())
+    }
+
+    /// bug-573: free the freshly built `ErrorLoc` the park just inlined into the
+    /// owned `Error` block, and leave `RESULT_ERROR_SOURCE_REGISTER` pointing at
+    /// the parked block's own inlined copy instead of the released original.
+    ///
+    /// `base` is the parked `Error` block; `source_slot` holds the `ErrorLoc`
+    /// pointer the park was handed (`0` when the error has no origin).
+    ///
+    /// Two things make the free safe, and neither is a whole-program claim:
+    ///
+    /// * **A runtime null guard.** `source_slot` is `0` for every error with no
+    ///   origin — every `LINK` thunk returns one, and so does an OOM whose
+    ///   `_mfb_build_error_loc` could not allocate. Nothing is freed on those
+    ///   paths. (The other no-park path, `building_error_block`, never reaches
+    ///   here at all: `emit_build_error_inline`'s own OOM diverges through
+    ///   `raise_error_bare` before this point.)
+    /// * **The size is the allocation's own.** `emit_record_block_size_to_slot`
+    ///   for `ErrorLoc` is the SAME formula `_mfb_build_error_loc` sized its
+    ///   `arena_alloc` with — 24 fixed bytes plus the inlined filename block —
+    ///   read back off the block. A size that is not the allocation's returns it
+    ///   to the wrong bin (bug-560).
+    ///
+    /// The re-point is what keeps this from resting on "nothing reads `x3` after a
+    /// park". It happens to be true — every consumer of an `ERR_BLOCK` error takes
+    /// the ADOPT branch (`route_current_result_to_trap`,
+    /// `emit_trapped_error_result`) and reads the origin from inside the block,
+    /// and the top-level banner reads only the code and the message — but a
+    /// dangling `x3` would be a use-after-free the moment that stopped holding, so
+    /// the register is left valid rather than merely unread.
+    fn emit_release_parked_error_source(
+        &mut self,
+        base: &VirtualRegister,
+        source_slot: usize,
+    ) -> Result<(), String> {
+        let kept = self.label("park_error_source_kept");
+        let interior_null = self.label("park_error_source_interior_null");
+        let interior_done = self.label("park_error_source_interior_done");
+        let size_slot = self.allocate_stack_object("park_error_source_size", 8);
+        let scratch = self.temporary_vreg();
+        self.emit(abi::load_u64(&scratch, abi::stack_pointer(), source_slot));
+        self.emit(abi::compare_immediate(&scratch, "0"));
+        self.emit(abi::branch_eq(&kept));
+        self.emit_record_block_size_to_slot(
+            &ParameterType::named("ErrorLoc"),
+            source_slot,
+            size_slot,
+        )?;
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            source_slot,
+        ));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
+        self.emit_arena_free_call();
+        self.emit(abi::label(&kept));
+        // `x3` = the parked block's inlined `ErrorLoc`: `base + sourceOffset`, with
+        // the offset's `0` the same no-origin sentinel `emit_load_error_fields`
+        // reads.
+        let offset = self.temporary_vreg();
+        self.emit(abi::load_u64(&offset, base, 16));
+        self.emit(abi::compare_immediate(&offset, "0"));
+        self.emit(abi::branch_eq(&interior_null));
+        self.emit(abi::add_registers(
+            RESULT_ERROR_SOURCE_REGISTER,
+            base,
+            &offset,
+        ));
+        self.emit(abi::branch(&interior_done));
+        self.emit(abi::label(&interior_null));
+        self.emit(abi::move_immediate(
+            RESULT_ERROR_SOURCE_REGISTER,
+            "Integer",
+            "0",
+        ));
+        self.emit(abi::label(&interior_done));
         Ok(())
     }
 

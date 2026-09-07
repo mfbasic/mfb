@@ -102,10 +102,74 @@ pub(crate) fn lower_park_error_helper<'a>(
     })
 }
 
+/// bug-573: where the `ErrorLoc` in `RESULT_ERROR_SOURCE_REGISTER` came from at
+/// a park site.
+///
+/// `_mfb_rt_park_error` inlines a COPY of that `ErrorLoc` into the owned `Error`
+/// block it builds, and then releases the original — ~200 B per raised error for
+/// `src/main.mfb`, ~682 B for a 117-character path, because the filename is
+/// inlined into it. That release is only sound because every park site hands it a
+/// block THIS FRAME just allocated, and the helper is shared, so it cannot ask.
+///
+/// An `ErrorLoc` pointer is NOT always fresh elsewhere in the compiler:
+/// `emit_load_error_fields` produces an INTERIOR pointer (`errorBase + offset`)
+/// into somebody else's `Error` block, and `emit_direct_error_return` puts exactly
+/// that in `RESULT_ERROR_SOURCE_REGISTER` for a `FAIL <Error value>` — which takes
+/// the legacy loose-`ERR` route and never reaches the park. Freeing one of those
+/// would be a free of an interior pointer, which corrupts the arena's free list
+/// rather than merely leaking.
+///
+/// So each site declares its provenance and [`CodeBuilder::emit_park_error_call`]
+/// matches on it exhaustively, with no wildcard: a fourth park site is a build
+/// error until somebody answers this question for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ParkedErrorSource {
+    /// `emit_error_register_return` — a domain error raised HERE. The source is
+    /// whatever `_mfb_make_error_result` returned, which is a fresh
+    /// `_mfb_build_error_loc` block (or null on OOM).
+    MakeErrorResult,
+    /// `emit_stamp_current_error_source` — a native runtime helper returned an
+    /// error with no origin of its own, and the call site stamped one with a fresh
+    /// `emit_build_error_loc`.
+    StampedCallSite,
+    /// `emit_finalize_worker_error_source` — a propagated `thread::waitFor` error.
+    /// The WORKER's `ErrorLoc` has already been deep-copied into THIS arena by
+    /// `copy_value_to_current_arena` (or, when `waitFor` raised its own error,
+    /// stamped with `emit_build_error_loc`); either way the pointer the park sees
+    /// is this frame's copy, never the worker's original. `x19` is per-thread, so
+    /// the distinction is the difference between a free and cross-arena
+    /// corruption.
+    WorkerArenaCopy,
+}
+
+/// Whether the park may release the `ErrorLoc` it was handed.
+///
+/// One value today — the enum exists so the answer is written down per site
+/// rather than inherited, and so a `Borrowed` provenance cannot be added without
+/// the `match` below failing to compile.
+enum ParkedSourceOwnership {
+    /// A block this frame allocated, with no other owner once the park has
+    /// inlined its copy.
+    OwnedByThisFrame,
+}
+
 impl CodeBuilder<'_> {
     /// `bl _mfb_rt_park_error` — the call-site form of
     /// [`Self::emit_park_error_block_from_registers`].
-    pub(crate) fn emit_park_error_call(&mut self) {
+    ///
+    /// `source` declares where this site's `RESULT_ERROR_SOURCE_REGISTER` came
+    /// from (bug-573). The park releases it, so the declaration is load-bearing.
+    pub(crate) fn emit_park_error_call(&mut self, source: ParkedErrorSource) {
+        // Exhaustive, no wildcard (bug-567's shape): a new `ParkedErrorSource`
+        // is a build error here, not a silent free of a block somebody else owns.
+        let ownership = match source {
+            ParkedErrorSource::MakeErrorResult
+            | ParkedErrorSource::StampedCallSite
+            | ParkedErrorSource::WorkerArenaCopy => ParkedSourceOwnership::OwnedByThisFrame,
+        };
+        match ownership {
+            ParkedSourceOwnership::OwnedByThisFrame => {}
+        }
         self.emit(abi::branch_link(PARK_ERROR_SYMBOL));
         self.push_internal_call_relocation(PARK_ERROR_SYMBOL);
     }

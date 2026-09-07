@@ -2607,31 +2607,6 @@ END SUB\n";
 
 // ---------------------------------------------------------------- bug-565
 
-/// Assert the loop's peak RSS DOES still grow with its iteration count.
-///
-/// The inverse of [`assert_flat`], and it exists for the same reason bug-572
-/// pinned `http::route`: where the correct answer is "this one still leaks / the
-/// guard declines", flatness cannot say so — a fix that accidentally freed the
-/// block would leave the test green while introducing a use-after-free. Asserting
-/// the growth makes the decline a positive fact, and makes a later real fix red
-/// this test on purpose so its documentation is updated with it.
-#[cfg(unix)]
-fn assert_still_grows(name: &str, source: &str, small: u64, large: u64, at_least_mb: u64) {
-    let a = peak_rss(name, source, small);
-    let b = peak_rss(name, source, large);
-    let grew = b.saturating_sub(a);
-    assert!(
-        grew >= at_least_mb * 1024 * 1024,
-        "{name}: peak RSS grew only {} MB between {small} and {large} iterations \
-         ({} MB -> {} MB), but this shape is documented as STILL LEAKING. Either \
-         the leak was fixed — update this pin and the bug — or the growth threshold \
-         is wrong.",
-        grew / (1024 * 1024),
-        a / (1024 * 1024),
-        b / (1024 * 1024),
-    );
-}
-
 /// bug-565: the inline-`TRAP` ERROR branch leaked TWO arena blocks per trapped
 /// error.
 ///
@@ -2733,23 +2708,20 @@ SUB main()\n\
   io::print(\"acc=\" & toString(acc))\n\
 END SUB\n";
 
-/// The POSITIVE pin, asserted as GROWTH rather than flatness: an error raised by
-/// an inline builtin's own domain check still leaks, and this change declines to
-/// touch it.
+/// bug-573, landed as the shape bug-565 pinned as still-leaking. The comment it
+/// replaces read "an error raised by an inline builtin's own domain check still
+/// leaks, and this change declines to touch it", asserted as GROWTH — 39.1 MB at
+/// 200 000 iterations and 77.2 MB at 400 000, identical before and after bug-565.
 ///
-/// That leak is on the RAISE side, not the trap side: `_mfb_make_error_result`
-/// allocates an `ErrorLoc`, `_mfb_rt_park_error` builds the owned `Error` block
-/// by inlining a COPY of it, and the original is orphaned before any `TRAP` is
-/// involved. It is visible here because the trapped-error assembly is downstream
-/// of it, and it scales with the recorded FILENAME length — 200 B per raise for
-/// `src/main.mfb`, 750 B for a 131-character path — which is the evidence that it
-/// is the `ErrorLoc`, not the trap. 39.1 MB at 200 000 and 77.2 MB at 400 000
-/// both before and after this change.
-///
-/// Flatness could not state that: a fix that freed the raiser's `ErrorLoc` here
-/// would be freeing a block the propagation path still hands to its caller, and a
-/// flat assertion would go green on it.
-const B565_BUILTIN_RAISE_STILL_LEAKS: &str = "IMPORT io\n\
+/// The leak was on the RAISE side: `_mfb_make_error_result` allocates an
+/// `ErrorLoc`, `_mfb_rt_park_error` builds the owned `Error` block by inlining a
+/// COPY of it, and the original was orphaned before any `TRAP` was involved.
+/// `_mfb_rt_park_error` now releases it, so this is `assert_flat` — and bug-565's
+/// worry ("a fix that freed the raiser's `ErrorLoc` here would be freeing a block
+/// the propagation path still hands to its caller") is answered by the park's
+/// re-point: `x3` is left pointing at the parked block's OWN inlined copy, so a
+/// propagation that reads it reads a live, byte-identical `ErrorLoc`.
+const B573_BUILTIN_RAISE: &str = "IMPORT io\n\
 IMPORT collections\n\
 SUB main()\n\
   LET xs AS List OF String = [\"aa\", \"bb\", \"cc\"]\n\
@@ -2841,14 +2813,8 @@ fn an_auto_propagated_error_out_of_a_loop_body_runs_at_constant_rss() {
 
 #[cfg(unix)]
 #[test]
-fn an_inline_builtins_own_domain_error_still_leaks_its_error_loc() {
-    assert_still_grows(
-        "b565_builtin_raise",
-        B565_BUILTIN_RAISE_STILL_LEAKS,
-        200_000,
-        400_000,
-        24,
-    );
+fn an_inline_builtins_own_domain_error_runs_at_constant_rss() {
+    assert_flat("b573_builtin_raise", B573_BUILTIN_RAISE, 200_000, 400_000);
 }
 
 /// The behaviour pin for bug-565. The fix ADDS an `arena_free` on the ERROR path
@@ -4164,6 +4130,303 @@ fn every_helper_whose_scratch_is_released_still_produces_the_right_value() {
              back wrong. The failure direction for bug-574 is a release that \
              reached the block the helper HANDS BACK, which shows up here rather \
              than as a failing free"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+// ---------------------------------------------------------------- bug-573
+//
+// Every error raised through `_mfb_make_error_result` orphaned the `ErrorLoc` it
+// had just built: `_mfb_rt_park_error` inlines a COPY of it into the single owned
+// `Error` block it parks, and nothing owned the original afterwards, on any path.
+//
+// The measurement that identifies it as the `ErrorLoc` — rather than anything on
+// the `TRAP` side — is that it scales with the recorded SOURCE FILENAME, which is
+// inlined into that block and appears nowhere else in the shape. So the two cases
+// below are the same program compiled twice, differing only in how deep its
+// source file sits: `src/main.mfb` cost ~200 B per raise and a 117-character path
+// ~682 B, a slope of 4.6 B per filename byte.
+
+/// Peak RSS of `source` with `{N}` replaced by `count`, compiled at
+/// `src/<subdirectory>/main.mfb` so the `ErrorLoc`'s recorded filename is as long
+/// as the subdirectory makes it.
+#[cfg(unix)]
+fn peak_rss_at_depth(name: &str, subdirectory: &str, source: &str, count: u64) -> u64 {
+    let program = source.replace("{N}", &count.to_string());
+    // `common::temp_project` writes `src/main.mfb`; move the source down into the
+    // nested directory (the project's include glob is `**/*.mfb`) so the recorded
+    // path grows without changing anything else about the build.
+    let project = common::temp_project(&format!("{name}_{count}"), "");
+    let nested = project.join("src").join(subdirectory);
+    std::fs::create_dir_all(&nested).expect("create nested source directory");
+    std::fs::remove_file(project.join("src/main.mfb")).expect("remove the flat source");
+    std::fs::write(nested.join("main.mfb"), &program).expect("write nested source");
+    let exe = common::build_project(&project);
+    let (status, stdout, rss) = common::run_bounded_with_rss(
+        &exe,
+        std::time::Duration::from_secs(300),
+        "the raised-error origin probe did not finish",
+    );
+    assert!(
+        status.success(),
+        "{} exited non-zero:\n{stdout}",
+        common::exit_description(&status)
+    );
+    let rss = rss.expect("unix reports ru_maxrss");
+    let _ = std::fs::remove_dir_all(&project);
+    rss
+}
+
+/// Five 20-character path components: `src/<100 chars>/main.mfb` is 117
+/// characters against `src/main.mfb`'s 12, so the per-raise cost of the orphaned
+/// `ErrorLoc` was 3.4x the flat program's.
+#[cfg(unix)]
+const DEEP_SOURCE_DIRECTORY: &str = "dddddddddddddddddddd/dddddddddddddddddddd/\
+                                     dddddddddddddddddddd/dddddddddddddddddddd/\
+                                     dddddddddddddddddddd";
+
+#[cfg(unix)]
+#[test]
+fn a_raised_error_runs_at_constant_rss_however_long_its_filename_is() {
+    let a = peak_rss_at_depth(
+        "b573_deep_raise",
+        DEEP_SOURCE_DIRECTORY,
+        B573_BUILTIN_RAISE,
+        200_000,
+    );
+    let b = peak_rss_at_depth(
+        "b573_deep_raise",
+        DEEP_SOURCE_DIRECTORY,
+        B573_BUILTIN_RAISE,
+        400_000,
+    );
+    let grew = b.saturating_sub(a);
+    assert!(
+        grew < 8 * 1024 * 1024,
+        "b573_deep_raise: peak RSS grew {} MB between 200 000 and 400 000 raised \
+         errors ({} MB -> {} MB) with a 117-character source path. The orphaned \
+         block is the `ErrorLoc`: its cost is the filename's length, so this is \
+         the sensitive form — the flat `src/main.mfb` program leaked 200 B per \
+         raise and this one 682 B (137.6 MB -> 274.1 MB before the fix)",
+        grew / (1024 * 1024),
+        a / (1024 * 1024),
+        b / (1024 * 1024),
+    );
+}
+
+/// The RAISE shape that does not involve an inline builtin at all: a user `FUNC`
+/// that `FAIL`s, caught by the caller. Its `ErrorLoc` comes from the same
+/// `_mfb_make_error_result` path.
+const B573_USER_FAIL: &str = "IMPORT io\n\
+FUNC boom(n AS Integer) AS Integer\n\
+  FAIL error(90000001, \"boom\")\n\
+END FUNC\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET v AS Integer = boom(i) TRAP(e)\n\
+      RECOVER e.code\n\
+    END TRAP\n\
+    acc = acc + v\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// A PROPAGATED error: raised two frames down and re-raised through a
+/// `PROPAGATE`, so the middle frame hands the error on rather than raising it.
+/// This is the shape the park's re-point protects — the propagation path reads
+/// the origin after the raiser has parked, and now reads the parked block's own
+/// copy.
+const B573_PROPAGATED: &str = "IMPORT io\n\
+FUNC boom(n AS Integer) AS Integer\n\
+  FAIL error(90000002, \"deep\")\n\
+END FUNC\n\
+FUNC middle(n AS Integer) AS Integer\n\
+  LET v AS Integer = boom(n) TRAP(inner)\n\
+    PROPAGATE\n\
+  END TRAP\n\
+  RETURN v\n\
+END FUNC\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET v AS Integer = middle(i) TRAP(e)\n\
+      RECOVER e.source.line\n\
+    END TRAP\n\
+    acc = acc + v\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// A RUNTIME-HELPER error, whose origin is stamped by the call site
+/// (`emit_stamp_current_error_source`) rather than by `_mfb_make_error_result` —
+/// the second of the three park sites, and the one whose `ErrorLoc` is built
+/// directly rather than through the shared assembly.
+const B573_HELPER_ERROR: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = fs::readText(\"/tmp/b573_absent_file.txt\") TRAP(e)\n\
+      RECOVER \"x\"\n\
+    END TRAP\n\
+    acc = acc + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The POSITIVE pin: the SAME loop with a call that never fails. It was flat
+/// before and must stay flat — the change adds an `arena_free` on the error path,
+/// so a shape that raises nothing must gain nothing.
+const B573_CONTRAST_NO_ERROR: &str = "IMPORT io\n\
+FUNC fine(n AS Integer) AS Integer\n\
+  RETURN n MOD 3\n\
+END FUNC\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET v AS Integer = fine(i) TRAP(e)\n\
+      RECOVER 0\n\
+    END TRAP\n\
+    acc = acc + v\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn a_user_fail_runs_at_constant_rss() {
+    assert_flat("b573_user_fail", B573_USER_FAIL, 200_000, 400_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_propagated_error_runs_at_constant_rss() {
+    assert_flat("b573_propagated", B573_PROPAGATED, 200_000, 400_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_runtime_helper_error_runs_at_constant_rss() {
+    assert_flat("b573_helper", B573_HELPER_ERROR, 200_000, 400_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_loop_that_raises_nothing_still_runs_at_constant_rss() {
+    assert_flat("b573_no_error", B573_CONTRAST_NO_ERROR, 200_000, 400_000);
+}
+
+/// The VALUE half, and the one that matters: the change frees a block the origin
+/// was copied FROM, so its failure direction is a use-after-free that reads back
+/// as a wrong filename / line / column, or as an unrelated allocation failure
+/// later — never as a failing free.
+///
+/// Every origin-reading shape is here: an inline builtin's domain error, a
+/// runtime helper's stamped origin, a user `FAIL`, a `PROPAGATE` two frames down,
+/// a function-level `TRAP`, and the untrapped top-level banner (a separate
+/// program, since it ends the process). Each reads `source.filename`,
+/// `source.line` and `source.char`, all of which live in the block whose original
+/// has just been released.
+const B573_ORIGIN_VALUES: &str = "IMPORT io\n\
+IMPORT collections\n\
+IMPORT fs\n\
+FUNC deep(n AS Integer) AS Integer\n\
+  IF n = 0 THEN\n\
+    FAIL error(90000001, \"from deep\")\n\
+  END IF\n\
+  RETURN deep(n - 1)\n\
+END FUNC\n\
+FUNC reraise() AS Integer\n\
+  LET v AS Integer = deep(2) TRAP(inner)\n\
+    PROPAGATE\n\
+  END TRAP\n\
+  RETURN v\n\
+END FUNC\n\
+FUNC viaTrap() AS String\n\
+  LET xs AS List OF String = [\"aa\"]\n\
+  RETURN collections::get(xs, 9)\n\
+  TRAP(err)\n\
+    RETURN err.source.filename & \":\" & toString(err.source.line)\n\
+  END TRAP\n\
+END FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"aa\", \"bb\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT churn AS Integer = 0\n\
+  WHILE i < 500\n\
+    LET c AS String = collections::get(xs, 9) TRAP(warm)\n\
+      RECOVER warm.source.filename\n\
+    END TRAP\n\
+    churn = churn + len(c)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"churn=\" & toString(churn))\n\
+  LET a AS String = collections::get(xs, 9) TRAP(e1)\n\
+    RECOVER e1.source.filename & \":\" & toString(e1.source.line) & \":\" & toString(e1.source.char)\n\
+  END TRAP\n\
+  io::print(\"builtin=\" & a)\n\
+  LET b AS String = fs::readText(\"/tmp/b573_absent_file.txt\") TRAP(e2)\n\
+    RECOVER toString(e2.code) & \"@\" & e2.source.filename & \":\" & toString(e2.source.line)\n\
+  END TRAP\n\
+  io::print(\"helper=\" & b)\n\
+  LET c AS Integer = deep(3) TRAP(e3)\n\
+    io::print(\"fail=\" & e3.message & \"@\" & e3.source.filename & \":\" & toString(e3.source.line))\n\
+    RECOVER 0\n\
+  END TRAP\n\
+  io::print(\"failGot=\" & toString(c))\n\
+  LET d AS Integer = reraise() TRAP(e4)\n\
+    io::print(\"prop=\" & toString(e4.code) & \"@\" & e4.source.filename & \":\" & toString(e4.source.line))\n\
+    RECOVER 0\n\
+  END TRAP\n\
+  io::print(\"propGot=\" & toString(d))\n\
+  io::print(\"viaTrap=\" & viaTrap())\n\
+END SUB\n";
+
+#[test]
+fn every_raised_error_still_reports_its_true_origin() {
+    let project = common::temp_project("b573_origins", B573_ORIGIN_VALUES);
+    let exe = common::build_project(&project);
+    let expected = "churn=6000\n\
+                    builtin=src/main.mfb:35:19\n\
+                    helper=77030001@src/main.mfb:39\n\
+                    fail=from deep@src/main.mfb:6\n\
+                    failGot=0\n\
+                    prop=90000001@src/main.mfb:6\n\
+                    propGot=0\n\
+                    viaTrap=src/main.mfb:18";
+    // Ten runs: a released-too-early block is only observably wrong once the arena
+    // hands it to a later allocation, and which allocation that is depends on the
+    // fill pattern the arena seeds per process. The 500-iteration warm-up above
+    // guarantees the released `ErrorLoc`s have been recycled before these lines
+    // are built.
+    for run in 0..10 {
+        let output = std::process::Command::new(&exe)
+            .current_dir(&project)
+            .output()
+            .expect("run the raised-error origin probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected,
+            "run {run}: a raised error reported the wrong origin. bug-573 frees the \
+             `ErrorLoc` the parked `Error` block copied, so its failure direction \
+             is exactly this — a filename, line or column read out of memory the \
+             arena has already handed to something else"
         );
     }
     let _ = std::fs::remove_dir_all(&project);
