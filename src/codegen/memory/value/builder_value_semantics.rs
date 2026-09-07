@@ -69,6 +69,61 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Materialize a fresh CLOSED thread handle: an arena-allocated
+    /// [`THREAD_BLOCK_SIZE`] block, zeroed, with `THREAD_OFFSET_STATE` set to
+    /// [`THREAD_STATE_CLOSED`] (bug-479 defect D).
+    ///
+    /// This is the value a `LET t AS Thread … = thread::start(…) TRAP` error path
+    /// binds. `thread::start` is fallible (`ErrResourceExhausted`), so the
+    /// documented idiom for handling its documented failure needs a `Thread` value
+    /// on the error path, and there was none — the bind died with an UNLOCATED
+    /// `native code cannot materialize default value for type 'Thread OF …'`.
+    ///
+    /// **The queue pointers stay null, and that is what forces the other half of
+    /// this fix.** A thread op used to load `THREAD_OFFSET_OUTBOUND_QUEUE` and
+    /// `pthread_mutex_lock` it BEFORE reading the state, so a zeroed block faulted
+    /// before it could notice it was closed. `simple_thread_handle_helper` now
+    /// checks `THREAD_STATE_CLOSED` first; see the comment there for why an
+    /// unlocked read is sound.
+    ///
+    /// Nothing here invents a contract. Every op already answers
+    /// `ErrResourceClosed` on a `CLOSED` handle, and `Drop` already treats one as
+    /// a no-op — so a `RECOVER`ed handle behaves exactly like a thread the program
+    /// closed itself, which is the same answer bug-372 gave for a resource.
+    fn emit_closed_thread_handle(&mut self) -> Result<VirtualRegister, String> {
+        use crate::codegen::runtime::thread::runtime_helpers::{
+            THREAD_BLOCK_SIZE, THREAD_OFFSET_STATE, THREAD_STATE_CLOSED,
+        };
+        let block = self.allocate_register();
+        self.emit(abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &THREAD_BLOCK_SIZE.to_string(),
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
+        let alloc_ok = self.label("default_thread_alloc_ok");
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::move_register(&block, abi::mfb_return(1)));
+        // Zero the whole block — every queue, os-handle and arena pointer in it is
+        // invalid, and a null queue is exactly what the closed pre-check expects.
+        let mut offset = 0;
+        while offset < THREAD_BLOCK_SIZE {
+            self.emit(abi::store_u64(abi::ZERO, &block, offset));
+            offset += 8;
+        }
+        let closed = self.allocate_register();
+        self.emit(abi::move_immediate(&closed, "Integer", THREAD_STATE_CLOSED));
+        self.emit(abi::store_u64(&closed, &block, THREAD_OFFSET_STATE));
+        Ok(block)
+    }
+
     /// Materialize a fresh CLOSED resource record: an arena record zeroed
     /// (invalid internals) with its shared `RESOURCE_OFFSET_CLOSED` (16) flag
     /// set. This is the record a `RES x = <fallible> TRAP` error path binds when
@@ -271,6 +326,19 @@ impl CodeBuilder<'_> {
                     type_: type_.clone(),
                     location: Operand::from(block.render()),
                     text: format!("closed union {type_}"),
+                })
+            }
+            // bug-479: a `Thread` handle, for the error path of an inline `TRAP`
+            // on `thread::start`. Ordered before the resource arms because a
+            // thread handle is not a resource record and must not get one — the
+            // two have different layouts and different close semantics.
+            ParameterType::ThreadHandle { .. } => {
+                let handle = self.emit_closed_thread_handle()?;
+                Ok(ValueResult {
+                    origin: None,
+                    type_: type_.clone(),
+                    location: Operand::from(handle.render()),
+                    text: format!("closed {type_}"),
                 })
             }
             _ if crate::codegen::builtins::is_resource_type(&type_)

@@ -1,0 +1,111 @@
+IMPORT io
+IMPORT fs
+IMPORT thread
+
+' bug-479: an inline TRAP on `thread::start` did not compile.
+'
+' `thread::start` is fallible (ErrResourceExhausted), and an inline TRAP is the
+' idiom `mfb man errors` teaches for handling one call's failure at the call
+' site -- so this was the documented way to handle a documented failure, and it
+' died with an UNLOCATED
+'
+'   error: native code cannot materialize default value for type
+'          'Thread OF String TO Integer' while lowering bind $trap_val1 ...
+'
+' The error path has to bind SOMETHING, and there was no `Thread` value to bind.
+' There is one now: a zeroed handle whose state is CLOSED. Nothing about that
+' invents a contract -- every thread op already answers ErrResourceClosed on a
+' closed handle and `drop` already treats one as a no-op -- but it did require
+' hoisting the closed check ABOVE the queue lock in every op, because each one
+' used to `pthread_mutex_lock` the queue before reading the state, and a closed
+' default handle's queues are null.
+'
+' So this fixture's job is NOT to show the build works. It is to show that
+' hoisting a check into every thread op did not change any op's ANSWER. It
+' prints the code each op gives for a normally-closed handle, and it runs the
+' same sequence twice: once through the inline TRAP that could not compile
+' before, and once through the plain spelling that always worked. The two must
+' agree line for line -- a verdict that moved shows up as a differing code
+' rather than as a green build.
+ISOLATED FUNC spin(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+ISOLATED FUNC resWorker(t AS ThreadWorker OF RES fs::File TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+ISOLATED FUNC msgResWorker(t AS ThreadWorker OF String RES fs::File TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+' Every op on a CLOSED handle, printed by code. 77030004 is ErrResourceClosed.
+FUNC closedAnswers(tag AS String, t AS Thread OF String TO Integer) AS Integer
+  thread::cancel(t) TRAP(e)
+    io::print(tag & "-cancel=" & toString(e.code))
+    LET running AS Boolean = thread::isRunning(t) TRAP(e2)
+      io::print(tag & "-isRunning=" & toString(e2.code))
+      LET ready AS Boolean = thread::poll(t, 0) TRAP(e3)
+        io::print(tag & "-poll=" & toString(e3.code))
+        LET again AS Integer = thread::waitFor(t) TRAP(e4)
+          io::print(tag & "-waitFor=" & toString(e4.code))
+          RETURN 0
+        END TRAP
+        io::print(tag & "-waitFor=NOTRAISED")
+        RETURN 0
+      END TRAP
+      io::print(tag & "-poll=NOTRAISED")
+      RETURN 0
+    END TRAP
+    io::print(tag & "-isRunning=NOTRAISED")
+    RETURN 0
+  END TRAP
+  io::print(tag & "-cancel=NOTRAISED")
+  RETURN 0
+END FUNC
+
+' The bug doc's NON-GOAL row: a FUNCTION-level TRAP on thread::start worked
+' before the fix and must still work. It takes a different lowering path -- there
+' is no `$trap_val` bind, so no default value is materialized at all -- which is
+' exactly why it was already green while the inline form could not compile.
+FUNC startViaFunctionTrap() AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(spin, 7)
+  RETURN thread::waitFor(t)
+  TRAP(e)
+    RETURN -1
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' 0. The protected row first, so a regression in it is the first thing printed.
+  io::print("fnLevel=" & toString(startViaFunctionTrap()))
+
+  ' 1. The shape that could not compile: an inline TRAP on start.
+  LET t AS Thread OF String TO Integer = thread::start(spin, 7) TRAP(e)
+    io::print("inline-start=failed")
+    RETURN 1
+  END TRAP
+  io::print("inline-result=" & toString(thread::waitFor(t)))
+  LET a AS Integer = closedAnswers("inline", t)
+
+  ' 2. The plain spelling, which always worked. Its answers are the control:
+  '    every line below must match the "inline" line above it.
+  LET u AS Thread OF String TO Integer = thread::start(spin, 7)
+  io::print("plain-result=" & toString(thread::waitFor(u)))
+  LET b AS Integer = closedAnswers("plain", u)
+
+  ' 3. The other two channel shapes from the bug's matrix. Each reaches the same
+  '    default-value question, so each has to compile; none did before.
+  LET r AS Thread OF RES fs::File TO Integer = thread::start(resWorker, 1) TRAP(e)
+    io::print("res=failed")
+    RETURN 2
+  END TRAP
+  io::print("res=" & toString(thread::waitFor(r)))
+
+  LET m AS Thread OF String RES fs::File TO Integer = thread::start(msgResWorker, 2) TRAP(e)
+    io::print("msgres=failed")
+    RETURN 3
+  END TRAP
+  io::print("msgres=" & toString(thread::waitFor(m)))
+  RETURN 0
+END FUNC

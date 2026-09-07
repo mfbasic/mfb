@@ -96,6 +96,37 @@ pub(crate) fn simple_thread_handle_helper(
         abi::stack_pointer(),
         HANDLE_OFFSET,
     )]);
+    // bug-479: answer for a CLOSED handle BEFORE touching its queue.
+    //
+    // Every arm below opens by loading `THREAD_OFFSET_OUTBOUND_QUEUE` (or the
+    // inbound one) and `pthread_mutex_lock`ing it, and only reads
+    // `THREAD_OFFSET_STATE` once the lock is held. That is fine for a handle
+    // `thread::start` built, and fatal for the one the error path of an inline
+    // `TRAP` on `thread::start` binds: its queues are null, so the lock faults
+    // before the op can notice the handle is closed. See
+    // `emit_closed_thread_handle`.
+    //
+    // **The unlocked read is sound because `CLOSED` is terminal.** The only
+    // writers of `THREAD_OFFSET_STATE` are the zero-init at creation
+    // (`runtime_helpers.rs`, `RUNNING`), the worker storing `COMPLETED` as it
+    // exits, and the two sites here that store `CLOSED` — nothing ever moves a
+    // handle OUT of `CLOSED`. So a racing read that sees `CLOSED` is right
+    // forever, and one that sees anything else falls through to the existing
+    // locked path, which re-reads the state under the lock and decides there. The
+    // pre-check can only ever short-circuit; it can never decide differently from
+    // the code it precedes.
+    //
+    // The answers are the ones each op already gives a closed handle, so this
+    // invents no contract: `ErrResourceClosed` for every query/wait/cancel, and
+    // success for `Drop`, which already treats an already-closed handle as a
+    // no-op.
+    let precheck_closed = format!("{symbol}_precheck_closed");
+    let precheck_done = format!("{symbol}_precheck_done");
+    instructions.extend([
+        abi::load_u64("%v9", abi::c_arg(0), THREAD_OFFSET_STATE),
+        abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
+        abi::branch_eq(&precheck_closed),
+    ]);
     match op {
         ThreadSimpleOp::IsRunning => {
             let running = format!("{symbol}_running");
@@ -810,6 +841,39 @@ pub(crate) fn simple_thread_handle_helper(
             ]);
         }
     }
+    instructions.push(abi::branch(&precheck_done));
+    instructions.push(abi::label(&precheck_closed));
+    match op {
+        // `thread.drop` on an already-closed handle is a no-op that succeeds --
+        // the same answer its own `already_closed` path gives below.
+        ThreadSimpleOp::Drop => instructions.push(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        )),
+        _ => {
+            raise_error_into(
+                symbol,
+                "ErrResourceClosed",
+                &mut instructions,
+                &mut relocations,
+            );
+            // `raise_error_into` sets VALUE/TAG/MESSAGE and nothing else, so the
+            // ORIGIN register has to be zeroed here. `WaitFor` is the only op that
+            // returns a meaningful one — it propagates the worker's `ErrorLoc` —
+            // and its own closed path zeroes the slot with the comment "waitFor's
+            // own error (resource closed): no worker origin". Skipping this
+            // returned a garbage pointer that the `TRAP` handler dereferenced:
+            // caught by the positive pin as a SIGSEGV on a SECOND `waitFor` of a
+            // closed handle, which the pre-fix compiler answered `77030004`.
+            instructions.push(abi::move_immediate(
+                RESULT_ERROR_SOURCE_REGISTER,
+                "Integer",
+                "0",
+            ));
+        }
+    }
+    instructions.push(abi::label(&precheck_done));
     instructions.push(abi::return_());
     Ok((instructions, relocations, FRAME_SIZE))
 }
