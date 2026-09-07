@@ -259,6 +259,60 @@ pub(crate) fn powers_of_ten_hex() -> String {
 mod tests {
     use super::*;
 
+    /// The three `Big` primitives at the inputs `entry()` never hands them.
+    ///
+    /// `bits`, `bit` and `cmp_big` each open with a case for a value the table
+    /// generator cannot produce: an EMPTY limb vector (`bits` answers 0), an
+    /// index past the top limb (`bit` answers false), and two numbers that
+    /// compare EQUAL limb for limb. Every power of ten in the table is non-zero
+    /// and every division has a strictly smaller remainder, so none of the three
+    /// had ever run.
+    ///
+    /// They are not decoration. `bits` feeds the shift that normalizes each
+    /// entry, `bit` walks the numerator during the long division, and `cmp_big`
+    /// decides whether the divisor is subtracted at each step. An empty vector
+    /// answering anything but 0, or an out-of-range bit answering true, produces
+    /// a WRONG TABLE -- and a wrong table is a float parser that returns a
+    /// slightly wrong number for the affected exponents, with nothing to fail.
+    #[test]
+    fn the_bignum_primitives_answer_at_their_edges() {
+        let zero = Big(Vec::new());
+        assert_eq!(zero.bits(), 0, "an empty limb vector is the number zero");
+        assert!(zero.is_zero());
+        assert!(
+            !zero.bit(0),
+            "no bit of zero is set, including the one below the (absent) first \
+             limb"
+        );
+
+        let one = Big::from_u32(1);
+        assert_eq!(one.bits(), 1);
+        assert!(one.bit(0));
+        assert!(!one.bit(31), "bit 31 is inside the first limb and clear");
+        assert!(
+            !one.bit(64),
+            "bit 64 is past the top limb entirely -- the lookup must answer \
+             false rather than index out of bounds"
+        );
+
+        let big = Big::from_u32(0x8000_0000);
+        assert_eq!(
+            big.bits(),
+            32,
+            "the top limb's leading zeros decide the bit length"
+        );
+        assert!(big.bit(31));
+
+        assert_eq!(
+            one.cmp_big(&Big::from_u32(1)),
+            std::cmp::Ordering::Equal,
+            "two equal numbers compare Equal -- the arm the long division never \
+             takes, because its remainder is always strictly smaller"
+        );
+        assert_eq!(one.cmp_big(&big), std::cmp::Ordering::Less);
+        assert_eq!(big.cmp_big(&one), std::cmp::Ordering::Greater);
+    }
+
     #[test]
     fn every_entry_is_normalized() {
         // Bit 127 set is what makes the 128-bit product's leading bit
