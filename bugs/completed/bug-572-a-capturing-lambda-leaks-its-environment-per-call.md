@@ -5,7 +5,7 @@ Effort: small
 Severity: MEDIUM (bounded per call site, unbounded across repeats)
 Class: Memory / closures
 
-Status: **FIXED** (2026-09-07)
+Status: **FIXED** (2026-09-07, `93a4f8aee`)
 Regression Test:
 - `tests/runtime/rt_scope_drop_leaks.rs` — four RSS cases at N and 2N
   (`a_capturing_lambda_argument_does_not_leak_its_environment`,

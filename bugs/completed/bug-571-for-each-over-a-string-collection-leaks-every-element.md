@@ -5,7 +5,7 @@ Effort: small-to-medium (one materialisation site; the ownership proof is the wo
 Severity: **HIGH** (unbounded leak on the most ordinary loop in the language)
 Class: Memory / collection iteration
 
-Status: **FIXED** (2026-09-07)
+Status: **FIXED** (2026-09-07, `4bd89ee76`)
 Regression Test:
 - `tests/runtime/rt_scope_drop_leaks.rs` — seven RSS cases at N and 2N
   (`a_for_each_over_a_list_of_string_does_not_leak_its_element`,
