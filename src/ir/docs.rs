@@ -46,6 +46,10 @@ pub(crate) struct IrDocDecl {
     pub(crate) deprecated: Option<String>,
 }
 
+#[cfg(test)]
+#[path = "docs/tests.rs"]
+mod tests;
+
 fn doc_prose(desc: &[crate::ast::DocProse]) -> Vec<(u8, String)> {
     desc.iter()
         .map(|prose| (prose.kind.code(), prose.text.clone()))
