@@ -1859,3 +1859,362 @@ END SUB\n";
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------- bug-565
+
+/// Assert the loop's peak RSS DOES still grow with its iteration count.
+///
+/// The inverse of [`assert_flat`], and it exists for the same reason bug-572
+/// pinned `http::route`: where the correct answer is "this one still leaks / the
+/// guard declines", flatness cannot say so — a fix that accidentally freed the
+/// block would leave the test green while introducing a use-after-free. Asserting
+/// the growth makes the decline a positive fact, and makes a later real fix red
+/// this test on purpose so its documentation is updated with it.
+#[cfg(unix)]
+fn assert_still_grows(name: &str, source: &str, small: u64, large: u64, at_least_mb: u64) {
+    let a = peak_rss(name, source, small);
+    let b = peak_rss(name, source, large);
+    let grew = b.saturating_sub(a);
+    assert!(
+        grew >= at_least_mb * 1024 * 1024,
+        "{name}: peak RSS grew only {} MB between {small} and {large} iterations \
+         ({} MB -> {} MB), but this shape is documented as STILL LEAKING. Either \
+         the leak was fixed — update this pin and the bug — or the growth threshold \
+         is wrong.",
+        grew / (1024 * 1024),
+        a / (1024 * 1024),
+        b / (1024 * 1024),
+    );
+}
+
+/// bug-565: the inline-`TRAP` ERROR branch leaked TWO arena blocks per trapped
+/// error.
+///
+/// The raiser (`FAIL error(...)`) builds one owned flat `Error` block and PARKS
+/// it in the per-thread current-error slot for the catcher to adopt (design "b").
+/// The `NirValue::CallResult` lowering never adopted it — it rebuilt a fresh
+/// `Error` from the loose registers, orphaning the parked block until the next
+/// `FAIL` overwrote the slot — and then `emit_build_result_inline` deep-copied
+/// the rebuilt block into the `Result`, orphaning that one too. 780 B per trapped
+/// error: **149.8 MB at 200 000, 298.6 MB at 400 000**.
+///
+/// This is the exact program `a_trap_whose_call_always_fails_still_produces_the_right_value`
+/// already asserts the VALUE of; bug-561 recorded it as deliberately not an RSS
+/// case because the leak was a separate defect. This is that half.
+const B565_TRAP_ALWAYS_FAILS: &str = B561_TRAP_ALWAYS_FAILS;
+
+/// The handler that READS the trapped error, which is the shape the fix could get
+/// catastrophically wrong: `e.code` and `RECOVER e.message` both read out of the
+/// `Error` this change now frees. They read out of the `Result`'s own COPY, so the
+/// free is sound — and the values are asserted below as well as the RSS.
+/// 149.8 MB at 200 000 and 298.6 MB at 400 000 before.
+const B565_HANDLER_READS_ERROR: &str = "IMPORT io\n\
+FUNC always(n AS Integer) AS String\n\
+  IF n >= 0 THEN\n    FAIL error(7, \"always-\" & toString(n MOD 3))\n  END IF\n\
+  RETURN toString(n)\n\
+END FUNC\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT codes AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = always(i) TRAP(e)\n\
+      codes = codes + e.code\n\
+      RECOVER e.message\n\
+    END TRAP\n\
+    acc = acc + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc) & \" codes=\" & toString(codes))\n\
+END SUB\n";
+
+/// The shape bug-571 measured and could not fix: a failing call inside a walk
+/// over a `List OF String`. bug-571 took it from 6 -> 11 MB down to the 2 -> 3 MB
+/// the loop-free control costs and recorded the remainder as this bug. With eight
+/// inner iterations per pass it is the same defect at eight times the rate:
+/// **298.6 MB at 50 000 passes, 596.2 MB at 100 000**.
+const B565_FAILING_CALL_IN_A_WALK: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC boom(s AS String) AS Integer\n  FAIL error(7, \"boom\")\nEND FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT j AS Integer = 0\n\
+    WHILE j < 8\n\
+      LET e AS String = collections::getOr(xs, j, \"\")\n\
+      LET v AS Integer = boom(e) TRAP(err)\n\
+        RECOVER len(e)\n\
+      END TRAP\n\
+      acc = acc + v\n\
+      j = j + 1\n\
+    END WHILE\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The AUTO-PROPAGATED edge, which is a different emitter: the error leaves the
+/// middle of a loop body, unwinds out of `pass`, and is only then trapped. §14.7
+/// names auto-propagation as its own scope edge; it reaches the same
+/// `NirValue::CallResult` assembly at the trap site. 38.2 MB at 50 000, 75.4 MB
+/// at 100 000 before.
+const B565_AUTO_PROPAGATED: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC boom(s AS String) AS Integer\n  FAIL error(7, \"boom\")\nEND FUNC\n\
+FUNC pass(xs AS List OF String) AS Integer\n\
+  MUT j AS Integer = 0\n\
+  MUT sum AS Integer = 0\n\
+  WHILE j < 8\n\
+    LET e AS String = collections::getOr(xs, j, \"\")\n\
+    LET v AS Integer = boom(e)\n\
+    sum = sum + v\n\
+    j = j + 1\n\
+  END WHILE\n\
+  RETURN sum\n\
+END FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET v AS Integer = pass(xs) TRAP(err)\n\
+      RECOVER 1\n\
+    END TRAP\n\
+    acc = acc + v\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The POSITIVE pin, asserted as GROWTH rather than flatness: an error raised by
+/// an inline builtin's own domain check still leaks, and this change declines to
+/// touch it.
+///
+/// That leak is on the RAISE side, not the trap side: `_mfb_make_error_result`
+/// allocates an `ErrorLoc`, `_mfb_rt_park_error` builds the owned `Error` block
+/// by inlining a COPY of it, and the original is orphaned before any `TRAP` is
+/// involved. It is visible here because the trapped-error assembly is downstream
+/// of it, and it scales with the recorded FILENAME length — 200 B per raise for
+/// `src/main.mfb`, 750 B for a 131-character path — which is the evidence that it
+/// is the `ErrorLoc`, not the trap. 39.1 MB at 200 000 and 77.2 MB at 400 000
+/// both before and after this change.
+///
+/// Flatness could not state that: a fix that freed the raiser's `ErrorLoc` here
+/// would be freeing a block the propagation path still hands to its caller, and a
+/// flat assertion would go green on it.
+const B565_BUILTIN_RAISE_STILL_LEAKS: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"aa\", \"bb\", \"cc\"]\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET g AS String = collections::get(xs, 9) TRAP(e2)\n\
+      RECOVER \"zz\"\n\
+    END TRAP\n\
+    acc = acc + len(g)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The control that makes every number above attributable: the SAME program with
+/// the producer's condition inverted, so the identical inline `TRAP` over the
+/// identical callee never takes its error branch. 1.0 MB flat at both counts
+/// BEFORE this change and after — which is what isolates the leak to the error
+/// path rather than to the `TRAP`, the callee or the loop. (bug-561 fixed the Ok
+/// half; this is the same program with the fixed half exercised.)
+const B565_CONTROL_NEVER_FAILS: &str = "IMPORT io\n\
+FUNC never(n AS Integer) AS String\n\
+  IF n < 0 THEN\n    FAIL error(7, \"never\")\n  END IF\n\
+  RETURN toString(n MOD 10)\n\
+END FUNC\n\
+SUB main()\n\
+  MUT acc AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = never(i) TRAP(e)\n\
+      RECOVER \"fallback\"\n\
+    END TRAP\n\
+    acc = acc + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn the_same_trap_whose_call_never_fails_runs_at_constant_rss() {
+    assert_flat(
+        "b565_never_fails",
+        B565_CONTROL_NEVER_FAILS,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trap_whose_call_always_fails_runs_at_constant_rss() {
+    assert_flat(
+        "b565_always_fails",
+        B565_TRAP_ALWAYS_FAILS,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trapped_error_read_by_its_handler_runs_at_constant_rss() {
+    assert_flat(
+        "b565_handler_reads",
+        B565_HANDLER_READS_ERROR,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failing_call_inside_a_collection_walk_runs_at_constant_rss() {
+    assert_flat(
+        "b565_fail_walk",
+        B565_FAILING_CALL_IN_A_WALK,
+        50_000,
+        100_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_auto_propagated_error_out_of_a_loop_body_runs_at_constant_rss() {
+    assert_flat("b565_auto_prop", B565_AUTO_PROPAGATED, 50_000, 100_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_inline_builtins_own_domain_error_still_leaks_its_error_loc() {
+    assert_still_grows(
+        "b565_builtin_raise",
+        B565_BUILTIN_RAISE_STILL_LEAKS,
+        200_000,
+        400_000,
+        24,
+    );
+}
+
+/// The behaviour pin for bug-565. The fix ADDS an `arena_free` on the ERROR path
+/// of every inline `TRAP`, so its failure mode is a double free or a
+/// use-after-free — a wrong value, or a fault at some later allocation, never a
+/// red assertion. Every shape whose `Error` the guard must handle is here:
+///
+/// * the ADOPT branch — a `FAIL error(...)` from a user callee, which parks its
+///   block; read back through `e.code`, `e.message` and `RECOVER e.message`, all
+///   of which read out of the `Result`'s copy AFTER the source has been freed;
+/// * a re-raised `Error` local (`FAIL err`), which is an aliasing source and so
+///   takes the loose-register REBUILD branch instead;
+/// * the REBUILD branch with a stamped `ErrorLoc` — an inline builtin's domain
+///   error, where the guard must free the frame's own `ErrorLoc` and not the
+///   raiser's;
+/// * an error caught by a FUNCTION-level `TRAP`, whose route adopts the same
+///   parked slot this change now also adopts from — the one place a double adopt
+///   would show;
+/// * nested traps, where an inner handler raises and an outer one catches;
+/// * `e.source`, so the origin survives the free of the block it was copied from.
+const B565_ERROR_SHAPES: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC raiser(n AS Integer) AS String\n\
+  IF n MOD 2 = 0 THEN\n    FAIL error(11, \"even-\" & toString(n MOD 4))\n  END IF\n\
+  RETURN \"odd\"\n\
+END FUNC\n\
+FUNC reraiser(n AS Integer) AS String\n\
+  LET s AS String = raiser(n) TRAP(inner)\n\
+    FAIL inner\n\
+  END TRAP\n\
+  RETURN s\n\
+END FUNC\n\
+FUNC viaTrap(n AS Integer) AS Integer\n\
+  RETURN len(raiser(n))\n\
+  TRAP(err)\n\
+    RETURN 0 - err.code\n\
+  END TRAP\n\
+END FUNC\n\
+SUB main()\n\
+  LET xs AS List OF String = [\"aa\", \"bb\"]\n\
+  MUT codes AS Integer = 0\n\
+  MUT texts AS Integer = 0\n\
+  MUT lines AS Integer = 0\n\
+  MUT viaTrapSum AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < 400\n\
+    LET a AS String = raiser(i) TRAP(e)\n\
+      codes = codes + e.code\n\
+      lines = lines + e.source.line\n\
+      RECOVER e.message\n\
+    END TRAP\n\
+    texts = texts + len(a)\n\
+    LET b AS String = reraiser(i) TRAP(e2)\n\
+      codes = codes + e2.code\n\
+      RECOVER e2.message\n\
+    END TRAP\n\
+    texts = texts + len(b)\n\
+    LET g AS String = collections::get(xs, i MOD 5) TRAP(e3)\n\
+      codes = codes + e3.code\n\
+      RECOVER e3.message\n\
+    END TRAP\n\
+    texts = texts + len(g)\n\
+    viaTrapSum = viaTrapSum + viaTrap(i)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"codes=\" & toString(codes))\n\
+  io::print(\"texts=\" & toString(texts))\n\
+  io::print(\"viaTrap=\" & toString(viaTrapSum))\n\
+  io::print(\"linesPositive=\" & toString(lines > 0))\n\
+END SUB\n";
+
+#[test]
+fn every_trapped_error_shape_still_produces_the_right_value() {
+    let project = common::temp_project("b565_error_values", B565_ERROR_SHAPES);
+    let exe = common::build_project(&project);
+    // 200 even iterations raise `error(11, ...)`; each of the two user-callee
+    // traps sees it, so 2 * 200 * 11. `collections::get(xs, i MOD 5)` is out of
+    // range for `i MOD 5` in {2, 3, 4} — 240 of the 400 iterations — each
+    // `ErrIndexOutOfRange` (77050001).
+    let expected_codes = 2 * 200 * 11 + 240 * 77_050_001i64;
+    // `raiser` returns "odd" (3) on the 200 odd iterations and its message
+    // "even-0"/"even-2" (6) on the 200 even ones, through both callees;
+    // `collections::get` yields "aa"/"bb" (2) on 160 iterations and the
+    // ErrIndexOutOfRange message on the other 240.
+    let get_message_len = "List or string index/range is outside valid bounds.".len() as i64;
+    let expected_texts = 2 * (200 * 3 + 200 * 6) + 160 * 2 + 240 * get_message_len;
+    // `viaTrap` returns len("odd") on odd iterations and -11 on even ones.
+    let expected_via_trap = 200 * 3 - 200 * 11;
+    let expected = format!(
+        "codes={expected_codes}\ntexts={expected_texts}\nviaTrap={expected_via_trap}\n\
+         linesPositive=TRUE"
+    );
+    // A double free is not deterministic: it corrupts the free list and surfaces
+    // on some later allocation, which may or may not happen in a given run.
+    for run in 1..=25 {
+        let output = std::process::Command::new(&exe)
+            .output()
+            .expect("run the trapped-error ownership probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected,
+            "run {run}: a trapped error's value changed — the Error block was freed \
+             while the Result, the handler binding or the propagation path still \
+             read it"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}

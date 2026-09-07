@@ -6,6 +6,7 @@ use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::TrappedErrorSource;
 use crate::codegen::memory::data::*;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::target::shared::abi;
@@ -1283,23 +1284,20 @@ impl CodeBuilder<'_> {
                         ));
                         self.emit(abi::branch(&have_payload_label));
                         self.emit(abi::label(&wrap_error_label));
-                        let error_register =
-                            self.emit_build_error_inline(value_slot, message_slot, source_slot)?;
-                        self.emit(abi::store_u64(
-                            &error_register,
-                            abi::stack_pointer(),
-                            payload_slot,
-                        ));
-                        let err_result = self.emit_build_result_inline(
+                        // bug-565: adopt a parked `ERR_BLOCK` instead of orphaning
+                        // it, and free the payload the `Result` copied. Shared with
+                        // the direct-callee path below and with
+                        // `materialize_current_result`.
+                        self.emit_trapped_error_result(
+                            scratch9,
                             tag_slot,
-                            &ParameterType::named("Error"),
+                            value_slot,
+                            message_slot,
+                            source_slot,
                             payload_slot,
-                        )?;
-                        self.emit(abi::store_u64(
-                            &err_result,
-                            abi::stack_pointer(),
                             result_slot,
-                        ));
+                            TrappedErrorSource::CalleeRegister,
+                        )?;
                         self.emit(abi::label(&have_payload_label));
                         let register = self.allocate_register();
                         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
@@ -1451,23 +1449,18 @@ impl CodeBuilder<'_> {
                 self.register_call_result_payload_temp(value, &success_type, payload_slot);
                 self.emit(abi::branch(&have_payload_label));
                 self.emit(abi::label(&wrap_error_label));
-                let error_register =
-                    self.emit_build_error_inline(value_slot, message_slot, source_slot)?;
-                self.emit(abi::store_u64(
-                    &error_register,
-                    abi::stack_pointer(),
-                    payload_slot,
-                ));
-                let err_result = self.emit_build_result_inline(
+                // bug-565: adopt a parked `ERR_BLOCK` instead of orphaning it, and
+                // free the payload block the `Result` copied.
+                self.emit_trapped_error_result(
+                    scratch9,
                     tag_slot,
-                    &ParameterType::named("Error"),
+                    value_slot,
+                    message_slot,
+                    source_slot,
                     payload_slot,
-                )?;
-                self.emit(abi::store_u64(
-                    &err_result,
-                    abi::stack_pointer(),
                     result_slot,
-                ));
+                    TrappedErrorSource::CalleeRegister,
+                )?;
                 self.emit(abi::label(&have_payload_label));
                 let register = self.allocate_register();
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));

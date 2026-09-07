@@ -334,6 +334,10 @@ name = "codegen_string_return_freshness"
 path = "tests/codegen/codegen_string_return_freshness.rs"
 
 [[test]]
+name = "codegen_trap_error_free"
+path = "tests/codegen/codegen_trap_error_free.rs"
+
+[[test]]
 name = "codegen_string_set_shift"
 path = "tests/codegen/codegen_string_set_shift.rs"
 
