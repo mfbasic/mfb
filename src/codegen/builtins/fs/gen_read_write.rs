@@ -7,6 +7,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::{emit_arena_free, emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::codegen::os::syscall::*;
 use crate::codegen::string::validate::*;
@@ -770,9 +771,10 @@ pub(crate) fn lower_fs_eof_helper(
 /// live at `temp+8` (an 8-byte slack header keeps the layout the result-build tail
 /// reads) with `line_len` valid data bytes and `temp_cap` total capacity. When the
 /// append would overflow, the block is doubled (or grown to exactly fit), the
-/// existing `line_len` bytes copied over, and `temp`/`temp_cap` reassigned; the old
-/// block is left to the arena's bulk reclaim (the grow path is rare — only a line
-/// spanning a refill). `line_len` is advanced by `count`. On OOM branches to
+/// existing `line_len` bytes copied over, and `temp`/`temp_cap` reassigned. The
+/// old block is freed once the copy has drained it (bug-574 — it was previously
+/// "left to the arena's bulk reclaim", which for a `WHILE` over a long-line file
+/// is unbounded growth, not a rare miss). `line_len` is advanced by `count`. On OOM branches to
 /// `alloc_error`. Internal scratch uses `%v50`..`%v56`; `tag` disambiguates labels.
 fn emit_append_to_line_accumulator(
     symbol: &str,
@@ -798,6 +800,7 @@ fn emit_append_to_line_accumulator(
     let needed = vregs.next();
     let new_cap = vregs.next();
     let old_block = vregs.next();
+    let old_cap = vregs.next();
     let copy_dst = vregs.next();
     let copy_src = vregs.next();
     let copy_count = vregs.next();
@@ -837,8 +840,19 @@ fn emit_append_to_line_accumulator(
         abi::subtract_immediate(&copy_count, &copy_count, 1),
         abi::branch(&grow_copy),
         abi::label(&grow_copy_done),
+        // bug-574: the old accumulator has been drained into the new one and has
+        // no owner. `old_block` is non-null on every path that reaches here (this
+        // block is only entered from the grow branch, after `temp` was set), so
+        // the free is unconditional; `old_cap` is the size that allocation was
+        // given.
+        abi::move_register(&old_cap, temp_cap),
         abi::move_register(temp, abi::mfb_return(1)),
         abi::move_register(temp_cap, &new_cap),
+        abi::move_register(abi::c_arg(0), &old_block),
+        abi::move_register(abi::c_arg(1), &old_cap),
+    ]);
+    emit_arena_free(symbol, instructions, relocations);
+    instructions.extend([
         abi::label(&fits),
         // dst = temp + 8 + line_len; copy `count` bytes from src.
         abi::add_immediate(&copy_dst, temp, 8),
@@ -966,6 +980,13 @@ pub(crate) fn lower_fs_read_line_helper(
     let result = vregs.next();
     let mut relocations = Vec::new();
     let mut instructions = vec![
+        // bug-574: `temp` is this helper's growing line accumulator — its own
+        // scratch, never handed back (the `String` it returns is `result`, a
+        // separate allocation) — so it is released at `done`. Nulled FIRST: the
+        // closed-handle rejection and both pre-accumulator allocation failures
+        // reach `done` without it.
+        abi::move_immediate(&temp, "Integer", "0"),
+        abi::move_immediate(&temp_cap, "Integer", "0"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
@@ -1184,6 +1205,14 @@ pub(crate) fn lower_fs_read_line_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&temp, &temp_cap)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
 }

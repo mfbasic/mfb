@@ -5,6 +5,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
@@ -30,10 +31,18 @@ pub(crate) fn lower_fs_exists_helper(
     let path = vregs.next();
     let alloc = vregs.next();
     let len0 = vregs.next();
+    let alloc_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: `alloc` is marshalling scratch this helper never hands back,
+        // released at `done`. Nulled FIRST so a path that reaches `done` without
+        // ever allocating (`ErrOutOfMemory`) frees nothing — a runtime pointer
+        // guard, not a whole-program proof.
+        abi::move_immediate(&alloc, "Integer", "0"),
+        abi::move_immediate(&alloc_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&alloc_size, &len0, 1),
+        abi::move_register(abi::return_register(), &alloc_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -104,7 +113,15 @@ pub(crate) fn lower_fs_exists_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&alloc, &alloc_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
 
     Ok((instructions, relocations, 0))
 }
@@ -134,10 +151,18 @@ pub(crate) fn lower_fs_kind_exists_helper(
     let path = vregs.next();
     let alloc = vregs.next();
     let len0 = vregs.next();
+    let alloc_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: `alloc` is marshalling scratch this helper never hands back,
+        // released at `done`. Nulled FIRST so a path that reaches `done` without
+        // ever allocating (`ErrOutOfMemory`) frees nothing — a runtime pointer
+        // guard, not a whole-program proof.
+        abi::move_immediate(&alloc, "Integer", "0"),
+        abi::move_immediate(&alloc_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&alloc_size, &len0, 1),
+        abi::move_register(abi::return_register(), &alloc_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -220,7 +245,15 @@ pub(crate) fn lower_fs_kind_exists_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&alloc, &alloc_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
 
     Ok((instructions, relocations, STAT_BUF_SIZE))
 }

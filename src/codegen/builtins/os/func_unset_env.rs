@@ -7,6 +7,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -29,6 +30,12 @@ pub(crate) fn lower_unset_env(
     let cname = vregs.next();
     let mut instructions = vec![abi::move_register(&name, abi::c_arg(0))];
     let mut relocations = Vec::new();
+    // bug-574: the marshalled C-string arguments below are this helper's own
+    // scratch — handed to the host `getenv`/`setenv` and never returned to
+    // MFBASIC — so they are released at `done`. Declared (and nulled) HERE,
+    // ahead of every branch that can reach `done`: the second marshal is only
+    // reached when the first succeeded.
+    let name_scratch = HelperScratch::declare_for(&cname, &mut vregs, &mut instructions);
     emit_env_lock(&mut EmitCtx {
         symbol: symbol.as_str(),
         platform_imports: ctx.platform_imports,
@@ -39,9 +46,9 @@ pub(crate) fn lower_unset_env(
     marshal_cstring(
         &symbol,
         &name,
-        &cname,
         &alloc_error,
         &format!("{symbol}_name"),
+        &name_scratch,
         &mut vregs,
         &mut instructions,
         &mut relocations,
@@ -75,6 +82,13 @@ pub(crate) fn lower_unset_env(
     ]);
     push_alloc_error(&symbol, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        &symbol,
+        &[name_scratch],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
     emit_env_unlock_return(
         &mut EmitCtx {
             symbol: symbol.as_str(),

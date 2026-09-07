@@ -5,6 +5,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
@@ -38,12 +39,21 @@ pub(crate) fn lower_fs_create_temp_file_helper(
     let cursor = vregs.next();
     let fd = vregs.next();
     let len0 = vregs.next();
+    let path_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: `path` is the C-string this helper builds for its own `open`,
+        // never handed back (it returns a `File` record, a second allocation), so
+        // it is released at `done`. Nulled FIRST so the paths that reach `done`
+        // without allocating — the empty-dir rejection just below and
+        // `alloc_error` — free nothing.
+        abi::move_immediate(&path, "Integer", "0"),
+        abi::move_immediate(&path_size, "Integer", "0"),
         abi::move_register(&dir, abi::return_register()),
         abi::load_u64(&len0, &dir, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len0, UUID_FILE_EXTRA),
+        abi::add_immediate(&path_size, &len0, UUID_FILE_EXTRA),
+        abi::move_register(abi::return_register(), &path_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -217,7 +227,15 @@ pub(crate) fn lower_fs_create_temp_file_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&path, &path_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, RANDOM_BUF_SIZE))
 }
 

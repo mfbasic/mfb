@@ -3579,6 +3579,20 @@ fn assert_no_extra_growth(name: &str, trapped: &str, plain: &str, small: u64, la
         trapped_growth / (1024 * 1024),
         plain_growth / (1024 * 1024),
     );
+    // bug-574: these three cases were COMPARATIVE when bug-566 landed, because
+    // the plain call they compare against was itself leaking — the marshalled
+    // path argument, ~129 B per call for `"b566_probe.txt"`. With that released,
+    // both halves are flat, and flatness is the stronger statement: comparative
+    // growth cannot tell "both fixed" from "both leaking equally".
+    assert!(
+        trapped_growth < 8 * 1024 * 1024 && plain_growth < 8 * 1024 * 1024,
+        "{name}: the loop grew {} MB trapped / {} MB plain between {small} and \
+         {large} iterations. Both forms must now be FLAT: the helper owns the \
+         block it returned (bug-566) AND releases the argument it marshalled \
+         (bug-574)",
+        trapped_growth / (1024 * 1024),
+        plain_growth / (1024 * 1024),
+    );
 }
 
 /// bug-566: `fs::readText` under an inline `TRAP`. The helper allocates the
@@ -3811,6 +3825,345 @@ END SUB\n";
             "run {run}: a trapped runtime-helper result read back wrong. If it is \
              the `thread::waitFor` line, the free reached a block the WORKER's \
              arena owns — `x19` is per-thread"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+// ---------------------------------------------------------------- bug-574
+//
+// Every `fs::`/`os::`/`net::`/`udp::`/`tcp::` call copies its `String` argument
+// into a fresh NUL-terminated arena block for the host call. That block is
+// interior to the helper — not a `ValueResult` any node yielded — so no
+// caller-side ownership analysis could reach it and nothing freed it.
+//
+// The measurement that identifies it is the LENGTH SCALING, not the absolute
+// growth: at 20 000 iterations a 10-character path cost ~65 B per call and a
+// 415-character path ~1 819 B, while a zero-argument helper was flat. So the two
+// cases below are the same call with the same result type and the same
+// iteration counts, differing only in how long the argument is — the long one is
+// what a chunk-growth threshold cannot absorb.
+
+/// `fs::exists` with a 10-character path. `Boolean` result, no `TRAP`, no block
+/// anywhere in the shape: whatever grows here is the ARGUMENT.
+const SHAPE_574_SHORT_PATH: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    IF fs::exists(\"/tmp/x.txt\") THEN\n\
+      n = n + 1\n\
+    END IF\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// The same call with a 415-character path — 28x the leak per call, and the
+/// sensitive form. A fix that freed the wrong SIZE (bug-560's shape) or freed on
+/// only one exit path still reads as growth here.
+const SHAPE_574_LONG_PATH: &str = concat!(
+    "IMPORT io\n",
+    "IMPORT fs\n",
+    "SUB main()\n",
+    "  MUT n AS Integer = 0\n",
+    "  MUT i AS Integer = 0\n",
+    "  WHILE i < {N}\n",
+    "    IF fs::exists(\"/tmp/b574probe/",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    ".txt\") THEN\n",
+    "      n = n + 1\n",
+    "    END IF\n",
+    "    i = i + 1\n",
+    "  END WHILE\n",
+    "  io::print(\"n=\" & toString(n))\n",
+    "END SUB\n",
+);
+
+/// The same shape through a LOCAL rather than a literal. The report's own third
+/// row: hoisting the path out of the loop changed nothing, which is what ruled
+/// out a per-iteration copy of the rodata constant and left the marshalling.
+const SHAPE_574_LOCAL_PATH: &str = concat!(
+    "IMPORT io\n",
+    "IMPORT fs\n",
+    "SUB main()\n",
+    "  LET p AS String = \"/tmp/b574probe/",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    ".txt\"\n",
+    "  MUT n AS Integer = 0\n",
+    "  MUT i AS Integer = 0\n",
+    "  WHILE i < {N}\n",
+    "    IF fs::exists(p) THEN\n",
+    "      n = n + 1\n",
+    "    END IF\n",
+    "    i = i + 1\n",
+    "  END WHILE\n",
+    "  io::print(\"n=\" & toString(n))\n",
+    "END SUB\n",
+);
+
+/// `os::getEnvOr` with a 400-character variable name that is never set: the
+/// `os` family marshals through a different emitter (`marshal_cstring`), and its
+/// result is a fresh `String` the binding already owned — so this case separates
+/// "the argument is freed" from "the result is freed".
+const SHAPE_574_ENV_NAME: &str = concat!(
+    "IMPORT io\n",
+    "IMPORT os\n",
+    "SUB main()\n",
+    "  MUT n AS Integer = 0\n",
+    "  MUT i AS Integer = 0\n",
+    "  WHILE i < {N}\n",
+    "    LET v AS String = os::getEnvOr(\"MFB_B574_",
+    "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+    "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+    "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+    "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+    "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\", \"d\")\n",
+    "    n = n + len(v)\n",
+    "    i = i + 1\n",
+    "  END WHILE\n",
+    "  io::print(\"n=\" & toString(n))\n",
+    "END SUB\n",
+);
+
+/// `fs::isWithin` marshals TWO paths and two PATH_MAX `realpath` buffers, and
+/// returns a `Boolean` — four scratch blocks and nothing to hand back. The
+/// multi-scratch case: a release that covered only the first would still grow.
+const SHAPE_574_TWO_ARGUMENTS: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET b AS Boolean = fs::isWithin(\"/tmp\", \"/tmp\") TRAP(e)\n\
+      RECOVER FALSE\n\
+    END TRAP\n\
+    IF b THEN\n\
+      n = n + 1\n\
+    END IF\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// `fs::currentDirectory` takes NO argument and still allocated a 4 KiB `getcwd`
+/// buffer it never freed — 16 384 B per call, the largest row in the family. It
+/// is the case that shows the report's framing — "argument marshalling" — was too
+/// narrow: the defect is a fixed runtime helper allocating a block for its own
+/// use, whether or not an argument motivated it.
+///
+/// The result is BOUND deliberately. Left unbound (`len(fs::currentDirectory())`)
+/// the same loop still grows ~193 B per call, and it does so identically before
+/// and after this change: an UNBOUND runtime-helper `String` result has no owner
+/// at all — `os::hostName()` leaks 128 B per call unbound and 0 bound, on both
+/// binaries. That is a different defect and is not fixed here; binding keeps this
+/// case measuring the scratch buffer alone.
+const SHAPE_574_NO_ARGUMENT: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET here AS String = fs::currentDirectory()\n\
+    n = n + len(here)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// The POSITIVE pin: `os::arch()` allocates its result and nothing else, and was
+/// flat before this change. It must stay flat — a release that reached the
+/// RESULT block would show up here as a wrong value or an allocation failure,
+/// not as growth, which is why the value assertions below matter as much.
+const SHAPE_574_CONTRAST_ARCH: &str = "IMPORT io\n\
+IMPORT os\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET a AS String = os::arch()\n\
+    n = n + len(a)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn a_short_path_argument_runs_at_constant_rss() {
+    assert_flat("b574_short_path", SHAPE_574_SHORT_PATH, 20_000, 40_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_long_path_argument_runs_at_constant_rss() {
+    assert_flat("b574_long_path", SHAPE_574_LONG_PATH, 20_000, 40_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_long_path_argument_in_a_local_runs_at_constant_rss() {
+    assert_flat("b574_local_path", SHAPE_574_LOCAL_PATH, 20_000, 40_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_long_environment_name_runs_at_constant_rss() {
+    assert_flat("b574_env_name", SHAPE_574_ENV_NAME, 20_000, 40_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_call_marshalling_two_arguments_runs_at_constant_rss() {
+    assert_flat("b574_two_args", SHAPE_574_TWO_ARGUMENTS, 20_000, 40_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_helper_with_no_argument_but_its_own_buffer_runs_at_constant_rss() {
+    assert_flat("b574_no_argument", SHAPE_574_NO_ARGUMENT, 20_000, 40_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_helper_that_allocates_only_its_result_stays_flat() {
+    assert_flat("b574_arch", SHAPE_574_CONTRAST_ARCH, 20_000, 40_000);
+}
+
+/// The VALUE half. A scratch release that reached the block a helper HANDS BACK
+/// is a use-after-free the caller performs, and it surfaces as a wrong value or a
+/// later unrelated allocation failure — never as a failing free. So every member
+/// whose emitter this change touched is read back here, in one process, after a
+/// warm-up loop that guarantees the arena has recycled the freed scratch into
+/// later allocations: if a released block were still live, the reuse would
+/// corrupt it before these lines print.
+const SHAPE_574_VALUES: &str = "IMPORT io\n\
+IMPORT fs\n\
+IMPORT os\n\
+IMPORT net\n\
+IMPORT strings\n\
+SUB main()\n\
+  LET d AS String = fs::tempDirectory() & \"/b574_values\"\n\
+  fs::createDirectories(d) TRAP(e1)\n\
+    RECOVER\n\
+  END TRAP\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < 500\n\
+    LET warm AS Boolean = fs::exists(d)\n\
+    IF warm THEN\n\
+      i = i + 1\n\
+    ELSE\n\
+      i = i + 1\n\
+    END IF\n\
+  END WHILE\n\
+  fs::writeText(d & \"/a.txt\", \"line one\\nline two\\n\") TRAP(e2)\n\
+    RECOVER\n\
+  END TRAP\n\
+  LET text AS String = fs::readText(d & \"/a.txt\") TRAP(e3)\n\
+    RECOVER \"READ FAILED\"\n\
+  END TRAP\n\
+  io::print(\"text=\" & text)\n\
+  LET raw AS List OF Byte = fs::readBytes(d & \"/a.txt\") TRAP(e4)\n\
+    RECOVER []\n\
+  END TRAP\n\
+  io::print(\"bytes=\" & toString(len(raw)))\n\
+  io::print(\"exists=\" & toString(fs::exists(d & \"/a.txt\")))\n\
+  io::print(\"file=\" & toString(fs::fileExists(d & \"/a.txt\")))\n\
+  io::print(\"dir=\" & toString(fs::directoryExists(d)))\n\
+  io::print(\"within=\" & toString(fs::isWithin(d, d & \"/a.txt\")))\n\
+  LET names AS List OF String = fs::listDirectory(d) TRAP(e5)\n\
+    RECOVER []\n\
+  END TRAP\n\
+  io::print(\"entries=\" & toString(len(names)))\n\
+  LET canon AS String = fs::canonicalPath(d & \"/a.txt\") TRAP(e6)\n\
+    RECOVER \"CANON FAILED\"\n\
+  END TRAP\n\
+  io::print(\"canonEndsWithName=\" & toString(strings::endsWith(canon, \"a.txt\")))\n\
+  io::print(\"cwd=\" & toString(len(fs::currentDirectory()) > 0))\n\
+  io::print(\"tmp=\" & toString(len(fs::tempDirectory()) > 0))\n\
+  RES handle AS fs::File = fs::openFile(d & \"/a.txt\", \"r\") TRAP(e7)\n\
+    PROPAGATE\n\
+  END TRAP\n\
+  LET first AS String = fs::readLine(handle) TRAP(e8)\n\
+    RECOVER \"LINE FAILED\"\n\
+  END TRAP\n\
+  io::print(\"line=\" & first)\n\
+  fs::close(handle) TRAP(e9)\n\
+    RECOVER\n\
+  END TRAP\n\
+  os::setEnv(\"MFB_B574_VALUE\", \"present\") TRAP(e10)\n\
+    RECOVER\n\
+  END TRAP\n\
+  io::print(\"has=\" & toString(os::hasEnv(\"MFB_B574_VALUE\")))\n\
+  io::print(\"env=\" & os::getEnvOr(\"MFB_B574_VALUE\", \"absent\"))\n\
+  os::unsetEnv(\"MFB_B574_VALUE\") TRAP(e11)\n\
+    RECOVER\n\
+  END TRAP\n\
+  io::print(\"has2=\" & toString(os::hasEnv(\"MFB_B574_VALUE\")))\n\
+  io::print(\"arch=\" & toString(len(os::arch()) > 0))\n\
+  LET found AS List OF net::Address = net::lookup(\"localhost\", 80) TRAP(e12)\n\
+    RECOVER []\n\
+  END TRAP\n\
+  io::print(\"lookup=\" & toString(len(found) > 0))\n\
+  fs::deleteFile(d & \"/a.txt\") TRAP(e13)\n\
+    RECOVER\n\
+  END TRAP\n\
+  io::print(\"gone=\" & toString(fs::exists(d & \"/a.txt\")))\n\
+END SUB\n";
+
+#[test]
+fn every_helper_whose_scratch_is_released_still_produces_the_right_value() {
+    let project = common::temp_project("b574_values", SHAPE_574_VALUES);
+    let exe = common::build_project(&project);
+    let expected = "text=line one\nline two\n\
+                    \nbytes=18\n\
+                    exists=TRUE\n\
+                    file=TRUE\n\
+                    dir=TRUE\n\
+                    within=TRUE\n\
+                    entries=1\n\
+                    canonEndsWithName=TRUE\n\
+                    cwd=TRUE\n\
+                    tmp=TRUE\n\
+                    line=line one\n\
+                    has=TRUE\n\
+                    env=present\n\
+                    has2=FALSE\n\
+                    arch=TRUE\n\
+                    lookup=TRUE\n\
+                    gone=FALSE";
+    // Ten runs: a released-too-early block is only observably wrong once the
+    // arena hands it to a later allocation, and which allocation that is depends
+    // on the fill pattern the arena seeds per process.
+    for run in 0..10 {
+        let output = std::process::Command::new(&exe)
+            .current_dir(&project)
+            .output()
+            .expect("run the helper-scratch value probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected,
+            "run {run}: a helper whose marshalling scratch is now released read \
+             back wrong. The failure direction for bug-574 is a release that \
+             reached the block the helper HANDS BACK, which shows up here rather \
+             than as a failing free"
         );
     }
     let _ = std::fs::remove_dir_all(&project);

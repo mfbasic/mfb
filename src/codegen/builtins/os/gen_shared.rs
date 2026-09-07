@@ -28,6 +28,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::HelperScratch;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -118,27 +119,38 @@ pub(crate) fn alloc_reloc(symbol: &str, relocations: &mut Vec<CodeRelocation>) {
 /// C-string, leaving its pointer in `out`. Both `src` and `out` are vregs so the
 /// allocator preserves them across the `arena_alloc` call. Branches to
 /// `alloc_fail` on OOM. `uniq` disambiguates the copy-loop labels.
+///
+/// bug-574: the block is the CALLER's to release — it is the helper's own
+/// scratch, handed to a host `getenv`/`setenv` and never returned to MFBASIC, so
+/// nothing on the caller side of the runtime call can see it. The returned
+/// [`HelperScratch`] is what `emit_helper_scratch_release` frees at the helper's
+/// `done`; the null-init that makes that free safe on the `alloc_fail` path is
+/// emitted HERE, ahead of the allocation, so it cannot be forgotten at a call
+/// site.
 pub(crate) fn marshal_cstring(
     symbol: &str,
     src: &str,
-    out: &str,
     alloc_fail: &str,
     uniq: &str,
+    scratch: &HelperScratch,
     vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let out = &scratch.pointer;
     let alloc_ok = format!("{uniq}_alloc_ok");
     let copy_loop = format!("{uniq}_copy_loop");
     let copy_done = format!("{uniq}_copy_done");
     let len = vregs.next();
+    let size = &scratch.size;
     let src_cursor = vregs.next();
     let dst = vregs.next();
     let index = vregs.next();
     let byte = vregs.next();
     instructions.extend([
         abi::load_u64(&len, src, 0),
-        abi::add_immediate(abi::return_register(), &len, 1),
+        abi::add_immediate(size, &len, 1),
+        abi::move_register(abi::return_register(), size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);

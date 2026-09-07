@@ -5,6 +5,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
@@ -181,13 +182,22 @@ pub(crate) fn lower_fs_open_helper(
     let how_mode_bit = vregs.next();
     let openat2_errno = vregs.next();
     let openat2_mode_zero = format!("{symbol}_openat2_mode_zero");
+    let c_path_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: `c_path` is the marshalled path this helper never hands back
+        // (the `File` record it returns is a SECOND, separate allocation),
+        // released at `done`. Nulled FIRST so the paths that reach `done` without
+        // allocating — the empty-path rejection just below and `ErrOutOfMemory` —
+        // free nothing.
+        abi::move_immediate(&c_path, "Integer", "0"),
+        abi::move_immediate(&c_path_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::move_register(&mode, abi::mfb_return(1)),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&c_path_size, &len0, 1),
+        abi::move_register(abi::return_register(), &c_path_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -466,7 +476,15 @@ pub(crate) fn lower_fs_open_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&c_path, &c_path_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
 
     // Reserve the 24-byte `open_how` scratch at sp+0 only for the Linux no-follow
     // path that builds it; every other flavor keeps the byte-identical frame.
@@ -570,7 +588,18 @@ pub(crate) fn lower_fs_open_within_helper(
         ins.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
     };
 
+    let root_cstr_size = vregs.next();
+    let c_path_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: BOTH `root_cstr` and the PATH_MAX join buffer `c_path` are this
+        // helper's own scratch — the value it hands back is the `File` record, a
+        // third allocation — so both are released at `done`. Nulled FIRST: the
+        // empty-root rejection and the first `ErrOutOfMemory` reach `done` with
+        // neither allocated, and the second with only `root_cstr` allocated.
+        abi::move_immediate(&root_cstr, "Integer", "0"),
+        abi::move_immediate(&root_cstr_size, "Integer", "0"),
+        abi::move_immediate(&c_path, "Integer", "0"),
+        abi::move_immediate(&c_path_size, "Integer", "0"),
         abi::move_register(&root, abi::return_register()),
         abi::move_register(&rel, abi::mfb_return(1)),
         abi::move_register(&mode, abi::mfb_return(2)),
@@ -579,7 +608,8 @@ pub(crate) fn lower_fs_open_within_helper(
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
         // Allocate + copy root into a C string.
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&root_cstr_size, &len0, 1),
+        abi::move_register(abi::return_register(), &root_cstr_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ];
     alloc_call(&mut instructions, &mut relocations);
@@ -615,11 +645,8 @@ pub(crate) fn lower_fs_open_within_helper(
         abi::label(&root_copy_done),
         abi::store_u8(abi::ZERO, &dst, 0),
         // Allocate the PATH_MAX realpath/join buffer.
-        abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &PATH_MAX_PLUS_NUL.to_string(),
-        ),
+        abi::move_immediate(&c_path_size, "Integer", &PATH_MAX_PLUS_NUL.to_string()),
+        abi::move_register(abi::return_register(), &c_path_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     alloc_call(&mut instructions, &mut relocations);
@@ -952,7 +979,18 @@ pub(crate) fn lower_fs_open_within_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[
+            HelperScratch::new(&root_cstr, &root_cstr_size),
+            HelperScratch::new(&c_path, &c_path_size),
+        ],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     let stack_size = if linux { 24 } else { 0 };
     Ok((instructions, relocations, stack_size))
 }

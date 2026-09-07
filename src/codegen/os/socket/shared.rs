@@ -19,6 +19,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::os::syscall::*;
 use crate::codegen::string::validate::*;
 
@@ -314,12 +315,26 @@ pub(crate) fn emit_string_result_build(
 /// allocated NUL-terminated C string, storing the result pointer at
 /// `sp + out_off`. Branches to `alloc_fail` on allocation failure. Clobbers
 /// `x0`, `x1`, `x9`..`x14`.
+///
+/// bug-574: the block is the CALLER's to release. It is the helper's own
+/// marshalling scratch — handed to `getaddrinfo`/`bind`/`sendto` and never
+/// returned to MFBASIC — so no caller-side ownership analysis can see it, and
+/// every `net::`/`udp::`/`tcp::` call leaked its host argument, proportionally to
+/// that argument's length. The returned [`HelperScratch`] is what
+/// `emit_helper_scratch_release` frees at the helper's `done`; the null-init that
+/// makes that free safe on the `alloc_fail` path is emitted HERE, ahead of the
+/// allocation, so it cannot be forgotten at a call site.
+///
+/// The pointer is ALSO left in `sp + out_off` exactly as before — the release
+/// reads the vreg pair, so the existing stack-slot readers are untouched.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_cstring(
     symbol: &str,
     prefix: &str,
     str_off: usize,
     out_off: usize,
     alloc_fail: &str,
+    scratch: &HelperScratch,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
@@ -330,16 +345,19 @@ pub(crate) fn emit_cstring(
     let v12 = vregs.next();
     let v13 = vregs.next();
     let v14 = vregs.next();
+    let size = &scratch.size;
     let copy_loop = format!("{symbol}_{prefix}_cstr_copy");
     let copy_done = format!("{symbol}_{prefix}_cstr_done");
     instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), str_off),
         abi::load_u64(&v10, &v9, 0),
-        abi::add_immediate(abi::return_register(), &v10, 1),
+        abi::add_immediate(size, &v10, 1),
+        abi::move_register(abi::return_register(), size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
+        abi::move_register(&scratch.pointer, abi::mfb_return(1)),
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), out_off),
         abi::load_u64(&v9, abi::stack_pointer(), str_off),
         abi::load_u64(&v10, &v9, 0),
@@ -689,6 +707,7 @@ fn lower_net_endpoint_helper(
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
@@ -754,6 +773,7 @@ fn lower_net_endpoint_helper(
         HOST_OFFSET,
         CSTR_OFFSET,
         &alloc_fail,
+        &host_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1245,7 +1265,17 @@ fn lower_net_endpoint_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    // bug-574: release the marshalled host C-string; the host call consumed
+    // it and nothing on the MFBASIC side of this call can see it.
+    emit_helper_scratch_release(
+        symbol,
+        &[host_scratch],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     {
         Ok((instructions, relocations, FRAME_SIZE))
     }

@@ -13,6 +13,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::os::socket::shared::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
@@ -54,6 +55,7 @@ pub(crate) fn lower_net_lookup_helper(
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
@@ -78,6 +80,7 @@ pub(crate) fn lower_net_lookup_helper(
         HOST_OFFSET,
         CSTR_OFFSET,
         &alloc_fail,
+        &host_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -277,7 +280,17 @@ pub(crate) fn lower_net_lookup_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    // bug-574: release the marshalled host C-string; the host call consumed
+    // it and nothing on the MFBASIC side of this call can see it.
+    emit_helper_scratch_release(
+        symbol,
+        &[host_scratch],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     {
         Ok((instructions, relocations, FRAME_SIZE))
     }

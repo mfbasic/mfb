@@ -6,6 +6,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
@@ -33,9 +34,17 @@ pub(crate) fn lower_fs_current_directory_helper(
 
     let mut vregs = Vregs::new();
     let buffer = vregs.next();
+    let buffer_size = vregs.next();
     let length = vregs.next();
     let mut instructions = vec![
-        abi::move_immediate(abi::return_register(), "Integer", GETCWD_CAPACITY),
+        // bug-574: `buffer` is the host call's scratch, this helper's own and
+        // never handed back; it is released at `done`. Nulled FIRST so a path
+        // that reaches `done` without allocating frees nothing — a runtime
+        // pointer guard, not a whole-program proof.
+        abi::move_immediate(&buffer, "Integer", "0"),
+        abi::move_immediate(&buffer_size, "Integer", "0"),
+        abi::move_immediate(&buffer_size, "Integer", GETCWD_CAPACITY),
+        abi::move_register(abi::return_register(), &buffer_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -114,7 +123,15 @@ pub(crate) fn lower_fs_current_directory_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&buffer, &buffer_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
 
     Ok((instructions, relocations, 0))
 }
@@ -139,9 +156,17 @@ pub(crate) fn lower_fs_temp_directory_helper(
 
     let mut vregs = Vregs::new();
     let buffer = vregs.next();
+    let buffer_size = vregs.next();
     let length = vregs.next();
     let mut instructions = vec![
-        abi::move_immediate(abi::return_register(), "Integer", TEMP_CAPACITY),
+        // bug-574: `buffer` is the host call's scratch, this helper's own and
+        // never handed back; it is released at `done`. Nulled FIRST so a path
+        // that reaches `done` without allocating frees nothing — a runtime
+        // pointer guard, not a whole-program proof.
+        abi::move_immediate(&buffer, "Integer", "0"),
+        abi::move_immediate(&buffer_size, "Integer", "0"),
+        abi::move_immediate(&buffer_size, "Integer", TEMP_CAPACITY),
+        abi::move_register(abi::return_register(), &buffer_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -224,7 +249,15 @@ pub(crate) fn lower_fs_temp_directory_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&buffer, &buffer_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     // `platform.emit_temp_directory` above may park values in `sp + 0 ..
     // TEMP_DIRECTORY_SCRATCH_BYTES` across its environment lookup, so that window
     // has to be reserved here rather than left to overlap the spill area — or, as
@@ -251,13 +284,21 @@ pub(crate) fn lower_fs_path_operation_helper(
     let mut vregs = Vregs::new();
     let path = vregs.next();
     let alloc = vregs.next();
+    let alloc_size = vregs.next();
     let len0 = vregs.next();
     let mut instructions = vec![
+        // bug-574: `alloc` is the marshalled path this helper never hands back,
+        // released at `done`. Nulled FIRST so the two paths that reach `done`
+        // without allocating — the empty-path rejection just below and
+        // `ErrOutOfMemory` — free nothing.
+        abi::move_immediate(&alloc, "Integer", "0"),
+        abi::move_immediate(&alloc_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid_path),
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&alloc_size, &len0, 1),
+        abi::move_register(abi::return_register(), &alloc_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -337,7 +378,15 @@ pub(crate) fn lower_fs_path_operation_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&alloc, &alloc_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
 
     Ok((instructions, relocations, 0))
 }
@@ -370,14 +419,22 @@ pub(crate) fn lower_fs_create_directories_helper(
     let mut vregs = Vregs::new();
     let path = vregs.next();
     let cstring = vregs.next();
+    let cstring_size = vregs.next();
     let cursor = vregs.next();
     let len0 = vregs.next();
     let mut instructions = vec![
+        // bug-574: `cstring` is the marshalled path this helper never hands back,
+        // released at `done`. Nulled FIRST so the two paths that reach `done`
+        // without allocating — the empty-path rejection just below and
+        // `ErrOutOfMemory` — free nothing.
+        abi::move_immediate(&cstring, "Integer", "0"),
+        abi::move_immediate(&cstring_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid_path),
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&cstring_size, &len0, 1),
+        abi::move_register(abi::return_register(), &cstring_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -521,7 +578,15 @@ pub(crate) fn lower_fs_create_directories_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&cstring, &cstring_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
 
     Ok((instructions, relocations, 0))
 }
@@ -583,12 +648,21 @@ pub(crate) fn lower_fs_list_directory_helper(
     let byte = vregs.next();
     let scratch = vregs.next();
 
+    let c_path_size = vregs.next();
+
     let mut instructions = vec![
+        // bug-574: `c_path` is the marshalled path this helper never hands back
+        // (the List it returns is a SECOND, separate allocation), released at
+        // `done`. Nulled FIRST so the paths that reach `done` without allocating —
+        // the empty-path rejection just below and `ErrOutOfMemory` — free nothing.
+        abi::move_immediate(&c_path, "Integer", "0"),
+        abi::move_immediate(&c_path_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&c_path_size, &len0, 1),
+        abi::move_register(abi::return_register(), &c_path_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -867,6 +941,14 @@ pub(crate) fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&c_path, &c_path_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
 }

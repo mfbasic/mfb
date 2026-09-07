@@ -50,6 +50,7 @@ use std::collections::HashMap;
 
 use crate::target::shared::abi;
 
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::os::socket::shared::{
     emit_address_from_sockaddr, emit_cstring, emit_fd_cloexec_fallback, emit_hints,
     emit_pollfd_events, emit_socket_type_cloexec, net_symbol, NetBodyParts, NetSymbol, AF_INET,
@@ -228,6 +229,7 @@ fn lower_ping_posix(
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations: Vec<CodeRelocation> = Vec::new();
     let mut vregs = Vregs::new();
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
@@ -305,6 +307,7 @@ fn lower_ping_posix(
         HOST_OFFSET,
         CSTR_OFFSET,
         &alloc_fail,
+        &host_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1027,7 +1030,17 @@ fn lower_ping_posix(
         &mut relocations,
         &done,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    // bug-574: release the marshalled host C-string; the host call consumed
+    // it and nothing on the MFBASIC side of this call can see it.
+    emit_helper_scratch_release(
+        symbol,
+        &[host_scratch],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, FRAME_SIZE))
 }
 
@@ -1313,6 +1326,7 @@ fn lower_ping_windows(
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations: Vec<CodeRelocation> = Vec::new();
     let mut vregs = Vregs::new();
+    let host_scratch_win = HelperScratch::declare(&mut vregs, &mut instructions);
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
@@ -1369,6 +1383,7 @@ fn lower_ping_windows(
         W_HOST,
         W_CSTR,
         &alloc_fail,
+        &host_scratch_win,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1766,7 +1781,17 @@ fn lower_ping_windows(
         &mut relocations,
         &done,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    // bug-574: release the marshalled host C-string; the host call consumed
+    // it and nothing on the MFBASIC side of this call can see it.
+    emit_helper_scratch_release(
+        symbol,
+        &[host_scratch_win],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, WIN_FRAME_SIZE))
 }
 

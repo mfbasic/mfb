@@ -7,6 +7,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::codegen::os::syscall::*;
 use crate::codegen::string::validate::*;
@@ -108,13 +109,28 @@ pub(crate) fn lower_fs_atomic_write_helper(
     // Holds the rename errno across the temp-file unlink call (which itself sets
     // errno) so the rename failure is still mapped to the right Result.
     let saved_errno = vregs.next();
+    let temp_path_size = vregs.next();
+    let c_temp_size = vregs.next();
+    let c_final_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: all three allocations are this helper's own scratch — it
+        // returns `Nothing` — so all three are released at `done`. Nulled FIRST:
+        // the empty-path rejection reaches `done` with none allocated, and each
+        // OOM tail (including the `unlink_alloc_error` one) with only the earlier
+        // ones.
+        abi::move_immediate(&temp_path, "Integer", "0"),
+        abi::move_immediate(&temp_path_size, "Integer", "0"),
+        abi::move_immediate(&c_temp, "Integer", "0"),
+        abi::move_immediate(&c_temp_size, "Integer", "0"),
+        abi::move_immediate(&c_final, "Integer", "0"),
+        abi::move_immediate(&c_final_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::move_register(&value, abi::mfb_return(1)),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len0, 9 + TEMPLATE_SUFFIX.len()),
+        abi::add_immediate(&temp_path_size, &len0, 9 + TEMPLATE_SUFFIX.len()),
+        abi::move_register(abi::return_register(), &temp_path_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -252,8 +268,9 @@ pub(crate) fn lower_fs_atomic_write_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&close_error),
-        abi::load_u64(abi::return_register(), &temp_path, 0),
-        abi::add_immediate(abi::return_register(), abi::return_register(), 1),
+        abi::load_u64(&c_temp_size, &temp_path, 0),
+        abi::add_immediate(&c_temp_size, &c_temp_size, 1),
+        abi::move_register(abi::return_register(), &c_temp_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -264,8 +281,9 @@ pub(crate) fn lower_fs_atomic_write_helper(
         abi::branch(&unlink_alloc_error),
         abi::label(&c_temp_alloc_ok),
         abi::move_register(&c_temp, abi::mfb_return(1)),
-        abi::load_u64(abi::return_register(), &path, 0),
-        abi::add_immediate(abi::return_register(), abi::return_register(), 1),
+        abi::load_u64(&c_final_size, &path, 0),
+        abi::add_immediate(&c_final_size, &c_final_size, 1),
+        abi::move_register(abi::return_register(), &c_final_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -515,7 +533,19 @@ pub(crate) fn lower_fs_atomic_write_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[
+            HelperScratch::new(&temp_path, &temp_path_size),
+            HelperScratch::new(&c_temp, &c_temp_size),
+            HelperScratch::new(&c_final, &c_final_size),
+        ],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
 }
 
@@ -563,13 +593,21 @@ pub(crate) fn lower_fs_write_path_helper(
     // `cap` is a byte-List-only scratch; allocate its vreg only in that mode so the
     // String path keeps its exact vreg numbering (bug-331 §B).
     let cap = if bytes { vregs.next() } else { String::new() };
+    let c_path_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: `c_path` is the marshalled path this helper never hands back,
+        // released at `done`. Nulled FIRST so the paths that reach `done` without
+        // allocating — the empty-path rejection just below and `alloc_error` —
+        // free nothing.
+        abi::move_immediate(&c_path, "Integer", "0"),
+        abi::move_immediate(&c_path_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::move_register(&value, abi::mfb_return(1)),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&c_path_size, &len0, 1),
+        abi::move_register(abi::return_register(), &c_path_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -749,7 +787,15 @@ pub(crate) fn lower_fs_write_path_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&c_path, &c_path_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
 }
 
@@ -791,12 +837,20 @@ pub(crate) fn lower_fs_read_text_path_helper(
     let dst = vregs.next();
     let index = vregs.next();
     let byte = vregs.next();
+    let c_path_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: `c_path` is the marshalled path this helper never hands back,
+        // released at `done`. Nulled FIRST so the paths that reach `done` without
+        // allocating — the empty-path rejection just below and `alloc_error` —
+        // free nothing.
+        abi::move_immediate(&c_path, "Integer", "0"),
+        abi::move_immediate(&c_path_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&c_path_size, &len0, 1),
+        abi::move_register(abi::return_register(), &c_path_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -1012,7 +1066,15 @@ pub(crate) fn lower_fs_read_text_path_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[HelperScratch::new(&c_path, &c_path_size)],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
 }
 
@@ -1038,6 +1100,8 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
     let mut vregs = Vregs::new();
     let path = vregs.next();
     let c_path = vregs.next();
+    let record = vregs.next();
+    let record_size = vregs.next();
     let fd = vregs.next();
     let save_tag = vregs.next();
     let save_value = vregs.next();
@@ -1048,12 +1112,22 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
     let dst = vregs.next();
     let index = vregs.next();
     let byte = vregs.next();
+    let c_path_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: `c_path` is the marshalled path this helper never hands back,
+        // released at `done`. Nulled FIRST so the paths that reach `done` without
+        // allocating — the empty-path rejection just below and `alloc_error` —
+        // free nothing.
+        abi::move_immediate(&c_path, "Integer", "0"),
+        abi::move_immediate(&c_path_size, "Integer", "0"),
+        abi::move_immediate(&record, "Integer", "0"),
+        abi::move_immediate(&record_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&c_path_size, &len0, 1),
+        abi::move_register(abi::return_register(), &c_path_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -1100,7 +1174,8 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
         abi::branch(&open_error),
         abi::label(&open_ok),
         abi::move_register(&fd, abi::return_register()),
-        abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
+        abi::move_immediate(&record_size, "Integer", RESOURCE_RECORD_SIZE),
+        abi::move_register(abi::return_register(), &record_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -1122,6 +1197,11 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
     instructions.extend([
         abi::branch(&alloc_error),
         abi::label(&file_alloc_ok),
+        // bug-574: this `File` record is INTERNAL — it exists only so the shared
+        // `readAllBytes` body has a handle to read through, and it is not what
+        // this call hands back (that is the `List OF Byte` `readAllBytes` builds).
+        // `fs::openFile`'s record IS the return value and is NOT freed here.
+        abi::move_register(&record, abi::mfb_return(1)),
         // Canonical plan-80 header: tag@0 (x0 is dead after the alloc-ok compare).
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_TAG_FILE),
         abi::store_u64(
@@ -1137,7 +1217,9 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
-        // Transparent read buffer: empty cache at the fd's position.
+        // Transparent read buffer: empty cache at the fd's position. `readAllBytes`
+        // never fills it (it is the whole-file path), so the record owns no second
+        // block when it is released at `done`.
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_FILL),
@@ -1202,6 +1284,17 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[
+            HelperScratch::new(&c_path, &c_path_size),
+            HelperScratch::new(&record, &record_size),
+        ],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
 }

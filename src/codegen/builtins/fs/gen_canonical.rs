@@ -5,6 +5,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
@@ -41,12 +42,24 @@ pub(crate) fn lower_fs_canonical_path_helper(
     let length = vregs.next();
     let result = vregs.next();
     let len0 = vregs.next();
+    let c_path_size = vregs.next();
+    let buffer_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: `c_path` (the marshalled argument) and `buffer` (the PATH_MAX
+        // `realpath` output) are both this helper's own scratch — the `String` it
+        // hands back is `result`, a third allocation — so both are released at
+        // `done`. Nulled FIRST: the empty-path rejection reaches `done` with
+        // neither allocated, and each `alloc_error` with only the earlier ones.
+        abi::move_immediate(&c_path, "Integer", "0"),
+        abi::move_immediate(&c_path_size, "Integer", "0"),
+        abi::move_immediate(&buffer, "Integer", "0"),
+        abi::move_immediate(&buffer_size, "Integer", "0"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len0, 1),
+        abi::add_immediate(&c_path_size, &len0, 1),
+        abi::move_register(abi::return_register(), &c_path_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -81,11 +94,8 @@ pub(crate) fn lower_fs_canonical_path_helper(
         &invalid,
     );
     instructions.extend([
-        abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &PATH_MAX_PLUS_NUL.to_string(),
-        ),
+        abi::move_immediate(&buffer_size, "Integer", &PATH_MAX_PLUS_NUL.to_string()),
+        abi::move_register(abi::return_register(), &buffer_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -180,7 +190,18 @@ pub(crate) fn lower_fs_canonical_path_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[
+            HelperScratch::new(&c_path, &c_path_size),
+            HelperScratch::new(&buffer, &buffer_size),
+        ],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
 }
 
@@ -227,13 +248,30 @@ pub(crate) fn lower_fs_is_within_helper(
     let dst = vregs.next();
     let index = vregs.next();
     let byte = vregs.next();
+    let c_base_size = vregs.next();
+    let c_child_size = vregs.next();
+    let base_buffer_size = vregs.next();
+    let child_buffer_size = vregs.next();
     let mut instructions = vec![
+        // bug-574: all FOUR allocations are this helper's own scratch — it hands
+        // back a `Boolean`, which carries no block at all — so all four are
+        // released at `done`. Nulled FIRST: every rejection and every
+        // `alloc_error` reaches `done` with only the allocations made so far.
+        abi::move_immediate(&c_base, "Integer", "0"),
+        abi::move_immediate(&c_base_size, "Integer", "0"),
+        abi::move_immediate(&c_child, "Integer", "0"),
+        abi::move_immediate(&c_child_size, "Integer", "0"),
+        abi::move_immediate(&base_buffer, "Integer", "0"),
+        abi::move_immediate(&base_buffer_size, "Integer", "0"),
+        abi::move_immediate(&child_buffer, "Integer", "0"),
+        abi::move_immediate(&child_buffer_size, "Integer", "0"),
         abi::move_register(&base, abi::return_register()),
         abi::move_register(&child, abi::mfb_return(1)),
         abi::load_u64(&len, &base, 0),
         abi::compare_immediate(&len, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len, 1),
+        abi::add_immediate(&c_base_size, &len, 1),
+        abi::move_register(abi::return_register(), &c_base_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
@@ -267,7 +305,8 @@ pub(crate) fn lower_fs_is_within_helper(
         abi::load_u64(&len, &child, 0),
         abi::compare_immediate(&len, "0"),
         abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len, 1),
+        abi::add_immediate(&c_child_size, &len, 1),
+        abi::move_register(abi::return_register(), &c_child_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -295,11 +334,8 @@ pub(crate) fn lower_fs_is_within_helper(
         abi::branch(&child_copy_loop),
         abi::label(&child_copy_done),
         abi::store_u8(abi::ZERO, &dst, 0),
-        abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &PATH_MAX_PLUS_NUL.to_string(),
-        ),
+        abi::move_immediate(&base_buffer_size, "Integer", &PATH_MAX_PLUS_NUL.to_string()),
+        abi::move_register(abi::return_register(), &base_buffer_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -311,10 +347,11 @@ pub(crate) fn lower_fs_is_within_helper(
         abi::label(&base_buffer_alloc_ok),
         abi::move_register(&base_buffer, abi::mfb_return(1)),
         abi::move_immediate(
-            abi::return_register(),
+            &child_buffer_size,
             "Integer",
             &PATH_MAX_PLUS_NUL.to_string(),
         ),
+        abi::move_register(abi::return_register(), &child_buffer_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -430,6 +467,19 @@ pub(crate) fn lower_fs_is_within_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[
+            HelperScratch::new(&c_base, &c_base_size),
+            HelperScratch::new(&c_child, &c_child_size),
+            HelperScratch::new(&base_buffer, &base_buffer_size),
+            HelperScratch::new(&child_buffer, &child_buffer_size),
+        ],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
 }

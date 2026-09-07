@@ -5,6 +5,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirModule;
@@ -139,6 +140,12 @@ pub(crate) fn lower_get_env(
         instructions.push(abi::move_register(&fallback, abi::c_arg(1)));
     }
     let mut relocations = Vec::new();
+    // bug-574: the marshalled C-string arguments below are this helper's own
+    // scratch — handed to the host `getenv`/`setenv` and never returned to
+    // MFBASIC — so they are released at `done`. Declared (and nulled) HERE,
+    // ahead of every branch that can reach `done`: the second marshal is only
+    // reached when the first succeeded.
+    let name_scratch = HelperScratch::declare_for(&cname, &mut vregs, &mut instructions);
     // Serialize the whole `getenv` + marshal-into-arena against a concurrent
     // `os::setEnv` relocating/freeing `environ` (bug-64).
     emit_env_lock(&mut EmitCtx {
@@ -151,9 +158,9 @@ pub(crate) fn lower_get_env(
     marshal_cstring(
         symbol,
         &name,
-        &cname,
         &alloc_error,
         &format!("{symbol}_name"),
+        &name_scratch,
         &mut vregs,
         &mut instructions,
         &mut relocations,
@@ -245,6 +252,13 @@ pub(crate) fn lower_get_env(
     instructions.push(abi::label(&alloc_error));
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[name_scratch],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
     emit_env_unlock_return(
         &mut EmitCtx {
             symbol,
