@@ -1,0 +1,145 @@
+' A tiny RPC server for the key-interop oracle: it performs whatever
+' crypto::generate / sign / verify / exchange / convert calls the driver asks
+' for, and prints one reply line per request.
+'
+' This program is the SUBJECT of the cross-check, never its judge. It is driven
+' by `../rust` (the driver, not merely a reference) because key interop needs
+' more than one round: the driver has to SEE a key MFB generated before it can
+' form the next question about it. A one-shot "emit every case" program, like
+' the hash and mac-kdf oracles use, cannot express that.
+'
+' Protocol. MFB_KEY_JOB holds `record;record;…`, each `op,arg,arg,…`. Byte
+' arguments are hex with "-" for empty. One line out per record, in order:
+'   gen,<type>                          -> gen <type> <priv> <pub>   | genfail <type> <code>
+'   sign,<type>,<priv>,<msg>            -> sign <type> <sig>         | signfail <type> <code>
+'   verify,<type>,<pub>,<msg>,<sig>     -> verify <type> TRUE|FALSE  | verifyfail <type> <code>
+'   exchange,<type>,<priv>,<peerpub>    -> exchange <type> <secret>  | exchangefail <type> <code>
+'   convert,<conv>,<priv>,<pub>         -> convert <conv> <priv> <pub> | convertfail <conv> <code>
+'
+' The failure spellings matter as much as the successes: a driver that only
+' knew how to read a success line would report a raised error as a parse crash
+' rather than as the finding it is.
+IMPORT collections
+IMPORT crypto
+IMPORT encoding
+IMPORT io
+IMPORT os
+IMPORT strings
+
+FUNC decodeField(value AS String) AS List OF Byte
+  MUT out AS List OF Byte = []
+  IF value <> "-" THEN
+    out = encoding::hexDecode(value)
+  END IF
+  RETURN out
+END FUNC
+
+FUNC hexField(value AS List OF Byte) AS String
+  LET encoded AS String = encoding::hexEncode(value)
+  IF encoded = "" THEN
+    RETURN "-"
+  END IF
+  RETURN encoded
+END FUNC
+
+FUNC certOf(label AS String) AS crypto::Certificate
+  IF label = "ed25519" THEN
+    RETURN crypto::Certificate.Ed25519
+  END IF
+  IF label = "ed448" THEN
+    RETURN crypto::Certificate.Ed448
+  END IF
+  IF label = "x25519" THEN
+    RETURN crypto::Certificate.X25519
+  END IF
+  IF label = "x448" THEN
+    RETURN crypto::Certificate.X448
+  END IF
+  IF label = "p256" THEN
+    RETURN crypto::Certificate.P256
+  END IF
+  IF label = "p384" THEN
+    RETURN crypto::Certificate.P384
+  END IF
+  RETURN crypto::Certificate.P521
+END FUNC
+
+SUB doGen(label AS String)
+  LET k AS crypto::KeyPair = crypto::generate(certOf(label)) TRAP(e)
+    io::print("genfail " & label & " " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  io::print("gen " & label & " " & hexField(k.privateKey) & " " & hexField(k.publicKey))
+END SUB
+
+SUB doSign(label AS String, privHex AS String, msgHex AS String)
+  LET sig AS List OF Byte = crypto::sign(certOf(label), decodeField(privHex), decodeField(msgHex)) TRAP(e)
+    io::print("signfail " & label & " " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  io::print("sign " & label & " " & hexField(sig))
+END SUB
+
+SUB doVerify(label AS String, pubHex AS String, msgHex AS String, sigHex AS String)
+  LET ok AS Boolean = crypto::verify(certOf(label), decodeField(pubHex), decodeField(msgHex), decodeField(sigHex)) TRAP(e)
+    io::print("verifyfail " & label & " " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  io::print("verify " & label & " " & toString(ok))
+END SUB
+
+SUB doExchange(label AS String, privHex AS String, peerHex AS String)
+  LET secret AS List OF Byte = crypto::exchange(certOf(label), decodeField(privHex), decodeField(peerHex)) TRAP(e)
+    io::print("exchangefail " & label & " " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  io::print("exchange " & label & " " & hexField(secret))
+END SUB
+
+SUB doConvert(label AS String, privHex AS String, pubHex AS String)
+  MUT conv AS crypto::KeyConvert = crypto::KeyConvert.Ed25519ToX25519
+  IF label = "ed448-x448" THEN
+    conv = crypto::KeyConvert.Ed448ToX448
+  END IF
+  LET pair AS crypto::KeyPair = crypto::KeyPair[decodeField(privHex), decodeField(pubHex)]
+  LET k AS crypto::KeyPair = crypto::convert(conv, pair) TRAP(e)
+    io::print("convertfail " & label & " " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  io::print("convert " & label & " " & hexField(k.privateKey) & " " & hexField(k.publicKey))
+END SUB
+
+SUB dispatch(spec AS String)
+  LET f AS List OF String = strings::split(spec, ",")
+  LET op AS String = collections::get(f, 0)
+  IF op = "gen" THEN
+    doGen(collections::get(f, 1))
+  END IF
+  IF op = "sign" THEN
+    doSign(collections::get(f, 1), collections::get(f, 2), collections::get(f, 3))
+  END IF
+  IF op = "verify" THEN
+    doVerify(collections::get(f, 1), collections::get(f, 2), collections::get(f, 3), collections::get(f, 4))
+  END IF
+  IF op = "exchange" THEN
+    doExchange(collections::get(f, 1), collections::get(f, 2), collections::get(f, 3))
+  END IF
+  IF op = "convert" THEN
+    doConvert(collections::get(f, 1), collections::get(f, 2), collections::get(f, 3))
+  END IF
+END SUB
+
+SUB main()
+  ' No job means nothing to do -- and printing nothing is CORRECT here, which is
+  ' why ../run.sh selects the runnable build flavor without demanding output.
+  LET job AS String = os::getEnvOr("MFB_KEY_JOB", "")
+  IF job = "" THEN
+    EXIT SUB
+  END IF
+  LET records AS List OF String = strings::split(job, ";")
+  FOR EACH one IN records
+    IF one <> "" THEN
+      dispatch(one)
+    END IF
+  NEXT
+END SUB

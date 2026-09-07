@@ -40,12 +40,22 @@ oracle_init() {
   [ -x "$MFB_EXE" ] || die "no such mfb binary: $MFB_EXE"
 }
 
-# Build $HERE/mfb and run it, leaving its stdout in $ORACLE_MFB_OUT.
+# oracle_build_mfb [required-output-prefix]
+#
+# Build $HERE/mfb and select a flavor this host can actually run, leaving the
+# path in $ORACLE_MFB_EXE and that run's stdout in $ORACLE_MFB_OUT.
 #
 # A `mfb build` can emit several libc flavors on one host and only some of them
 # load here. Rather than guess from `ldd`, try each and keep the first that
-# actually produces case lines -- a flavor this host cannot exec fails outright.
-oracle_run_mfb() {
+# runs -- a flavor this host cannot exec fails outright.
+#
+# With a prefix argument the chosen flavor must ALSO print a line starting with
+# it. That is the right test for an oracle whose program emits its cases on
+# stdout: a binary that execs but prints nothing is not a working subject. The
+# RPC-driven oracles pass no prefix, because their program correctly prints
+# nothing until it is handed a job.
+oracle_build_mfb() {
+  local marker=${1:-}
   say "building mfb/"
   rm -rf "$HERE/mfb/build"
   local build_log paths candidate
@@ -61,8 +71,8 @@ oracle_run_mfb() {
   while IFS= read -r candidate; do
     [ -n "$candidate" ] || continue
     [ -x "$candidate" ] || continue
-    if "$candidate" >"$ORACLE_MFB_OUT" 2>"$WORK/mfb-stderr.txt" &&
-       grep -q '^case ' "$ORACLE_MFB_OUT"; then
+    "$candidate" >"$ORACLE_MFB_OUT" 2>"$WORK/mfb-stderr.txt" || continue
+    if [ -z "$marker" ] || grep -q "^$marker" "$ORACLE_MFB_OUT"; then
       ORACLE_MFB_EXE=$candidate
       break
     fi
@@ -71,10 +81,13 @@ $paths
 EOF
   if [ -z "$ORACLE_MFB_EXE" ]; then
     [ -s "$WORK/mfb-stderr.txt" ] && cat "$WORK/mfb-stderr.txt" >&2
-    die "no built flavor ran and emitted case lines"
+    die "no built flavor ran${marker:+ and printed a '$marker' line}"
   fi
   say "ran $ORACLE_MFB_EXE"
 }
+
+# The emit-and-compare oracles: the program must produce `case ` lines.
+oracle_run_mfb() { oracle_build_mfb 'case '; }
 
 # oracle_build_rust <binary-name> -- build $HERE/rust, set $ORACLE_REF_BIN.
 oracle_build_rust() {

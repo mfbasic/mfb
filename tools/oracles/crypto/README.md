@@ -14,9 +14,38 @@ and nothing here runs in CI.
 |---|---|---|
 | [`argon2id/`](#argon2id--argon2id-v19-rfc-9106--blake2b-512-rfc-7693) | `crypto::argon2id`, and the BLAKE2b-512 under it | `argon2id/run.sh` |
 | [`hash/`](#hash--every-hash-the-package-computes) | `crypto::hash` (all nine `Hash` variants) and `crypto::shake256` | `hash/run.sh` |
+| [`mac-kdf/`](#mac-kdf--hmac-hkdf-and-pbkdf2-over-all-nine-hashes) | `crypto::hmac`, `crypto::hkdf`, `crypto::pbkdf2` — full `Hash` matrix | `mac-kdf/run.sh` |
+| [`keys/`](#keys--the-public-key-matrix-both-directions) | `generate`, `sign`, `verify`, `exchange`, `convert` — every `Certificate` | `keys/run.sh` |
 
-Both have the same shape: a `mfb/` **subject**, a `rust/` **judge**, and a
-`run.sh` that builds both and plays them against each other.
+They share a shape: a `mfb/` **subject**, a `rust/` **judge**, and a `run.sh`
+that builds both and plays them against each other, over the common plumbing in
+`_lib/harness.sh`. (`keys/` inverts the last part — see its section.)
+
+## Some of this package is checked in CI instead — read this first
+
+`.ai/testing-gates.md` names three homes for an oracle and says the best one is
+**the test file itself**, because it is the only one CI executes. That rule
+decides what lives here:
+
+| Member | Checked by | Why there |
+|---|---|---|
+| `hash`, `shake256`, `argon2id` | `tools/` (here) | needs a pinned third-party crate |
+| `hmac`, `hkdf`, `pbkdf2` | **both** | `tests/rt_crypto_mac_kdf_interop.rs` for every selector `ring` can compute; here for the SHA-3 family and SHA-224, which it cannot |
+| `seal`, `open` | `tests/rt_crypto_aead_interop.rs` | `ring` was already a dev-dependency |
+| `generate`, `sign`, `verify`, `exchange`, `convert` | **both** | `tests/rt_crypto_key_interop.rs` for Ed25519/X25519/P-256/P-384; here for Ed448, X448, P-521 |
+| `encrypt`, `decrypt` | `tests/rt_crypto_hpke_interop.rs` | already a bidirectional RFC 9180 interop proof, pinned to Appendix A.1/A.6 |
+| `randomBytes`, `randomInt`, `uuid4`, `uuid7`, `ulid` | nothing, deliberately | no oracle is possible for a random value; only distributional or format properties, which are not what an oracle is for |
+| `constantTimeEqual` | nothing, deliberately | it computes equality; a second opinion on `==` adds no information |
+
+The overlaps are deliberate. Where a member is checked in both places the
+coverage is arranged to intersect rather than abut, so that a disagreement
+*between the two references* would surface rather than hide in a seam.
+
+The test in `tests/` is preferred whenever the crate it needs is **already in
+the lockfile** — that is the repo's own bar, recorded in the dev-dependency
+comments in `Cargo.toml`. A member ends up here when checking it would mean new
+compiled code in every CI job on five platforms for a matrix only this tool
+needs.
 
 ## Why an oracle and not a test
 
@@ -204,3 +233,64 @@ one carrying a non-ASCII scalar.
 expected: it is still a hash this package computes, and skipping it would leave
 the algorithm most likely to be quietly broken unchecked. The warning is about
 choosing SHA-1, not about computing it.
+
+## `mac-kdf/` — HMAC, HKDF and PBKDF2 over all nine hashes
+
+The oracle for `crypto::hmac`, `crypto::hkdf` and `crypto::pbkdf2`. Same shape
+as `hash/`: `mfb/` emits `case` lines carrying the inputs it used, `run.sh`
+feeds those to `rust/`, and the digests are compared byte for byte.
+
+189 cases — 21 input sets across the full nine-selector `crypto::Hash` matrix.
+`tests/rt_crypto_mac_kdf_interop.rs` already covers SHA-1 and the SHA-2 widths
+on every `cargo test`; what only exists here is the **SHA-3 family** (no `ring`
+equivalent) and **SHA-224 for the two KDFs**. Reaching those needs `sha3`,
+`hkdf` and `pbkdf2`, which would be new compiled code in every CI job.
+
+```sh
+tools/oracles/crypto/mac-kdf/run.sh
+```
+
+HMAC key lengths straddle every block size in the matrix (64 for SHA-1/224/256,
+128 for SHA-384/512, and the SHA-3 rates 144/136/104/72), because a key longer
+than the block is **hashed first** and that reduction is the step most likely to
+be wrong. HKDF probes an empty salt and a non-multiple output length; PBKDF2
+uses 1 and 2 iterations to separate "did the loop run" from "did it run the
+right number of times".
+
+## `keys/` — the public-key matrix, both directions
+
+The oracle for `crypto::generate`, `crypto::sign`, `crypto::verify`,
+`crypto::exchange` and `crypto::convert`, over every `crypto::Certificate` and
+both `KeyConvert` directions.
+
+**This one inverts the usual shape.** The other oracles are one-shot: the MFB
+program emits every case and the shell compares. Key interop cannot work that
+way, because the questions depend on the answers — you have to *see* a key MFB
+generated before you can ask it to sign with that key, and see its public half
+before you can compute the matching shared secret. So `rust/` is the **driver**,
+`mfb/` is a tiny RPC server reading a job from `MFB_KEY_JOB`, and `run.sh` is
+thin.
+
+```sh
+tools/oracles/crypto/keys/run.sh
+```
+
+What each curve is asked, and why each half is needed:
+
+| Direction | Claim |
+|---|---|
+| MFB generates | we re-derive its public key from its private key. A pair that fails its own definition is broken however well it round-trips. |
+| MFB signs | we verify — and for the deterministic schemes (Ed25519, Ed448) compare the signature **byte for byte**, which a round trip cannot do: a signer that chose its nonce differently would still verify. |
+| we sign | MFB verifies, **and rejects a corrupted signature**. Without the second half a `verify` that always returned true would pass. |
+| ECDH | each side uses its own private key and the other's public key; the secrets must match. |
+
+For the NIST curves the subject is the **encoding contract** rather than an
+MFBASIC core — those bind the platform key API (SecKey / EVP_PKEY / CNG). The
+external representation is `04‖X‖Y` for a public key and `04‖X‖Y‖d` for a
+private one, with ASN.1 DER signatures; the oracle splits `d` off and checks
+that `d·G` really is the reported public key. ECDSA signing is randomized, so
+there is nothing to compare byte for byte and only the round trip is available.
+
+`ed448-rust` is pinned rather than `ed448-goldilocks`: the latter's released
+versions expose only curve arithmetic, and its signing API exists only in a
+0.14 prerelease.
