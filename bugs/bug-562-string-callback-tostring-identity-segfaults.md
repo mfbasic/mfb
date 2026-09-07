@@ -17,6 +17,11 @@ Regression Test:
 - `tests/runtime/rt_scope_drop_leaks.rs::a_direct_call_to_a_callback_referenced_string_callee_runs_at_constant_rss`
   — the caller-side half, as peak RSS at N and 2N. Pre-fix 25.6 -> 50.2 MB; after
   1.0 -> 1.0 MB.
+- `…::a_callback_invoked_through_a_user_function_returns_an_owned_block` — the
+  same defect with NO built-in HOF and no `collections` import at all. Pre-fix:
+  one line of output then `[exit 139]`, on every run.
+- `…::a_direct_call_to_a_plain_string_callee_still_runs_at_constant_rss` — the
+  RSS positive pin.
 
 Found while fixing bug-536 shape B-2. **Reproduces identically on the base commit
 and after that change.**
@@ -187,6 +192,57 @@ Per HOF, with the identity callback:
 | `collections::reduce` / `reduceRight` | ok (guarded by its own runtime pointer-identity checks) | ok |
 | `collections::filter` / `forEach` | ok (`Boolean` / `Nothing`) | ok |
 
+### It is not confined to the built-in HOFs
+
+The `FunctionRef` ABI is reached by any user function that takes a callable and
+invokes it, so the same defect reproduces with no `collections` import at all:
+
+```
+FUNC g(s AS String) AS String
+  RETURN "TOP"
+END FUNC
+FUNC other(s AS String) AS String
+  RETURN toString(s)
+END FUNC
+FUNC apply(g AS FUNC(String) AS String, s AS String) AS String
+  RETURN g(s)
+END FUNC
+SUB main()
+  MUT rep AS Integer = 0
+  WHILE rep < 200
+    LET held AS String = "held-" & toString(rep)
+    io::print("a=" & apply(other, held))
+    io::print("held=" & held)      ' <- pre-fix: [exit 139], every run
+    rep = rep + 1
+  END WHILE
+  io::print("shadow=" & g("x") & "," & apply(other, "y"))
+END SUB
+```
+
+Passing `other` to `apply` is all it takes to make it callback-referenced.
+`RETURN toString(s)` then handed back `held`'s own block, `apply` moved it on as
+its result, and the `&` operand's statement-scope free released a block `held`
+still owned.
+
+Two details are load-bearing, and each was found by having it wrong:
+
+* **the result must be consumed UNBOUND** (as a `&` operand). Bound to a `LET`,
+  the double free lands on two scope-drops in the same iteration and the arena
+  happens to survive it — the program returns the right answer with the defect
+  intact. A repro that "stopped reproducing" after being tidied up is this.
+* **the top-level `g` must not itself be passed as a callback anywhere.** Adding
+  `apply(g, "z")` makes `g` callback-referenced too, which on the pre-fix
+  compiler switched off the very freshness licence that produced the extra free.
+  **The bug masked itself.**
+
+The callable parameter is named `g` on purpose, shadowing a top-level `g` that
+also returns `String`: the caller-side classification (`call_returns_fresh_string`)
+keys off the call TARGET name, so a shadowing indirect call is the one place that
+lookup could resolve to the wrong function. `shadow=TOP,y` pins that the parameter
+wins.
+
+### The quiet failure mode
+
 There is a second, quieter pre-fix failure mode worth recording: the identity
 callback did not always fault. At 8 two-character elements it ran to completion at
 a **flat** 1.0 MB and printed `acc=0` — the freed block read back empty. The
@@ -209,3 +265,62 @@ a move when it proves the source is not used afterward", and calls that "an
 optimization only". Lowering was taking that elision without the proof; the fix
 restores the copy the model always specified. A copy is independent by §14.1, and
 block identity is not observable from source, so no program can tell.
+
+## Gates
+
+Measured against a detached worktree at the same main sha (93aa17bf7).
+
+| gate | result |
+|---|---|
+| `scripts/artifact-gate.sh target/release/mfb all` | 1412 tests, 1578 builds, **1973 goldens checked, 0 diffs** |
+| `scripts/test-accept.sh` | **1434 test(s) ran, passed** |
+| `cargo test --release --no-fail-fast` | 153 binaries, 1 FAILED — `docs::spec::tests::spec_citations_resolve`, **identical on the baseline tree** (3877 passed / 1 failed on both); pre-existing, not this change |
+| `rustup run 1.96.0 cargo fmt --all --check` | clean |
+| `cargo check --all-targets` | 0 warnings |
+
+### Why the golden delta is zero
+
+The change fires only on a function that (a) returns `String`, (b) is referenced
+as a `FunctionRef` somewhere in its module, and (c) has a return site whose
+freshness lowering cannot establish — plus (d) direct calls to such a function.
+**No committed fixture satisfies that conjunction**, which is why 1973 goldens are
+byte-identical and also why the bug survived this long. The only place the new arm
+fires in the tree is the fixture added with the fix.
+
+The independent positive pin is sharper than the gate, because it is a program
+that *does* exercise the path: seven already-working callback shapes (bare
+parameter, concat, owned local, literal, borrowed `get`, a `Boolean` predicate,
+an `Integer` transform) across `transform`, `filter` and `sortBy` produce a
+**byte-identical `.ncode` on both `macos-aarch64` and `linux-x86_64`**. Adding one
+DIRECT call to one of those same callbacks moves it by exactly +4 instructions in
+`_mfb_fn_main` and nothing else — the caller-side statement-scope free the same
+predicate licenses.
+
+As an owner count, on `_mfb_fn_f` for one identical body reached two ways:
+
+| callback body | as a callback (before) | as a callback (after) | called directly (before / after) |
+|---|---|---|---|
+| `RETURN toString(s)` | **0 copies** | 1 | 1 / 1 |
+| `RETURN "<" & s & ">"` | 0 | 0 | 0 / 0 |
+| `RETURN s` | 1 | 1 | 0 / 0 |
+
+The first row is the bug: being passed as a callback REMOVED the obligation. The
+second is the positive pin: a return that was already fresh is not copied again.
+The third is plan-86 K1, unchanged and correctly asymmetric.
+
+## What this fix does NOT do
+
+It converts the crash into the pre-existing per-element leak that **every**
+`String` callback already had, because the HOF never frees the block the callback
+returns — that is **bug-569**, and it is the mirror-image half of this ABI. Post
+fix, `RETURN toString(s)` has exactly the memory profile of `RETURN s`, the shape
+that was always correct (25.6 MB at 50 000 / 50.2 MB at 100 000 for both). Pre-fix
+the identity read a flat 1.0 MB and printed `acc=0`.
+
+Fixing bug-569 means ADDING a free, which is the double-free direction, so it
+needs its own change and its own completeness proof; this one only ever adds a
+copy and therefore cannot double-free.
+
+**bug-570** (`RETURN <nested concat>` drops an interior pending temp unfreed,
+64 B/call) is also untouched: it reproduces on a function no callback ever
+references, and this change does not move its numbers at all.

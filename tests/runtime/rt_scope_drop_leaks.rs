@@ -667,6 +667,81 @@ SUB main()\n\
   io::print(\"acc=\" & toString(acc))\n\
 END SUB\n";
 
+/// bug-562 is not confined to the built-in HOFs: the `FunctionRef` ABI is reached
+/// by any user function that takes a callable and invokes it, and the callee's
+/// obligation is the same there. This is the shape with no `collections` import
+/// at all.
+///
+/// `apply(other, held)` passes `other` as a `FunctionRef`, which is all it takes
+/// to make it callback-referenced. `other`'s `RETURN toString(s)` then handed
+/// back the caller's own `held` block; `apply` moved it on as its own result, and
+/// the statement-scope free at the `&` operand released a block `held` still
+/// owned. Pre-fix this printed exactly one line and `[exit 139]`, on every run.
+///
+/// Two details are load-bearing and were each found by having them wrong:
+///
+/// * the result must be consumed UNBOUND (as a `&` operand). Bound to a `LET`,
+///   the double free lands on two scope-drops in the same iteration and the arena
+///   happens to survive it — the program then returns the right answer with the
+///   defect intact.
+/// * the top-level `g` must NOT itself be passed as a callback anywhere. Adding
+///   `apply(g, "z")` makes `g` callback-referenced too, which on the PRE-FIX
+///   compiler switched off the very freshness licence that produced the extra
+///   free — the bug masked itself.
+///
+/// The callable parameter is deliberately named `g`, shadowing a top-level `g`
+/// that also returns `String`, because the caller-side freshness classification
+/// keys off the call TARGET name: an indirect call through a shadowing parameter
+/// is the one place that lookup could resolve to the wrong function. The final
+/// line pins that the parameter wins (`apply(other, …)` yields `"y"`, not
+/// `"TOP"`).
+const SHAPE_562_INDIRECT_CALLABLE: &str = "IMPORT io\n\
+FUNC g(s AS String) AS String\n  RETURN \"TOP\"\nEND FUNC\n\
+FUNC other(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
+FUNC apply(g AS FUNC(String) AS String, s AS String) AS String\n  RETURN g(s)\nEND FUNC\n\
+SUB main()\n\
+  MUT rep AS Integer = 0\n\
+  WHILE rep < 200\n\
+    LET held AS String = \"held-\" & toString(rep)\n\
+    io::print(\"a=\" & apply(other, held))\n\
+    io::print(\"held=\" & held)\n\
+    rep = rep + 1\n\
+  END WHILE\n\
+  io::print(\"shadow=\" & g(\"x\") & \",\" & apply(other, \"y\"))\n\
+END SUB\n";
+
+/// The VALUES, not the RSS: a callback reached through a user function rather
+/// than a built-in HOF must return a block the caller owns, and must leave the
+/// caller's argument intact. Every one of the 401 lines is asserted, because the
+/// pre-fix failure mode is a use-after-free that reads back empty as often as it
+/// faults.
+#[test]
+fn a_callback_invoked_through_a_user_function_returns_an_owned_block() {
+    let project = common::temp_project("b562_indirect_callable", SHAPE_562_INDIRECT_CALLABLE);
+    let exe = common::build_project(&project);
+    let output = std::process::Command::new(&exe)
+        .output()
+        .expect("run the indirect-callable probe");
+    assert!(
+        output.status.success(),
+        "{}",
+        common::exit_description(&output.status)
+    );
+    let out = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let mut expected = String::new();
+    for rep in 0..200 {
+        expected.push_str(&format!("a=held-{rep}\nheld=held-{rep}\n"));
+    }
+    expected.push_str("shadow=TOP,y\n");
+    assert_eq!(
+        out, expected,
+        "the callback's result and the caller's live argument must both read back \
+         intact on every iteration, and the callable PARAMETER `g` must shadow the \
+         top-level `g` at the indirect call"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_direct_call_to_a_callback_referenced_string_callee_runs_at_constant_rss() {
