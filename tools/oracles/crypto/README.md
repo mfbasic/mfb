@@ -10,6 +10,14 @@ This directory holds the second opinions. Like `tools/math-kernels`, it is
 **offline tooling only**: nothing here is linked into the compiler or the runtime,
 and nothing here runs in CI.
 
+| Oracle | Covers | Run |
+|---|---|---|
+| [`argon2id/`](#argon2id--argon2id-v19-rfc-9106--blake2b-512-rfc-7693) | `crypto::argon2id`, and the BLAKE2b-512 under it | `argon2id/run.sh` |
+| [`hash/`](#hash--every-hash-the-package-computes) | `crypto::hash` (all nine `Hash` variants) and `crypto::shake256` | `hash/run.sh` |
+
+Both have the same shape: a `mfb/` **subject**, a `rust/` **judge**, and a
+`run.sh` that builds both and plays them against each other.
+
 ## Why an oracle and not a test
 
 A test built from values the implementation produced ratifies the implementation.
@@ -32,8 +40,6 @@ ratified, not caught** — GPU-vs-oracle agreement cannot see an oracle bug.
 
 The oracle for `crypto::argon2id` and the BLAKE2b-512 it is built on.
 
-| Piece | Role |
-|---|---|
 The directory has two halves — `mfb/` is the **subject**, `rust/` is the
 **judge** — and `run.sh` plays them against each other.
 
@@ -134,3 +140,67 @@ Two properties it records that are easy to get wrong:
 
 `(19456, 2, 1)` is also `Argon2::default()` in `repository/src/crypto.rs`, so an
 MFBASIC program can reproduce the repository's pairing-key derivation exactly.
+
+## `hash/` — every hash the package computes
+
+The oracle for `crypto::hash` and `crypto::shake256`. Same shape as `argon2id/`
+— `mfb/` is the subject, `rust/` is the judge, `run.sh` plays them against each
+other — but the comparison is the simple one: input bytes in, digest hex out.
+
+Ten algorithm/width combinations, which is the whole public hash surface: the
+nine `crypto::Hash` variants (`SHA1`, `SHA2_224/256/384/512`,
+`SHA3_224/256/384/512`) plus `crypto::shake256` at two widths, because an XOF
+whose length parameter were ignored would still match at one of them.
+
+| Piece | Role |
+|---|---|
+| `hash/run.sh` | The differential check. Builds `mfb/`, runs it, re-derives every digest with `rust/`, compares. Start here. |
+| `hash/mfb/` | An MFBASIC project hashing 37 inputs with all ten. It prints the input it hashed beside each digest. |
+| `hash/rust/src/main.rs` | The reference. **Not** hand-written — see below. |
+| `hash/rust/Cargo.lock` | Committed. The pin IS the oracle: `sha1 =0.10.6`, `sha2 =0.10.8`, `sha3 =0.10.8`. |
+| `hash/rust/openssl-xcheck.sh` | The third opinion, from OpenSSL's `dgst`. |
+
+```sh
+tools/oracles/crypto/hash/run.sh
+```
+
+```
+sha1       37/37  agreed
+…
+shake256   74/74  agreed
+crypto::hash mfb-vs-rust: 407 case(s), 0 failure(s)
+```
+
+Exit codes and the count-pinning discipline are the same as `argon2id/`'s;
+`EXPECTED_PER_INPUT` and `EXPECTED_INPUTS` in `run.sh` must stay in step with
+the `emitOne(...)` calls and the input list in `mfb/src/main.mfb`.
+
+### Why this reference is not hand-written
+
+`argon2id/rust` is a clean-room transliteration because the MFBASIC Argon2id is
+a large custom construction and a divergence needs to localise to a *step*. A
+hash is not like that: the answer is one value, so what an oracle has to supply
+is **independent authorship**, and hand-transliterating SHA-3 here would produce
+a second implementation by the same author as the first. RustCrypto is a
+different codebase maintained by people who never read the MFBASIC core, so it
+is the stronger oracle precisely because none of it was written here.
+
+That leaves the reference itself unchecked by `run.sh`, which is what
+`openssl-xcheck.sh` is for — it compares the *reference* against OpenSSL rather
+than MFBASIC against anything. Algorithms an `openssl` cannot compute (LibreSSL
+has no SHA-3 or SHAKE) are skipped and counted; a run that skipped everything
+exits 2 rather than reporting a pass.
+
+### The spread
+
+Inputs are chosen by LENGTH, because that is where hash bugs live — the padding
+and the block/rate boundary. 34 generated lengths straddle every boundary the
+two families have (64-byte blocks for SHA-1/224/256, 128 for SHA-384/512, and
+rates 144/136/104/72 for the SHA-3 widths), each probed at rate−1, rate and
+rate+1 so the one-byte padding case gets its own case. Three text inputs follow,
+one carrying a non-ASCII scalar.
+
+`SHA1` is included deliberately and its `CRYPTO_SHA1_INSECURE` build warning is
+expected: it is still a hash this package computes, and skipping it would leave
+the algorithm most likely to be quietly broken unchecked. The warning is about
+choosing SHA-1, not about computing it.
