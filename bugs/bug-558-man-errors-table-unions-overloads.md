@@ -8,6 +8,36 @@ Class: Documentation correctness / man renderer
 Status: Open
 Regression Test: `src/cli/man.rs` — a rendering test over a member whose overloads differ
 
+
+## USER DECISION (2026-09-06) — number the overloads, add a column
+
+Ruling on the three layout options: **none of them.** Instead —
+
+> number the overloaded functions, add a column and list the number(s) the
+> error(s) apply to.
+
+So the **Overloads** section numbers its signatures (1., 2., …) and the **Errors**
+table grows a column naming which numbered overload(s) each error belongs to.
+That is better than the three options as written: it keeps ONE table (so a page
+does not change shape with its data, which was option 1's cost), it needs no
+heading level for the single-overload majority (option 2's cost), and the
+cross-reference is a short number rather than a repeated signature (option 3's
+cost).
+
+Consequences a fix owns:
+
+- The numbering must be **stable and shared**: the Errors column is meaningless
+  unless its numbers are the same ones the Overloads list prints, produced by one
+  enumeration rather than two.
+- For a **single-overload** member the column carries no information. Suppress it
+  there rather than printing "1" on every row — otherwise every page in the
+  corpus churns for nothing.
+- `a_member_with_no_declared_errors_omits_the_errors_section` must keep passing:
+  no errors declared still means no Errors section at all.
+- The renderer is the ONLY instrument that sees this. Render the affected pages
+  (`tcp::poll`, `tcp::write`, `tls::poll`, `tls::write`, `canvas::getSize`,
+  `canvas::groupStats`, `canvas::loadFont`, `canvas::sceneHashes`) and read them.
+
 ## The finding
 
 `cli/man.rs::function_errors` renders the **union** of `errors:` across every

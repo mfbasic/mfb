@@ -83,6 +83,23 @@ The GTK fix does, however, supply a worked precedent for **WIN-01** and
   same move; if it does not, WIN-04 and its `io::write` twin should be fixed
   together rather than separately.
 
+
+## USER DECISION (2026-09-06) — deferred; the blocker is verification, not effort
+
+Ruling: **defer until a Windows runner exists.**
+
+The reason is recorded so this is not re-triaged every pass: **nothing in this
+repository ever executes a Windows binary.** The PEs it builds are compile-tested
+only, and box 2230 has no C compiler, so even a hand-written probe cannot be
+built there. A terminal implementation is behavioural — codegen-inspection tests
+cannot see whether it draws correctly — so any fix would ship on close to no
+evidence.
+
+This is therefore NOT "too hard" and not "low value". It is blocked on an
+instrument. Do not dispatch it as a bug until a Windows runner can execute a
+binary; at that point the gap this document describes can be measured rather than
+argued.
+
 ## What landed on 2026-09-05, and what did not
 
 **WIN-01 and WIN-05 are fixed.** They are the two sub-issues that are contained,
