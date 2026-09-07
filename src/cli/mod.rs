@@ -26,18 +26,18 @@ pub(crate) enum CommandError {
 /// Map a subcommand's terminal [`CommandError`] onto its process exit code and
 /// abort. The single home for what were six byte-identical error-dispatch arms
 /// in `main` (bug-340 B2).
-pub(crate) fn dispatch_command_error(err: CommandError) -> ! {
+pub(crate) fn dispatch_command_error(err: CommandError) -> i32 {
     // `pkg` builds the project on the way to packaging it, so its stream can
     // carry located diagnostics; close it like `build` does (bug-505).
     crate::rules::report_suppressed_diagnostics();
     match err {
         CommandError::Usage(message) => {
             eprintln!("error: {message}");
-            std::process::exit(2);
+            2
         }
         CommandError::Failed(message) => {
             eprintln!("error: {message}");
-            std::process::exit(1);
+            1
         }
     }
 }
