@@ -92,7 +92,7 @@ impl TypeEnv {
         /// but closing a held resource must leave the container usable. `Picture.image`
         /// promises exactly that (*"closing it while a scene still names it draws
         /// nothing rather than failing"*), and
-        /// `tests/cli_canvas_image_resource.rs` compiles the program that relies on it.
+        /// `tests/cli/cli_canvas_image_resource.rs` compiles the program that relies on it.
         /// Widening `aliases` to cover containment would reject that program.
         fn contains_closure(
             name: &str,

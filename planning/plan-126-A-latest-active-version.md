@@ -284,7 +284,7 @@ Commit: —
   `pkg.rs:2352` and `2774-2785`. This sub-plan must not move them.
 - **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast` (which includes
   `tests/golden.rs` → `scripts/artifact-gate.sh all`), plus
-  `tests/cli_repo_publish.rs` and `tests/cli_repo_install.rs`.
+  `tests/cli/cli_repo_publish.rs` and `tests/cli/cli_repo_install.rs`.
 - **Doc sync:** none — no `mfb man` page or `src/docs/spec/**` text describes the
   registry web UI's latest-version selection. Confirm with
   `grep -rn "latest version" src/docs/` before ticking.

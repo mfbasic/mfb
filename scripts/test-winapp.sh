@@ -533,7 +533,7 @@ esac
 # tables. **Which glyph landed in which cell is not observable from this box**:
 # the GDI grid has no readback path and headless has no window to photograph, so
 # the pixel-level claim is pinned by codegen inspection
-# (`tests/cli_win_app_term_fidelity.rs`, Windows vs the macOS oracle) and this run
+# (`tests/cli/cli_win_app_term_fidelity.rs`, Windows vs the macOS oracle) and this run
 # asserts what a runtime CAN prove — that every style's newly-emitted select chain
 # and the larger frames the extra slots need execute without faulting.
 #

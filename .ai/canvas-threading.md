@@ -214,7 +214,7 @@ Supporting rules, each of which the gate depends on:
   happens behind one consumes nothing at the caller: `closeIt(RES img AS canvas::Image)`
   leaves the caller's `img` usable, and `canvas::getSize(img)` afterwards compiles and
   raises `ErrResourceClosed` at run time — pinned by `closedRefuses` in
-  `tests/cli_canvas_image_resource.rs`. Any close performed *inside* the runtime is in
+  `tests/cli/cli_canvas_image_resource.rs`. Any close performed *inside* the runtime is in
   that second category by construction. The compile-time refusal is therefore a
   convenience for the direct case, **not** the invariant the rest of this section rests
   on; the runtime guarantees below are.
@@ -240,7 +240,7 @@ row names the rule from above that protects it.
 | R1 | present → `destroyImage` → graphics mid-record | the in-flight frame keeps sampling the texture and completes normally | §7 "close never frees" |
 | R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the texture; the free fires exactly once | §7 skip-in-new-frames + the gate |
 | R3 | `destroyImage(img)` → try to name `img` again | **Refused at compile time** — a direct `destroyImage` moves the binding, so there is no "name it again". A scene built *before* the destroy still draws, as nothing. | plan-116-I; was plan-98-B's closed-read guard |
-| R3b | close behind a `RES` parameter → name it again | **Compiles**, and raises `ErrResourceClosed` at run time. A `RES` parameter is an alias and consumes nothing, so R3's compile-time refusal does not reach here — this is the row that covers every close performed inside the runtime. | §7 closed-read guard; `closedRefuses` in `tests/cli_canvas_image_resource.rs` |
+| R3b | close behind a `RES` parameter → name it again | **Compiles**, and raises `ErrResourceClosed` at run time. A `RES` parameter is an alias and consumes nothing, so R3's compile-time refusal does not reach here — this is the row that covers every close performed inside the runtime. | §7 closed-read guard; `closedRefuses` in `tests/cli/cli_canvas_image_resource.rs` |
 | R4 | two presents, no frame between | the second scene renders; the first is skipped, not rendered late | §3 step 2 overwrite |
 | R5 | present while graphics is mid-render | `present` does not block; the new scene renders next frame | §3 three slots |
 | R6 | graphics stalled indefinitely, worker presents repeatedly | `present` still never blocks; slots are reused, no unbounded allocation | §3 "nobody frees a slot" |

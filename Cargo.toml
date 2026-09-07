@@ -102,3 +102,150 @@ path = "tests/interop/rt_crypto_aead_interop.rs"
 [[test]]
 name = "rt_crypto_key_interop"
 path = "tests/interop/rt_crypto_key_interop.rs"
+
+# The CLI tests live in `tests/cli/` rather than loose in `tests/`. Cargo only
+# auto-discovers `tests/*.rs` and `tests/<dir>/main.rs`, so a plain subdirectory
+# of test files is invisible to it — these stanzas are what keep them running.
+# Declaring them explicitly (rather than adding a `tests/cli/main.rs` that pulls
+# each in as a module) keeps ONE BINARY PER TEST and keeps every target name
+# unchanged, so `cargo test --test cli_repo_publish` still works.
+#
+# `autotests` stays at its edition-2021 default of true: explicit `[[test]]`
+# sections are additive there, and the rest of `tests/` is still discovered
+# automatically. (Under edition 2015 the first `[[test]]` would have silently
+# switched the rest off.)
+#
+# Adding a CLI test means adding a stanza here — it will NOT be picked up on its
+# own.
+
+[[test]]
+name = "cli_app_canvas_mode"
+path = "tests/cli/cli_app_canvas_mode.rs"
+
+[[test]]
+name = "cli_app_term_inactive_gate"
+path = "tests/cli/cli_app_term_inactive_gate.rs"
+
+[[test]]
+name = "cli_audit_audio_surface"
+path = "tests/cli/cli_audit_audio_surface.rs"
+
+[[test]]
+name = "cli_audit_malformed_lock"
+path = "tests/cli/cli_audit_malformed_lock.rs"
+
+[[test]]
+name = "cli_build_determinism"
+path = "tests/cli/cli_build_determinism.rs"
+
+[[test]]
+name = "cli_build_progress"
+path = "tests/cli/cli_build_progress.rs"
+
+[[test]]
+name = "cli_build_verbosity_output"
+path = "tests/cli/cli_build_verbosity_output.rs"
+
+[[test]]
+name = "cli_canvas_image_resource"
+path = "tests/cli/cli_canvas_image_resource.rs"
+
+[[test]]
+name = "cli_canvas_man_examples_compile"
+path = "tests/cli/cli_canvas_man_examples_compile.rs"
+
+[[test]]
+name = "cli_canvas_package"
+path = "tests/cli/cli_canvas_package.rs"
+
+[[test]]
+name = "cli_diagnostic_stream"
+path = "tests/cli/cli_diagnostic_stream.rs"
+
+[[test]]
+name = "cli_entry_args"
+path = "tests/cli/cli_entry_args.rs"
+
+[[test]]
+name = "cli_fmt_indent_bound"
+path = "tests/cli/cli_fmt_indent_bound.rs"
+
+[[test]]
+name = "cli_fmt_nesting_depth"
+path = "tests/cli/cli_fmt_nesting_depth.rs"
+
+[[test]]
+name = "cli_fmt_scalar_quote"
+path = "tests/cli/cli_fmt_scalar_quote.rs"
+
+[[test]]
+name = "cli_init_symlink"
+path = "tests/cli/cli_init_symlink.rs"
+
+[[test]]
+name = "cli_json_depth_limit"
+path = "tests/cli/cli_json_depth_limit.rs"
+
+[[test]]
+name = "cli_linux_app_mode"
+path = "tests/cli/cli_linux_app_mode.rs"
+
+[[test]]
+name = "cli_macos_app_io_input_imports"
+path = "tests/cli/cli_macos_app_io_input_imports.rs"
+
+[[test]]
+name = "cli_man_summary_plain"
+path = "tests/cli/cli_man_summary_plain.rs"
+
+[[test]]
+name = "cli_parse_expression_tree_depth"
+path = "tests/cli/cli_parse_expression_tree_depth.rs"
+
+[[test]]
+name = "cli_pkg_arity"
+path = "tests/cli/cli_pkg_arity.rs"
+
+[[test]]
+name = "cli_process_windows_build"
+path = "tests/cli/cli_process_windows_build.rs"
+
+[[test]]
+name = "cli_repo_auth"
+path = "tests/cli/cli_repo_auth.rs"
+
+[[test]]
+name = "cli_repo_governance"
+path = "tests/cli/cli_repo_governance.rs"
+
+[[test]]
+name = "cli_repo_install"
+path = "tests/cli/cli_repo_install.rs"
+
+[[test]]
+name = "cli_repo_publish"
+path = "tests/cli/cli_repo_publish.rs"
+
+[[test]]
+name = "cli_thread_accept_res_bind"
+path = "tests/cli/cli_thread_accept_res_bind.rs"
+
+[[test]]
+name = "cli_tls_listen_accept_build"
+path = "tests/cli/cli_tls_listen_accept_build.rs"
+
+[[test]]
+name = "cli_untrusted_registry_text_is_escaped"
+path = "tests/cli/cli_untrusted_registry_text_is_escaped.rs"
+
+[[test]]
+name = "cli_win_app_term_fidelity"
+path = "tests/cli/cli_win_app_term_fidelity.rs"
+
+[[test]]
+name = "cli_windows_console_utf8"
+path = "tests/cli/cli_windows_console_utf8.rs"
+
+[[test]]
+name = "cli_windows_winsock_startup"
+path = "tests/cli/cli_windows_winsock_startup.rs"

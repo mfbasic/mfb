@@ -231,7 +231,7 @@ Commit: —
 ## Validation Plan
 
 - Tests: none (man prose). If a fix changes text pinned by
-  `tests/cli_man_summary_plain.rs` or `tests/cli_canvas_man_examples_compile.rs`,
+  `tests/cli/cli_man_summary_plain.rs` or `tests/cli/cli_canvas_man_examples_compile.rs`,
   update the pin in the same commit and run that test alone.
 - Coverage check: `./scripts/doc-review-fanout.sh --reconcile` over this
   letter's unit list — a clean letter means every unit *ran*.

@@ -301,7 +301,7 @@ Commit: —
   depend on the compiler crate" comments (`repository/src/abi.rs:1-8`, `:11-37`) and
   the bug-489 rationale in both `terminal_safe` shims. `.ai/` topic docs: check
   `grep -rn "abi.rs\|terminal_safe" .ai/` for anything that describes the old layout.
-- **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast`; `tests/cli_repo_publish.rs`;
+- **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast`; `tests/cli/cli_repo_publish.rs`;
   `docker build -f repository/Dockerfile .`.
 - **Format:** `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 

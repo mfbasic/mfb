@@ -202,7 +202,7 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: none (man prose), except `tests/cli_canvas_man_examples_compile.rs` —
+- Tests: none (man prose), except `tests/cli/cli_canvas_man_examples_compile.rs` —
   which pins canvas example compilation and **must be run after Phase 4**; a
   changed canvas example updates it in the same commit.
 - Coverage check: `--reconcile` over the 142-unit list; example ledger

@@ -300,7 +300,7 @@ the page; do not "fix" the code to match the page.
 - If the accuracy pass uncovers a real code bug — the doc says X, the code does
   Y, and Y is wrong — that is a found bug. Fix it or file it per AGENTS.md.
   Never paper over it in prose.
-- `tests/cli_man_summary_plain.rs` pins some rendered summary text. If you
+- `tests/cli/cli_man_summary_plain.rs` pins some rendered summary text. If you
   correct a summary that test pins, update the pinned text in the same commit.
 
 ## 7. The four-step per-package workflow

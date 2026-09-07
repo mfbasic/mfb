@@ -535,7 +535,7 @@ budget to check against is `COMPILER_STACK_BYTES`, not the host default.
 
 Repro without a Windows box (Unix only — the PE reserve is a link-time field with no runtime
 equivalent to lower): `sh -c 'ulimit -s 1024 && exec mfb build <proj>'`. That is exactly what
-`tests/cli_parse_expression_tree_depth.rs`'s two `*_on_a_1mb_main_stack` tests do, so the Windows-
+`tests/cli/cli_parse_expression_tree_depth.rs`'s two `*_on_a_1mb_main_stack` tests do, so the Windows-
 only failure is now reproducible on every Unix row.
 
 ### A Win64 emitter must write `return_register()` on EVERY path, not just the error one

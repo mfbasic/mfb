@@ -12,7 +12,7 @@ Regression Test: tests/rt_canvas_picture.rs (to be added by Phase 1)
 rectangle, scaled to fit it"* (`src/codegen/builtins/canvas/mod.rs:649`), it
 appears in `canvas::present`'s own ecosystem of man examples
 (`func_load_image.rs:38`, `func_create_image.rs:46`, `func_set_bytes.rs:42`,
-`func_get_size.rs:45`), and `tests/cli_canvas_image_resource.rs:119` presents
+`func_get_size.rs:45`), and `tests/cli/cli_canvas_image_resource.rs:119` presents
 one. **No renderer draws it.** `__canvas_headerFor`'s `Picture` arm returns
 `__canvas_emptyHeader()` — geometry kind `NONE` — so `__canvas_drawGeometry`
 returns immediately; neither GPU emitter has a picture arm; there is no texture
@@ -184,7 +184,7 @@ Commit: —
 ## Validation Plan
 
 - Regression tests: `tests/rt_canvas_picture.rs`; pixel assertions added to
-  `tests/cli_canvas_image_resource.rs`.
+  `tests/cli/cli_canvas_image_resource.rs`.
 - Runtime proof: the reproduction under `MFB_CANVAS_DUMP` on a Metal host and a
   Vulkan box, diffed against the oracle.
 - Doc sync: `mod.rs` `Picture` description gains nothing (it was always written

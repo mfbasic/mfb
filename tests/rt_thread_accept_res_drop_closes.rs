@@ -24,7 +24,7 @@
 //!   close, so exit 0 with the worker's value on stdout is the "exactly once"
 //!   half.
 //!
-//! `tests/cli_thread_accept_res_bind.rs` carries the build half (the per-package
+//! `tests/cli/cli_thread_accept_res_bind.rs` carries the build half (the per-package
 //! sweep, the `STATE` form, and the alias-only pin).
 
 mod common;

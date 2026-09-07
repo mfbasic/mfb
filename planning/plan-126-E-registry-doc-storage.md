@@ -164,7 +164,7 @@ genuinely undocumented package. Land it inside the existing INSERT path
 
 **Byte-identity is not this sub-plan's gate** — nothing here touches codegen and
 `scripts/artifact-gate.sh` will report `diffs=0` regardless. The gate is the
-repository crate's tests plus `tests/cli_repo_publish.rs`.
+repository crate's tests plus `tests/cli/cli_repo_publish.rs`.
 
 **Rejected alternative — extract on demand and cache.** See § Current State; the S3
 redirect makes the server fetch its own blob over HTTPS.
@@ -225,7 +225,7 @@ Commit: —
       documentation cannot break a publish).
 
 Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes and
-`tests/cli_repo_publish.rs` is green. The truncated-section test is the important
+`tests/cli/cli_repo_publish.rs` is green. The truncated-section test is the important
 one: it proves a malformed doc table cannot reject a signed package.
 Commit: —
 
@@ -270,7 +270,7 @@ Commit: —
 - **Doc sync:** `repository/DEPLOY.md` if it documents the backfill command's output;
   check with `grep -n backfill repository/DEPLOY.md`.
 - **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast`;
-  `tests/cli_repo_publish.rs`; `docker build -f repository/Dockerfile .`.
+  `tests/cli/cli_repo_publish.rs`; `docker build -f repository/Dockerfile .`.
 - **Format:** `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
 ## Open Decisions

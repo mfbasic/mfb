@@ -1,0 +1,49 @@
+//! bug-214: `mfb man` one-line summaries were printed as raw Markdown, so inline
+//! markup (backticks/bold/citations) leaked verbatim into the package listing —
+//! unlike `mfb spec`, which runs `summary_line` through `render::plain`. The man
+//! summary print sites now strip markup the same way.
+//!
+//! This drives `mfb man datetime` (the package listing, where each function's
+//! one-line summary is shown) and asserts `between`'s summary renders as plain
+//! prose (`The signed Duration span ...`) with no literal backtick around
+//! `Duration` — the exact leak the doc names.
+
+use std::process::Command;
+
+#[path = "../common/mod.rs"]
+mod common;
+use common::*;
+
+#[test]
+fn man_listing_summaries_are_plain_rendered() {
+    let output = Command::new(mfb_exe())
+        .args(["man", "datetime"])
+        .output()
+        .expect("run mfb man datetime");
+    assert!(
+        output.status.success(),
+        "mfb man datetime failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // The plain one-line summary must appear in the listing...
+    //
+    // A FRAGMENT, not the whole sentence, and the type is spelled qualified. bug-480
+    // Phase 4b qualified type names in the descriptor prose, so the source intro is now
+    // "The signed `datetime::Duration` span between two instants." — eleven characters
+    // longer, which pushes "instants." onto the listing table's next wrapped line. A
+    // `contains` of the full sentence can never match a wrapped cell. What bug-214
+    // protects is unaffected by either change: it is that the backticks are STRIPPED,
+    // which the pair of assertions here still pins exactly.
+    assert!(
+        stdout.contains("The signed datetime::Duration span"),
+        "expected the plain-rendered `between` summary in the listing, got:\n{stdout}"
+    );
+    // ...and its raw Markdown form (backtick-wrapped type) must NOT — that is exactly
+    // the leak bug-214 fixed.
+    assert!(
+        !stdout.contains("The signed `datetime::Duration` span"),
+        "man listing leaked raw Markdown backticks (bug-214 regressed):\n{stdout}"
+    );
+}

@@ -133,7 +133,7 @@ Most of the mechanism already exists and should be reused rather than rewritten:
   Examples block out of **rendered** man output — so what is checked is what a
   developer would actually type — writes it into a scratch project, builds it,
   and optionally runs it.
-* **`tests/cli_canvas_man_examples_compile.rs`** (plan-98) is the in-tree
+* **`tests/cli/cli_canvas_man_examples_compile.rs`** (plan-98) is the in-tree
   precedent: it already does exactly this for one package. Generalising it across
   the registry is the shape of the fix.
 
@@ -209,7 +209,7 @@ line, or rule code to act on.
 
 References: `src/cli/man.rs` (man rendering);
 `src/codegen/builtins/<pkg>/func_*.rs` (the `example` prose fields);
-`tests/cli_canvas_man_examples_compile.rs` (the in-tree precedent);
+`tests/cli/cli_canvas_man_examples_compile.rs` (the in-tree precedent);
 `scripts/man-run-examples.sh` (plan-108 branch — the mechanism to reuse);
 `planning/completed/plan-108-A-census-standard-pilot.md` Rejected alternatives
 (the user decision quoted above);

@@ -6,7 +6,7 @@ Severity: MEDIUM
 Class: Correctness
 
 Status: Open — **WIN-01 and WIN-05 are fixed; WIN-02, WIN-03 and WIN-04 remain**
-Regression Test: `tests/cli_win_app_term_fidelity.rs` (three cases, covering
+Regression Test: `tests/cli/cli_win_app_term_fidelity.rs` (three cases, covering
 WIN-01 and WIN-05) and the `term::` style/reset case in `scripts/test-winapp.sh`
 (box 2230). Nothing yet covers WIN-02/03/04.
 
@@ -352,7 +352,7 @@ Confirm the delta is confined to the Windows app bodies.
       artifact-gate sentinel for WIN-01 and no fixture change was needed. It does
       NOT cover a combining cluster or a wide cluster at the right edge; that is
       WIN-04's to add, with WIN-04.
-- [x] Added `tests/cli_win_app_term_fidelity.rs`. It asserts WIN-01 by comparing
+- [x] Added `tests/cli/cli_win_app_term_fidelity.rs`. It asserts WIN-01 by comparing
       the Windows body's glyph immediates against the **macOS body's**, member for
       member, rather than restating the tables here — a restated table can drift
       from the emitters and keep passing. RED confirmed at `8d87e06b7`:
