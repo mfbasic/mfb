@@ -85,8 +85,9 @@ libc = "0.2"
 # discovered automatically. (Under edition 2015 the first `[[test]]` would have
 # silently switched the rest off.)
 #
-# Adding an interop test means adding a stanza here — it will NOT be picked up
-# on its own.
+# You do not have to remember any of this: `tests/test_targets_registered.rs`
+# fails if a file under `tests/interop/` has no stanza, and prints the TOML to
+# paste. A test that never runs cannot hide here.
 [[test]]
 name = "rt_crypto_hpke_interop"
 path = "tests/interop/rt_crypto_hpke_interop.rs"
@@ -115,8 +116,9 @@ path = "tests/interop/rt_crypto_key_interop.rs"
 # automatically. (Under edition 2015 the first `[[test]]` would have silently
 # switched the rest off.)
 #
-# Adding a CLI test means adding a stanza here — it will NOT be picked up on its
-# own.
+# You do not have to remember any of this: `tests/test_targets_registered.rs`
+# fails if a file under `tests/cli/` has no stanza, and prints the TOML to
+# paste. A test that never runs cannot hide here.
 
 [[test]]
 name = "cli_app_canvas_mode"
