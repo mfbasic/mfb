@@ -194,6 +194,123 @@ mod tests {
         with_opt_level(OptLevel(level), || fold_branches(stream));
     }
 
+    /// A definition the folder cannot attribute forgets EVERYTHING, not nothing.
+    ///
+    /// `Step::KillDst` normally removes one name from the known-value map. When
+    /// the instruction has no `dst` field to name, the folder cannot tell which
+    /// register was written -- and the only sound answer is to forget the whole
+    /// map. Keeping it would fold a later branch against a value some
+    /// unattributable instruction may have just overwritten, which is a branch
+    /// rewritten on evidence that is no longer true.
+    ///
+    /// A `mov` with no `dst` is malformed, and that is the point: the folder's
+    /// job at an input it does not understand is to become conservative, not to
+    /// skip it. Written directly rather than through `ci`, because the helper's
+    /// whole purpose is to attach fields.
+    #[test]
+    fn an_unattributable_definition_clears_every_known_value() {
+        let mut stream = vec![
+            mov_imm("%v1", "3"),
+            CodeInstruction::new("mov").field("src", "%v9"),
+            ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "3")]),
+            ci("b.eq", &[("target", "yes")]),
+            ci("ret", &[]),
+            ci("label", &[("name", "yes")]),
+            ci("ret", &[]),
+        ];
+        run(&mut stream, 2);
+        assert_eq!(
+            stream[3].op,
+            CodeOp::BranchEq,
+            "the `mov` names no destination, so the folder cannot know it did \
+             not write %v1 -- and folding `b.eq` on the value %v1 held BEFORE it \
+             rewrites a branch on evidence that may no longer be true: {:?}",
+            ops(&stream)
+        );
+    }
+
+    /// The two condition codes no folding test had reached, and the refusal
+    /// beneath them.
+    ///
+    /// `b.ls` is UNSIGNED `<=` and `b.mi` is the N flag of the subtraction --
+    /// the sign of the WRAPPED difference, which is not signed `<`. Both
+    /// distinctions are invisible on small positive operands, which is what
+    /// every other case here uses, so each is exercised at the value where it
+    /// separates from its neighbour:
+    ///
+    ///   * `b.ls` on `-1` vs `1`. As unsigned, `-1` is `u64::MAX`, so `<=` is
+    ///     FALSE -- where signed `<=` would be true. A `b.ls` folded with signed
+    ///     comparison turns a bounds check that should fail into one that passes.
+    ///   * `b.mi` on `i64::MIN` vs `1`. The subtraction wraps to a positive
+    ///     value, so the N flag is CLEAR and the branch is not taken -- where
+    ///     signed `<` is true. This is the overflow case the comment names, and
+    ///     folding it as `<` would take a branch the hardware would not.
+    ///
+    /// And an operation the table does not know must fold to nothing rather
+    /// than to a guess: the `_ => return None` arm, checked with `b.vs`
+    /// (overflow), which no arm above answers.
+    #[test]
+    fn the_unsigned_and_sign_flag_conditions_fold_by_their_own_rule() {
+        // -1 <=(unsigned) 1 is FALSE: as u64, -1 is the largest value there is.
+        let mut stream = vec![
+            mov_imm("%v1", "-1"),
+            ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "1")]),
+            ci("b.ls", &[("target", "yes")]),
+            ci("ret", &[]),
+            ci("label", &[("name", "yes")]),
+            ci("ret", &[]),
+        ];
+        run(&mut stream, 2);
+        assert_ne!(
+            stream[2].op,
+            CodeOp::Branch,
+            "`b.ls` is UNSIGNED <=, and -1 as u64 is the largest value there is, \
+             so this branch is NOT taken. Folding it as signed <= turns a bounds \
+             check that should fail into one that passes: {:?}",
+            ops(&stream)
+        );
+
+        // i64::MIN - 1 wraps POSITIVE, so the N flag is clear even though the
+        // signed comparison is true.
+        let mut stream = vec![
+            mov_imm("%v1", "-9223372036854775808"),
+            ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "1")]),
+            ci("b.mi", &[("target", "yes")]),
+            ci("ret", &[]),
+            ci("label", &[("name", "yes")]),
+            ci("ret", &[]),
+        ];
+        run(&mut stream, 2);
+        assert_ne!(
+            stream[2].op,
+            CodeOp::Branch,
+            "`b.mi` reads the N flag of the SUBTRACTION, and i64::MIN - 1 wraps \
+             positive, so N is clear and the branch is not taken -- though signed \
+             `<` is true. This is the overflow case, and folding it as `<` takes \
+             a branch the hardware would not: {:?}",
+            ops(&stream)
+        );
+
+        // A condition the table has no rule for is left exactly as written.
+        let mut stream = vec![
+            mov_imm("%v1", "3"),
+            ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "3")]),
+            ci("b.vs", &[("target", "yes")]),
+            ci("ret", &[]),
+            ci("label", &[("name", "yes")]),
+            ci("ret", &[]),
+        ];
+        let before = ops(&stream);
+        run(&mut stream, 2);
+        assert_eq!(
+            ops(&stream),
+            before,
+            "an overflow condition is not in the table, and a folder that guessed \
+             at one it does not model would rewrite a branch on evidence it does \
+             not have"
+        );
+    }
+
     /// A known-taken compare-and-branch becomes an unconditional `b`; the
     /// (now statically dead) fallthrough is left for UCE.
     #[test]
