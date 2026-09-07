@@ -5,10 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: **OPEN — three of four defects fixed; the fourth is a product decision**
-(2026-09-05). The reported error is gone and the failure has moved forward twice
-to a genuinely different question: *what value does the `TRAP` error path bind
-for a `Thread`?* There is no safe answer today. See "Where this actually stands".
+Status: **FIXED** (2026-09-06, `694dee2b7`; defects A/B/C earlier in `a4a9d59dc`)
 Regression Test: `a_thread_handle_is_flat_in_neither_mode` and
 `a_result_wrapping_a_thread_handle_is_flat_in_neither_mode`
 (`src/codegen/collection/layout/builder_collection_layout.rs`,
@@ -469,3 +466,67 @@ adding an arm. A thread block holds queue pointers, so the flat-block treatment
 that fits a `String` is wrong here in a way that would corrupt memory rather than
 fail loudly — which is exactly the trap bug-464 documents one layer over. The
 diagnostic being unlocated is a secondary defect worth closing in the same pass.
+
+
+## How it was actually fixed (2026-09-06, `694dee2b7`)
+
+Two changes, and the second is the one the earlier drafts of this document did
+not see:
+
+1. `materialize_default_value` gains a `ThreadHandle` arm
+   (`emit_closed_thread_handle`, `builder_value_semantics.rs`): an arena-allocated
+   `THREAD_BLOCK_SIZE` block, zeroed, with `THREAD_OFFSET_STATE` set to
+   `THREAD_STATE_CLOSED`. The queue pointers stay NULL.
+2. `simple_thread_handle_helper` answers for a `CLOSED` handle **before** touching
+   its queue. Every op used to load `THREAD_OFFSET_OUTBOUND_QUEUE` and
+   `pthread_mutex_lock` it, reading the state only under the lock — so (1) alone
+   built, ran, and then segfaulted at scope cleanup.
+
+The unlocked read added by (2) is sound because `CLOSED` is **terminal**. The only
+writers of `THREAD_OFFSET_STATE` are the zero-init at creation (`RUNNING`), the
+worker storing `COMPLETED` as it exits, and the two sites storing `CLOSED`. A
+racing read that sees `CLOSED` is right forever; one that sees anything else falls
+through to the existing locked path and is decided there. The pre-check can only
+short-circuit — it can never disagree with the code it precedes.
+
+### The bug the fix introduced, and what caught it
+
+Worth recording, because a green build showed nothing:
+
+    plain-waitFor=77030004     (pre-fix compiler, plain spelling)
+    plain-waitFor=SIGSEGV      (after the hoist, before the last line of it)
+
+`WaitFor` is the only op that returns a meaningful error ORIGIN — it propagates
+the worker's `ErrorLoc` — and its own closed path explicitly zeroes that slot,
+commented "waitFor's own error (resource closed): no worker origin".
+`raise_error_into` sets VALUE/TAG/MESSAGE and nothing else, so the pre-check
+returned a garbage pointer that the `TRAP` handler dereferenced. The fix zeroes
+`RESULT_ERROR_SOURCE_REGISTER` on the pre-check path.
+
+It was caught by running a SECOND `waitFor` on an already-closed handle and
+comparing against the pre-fix compiler on identical source. Neither the build nor
+the type checker could see it.
+
+### What the fixture pins
+
+`tests/rt-behavior/thread/thread-start-inline-trap-rt` prints the error code every
+op gives for a normally-closed handle, and runs the sequence **twice** — once
+through the inline `TRAP` that could not compile, once through the plain spelling
+that always worked:
+
+    fnLevel=7
+    inline-result=7   inline-cancel/isRunning/poll/waitFor = 77030004
+    plain-result=7    plain-cancel/isRunning/poll/waitFor  = 77030004
+    res=1  msgres=2
+
+The two blocks agreeing line for line is the real claim: hoisting a check into
+every thread op changed no op's ANSWER. `fnLevel` and `plain` are this document's
+two non-goal rows; `res`/`msgres` are the other two channel shapes from the matrix,
+neither of which compiled before.
+
+### Golden delta
+
+Ten files, all `.ncodesum` sha256, in `byte-identity/thread` and
+`byte-identity/resource-xfer-slots`, across all five targets. Thread codegen
+changed on every architecture — that IS the change. **Zero `.run`, `.ir`, `.ast`
+or `build.log` goldens moved**, so no program's output changed.
