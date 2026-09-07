@@ -207,3 +207,137 @@ fn the_tostring_identity_adds_no_owner() {
          second one for the same block"
     );
 }
+
+// ------------------------------------------------------------------ bug-562
+
+/// How many block copies `symbol` emits. `copy_flat_block` allocates exactly one
+/// `flat_copy_source` stack slot per call, so this counts the places the function
+/// deep-copies a flat value — the ownership-establishing copy this whole file is
+/// about, read from the other end than [`string_drops`].
+fn flat_copies(plan: &Value, symbol: &str) -> usize {
+    function(plan, symbol)["stackSlots"]
+        .as_array()
+        .expect("stack slots array")
+        .iter()
+        .filter(|slot| slot["type"].as_str() == Some("flat_copy_source"))
+        .count()
+}
+
+/// The same callee `f`, reached two ways: passed to `collections::transform` as a
+/// `FunctionRef`, or called directly. `f`'s own body is identical in both, so any
+/// difference in how many blocks it copies is caused solely by how it is REACHED.
+fn callee_reached_as_callback(body: &str) -> String {
+    format!(
+        "IMPORT io\n\
+         IMPORT collections\n\
+         {body}\
+         SUB main()\n\
+        \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
+        \x20 io::print(collections::get(collections::transform(xs, f), 0))\n\
+         END SUB\n"
+    )
+}
+
+fn callee_reached_directly(body: &str) -> String {
+    format!(
+        "IMPORT io\n\
+         IMPORT collections\n\
+         {body}\
+         SUB main()\n\
+        \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
+        \x20 io::print(f(collections::get(xs, 0)))\n\
+         END SUB\n"
+    )
+}
+
+/// `RETURN toString(s)`. `toString`'s `String` arm is the IDENTITY, so lowering
+/// cannot establish that the returned block is fresh — the callee owes the caller
+/// a copy.
+const IDENTITY_CALLEE: &str = "FUNC f(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n";
+
+/// `RETURN <concat>`. The concat registers a pending temp the return CLAIMS, so
+/// the block is already fresh and solely owned — no copy is owed, either way.
+const CONCAT_CALLEE: &str = "FUNC f(s AS String) AS String\n  RETURN \"<\" & s & \">\"\nEND FUNC\n";
+
+/// bug-562, stated as an invariant that cannot drift: **passing a function as a
+/// callback must not remove its return-ownership obligation.**
+///
+/// It did. `function_returns_fresh_string` excluded every callback-referenced
+/// name, so the identical callee copied its unprovable return when called
+/// directly and did NOT when passed to `collections::transform` — 1 copy vs 0.
+/// The `FunctionRef` ABI meanwhile materialises each `List OF String` element
+/// into a fresh block, hands it to the callback, and frees it
+/// (`free_collection_loop_item`). The identity returned that very block, so
+/// `transform`/`sortBy`/`groupBy` over a `List OF String` were `[exit 139]`, and
+/// a wrong value where the freed block did not fault.
+///
+/// Asserted as an equality between two reachings of the SAME body rather than an
+/// absolute count, so it survives any unrelated change to how many copies the
+/// shape needs.
+#[test]
+fn being_used_as_a_callback_never_removes_the_return_copy() {
+    let as_callback = ncode(
+        "b562_ident_callback",
+        &callee_reached_as_callback(IDENTITY_CALLEE),
+    );
+    let direct = ncode(
+        "b562_ident_direct",
+        &callee_reached_directly(IDENTITY_CALLEE),
+    );
+    let callback_copies = flat_copies(&as_callback, "_mfb_fn_f");
+    let direct_copies = flat_copies(&direct, "_mfb_fn_f");
+    assert_eq!(
+        callback_copies, direct_copies,
+        "the same `RETURN toString(s)` callee must copy its result the same number \
+         of times whether it is passed as a callback ({callback_copies}) or called \
+         directly ({direct_copies}); copying fewer hands the `FunctionRef` ABI a \
+         block it does not own, which it then frees — bug-562's SIGSEGV"
+    );
+    assert!(
+        callback_copies >= 1,
+        "an identity return has no provable freshness, so the callee owes the \
+         caller exactly one copy — got {callback_copies}"
+    );
+}
+
+/// The POSITIVE pin for bug-562, and the half that says the fix is a fix rather
+/// than a blanket copy: a callback whose return is ALREADY a fresh, solely-owned
+/// block must not gain a second copy. `lower_returned_value`'s arms are mutually
+/// exclusive early returns, so the new catch-all is only reached when none of the
+/// three freshness-establishing arms fired — but that is an argument, and this is
+/// the measurement.
+///
+/// Two assertions, because either alone is satisfiable by a wrong fix: the
+/// equality alone is satisfied by copying in BOTH reachings, and the inequality
+/// alone by copying in neither.
+#[test]
+fn a_callback_whose_result_is_already_fresh_is_not_copied_twice() {
+    let as_callback = ncode(
+        "b562_concat_callback",
+        &callee_reached_as_callback(CONCAT_CALLEE),
+    );
+    let direct = ncode(
+        "b562_concat_direct",
+        &callee_reached_directly(CONCAT_CALLEE),
+    );
+    let identity = ncode(
+        "b562_ident_callback2",
+        &callee_reached_as_callback(IDENTITY_CALLEE),
+    );
+    let callback_copies = flat_copies(&as_callback, "_mfb_fn_f");
+    let direct_copies = flat_copies(&direct, "_mfb_fn_f");
+    assert_eq!(
+        callback_copies, direct_copies,
+        "a `RETURN <concat>` callee's block is fresh by construction, so being \
+         passed as a callback must not change its copy count (callback \
+         {callback_copies}, direct {direct_copies})"
+    );
+    assert!(
+        callback_copies < flat_copies(&identity, "_mfb_fn_f"),
+        "the return-freshness copy must be inserted only where freshness is \
+         UNPROVABLE: a claimed pending temp ({callback_copies} copies) must stay \
+         below an identity return ({} copies), or the fix is a blanket copy of \
+         every callback result",
+        flat_copies(&identity, "_mfb_fn_f")
+    );
+}

@@ -199,29 +199,40 @@ pub(crate) fn function_returns_param_borrow(
 ///   `register_pending_temp` is the only thing this lifts;
 /// * a param-borrow function (above);
 /// * a function with no value return at all, so there is no returned block to
-///   own;
-/// * a callback-referenced function, whose result also travels through the
-///   `FunctionRef` ABI. **This exclusion is conservative, not principled, and it
-///   is the one place this predicate is knowingly weaker than it should be.**
-///   `function_returns_param_borrow` excludes the same set to FORCE a copy (the
-///   `FunctionRef` ABI owns and frees the return value, so a borrow would be a
-///   double free); excluding it here instead REMOVES the copy obligation. That
-///   leaves a pre-existing SIGSEGV live —
-///   `collections::transform(xs, identish)` where `identish` is
-///   `RETURN toString(s)` — because the identity arm hands the HOF the caller's
-///   own list-element block and the HOF frees it. Dropping this arm is the fix,
-///   and it wants its own change with a callback-ABI audit; keeping it here
-///   leaves callback lowering byte-identical. See bug-536, "Found while fixing
-///   B-2".
+///   own.
+///
+/// **bug-562: a callback-referenced function is NOT excluded, and must not be.**
+/// It was, when B-2 landed, purely to keep callback lowering byte-identical for
+/// one change — and that exclusion was the live half of a SIGSEGV.
+///
+/// The `FunctionRef` ABI hands a callback a per-iteration block it owns and frees
+/// (`free_collection_loop_item`), on the stated assumption that "a callback that
+/// *returns* something derived from it returns a separate allocation". Nothing
+/// enforced that assumption for a return that is not a bare parameter.
+/// `function_returns_param_borrow` excludes this same set to FORCE a copy, which
+/// covers `RETURN <param>`; but `RETURN toString(s)` returns a `Call`, so it is
+/// not a param-borrow function and that exclusion never applied — while
+/// `toString`'s `String` arm is the identity, so it handed the HOF back the very
+/// block the HOF was about to free. `collections::transform(xs, identish)` with
+/// `FUNC identish(s AS String) AS String / RETURN toString(s)` was `[exit 139]`.
+///
+/// Admitting the set here is what closes it: the predicate is the callee's
+/// obligation, so a `String`-returning callback now copies on exactly the return
+/// sites whose freshness lowering could not prove — the same delivery
+/// `function_returns_param_borrow`'s exclusion buys for the borrow shape, applied
+/// to the shape that escaped it.
+///
+/// This can only ever ADD an owner-establishing copy; it never removes a free.
+/// `lower_returned_value`'s arms are mutually exclusive early returns, so a return
+/// site already made fresh (a move-elided owned local, a copied literal or
+/// parameter, a claimed pending temp) is untouched — a callback that already
+/// worked is byte-identical, and no value is copied twice.
 pub(crate) fn function_returns_fresh_string(
     f: &NirFunction,
     callback_referenced: &HashSet<String>,
 ) -> bool {
     use nir::visit::{walk_op, NirVisitor};
     if f.returns != ParameterType::String {
-        return false;
-    }
-    if callback_referenced.contains(&f.name) {
         return false;
     }
     // A borrow and a fresh block are mutually exclusive answers to the same

@@ -618,6 +618,77 @@ fn tostring_of_a_fresh_string_runs_at_constant_rss() {
     );
 }
 
+// -------------------------------------------------------------- bug-562
+
+/// bug-562's caller-side half, and the one shape of it that reads as a NUMBER
+/// rather than a crash.
+///
+/// `function_returns_fresh_string` is consulted from both ends — the callee takes
+/// on "return a solely-owned block on every path", the call site takes the licence
+/// to free the result at statement end. Excluding callback-referenced functions
+/// switched BOTH off, so a `String`-returning function that happened to be passed
+/// to a HOF *anywhere in the module* lost its callers' statement-scope free too:
+/// `acc = acc + len(deco(arg))` leaked 64 B per call, purely because `deco` was
+/// also used as a callback. The `transform` call here is what makes `deco`
+/// callback-referenced; deleting that ONE line made the same loop flat.
+///
+/// Measured 400k/800k: 25.6 MB -> 50.2 MB before, 1.0 MB -> 1.0 MB after.
+const SHAPE_562_CALLBACK_REFERENCED_DIRECT_CALL: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC deco(s AS String) AS String\n  RETURN s & \">\"\nEND FUNC\n\
+SUB main()\n\
+  LET seed AS List OF String = [\"a\"]\n\
+  LET once AS List OF String = collections::transform(seed, deco)\n\
+  LET arg AS String = \"x\"\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(deco(arg))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc) & \" once=\" & collections::get(once, 0))\n\
+END SUB\n";
+
+/// The POSITIVE pin for it: the identical program with the `transform` line
+/// removed, so `deco` is NOT callback-referenced. It was already flat before
+/// bug-562 and must stay flat — the fix widens which functions carry the
+/// freshness obligation, and a widening that also gave THIS one a second owner
+/// would be a double free rather than a leak fix.
+const SHAPE_562_PLAIN_DIRECT_CALL_CONTRAST: &str = "IMPORT io\n\
+FUNC deco(s AS String) AS String\n  RETURN s & \">\"\nEND FUNC\n\
+SUB main()\n\
+  LET arg AS String = \"x\"\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(deco(arg))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn a_direct_call_to_a_callback_referenced_string_callee_runs_at_constant_rss() {
+    assert_flat(
+        "b562_callback_referenced_direct",
+        SHAPE_562_CALLBACK_REFERENCED_DIRECT_CALL,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_direct_call_to_a_plain_string_callee_still_runs_at_constant_rss() {
+    assert_flat(
+        "b562_plain_direct",
+        SHAPE_562_PLAIN_DIRECT_CALL_CONTRAST,
+        400_000,
+        800_000,
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn a_param_borrow_string_callee_still_runs_at_constant_rss() {

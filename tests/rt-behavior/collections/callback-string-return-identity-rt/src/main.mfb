@@ -1,0 +1,181 @@
+' bug-562: a `String`-returning callback must hand the `FunctionRef` ABI a block
+' the ABI owns. The ABI materialises each `List OF String` element into a fresh
+' arena block, passes it to the callback, and frees it afterwards
+' (`free_collection_loop_item`) on the stated assumption that "a callback that
+' returns something derived from it returns a separate allocation".
+'
+' `toString`'s `String` arm is the IDENTITY, so `RETURN toString(s)` returned the
+' very block the HOF was about to free — the list was then left holding freed
+' memory. `RETURN <param>` was already forced to copy (plan-86 K1 excludes every
+' callback-referenced function from the borrow elision), but `RETURN toString(s)`
+' returns a `Call`, not a bare `Local`, so it is not a param-borrow function and
+' that exclusion never applied to it.
+'
+' RED on the pre-fix compiler as `[exit 139]` for `transform`, `sortBy` and
+' `groupBy`, and as a WRONG VALUE (an empty string read back) where the freed
+' block happened not to fault. Both failure modes are covered here: every line
+' prints a value, so a silent misread is as red as the crash.
+IMPORT io
+IMPORT collections
+IMPORT strings
+
+' --- the shapes, one per `lower_returned_value` arm ------------------------
+
+' The bug: an identity call. Freshness is unprovable at the return site, so the
+' callee must copy.
+FUNC cbIdent(s AS String) AS String
+  RETURN toString(s)
+END FUNC
+
+' The identity nested — the copy must not be skipped because an inner call
+' already looked like a producer.
+FUNC cbIdent2(s AS String) AS String
+  RETURN toString(toString(s))
+END FUNC
+
+' A bare parameter: already copied, because it is an aliasing source.
+FUNC cbParam(s AS String) AS String
+  RETURN s
+END FUNC
+
+' A borrow laundered through a param-borrow helper that is NOT itself a callback.
+FUNC passer(a AS String, b AS String) AS String
+  RETURN a
+END FUNC
+FUNC cbViaBorrow(s AS String) AS String
+  RETURN passer(s, "other")
+END FUNC
+
+' A `collections::get` borrow re-returned.
+FUNC cbViaGet(s AS String) AS String
+  LET xs AS List OF String = [s, "g1"]
+  RETURN collections::get(xs, 0)
+END FUNC
+
+' Genuinely fresh: a concat registers a pending temp the return claims. This one
+' must NOT gain a second copy.
+FUNC cbConcat(s AS String) AS String
+  RETURN "<" & s & ">"
+END FUNC
+
+' Genuinely fresh: an owned local the return moves.
+FUNC cbLocal(s AS String) AS String
+  MUT out AS String = "L"
+  out = out & s
+  RETURN out
+END FUNC
+
+' A rodata literal, copied by `static_string_value`.
+FUNC cbLit(s AS String) AS String
+  IF len(s) > 9 THEN
+    RETURN "long"
+  END IF
+  RETURN "short"
+END FUNC
+
+' An unmarked native producer — no freshness provenance survives the call.
+FUNC cbUpper(s AS String) AS String
+  RETURN strings::upper(s)
+END FUNC
+
+' A fallible callee reached through an inline TRAP inside the callback.
+FUNC mayFail(s AS String) AS String
+  IF len(s) > 9 THEN
+    FAIL error(77050003, "long")
+  END IF
+  RETURN toString(s)
+END FUNC
+FUNC cbTrap(s AS String) AS String
+  LET v AS String = mayFail(s) TRAP
+    RETURN "trapped"
+  END TRAP
+  RETURN v
+END FUNC
+
+' A self-recursive callback: each level's return is the next level's result.
+FUNC cbRec(s AS String) AS String
+  IF len(s) <= 1 THEN
+    RETURN toString(s)
+  END IF
+  RETURN cbRec(strings::mid(s, 1, len(s) - 1))
+END FUNC
+
+' Reducers: `reduce` is the one HOF that already guarded this with runtime
+' pointer-identity checks, so all three of its ownership arms are pinned.
+FUNC redAdoptItem(acc AS String, x AS String) AS String
+  RETURN toString(x)
+END FUNC
+FUNC redKeepAcc(acc AS String, x AS String) AS String
+  RETURN toString(acc)
+END FUNC
+FUNC redConcat(acc AS String, x AS String) AS String
+  RETURN acc & x
+END FUNC
+
+' One line of the digest. A FUNC rather than a SUB so every repetition can be
+' folded into the running total even though only the first is printed.
+FUNC row(label AS String, got AS List OF String) AS String
+  RETURN label & "=" & collections::get(got, 0) & "," & collections::get(got, 2) & "," & toString(len(got))
+END FUNC
+
+SUB main()
+  MUT rep AS Integer = 0
+  MUT first AS String = ""
+  ' Repeated, and the source list is rebuilt each pass: a wrong free corrupts the
+  ' arena's free list, which faults a LATER allocation rather than this one.
+  WHILE rep < 40
+    MUT xs AS List OF String = []
+    MUT k AS Integer = 0
+    WHILE k < 3
+      xs = collections::append(xs, "n" & toString(k))
+      k = k + 1
+    END WHILE
+
+    MUT d AS String = ""
+    d = d & row("ident", collections::transform(xs, cbIdent)) & "\n"
+    d = d & row("ident2", collections::transform(xs, cbIdent2)) & "\n"
+    d = d & row("param", collections::transform(xs, cbParam)) & "\n"
+    d = d & row("viaBorrow", collections::transform(xs, cbViaBorrow)) & "\n"
+    d = d & row("viaGet", collections::transform(xs, cbViaGet)) & "\n"
+    d = d & row("concat", collections::transform(xs, cbConcat)) & "\n"
+    d = d & row("local", collections::transform(xs, cbLocal)) & "\n"
+    d = d & row("lit", collections::transform(xs, cbLit)) & "\n"
+    d = d & row("upper", collections::transform(xs, cbUpper)) & "\n"
+    d = d & row("trap", collections::transform(xs, cbTrap)) & "\n"
+    d = d & row("rec", collections::transform(xs, cbRec)) & "\n"
+    d = d & row("lambda", collections::transform(xs, LAMBDA(s AS String) -> toString(s))) & "\n"
+    d = d & row("sortBy", collections::sortBy(xs, cbIdent)) & "\n"
+
+    MUT m AS Map OF String TO String = Map OF String TO String {}
+    m = collections::set(m, "a", "va")
+    m = collections::set(m, "b", "vb")
+    LET mv AS Map OF String TO String = collections::mapValues(m, cbIdent)
+    d = d & "mapValues=" & collections::get(mv, "a") & "," & collections::get(mv, "b") & "\n"
+
+    d = d & "redAdopt=" & collections::reduce(xs, "s", redAdoptItem) & "\n"
+    d = d & "redKeep=" & collections::reduce(xs, "s", redKeepAcc) & "\n"
+    d = d & "redConcat=" & collections::reduce(xs, "s", redConcat) & "\n"
+    d = d & "redRight=" & collections::reduceRight(xs, "s", redConcat) & "\n"
+
+    LET g AS Map OF String TO List OF String = collections::groupBy(xs, cbIdent, cbIdent)
+    d = d & "groupBy=" & toString(len(collections::keys(g))) & "\n"
+
+    ' The source must survive every pass unchanged.
+    d = d & "src=" & collections::get(xs, 0) & "," & collections::get(xs, 2)
+
+    ' Print the digest once; assert every later repetition reproduces it exactly.
+    ' A wrong free corrupts the arena's free list, so the failure usually lands on
+    ' a LATER repetition, not the printed one.
+    IF rep = 0 THEN
+      io::print(d)
+      first = d
+    END IF
+    IF d <> first THEN
+      io::print("DRIFT at rep " & toString(rep))
+      io::print(d)
+      EXIT SUB
+    END IF
+    rep = rep + 1
+  END WHILE
+  io::print("stable over " & toString(rep) & " repetitions")
+END SUB

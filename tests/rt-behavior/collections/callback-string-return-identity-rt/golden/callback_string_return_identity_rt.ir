@@ -1,0 +1,603 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "callback_string_return_identity_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "cbIdent",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 26, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 27, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "cbIdent2",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 32, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 33, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "s" }] }] } }
+    ]
+  },
+  {
+    "name": "cbParam",
+    "line": 37,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 37, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 38, "value": { "kind": "local", "name": "s" } }
+    ]
+  },
+  {
+    "name": "passer",
+    "line": 42,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "a", "line": 42, "type": "String", "default": null },
+    { "name": "b", "line": 42, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 43, "value": { "kind": "local", "name": "a" } }
+    ]
+  },
+  {
+    "name": "cbViaBorrow",
+    "line": 45,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 45, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 46, "value": { "kind": "call", "type": "String", "target": "passer", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "String", "value": "other" }] } }
+    ]
+  },
+  {
+    "name": "cbViaGet",
+    "line": 50,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 50, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 51, "mutable": false, "name": "xs", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "String", "value": "g1" }] } },
+    { "op": "return", "line": 52, "value": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    ]
+  },
+  {
+    "name": "cbConcat",
+    "line": 57,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 57, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 58, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "<" }, "right": { "kind": "local", "name": "s" } }, "right": { "kind": "const", "type": "String", "value": ">" } } }
+    ]
+  },
+  {
+    "name": "cbLocal",
+    "line": 62,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 62, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 63, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "L" } },
+    { "op": "assign", "line": 64, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "local", "name": "s" } } },
+    { "op": "return", "line": 65, "value": { "kind": "local", "name": "out" } }
+    ]
+  },
+  {
+    "name": "cbLit",
+    "line": 69,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 69, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "line": 70,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "s" }] }, "right": { "kind": "const", "type": "Integer", "value": "9" } },
+      "then": [
+      { "op": "return", "line": 71, "value": { "kind": "const", "type": "String", "value": "long" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 73, "value": { "kind": "const", "type": "String", "value": "short" } }
+    ]
+  },
+  {
+    "name": "cbUpper",
+    "line": 77,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 77, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 78, "value": { "kind": "call", "type": "String", "target": "strings.upper", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "mayFail",
+    "line": 82,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 82, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "line": 83,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "s" }] }, "right": { "kind": "const", "type": "Integer", "value": "9" } },
+      "then": [
+      { "op": "fail", "line": 84, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "long" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "84" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 86, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "cbTrap",
+    "line": 88,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 88, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 89, "mutable": false, "name": "$trap_res15", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "mayFail", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 89, "mutable": true, "name": "$trap_val16", "type": "String", "value": null },
+    {
+      "op": "if",
+      "line": 89,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res15" } },
+      "then": [
+      { "op": "assign", "line": 89, "name": "$trap_val16", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res15" } } }
+      ],
+      "else": [
+      { "op": "return", "line": 90, "value": { "kind": "const", "type": "String", "value": "trapped" } }
+      ]
+    },
+    { "op": "bind", "line": 89, "mutable": false, "name": "v", "type": "String", "value": { "kind": "local", "name": "$trap_val16" } },
+    { "op": "return", "line": 92, "value": { "kind": "local", "name": "v" } }
+    ]
+  },
+  {
+    "name": "cbRec",
+    "line": 96,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 96, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "line": 97,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "s" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
+      "then": [
+      { "op": "return", "line": 98, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "s" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 100, "value": { "kind": "call", "type": "String", "target": "cbRec", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "s" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }] } }
+    ]
+  },
+  {
+    "name": "redAdoptItem",
+    "line": 105,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "acc", "line": 105, "type": "String", "default": null },
+    { "name": "x", "line": 105, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 106, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "x" }] } }
+    ]
+  },
+  {
+    "name": "redKeepAcc",
+    "line": 108,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "acc", "line": 108, "type": "String", "default": null },
+    { "name": "x", "line": 108, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 109, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "acc" }] } }
+    ]
+  },
+  {
+    "name": "redConcat",
+    "line": 111,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "acc", "line": 111, "type": "String", "default": null },
+    { "name": "x", "line": 111, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 112, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "local", "name": "x" } } }
+    ]
+  },
+  {
+    "name": "row",
+    "line": 117,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 117, "type": "String", "default": null },
+    { "name": "got", "line": 117, "type": "List OF String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 118, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "got" }, { "kind": "const", "type": "Integer", "value": "0" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "got" }, { "kind": "const", "type": "Integer", "value": "2" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "got" }] }] } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 121,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 122, "mutable": true, "name": "rep", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 123, "mutable": true, "name": "first", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "while",
+      "line": 126,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "rep" }, "right": { "kind": "const", "type": "Integer", "value": "40" } },
+      "body": [
+      { "op": "bind", "line": 127, "mutable": true, "name": "xs", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
+      { "op": "bind", "line": 128, "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      {
+        "op": "while",
+        "line": 129,
+        "loop": "while",
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+        "body": [
+        { "op": "assign", "line": 130, "name": "xs", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "n" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "k" }] } }] } },
+        { "op": "assign", "line": 131, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ]
+      },
+      { "op": "bind", "line": 134, "mutable": true, "name": "d", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+      { "op": "assign", "line": 135, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "ident" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbIdent", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 136, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "ident2" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbIdent2", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 137, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "param" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbParam", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 138, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "viaBorrow" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbViaBorrow", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 139, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "viaGet" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbViaGet", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 140, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "concat" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbConcat", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 141, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "local" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbLocal", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 142, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "lit" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbLit", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 143, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "upper" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbUpper", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 144, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "trap" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbTrap", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 145, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "rec" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbRec", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 146, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "lambda" }, { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 147, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "call", "type": "String", "target": "row", "args": [{ "kind": "const", "type": "String", "value": "sortBy" }, { "kind": "call", "type": "List OF String", "target": "#collections_sortBy$String$String", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbIdent", "type": "FUNC(String) AS String" }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "bind", "line": 149, "mutable": true, "name": "m", "type": "Map OF String TO String", "value": { "kind": "map", "type": "Map OF String TO String", "entries": [] } },
+      { "op": "assign", "line": 150, "name": "m", "value": { "kind": "call", "type": "Map OF String TO String", "target": "collections.set", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "va" }] } },
+      { "op": "assign", "line": 151, "name": "m", "value": { "kind": "call", "type": "Map OF String TO String", "target": "collections.set", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "const", "type": "String", "value": "vb" }] } },
+      { "op": "bind", "line": 152, "mutable": false, "name": "mv", "type": "Map OF String TO String", "value": { "kind": "call", "type": "Map OF String TO String", "target": "#collections_mapValues$String$String$String", "args": [{ "kind": "local", "name": "m" }, { "kind": "functionRef", "name": "cbIdent", "type": "FUNC(String) AS String" }] } },
+      { "op": "assign", "line": 153, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "String", "value": "mapValues=" } }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "mv" }, { "kind": "const", "type": "String", "value": "a" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "mv" }, { "kind": "const", "type": "String", "value": "b" }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 155, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "String", "value": "redAdopt=" } }, "right": { "kind": "call", "type": "String", "target": "collections.reduce", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "String", "value": "s" }, { "kind": "functionRef", "name": "redAdoptItem", "type": "FUNC(String, String) AS String" }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 156, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "String", "value": "redKeep=" } }, "right": { "kind": "call", "type": "String", "target": "collections.reduce", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "String", "value": "s" }, { "kind": "functionRef", "name": "redKeepAcc", "type": "FUNC(String, String) AS String" }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "bind", "line": 157, "mutable": true, "name": "$g_fold54", "type": "String", "value": { "kind": "const", "type": "String", "value": "s" } },
+      {
+        "op": "forEach",
+        "line": 157,
+        "name": "$g_folditem55",
+        "type": "String",
+        "iterable": { "kind": "local", "name": "xs" },
+        "body": [
+        { "op": "assign", "line": 157, "name": "$g_fold54", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "$g_fold54" }, "right": { "kind": "local", "name": "$g_folditem55" } } }
+        ]
+      },
+      { "op": "assign", "line": 157, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "String", "value": "redConcat=" } }, "right": { "kind": "local", "name": "$g_fold54" } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "bind", "line": 158, "mutable": true, "name": "$g_fold56", "type": "String", "value": { "kind": "const", "type": "String", "value": "s" } },
+      {
+        "op": "for",
+        "line": 158,
+        "name": "$g_foldidx58",
+        "type": "Integer",
+        "start": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "xs" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
+        "end": { "kind": "const", "type": "Integer", "value": "0" },
+        "step": { "kind": "const", "type": "Integer", "value": "-1" },
+        "body": [
+        { "op": "bind", "line": 158, "mutable": false, "name": "$g_folditem57", "type": "String", "value": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "$g_foldidx58" }] } },
+        { "op": "assign", "line": 158, "name": "$g_fold56", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "$g_fold56" }, "right": { "kind": "local", "name": "$g_folditem57" } } }
+        ]
+      },
+      { "op": "assign", "line": 158, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "String", "value": "redRight=" } }, "right": { "kind": "local", "name": "$g_fold56" } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "bind", "line": 160, "mutable": false, "name": "g", "type": "Map OF String TO List OF String", "value": { "kind": "call", "type": "Map OF String TO List OF String", "target": "#collections_groupBy$String$String$String", "args": [{ "kind": "local", "name": "xs" }, { "kind": "functionRef", "name": "cbIdent", "type": "FUNC(String) AS String" }, { "kind": "functionRef", "name": "cbIdent", "type": "FUNC(String) AS String" }] } },
+      { "op": "assign", "line": 161, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "String", "value": "groupBy=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "collections.keys", "args": [{ "kind": "local", "name": "g" }] }] }] } }, "right": { "kind": "const", "type": "String", "value": "\n" } } },
+      { "op": "assign", "line": 164, "name": "d", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "String", "value": "src=" } }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "2" }] } } },
+      {
+        "op": "if",
+        "line": 169,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "rep" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+        "then": [
+        { "op": "eval", "line": 170, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "d" }] } },
+        { "op": "assign", "line": 171, "name": "first", "value": { "kind": "local", "name": "d" } }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "op": "if",
+        "line": 173,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "d" }, "right": { "kind": "local", "name": "first" } },
+        "then": [
+        { "op": "eval", "line": 174, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "DRIFT at rep " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "rep" }] } }] } },
+        { "op": "eval", "line": 175, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "d" }] } },
+        { "op": "return", "line": 176, "value": null }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 178, "name": "rep", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "rep" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 180, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stable over " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "rep" }] } }, "right": { "kind": "const", "type": "String", "value": " repetitions" } }] } }
+    ]
+  },
+  {
+    "name": "#collections_groupBy$String$String$String",
+    "line": 200,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 200, "type": "List OF String", "default": null },
+    { "name": "keyFn", "line": 200, "type": "FUNC(String) AS String", "default": null },
+    { "name": "valFn", "line": 200, "type": "FUNC(String) AS String", "default": null }
+    ],
+    "returns": "Map OF String TO List OF String",
+    "body": [
+    { "op": "bind", "line": 201, "mutable": false, "name": "keys", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "keyFn" }] } },
+    { "op": "bind", "line": 202, "mutable": false, "name": "vals", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "valFn" }] } },
+    { "op": "bind", "line": 203, "mutable": true, "name": "result", "type": "Map OF String TO List OF String", "value": { "kind": "map", "type": "Map OF String TO List OF String", "entries": [] } },
+    { "op": "bind", "line": 204, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 205,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "keys" }] } },
+      "body": [
+      { "op": "bind", "line": 206, "mutable": false, "name": "k", "type": "String", "value": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "i" }] } },
+      { "op": "bind", "line": 207, "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "vals" }, { "kind": "local", "name": "i" }] } },
+      {
+        "op": "if",
+        "line": 208,
+        "condition": { "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "k" }] },
+        "then": [
+        { "op": "bind", "line": 209, "mutable": true, "name": "bucket", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "collections.get", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "k" }] } },
+        { "op": "assign", "line": 210, "name": "bucket", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "bucket" }, { "kind": "local", "name": "v" }] } },
+        { "op": "assign", "line": 211, "name": "result", "value": { "kind": "call", "type": "Map OF String TO List OF String", "target": "collections.set", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "k" }, { "kind": "local", "name": "bucket" }] } }
+        ],
+        "else": [
+        { "op": "bind", "line": 213, "mutable": true, "name": "bucket", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
+        { "op": "assign", "line": 214, "name": "bucket", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "bucket" }, { "kind": "local", "name": "v" }] } },
+        { "op": "assign", "line": 215, "name": "result", "value": { "kind": "call", "type": "Map OF String TO List OF String", "target": "collections.set", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "k" }, { "kind": "local", "name": "bucket" }] } }
+        ]
+      },
+      { "op": "assign", "line": 217, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 219, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "#collections_mapValues$String$String$String",
+    "line": 222,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 222, "type": "Map OF String TO String", "default": null },
+    { "name": "f", "line": 222, "type": "FUNC(String) AS String", "default": null }
+    ],
+    "returns": "Map OF String TO String",
+    "body": [
+    { "op": "bind", "line": 223, "mutable": true, "name": "result", "type": "Map OF String TO String", "value": { "kind": "map", "type": "Map OF String TO String", "entries": [] } },
+    {
+      "op": "forEach",
+      "line": 224,
+      "name": "e",
+      "type": "MapEntry OF String TO String",
+      "iterable": { "kind": "local", "name": "value" },
+      "body": [
+      { "op": "assign", "line": 225, "name": "result", "value": { "kind": "call", "type": "Map OF String TO String", "target": "collections.set", "args": [{ "kind": "local", "name": "result" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "key" }, { "kind": "call", "type": "String", "target": "f", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "value" }] }] } }
+      ]
+    },
+    { "op": "return", "line": 227, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "#collections_sortBy$String$String",
+    "line": 73,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 73, "type": "List OF String", "default": null },
+    { "name": "keyFn", "line": 73, "type": "FUNC(String) AS String", "default": null }
+    ],
+    "returns": "List OF String",
+    "body": [
+    { "op": "bind", "line": 74, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+    {
+      "op": "if",
+      "line": 75,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+      "then": [
+      { "op": "return", "line": 76, "value": { "kind": "local", "name": "value" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 78, "mutable": true, "name": "items", "type": "List OF String", "value": { "kind": "local", "name": "value" } },
+    { "op": "bind", "line": 79, "mutable": true, "name": "keys", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "keyFn" }] } },
+    { "op": "bind", "line": 80, "mutable": true, "name": "width", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "while",
+      "line": 81,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "width" }, "right": { "kind": "local", "name": "n" } },
+      "body": [
+      { "op": "bind", "line": 82, "mutable": true, "name": "itemsDst", "type": "List OF String", "value": { "kind": "local", "name": "items" } },
+      { "op": "bind", "line": 83, "mutable": true, "name": "keysDst", "type": "List OF String", "value": { "kind": "local", "name": "keys" } },
+      { "op": "bind", "line": 84, "mutable": true, "name": "lo", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      {
+        "op": "while",
+        "line": 85,
+        "loop": "while",
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "lo" }, "right": { "kind": "local", "name": "n" } },
+        "body": [
+        { "op": "bind", "line": 86, "mutable": true, "name": "mid", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lo" }, "right": { "kind": "local", "name": "width" } } },
+        {
+          "op": "if",
+          "line": 87,
+          "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "mid" }, "right": { "kind": "local", "name": "n" } },
+          "then": [
+          { "op": "assign", "line": 88, "name": "mid", "value": { "kind": "local", "name": "n" } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "bind", "line": 90, "mutable": true, "name": "hi", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lo" }, "right": { "kind": "local", "name": "width" } }, "right": { "kind": "local", "name": "width" } } },
+        {
+          "op": "if",
+          "line": 91,
+          "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "hi" }, "right": { "kind": "local", "name": "n" } },
+          "then": [
+          { "op": "assign", "line": 92, "name": "hi", "value": { "kind": "local", "name": "n" } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "bind", "line": 94, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "lo" } },
+        { "op": "bind", "line": 95, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "local", "name": "mid" } },
+        { "op": "bind", "line": 96, "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "local", "name": "lo" } },
+        {
+          "op": "while",
+          "line": 97,
+          "loop": "while",
+          "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "mid" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "local", "name": "hi" } } },
+          "body": [
+          {
+            "op": "if",
+            "line": 98,
+            "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "j" }] }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "i" }] } },
+            "then": [
+            { "op": "assign", "line": 99, "name": "itemsDst", "value": { "kind": "call", "type": "List OF String", "target": "collections.set", "args": [{ "kind": "local", "name": "itemsDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "items" }, { "kind": "local", "name": "j" }] }] } },
+            { "op": "assign", "line": 100, "name": "keysDst", "value": { "kind": "call", "type": "List OF String", "target": "collections.set", "args": [{ "kind": "local", "name": "keysDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "j" }] }] } },
+            { "op": "assign", "line": 101, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+            ],
+            "else": [
+            { "op": "assign", "line": 103, "name": "itemsDst", "value": { "kind": "call", "type": "List OF String", "target": "collections.set", "args": [{ "kind": "local", "name": "itemsDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "items" }, { "kind": "local", "name": "i" }] }] } },
+            { "op": "assign", "line": 104, "name": "keysDst", "value": { "kind": "call", "type": "List OF String", "target": "collections.set", "args": [{ "kind": "local", "name": "keysDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "i" }] }] } },
+            { "op": "assign", "line": 105, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+            ]
+          },
+          { "op": "assign", "line": 107, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          ]
+        },
+        {
+          "op": "while",
+          "line": 109,
+          "loop": "while",
+          "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "mid" } },
+          "body": [
+          { "op": "assign", "line": 110, "name": "itemsDst", "value": { "kind": "call", "type": "List OF String", "target": "collections.set", "args": [{ "kind": "local", "name": "itemsDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "items" }, { "kind": "local", "name": "i" }] }] } },
+          { "op": "assign", "line": 111, "name": "keysDst", "value": { "kind": "call", "type": "List OF String", "target": "collections.set", "args": [{ "kind": "local", "name": "keysDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "i" }] }] } },
+          { "op": "assign", "line": 112, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+          { "op": "assign", "line": 113, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          ]
+        },
+        {
+          "op": "while",
+          "line": 115,
+          "loop": "while",
+          "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "local", "name": "hi" } },
+          "body": [
+          { "op": "assign", "line": 116, "name": "itemsDst", "value": { "kind": "call", "type": "List OF String", "target": "collections.set", "args": [{ "kind": "local", "name": "itemsDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "items" }, { "kind": "local", "name": "j" }] }] } },
+          { "op": "assign", "line": 117, "name": "keysDst", "value": { "kind": "call", "type": "List OF String", "target": "collections.set", "args": [{ "kind": "local", "name": "keysDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "j" }] }] } },
+          { "op": "assign", "line": 118, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+          { "op": "assign", "line": 119, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          ]
+        },
+        { "op": "assign", "line": 121, "name": "lo", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lo" }, "right": { "kind": "local", "name": "width" } }, "right": { "kind": "local", "name": "width" } } }
+        ]
+      },
+      { "op": "assign", "line": 123, "name": "items", "value": { "kind": "local", "name": "itemsDst" } },
+      { "op": "assign", "line": 124, "name": "keys", "value": { "kind": "local", "name": "keysDst" } },
+      { "op": "assign", "line": 125, "name": "width", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "width" }, "right": { "kind": "local", "name": "width" } } }
+      ]
+    },
+    { "op": "return", "line": 127, "value": { "kind": "local", "name": "items" } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "line": 146,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 146, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 146, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  }
+  ]
+}
