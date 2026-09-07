@@ -633,3 +633,52 @@ Two guards, both RED-checked: `the_worker_frame_keeps_the_stack_16_byte_aligned`
 (`win_x86_64/code.rs`). The second covers the other half of that bug: **shadow space is
 the caller's job and lands above its own `rsp`**, so an emitter that calls out without
 reserving 32 bytes hands the callee 32 bytes of its own locals.
+
+## Spawning a child: what it inherits, per platform (bug-543)
+
+The guarantee is the same everywhere — **a child gets only the descriptors it was
+handed** — but the mechanism differs on every platform, and each has a trap.
+
+### macOS: `posix_spawnp` with `POSIX_SPAWN_SETEXEC`
+
+Flags are `POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETEXEC |
+POSIX_SPAWN_CLOEXEC_DEFAULT` = `0x0004 | 0x0040 | 0x4000` = **16452**.
+
+`POSIX_SPAWN_SETEXEC` is the part that keeps this small: it makes `posix_spawn`
+an **exec of the calling image**, so the fork stays. `chdir`/`setenv` stay where
+they were (no `addchdir_np`, no hand-built `envp`), and the self-pipe errno
+protocol stays — it now carries `posix_spawn`'s return value, which *is* the
+error number.
+
+**`POSIX_SPAWN_SETSIGDEF` is load-bearing, not belt-and-braces.** An ignored
+signal disposition survives `exec`, `io::` installs a process-wide
+`signal(SIGPIPE, SIG_IGN)` (bug-467), and `SETEXEC` means there is no longer a
+fork-child "between" in which to call `signal(SIGPIPE, SIG_DFL)`. Drop the
+attribute and a spawned `writer | head` **never terminates** — the writer takes
+`EPIPE` as a return code it ignores instead of dying. The sigset must be filled:
+Darwin's `sigset_t` is a single 32-bit word, so `sigfillset` is `0xFFFFFFFF`.
+
+Do **not** use a close-loop here. `getdtablesize()` measures **245,760** on a
+normal macOS host, so a loop is a quarter-million syscalls per spawn.
+
+### Linux: `close_range`, as a raw syscall
+
+`close_range` is **syscall 436 on x86-64, AArch64 and RISC-V alike**. It cannot
+be a libc import: **musl 1.2.6 exports no wrapper** (`nm -D` on
+`libc.musl-*.so.1` finds nothing and the header declaration is missing), and
+going raw also retires the glibc-2.34 floor. Keep a bounded `close(4..1024)`
+fallback for a kernel that returns `ENOSYS` — and prove the fallback is not dead
+code by forcing the syscall to fail (an invalid `flags` gives `EINVAL`).
+
+### Windows: `bInheritHandles` is TRUE
+
+A common misreading, and it was written down wrongly in this repo before bug-543:
+`gen_windows.rs` passes **`bInheritHandles = TRUE`**, not FALSE. Exhaustiveness
+comes from the `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` in the `STARTUPINFOEXA` — the
+list is what limits the child to the three stdio handles. With `FALSE` the list
+is **inert and the child gets nothing**, which is a different bug, not a stricter
+one.
+
+Windows PEs are only ever compile-tested here, so this path is pinned by the
+`spawn_tail_limits_inheritance_to_the_stdio_handle_list` codegen-inspection test
+rather than by execution.
