@@ -286,8 +286,8 @@ Shape-selection criteria the repo's own choices reveal:
 | 4 | gzip/deflate | Builtin + dlopen — already decided | plan-93-A specifies `compress::` mirroring the libssl dlopen against system zlib. Reasoning holds: 64 MiB bodies, dynamic Huffman + 32 KiB LZ77 window, and `http::` is a consumer. Unblocks 93-B/C. |
 | 5 | zip/tar archives | Pure MFB package | Container formats are header parsing and offsets; delegate DEFLATE to `compress::`. Matches http's own contract — "all protocol work is string manipulation; only the transport branches reach native code" (`src/builtins/http.rs:5`, quoted in plan-93-A). Unblocks `.docx`/`.xlsx`/`.odt`/`.epub`/`.jar`. |
 | 6 | XML | Pure MFB package | See note below. `grep -ril xml src/codegen/builtins/ packages/` hits only HTML *escaping* and MIME tables — zero parsing coverage. |
-| 7 | WebSocket | Split: builtin seam + pure MFB package | Blocker is builtin (connection hijack out of `http::handleRequest`); RFC 6455 framing is masking-XOR + header parsing, with SHA-1 and base64 already builtin. See the `# websockets` section above for the full diagnosis. |
-| 8 | PostgreSQL client | Pure MFB package | See note below. |
+| 7 | WebSocket | Pure MFB package (client + standalone server); the `http`-integrated server needs a builtin seam | `wss://` establishes TLS at connect time and then speaks HTTP over it, so it never needs `tls::wrap` — this is NOT blocked by the macOS constraint below. A package owning the connection from `tcp::connect`/`tls::connect` onward ships today. Only sharing a port with `http::server` needs the hijack seam. See `# websockets` above, which reaches the same three verdicts. |
+| 8 | PostgreSQL client | **Binding package (libpq)** — corrected 2026-09-06 | Postgres negotiates TLS in-band (SSLRequest, then handshake on the same socket), which is exactly the `tls::wrap` that cannot exist. See note below. |
 
 Deliberately **not** recommended: a web framework (`http::route` already does `:name`,
 `:name?` and `*` path params) and image codecs (canvas already decodes PNG via
@@ -298,19 +298,43 @@ in-tree waiting for it, and it shortens every later package's oracle probe and e
 Then **#4**, because it is already scoped, already half-implemented, and three written
 plans queue behind it.
 
+## Hard constraint on every network package: TLS must be established at connect time
+
+`tls::wrap(tcp::Socket)` does not exist and cannot (`.ai/net-tls.md:204` — Network.framework
+fixes TLS in `nw_parameters` at creation; the two alternatives that could adopt a live fd
+are LibreSSL, unsupported for new development, and Secure Transport, deprecated and capped
+at TLS 1.2). This is permanent architecture under Apple's rules, not a gap awaiting work.
+
+The consequence for package selection is a clean rule:
+
+* **Pure-MFB-viable** — TLS is established at connect time, before any protocol bytes:
+  HTTPS, `wss://`, Redis (TLS-on-connect), MongoDB, gRPC.
+* **NOT pure-MFB-viable, binding-package candidates only** — TLS is negotiated in band on
+  an already-open plaintext socket: PostgreSQL (SSLRequest), MySQL (TLS after the initial
+  handshake packet), SMTP/IMAP/POP3 (`STARTTLS`), FTPS (`AUTH TLS`), LDAP StartTLS.
+
+Check which side a protocol falls on **before** scoping it as a package. The failure mode
+is not a compile error — it is discovering at the end that the driver works, and cannot
+encrypt on one of the five targets.
+
 ## The three calls worth defending
 
-**Postgres as pure MFB, not a binding package.** Looks wrong next to `sqlite3`; isn't.
-SQLite is a *file format plus query engine* — reimplementing is absurd, so binding is
-correct. Postgres is a *wire protocol*: a stable, well-specified message stream over a
-socket. Essentially no ecosystem binds libpq — Go, JS, and Rust's `tokio-postgres` all
-speak it directly. Every primitive is present: `tcp`, `tls`, and SCRAM-SHA-256 falls out of
-`crypto::hmac` + `crypto::pbkdf2` + `crypto::hash` + `crypto::constantTimeEqual`. The
-decisive factor for a compile-to-native language is deployment: a binding needs libpq
-installed (absent by default on macOS and Windows) or seven vendored builds like `libsnd`;
-a wire implementation ships as one binary with no host dependency. Shape it like `jwt`.
-Caveat: `grep` over `src/codegen/builtins/crypto/` shows no MD5, so legacy `md5` auth is
-out — deprecated and gone in PG 18, but say so in the README.
+**Postgres as a libpq binding — corrected 2026-09-06.** This entry originally argued
+the opposite (pure MFB, shaped like `jwt`, because Postgres is a wire protocol and
+essentially no ecosystem binds libpq). That reasoning ignored TLS. Postgres negotiates
+encryption **in band**: connect in plaintext, send the 8-byte SSLRequest (code 80877103),
+read `S`, then handshake TLS *on that same socket*. That final step is precisely
+`tls::wrap(tcp::Socket)`, which `.ai/net-tls.md:204` establishes can never exist — the
+macOS constraint is permanent, not pending. A pure-MFB driver would therefore be
+plaintext-only, which is unusable against any managed provider. libpq brings its own TLS
+and does its own negotiation, so the binding is the correct permanent design; the
+deploy-dependency cost (libpq absent by default on macOS and Windows, so `type: system`
+plus a documented prerequisite, or vendored builds like `libsnd`) is real but strictly
+smaller than shipping a driver that cannot encrypt. One escape hatch exists and is not
+enough on its own: PG 17's `sslnegotiation=direct` (ALPN `postgresql`) does TLS
+immediately on connect and would work with `tls::connect` as-is — but it needs server >= 17
+and is not the default, so a pure-MFB driver could only encrypt against the newest
+Postgres.
 
 **XML as pure MFB, not a libxml2 binding.** `yaml` at 2,795 lines is the precedent and XML
 is comparable. libxml2 would mean a large wrapper surface, an inherited CVE history, and —
