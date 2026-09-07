@@ -5,7 +5,7 @@ Effort: medium
 Severity: **HIGH** (unbounded leak on any loop whose fallible call fails)
 Class: Memory / correctness
 
-Status: **FIXED** (2026-09-07, `<fix-hash>`)
+Status: **FIXED** (2026-09-07, `56f9fe0af`)
 Regression Test: `tests/runtime/rt_scope_drop_leaks.rs` —
 `a_trap_whose_call_always_fails_runs_at_constant_rss`,
 `a_trapped_error_read_by_its_handler_runs_at_constant_rss`,
