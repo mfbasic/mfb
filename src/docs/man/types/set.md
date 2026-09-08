@@ -33,13 +33,13 @@ LET collapsed = Set OF Integer { 1, 1, 2 }   ' holds 1 and 2 — len is 2
 
 ## Elements
 
-A set element must be comparable: `Integer`, `Float`, `Fixed`, `Boolean`,
-`String`, `Byte`, `Nothing`, enum types, or records whose fields are all
-comparable. `List`, `Map`, `Set`, unions, functions, lambdas, threads, and
-resource handles are not comparable and cannot be set elements. Element equality
-is a bitwise comparison, so `Float` elements distinguish `+0.0` from `-0.0` and
-treat `NaN` as equal to `NaN` — distinct from the IEEE rule used by the `=`
-operator on `Float` values.
+A set element must be comparable: `Integer`, `Float`, `Fixed`, `Money`,
+`Boolean`, `String`, `Byte`, `Scalar`, `Nothing`, enum types, or records whose
+fields are all comparable. `List`, `Map`, `Set`, unions, functions, lambdas,
+threads, and resource handles are not comparable and cannot be set elements.
+Element equality is a bitwise comparison, so `Float` elements distinguish `+0.0`
+from `-0.0` and treat `NaN` as equal to `NaN` — distinct from the IEEE rule used
+by the `=` operator on `Float` values.
 
 ## Owned items and storage
 

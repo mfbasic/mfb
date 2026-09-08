@@ -17,9 +17,12 @@ MFBASIC comparison operators return `Boolean`. The equality operators are `=`
 `=` and `<>` accept any two numeric operands directly — any cross-numeric pairing
 such as `Integer = Float` or `Byte <> Fixed` is accepted with no compatibility
 requirement — or any two other compatible comparable operands such as `Boolean`
-or `String`. The ordering operators require two numeric operands, two `String`
-operands, or two `Scalar` operands; mixed `String`/numeric (or `Scalar`/anything
-else) ordering is a compile-time type error.
+or `String`. `Money` is the one exception: because it is dimensioned, a
+comparison involving a `Money` requires *both* operands to be `Money`, so
+`amount = 5` is `TYPE_MONEY_OPERATION_INVALID` and `amount = toMoney(5)` is the
+way to write it. The ordering operators require two numeric operands, two
+`String` operands, or two `Scalar` operands; mixed `String`/numeric (or
+`Scalar`/anything else) ordering is a compile-time type error.
 
 Comparisons do not chain specially. `a < b < c` parses left-associatively as
 `(a < b) < c`, and because `a < b` is `Boolean` and `Boolean` is not orderable,
@@ -41,14 +44,15 @@ rule.)
 
 ## Comparable and orderable
 
-Comparable types (`=`, `<>`) are `Integer`, `Float`, `Fixed`, `Boolean`,
-`String`, `Byte`, `Scalar`, `Nothing`, enums, the built-in `Error`/`ErrorLoc`
-records, and records whose fields are all comparable.
+Comparable types (`=`, `<>`) are `Integer`, `Float`, `Fixed`, `Money`,
+`Boolean`, `String`, `Byte`, `Scalar`, `Nothing`, enums, the built-in
+`Error`/`ErrorLoc` records, and records whose fields are all comparable.
 
 Orderable types (`<`, `>`, `<=`, `>=`) are the narrower set `Integer`, `Float`,
-`Fixed`, `Byte`, `String`, and `Scalar`. `Boolean`, `Nothing`, enums, unions, and
-records are comparable but not orderable. A `Scalar` orders only against another
-`Scalar` (by code-point value); it is non-numeric and never orders against a
+`Fixed`, `Money`, `Byte`, `String`, and `Scalar`. `Boolean`, `Nothing`, enums,
+unions, and records are comparable but not orderable. A `Money` compares and
+orders only against another `Money`, and a `Scalar` only against another `Scalar`
+(by code-point value) — a `Scalar` is non-numeric and never orders against a
 `String` or a numeric type. `collections::sort` and `collections::sortBy` require
 an orderable element or key type.
 

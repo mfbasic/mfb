@@ -30,7 +30,7 @@ are first-class function type forms rather than named built-in data types.
 
 ## Primitives
 
-The six core primitives are scalar value types:
+The eight core primitives are scalar value types:
 
 - **`Boolean`** — a truth value; the literals are `TRUE` and `FALSE`.
 - **`Byte`** — an unsigned 8-bit integer with range 0 through 255. An `Integer`
@@ -44,14 +44,25 @@ The six core primitives are scalar value types:
 - **`Fixed`** — a deterministic 64-bit binary fixed-point number with a signed
   32/32 split and resolution 1 / 2^32, ranging approximately -2147483648.0
   through 2147483647.9999999998. It is not exact decimal arithmetic.
+- **`Money`** — an exact base-10 fixed-point amount scaled to five decimal
+  places, for auditable financial values. A `Money` literal carries an `m` or `M`
+  suffix (`1.25m`). It is *dimensioned*: it adds and subtracts only against
+  another `Money`, scales by a plain number, and compares only against another
+  `Money`, so `amount = 5` is a compile error and `amount = toMoney(5)` is the
+  way to write it. See `mfb man types numeric` and `mfb man money`.
+  [[src/numeric.rs:MONEY_SCALE]]
 - **`String`** — an immutable UTF-8 string. Length, search, and substring
   operations use zero-based Unicode scalar indexes, not byte offsets or
   grapheme-cluster indexes.
+- **`Scalar`** — a single 32-bit Unicode scalar value: a code point in
+  `U+0000..U+D7FF` or `U+E000..U+10FFFF` (surrogates excluded), written as a
+  backtick literal (`` `A` ``, `` `中` ``, `` `\u{1F600}` ``). It is one scalar,
+  not a grapheme cluster. `Scalar` is non-numeric — the arithmetic operators
+  reject it — so code-point math goes through `toInt` and `toScalar`. See
+  `mfb man types string`. [[src/lexer.rs:lex_scalar]]
 
 `Nothing` is the unit type; its only value is `NOTHING`. A `SUB` has success type
-`Nothing`. `Money` is a built-in scalar for auditable financial amounts — an
-exact base-10 fixed-point value scaled to five decimal places — with a restricted
-dimensional algebra; see `mfb man types numeric` and `mfb man money`. [[src/numeric.rs:MONEY_SCALE]]
+`Nothing`.
 
 See `mfb man types numeric` for numeric literal defaults, the promotion table,
 and the checked-arithmetic error rules.
@@ -119,14 +130,16 @@ user code. See `mfb man errors`.
 
 ## Comparability and ownership
 
-Comparable types (`=`, `<>`) are `Integer`, `Float`, `Fixed`, `Boolean`,
-`String`, `Byte`, `Nothing`, enum types, the built-in `Error`/`ErrorLoc` records,
-and records whose fields are all comparable. Orderable types (`<`, `>`, `<=`,
-`>=`) are the narrower set `Integer`, `Float`, `Fixed`, `Byte`, and `String`.
-`List`, `Map`, `Set`, unions, functions, lambdas, threads, and resource handles
-are neither comparable nor orderable. Map keys and list search helpers require
-comparable types; `collections::sort` requires orderable ones. See
-`mfb man types comparisons`.
+Comparable types (`=`, `<>`) are `Integer`, `Float`, `Fixed`, `Money`,
+`Boolean`, `String`, `Byte`, `Scalar`, `Nothing`, enum types, the built-in
+`Error`/`ErrorLoc` records, and records whose fields are all comparable.
+Orderable types (`<`, `>`, `<=`, `>=`) are the narrower set `Integer`, `Float`,
+`Fixed`, `Money`, `Byte`, `String`, and `Scalar`. Two of those compare and order
+only against their own type: a `Money` never against a bare number, a `Scalar`
+never against a number or a `String`. `List`, `Map`, `Set`, unions, functions,
+lambdas, threads, and resource handles are neither comparable nor orderable. Map
+keys and list search helpers require comparable types; `collections::sort`
+requires orderable ones. See `mfb man types comparisons`.
 
 Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and
 unions whose active payload is copyable are copyable. `List`, `Map`, and `Set`

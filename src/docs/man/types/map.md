@@ -27,12 +27,13 @@ LET empty AS Map OF String TO Integer = Map OF String TO Integer { }
 
 ## Keys
 
-Map keys must be comparable: `Integer`, `Float`, `Fixed`, `Boolean`, `String`,
-`Byte`, `Nothing`, enum types, or records whose fields are all comparable.
-`List`, `Map`, unions, functions, lambdas, threads, and resource handles are not
-comparable and cannot be used as keys. Key equality is a bitwise comparison, so
-`Float` keys distinguish `+0.0` from `-0.0` and treat `NaN` as equal to `NaN` —
-distinct from the IEEE rule used by the `=` operator on `Float` values.
+Map keys must be comparable: `Integer`, `Float`, `Fixed`, `Money`, `Boolean`,
+`String`, `Byte`, `Scalar`, `Nothing`, enum types, or records whose fields are
+all comparable. `List`, `Map`, unions, functions, lambdas, threads, and resource
+handles are not comparable and cannot be used as keys. Key equality is a bitwise
+comparison, so `Float` keys distinguish `+0.0` from `-0.0` and treat `NaN` as
+equal to `NaN` — distinct from the IEEE rule used by the `=` operator on `Float`
+values.
 
 ## Owned items and storage
 
