@@ -2478,13 +2478,30 @@ fn every_admitted_callback_position_frees_its_closure() {
 
 /// `http::route` KEEPS its handler, so it must NOT have been freed — and the
 /// evidence that it was not is that its (pre-existing, unrelated) growth is
-/// unchanged. Measured 6 -> 11 MB at 20k/40k on the pre-fix compiler and
-/// identically after.
+/// unchanged.
+///
+/// The counts are 200k/400k, not the 20k/40k this was written at, because the
+/// per-iteration retention is FOUR TIMES smaller off macOS and 20k/40k left it
+/// under the arena's chunk floor everywhere else. Peak RSS, HEAD compiler, one
+/// program per cell:
+///
+/// | N    | macOS aarch64 | linux aarch64 glibc | linux x86-64 glibc | linux riscv64 musl |
+/// |------|---------------|---------------------|--------------------|--------------------|
+/// | 20k  |  6 MB         |  6 MB               | —                  | —                  |
+/// | 40k  | 11 MB         |  6 MB               | —                  | —                  |
+/// | 200k | 51 MB         | 13 MB               | 13 MB              | 13 MB              |
+/// | 400k | 101 MB        | 26 MB               | 26 MB              | 25 MB              |
+///
+/// At 20k/40k the growth is +5 MB on macOS and +0 MB on Linux — which is what
+/// reddened both Linux rows with "`http::route`'s handler stopped leaking", a
+/// verdict the 200k/400k and 2M (127 MB on linux-aarch64) rows refute: the
+/// handler is retained on every platform, and the counts were the thing that was
+/// macOS-only. The 2 MB threshold now has a 6x margin on the leanest platform.
 #[cfg(unix)]
 #[test]
 fn a_retained_callback_position_is_left_alone() {
-    let small = peak_rss("b572_retained_route", SHAPE_572_RETAINED_ROUTE, 20_000);
-    let large = peak_rss("b572_retained_route", SHAPE_572_RETAINED_ROUTE, 40_000);
+    let small = peak_rss("b572_retained_route", SHAPE_572_RETAINED_ROUTE, 200_000);
+    let large = peak_rss("b572_retained_route", SHAPE_572_RETAINED_ROUTE, 400_000);
     assert!(
         large > small + 2 * 1024 * 1024,
         "`http::route`'s handler stopped leaking ({} MB -> {} MB). That is not an \
