@@ -92,6 +92,33 @@ fn build(dir: &Path) -> String {
     combined
 }
 
+/// The one runnable artifact of a console build, from the build's own report.
+///
+/// The path is NOT `<project>/build/<name>.out` everywhere: only macOS emits a
+/// single unflavored executable. A Linux console build emits one per libc world
+/// — `app-glibc.out` AND `app-musl.out` (`src/os/linux/mod.rs`) — and neither is
+/// spelled `app.out`, so hardcoding that name made this test unrunnable on all
+/// three Linux rows (`Os { code: 2, kind: NotFound }` out of `Command::new`).
+///
+/// The rule is `common::build_project`'s — the FIRST reported path, which is the
+/// glibc one — and it is deliberately not `cfg!(target_env)`. On the
+/// `linux-x86_64-musl` row the test binary is musl but the RUNNER is glibc, and
+/// mfb's musl output does not execute there (it dies in the dynamic loader at
+/// 127; see the acceptance job's history in `.github/workflows`). Picking by the
+/// test binary's own libc would therefore red that row — while the 87 RSS cases
+/// in `rt_scope_drop_leaks`, which all go through `build_project`, pass on it
+/// today by running the glibc artifact. One rule, one place to be wrong.
+fn host_executable(build_output: &str) -> PathBuf {
+    let written: Vec<&str> = build_output
+        .lines()
+        .filter_map(|line| line.strip_prefix("Wrote executable to "))
+        .collect();
+    let first = written.first().unwrap_or_else(|| {
+        panic!("the build reported no executable:\n{build_output}");
+    });
+    PathBuf::from(*first)
+}
+
 /// A package that reaches all three affected members on both Edwards curves, and
 /// an executable that consumes it. Before the fix the executable's build failed
 /// with an undefined internal relocation target; after it, the whole round trip
@@ -156,9 +183,9 @@ END FUNC
     )
     .expect("install signer.mfp");
 
-    build(&root.join("app"));
+    let built = build(&root.join("app"));
 
-    let binary = root.join("app").join("build").join("app.out");
+    let binary = host_executable(&built);
     let run = Command::new(&binary).output().expect("run the executable");
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert!(
