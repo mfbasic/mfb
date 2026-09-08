@@ -57,10 +57,14 @@ const TERM_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nSUB main()\n 
 fn app_ncode_functions(name: &str, target: &str) -> serde_json::Map<String, Value> {
     let project = temp_project(name, TERM_SOURCE);
     let mut command = Command::new(common::mfb_exe());
-    command.arg("build").arg("-app");
-    if target != "macos-aarch64" {
-        command.args(["-target", target]);
-    }
+    // `-target` on BOTH sides, always. Omitting it for the macOS oracle asked for
+    // the HOST backend, which is macOS only on a developer Mac: on the Linux CI
+    // rows the "macOS oracle" was the GTK backend, which emits no box-drawing
+    // immediate at all, and the premise assertion below fired instead of the
+    // comparison. Measured with the release compiler: `-app -target
+    // macos-aarch64 -ncode` yields 7/7/26/6 glyphs for drawHLine/drawVLine/
+    // drawBox/fillRect from any host, `-target linux-x86_64` yields 0/0/0/0.
+    command.arg("build").arg("-app").args(["-target", target]);
     let output = command
         .arg("-ncode")
         .arg(&project)
