@@ -73,28 +73,89 @@ pub fn silence_panics<R>(body: impl FnOnce() -> R) -> R {
 /// recursively under `tests/`. After the tests reorganization fixtures live
 /// under `tests/{syntax,rt-error,rt-behavior}/<feature>/<name>` (plus the
 /// `tests/acceptance` app and the `tests/byte-identity` gate-coverage tree),
-/// and leaf names are unique — so a by-name search
-/// keeps unit tests independent of the exact bucket/feature a fixture lives in.
+/// so a by-name search keeps unit tests independent of the exact bucket/feature
+/// a fixture lives in.
+///
+/// **Every match is collected and a tie is a hard error.** This used to return
+/// the first hit of a recursive walk, on the stated assumption that leaf names
+/// are unique — and they were not. `identifier-generators` named BOTH
+/// `tests/rt-behavior/crypto/` (the valid program the codegen corpus means) and
+/// `tests/syntax/crypto/` (a deliberately invalid one pinning
+/// `TYPE_CALL_ARITY_MISMATCH` on `crypto::uuid7(1)`). Which one a walk reaches
+/// first is `read_dir` order, i.e. the filesystem's — so macOS and the
+/// `linux-x86_64` runner got the valid fixture and `linux-aarch64-glibc` got the
+/// invalid one, and the four corpus suites failed on that row alone with
+/// "test source must lower to NIR". A silently wrong fixture is the worst
+/// possible answer here: it is indistinguishable from a compiler regression.
+/// Refusing to guess makes the collision a one-line error naming both paths.
+///
 /// Panics if no matching fixture directory (one holding a `project.json`)
-/// exists.
+/// exists, or if more than one does.
 pub fn fixture_dir(name: &str) -> PathBuf {
-    fn find(dir: &Path, name: &str) -> Option<PathBuf> {
-        for entry in std::fs::read_dir(dir).ok()?.flatten() {
+    /// Unreadable directories are COLLECTED, not swallowed. `read_dir(..).ok()?`
+    /// and `.flatten()` turned any I/O error into "the subtree contains
+    /// nothing", which surfaces as the same `not found` panic a genuinely
+    /// missing fixture gives. The two are not the same failure and must not read
+    /// alike.
+    fn find(dir: &Path, name: &str, hits: &mut Vec<PathBuf>, unreadable: &mut Vec<String>) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(err) => {
+                unreadable.push(format!("{}: {err}", dir.display()));
+                return;
+            }
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(err) => {
+                    unreadable.push(format!("{}: {err}", dir.display()));
+                    continue;
+                }
+            };
             let path = entry.path();
             if !path.is_dir() {
                 continue;
             }
             if entry.file_name() == *name && path.join("project.json").is_file() {
-                return Some(path);
+                hits.push(path);
+                continue;
             }
-            if let Some(found) = find(&path, name) {
-                return Some(found);
-            }
+            find(&path, name, hits, unreadable);
         }
-        None
     }
+
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-    find(&root, name).unwrap_or_else(|| panic!("test fixture `{name}` not found under tests/"))
+    let mut hits = Vec::new();
+    let mut unreadable = Vec::new();
+    find(&root, name, &mut hits, &mut unreadable);
+    // Sorted so the error text is stable whatever order the walk found them in.
+    hits.sort();
+
+    match hits.len() {
+        1 => hits.pop().expect("one hit"),
+        0 if unreadable.is_empty() => {
+            panic!("test fixture `{name}` not found under tests/")
+        }
+        0 => panic!(
+            "test fixture `{name}` not found under tests/, but {} director(ies) \
+             could not be read during the search, so this may be an I/O failure \
+             rather than a missing fixture: {}",
+            unreadable.len(),
+            unreadable.join("; ")
+        ),
+        _ => panic!(
+            "test fixture `{name}` is ambiguous: {} directories under tests/ carry \
+             that leaf name, so which one a caller gets is `read_dir` order and \
+             differs between filesystems. Rename all but one, or name the fixture \
+             you mean by a leaf that is unique:\n  {}",
+            hits.len(),
+            hits.iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        ),
+    }
 }
 
 /// Parse a single `.mfb` source string into an [`AstFile`], panicking on any
