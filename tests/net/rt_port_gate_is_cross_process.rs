@@ -20,6 +20,15 @@
 //!
 //! Children are copies of this test binary re-entered through an environment
 //! variable, so no helper program has to be built or found.
+//!
+//! Unix-only, because the thing under test is: `common::PortGate` is `flock(2)`
+//! and is itself `#[cfg(unix)]`, so on Windows this file named a struct that had
+//! been configured out and took the whole `windows-x86_64` row down at COMPILE
+//! time — `error[E0433]` on `common::PortGate`, 0 test binaries run. Same gate
+//! the gate's one other consumer already carries
+//! (`rt_tls_connect_allow_self_signed.rs`).
+
+#![cfg(unix)]
 
 #[path = "../common/mod.rs"]
 mod common;
