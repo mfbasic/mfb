@@ -2231,11 +2231,10 @@ mod tests {
     fn monomorphize_files(files: &[(&str, &str)]) -> Result<crate::hir::HirProject, ()> {
         let ast = project(files);
         let dir = std::env::temp_dir();
-        let prev = std::panic::take_hook();
         // Silence the front end's diagnostic printing during error-path tests.
-        let result = super::super::monomorphize_project(&dir, &crate::hir::elaborate(&ast));
-        std::panic::set_hook(prev);
-        result
+        crate::testutil::silence_panics(|| {
+            super::super::monomorphize_project(&dir, &crate::hir::elaborate(&ast))
+        })
     }
 
     fn functions(project: &crate::hir::HirProject) -> Vec<&crate::hir::HirFunction> {

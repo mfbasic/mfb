@@ -53,10 +53,8 @@ fn selectors() -> Vec<(&'static str, Selector)> {
 fn every_vector_selector_refuses_a_type_it_does_not_know() {
     let mut accepted = Vec::new();
     for (member, select) in selectors() {
-        let hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let outcome = std::panic::catch_unwind(|| select("Float5"));
-        std::panic::set_hook(hook);
+        let outcome =
+            crate::testutil::silence_panics(|| std::panic::catch_unwind(|| select("Float5")));
         if let Ok(body) = outcome {
             accepted.push(format!("vector::{member} -> {body:?}"));
         }
@@ -113,11 +111,10 @@ fn every_vector_selector_covers_exactly_the_types_its_descriptor_declares() {
         );
         let mut seen: Vec<(String, &'static str)> = Vec::new();
         for ty in declared {
-            let hook = std::panic::take_hook();
-            std::panic::set_hook(Box::new(|_| {}));
             let type_name = ty.clone();
-            let outcome = std::panic::catch_unwind(move || select(&type_name));
-            std::panic::set_hook(hook);
+            let outcome = crate::testutil::silence_panics(|| {
+                std::panic::catch_unwind(move || select(&type_name))
+            });
             let body = outcome.unwrap_or_else(|_| {
                 panic!("vector::{member} has no body for `{ty}`, which its descriptor declares")
             });

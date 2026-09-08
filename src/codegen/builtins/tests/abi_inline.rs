@@ -234,15 +234,14 @@ fn no_abi_inline_lowering_silently_accepts_the_wrong_argument_count() {
                 })
                 .collect();
             let label = format!("{member} with {count} arg(s)");
-            let hook = std::panic::take_hook();
-            std::panic::set_hook(Box::new(|_| {}));
-            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let harness = BuilderHarness::default();
-                let mut builder = harness.builder("_mfb_abi_inline_probe", &platform);
-                let ctx = harness.abi_ctx(&platform);
-                lower(&mut builder, &wrong, &ctx).is_ok()
-            }));
-            std::panic::set_hook(hook);
+            let outcome = crate::testutil::silence_panics(|| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let harness = BuilderHarness::default();
+                    let mut builder = harness.builder("_mfb_abi_inline_probe", &platform);
+                    let ctx = harness.abi_ctx(&platform);
+                    lower(&mut builder, &wrong, &ctx).is_ok()
+                }))
+            });
             match outcome {
                 Ok(true) => accepted.push(label),
                 Ok(false) => {}

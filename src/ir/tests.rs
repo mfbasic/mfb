@@ -93,11 +93,7 @@ pub(crate) mod helpers {
     /// lowering rejects the program (so a test can assert lowering is reached).
     /// Front-end diagnostics are silenced while trying.
     pub(crate) fn try_lower_src(src: &str) -> Option<IrProject> {
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let result = run_lower("irtest", "try", src);
-        std::panic::set_hook(prev);
-        result
+        crate::testutil::silence_panics(|| run_lower("irtest", "try", src))
     }
 
     /// [`lower_src`] for a caller that needs a specific project `name` (so a
@@ -108,11 +104,7 @@ pub(crate) mod helpers {
 
     /// [`try_lower_src`] with an explicit project `name` and temp-dir `tag`.
     pub(crate) fn try_lower_src_named(name: &str, tag: &str, src: &str) -> Option<IrProject> {
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let result = run_lower(name, tag, src);
-        std::panic::set_hook(prev);
-        result
+        crate::testutil::silence_panics(|| run_lower(name, tag, src))
     }
 
     /// The named function's body in a lowered project.
@@ -211,18 +203,18 @@ mod lowering_totality_tests {
     fn lowering_is_total_over_invalid_fixtures() {
         // Suppress the front end's diagnostic noise (invalid fixtures print
         // many errors on the way to the resolve/monomorph gate).
-        let prev_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let mut reached = 0usize;
-        let mut panicked = Vec::new();
-        for dir in invalid_fixture_dirs() {
-            match lower_fixture_without_panic(&dir) {
-                Ok(true) => reached += 1,
-                Ok(false) => panicked.push(dir.display().to_string()),
-                Err(()) => {} // rejected before lowering — not our concern
+        let (reached, panicked) = crate::testutil::silence_panics(|| {
+            let mut reached = 0usize;
+            let mut panicked = Vec::new();
+            for dir in invalid_fixture_dirs() {
+                match lower_fixture_without_panic(&dir) {
+                    Ok(true) => reached += 1,
+                    Ok(false) => panicked.push(dir.display().to_string()),
+                    Err(()) => {} // rejected before lowering — not our concern
+                }
             }
-        }
-        std::panic::set_hook(prev_hook);
+            (reached, panicked)
+        });
         assert!(
             panicked.is_empty(),
             "IR lowering panicked on {} fixture(s) (not total): {:?}",
@@ -5424,19 +5416,20 @@ END FUNC
 "#,
         )
         .unwrap();
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
-        let name = manifest
-            .get("name")
-            .and_then(|v| v.get::<String>())
-            .cloned()
-            .unwrap();
-        let ast = ast::parse_project(&name, &dir, &manifest).unwrap();
-        resolver::resolve_project(&dir, &manifest, &ast).unwrap();
-        let concrete = monomorph::monomorphize_project(&dir, &crate::hir::elaborate(&ast)).unwrap();
-        resolver::resolve_hir_project(&dir, &manifest, &concrete, false).unwrap();
-        std::panic::set_hook(prev);
+        let (ast, concrete) = crate::testutil::silence_panics(|| {
+            let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
+            let name = manifest
+                .get("name")
+                .and_then(|v| v.get::<String>())
+                .cloned()
+                .unwrap();
+            let ast = ast::parse_project(&name, &dir, &manifest).unwrap();
+            resolver::resolve_project(&dir, &manifest, &ast).unwrap();
+            let concrete =
+                monomorph::monomorphize_project(&dir, &crate::hir::elaborate(&ast)).unwrap();
+            resolver::resolve_hir_project(&dir, &manifest, &concrete, false).unwrap();
+            (ast, concrete)
+        });
 
         let mut ext_signatures = std::collections::HashMap::new();
         ext_signatures.insert(

@@ -721,11 +721,7 @@ mod tests {
     use crate::manifest::validate_project_manifest;
 
     fn quiet<T>(f: impl FnOnce() -> T) -> T {
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let out = f();
-        std::panic::set_hook(prev);
-        out
+        crate::testutil::silence_panics(f)
     }
 
     fn resolve_fixture(name: &str) -> Result<(), ()> {

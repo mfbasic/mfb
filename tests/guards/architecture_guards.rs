@@ -429,3 +429,60 @@ fn no_golden_pins_a_fatal_signal() {
         offenders.join("\n")
     );
 }
+
+// ---------------------------------------------------------------------------
+// One panic hook for the test process.
+//
+// `std::panic::set_hook` is PROCESS-global and libtest runs tests in parallel,
+// so the sandwich thirteen call sites used to open —
+// `let h = take_hook(); set_hook(no-op); …; set_hook(h)` — is a data race with
+// every other test in the binary. Interleaved, thread A restores the no-op it
+// finds instead of the real hook and the binary is silent for the rest of the
+// run: a later failing test prints `FAILED` and NOTHING else. That is not
+// hypothetical. On 2026-09-07 the `linux-aarch64-glibc` row failed four corpus
+// tests with a `failures:` block that had no `---- name stdout ----` in it at
+// all, so the run reported that they failed and could not report why.
+//
+// `crate::testutil::silence_panics` installs ONE hook for the process (a
+// `std::sync::Once`) that consults a thread-local depth, so silencing is
+// per-thread and no thread can take another's hook away. It is the only place
+// allowed to touch the hook.
+
+/// The one file permitted to call `set_hook`/`take_hook`.
+const PANIC_HOOK_OWNER: &str = "testutil.rs";
+
+#[test]
+fn only_testutil_installs_a_panic_hook() {
+    let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut offenders: Vec<String> = Vec::new();
+
+    for path in rs_files(&[src_root.clone()]) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name == PANIC_HOOK_OWNER {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).expect("read source file");
+        for (n, line) in src.lines().enumerate() {
+            let code = line.trim_start();
+            // Prose about the rule is fine; a call is not.
+            if code.starts_with("//") {
+                continue;
+            }
+            if line.contains("panic::set_hook") || line.contains("panic::take_hook") {
+                let rel = path.strip_prefix(&src_root).unwrap_or(&path).display();
+                offenders.push(format!("  src/{rel}:{} — {}", n + 1, line.trim()));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "the panic hook is process-global and libtest runs tests in parallel, so \
+         a local take_hook/set_hook sandwich races every other test in the binary \
+         and can leave it permanently silent -- a later failure then reports \
+         FAILED with no message. Route it through \
+         `crate::testutil::silence_panics`, which installs one hook for the \
+         process and silences per THREAD. Offenders:\n{}",
+        offenders.join("\n")
+    );
+}

@@ -201,26 +201,25 @@ fn the_openwithin_reparse_checks_are_unreachable_off_windows() {
         }
         for hook in ["emit_verify_nofollow", "emit_verify_within"] {
             let mut sink = Sink::default();
-            let previous = std::panic::take_hook();
-            std::panic::set_hook(Box::new(|_| {}));
-            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                if hook == "emit_verify_nofollow" {
-                    platform.emit_verify_nofollow(
-                        "_probe",
-                        &sink.imports,
-                        &mut sink.instructions,
-                        &mut sink.relocations,
-                    )
-                } else {
-                    platform.emit_verify_within(
-                        "_probe",
-                        &sink.imports,
-                        &mut sink.instructions,
-                        &mut sink.relocations,
-                    )
-                }
-            }));
-            std::panic::set_hook(previous);
+            let outcome = crate::testutil::silence_panics(|| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    if hook == "emit_verify_nofollow" {
+                        platform.emit_verify_nofollow(
+                            "_probe",
+                            &sink.imports,
+                            &mut sink.instructions,
+                            &mut sink.relocations,
+                        )
+                    } else {
+                        platform.emit_verify_within(
+                            "_probe",
+                            &sink.imports,
+                            &mut sink.instructions,
+                            &mut sink.relocations,
+                        )
+                    }
+                }))
+            });
             let payload = outcome.err().unwrap_or_else(|| {
                 panic!(
                     "{name}: `{hook}` is the Windows-only `fs::openWithin` \
@@ -361,11 +360,9 @@ fn optional_hook_answers(platform: &dyn CodegenPlatform) -> Vec<(&'static str, A
 
     macro_rules! probe {
         ($name:literal, $call:expr) => {{
-            let hook = std::panic::take_hook();
-            std::panic::set_hook(Box::new(|_| {}));
-            let answered =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $call.is_some()));
-            std::panic::set_hook(hook);
+            let answered = crate::testutil::silence_panics(|| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $call.is_some()))
+            });
             found.push((
                 $name,
                 match answered {

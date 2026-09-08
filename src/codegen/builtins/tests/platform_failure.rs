@@ -1085,12 +1085,11 @@ fn lower_body(
         ..base
     };
 
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        lower(&mut builder, &args, &ctx)
-    }));
-    std::panic::set_hook(hook);
+    let lowered = crate::testutil::silence_panics(|| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            lower(&mut builder, &args, &ctx)
+        }))
+    });
     lowered.ok()
 }
 

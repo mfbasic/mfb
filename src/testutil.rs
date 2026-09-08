@@ -13,6 +13,62 @@ use std::path::{Path, PathBuf};
 use crate::ast::{parse_source, AstFile, AstProject};
 use crate::ir::{self, IrProject};
 
+/// Run `body` with this THREAD's panic messages suppressed.
+///
+/// Every caller here wraps a `catch_unwind` whose panic is the expected answer,
+/// not a failure — but the panic hook is PROCESS-global and libtest runs tests
+/// in parallel, so the obvious `take_hook()` / `set_hook(no-op)` / `set_hook(old)`
+/// sandwich each site used to open is a data race with every other test in the
+/// binary. Two threads interleaving it as
+///
+/// ```text
+/// A: old = take_hook()      -> the real hook          A: set_hook(noopA)
+/// B: old = take_hook()      -> noopA                  B: set_hook(noopB)
+/// A: set_hook(old = noopA)     <- restores a no-op
+/// B: set_hook(old = noopA)     <- and the real hook is gone for good
+/// ```
+///
+/// leaves the binary with a silent hook for the rest of the run, so any LATER
+/// test that fails reports `FAILED` with no message at all. That is not
+/// hypothetical: it is what the linux-aarch64 CI row printed for four corpus
+/// tests — a `failures:` block with no `---- name stdout ----` in it, and no way
+/// to tell what they asserted.
+///
+/// The fix is one hook for the process, installed once, that consults a
+/// THREAD-local depth. Silencing is then per-thread and composes with itself,
+/// and no thread can take another's hook away.
+pub fn silence_panics<R>(body: impl FnOnce() -> R) -> R {
+    use std::cell::Cell;
+    use std::sync::Once;
+
+    thread_local! {
+        static DEPTH: Cell<usize> = const { Cell::new(0) };
+    }
+    static INSTALL: Once = Once::new();
+
+    INSTALL.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if DEPTH.with(|depth| depth.get()) == 0 {
+                previous(info);
+            }
+        }));
+    });
+
+    /// Decrement on the way out even if `body` itself unwinds, so one escaped
+    /// panic cannot leave this thread permanently silent.
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+        }
+    }
+
+    DEPTH.with(|depth| depth.set(depth.get() + 1));
+    let _guard = Guard;
+    body()
+}
+
 /// Locate a committed test fixture directory by its leaf name, searching
 /// recursively under `tests/`. After the tests reorganization fixtures live
 /// under `tests/{syntax,rt-error,rt-behavior}/<feature>/<name>` (plus the
@@ -374,12 +430,11 @@ fn try_code_for_src_with(
         .stack_size(64 * 1024 * 1024)
         .name(format!("try_code_for_src({})", target.name()))
         .spawn(move || {
-            let hook = std::panic::take_hook();
-            std::panic::set_hook(Box::new(|_| {}));
-            let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                code_for_src_inner(&source, target, build_mode, table)
-            }));
-            std::panic::set_hook(hook);
+            let lowered = silence_panics(|| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    code_for_src_inner(&source, target, build_mode, table)
+                }))
+            });
             lowered.map_err(|payload| {
                 let message = payload
                     .downcast_ref::<String>()
@@ -413,14 +468,13 @@ pub fn code_for_src_at(
         .stack_size(64 * 1024 * 1024)
         .name(format!("code_for_src(-O{level})"))
         .spawn(move || {
-            let hook = std::panic::take_hook();
-            std::panic::set_hook(Box::new(|_| {}));
-            let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::optimizer::with_opt_level(crate::optimizer::OptLevel(level), || {
-                    code_for_src_inner(&source, target, build_mode, Default::default())
-                })
-            }));
-            std::panic::set_hook(hook);
+            let lowered = silence_panics(|| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    crate::optimizer::with_opt_level(crate::optimizer::OptLevel(level), || {
+                        code_for_src_inner(&source, target, build_mode, Default::default())
+                    })
+                }))
+            });
             lowered.map_err(|payload| {
                 payload
                     .downcast_ref::<String>()
@@ -557,31 +611,30 @@ pub fn code_for_nir(
 ) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
     use crate::os::linux::flavor::LinuxFlavor::Glibc;
 
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match target {
-        CodeTarget::MacosAarch64 => {
-            let plan = crate::target::macos_aarch64::plan::lower_module(module)?;
-            crate::target::macos_aarch64::code::lower_module(module, &plan, &[])
-        }
-        CodeTarget::LinuxAarch64 => {
-            let plan = crate::target::linux_aarch64::plan::lower_module(module, Glibc)?;
-            crate::target::linux_aarch64::code::lower_module(module, &plan, &[], Glibc)
-        }
-        CodeTarget::LinuxX86_64 => {
-            let plan = crate::target::linux_x86_64::plan::lower_module(module, Glibc)?;
-            crate::target::linux_x86_64::code::lower_module(module, &plan, &[], Glibc)
-        }
-        CodeTarget::LinuxRiscv64 => {
-            let plan = crate::target::linux_riscv64::plan::lower_module(module, Glibc)?;
-            crate::target::linux_riscv64::code::lower_module(module, &plan, &[], Glibc)
-        }
-        CodeTarget::WindowsX86_64 => {
-            let plan = crate::target::win_x86_64::plan::lower_module(module)?;
-            crate::target::win_x86_64::code::lower_module(module, &plan, &[])
-        }
-    }));
-    std::panic::set_hook(hook);
+    let lowered = silence_panics(|| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match target {
+            CodeTarget::MacosAarch64 => {
+                let plan = crate::target::macos_aarch64::plan::lower_module(module)?;
+                crate::target::macos_aarch64::code::lower_module(module, &plan, &[])
+            }
+            CodeTarget::LinuxAarch64 => {
+                let plan = crate::target::linux_aarch64::plan::lower_module(module, Glibc)?;
+                crate::target::linux_aarch64::code::lower_module(module, &plan, &[], Glibc)
+            }
+            CodeTarget::LinuxX86_64 => {
+                let plan = crate::target::linux_x86_64::plan::lower_module(module, Glibc)?;
+                crate::target::linux_x86_64::code::lower_module(module, &plan, &[], Glibc)
+            }
+            CodeTarget::LinuxRiscv64 => {
+                let plan = crate::target::linux_riscv64::plan::lower_module(module, Glibc)?;
+                crate::target::linux_riscv64::code::lower_module(module, &plan, &[], Glibc)
+            }
+            CodeTarget::WindowsX86_64 => {
+                let plan = crate::target::win_x86_64::plan::lower_module(module)?;
+                crate::target::win_x86_64::code::lower_module(module, &plan, &[])
+            }
+        }))
+    });
     match lowered {
         Ok(result) => result,
         Err(payload) => Err(format!(

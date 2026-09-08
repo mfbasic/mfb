@@ -1542,11 +1542,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn quiet<T>(f: impl FnOnce() -> T) -> T {
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let out = f();
-        std::panic::set_hook(prev);
-        out
+        crate::testutil::silence_panics(f)
     }
 
     /// Resolve an inline single-file executable project whose `src/main.mfb` is
