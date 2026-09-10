@@ -198,25 +198,25 @@ Commit: 053f5af60, 1a7e8cbca
 Implement behavior using a private explicit-argument worker and public
 host-argument cache boundary.
 
-- [ ] Add `packages/cli/src/parse.mfb` with private `parseArgs`, canonical and
+- [x] Add `packages/cli/src/parse.mfb` with private `parseArgs`, canonical and
   alias lookup, strict token consumption, required checks, and only-on-success
   private `MUT` cache publication.
-- [ ] Add `packages/cli/src/get.mfb` with `getInteger`, `getString`, `getBool`,
+- [x] Add `packages/cli/src/get.mfb` with `getInteger`, `getString`, `getBool`,
   and `getFlag`; require matching `OptionKind`, return defaults only when an
   optional option is absent, and preserve raw map values for `parse`.
-- [ ] Add package TESTING cases for long/short forms; every value and flag
+- [x] Add package TESTING cases for long/short forms; every value and flag
   spelling; `-i` lacking a value; bad integer text; `-b` lacking a value; all
   accepted boolean literals; absent required/optional cases; unknown,
   duplicate, and value-looking-switch cases; cache reuse and unequal-schema
   rejection.
-- [ ] Add a runnable consumer/smoke script that invokes the generated program
+- [x] Add a runnable consumer/smoke script that invokes the generated program
   with `-p 3000`, `--verbose`, `-b true`, `-b false`, `-b 1`, and `-b 0`, and
   checks stdout plus nonzero error exits for failures.
 
 Acceptance: the complete documented token/error matrix runs through both the
 private package tests and an actual command invocation; a second public parse
 uses the cached result and never changes it after host arguments are consumed.
-Commit: —
+Commit: 0dc1eaa96, d55c8d886, f318ea7b5, bd20ece43
 
 ### Phase 3 — Usage renderer, docs, and final package proof
 

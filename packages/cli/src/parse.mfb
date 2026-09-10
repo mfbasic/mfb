@@ -76,6 +76,7 @@ TESTING
       expectTrap(parseArgs(["-p", "1", "--port", "2"], options), 77050002)
       expectTrap(parseArgs(["-p"], options), 77050002)
       expectTrap(parseArgs(["-p", "-x"], options), 77050002)
+      expectTrap(parseArgs(["-b"], [Option[name := "enabled", alias := "b", required := FALSE, kind := OptionKind.Bool]]), 77050002)
       expectTrap(parseArgs([], [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer]]), 77050004)
     END TCASE
     TCASE "matching schema reuses the published cache"
