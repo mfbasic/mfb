@@ -25,6 +25,10 @@
 mod common;
 use common::temp_project;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStringExt;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -252,5 +256,73 @@ fn host_arg_accepting_program_receives_its_arguments() {
     assert!(stdout.contains("arg: alpha"), "missing alpha:\n{stdout}");
     assert!(stdout.contains("arg: beta"), "missing beta:\n{stdout}");
 
+    let _ = fs::remove_dir_all(&project);
+}
+
+/// `os::args` is the host byte boundary: Unix permits argv entries that are not
+/// UTF-8, and the generated program must reject them before an MFBASIC String is
+/// materialized. Windows receives UTF-16 command lines, so this raw-byte case is
+/// Unix-only; valid non-ASCII argv is covered by the ordinary host invocation.
+#[cfg(unix)]
+#[test]
+fn os_args_rejects_malformed_host_utf8() {
+    let project = temp_project(
+        "os_args_invalid_utf8",
+        "IMPORT os\nIMPORT io\nFUNC main() AS Integer\n  io::print(os::prog())\n  io::print(toString(len(os::args())))\n  RETURN 0\nEND FUNC\n",
+    );
+    let build = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg(&project)
+        .output()
+        .expect("run mfb build");
+    assert!(
+        build.status.success(),
+        "host build failed: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let exe = String::from_utf8_lossy(&build.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("Wrote executable to "))
+        .map(PathBuf::from)
+        .expect("build printed an executable path");
+    let valid = Command::new(&exe)
+        .arg0("chosen-invocation")
+        .arg("h\u{e9}llo")
+        .output()
+        .expect("run the built program with a valid argv");
+    let valid_stdout = String::from_utf8_lossy(&valid.stdout);
+    assert!(
+        valid.status.success(),
+        "valid argv failed: {:?}\n{valid_stdout}",
+        valid.status
+    );
+    let mut valid_lines = valid_stdout.lines();
+    assert_eq!(valid_lines.next(), Some("chosen-invocation"));
+    assert_eq!(valid_lines.next(), Some("1"));
+    for invalid in [
+        vec![0x80],
+        vec![0xc2],
+        vec![0xc0, 0x80],
+        vec![0xed, 0xa0, 0x80],
+        vec![0xf4, 0x90, 0x80, 0x80],
+    ] {
+        let run = Command::new(&exe)
+            .arg(std::ffi::OsString::from_vec(invalid.clone()))
+            .output()
+            .expect("run the built program with invalid argv bytes");
+        assert!(
+            !run.status.success(),
+            "invalid argv {invalid:?} unexpectedly succeeded: {}",
+            String::from_utf8_lossy(&run.stdout)
+        );
+    }
+    let run = Command::new(&exe)
+        .arg0(std::ffi::OsString::from_vec(vec![0xc0, 0x80]))
+        .output()
+        .expect("run the built program with invalid argv[0] bytes");
+    assert!(
+        !run.status.success(),
+        "invalid argv[0] unexpectedly succeeded"
+    );
     let _ = fs::remove_dir_all(&project);
 }

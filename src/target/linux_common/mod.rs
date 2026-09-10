@@ -119,6 +119,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "os.unsetEnv",
     "os.environ",
     "os.args",
+    "os.prog",
     "os.pid",
     "os.executablePath",
     "os.resourcePath",

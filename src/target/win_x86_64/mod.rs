@@ -50,6 +50,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "os.unsetEnv",
     "os.environ",
     "os.args",
+    "os.prog",
     "os.hostName",
     "os.userName",
     "os.executablePath",

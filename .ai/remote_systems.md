@@ -14,7 +14,8 @@
 
 ## Which boxes have a Rust toolchain — probe, do not read
 
-**Three do, and no single probe finds all three.** Measured 2026-09-03; the claim in
+**Four do, and no single probe finds all four.** Measured 2026-09-03 (with 2223
+re-probed 2026-09-10); the claim in
 `scripts/linux-runtime-proof.sh`'s header that *"none of the Linux boxes carries a Rust
 toolchain (2229 is the lone exception)"* is false and has been corrected there too.
 
@@ -23,6 +24,7 @@ toolchain (2229 is the lone exception)"* is false and has been corrected there t
 | **2227** Alpine x86_64 musl | 1.96.1 | `/usr/bin/cargo` (distro package) | **4** |
 | **2228** Ubuntu x86_64 gtk glibc | 1.96.0 | `~/.cargo/bin/cargo` — **not on the non-interactive PATH** | 1 |
 | **2229** Alpine riscv64 musl | 1.96.0 | `/usr/bin/cargo` | 8 |
+| **2223** Kali aarch64 glibc | verified 2026-09-10 | `/usr/bin/cargo` | probe before use |
 
 The trap is in the middle row. `ssh -p 2228 'command -v cargo'` answers **nothing**,
 because a non-login shell does not source the rustup env — yet 2228 is the box this
@@ -35,9 +37,10 @@ ssh -p PORT test@127.0.0.1 "ls ~/.cargo/bin/cargo 2>/dev/null; command -v cargo"
 
 and invoke it by the path you found, not by name.
 
-**Prefer 2227 for a `cargo test` row.** Four cores against 2228's one turns the slowest
-gate in a plan series into something an hour shorter. Caveats worth knowing before
-moving a row there:
+**Prefer 2223 for a Linux `cargo` row.** Its aarch64 release build completed a clean
+archived tree and native `os::prog` proof on 2026-09-10. Use 2227 when its x86_64 musl
+coverage is specifically required; its final release link can be substantially slower.
+Caveats worth knowing before moving a row to 2227:
 
 * It is **musl**, so it is a different libc world from 2228's glibc — a row that is
   about glibc behaviour still belongs on 2228.
@@ -93,4 +96,3 @@ qemu-user` → `dpkg -x qemu-user_*.deb ~/qemuroot` (→ `~/qemuroot/usr/bin/qem
 Linux-host only, so it cannot run on the Mac). `scripts/rvv-qemu-runner.sh` ships a
 build to 2232 and runs it under `qemu-riscv64 -cpu rv64,v=true,vlen=128` / `v=false`;
 `scripts/rvv-ulp-two-profile.sh` drives the ULP harness across both profiles.
-

@@ -6127,6 +6127,7 @@ mod raw_result_block_ownership {
         "os.getEnvOr",              // String
         "os.hostName",              // String
         "os.name",                  // String
+        "os.prog",                  // String
         "os.resourcePath",          // String
         "os.userName",              // String
         "os.version",               // String

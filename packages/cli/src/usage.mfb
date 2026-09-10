@@ -1,0 +1,27 @@
+IMPORT io
+IMPORT os
+
+PRIVATE FUNC kindName(kind AS OptionKind) AS String
+  IF kind = OptionKind.Flag THEN RETURN ""
+  IF kind = OptionKind.Bool THEN RETURN " <bool>"
+  IF kind = OptionKind.Integer THEN RETURN " <integer>"
+  RETURN " <string>"
+END FUNC
+
+EXPORT FUNC showUsage(header AS List OF String, options AS List OF Option, footer AS List OF String) AS Nothing
+  validateSchema(options)
+  FOR EACH line IN header
+    io::print(line)
+  NEXT
+  io::print("Usage: " & os::prog() & " [options]")
+  FOR EACH choice IN options
+    MUT row AS String = "  "
+    IF choice.alias <> "" THEN row = row & "-" & choice.alias & ", " ELSE row = row & "    "
+    row = row & "--" & choice.name & kindName(choice.kind)
+    IF choice.required THEN row = row & " (required)"
+    io::print(row)
+  NEXT
+  FOR EACH line IN footer
+    io::print(line)
+  NEXT
+END FUNC

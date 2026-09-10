@@ -1147,11 +1147,11 @@ pub(crate) fn lower_module_for_platform(
             "mfb_free".to_string(),
         ));
     }
-    // Writable `argc`/`argv` globals for `os::args()` (plan-31-B): filled by the
+    // Writable `argc`/`argv` globals for `os::args()` and `os::prog()` (plan-128-A): filled by the
     // program entry from the values the OS passes in, read back when a later
     // `os::args()` builds its `List OF String`. Emitted only when the module uses
     // `os.args`, so existing programs' data layout is unchanged.
-    if module_uses_call(module, "os.args") {
+    if module_uses_any_call(module, &["os.args", "os.prog"]) {
         for symbol in [
             crate::codegen::builtins::os::OS_ARGC_GLOBAL_SYMBOL,
             crate::codegen::builtins::os::OS_ARGV_GLOBAL_SYMBOL,
@@ -1570,7 +1570,7 @@ pub(crate) fn lower_module_for_platform(
                     emit_cleanup_failure_audit: module_may_record_cleanup_failure(module),
                     seed_rng: uses_rng,
                     register_signal_handlers,
-                    capture_args: module_uses_call(module, "os.args"),
+                    capture_args: module_uses_any_call(module, &["os.args", "os.prog"]),
                     // App mode reads the window input pipe, not fd 0 — no broadcast log.
                     subscribe_stdin: false,
                     // The toolkit bootstrap owns `_main`; this body is CALLED by
@@ -1618,7 +1618,7 @@ pub(crate) fn lower_module_for_platform(
                     emit_cleanup_failure_audit: module_may_record_cleanup_failure(module),
                     seed_rng: uses_rng,
                     register_signal_handlers,
-                    capture_args: module_uses_call(module, "os.args"),
+                    capture_args: module_uses_any_call(module, &["os.args", "os.prog"]),
                     subscribe_stdin: module_uses_any_call(
                         module,
                         &[
@@ -2150,6 +2150,7 @@ pub(crate) fn lower_module_for_platform(
         returns_c_string || struct_has_cstring_field
     });
     if link_returns_cstring
+        || module_uses_any_call(module, &["os.args", "os.prog"])
         || runtime_symbols.iter().any(|symbol| {
             matches!(
                 symbol.as_str(),

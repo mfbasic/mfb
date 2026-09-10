@@ -1,6 +1,7 @@
 //! `os::args` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md).
+//! Per-member file (planning/migrate.md). Host bytes are validated by the
+//! shared UTF-8 emitter before this lowering allocates a List.
 
 use super::gen_shared::{
     alloc_reloc, push_alloc_error, void_result, OS_ARGC_GLOBAL_SYMBOL, OS_ARGV_GLOBAL_SYMBOL,
@@ -11,6 +12,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::string::validate::emit_call_validate_utf8;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
@@ -35,6 +37,7 @@ pub(crate) fn lower_args(
     let str_copy = format!("{symbol}_str_copy");
     let str_copy_done = format!("{symbol}_str_copy_done");
     let alloc_error = format!("{symbol}_alloc_error");
+    let encoding_error = format!("{symbol}_encoding_error");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
     let argc = vregs.next();
@@ -82,14 +85,28 @@ pub(crate) fn lower_args(
         abi::add_registers(&scratch, &argv, &scratch),
         abi::load_u64(&arg_ptr, &scratch, 0),
         abi::move_register(&scan, &arg_ptr),
+        abi::move_immediate(&arg_len, "Integer", "0"),
         abi::label(&count_str),
         abi::load_u8(&byte, &scan, 0),
         abi::compare_immediate(&byte, "0"),
         abi::branch_eq(&count_str_done),
         abi::add_immediate(&data_bytes, &data_bytes, 1),
+        abi::add_immediate(&arg_len, &arg_len, 1),
         abi::add_immediate(&scan, &scan, 1),
         abi::branch(&count_str),
         abi::label(&count_str_done),
+        // Host argv bytes must be valid UTF-8 before any result collection is
+        // allocated or represented as an MFBASIC String.
+        abi::move_register(abi::c_arg(0), &arg_ptr),
+        abi::move_register(abi::c_arg(1), &arg_len),
+    ]);
+    emit_call_validate_utf8(
+        &symbol,
+        &encoding_error,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
         abi::add_immediate(&count, &count, 1),
         abi::add_immediate(&index, &index, 1),
         abi::branch(&count_loop),
@@ -180,6 +197,8 @@ pub(crate) fn lower_args(
         abi::label(&alloc_error),
     ]);
     push_alloc_error(&symbol, &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&encoding_error)]);
+    raise_error_into(&symbol, "ErrEncoding", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
@@ -190,13 +209,14 @@ pub(crate) fn lower_args(
 const INTRO: &str = r#"The command-line arguments after the program name"#;
 const DESC: &str = r#"`os::args` returns the program's command-line arguments as a `List OF String`,
 **excluding** the program name — element 0 is the first real argument, not the
-executable. (The program name is available through `os::executablePath`.) A
+executable. A
 program invoked with no arguments returns an empty list.
 
 The arguments are captured at program startup from the values the OS passes in,
 so `os::args` reflects the invocation regardless of where in the program it is
-called. Each element is a `String` copied from the corresponding `argv`
-entry."#;
+called. Each element is a `String` copied from the corresponding `argv` entry.
+If any host argument is not valid UTF-8, `os::args` raises `ErrEncoding` rather
+than constructing an invalid `String`."#;
 const EX: &str = r#"Print each argument on its own line:
 
 ```
@@ -223,7 +243,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::list_of(ParameterType::String),
-            errors: vec![],
+            errors: vec!["ErrEncoding"],
             body: Body::abi_function(lower_args),
         }],
     });
