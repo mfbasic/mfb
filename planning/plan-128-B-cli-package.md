@@ -222,16 +222,16 @@ Commit: 0dc1eaa96, d55c8d886, f318ea7b5, bd20ece43
 
 Finish the user-facing output and verify the distributable artifact.
 
-- [ ] Add `packages/cli/src/usage.mfb` implementing deterministic
+- [x] Add `packages/cli/src/usage.mfb` implementing deterministic
   `showUsage(header, schema, footer)` with program name, short/long spellings,
   required marker, kind placeholder, and caller line ordering.
-- [ ] Extend README examples to use the final signatures, show typed/default
+- [x] Extend README examples to use the final signatures, show typed/default
   behavior, explain one-shot cache and thread constraint, list supported
   syntax, and show how callers `TRAP` each error class.
 - [ ] Add exact-output tests for usage with no alias, required and optional
   options, all kinds, header, and footer; add the usage consumer to the smoke
   script.
-- [ ] Run package build/test/doc commands and rebuild the documented consumer
+- [x] Run package build/test/doc commands and rebuild the documented consumer
   from a clean temporary project without relying on in-tree imports.
 
 Acceptance: usage output is stable and derives every option row from the same
