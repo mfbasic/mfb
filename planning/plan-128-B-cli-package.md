@@ -237,7 +237,7 @@ Finish the user-facing output and verify the distributable artifact.
 Acceptance: usage output is stable and derives every option row from the same
 schema parser accepts; README commands build, test, document, and consume the
 generated `.mfp` successfully.
-Commit: 0dc1eaa96, 1a929c8c1
+Commit: 0dc1eaa96, 1a929c8c1, 1aab6fc6c
 
 ## Validation Plan
 
