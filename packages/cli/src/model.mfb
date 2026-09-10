@@ -1,0 +1,55 @@
+IMPORT collections
+IMPORT errorCode
+
+EXPORT ENUM OptionKind
+  Flag, Bool, Integer, String
+END ENUM
+
+EXPORT TYPE Option
+  name AS String
+  alias AS String
+  required AS Boolean
+  kind AS OptionKind
+END TYPE
+
+PRIVATE FUNC invalid(detail AS String) AS Error
+  RETURN error(errorCode::ErrInvalidArgument, "cli: invalid option schema: " & detail)
+END FUNC
+
+PRIVATE FUNC sameOption(left AS Option, right AS Option) AS Boolean
+  RETURN left.name = right.name AND left.alias = right.alias AND left.required = right.required AND left.kind = right.kind
+END FUNC
+
+PRIVATE FUNC validateSchema(options AS List OF Option) AS Boolean
+  MUT names AS List OF String = []
+  MUT aliases AS List OF String = []
+  FOR EACH choice IN options
+    IF choice.name = "" THEN FAIL invalid("option name is empty")
+    FOR EACH known IN names
+      IF known = choice.name THEN FAIL invalid("duplicate option `" & choice.name & "`")
+    NEXT
+    names = collections::append(names, choice.name)
+    IF choice.alias <> "" THEN
+      IF len(choice.alias) <> 1 THEN FAIL invalid("alias for `" & choice.name & "` must be one scalar")
+      FOR EACH knownAlias IN aliases
+        IF knownAlias = choice.alias THEN FAIL invalid("duplicate alias `" & choice.alias & "`")
+      NEXT
+      aliases = collections::append(aliases, choice.alias)
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+TESTING
+  TGROUP "schema"
+    TCASE "every kind has a valid schema"
+      LET choices AS List OF Option = [Option[name := "flag", alias := "f", required := FALSE, kind := OptionKind.Flag], Option[name := "bool", alias := "b", required := FALSE, kind := OptionKind.Bool], Option[name := "integer", alias := "i", required := FALSE, kind := OptionKind.Integer], Option[name := "string", alias := "", required := TRUE, kind := OptionKind.String]]
+      expectEqual(validateSchema(choices), TRUE)
+    END TCASE
+    TCASE "invalid names and aliases are refused"
+      expectTrap(validateSchema([Option[name := "", alias := "", required := FALSE, kind := OptionKind.Flag]]), 77050002)
+      expectTrap(validateSchema([Option[name := "x", alias := "ab", required := FALSE, kind := OptionKind.Flag]]), 77050002)
+      expectTrap(validateSchema([Option[name := "x", alias := "a", required := FALSE, kind := OptionKind.Flag], Option[name := "x", alias := "b", required := FALSE, kind := OptionKind.Flag]]), 77050002)
+    END TCASE
+  END TGROUP
+END TESTING

@@ -25,7 +25,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-128-A is complete, including its UTF-8 runtime proof and full gates | `test -f planning/completed/plan-128-A-cli-argv-contract.md` | NOT MET |
+| plan-128-A is complete, including its UTF-8 runtime proof and full gates | `test -f planning/completed/plan-128-A-cli-argv-contract.md` | MET |
 
 Everything below is written against an `os` package with `args()` that returns
 only validated text and `prog()` that returns argv[0]. If that prerequisite is

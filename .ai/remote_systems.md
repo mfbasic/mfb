@@ -37,9 +37,10 @@ ssh -p PORT test@127.0.0.1 "ls ~/.cargo/bin/cargo 2>/dev/null; command -v cargo"
 
 and invoke it by the path you found, not by name.
 
-**Prefer 2227 for a `cargo test` row.** Four cores against 2228's one turns the slowest
-gate in a plan series into something an hour shorter. Caveats worth knowing before
-moving a row there:
+**Prefer 2223 for a Linux `cargo` row.** Its aarch64 release build completed a clean
+archived tree and native `os::prog` proof on 2026-09-10. Use 2227 when its x86_64 musl
+coverage is specifically required; its final release link can be substantially slower.
+Caveats worth knowing before moving a row to 2227:
 
 * It is **musl**, so it is a different libc world from 2228's glibc — a row that is
   about glibc behaviour still belongs on 2228.
