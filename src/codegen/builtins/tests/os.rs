@@ -405,6 +405,7 @@ fn register_publishes_the_whole_os_surface() {
         "unsetEnv",
         "environ",
         "args",
+        "prog",
         "pid",
         "executablePath",
         "resourcePath",
