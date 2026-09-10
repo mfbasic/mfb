@@ -177,21 +177,21 @@ the caller’s header/footer line lists unchanged.
 Create the package boundary and pin the data model/error vocabulary before the
 parser is written.
 
-- [ ] Add `packages/cli/project.json` (`name: cli`, `version: 0.1.0`,
+- [x] Add `packages/cli/project.json` (`name: cli`, `version: 0.1.0`,
   `kind: package`, source root `src`) and `packages/cli/README.md` with
   manifest-consumer instructions matching `packages/yaml/README.md`.
-- [ ] Add `packages/cli/src/model.mfb` with exported `OptionKind`, `Option`,
+- [x] Add `packages/cli/src/model.mfb` with exported `OptionKind`, `Option`,
   error constants, schema validation, and exact public API documentation;
   reserve empty `alias` for no short form.
-- [ ] Add TESTING blocks for duplicate names/aliases, empty names, aliases that
+- [x] Add TESTING blocks for duplicate names/aliases, empty names, aliases that
   do not hold exactly one scalar, and every option kind.
-- [ ] Add a minimal imported-consumer fixture and package build/test commands
+- [x] Add a minimal imported-consumer fixture and package build/test commands
   to prove the `.mfp` exports resolve as `cli::Option` and `cli::OptionKind`.
 
 Acceptance: `mfb build packages/cli` writes `packages/cli/cli.mfp`; `mfb test
 packages/cli` passes schema-model tests; a separate consumer builds using the
 documented `file:packages/cli/cli.mfp` manifest dependency.
-Commit: —
+Commit: 053f5af60, 1a7e8cbca
 
 ### Phase 2 — Parse/cache/accessor implementation and matrix
 
