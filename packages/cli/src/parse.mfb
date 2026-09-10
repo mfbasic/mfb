@@ -75,6 +75,8 @@ TESTING
       expectTrap(parseArgs(["--missing"], options), 77050002)
       expectTrap(parseArgs(["-p", "1", "--port", "2"], options), 77050002)
       expectTrap(parseArgs(["-p"], options), 77050002)
+      expectTrap(parseArgs(["-p", "-x"], options), 77050002)
+      expectTrap(parseArgs([], [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer]]), 77050004)
     END TCASE
     TCASE "matching schema reuses the published cache"
       LET options AS List OF Option = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer]]

@@ -59,6 +59,9 @@ TESTING
       expectEqual(getBool("enabled", TRUE), FALSE)
       cachedValues = Map OF String TO String {"enabled" := "maybe"}
       expectTrap(getBool("enabled", FALSE), 77050002)
+      cachedOptions = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer]]
+      cachedValues = Map OF String TO String {"port" := "not-a-number"}
+      expectTrap(getInteger("port", 0), 77050003)
     END TCASE
   END TGROUP
 END TESTING
