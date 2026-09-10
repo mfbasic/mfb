@@ -277,7 +277,9 @@ Commit: —
 
 ## Corrections
 
-None yet.
+- A `file:` package source is resolved relative to the importing project's
+  `packages/` directory. The clean importer proof therefore links
+  `packages/cli.mfp`, rather than using an absolute source path.
 
 ## Summary
 

@@ -5,3 +5,6 @@
 importing project. The parser accepts `--name value` and `-a value`; flags use
 `--flag` or `-f` without a value. Call `parse` once before worker threads, then
 read cached values with `getInteger`, `getString`, `getBool`, or `getFlag`.
+
+Place the built artifact at the consumer-relative path `packages/cli.mfp` and
+declare it as `{ "name": "cli", "version": "=0.1.0", "source": "file:packages/cli.mfp" }`.
