@@ -42,3 +42,23 @@ EXPORT FUNC getBool(name AS String, fallback AS Boolean) AS Boolean
   IF value = "false" OR value = "0" THEN RETURN FALSE
   FAIL error(errorCode::ErrInvalidArgument, "cli: boolean option `" & name & "` must be true, false, 1, or 0")
 END FUNC
+
+TESTING
+  TGROUP "getters"
+    TCASE "typed values and defaults"
+      cachedOptions = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer], Option[name := "enabled", alias := "b", required := FALSE, kind := OptionKind.Bool], Option[name := "verbose", alias := "v", required := FALSE, kind := OptionKind.Flag], Option[name := "missing", alias := "", required := FALSE, kind := OptionKind.Integer]]
+      cachedValues = Map OF String TO String {"port" := "3000", "enabled" := "true", "verbose" := "true"}
+      expectInteger(getInteger("port", 0), 3000)
+      expectEqual(getBool("enabled", FALSE), TRUE)
+      expectEqual(getFlag("verbose", FALSE), TRUE)
+      expectInteger(getInteger("missing", 7), 7)
+    END TCASE
+    TCASE "boolean literals are strict"
+      cachedOptions = [Option[name := "enabled", alias := "b", required := FALSE, kind := OptionKind.Bool]]
+      cachedValues = Map OF String TO String {"enabled" := "0"}
+      expectEqual(getBool("enabled", TRUE), FALSE)
+      cachedValues = Map OF String TO String {"enabled" := "maybe"}
+      expectTrap(getBool("enabled", FALSE), 77050002)
+    END TCASE
+  END TGROUP
+END TESTING
