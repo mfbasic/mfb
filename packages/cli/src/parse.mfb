@@ -76,5 +76,14 @@ TESTING
       expectTrap(parseArgs(["-p", "1", "--port", "2"], options), 77050002)
       expectTrap(parseArgs(["-p"], options), 77050002)
     END TCASE
+    TCASE "matching schema reuses the published cache"
+      LET options AS List OF Option = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer]]
+      parsed = TRUE
+      cachedOptions = options
+      cachedValues = Map OF String TO String {"port" := "3000"}
+      LET values AS Map OF String TO String = parse(options)
+      expectString(collections::get(values, "port"), "3000")
+      expectTrap(parse([]), 77050002)
+    END TCASE
   END TGROUP
 END TESTING
