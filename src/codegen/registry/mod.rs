@@ -6121,6 +6121,7 @@ mod raw_result_block_ownership {
         "net.pingAddr",             // net.PingResult
         "os.arch",                  // String
         "os.args",                  // List OF String
+        "os.prog",                  // String
         "os.environ",               // Map OF String TO String
         "os.executablePath",        // String
         "os.getEnv",                // String

@@ -1,0 +1,8 @@
+IMPORT os
+IMPORT io
+
+FUNC main() AS Integer
+  io::print(os::prog())
+  io::print(os::executablePath())
+  RETURN 0
+END FUNC

@@ -25,7 +25,7 @@ use crate::testutil::{code_for_src_cached, code_function, try_code_for_src, Code
 
 /// A program that calls the WHOLE `os::` surface.
 ///
-/// Eighteen of the nineteen members, not a sample: each one dispatches on
+/// Nineteen of the twenty members, not a sample: each one dispatches on
 /// `ctx.platform.family()` into a different syscall, so a member the program
 /// does not call leaves three arms unmeasured rather than one. Calling them all
 /// and lowering for all five backends is what turns "the host's arm" into "every
@@ -56,6 +56,7 @@ FUNC main() AS Integer
   io::print(toString(len(env)))
   LET argv AS List OF String = os::args()
   io::print(toString(len(argv)))
+  io::print(os::prog())
   os::sleep(0)
   RETURN 0
 END FUNC

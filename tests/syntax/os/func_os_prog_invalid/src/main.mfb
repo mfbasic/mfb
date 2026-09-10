@@ -1,0 +1,6 @@
+IMPORT os
+
+FUNC main() AS Integer
+  LET wrong AS String = os::prog("x")
+  RETURN 0
+END FUNC

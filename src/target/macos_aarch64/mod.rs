@@ -104,6 +104,7 @@ impl NativeBackend for Backend {
                 "os.unsetEnv",
                 "os.environ",
                 "os.args",
+                "os.prog",
                 "os.pid",
                 "os.executablePath",
                 "os.resourcePath",

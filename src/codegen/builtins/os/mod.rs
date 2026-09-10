@@ -46,6 +46,7 @@ mod func_host_name;
 pub(crate) mod func_is_admin;
 mod func_name;
 mod func_pid;
+mod func_prog;
 mod func_resource_path;
 mod func_set_env;
 mod func_sleep;
@@ -65,7 +66,8 @@ The introspection calls are all nullary and read-only. `os::name` and `os::arch`
 are compile-time constants selected by the build target (`"macos"`/`"linux"`;
 `"aarch64"`/`"x86_64"`/`"riscv64"`). `os::args` returns the command-line
 arguments **after** the program name (element 0 is the first real argument, not
-the executable — the program name is available through `os::executablePath`).
+the executable). `os::prog` returns the invocation spelling from `argv[0]`,
+while `os::executablePath` returns the resolved executable path.
 `os::pid` and `os::cpuCount` return an `Integer`; `os::hostName`, `os::userName`,
 and `os::executablePath` return a `String` and raise `ErrUnsupported` if the host
 lookup fails. `os::resourcePath(relative)` is the one call taking an argument: it
@@ -111,6 +113,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_unset_env::register(&mut pkg);
     func_environ::register(&mut pkg);
     func_args::register(&mut pkg);
+    func_prog::register(&mut pkg);
     func_pid::register(&mut pkg);
     func_executable_path::register(&mut pkg);
     func_resource_path::register(&mut pkg);
@@ -134,7 +137,7 @@ mod tests {
     #[test]
     fn os_registered_on_the_clean_room_registry() {
         let pkg = registry().resolve_package("os").expect("os package");
-        assert_eq!(pkg.functions().len(), 19);
+        assert_eq!(pkg.functions().len(), 20);
         // os contributes no builtin value type and owns no resource.
         assert!(!registry().is_builtin_type("os"));
     }
@@ -142,6 +145,7 @@ mod tests {
     #[test]
     fn generic_dispatch_reaches_os() {
         assert!(registry().is_member("os.getEnv"));
+        assert!(registry().is_member("os.prog"));
         assert!(registry().is_member("os.resourcePath"));
         assert!(!registry().is_member("os.nope"));
         // Native members carry no rewrite target (they lower through Body::abi_function).
@@ -206,6 +210,12 @@ mod tests {
                 .map(|t| t.name().into_owned())
                 .as_deref(),
             Some("List OF String")
+        );
+        assert_eq!(
+            registry::call_return_type_typed("os.prog")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
+            Some("String")
         );
         assert_eq!(
             registry::call_return_type_typed("os.resourcePath")
