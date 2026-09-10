@@ -141,7 +141,7 @@ Land the shared scanner/copy primitive and test it before exposing `prog`.
 Acceptance: valid ASCII and multibyte arguments round-trip in order; every
 crafted malformed UTF-8 category raises `ErrEncoding`; `os::args()` with no
 arguments still returns an empty list.
-Commit: —
+Commit: 567916852
 
 ### Phase 2 — Add and prove `os::prog`
 
@@ -162,7 +162,7 @@ Acceptance: a compiled program prints the supplied argv[0] spelling, not its
 absolute executable path; invalid calls report the standard builtin argument
 diagnostic; generated binaries execute correctly on each locally buildable
 target.
-Commit: —
+Commit: 567916852
 
 ### Phase 3 — Cross-target and full compiler gates
 
