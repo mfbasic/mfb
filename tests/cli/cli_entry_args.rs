@@ -285,6 +285,20 @@ fn os_args_rejects_malformed_host_utf8() {
         .find_map(|line| line.strip_prefix("Wrote executable to "))
         .map(PathBuf::from)
         .expect("build printed an executable path");
+    let valid = Command::new(&exe)
+        .arg0("chosen-invocation")
+        .arg("h\u{e9}llo")
+        .output()
+        .expect("run the built program with a valid argv");
+    let valid_stdout = String::from_utf8_lossy(&valid.stdout);
+    assert!(
+        valid.status.success(),
+        "valid argv failed: {:?}\n{valid_stdout}",
+        valid.status
+    );
+    let mut valid_lines = valid_stdout.lines();
+    assert_eq!(valid_lines.next(), Some("chosen-invocation"));
+    assert_eq!(valid_lines.next(), Some("1"));
     for invalid in [
         vec![0x80],
         vec![0xc2],

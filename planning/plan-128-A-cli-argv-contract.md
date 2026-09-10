@@ -219,6 +219,10 @@ Commit: —
   overlong encoding, surrogate, and out-of-range sequences plus invalid argv[0].
   Windows receives UTF-16 argv and its normal Unicode path is covered by native
   lowering plus the valid runtime fixture.
+- The configured Windows native runner (`ssh -p 2230 test@127.0.0.1`) refused
+  its connection on 2026-09-10, so it cannot provide this run's wide-argument
+  execution proof. The Unix raw-byte test deliberately remains Unix-only;
+  Windows accepts UTF-16 command-line input rather than arbitrary raw bytes.
 
 ## Summary
 
