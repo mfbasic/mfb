@@ -228,7 +228,7 @@ Finish the user-facing output and verify the distributable artifact.
 - [x] Extend README examples to use the final signatures, show typed/default
   behavior, explain one-shot cache and thread constraint, list supported
   syntax, and show how callers `TRAP` each error class.
-- [ ] Add exact-output tests for usage with no alias, required and optional
+- [x] Add exact-output tests for usage with no alias, required and optional
   options, all kinds, header, and footer; add the usage consumer to the smoke
   script.
 - [x] Run package build/test/doc commands and rebuild the documented consumer
@@ -237,7 +237,7 @@ Finish the user-facing output and verify the distributable artifact.
 Acceptance: usage output is stable and derives every option row from the same
 schema parser accepts; README commands build, test, document, and consume the
 generated `.mfp` successfully.
-Commit: —
+Commit: 0dc1eaa96, 1a929c8c1
 
 ## Validation Plan
 
