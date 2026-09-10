@@ -168,19 +168,19 @@ Commit: 567916852
 
 Finish the codegen change with all required checks and precise golden handling.
 
-- [ ] Run `cargo test --bin mfb` and the targeted `os` artifact gate; inspect
+- [x] Run `cargo test --bin mfb` and the targeted `os` artifact gate; inspect
   one expected `os` `.ncode` diff with objdump before regenerating only the
   affected target goldens.
-- [ ] Run `scripts/test-accept.sh target/debug/mfb target/accept-actual` and
+- [x] Run `scripts/test-accept.sh target/debug/mfb target/accept-actual` and
   `scripts/artifact-gate.sh target/debug/mfb all`; investigate every unexpected
   artifact or runtime difference rather than rebasing it.
-- [ ] Run the native `os` argument fixtures on available Linux/macOS/Windows
+- [x] Run the native `os` argument fixtures on available Linux/macOS/Windows
   machines, recording any platform that cannot pass malformed raw argv as a
   harness limitation rather than silently omitting it.
 
 Acceptance: full acceptance and artifact gates pass, runtime evidence covers
 the raw-argv path, and only expected `os` target artifacts have changed.
-Commit: —
+Commit: ecfcb532b, d39f06375, d3cc0e67e
 
 ## Validation Plan
 
@@ -223,6 +223,11 @@ Commit: —
   its connection on 2026-09-10, so it cannot provide this run's wide-argument
   execution proof. The Unix raw-byte test deliberately remains Unix-only;
   Windows accepts UTF-16 command-line input rather than arbitrary raw bytes.
+- The 2227 Linux release link remained CPU-active but was unusually slow. A
+  clean archived build on 2223 (Kali aarch64) completed and proved the native
+  path: `exec -a invoked-as ...func_os_prog_valid-glibc.out` printed
+  `invoked-as` followed by the absolute executable path. The runner inventory
+  now records 2223's `/usr/bin/cargo` toolchain.
 
 ## Summary
 

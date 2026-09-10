@@ -14,7 +14,8 @@
 
 ## Which boxes have a Rust toolchain — probe, do not read
 
-**Three do, and no single probe finds all three.** Measured 2026-09-03; the claim in
+**Four do, and no single probe finds all four.** Measured 2026-09-03 (with 2223
+re-probed 2026-09-10); the claim in
 `scripts/linux-runtime-proof.sh`'s header that *"none of the Linux boxes carries a Rust
 toolchain (2229 is the lone exception)"* is false and has been corrected there too.
 
@@ -23,6 +24,7 @@ toolchain (2229 is the lone exception)"* is false and has been corrected there t
 | **2227** Alpine x86_64 musl | 1.96.1 | `/usr/bin/cargo` (distro package) | **4** |
 | **2228** Ubuntu x86_64 gtk glibc | 1.96.0 | `~/.cargo/bin/cargo` — **not on the non-interactive PATH** | 1 |
 | **2229** Alpine riscv64 musl | 1.96.0 | `/usr/bin/cargo` | 8 |
+| **2223** Kali aarch64 glibc | verified 2026-09-10 | `/usr/bin/cargo` | probe before use |
 
 The trap is in the middle row. `ssh -p 2228 'command -v cargo'` answers **nothing**,
 because a non-login shell does not source the rustup env — yet 2228 is the box this
@@ -93,4 +95,3 @@ qemu-user` → `dpkg -x qemu-user_*.deb ~/qemuroot` (→ `~/qemuroot/usr/bin/qem
 Linux-host only, so it cannot run on the Mac). `scripts/rvv-qemu-runner.sh` ships a
 build to 2232 and runs it under `qemu-riscv64 -cpu rv64,v=true,vlen=128` / `v=false`;
 `scripts/rvv-ulp-two-profile.sh` drives the ULP harness across both profiles.
-
