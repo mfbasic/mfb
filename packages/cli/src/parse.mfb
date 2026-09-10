@@ -1,0 +1,80 @@
+IMPORT collections
+IMPORT errorCode
+IMPORT os
+IMPORT strings
+
+PUBLIC MUT parsed AS Boolean = FALSE
+PUBLIC MUT cachedOptions AS List OF Option = []
+PUBLIC MUT cachedValues AS Map OF String TO String = Map OF String TO String {}
+
+PRIVATE FUNC failArgument(detail AS String) AS Error
+  RETURN error(errorCode::ErrInvalidArgument, "cli: " & detail)
+END FUNC
+
+PRIVATE FUNC optionNamed(options AS List OF Option, spelling AS String) AS Option
+  FOR EACH choice IN options
+    IF spelling = "--" & choice.name OR (choice.alias <> "" AND spelling = "-" & choice.alias) THEN RETURN choice
+  NEXT
+  FAIL failArgument("unknown option `" & spelling & "`")
+END FUNC
+
+PRIVATE FUNC parseArgs(args AS List OF String, options AS List OF Option) AS Map OF String TO String
+  validateSchema(options)
+  MUT values AS Map OF String TO String = Map OF String TO String {}
+  MUT at AS Integer = 0
+  WHILE at < len(args)
+    LET spelling AS String = collections::get(args, at)
+    LET choice AS Option = optionNamed(options, spelling)
+    IF collections::hasKey(values, choice.name) THEN FAIL failArgument("duplicate option `" & spelling & "`")
+    IF choice.kind = OptionKind.Flag THEN
+      values = collections::set(values, choice.name, "true")
+    ELSE
+      at = at + 1
+      IF at >= len(args) THEN FAIL failArgument("option `" & spelling & "` needs a value")
+      LET value AS String = collections::get(args, at)
+      IF len(value) > 0 AND strings::left(value, 1) = "-" THEN FAIL failArgument("option `" & spelling & "` needs a value")
+      values = collections::set(values, choice.name, value)
+    END IF
+    at = at + 1
+  END WHILE
+  FOR EACH choice IN options
+    IF choice.required AND NOT collections::hasKey(values, choice.name) THEN FAIL error(errorCode::ErrNotFound, "cli: required option `" & choice.name & "` is absent")
+  NEXT
+  RETURN values
+END FUNC
+
+EXPORT FUNC parse(options AS List OF Option) AS Map OF String TO String
+  IF parsed THEN
+    IF len(options) <> len(cachedOptions) THEN FAIL failArgument("parse was already called with a different schema")
+    FOR EACH choice IN options
+      MUT found AS Boolean = FALSE
+      FOR EACH old IN cachedOptions
+        IF sameOption(choice, old) THEN found = TRUE
+      NEXT
+      IF NOT found THEN FAIL failArgument("parse was already called with a different schema")
+    NEXT
+    RETURN cachedValues
+  END IF
+  LET values AS Map OF String TO String = parseArgs(os::args(), options)
+  cachedOptions = options
+  cachedValues = values
+  parsed = TRUE
+  RETURN values
+END FUNC
+
+TESTING
+  TGROUP "parse"
+    TCASE "long short and flags retain raw values"
+      LET options AS List OF Option = [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer], Option[name := "verbose", alias := "v", required := FALSE, kind := OptionKind.Flag]]
+      LET values AS Map OF String TO String = parseArgs(["-p", "3000", "--verbose"], options)
+      expectString(collections::get(values, "port"), "3000")
+      expectString(collections::get(values, "verbose"), "true")
+    END TCASE
+    TCASE "unknown duplicate and missing values fail"
+      LET options AS List OF Option = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer]]
+      expectTrap(parseArgs(["--missing"], options), 77050002)
+      expectTrap(parseArgs(["-p", "1", "--port", "2"], options), 77050002)
+      expectTrap(parseArgs(["-p"], options), 77050002)
+    END TCASE
+  END TGROUP
+END TESTING

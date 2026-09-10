@@ -12,15 +12,15 @@ EXPORT TYPE Option
   kind AS OptionKind
 END TYPE
 
-PRIVATE FUNC invalid(detail AS String) AS Error
+PUBLIC FUNC invalid(detail AS String) AS Error
   RETURN error(errorCode::ErrInvalidArgument, "cli: invalid option schema: " & detail)
 END FUNC
 
-PRIVATE FUNC sameOption(left AS Option, right AS Option) AS Boolean
+PUBLIC FUNC sameOption(left AS Option, right AS Option) AS Boolean
   RETURN left.name = right.name AND left.alias = right.alias AND left.required = right.required AND left.kind = right.kind
 END FUNC
 
-PRIVATE FUNC validateSchema(options AS List OF Option) AS Boolean
+PUBLIC FUNC validateSchema(options AS List OF Option) AS Boolean
   MUT names AS List OF String = []
   MUT aliases AS List OF String = []
   FOR EACH choice IN options

@@ -1,0 +1,44 @@
+IMPORT collections
+IMPORT errorCode
+
+PRIVATE FUNC cachedOption(name AS String, kind AS OptionKind) AS Option
+  FOR EACH choice IN cachedOptions
+    IF choice.name = name THEN
+      IF choice.kind <> kind THEN FAIL error(errorCode::ErrInvalidArgument, "cli: accessor does not match option `" & name & "`")
+      RETURN choice
+    END IF
+  NEXT
+  FAIL error(errorCode::ErrInvalidArgument, "cli: unknown option `" & name & "`")
+END FUNC
+
+PRIVATE FUNC raw(name AS String, kind AS OptionKind) AS String
+  cachedOption(name, kind)
+  IF NOT collections::hasKey(cachedValues, name) THEN RETURN ""
+  RETURN collections::get(cachedValues, name)
+END FUNC
+
+EXPORT FUNC getString(name AS String, fallback AS String) AS String
+  LET value AS String = raw(name, OptionKind.String)
+  IF value = "" THEN RETURN fallback
+  RETURN value
+END FUNC
+
+EXPORT FUNC getInteger(name AS String, fallback AS Integer) AS Integer
+  LET value AS String = raw(name, OptionKind.Integer)
+  IF value = "" THEN RETURN fallback
+  RETURN toInt(value)
+END FUNC
+
+EXPORT FUNC getFlag(name AS String, fallback AS Boolean) AS Boolean
+  LET value AS String = raw(name, OptionKind.Flag)
+  IF value = "" THEN RETURN fallback
+  RETURN TRUE
+END FUNC
+
+EXPORT FUNC getBool(name AS String, fallback AS Boolean) AS Boolean
+  LET value AS String = raw(name, OptionKind.Bool)
+  IF value = "" THEN RETURN fallback
+  IF value = "true" OR value = "1" THEN RETURN TRUE
+  IF value = "false" OR value = "0" THEN RETURN FALSE
+  FAIL error(errorCode::ErrInvalidArgument, "cli: boolean option `" & name & "` must be true, false, 1, or 0")
+END FUNC
