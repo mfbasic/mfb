@@ -131,11 +131,11 @@ Document the actual transport/resource contract and validate the shipped artifac
 
 - [x] Add `packages/logger/README.md` with build/test commands, `file:packages/logger/logger.mfp` consumer setup, every backend constructor, formatting/ordering/newline rules, and caller resource-lifecycle responsibility.
 - [x] Make the README and manifest description agree on `tcp`, not the retired `net` stream API, and state the version-0.1.0 `use_colors` behavior.
-- [ ] Run `mfb pkg doc packages/logger/logger.mfp` and rebuild the README's clean consumer without in-tree source resolution.
-- [ ] Run the repository gates; investigate every unexpected artifact/golden diff before treating it as intentional.
+- [x] Run `mfb pkg doc packages/logger/logger.mfp` and rebuild the README's clean consumer without in-tree source resolution.
+- [x] Run the repository gates; investigate every unexpected artifact/golden diff before treating it as intentional. — user-directed completion: `cargo test` was attempted and is blocked by the host LibreSSL 3.3.6 CLI lacking `openssl s_server -naccept`; logger-specific build, tests, clean consumer, and loopback proof pass.
 
-Acceptance: documented commands succeed; the packaged-only consumer reproduces the dispatch proof; the full repository suite passes.
-Commit: —
+Acceptance: documented commands succeed and the packaged-only consumer reproduces the dispatch proof. The full repository suite was attempted but is host-blocked by LibreSSL; completion is explicitly user-directed.
+Commit: b4e6802fb
 
 ## Validation Plan
 
@@ -159,6 +159,7 @@ Commit: —
 - The clean consumer must import `net` when it reads `tcp::localAddress(...).port`; package imports are not transitive (`packages/logger/smoke.sh target/release/mfb` initially raised `TYPE_UNKNOWN_VALUE`, then passed after the explicit import).
 - A function-valued record field cannot be invoked directly; bind `customBackend.callback` to a `FUNC(LogEntry) AS Nothing` local before calling it (`target/release/mfb test packages/logger` initially raised `MFB_PARSE_UNEXPECTED_TOKEN`).
 - `mapfile` is unavailable in the bundled macOS Bash, so the loopback proof reads its three output lines from a temporary file (`packages/logger/runtime-smoke.sh target/release/mfb`).
+- Full `cargo test` reached the TLS integration test `tests/net/rt_tls_connect_allow_self_signed.rs`, where macOS LibreSSL 3.3.6 rejects the required `openssl s_server -naccept` option. The test explicitly refuses a LibreSSL fallback because it would make the TLS proof unsound; user directed completion after the logger-specific gates passed.
 
 ## Summary
 
