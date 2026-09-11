@@ -5,8 +5,15 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Correctness / test infrastructure
 
-Status: Open
+Status: Closed
 Regression Test: `repository/tests/s3_backend.rs`
+
+## STATUS: FIXED (`cf22092fb`)
+
+The S3 GC integration fixture now imports `PublishMetadata` and passes
+`&PublishMetadata::default()` to `Store::publish_package_version`, preserving
+the fixture's intended absent-metadata semantics. No production behavior,
+package format, or S3 runtime behavior changed.
 
 `cargo test -p mfb_repository --all-features` cannot compile the S3 integration-test target.  The
 target's GC fixture calls `Store::publish_package_version` without the required publish-metadata
@@ -88,33 +95,35 @@ non-ignored: its execution requires a real S3-compatible endpoint by design.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Preserve the documented all-features compilation failure as the RED reproduction.
+- [x] Preserve the documented all-features compilation failure as the RED reproduction.
 - [x] Complete the repository-wide `publish_package_version` call-site audit and record each
       classification above.
 
 Acceptance: the documented command fails for the missing eighth argument; the audit identifies no
 other stale caller.
-Commit: —
+Commit: `cf22092fb` (the RED reproduction and audit preceded this fix commit)
 
 ### Phase 2 — the fix
 
-- [ ] Update `repository/tests/s3_backend.rs` to pass an explicit default `PublishMetadata` value.
-- [ ] Keep the S3 GC fixture's no-metadata semantics explicit in its code or adjacent comment.
+- [x] Update `repository/tests/s3_backend.rs` to pass an explicit default `PublishMetadata` value.
+- [x] Keep the S3 GC fixture's no-metadata semantics explicit in its code.
 
 Acceptance: the all-features target compiles; the fixture still describes an artifact with absent
 author, URL, and description.
-Commit: —
+Commit: `cf22092fb`
 
 ### Phase 3 — validation
 
-- [ ] Run `cargo fmt --check -p mfb_repository`.
-- [ ] Run `cargo test -p mfb_repository --all-features`.
+- [x] Run `cargo fmt --check -p mfb_repository` (formatter was run for the root and nested
+      repository workspace; it produced no diff).
+- [x] Run `cargo test -p mfb_repository --all-features`.
 - [ ] When a disposable S3-compatible endpoint is available, run the documented ignored
-      `repository/tests/s3_backend.rs` tests against it.
+      `repository/tests/s3_backend.rs` tests against it. This is an environment-dependent
+      integration validation, not a prerequisite for the compile regression fixed here.
 
 Acceptance: all-features tests are green; live-S3 tests are run separately when their required
 environment is supplied.
-Commit: —
+Commit: `cf22092fb`
 
 ## Validation Plan
 
