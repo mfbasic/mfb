@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-07
-Open bugs: **22** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **24** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-11 — repository security review intake
 
@@ -22,6 +22,15 @@ Open bugs: **22** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
   key, despite the code remaining secret.
 - **584 MEDIUM** — rerunning root initialization replaces the root anchor with
   no authenticated old-to-new transition.
+
+## 2026-09-11 — repository file-by-file security-review intake
+
+- **585 MEDIUM** — a redirect hostname is allowed without checking whether DNS
+  resolves it to a private or link-local address, retaining a client-side SSRF
+  path for blob requests.
+- **586 MEDIUM** — the shipped container leaves its SQLite database and
+  key-bearing sidecars at default permissions, exposing server and metadata
+  signing credentials to another local UID.
 
 ## ⚠️ THREE BUG NUMBERS COLLIDE — 550, 551, 552
 
