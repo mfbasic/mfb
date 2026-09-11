@@ -1,0 +1,8 @@
+{
+  "name": "logger",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "UTC log entries dispatched in order to console, open files, TCP sockets, and callbacks.",
+  "sources": [{"root": "src", "role": "package", "include": ["**/*.mfb"]}]
+}

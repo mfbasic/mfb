@@ -1,0 +1,66 @@
+IMPORT collections
+IMPORT fs
+IMPORT tcp
+
+EXPORT ENUM LogLevel
+  DEBUG, INFO, WARN, ERROR
+END ENUM
+
+EXPORT TYPE LogEntry
+  level AS LogLevel
+  timestamp AS String
+  message AS String
+END TYPE
+
+EXPORT TYPE ConsoleBackend
+  use_colors AS Boolean
+END TYPE
+
+EXPORT TYPE FileBackend
+  file AS RES fs::File
+END TYPE
+
+EXPORT TYPE NetworkBackend
+  socket AS RES tcp::Socket
+END TYPE
+
+EXPORT TYPE CustomBackend
+  callback AS FUNC(LogEntry) AS Nothing
+END TYPE
+
+EXPORT UNION LogBackend
+  ConsoleBackend
+  FileBackend
+  NetworkBackend
+  CustomBackend
+END UNION
+
+EXPORT TYPE Logger
+  common AS List OF LogBackend
+  backends AS Map OF LogLevel TO List OF LogBackend
+END TYPE
+
+FUNC ignore(entry AS LogEntry) AS Nothing
+END FUNC
+
+TESTING
+  TGROUP "model"
+    TCASE "constructs every public data shape"
+      LET callback AS FUNC(LogEntry) AS Nothing = ignore
+      LET custom AS LogBackend = CustomBackend[callback := callback]
+      LET console AS LogBackend = ConsoleBackend[use_colors := FALSE]
+      LET common AS List OF LogBackend = [console, custom]
+      LET byLevel AS Map OF LogLevel TO List OF LogBackend = Map OF LogLevel TO List OF LogBackend {LogLevel.INFO := [custom]}
+      LET configured = Logger[common := common, backends := byLevel]
+      expectInteger(len(configured.common), 2)
+      expectEqual(collections::hasKey(configured.backends, LogLevel.INFO), TRUE)
+    END TCASE
+
+    TCASE "a file backend aliases through a list"
+      RES file AS fs::File = fs::open("target/logger-model-test.txt", "w")
+      LET backend AS LogBackend = FileBackend[file := file]
+      LET backends AS List OF LogBackend = [backend]
+      expectInteger(len(backends), 1)
+    END TCASE
+  END TGROUP
+END TESTING
