@@ -123,14 +123,14 @@ Implement behavior and pin all observable backend contracts.
 - [x] Add a runnable loopback consumer proof using an append-mode temporary file, a local TCP listener/peer, and a callback collector; assert console/file/peer/callback output and ordering.
 
 Acceptance: an INFO call produces the exact `[UTC-ISO] [INFO] message`; the file contains that text plus one newline, TCP receives the unmodified text, the callback receives matching structured fields, and common delivery precedes INFO-specific delivery.
-Commit: —
+Commit: 8bf6be8de
 
 ### Phase 3 — Documentation and final package proof
 
 Document the actual transport/resource contract and validate the shipped artifact.
 
-- [ ] Add `packages/logger/README.md` with build/test commands, `file:packages/logger/logger.mfp` consumer setup, every backend constructor, formatting/ordering/newline rules, and caller resource-lifecycle responsibility.
-- [ ] Make the README and manifest description agree on `tcp`, not the retired `net` stream API, and state the version-0.1.0 `use_colors` behavior.
+- [x] Add `packages/logger/README.md` with build/test commands, `file:packages/logger/logger.mfp` consumer setup, every backend constructor, formatting/ordering/newline rules, and caller resource-lifecycle responsibility.
+- [x] Make the README and manifest description agree on `tcp`, not the retired `net` stream API, and state the version-0.1.0 `use_colors` behavior.
 - [ ] Run `mfb pkg doc packages/logger/logger.mfp` and rebuild the README's clean consumer without in-tree source resolution.
 - [ ] Run the repository gates; investigate every unexpected artifact/golden diff before treating it as intentional.
 
