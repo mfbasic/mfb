@@ -1,7 +1,16 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-07
-Open bugs: **15** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **18** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+
+## 2026-09-11 — repository security review intake
+
+- **578 HIGH** — a bounded repository upload can force multi-hundred-megabyte
+  allocations through unbounded MFPC string/section/export counts.
+- **579 MEDIUM** — anonymous transparency-log routes rebuild and materialize
+  the full log without limits or caching.
+- **580 LOW** — registration/linking allow an auth key to equal the ident key,
+  collapsing the intended credential boundary.
 
 ## ⚠️ THREE BUG NUMBERS COLLIDE — 550, 551, 552
 
