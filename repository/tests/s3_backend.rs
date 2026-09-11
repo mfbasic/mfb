@@ -17,7 +17,7 @@
 
 use mfb_repository::blobstore::{BlobBackend, BlobFetch, BlobKind, BlobStore};
 use mfb_repository::gc::{self, GcOptions};
-use mfb_repository::store::{now_unix, Store};
+use mfb_repository::store::{now_unix, PublishMetadata, Store};
 
 fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
@@ -174,6 +174,7 @@ async fn s3_gc_reclaims_only_the_orphan() {
             &blobs.blob_ref(&live_hash, BlobKind::Package),
             "{}",
             &[],
+            &PublishMetadata::default(),
         )
         .unwrap();
 
