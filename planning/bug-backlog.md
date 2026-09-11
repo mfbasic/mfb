@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-07
-Open bugs: **18** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **22** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-11 — repository security review intake
 
@@ -11,6 +11,17 @@ Open bugs: **18** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
   the full log without limits or caching.
 - **580 LOW** — registration/linking allow an auth key to equal the ident key,
   collapsing the intended credential boundary.
+
+## 2026-09-11 — repository protocol-audit intake
+
+- **581 HIGH** — `fetch_index` accepts an index not bound to its requested
+  ident and does not bind it to verified snapshot metadata.
+- **582 HIGH** — larger signed transparency-log forks overwrite a client pin
+  without a consistency proof; publish inclusion uses that unsafe path.
+- **583 MEDIUM** — a relay-visible pairing lookup can enroll an attacker auth
+  key, despite the code remaining secret.
+- **584 MEDIUM** — rerunning root initialization replaces the root anchor with
+  no authenticated old-to-new transition.
 
 ## ⚠️ THREE BUG NUMBERS COLLIDE — 550, 551, 552
 
