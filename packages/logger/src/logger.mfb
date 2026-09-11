@@ -1,0 +1,99 @@
+IMPORT collections
+IMPORT datetime
+IMPORT fs
+IMPORT io
+IMPORT tcp
+
+PRIVATE FUNC levelName(level AS LogLevel) AS String
+  MATCH level
+    CASE LogLevel.DEBUG : RETURN "DEBUG"
+    CASE LogLevel.INFO : RETURN "INFO"
+    CASE LogLevel.WARN : RETURN "WARN"
+    CASE LogLevel.ERROR : RETURN "ERROR"
+  END MATCH
+  FAIL error(77050002, "logger: unknown log level")
+END FUNC
+
+EXPORT FUNC formatEntry(entry AS LogEntry) AS String
+  RETURN "[" & entry.timestamp & "] [" & levelName(entry.level) & "] " & entry.message
+END FUNC
+
+PRIVATE FUNC doLog(backend AS LogBackend, entry AS LogEntry, formattedText AS String) AS Nothing
+  MATCH backend
+    CASE ConsoleBackend(console)
+      io::print(formattedText)
+    CASE FileBackend(fileBackend)
+      fs::writeAll(fileBackend.file, formattedText & "\n")
+    CASE NetworkBackend(networkBackend)
+      tcp::write(networkBackend.socket, formattedText)
+    CASE CustomBackend(customBackend)
+      LET callback AS FUNC(LogEntry) AS Nothing = customBackend.callback
+      callback(entry)
+    CASE ELSE
+      FAIL error(77050002, "logger: unknown backend")
+  END MATCH
+END FUNC
+
+EXPORT FUNC log(logger AS Logger, level AS LogLevel, msg AS String) AS Nothing
+  LET timestamp AS String = datetime::toIso(datetime::toUtc(datetime::now()))
+  LET entry AS LogEntry = LogEntry[level := level, timestamp := timestamp, message := msg]
+  LET formattedText AS String = formatEntry(entry)
+  FOR EACH backend IN logger.common
+    doLog(backend, entry, formattedText)
+  NEXT
+  IF collections::hasKey(logger.backends, level) THEN
+    FOR EACH backend IN collections::get(logger.backends, level)
+      doLog(backend, entry, formattedText)
+    NEXT
+  END IF
+END FUNC
+
+MUT testTrace AS String = ""
+MUT testLevel AS LogLevel = LogLevel.DEBUG
+MUT testMessage AS String = ""
+MUT testTimestamp AS String = ""
+
+FUNC commonCallback(entry AS LogEntry) AS Nothing
+  testTrace = testTrace & "C"
+  testLevel = entry.level
+  testMessage = entry.message
+  testTimestamp = entry.timestamp
+END FUNC
+
+FUNC levelCallback(entry AS LogEntry) AS Nothing
+  testTrace = testTrace & "L"
+END FUNC
+
+TESTING
+  TGROUP "formatting and dispatch"
+    TCASE "formats every level"
+      expectString(formatEntry(LogEntry[level := LogLevel.DEBUG, timestamp := "2026-01-02T03:04:05Z", message := "debug"]), "[2026-01-02T03:04:05Z] [DEBUG] debug")
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "2026-01-02T03:04:05Z", message := "info"]), "[2026-01-02T03:04:05Z] [INFO] info")
+      expectString(formatEntry(LogEntry[level := LogLevel.WARN, timestamp := "2026-01-02T03:04:05Z", message := "warn"]), "[2026-01-02T03:04:05Z] [WARN] warn")
+      expectString(formatEntry(LogEntry[level := LogLevel.ERROR, timestamp := "2026-01-02T03:04:05Z", message := "error"]), "[2026-01-02T03:04:05Z] [ERROR] error")
+    END TCASE
+
+    TCASE "routes common before exact level and preserves duplicates"
+      testTrace = ""
+      testMessage = ""
+      testTimestamp = ""
+      LET common AS LogBackend = CustomBackend[callback := commonCallback]
+      LET specific AS LogBackend = CustomBackend[callback := levelCallback]
+      LET routes AS Map OF LogLevel TO List OF LogBackend = Map OF LogLevel TO List OF LogBackend {LogLevel.INFO := [specific, common]}
+      LET configured AS Logger = Logger[common := [common], backends := routes]
+      log(configured, LogLevel.INFO, "started")
+      expectString(testTrace, "CLC")
+      expectEqual(testLevel = LogLevel.INFO, TRUE)
+      expectString(testMessage, "started")
+      expectEqual(testTimestamp <> "", TRUE)
+    END TCASE
+
+    TCASE "does not route an absent level"
+      testTrace = ""
+      LET common AS LogBackend = CustomBackend[callback := commonCallback]
+      LET configured AS Logger = Logger[common := [common], backends := Map OF LogLevel TO List OF LogBackend {}]
+      log(configured, LogLevel.WARN, "only common")
+      expectString(testTrace, "C")
+    END TCASE
+  END TGROUP
+END TESTING

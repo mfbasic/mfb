@@ -111,16 +111,16 @@ Establish the distributable type graph before dispatch behavior.
 - [x] Add a clean consumer fixture/smoke script that builds against `packages/logger/logger.mfp` and names every exported type.
 
 Acceptance: `mfb build packages/logger` writes `logger.mfp`; `mfb test packages/logger` and the clean consumer build prove the entire type graph, including resource-bearing backend records, resolves through the package.
-Commit: —
+Commit: 2820a62a7
 
 ### Phase 2 — Formatting and ordered backend dispatch
 
 Implement behavior and pin all observable backend contracts.
 
-- [ ] Add `packages/logger/src/logger.mfb` with exported `formatEntry` and `log`, private `doLog(backend, entry, formattedText)`, required imports, and the `CASE ELSE` `77050002` guard.
-- [ ] Implement the console/file/TCP/custom branches with `io::print`, `fs::writeAll`, `tcp::write`, and callback invocation; create one entry/time and formatted string before both dispatch passes.
-- [ ] Add package tests for `formatEntry` at all levels, custom-entry delivery, absent-level routing, common-before-level routing, and intentional duplicate delivery.
-- [ ] Add a runnable loopback consumer proof using an append-mode temporary file, a local TCP listener/peer, and a callback collector; assert console/file/peer/callback output and ordering.
+- [x] Add `packages/logger/src/logger.mfb` with exported `formatEntry` and `log`, private `doLog(backend, entry, formattedText)`, required imports, and the `CASE ELSE` `77050002` guard.
+- [x] Implement the console/file/TCP/custom branches with `io::print`, `fs::writeAll`, `tcp::write`, and callback invocation; create one entry/time and formatted string before both dispatch passes.
+- [x] Add package tests for `formatEntry` at all levels, custom-entry delivery, absent-level routing, common-before-level routing, and intentional duplicate delivery.
+- [x] Add a runnable loopback consumer proof using an append-mode temporary file, a local TCP listener/peer, and a callback collector; assert console/file/peer/callback output and ordering.
 
 Acceptance: an INFO call produces the exact `[UTC-ISO] [INFO] message`; the file contains that text plus one newline, TCP receives the unmodified text, the callback receives matching structured fields, and common delivery precedes INFO-specific delivery.
 Commit: —
@@ -157,6 +157,8 @@ Commit: —
 - `fs::writeText(fb.file, ...)` is invalid because `writeText` is path-based and truncating; use `fs::writeAll` on the open file.
 - The two supplied `doLog` calls omitted the helper’s third parameter; callers must pass the precomputed formatted message.
 - The clean consumer must import `net` when it reads `tcp::localAddress(...).port`; package imports are not transitive (`packages/logger/smoke.sh target/release/mfb` initially raised `TYPE_UNKNOWN_VALUE`, then passed after the explicit import).
+- A function-valued record field cannot be invoked directly; bind `customBackend.callback` to a `FUNC(LogEntry) AS Nothing` local before calling it (`target/release/mfb test packages/logger` initially raised `MFB_PARSE_UNEXPECTED_TOKEN`).
+- `mapfile` is unavailable in the bundled macOS Bash, so the loopback proof reads its three output lines from a temporary file (`packages/logger/runtime-smoke.sh target/release/mfb`).
 
 ## Summary
 
