@@ -70,6 +70,15 @@ pub(crate) fn lower_tls_connect_macos(
     const _: () = assert!(VNAME + 8 <= FRAME_SIZE);
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
+    // bug-575: the host C-string `nw_endpoint_create_host` reads, and the SNI copy
+    // `sec_protocol_options_set_tls_server_name` reads, are this helper's own
+    // scratch — handed to Network.framework and never returned to MFBASIC, so no
+    // caller-side ownership analysis could reach them and every `tls::connect`
+    // leaked its host name. Declared here, ahead of every branch that can reach
+    // `done`: the `conn_invalid` timeout rejection returns before marshalling
+    // anything, and the SNI copy only happens on the `have_sname` arm.
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut ins);
+    let sni_scratch = HelperScratch::declare(&mut vregs, &mut ins);
     // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName; x4 = allowSelfSigned.
     // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName; x3 = allowSelfSigned.
     ins.extend(
@@ -126,6 +135,7 @@ pub(crate) fn lower_tls_connect_macos(
         HOST,
         HOSTCSTR,
         &alloc_fail,
+        &host_scratch,
         &mut ins,
         &mut rel,
         &mut vregs,
@@ -245,6 +255,7 @@ pub(crate) fn lower_tls_connect_macos(
         SNAME,
         SNICSTR,
         &alloc_fail,
+        &sni_scratch,
         &mut ins,
         &mut rel,
         &mut vregs,
@@ -920,7 +931,15 @@ pub(crate) fn lower_tls_connect_macos(
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
-    ins.extend([abi::label(&done), abi::return_()]);
+    ins.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[host_scratch, sni_scratch],
+        &mut vregs,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::return_());
     {
         Ok((ins, rel, FRAME_SIZE))
     }

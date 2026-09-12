@@ -39,19 +39,27 @@ use std::path::{Path, PathBuf};
 
 const TARGET: &str = "linux-x86_64";
 
+/// The three `tls::` backends are mutually exclusive per platform and each has
+/// its own marshaller call sites (bug-575): OpenSSL on Linux, Network.framework
+/// on macOS, Schannel on Windows. Only one of them can ever be exercised at
+/// runtime on a given host, so each is pinned here by cross-built codegen — the
+/// half of the evidence that is target-independent.
+const TARGET_MACOS: &str = "macos-aarch64";
+const TARGET_WINDOWS: &str = "windows-x86_64";
+
 /// `(allocations, frees, guarded scratch releases)` for one emitted function.
 type Counts = (usize, usize, usize);
 
 /// Copy the package's `codegen_cover` byte-identity fixture into a scratch
 /// directory and dump its code plan. The fixture is copied rather than built in
 /// place because `-ncode` writes its dump beside `project.json`.
-fn cover_plan(package: &str) -> Value {
+fn cover_plan(package: &str, target: &str) -> Value {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/byte-identity")
         .join(package);
-    let project = common::temp_project(&format!("b574_cover_{package}"), "");
+    let project = common::temp_project(&format!("b574_cover_{package}_{target}"), "");
     copy_tree(&fixture, &project);
-    let plan = common::build_ncode(&project, TARGET, &format!("{package}_codegen_cover_rt"));
+    let plan = common::build_ncode(&project, target, &format!("{package}_codegen_cover_rt"));
     let _ = std::fs::remove_dir_all(&project);
     plan
 }
@@ -183,7 +191,12 @@ fn guarded_scratch_releases(instructions: &[Value]) -> usize {
 
 /// Assert `package`'s runtime helpers are exactly `expected`, counts included.
 fn assert_package(package: &str, expected: &[(&str, Counts)]) {
-    let actual = helper_counts(&cover_plan(package), package);
+    assert_package_for(package, TARGET, expected);
+}
+
+/// [`assert_package`] against one named backend target.
+fn assert_package_for(package: &str, target: &str, expected: &[(&str, Counts)]) {
+    let actual = helper_counts(&cover_plan(package, target), package);
     let expected: BTreeMap<String, Counts> = expected
         .iter()
         .map(|(symbol, counts)| ((*symbol).to_string(), *counts))
@@ -191,7 +204,8 @@ fn assert_package(package: &str, expected: &[(&str, Counts)]) {
     assert_eq!(
         actual.keys().collect::<Vec<_>>(),
         expected.keys().collect::<Vec<_>>(),
-        "the set of `{package}` runtime helpers changed. Every new one must be \
+        "the set of `{package}` runtime helpers changed for `{target}`. Every new \
+         one must be \
          classified here: does it copy a `String` argument into an arena block for \
          the host call, and if so does it release that block at its `done` \
          (bug-574)? Inheriting the answer is how the whole family leaked."
@@ -368,45 +382,162 @@ fn every_udp_helper_releases_the_host_it_marshalled() {
     assert_package("udp", UDP_HELPERS);
 }
 
-/// The residue, pinned so it cannot be mistaken for done.
+/// `tls` has its OWN marshaller (`builtins/tls/gen_shared.rs::emit_cstring`,
+/// distinct from the `os/socket/shared.rs` one the tables above go through), and
+/// three mutually exclusive backends behind it. bug-575 converted its twelve call
+/// sites; these three tables are the per-backend result.
 ///
-/// `tls::` marshals its host name and certificate paths through the OTHER
-/// `emit_cstring` (`builtins/tls/gen_shared.rs`), across twelve call sites in the
-/// OpenSSL, Secure Transport and Schannel backends, two of which sit in shared
-/// sub-emitters (`emit_read_whole_file`, `socket_connect`) whose `done` belongs to
-/// a caller. None of them was converted here: the three backends are mutually
-/// exclusive per platform, two of the three cannot be exercised on this host, and a
-/// scratch release placed after a branch that reaches `done` frees an undefined
-/// vreg. It is filed as bug-575 with this enumeration.
+/// Only ONE of the three can ever be exercised at runtime on a given host, which
+/// is exactly why they are pinned as cross-built codegen: the RSS case in
+/// `tests/runtime/rt_scope_drop_leaks.rs` was measured against the OpenSSL and
+/// Network.framework backends and cannot reach Schannel at all.
 ///
-/// The assertion is that the count has not silently CHANGED — a new `tls`
-/// marshalling site is a new leak, and a converted one should be moved out of this
-/// count and into a table above.
+/// OpenSSL (`gen_openssl.rs`). `connect`/`connectAddr` marshal the host for
+/// `getaddrinfo` and the SNI/validation name for `SSL_set1_host` — two scratch
+/// blocks; the `snihost` and `sni` arms are the two exclusive halves of one choice
+/// writing one slot, so they share the second. Their other two allocations are the
+/// `Socket` record and its result envelope. `listen` marshals the host, the
+/// certificate path and the key path — three. `accept`, `read`, `localAddress`,
+/// `localAddressListener` allocate only results.
+const TLS_HELPERS_OPENSSL: &[(&str, Counts)] = &[
+    ("_mfb_rt_tls_tls_accept", (1, 0, 0)),
+    ("_mfb_rt_tls_tls_close", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_closeListener", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_connect", (4, 2, 2)),
+    ("_mfb_rt_tls_tls_connectAddr", (4, 2, 2)),
+    ("_mfb_rt_tls_tls_listen", (4, 3, 3)),
+    ("_mfb_rt_tls_tls_localAddress", (3, 0, 0)),
+    ("_mfb_rt_tls_tls_localAddressListener", (3, 0, 0)),
+    ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_read", (2, 0, 0)),
+    ("_mfb_rt_tls_tls_write", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_writeText", (0, 0, 0)),
+];
+
+/// Network.framework (`gen_macos/`). The same two scratch blocks on
+/// `connect`/`connectAddr` — the host `nw_endpoint_create_host` reads and the SNI
+/// copy `sec_protocol_options_set_tls_server_name` reads. `listen` reads both PEM
+/// files through the SHARED `emit_read_whole_file` sub-emitter, which has no `ret`
+/// of its own: its scratch is declared by `lower_tls_listen_macos` and threaded
+/// in, once per call, because both calls stage through the same `PATHCSTR` slot.
+/// `listen`'s other four allocations are the two PEM buffers, the listener context
+/// and the `Listener` record. The unguarded frees on `close`/`read` release the
+/// per-connection state block and the read buffer, which are owned, not scratch.
+///
+/// **`listen` is 7/2/2, not 7/3/3, and that is the interesting row.** It marshals
+/// THREE C-strings and releases two: the host copy is not scratch on this backend.
+/// `tls::listen` parks it in the `Listener` record at `REC_LHOST`, and
+/// `tls::localAddress(listener)` reads it back for the listener's whole life,
+/// because `nw_listener_get_port` answers the port and Network.framework answers
+/// no address at all (bug-465). A third release here is a use-after-free, and it
+/// reads back as an empty host with the port intact —
+/// `tls_local_address_reports_the_port_a_listener_bound_to` in
+/// `tests/net/rt_tls_listener_local_address.rs` is the test that catches it, and
+/// the bind-all spelling does NOT: that path parks a rodata pointer.
+const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
+    ("_mfb_rt_tls_tls_accept", (2, 0, 0)),
+    ("_mfb_rt_tls_tls_close", (0, 1, 0)),
+    ("_mfb_rt_tls_tls_closeListener", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_connect", (4, 2, 2)),
+    ("_mfb_rt_tls_tls_connectAddr", (4, 2, 2)),
+    ("_mfb_rt_tls_tls_listen", (7, 2, 2)),
+    ("_mfb_rt_tls_tls_localAddress", (3, 0, 0)),
+    ("_mfb_rt_tls_tls_localAddressListener", (2, 0, 0)),
+    ("_mfb_rt_tls_tls_poll", (1, 0, 0)),
+    ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_read", (2, 1, 0)),
+    ("_mfb_rt_tls_tls_write", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_writeText", (0, 0, 0)),
+];
+
+/// Schannel (`gen_schannel*.rs`). ONE scratch per helper: the host `getaddrinfo`
+/// reads. `connect`/`connectAddr` marshal it inside the shared `socket_connect`
+/// sub-emitter, whose `fail` exit is the caller's — so `lower_tls_connect` declares
+/// the scratch and releases it at its own `done`. The Windows serverName and the
+/// PEM paths are marshalled WIDE (into the `WIDE`/`WORK` frame slots), not through
+/// `emit_cstring`, so they are not scratch blocks and `listen` has only the one.
+const TLS_HELPERS_SCHANNEL: &[(&str, Counts)] = &[
+    ("_mfb_rt_tls_tls_accept", (2, 0, 0)),
+    ("_mfb_rt_tls_tls_close", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_closeListener", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_connect", (5, 1, 1)),
+    ("_mfb_rt_tls_tls_connectAddr", (5, 1, 1)),
+    ("_mfb_rt_tls_tls_listen", (9, 1, 1)),
+    ("_mfb_rt_tls_tls_localAddress", (3, 0, 0)),
+    ("_mfb_rt_tls_tls_localAddressListener", (3, 0, 0)),
+    ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_read", (2, 0, 0)),
+    ("_mfb_rt_tls_tls_write", (1, 0, 0)),
+    ("_mfb_rt_tls_tls_writeText", (1, 0, 0)),
+];
+
 #[test]
-fn the_tls_marshalling_sites_are_the_known_residue() {
-    let source = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/codegen/builtins/tls/gen_shared.rs"),
-    )
-    .expect("read tls/gen_shared.rs");
+fn every_openssl_tls_helper_releases_what_it_marshalled() {
+    assert_package_for("tls", TARGET, TLS_HELPERS_OPENSSL);
+}
+
+#[test]
+fn every_network_framework_tls_helper_releases_what_it_marshalled() {
+    assert_package_for("tls", TARGET_MACOS, TLS_HELPERS_NETWORK_FRAMEWORK);
+}
+
+#[test]
+fn every_schannel_tls_helper_releases_what_it_marshalled() {
+    assert_package_for("tls", TARGET_WINDOWS, TLS_HELPERS_SCHANNEL);
+}
+
+/// bug-575 converted the second marshaller, so there is no residue left to pin —
+/// but there are still exactly twelve `emit_cstring` call sites, and each one must
+/// be handed a DECLARED `HelperScratch`, named `*_scratch*`. That is the weaker
+/// half of the contract on purpose: whether the block is released, or transferred
+/// to a resource that outlives the helper (`lower_tls_listen_macos`'s
+/// `host_scratch_the_listener_owns`), is a decision made at the declaration and
+/// asserted by the per-backend tables above. What this test catches is the
+/// decision never being made: a thirteenth site, or one that goes back to
+/// allocating a block nothing names. The tables would catch that only if its
+/// helper is one the `codegen_cover` fixture reaches.
+#[test]
+fn every_tls_marshalling_site_is_handed_a_scratch() {
+    let tls = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/codegen/builtins/tls");
+    let marshaller =
+        std::fs::read_to_string(tls.join("gen_shared.rs")).expect("read tls/gen_shared.rs");
     assert!(
-        source.contains("pub(crate) fn emit_cstring("),
-        "the `tls` marshaller was renamed; re-derive the residue"
+        marshaller.contains("scratch: &HelperScratch,"),
+        "the `tls` marshaller no longer takes the scratch it allocates; every \
+         `tls::connect`/`tls::listen` would leak its host name again (bug-575)"
     );
-    let mut sites = 0;
-    for entry in walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src/codegen/builtins/tls")) {
+    let mut sites = Vec::new();
+    for entry in walk(&tls) {
         let text = std::fs::read_to_string(&entry).expect("read tls source");
-        sites += text
-            .lines()
-            .filter(|line| line.contains("emit_cstring(") && !line.contains("fn emit_cstring("))
-            .count();
+        let lines: Vec<&str> = text.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            if !line.contains("emit_cstring(") || line.contains("fn emit_cstring(") {
+                continue;
+            }
+            // The scratch is the sixth argument, so it is inside the call's first
+            // ten lines at every site (the widest spells the call over nine).
+            let window = lines[index..(index + 10).min(lines.len())].join("\n");
+            sites.push((entry.clone(), index + 1, window.contains("scratch")));
+        }
     }
     assert_eq!(
-        sites, 12,
-        "the number of `tls` C-string marshalling sites changed. Each one leaks its \
-         argument (bug-575); converting one means releasing its block at the \
-         enclosing helper's `done` and moving the row into this file's per-package \
-         tables"
+        sites.len(),
+        12,
+        "the number of `tls` C-string marshalling sites changed. A NEW one is a new \
+         leak unless it is handed a `HelperScratch` whose owner the enclosing helper \
+         decides, and its helper's row in the three tables above must move (bug-575)"
     );
+    for (file, line, threaded) in &sites {
+        assert!(
+            threaded,
+            "{}:{line}: this `emit_cstring` site is not handed a `*_scratch*` — so \
+             nothing names the block it allocates and nobody decided who owns it \
+             (bug-575)",
+            file.display()
+        );
+    }
 }
 
 fn walk(root: &Path) -> Vec<PathBuf> {

@@ -56,6 +56,14 @@ pub(super) fn emit_cancel_drain(
 /// `sp + len_off`. `open_fail` is taken when the file cannot be opened (no fd
 /// yet); `read_fail_fd` when a seek/read fails or the file is empty (the open
 /// fd is at `sp + fd_off` for the caller to close).
+///
+/// bug-575: `path_scratch` is the marshalled path C-string this emitter allocates
+/// for `open`. It is declared by the CALLER rather than here because the caller
+/// owns the `done` the release has to sit at — this sub-emitter has no `ret` of
+/// its own, and each of its failure exits (`open_fail`, `read_fail_fd`,
+/// `alloc_fail`) lands in the caller's tail. The caller also calls it TWICE, for
+/// the certificate and for the key, through the SAME `cstr_off` slot: one scratch
+/// per call, or the first block would be overwritten and lost.
 #[allow(clippy::too_many_arguments)]
 fn emit_read_whole_file(
     ctx: &mut EmitCtx,
@@ -69,6 +77,7 @@ fn emit_read_whole_file(
     open_fail: &str,
     read_fail_fd: &str,
     alloc_fail: &str,
+    path_scratch: &HelperScratch,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
     let v9 = vregs.next();
@@ -85,6 +94,7 @@ fn emit_read_whole_file(
         path_off,
         cstr_off,
         alloc_fail,
+        path_scratch,
         ctx.instructions,
         ctx.relocations,
         vregs,
@@ -466,6 +476,33 @@ pub(crate) fn lower_tls_listen_macos(
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
+    // bug-575: three marshalled C-strings, and only TWO of them are scratch.
+    //
+    // The two PEM paths are: `emit_read_whole_file` hands each to `open`, reads
+    // the file, and nothing keeps the string. They are released at `done`, and
+    // they are declared HERE rather than inside that sub-emitter because it has no
+    // `ret` of its own and because it is called twice through the same `PATHCSTR`
+    // slot — one scratch per call, or the first block is overwritten and lost.
+    //
+    // The HOST copy is NOT scratch on this backend, and freeing it is a
+    // use-after-free rather than a leak fix. `tls::listen` parks it in the
+    // `Listener` record at `REC_LHOST` (see the store below), because
+    // `nw_listener_get_port` answers the port and Network.framework answers no
+    // address at all: that string IS `tls::localAddress(listener)`'s answer, for
+    // the listener's whole life (bug-465). Releasing it at `done` made
+    // `tls_local_address_reports_the_port_a_listener_bound_to` read back
+    // `bound  62586` — the port intact, the host an empty string, because the
+    // block had been returned to the arena before anyone asked. The bind-all
+    // spelling hid it: that path parks the static `_mfb_tls_anyhost` rodata
+    // pointer and reads back `"0.0.0.0"` either way.
+    //
+    // So the host block's owner is the `Listener`, exactly as the record store
+    // below says ("Borrowed, never freed"). It is declared only so `emit_cstring`
+    // has somewhere to record it, and it is deliberately absent from the release
+    // list.
+    let cert_scratch = HelperScratch::declare(&mut vregs, &mut ins);
+    let key_scratch = HelperScratch::declare(&mut vregs, &mut ins);
+    let host_scratch_the_listener_owns = HelperScratch::declare(&mut vregs, &mut ins);
     // x0 = host; x1 = port; x2 = certPath; x3 = keyPath; x4 = backlog (unused).
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
@@ -503,6 +540,7 @@ pub(crate) fn lower_tls_listen_macos(
         &cert_fail,
         &read_fail_fd,
         &alloc_fail,
+        &cert_scratch,
         &mut vregs,
     )?;
     emit_read_whole_file(
@@ -523,6 +561,7 @@ pub(crate) fn lower_tls_listen_macos(
         &cert_fail,
         &read_fail_fd,
         &alloc_fail,
+        &key_scratch,
         &mut vregs,
     )?;
     // dlopen Network.framework, Security.framework, CoreFoundation.
@@ -847,6 +886,7 @@ pub(crate) fn lower_tls_listen_macos(
         HOST,
         HOSTCSTR,
         &alloc_fail,
+        &host_scratch_the_listener_owns,
         &mut ins,
         &mut rel,
         &mut vregs,
@@ -1307,7 +1347,19 @@ pub(crate) fn lower_tls_listen_macos(
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
-    ins.extend([abi::label(&done), abi::return_()]);
+    ins.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[cert_scratch, key_scratch],
+        &mut vregs,
+        &mut ins,
+        &mut rel,
+    );
+    // `host_scratch_the_listener_owns` is deliberately not in that list; see its
+    // declaration. Consumed here so the `#[must_use]` on `HelperScratch` still
+    // means "every declared scratch was decided about", not "every one was freed".
+    drop(host_scratch_the_listener_owns);
+    ins.push(abi::return_());
     {
         Ok((ins, rel, FRAME_SIZE))
     }
