@@ -105,12 +105,15 @@ for pkg in $packages; do
 	fi
 
 	# Every not-run entry for this package must name an example the runner saw.
+	# A plain entry is reported "compiled; not run:"; a `serves:` entry is RUN
+	# and reported "serves (still running …)" — or "SERVE FAILED", which is
+	# already counted as a failure above, not as a stale entry.
 	while read -r id _; do
 		case $id in "$pkg::"*) ;; *) continue ;; esac
 		fn=${id#"$pkg::"}
 		n=${fn##*#}
 		fn=${fn%#*}
-		if ! grep -qF "=== $pkg::$fn example $n — compiled; not run:" "$log"; then
+		if ! grep -qE "^=== $pkg::$fn example $n — (compiled; not run:|serves \(still running|SERVE FAILED)" "$log"; then
 			echo "stale not-run entry: $id (no such example, or it no longer builds)" >&2
 			stale=$((stale + 1))
 		fi
