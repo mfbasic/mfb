@@ -6,9 +6,14 @@ Severity: **MEDIUM** — use-after-munmap in the `tls::close` path on macOS, rea
 by any program that closes a TLS socket shortly before exiting.
 Class: Runtime / teardown
 
-Status: **Sighting 1 DIAGNOSED AND FIXED. Sighting 2 still OPEN and unreproduced.**
+Status: **Sighting 1 DIAGNOSED AND FIXED. Sighting 2 REPRODUCED, mechanism
+CONFIRMED, fix BLOCKED.** A correct fix needs a store-release (`STLR`) or `DMB`
+instruction, and this ABI layer cannot emit either. See "Why this is BLOCKED
+rather than fixed".
 Regression Test: `codegen::builtins::tls::gen_macos::tests::close_drains_to_cancelled`
-(RED before the fix, GREEN after).
+(sighting 1; RED before the fix, GREEN after). Sighting 2 has a runtime RED
+(interposed matched pair: 6 of 600 `raised=FALSE`) and a parked unit pin; neither is
+on this branch.
 
 ## The sighting
 
@@ -305,7 +310,7 @@ byte-identical to HEAD before the change, so all three diffs are this change's:
 `linux-{aarch64,x86_64,riscv64}` and `windows-x86_64` re-summed SAME for all three.
 Controls `byte-identity/strings` and `byte-identity/net` re-summed SAME.
 
-## Sighting 2: still OPEN, and the doc misread it
+## Sighting 2: REPRODUCED and diagnosed; the fix is BLOCKED on a release store
 
 The doc records sighting 2 as a "behavioural flip … whether it raises". It is not.
 The fixture prints
@@ -319,10 +324,13 @@ does not apply: the fixture already `process::signal(Kill)`s the peer and
 `process::waitFor`s it, and already uses bug-467's deterministic 64 KiB × 200
 shape. It is not racy in the way the doc says.
 
-### The mechanism it most likely is — an ordering bug, not yet proven
+### The mechanism: a publication-order race. REPRODUCED (2026-09-12)
 
-`tls::write`'s terminal-state guard is an **unsynchronised poll** of two ctx slots
-written by a handler on another thread (`client.rs:1571`, `client.rs:1668`):
+`tls::write` reads two ctx slots that a handler on another thread writes, and it
+does so without synchronisation. It reads a gate first, then the payload
+(`gen_macos/client.rs:lower_tls_write_macos`; the only readers of `CTX_EDOM` and
+`CTX_ERROR`, from `grep -n 'load_u.*CTX_EDOM\b\|load_u.*CTX_ERROR\b'`). There
+are two paths:
 
     writer (main thread)         STATE_INVOKE (mfb.tls queue)
     ────────────────────         ────────────────────────────
@@ -333,22 +341,146 @@ written by a handler on another thread (`client.rs:1571`, `client.rs:1668`):
        else -> ErrTlsFailed
 
 The gate (`CTX_STATE`) is published in step 1, **before** the payload it implies
-(`CTX_EDOM`) in step 4 — with an indirect call into Network.framework in between.
-A writer that reads `CTX_STATE` inside that window sees `4` and `CTX_EDOM == 0`
-(zeroed at ctx setup) and reports `ErrTlsFailed` → `raised=FALSE`. Exactly one
-fixture, exactly once, only under load.
+(`CTX_EDOM`) in step 4, and an indirect call into Network.framework sits between
+them. A writer that reads `CTX_STATE` inside that window sees `4` with
+`CTX_EDOM == 0` (zeroed at ctx setup) and reports `ErrTlsFailed`, which prints
+`raised=FALSE`.
 
-`SEND_INVOKE` has the same store order and is *safe*, because its reader waits on
-the semaphore that is signalled after both stores. `STATE_INVOKE`'s reader waits on
-nothing.
+The second path runs through the send wait: the writer reads `CTX_ERROR` and then
+`CTX_EDOM`. **An earlier version of this doc called `SEND_INVOKE` safe; it is
+not.** Its reader waits on `CTX_SEM`, but `STATE_INVOKE` signals that same
+semaphore, so the writer can wake on the state handler's signal and read a
+`CTX_ERROR` that either trampoline has stored and not yet classified.
 
-**Not landed, because it is not proven and the obvious fix is incomplete.**
-Swapping the two stores fixes *program* order only; AArch64 is weakly ordered and
-two plain stores to different cache lines can be observed out of order by another
-core, so a correct fix needs a release barrier — and this ABI layer emits no
-memory barrier at all (`grep -ri 'dmb|barrier|fence' src/codegen src/arch
-src/target/shared` → no instruction, only prose). Adding one is a real change to
-the encoder and wants its own bug with a reproduction behind it.
+#### The instrument: `dlsym` interposition, no compiler change
+
+`tls` resolves every Network.framework symbol through `dlsym` at run time. That
+includes `nw_error_get_error_domain`, which is parked in `CTX_EDOMFN` and called
+from both trampolines. A `DYLD_INSERT_LIBRARIES` dylib that interposes `dlsym` can
+therefore wrap the exact call that sits between the gate store and the payload
+store, in the real fixture binary, with no instrumented compiler. The wrapper logs
+the domain and code, plus its return address, which identifies the calling
+trampoline: `str x2,[x19,#0x20]` precedes one call and `str x1,[x19,#0x20]` the
+other (`otool -tv`). It can also `usleep` there, and a second wrapper on
+`dispatch_data_create` slows the writer before its guard. SIP strips `DYLD_*`
+from `/bin/bash` and `xargs`, so a driver has to inject the variable at the
+fixture's own exec. The instrument lived in `/tmp` and was never committed.
+
+#### What it measured
+
+All runs were `tls-write-peer-closed-raises-rt`, built by this tree's release
+compiler, on the macOS host (12 cores) while peer sessions loaded it; load
+averages 27–49. Tallies come from each run's stdout. "STATE-first" means the
+first `nw_error` classified in the run came from `STATE_INVOKE`.
+
+| set | build | runs × concurrency | `write raised=FALSE` | STATE-first runs (FALSE among them) | exit≠0 |
+|---|---|---|---|---|---|
+| uninstrumented | pre-fix | 240 × 8 | 0 | n/a | 0 |
+| uninstrumented | pre-fix | 600 × 12 | 0 | n/a | 0 |
+| interposed, log only | pre-fix | 240 × 8 | **5** | 19 (**5**) | 0 |
+| interposed, 50 ms in the domain call | pre-fix | 40 × 4 | 0 | 0 | 0 |
+| interposed, 50 ms domain + 150 ms writer | pre-fix | 4 serial + 40 × 4 | **1** + 0 | 1 (1) + 2 (0) | 0 |
+| **matched pair, log only, run side by side** | **pre-fix** | **600 × 8** | **6** | **21 (6)** | 0 |
+| **matched pair, log only, run side by side** | **gate-last reorder** | **600 × 8** | **0** | **23 (0)** | 0 |
+
+Taken together:
+
+* **Every `raised=FALSE`, 12 of 12, is a STATE-first run.** Of 1,400+ SEND-first
+  runs, none failed. Every failure recorded POSIX domain 1 (code 54, ECONNRESET),
+  so `ErrConnectionClosed` was the right answer and the writer read it too early.
+* **It is the window, not the peer.** Across the matched pair, 6 of 21
+  opportunities failed on the pre-fix build, and 0 of 23 failed once the
+  trampolines publish the domain before the gate, under the same load at the same
+  time. If the rate among opportunities were unchanged (~29%), 0 of 23 would
+  happen by chance with probability about 0.0004.
+* **A long sleep in the domain call HIDES the race.** When the handler is slowed,
+  the send completion almost always classifies first. That is the "a publication
+  race needs both sides slowed" trap in its purest form. The widening that worked
+  was the logging wrapper's own `write(2)` syscall, which lengthens the window
+  without reordering the handlers.
+* **The uninstrumented binary did not fail in 840 runs.** The unwidened window is
+  one indirect call, so a full acceptance run reaching it once is consistent
+  with a rate this low. Sighting 2 is this bug; it was never a fixture wait.
+* No crash report was written by any run (`ls -lt
+  ~/Library/Logs/DiagnosticReports`, newest file 08:50, before this work began).
+
+### The contract it breaks
+
+`mfb spec stdlib transports` (`src/docs/spec/stdlib/17_transports.md`): "A write
+to a peer that has gone away raises `ErrConnectionClosed` … on every target …
+`ErrTlsFailed` stays what it has always meant on `tls` — a handshake, certificate
+or protocol failure". `mfb man tls write` says the same. The failing runs raise
+`ErrTlsFailed` for a peer that has gone away, so the code is wrong and the docs
+are right.
+
+### Why this is BLOCKED rather than fixed
+
+Reordering the stores so that each trampoline saves its arguments in the frame,
+classifies, and stores `CTX_ERROR`/`CTX_STATE` last closes the window as it was
+observed (matched pair above). **It is still not a correct fix on AArch64, and it
+is not landed.** The earlier version of this doc was right about that. Here is the
+evidence it lacked:
+
+* **ARMv8's memory model allows plain `STR`s to be observed out of program
+  order.** Chong, Sorensen & Wickerson, *The Semantics of Transactions and Weak
+  Memory in x86, Power, ARM, and C++*, PLDI'18, §6 (first author at Arm Ltd.):
+  "The ARMv8 memory model … like Power, it permits several relaxations to the
+  program order. Unwanted relaxations can be inhibited either using barriers
+  (DMB, DMB LD, DMB ST, ISB) or using release/acquire instructions (LDAR, STLR)
+  that act like one-way fences." The A64 instruction reference entry for `STLR`
+  says it "also has memory ordering semantics as described in Load-Acquire,
+  Store-Release".
+* **The toolchain agrees.** `clang -O2` compiles C11 `atomic_store`/`atomic_load`
+  on this host to `stlr`/`ldar`, not `str`/`ldr`: a disassembled
+  `publish()/classify()` pair doing exactly this gate/payload publication, checked
+  with `otool -tv`.
+* **This ABI layer can emit none of the fence instructions.** `grep -rniE
+  'stlr|ldar|dmb|store.release|load.acquire' src/arch src/target/shared
+  src/codegen/engine` returns no matches.
+
+So a program-order reorder built from plain `str` depends on a guarantee the
+architecture does not give. It would pass every test here and could still misreport
+on a core that exercises the relaxation. That is the half-fix this investigation
+was told not to land.
+
+### Options and their costs
+
+1. **Teach the encoder a release store, then reorder.** Add a store-release op
+   (`STLR`, a base-register-only addressing form, so it is `add` + `stlr`), store
+   the gate with it, and apply the reorder that has already been measured. The
+   cost is a new `CodeOp`, emitted as `STLR` on aarch64 and as a plain store on
+   x86_64 (TSO) and riscv64. `StrU64`'s current handling spans
+   `src/arch/{ops.rs, aarch64,x86_64,riscv64}/{encode/emitter.rs, regmodel.rs,
+   select.rs}`, `src/codegen/engine/{mir/mir.rs, regalloc/linear_scan.rs,
+   builder/code_impl.rs}` (`grep -rln StrU64 src/arch src/codegen/engine`), and
+   every one of those needs encoder tests. Only the macOS tls goldens move. This
+   is the correct fix.
+2. **Emit `DMB` between the payload and the gate.** A single fixed-encoding
+   instruction with no operands, so it is cheaper in the encoder than (1). It is a
+   heavier instruction at run time, but that doesn't matter on an
+   error-classification path. It still needs a new `CodeOp` plumbed through every
+   backend's selector and regalloc.
+3. **Make the reader tolerate a torn view (no new instruction).** When the writer
+   sees the gate with `CTX_EDOM == 0`, it waits for the handler to finish before
+   classifying, for example by waiting on `CTX_SEM`, which the handler signals
+   after publishing. That forces a program-order dependency back through a
+   kernel-mediated wakeup (an exception entry commits pending writes). But the
+   guard path has no outstanding operation to wait for. It would also need a
+   bounded wait so that a state change with a null error (domain stays 0, the
+   legitimate `ErrTlsFailed` case) cannot hang `write`. More moving parts than
+   (1), and the bounded-wait timeout is a new tuning constant.
+4. **Publish gate and payload as ONE word.** Pack the domain into the store the
+   reader already treats as the gate. A single store cannot be torn by
+   reordering. The costs: `CTX_EDOM`'s "sticky" rule (a later null-error state must
+   not erase it) and the send completion's separate `CTX_ERROR` gate both need
+   redesigning, and every `CTX_STATE` reader has to mask the new bits. That makes
+   it the most invasive option for the shared listener/connection ctx layout
+   (`.ai/net-tls.md`, "`STATE_INVOKE` is shared by connection AND listener
+   contexts").
+
+Recommendation: (1), filed as its own encoder bug, with this reproduction as its
+RED. The reorder, its unit pin and the interposer driver are ready to replay onto
+it. See "Parked work" below.
 
 ## Reproduction attempts — what was tried and what it cost
 
@@ -398,3 +530,46 @@ The remaining gap is that nothing in the tree *harvests* those reports: a fixtur
 SIGSEGV in CI on a Linux box leaves no equivalent, and `test-accept.sh` does not
 copy the macOS report next to the failing `build.log`. That is worth doing and is
 not done here.
+
+## Parked work (sighting 2), NOT for merge
+
+Branch `bug-564-s2-program-order-wip` holds three things. It must not merge on its
+own, for the reason in "Why this is BLOCKED rather than fixed".
+
+* **The reorder** (`src/target/macos_aarch64/tls.rs`: `state_invoke_function`,
+  `send_invoke_function`). Each trampoline parks its arguments at sp+16/24, calls
+  `record_error_domain`, then stores `CTX_ERROR` (and `CTX_STATE`). The
+  disassembled fixture shows `str w0,[x19,#0xc8]` before `str x10,[x19,#0x20]` and
+  `str x10,[x19,#0x10]`.
+* **Its unit pin**,
+  `codegen::builtins::tls::gen_macos::tests::trampolines_publish_the_error_domain_before_the_gate`.
+  It was RED on the unfixed tree (`cargo test --release -p mfb --bin mfb
+  --no-fail-fast -- gen_macos::tests`, exit 101: "`_mfb_tls_nw_state_invoke` must
+  store CTX_EDOM (index 15) BEFORE the gate at offset 16 (indices [6])"). It is
+  GREEN with the reorder (`-- tls::`, 32 passed, exit 0). When option (1) lands,
+  the test should also assert that the gate store is the release-store op.
+* **The instrument**, `bugs/bug-564-s2-instrument/{interpose3.c,loop.sh}`. To
+  replay the matched pair:
+  `clang -dynamiclib -O1 -o interpose3.dylib interpose3.c`, then
+  `B564_DYLIB=$PWD/interpose3.dylib B564_LOG=1 ./loop.sh <fixture.out> 600 8 <outdir>`
+  for each build, run side by side. Classify each run by the return address of its
+  first `domain=` line.
+
+Positive pins measured on the reorder (a standalone probe, not committed; 3 runs
+each on the pre-fix and the reordered build, identical output):
+
+* A write to a live `openssl s_client` peer (`"hello"` plus 4 KiB) prints
+  `live ok=TRUE`.
+* A write loop after the peer closes **in an orderly way** (s_client without
+  `-quiet`, stdin `/dev/null`, so it sends close_notify and exits by itself, then
+  gets reaped) prints `orderly closed=TRUE code=77070004`, which is
+  `ErrConnectionClosed`.
+* The fixture's own `cert tlsFailed=TRUE`, `empty emptyWritesSucceeded=TRUE` and
+  `deadline timedOut=TRUE` lines held in all 600 reordered runs.
+* A write after our OWN `tls::close` cannot be written: the compiler refuses it
+  with `TYPE_USE_AFTER_MOVE` (2-203-0055), so there is no runtime case to pin.
+
+Not run on the reorder: `scripts/test-accept.sh` over `*tls*`, the `rt_*tls*`
+integration tests, and `.ncodesum` regeneration. The reorder moves the
+macos-aarch64 `tls`/`http`/`resource-xfer-slots` sums, and those belong to
+whichever branch lands option (1).
