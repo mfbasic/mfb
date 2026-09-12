@@ -1,11 +1,17 @@
 # bug-587: `s = s & <expr>` on a `MUT String` leaks ~190 B per evaluation
 
+> **WITHDRAWN.** This is the same defect as **bug-560** (`bugs/completed/bug-560-mut-string-self-append-leaks.md`),
+> which was filed on 2026-09-06 and FIXED in `29f3d5885` (2026-09-07).
+> It should never have been filed. See "Why this was filed twice" at the end.
+
+
 Last updated: 2026-09-12
 Effort: unknown (the in-place self-append path is the suspect; measure first)
-Severity: HIGH — unbounded leak in the idiom the performance docs recommend
+Severity: HIGH — unbounded leak in the idiom the performance docs recommend  
+*(severity as filed; moot — the defect is fixed)*
 Class: Memory / correctness
 
-Status: Open
+Status: **CLOSED — DUPLICATE of bug-560, which was fixed before this was filed.**
 Regression Test: an RSS pin in `tests/runtime/rt_scope_drop_leaks.rs` (the
 87-case set this cluster already owns).
 
@@ -76,3 +82,31 @@ Per the standing rule for allocation/aliasing/ownership/drop bugs:
    signal;
 4. a POSITIVE pin that ordinary correct usage is unchanged, and a performance
    pin that the in-place fast path still fires.
+
+## Why this was filed twice — and how to not do it again
+
+bug-536 recorded three defects found while fixing its shape B-2, with the note
+"they are recorded here rather than filed so the numbering does not race with a
+peer session". **They were filed the next day**, as bugs 560, 561 and 562
+(`8c57683f3`, 2026-09-06) — but nobody went back and updated bug-536's item
+list. Six days later a session read that unchanged list, took the note at face
+value, and filed all three a second time as 587/588/589.
+
+The number checks that were run (`ls bugs/ bugs/completed/` and
+`git log --all --grep=bug-NNN`) all passed, because they answer "is this NUMBER
+free?" — which it was. Nobody asked "is this DEFECT already tracked?", and that
+is the question that mattered.
+
+**The rule: before filing, search for the DEFECT, not the number.** Grep
+`bugs/completed/` for the symptom, the function name, and the idiom — here,
+`git grep -il "self.append" bugs/` would have surfaced bug-560 immediately.
+A "recorded but not filed" note in an older document is a claim about the past
+with a timestamp on it; check whether it is still true before acting on it.
+
+Verified before closing (not assumed): bug-560 is marked FIXED with a named
+commit, and its regression pins are live at HEAD —
+`a_reassigned_string_self_append_runs_at_constant_rss`,
+`a_returned_string_self_append_runs_at_constant_rss`,
+`a_plain_string_self_append_still_runs_at_constant_rss` and
+`every_string_self_append_shape_still_produces_the_right_value` in
+`tests/runtime/rt_scope_drop_leaks.rs`.
