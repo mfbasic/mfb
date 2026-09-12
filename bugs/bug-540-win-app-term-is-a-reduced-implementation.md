@@ -11,6 +11,14 @@ Regression Test: `tests/cli/cli_win_app_term_fidelity.rs` (five cases, covering
 WIN-01, WIN-04 and WIN-05), the `term::` style/reset case and the `term::drawText`
 cluster case in `scripts/test-winapp.sh` (box 2230). Nothing yet covers WIN-02/03.
 
+**Windows smoke run, 2026-09-12 (the run owed since WIN-04 landed in round 3):**
+`bash scripts/test-winapp.sh` with the round-4 main binary on box 2230 exited **0**.
+Every case passed: worker thread, file round-trip, environment, software canvas, Vulkan
+canvas (the GPU frame matches the software reference; worst channel difference 1, 0.0042%
+of pixels differ), "every LineStyle and FillStyle select chain ran without faulting
+(WIN-01)", "term::on resets bold and underline (WIN-05)", and "term::drawText's cluster
+walk ran every drawText-only branch without faulting (WIN-04)".
+
 The Windows `mfb build --app` `term::` backend draws, but it is not the same
 surface the console and macOS backends present. Four documented contracts are
 broken there, each silently — every call returns success and no diagnostic is
