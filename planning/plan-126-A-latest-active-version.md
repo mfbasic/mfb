@@ -262,31 +262,48 @@ renders `package_page` for a view whose newest version is yanked and asserts the
 header names `latest v1.5.0`, does **not** contain `latest v2.0.0`, and the table
 still carries the yanked row (`state--yanked` present). `cargo test -p
 mfb_repository --lib --no-fail-fast` → `378 passed; 0 failed`.
-Commit: —
+Commit: 90150eff1
 
 ### Phase 3 — Search results carry state (the actual bug)
 
 Largest user-visible change, landed last.
 
-- [ ] Apply the `state_is_active` allowlist to the per-package latest-version
-      statement at `repository/src/store.rs:1706-1713` and select `pv.state`
-      alongside `pv.version`.
-- [ ] Add `latest_state: Option<String>` to `SearchResultRow`
-      (`repository/src/store.rs:2965` region) and to `SearchRow`
-      (`repository/src/web/mod.rs:281-287`).
-- [ ] Add the field to the search JSON response type in
+- [x] Apply the `state_is_active` allowlist to the per-package latest-version
+      statement in `Store::search_packages`
+      (`grep -n "failed to prepare latest-version query" repository/src/store.rs`)
+      and select `pv.state` alongside `pv.version`.
+- [x] Add `latest_state: Option<String>` to `SearchResultRow`
+      (`grep -n "pub struct SearchResultRow" repository/src/store.rs`) and to
+      `SearchRow` (`grep -n "pub struct SearchRow" repository/src/web/mod.rs`).
+- [x] Add the field to the search JSON response type `SearchResult` in
       `repository/src/server.rs` as `latestState` and populate it.
-- [ ] Render the badge next to `span."result__ver"` at
-      `repository/src/web/mod.rs:340-342`; add `.result__state` rules to
-      `repository/src/web/style.css` reusing the existing `state--*` modifiers.
-- [ ] Tests: a search whose only match has a yanked newest release shows the older
-      active version with no yanked badge; a match whose newest active release is
-      `deprecated` shows the deprecated badge; a match with **no** active release
-      shows the no-active-release copy and no version chip.
+- [x] Render the badge next to `span."result__ver"` in `search_page`, reusing the
+      existing `state state--<modifier>` classes rather than adding a parallel
+      `.result__state` rule set — the badge is the *same* badge the Overview
+      version table uses, and a second rule set for one would drift. The one new
+      rule is `.result__ver--none` for the no-active-release statement.
+- [x] Tests: three new —
+      `search_names_the_newest_active_release_and_carries_its_state` (JSON: yanked
+      newest → older active; deprecated newest → returned *with* its state; all
+      withdrawn → row kept, version `null`),
+      `the_search_page_never_shows_a_yanked_version_in_the_result_chip` (HTML),
+      and `the_search_page_badges_a_deprecated_headline_release` (HTML).
+      `search_ranks_exact_then_prefix_then_substring` gained a `latest_state`
+      assertion.
+- [x] Added task: extend the pre-existing
+      `search_results_escape_html_metacharacters_in_publisher_values` to cover
+      the new field. `latest_state` reaches a `class=` attribute via
+      `state_modifier`, so a hostile value is a new XSS surface — see
+      Corrections for the false-positive assertion this first produced.
 
-Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes,
-and a rendered-HTML test asserts the yanked version string does **not** appear in
-the search result chip for a package whose newest release is yanked.
+Acceptance: MET. `rustup run 1.96.0 cargo test -p mfb_repository --lib
+--no-fail-fast` → `381 passed; 0 failed`.
+`the_search_page_never_shows_a_yanked_version_in_the_result_chip` drives the real
+`/search.html?q=` route and asserts the yanked `9.9.9` appears **nowhere** in the
+response body while `v1.0.0` does; with the fallback withdrawn too it asserts
+`no active release` is present and `v1.0.0` is gone.
+Also green: `cargo test --test cli_repo_publish --test cli_repo_install --test
+cli_repo_auth --test cli_repo_governance` → 4 / 7 / 9 / 6 passed, 0 failed.
 Commit: —
 
 ## Validation Plan
@@ -357,6 +374,24 @@ Commit: —
   positively asserted the broken selection was correct. Comment corrected in
   place; a new handler test covers the newest-yanked shape, including the
   further case where the fallback is withdrawn too and the field goes `null`.
+
+- **`latest_state` is a new XSS surface, and the first assertion written for it
+  was a false positive.** The field reaches a `class=` attribute through
+  `state_modifier`, so it joined the hostile-value set in
+  `search_results_escape_html_metacharacters_in_publisher_values`. The first
+  assertion — `!rendered.contains("onmouseover=")` — went **red**, and the cause
+  was the test's own documented trap: maud escapes the value to
+  `&quot; onmouseover=&quot;alert(1)`, which legitimately still contains the text
+  `onmouseover=`. Corrected to assert the absence of an attribute *break*
+  (`" onmouseover="`) plus the presence of the escaped form, and that
+  `state_modifier`'s total map sends the out-of-vocabulary value to
+  `state--other` so it never reaches the attribute at all.
+
+- **A fully-withdrawn package keeps its search result row.** The plan did not say
+  which way this should go. Dropping the row was rejected: the query found the
+  package, it exists, and silently hiding it is the same truncation the
+  Overview's complete version table exists to prevent. The row renders with a
+  `no active release` statement in place of the version chip.
 
 - **Populations re-measured 2026-09-12** (plan figures in parentheses):
   repository crate lib tests **366** at HEAD (351);

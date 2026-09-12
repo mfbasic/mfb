@@ -1110,8 +1110,16 @@ pub struct SearchResponse {
 pub struct SearchResult {
     pub ident: String,
     pub owner: String,
+    /// The newest **active** release (plan-126-A) — `null` for a package with no
+    /// published version, and for one whose every version is yanked, blocked or
+    /// legal-tombstoned.
     #[serde(rename = "latestVersion")]
     pub latest_version: Option<String>,
+    /// The release state of `latestVersion`, so a consumer can tell a
+    /// `deprecated` headline from a current one. `null` exactly when
+    /// `latestVersion` is (plan-126-A).
+    #[serde(rename = "latestState")]
+    pub latest_state: Option<String>,
     /// `null` until plan-61-E.
     pub description: Option<String>,
     #[serde(rename = "publishedAt")]
@@ -1153,6 +1161,7 @@ async fn search(
             ident: row.ident,
             owner: row.owner,
             latest_version: row.latest_version,
+            latest_state: row.latest_state,
             description: description_preview(row.description),
             published_at: row.published_at,
         })
@@ -1256,6 +1265,7 @@ async fn search_html(
             ident: row.ident,
             owner: row.owner,
             latest_version: row.latest_version,
+            latest_state: row.latest_state,
             description: description_preview(row.description),
             published_at: row.published_at,
         })
@@ -5836,6 +5846,10 @@ mod tests {
         assert_eq!(response.query, "sql");
         assert_eq!(response.total, 3);
         assert_eq!(response.results[0].latest_version.as_deref(), Some("1.0.0"));
+        assert_eq!(
+            response.results[0].latest_state.as_deref(),
+            Some("available")
+        );
         // `description` is in the shape from day one and null until plan-61-E.
         assert_eq!(response.results[0].description, None);
 
@@ -5843,6 +5857,135 @@ mod tests {
         let response = search_for(&h, "http://x/search?q=bob").await;
         assert_eq!(response.results.len(), 1);
         assert_eq!(response.results[0].ident, "bob#tool");
+    }
+
+    /// plan-126-A Phase 3 — the search path had its **own** unfiltered
+    /// newest-version statement, and `SearchResultRow` carried no state field at
+    /// all, so a yanked release appeared here as a package's current version
+    /// with no marker of any kind. This is the surface where the missing filter
+    /// was not merely cosmetic.
+    #[tokio::test]
+    async fn search_names_the_newest_active_release_and_carries_its_state() {
+        let h = harness();
+        seed_packages(&h, &["alice#toolbox"]);
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        // seed_packages published 1.0.0; add a newer 2.0.0 and yank it.
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "2.0.0",
+                "hash-2",
+                "data/2.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata::default(),
+            )
+            .unwrap();
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "yanked")
+            .unwrap();
+
+        let response = search_for(&h, "http://x/search?q=toolbox").await;
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(
+            response.results[0].latest_version.as_deref(),
+            Some("1.0.0"),
+            "a yanked newest release must not be the search headline",
+        );
+        assert_eq!(
+            response.results[0].latest_state.as_deref(),
+            Some("available")
+        );
+
+        // A `deprecated` newest release IS active — the install client installs
+        // it on a floating add — and its state travels so the page can badge it.
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "deprecated")
+            .unwrap();
+        let response = search_for(&h, "http://x/search?q=toolbox").await;
+        assert_eq!(response.results[0].latest_version.as_deref(), Some("2.0.0"));
+        assert_eq!(
+            response.results[0].latest_state.as_deref(),
+            Some("deprecated"),
+        );
+
+        // Withdraw everything: the package keeps its result row — it exists and
+        // the query found it — but names no version.
+        for version in ["1.0.0", "2.0.0"] {
+            h.store
+                .set_release_state(alice_id, "alice#toolbox", version, "blocked")
+                .unwrap();
+        }
+        let response = search_for(&h, "http://x/search?q=toolbox").await;
+        assert_eq!(
+            response.results.len(),
+            1,
+            "a fully-withdrawn package is still a match, not a hidden row",
+        );
+        assert_eq!(response.results[0].latest_version, None);
+        assert_eq!(response.results[0].latest_state, None);
+    }
+
+    /// The rendered-HTML half of the phase: the yanked version **string** must
+    /// not reach the search result chip. A JSON assertion cannot see a renderer
+    /// that fell back to some other field.
+    #[tokio::test]
+    async fn the_search_page_never_shows_a_yanked_version_in_the_result_chip() {
+        let h = harness();
+        seed_packages(&h, &["alice#toolbox"]);
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "9.9.9",
+                "hash-9",
+                "data/9.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata::default(),
+            )
+            .unwrap();
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "9.9.9", "yanked")
+            .unwrap();
+
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("alice#toolbox"), "{body}");
+        assert!(body.contains("v1.0.0"), "{body}");
+        assert!(
+            !body.contains("9.9.9"),
+            "the yanked version must not appear anywhere in the result: {body}",
+        );
+
+        // And with nothing active, the page states it rather than showing a chip.
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "yanked")
+            .unwrap();
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("alice#toolbox"), "{body}");
+        assert!(body.contains("no active release"), "{body}");
+        assert!(!body.contains("v1.0.0"), "{body}");
+    }
+
+    /// A `deprecated` search headline renders its badge, which is the thing the
+    /// bare version chip could never express.
+    #[tokio::test]
+    async fn the_search_page_badges_a_deprecated_headline_release() {
+        let h = harness();
+        seed_packages(&h, &["alice#toolbox"]);
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "deprecated")
+            .unwrap();
+
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("v1.0.0"), "{body}");
+        assert!(body.contains("state--deprecated"), "{body}");
     }
 
     /// An empty or whitespace-only query returns nothing — never the whole
@@ -6164,6 +6307,10 @@ mod tests {
             ident: "alice#<script>alert(1)</script>".to_string(),
             owner: "<img src=x onerror=alert(1)>".to_string(),
             latest_version: Some("1.0.0\"><script>".to_string()),
+            // plan-126-A added this field, so it joins the hostile-value set:
+            // it reaches a `class=` attribute via `state_modifier`, and a value
+            // outside the vocabulary must not be able to break out of it.
+            latest_state: Some("\" onmouseover=\"alert(1)".to_string()),
             description: Some("<b>bold</b>".to_string()),
             published_at: Some(1_700_000_000),
         }];
@@ -6183,6 +6330,25 @@ mod tests {
         );
         // The echoed query is publisher-independent but still user-controlled.
         assert!(rendered.contains("query-echo"));
+
+        // plan-126-A: `latest_state` reaches a `class=` attribute through
+        // `state_modifier`, a total map onto a fixed vocabulary — an
+        // out-of-vocabulary value becomes `state--other`, so the hostile string
+        // never reaches the attribute at all.
+        assert!(rendered.contains("state--other"), "{rendered}");
+        // The raw value does still render as visible text, so — per this test's
+        // own rule — assert on the absence of an attribute *break*, not on the
+        // scary substring: an escaped `&quot; onmouseover=&quot;` legitimately
+        // contains the text `onmouseover=`. The quote is what would end the
+        // attribute, and it is escaped.
+        assert!(
+            !rendered.contains(r#"" onmouseover=""#),
+            "the state value must not break out of its attribute: {rendered}",
+        );
+        assert!(
+            rendered.contains("&quot; onmouseover=&quot;alert(1)"),
+            "{rendered}"
+        );
     }
 
     /// **The XSS regression test** (plan-61-C Phase 3) — the single most

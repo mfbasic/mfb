@@ -1899,15 +1899,23 @@ impl Store {
             idents = fuzzy;
         }
 
-        // Attach each package's newest version. Done per package rather than in
-        // the ranking query so the rank expression stays readable; the page is
-        // already capped by `limit`.
+        // Attach each package's newest **active** release. Done per package
+        // rather than in the ranking query so the rank expression stays
+        // readable; the page is already capped by `limit`.
+        //
+        // plan-126-A: the state predicate is the same allowlist
+        // `Store::latest_active_version` applies, and `pv.state` is selected
+        // alongside so the result chip can be badged. Before this, the search
+        // page showed a yanked release as a package's current version with no
+        // state marker of any kind — `SearchResultRow` carried no state field,
+        // so there was nothing a renderer could have marked it with. That made
+        // this the one surface where the missing filter was not merely cosmetic.
         let mut latest_statement = conn
             .prepare(
-                "SELECT pv.version, pv.created_at, pv.description
+                "SELECT pv.version, pv.created_at, pv.description, pv.state
                  FROM package_versions pv
                  JOIN packages p ON p.id = pv.package_id
-                 WHERE p.ident = ?1
+                 WHERE p.ident = ?1 AND pv.state IN ('available', 'deprecated')
                  ORDER BY pv.created_at DESC, pv.id DESC
                  LIMIT 1",
             )
@@ -1920,18 +1928,27 @@ impl Store {
                         row.get::<_, String>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
                     ))
                 })
                 .optional()
                 .map_err(|err| format!("failed to read latest version: {err}"))?;
-            let (latest_version, published_at, description) = match latest {
-                Some((version, at, description)) => (Some(version), Some(at), description),
-                None => (None, None, None),
+            // A match with no active release stays a match: the package exists
+            // and the query found it. Only its headline version is absent, and
+            // the page states that rather than dropping the row — a search that
+            // silently hid a fully-yanked package would be the same truncation
+            // the Overview's complete version table exists to prevent.
+            let (latest_version, published_at, description, latest_state) = match latest {
+                Some((version, at, description, release_state)) => {
+                    (Some(version), Some(at), description, Some(release_state))
+                }
+                None => (None, None, None, None),
             };
             results.push(SearchResultRow {
                 ident,
                 owner,
                 latest_version,
+                latest_state,
                 published_at,
                 description,
             });
@@ -3333,8 +3350,14 @@ pub struct RegistryConfig {
 pub struct SearchResultRow {
     pub ident: String,
     pub owner: String,
-    /// `None` for a package identity with no published version yet.
+    /// The newest **active** release (plan-126-A). `None` for a package
+    /// identity with no published version yet — and also for one whose every
+    /// published version is yanked, blocked or legal-tombstoned.
     pub latest_version: Option<String>,
+    /// The release state of `latest_version`, so a `deprecated` headline is
+    /// badged rather than reading as current. `None` exactly when
+    /// `latest_version` is.
+    pub latest_state: Option<String>,
     pub published_at: Option<i64>,
     /// NULL until plan-61-E.
     pub description: Option<String>,

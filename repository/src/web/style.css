@@ -356,6 +356,15 @@ table.grid td.mono, table.grid th.mono { font-family: var(--font-mono); }
   border-radius: 999px;
   padding: 0.05rem 0.55rem;
 }
+/* plan-126-A: a search hit whose every release is withdrawn. Stated in place of
+   the version chip, reusing the same danger tokens as the yanked state badge —
+   dropping the chip silently would let "everything withdrawn" read as
+   "version unknown". */
+.result__ver--none {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
 .result__meta {
   color: var(--muted);
   font-size: 0.82rem;

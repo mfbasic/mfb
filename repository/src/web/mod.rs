@@ -281,7 +281,14 @@ pub fn landing(registry_id: &str, root_fingerprint: Option<&str>) -> Markup {
 pub struct SearchRow {
     pub ident: String,
     pub owner: String,
+    /// The newest **active** release (plan-126-A). `None` for a package with no
+    /// published version, and for one whose every version is yanked or blocked.
     pub latest_version: Option<String>,
+    /// The release state of `latest_version`, badged beside the version chip.
+    /// This field did not exist before plan-126-A, which is why a yanked
+    /// headline on this page carried no marker of any kind: there was nothing
+    /// for the renderer to mark it with.
+    pub latest_state: Option<String>,
     pub description: Option<String>,
     pub published_at: Option<i64>,
 }
@@ -337,8 +344,27 @@ pub fn search_page(registry_id: &str, query: &str, results: &[SearchRow]) -> Mar
                                     a."result__ident" href=(package_path(&row.ident)) {
                                         (row.ident)
                                     }
-                                    @if let Some(version) = &row.latest_version {
-                                        span."result__ver" { "v" (version) }
+                                    // plan-126-A: the version chip names the
+                                    // newest *active* release and carries its
+                                    // state. A package whose every release is
+                                    // withdrawn says so — it keeps its row in
+                                    // the results (it exists, and the query
+                                    // found it) but shows no version chip to
+                                    // misread as current.
+                                    @match &row.latest_version {
+                                        Some(version) => {
+                                            span."result__ver" { "v" (version) }
+                                            @if let Some(release_state) = &row.latest_state {
+                                                span class={
+                                                    "state state--" (state_modifier(release_state))
+                                                } { (release_state) }
+                                            }
+                                        }
+                                        None => {
+                                            span."result__ver result__ver--none" {
+                                                "no active release"
+                                            }
+                                        }
                                     }
                                     @if let Some(at) = row.published_at {
                                         span."result__meta" {
