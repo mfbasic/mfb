@@ -381,7 +381,11 @@ Commit: 427af4b4f
   sub-plan. Valid evidence for Phases 1–2 and for the compiler half of Phase 3;
   **not** evidence for the registry half, which the runtime proof and the
   load-bearing-guard check cover instead.
-- **Doc sync:** DONE. Deleted the "restated here because this crate does not
+- **Doc sync:** DONE — **but this record originally under-counted.** plan-126-D's
+  citation sweep later found **eight more** spec citations this sub-plan broke (the
+  validators in `04_owner-names.md` ×7 and `01_container-format.md` ×1), all since
+  re-pointed into `wire/src/validation.rs` — see Corrections. The record as first
+  written: Deleted the "restated here because this crate does not
   depend on the compiler crate" comments in `repository/src/abi.rs` and the
   bug-489 rationale in both `terminal_safe` shims. Also re-pointed one spec
   provenance citation the plan did not anticipate
@@ -495,6 +499,29 @@ Commit: 427af4b4f
   and the shim even still contains the symbol's name. Same class as
   plan-126-B's `validate_mfp_signature_header` citation. The durable lesson:
   any symbol move must grep `src/docs/spec/` for `[[…:Symbol]]`.
+
+- **This sub-plan's doc-sync record was incomplete: 8 spec citations it broke went
+  unnoticed until plan-126-D.** § Validation Plan's doc sync reported one
+  re-pointed citation, the terminal sanitizer's in `04_audit-format.md`. Phase 1's
+  validator move also broke eight:
+  - Seven in `src/docs/spec/package-manager/04_owner-names.md` —
+    `validate_owner_name` ×5, `OWNER_LIMIT` and `fold_owner`, all cited in
+    `repository/src/validation.rs`, which is now a re-export shim.
+  - One in `src/docs/spec/package/01_container-format.md` —
+    `[[src/manifest/package.rs:validate_package_name]]`, now a re-export of
+    `validate_path_component_name`.
+
+  The Phase 2 sweep grepped only for `terminal_safe`/`is_terminal_unsafe`, so the
+  validators were never checked. Found by plan-126-D's mechanical citation sweep,
+  diffed against fork commit `e66e594a4`. All eight now cite
+  `wire/src/validation.rs`. The container-format one names the real symbol,
+  `validate_path_component_name`; the surrounding prose never names
+  `validate_package_name`, so only the citation needed changing.
+  **One more correction to this sub-plan's own claim:** the `04_audit-format.md`
+  citation Phase 2 re-pointed was **already broken at the fork commit** —
+  `src/terminal_safe.rs` had been a bug-489 re-export shim since before plan-126.
+  That fix repaired pre-existing breakage rather than breakage this sub-plan
+  introduced.
 
 - **Follow-up candidate, deliberately not acted on:** `state_is_active`
   (registry, plan-126-A) and `state_is_floating_eligible` (client) are the same

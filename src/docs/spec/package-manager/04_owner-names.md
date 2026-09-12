@@ -7,14 +7,14 @@ on every subsequent publish. Because the name appears in idents, on-disk paths,
 and signed messages, its grammar is deliberately narrow and is validated
 identically on the client (before any network call) and on the server (before
 any database write). This topic owns that grammar, the case-folding rule, and
-the exact rejection conditions. [[repository/src/validation.rs:validate_owner_name]]
+the exact rejection conditions. [[wire/src/validation.rs:validate_owner_name]]
 
 ## Grammar
 
 An owner name is a non-empty ASCII string of at most `OWNER_LIMIT` bytes whose
 first character is an ASCII letter or underscore and whose remaining characters
 are ASCII letters, digits, or underscores. `OWNER_LIMIT` is **255**.
-[[repository/src/validation.rs:OWNER_LIMIT]]
+[[wire/src/validation.rs:OWNER_LIMIT]]
 
 ```text
 owner   = head tail
@@ -35,12 +35,12 @@ DIGIT   = %x30-39                    ; 0-9
 
 Length is measured in **bytes**, not Unicode scalar values; since the string is
 required to be ASCII, the two counts coincide, but the byte-length check runs
-before the ASCII check. [[repository/src/validation.rs:validate_owner_name]]
+before the ASCII check. [[wire/src/validation.rs:validate_owner_name]]
 
 ## Rejection Conditions
 
 Validation returns the first matching error, in this order. Each row is a hard
-rejection; there are no warnings. [[repository/src/validation.rs:validate_owner_name]]
+rejection; there are no warnings. [[wire/src/validation.rs:validate_owner_name]]
 
 | order | condition | error message |
 | --- | --- | --- |
@@ -55,7 +55,7 @@ The ordering is observable: a too-long non-ASCII name reports the length error
 (2), and a name beginning with a digit reports the leading-character error (5)
 rather than the trailing-character error (6). The reserved-name check (4) runs
 before the character-grammar checks, so `std` is rejected as reserved rather
-than as a (valid) grammar match. [[repository/src/validation.rs:validate_owner_name]]
+than as a (valid) grammar match. [[wire/src/validation.rs:validate_owner_name]]
 
 ### Accepted / rejected examples
 
@@ -65,14 +65,14 @@ rejected:  ""  std  STD  1alice  alice-bob  alice/bob  alice.bob  éclair
 ```
 
 `éclair` is rejected at condition 3 (non-ASCII); `alice-bob`, `alice/bob`, and
-`alice.bob` at condition 6 (illegal separator). [[repository/src/validation.rs:validate_owner_name]]
+`alice.bob` at condition 6 (illegal separator). [[wire/src/validation.rs:validate_owner_name]]
 
 ## Case Folding
 
 Owner names are compared **case-insensitively** by lowercasing all ASCII
 letters. `fold_owner(owner)` returns `owner.to_ascii_lowercase()`; only ASCII
 case is folded, which is sufficient because validation already guarantees the
-input is ASCII. [[repository/src/validation.rs:fold_owner]]
+input is ASCII. [[wire/src/validation.rs:fold_owner]]
 
 The display form (the bytes the user registered, preserving case) and the folded
 form are stored separately. Registration inserts both `owner_display` and

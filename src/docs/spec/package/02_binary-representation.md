@@ -4,7 +4,7 @@ The package binary representation is the architecture-independent payload stored
 
 The binary representation is not machine code. It contains no native addresses, host pointers, host object layouts, CPU instructions, or platform-specific calling conventions. It is the **structured Binary Representation** — a faithful, versioned serialization of the compiled program — plus the metadata tables that describe the package.
 
-The package container format is called **MFPC**. Its container major version is **2** (the clean break to the structured Binary Representation; the old flat opcode payload was major `1` and is rejected outright). [[src/binary_repr/mod.rs:MFPC_MAJOR_VERSION]]
+The package container format is called **MFPC**. Its container major version is **2** (the clean break to the structured Binary Representation; the old flat opcode payload was major `1` and is rejected outright). [[wire/src/mfpc.rs:MFPC_MAJOR_VERSION]]
 
 The Binary Representation is *not* a flat opcode stream: control flow stays nested (regions with explicit ends) and expressions stay as trees, so a reader walks the tree rather than reconstructing it from jumps. That conceptual framing — and why it mirrors WebAssembly's structured control flow at MFBASIC's own semantic level — is owned by `./mfb spec architecture binary-representation`; this page specifies the on-disk byte layout. The concrete node encoding lives in `ir-section`.
 

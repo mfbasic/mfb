@@ -321,30 +321,58 @@ both binaries.
 The anchor-parity test is what proves the helpers were shared rather than duplicated.
 The whole-workspace `cargo test --no-fail-fast` is the plan-wide final gate in
 follow-plan §5.
-Commit: —
+Commit: 4c34b4f8a
 
 ## Validation Plan
 
-- **Tests:** `wire/src/docs.rs` (moved round-trip + frozen-code pins + trailing-bytes
-  negative + real-package decode), `wire/src/docpage.rs` (moved `from_package` tests
-  + anchor parity), and the 16 existing `src/doc/html.rs` tests unchanged.
-- **Coverage check:** `src/binary_repr/tests/doc_table_tests.rs` holds exactly 1 test
-  for a 97-line codec — the pre-existing coverage here is thin, so a green run is
-  weak evidence. The real-package decode test added in Phase 1 is what makes it
-  meaningful. Confirm the moved tests actually run under `mfb_wire`
-  (`cargo test --no-fail-fast 2>&1 | grep 'Running.*mfb_wire'`).
-- **Runtime proof:** `mfb pkg doc` on all six documented packages
-  (`packages/{jwt,json_schema,libsnd,mustache,sqlite3,yaml}`) and on one undocumented
-  one (`examples/browser/dom/dom.mfp`, section 17 absent) — the latter must still
-  take the `render_empty_html` path at `src/cli/pkg.rs:1823-1827` and exit 0.
-- **Byte-identity:** `scripts/artifact-gate.sh target/release/mfb all` → `diffs=0`,
-  with `scripts/gate-lock.sh` acquired first. Additionally `cmp` a rebuilt
-  `packages/jwt/jwt.mfp` against the pre-change build — the `mfp` dump kind is
-  deliberately outside the artifact gate (`.ai/testing-gates.md`), so the gate cannot
-  see a doc-encoding regression.
-- **Doc sync:** `src/binary_repr/writer.rs:1250-1253` (the "decoders stay in
-  reader.rs" comment). Check `grep -rn "doc section\|DOC block" .ai/ src/docs/spec/`
-  for anything describing where the codec lives.
+- **Tests:** DONE. `wire/src/docs.rs` — 6 tests: the moved round-trip, frozen codes
+  **and** `-ast` labels, trailing bytes, truncation, absent-vs-malformed, and the
+  real-package byte-exact round-trip. `wire/src/docpage.rs` — 3 **new** model-level
+  `from_package` tests. The anchor-parity test lives in `src/doc/mod.rs`, not
+  `docpage.rs`, because `mfb_wire` has no parser (Corrections). The 16
+  `src/doc/html.rs` tests are unchanged and green.
+- **Coverage check:** DONE. The moved tests run under `mfb_wire`: its
+  `Running unittests src/lib.rs (target/debug/deps/mfb_wire-…)` block reported 51
+  passed after Phase 1 and 54 after Phase 2, every `docs::tests::*` and
+  `docpage::tests::*` name included. The thin pre-existing coverage (one test for
+  the codec) is no longer the only evidence: the real-package test asserts
+  decode-then-encode reproduces `libsnd`'s committed section 17 **byte for byte**.
+- **Runtime proof:** DONE, stronger than planned — identity against the
+  **pre-change binary**, not just success. All six documented packages
+  (`jwt`, `json_schema`, `libsnd`, `mustache`, `sqlite3`, `yaml`) were built with
+  both the binary saved before plan-126-B and the post-D binary. Each rebuilt
+  `.mfp` is `cmp`-identical, `mfb pkg doc` exits 0 on both binaries, and the two
+  HTML pages are `cmp`-identical. The planned undocumented fixture,
+  `examples/browser/dom/dom.mfp`, **is not committed**
+  (`git ls-files 'examples/browser/*/*.mfp'` → nothing — a build artifact, like
+  `jwt.mfp`). Substituted `/tmp/p126-bytecheck/pkg/pkg.mfp`, built by the
+  pre-change binary, whose MFPC section table was walked and carries sections
+  1–8, 15, 16, 18 — **no 17**. `mfb pkg doc` on it exits 0 on both binaries, and
+  the empty-docs page is `cmp`-identical.
+- **Byte-identity:** DONE. `scripts/artifact-gate.sh target/release/mfb all` → 1427
+  tests, 1593 builds, **2001 goldens checked, 0 diffs**, `git status tests/` clean
+  — after Phase 1 *and* again after Phase 2. The script was run directly; every run
+  exited 0, never with the exit-98 lock refusal, so no rival gate held this tree's
+  lock. Rebuilt `packages/jwt/jwt.mfp` is `cmp`-identical to the pre-change build,
+  as are the other five packages' `.mfp` files above.
+- **Doc sync:** DONE, and **much larger than planned**. The `writer.rs` comment
+  ("decoders stay in reader.rs") and the matching `reader.rs` section header are
+  both rewritten. The planned `grep -rn "doc section\|DOC block"` found only
+  descriptive prose, which is still true. The real breakage was in
+  `[[path:Symbol]]` provenance citations, which that grep cannot find and the
+  file-level `spec_citations_resolve` cannot flag. A mechanical sweep checking
+  every citation for a *definition* in its cited file, diffed against fork commit
+  `e66e594a4`, found **22** broken by plan-126:
+  - 12 by this sub-plan — `06_doc-html.md` ×11, `11_doc-section.md` ×1.
+  - 8 by plan-126-C and 2 by plan-126-B, each recorded in that sub-plan's
+    Corrections.
+
+  All 22 are re-pointed into `wire/src/`. **Verified:** the sweep now reports 349
+  flags against 353 at the fork commit, and zero of them point into `wire/`. The
+  only other set differences are an artifact of extracting only `src/` and
+  `repository/` for the baseline (the root `build.rs` and `tests/` were absent),
+  plus one pre-existing break that plan-126-C repaired.
+  `cargo test --bin mfb citations_resolve` → ok. `.ai/` needs no change.
 - **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast`.
 - **Format:** `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
@@ -478,6 +506,22 @@ Commit: —
   would have broken those tests and forced an `html.rs` edit. It is now
   `#[cfg(test)] use std::collections::HashSet;` with a comment saying why — a
   targeted gate, not a blanket suppression.
+
+- **The planned doc-sync check could not find the documentation that actually
+  broke.** § Validation Plan prescribed
+  `grep -rn "doc section\|DOC block" .ai/ src/docs/spec/`. That finds *prose*
+  mentions, and every one it matched is still true. The real breakage was in
+  `[[path:Symbol]]` provenance citations naming symbols that left their files.
+  That grep cannot see them, and `spec_citations_resolve` only checks that the
+  cited *file* exists — a file that now merely re-exports the symbol still passes.
+  Replaced with a mechanical sweep that checks every citation for a
+  *definition* of its symbol in the cited file, diffed against fork commit
+  `e66e594a4` so plan-126's breakage is separated from the 353 flags that already
+  existed there. It found **22** citations broken across this whole feature — 12
+  by this sub-plan, 8 by plan-126-C, 2 by plan-126-B — which B's and C's own
+  doc-sync checks had missed. All 22 are fixed and the sweep is re-run clean
+  (§ Validation Plan). **Any future symbol move in this tree needs the definition
+  sweep, not a name grep.**
 
 ## Summary
 

@@ -368,7 +368,11 @@ Commit: c2ef2dc23
   byte-identical to the pre-change build (`cmp`). The `mfp` dump kind is
   deliberately *not* in the artifact gate (`.ai/testing-gates.md`), so this check
   must be run by hand.
-- **Doc sync:** DONE, and **one item more than the plan listed**.
+- **Doc sync:** DONE — **but this line originally under-counted.** It claimed one
+  item more than the plan listed; plan-126-D's citation sweep later found **two
+  more** spec citations this sub-plan broke (`MFPC_MAJOR_VERSION` in
+  `08_artifacts.md` and `02_binary-representation.md`), both since re-pointed —
+  see Corrections. The record as first written:
   `.ai/build-tooling.md` (stale workspace claim *and* the stale second-fmt-pass
   claim beside it, Phase 1); the bug-340 B8 note in `src/binary_repr/mod.rs`
   (Phase 3). The plan asserted "no `src/docs/spec/**` change — this is internal
@@ -483,6 +487,23 @@ Commit: c2ef2dc23
   four helpers.** Phase 3 listed `read_mfp_string`/`read_mfp_bytes`/`read_u16`/
   `read_u32` plus the literal magic. Also present and now removed:
   `read_u64`, `validate_signature_header`, and a private `FIXED_PREFIX_LEN`.
+
+- **This sub-plan's doc-sync record was incomplete: 2 spec citations it broke
+  went unnoticed until plan-126-D.** § Validation Plan reported doc sync DONE and
+  counted one re-pointed citation (`validate_mfp_signature_header`). But Phase 2
+  moved `MFPC_MAJOR_VERSION` out of `src/binary_repr/mod.rs`, replacing the local
+  `const` with a glob re-export. That broke
+  `[[src/binary_repr/mod.rs:MFPC_MAJOR_VERSION]]` in
+  `src/docs/spec/architecture/08_artifacts.md` and
+  `src/docs/spec/package/02_binary-representation.md`, and the file-level
+  `spec_citations_resolve` cannot see it. Found by a mechanical sweep in
+  plan-126-D that checks every `[[path:Symbol]]` for a *definition* in the cited
+  file, diffed against the fork commit `e66e594a4` to separate plan-126's breakage
+  from 353 pre-existing flags. Both citations now read
+  `[[wire/src/mfpc.rs:MFPC_MAJOR_VERSION]]`, the constant's final home after
+  plan-126-C. **Durable lesson:** grepping `src/docs/spec/` for the moved
+  *function's* name is not enough — constants moved alongside it decay too, so
+  sweep for every symbol that left the file.
 
 - **Populations re-measured 2026-09-12** (plan figures in parentheses): committed
   `.mfp` fixtures **160** (159); `util.rs` **29** `pub(super) fn` converted — the
