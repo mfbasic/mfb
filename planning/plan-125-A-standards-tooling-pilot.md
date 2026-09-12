@@ -85,10 +85,10 @@ negotiate. Letters B–N point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| release `mfb` at current HEAD (every unit of every letter renders pages and compiles probes with it) | `cargo build --release`; `ls -l target/release/mfb` mtime ≥ HEAD commit date | **UNVERIFIED at plan-writing** — binary is `2026-09-04 10:36`, HEAD `90f6c1357` is `2026-09-04 09:05`, but the working tree carries uncommitted `term` changes. Rebuild and re-check before Phase 1. |
-| `codex` CLI installed and non-interactive | `~/local/bin/codex --version` → `codex-cli 0.153.0` | **MET** 2026-09-04 (plan-108 ran `0.150.0`; not pinned — see plan-108-A Open Decisions, "do NOT pin") |
-| the working tree is clean of unrelated in-flight work, or the in-flight work is on another branch | `git status --porcelain` | **NOT MET** 2026-09-04 — 40+ modified files from an in-flight `term` change. plan-125 edits prose string fields in the same `src/codegen/builtins/term/` files; land or park that work first, full stop. |
-| no peer session is mid-flight in `src/codegen/builtins/**` or `src/docs/spec/**` | `git worktree list` (12 worktrees exist as of 2026-09-04) + ask each peer session directly, per memory `peer-sessions-share-main-checkout` | **NOT MET** — 12 worktrees exist; ask before starting. |
+| release `mfb` at current HEAD (every unit of every letter renders pages and compiles probes with it) | `cargo build --release`; `ls -l target/release/mfb` mtime ≥ HEAD commit date | **MET** 2026-09-12 — was stale (binary `Sep 8 07:36`, HEAD `b49ca1610` is `Sep 11 13:06`), rebuilt in the `P-125` worktree; binary `Sep 12 06:15`. |
+| `codex` CLI installed and non-interactive | `~/local/bin/codex --version` → `codex-cli 0.153.0` | **MET** 2026-09-12 — still `codex-cli 0.153.0` (plan-108 ran `0.150.0`; not pinned — see plan-108-A Open Decisions, "do NOT pin") |
+| the working tree is clean of unrelated in-flight work, or the in-flight work is on another branch | `git status --porcelain` | **MET** 2026-09-12 — `git status --porcelain` in the main checkout is empty; the `term` work that blocked this at plan-writing has landed. All plan-125 work is on `worktree-P-125`, forked from `main` at `b49ca1610`. |
+| no peer session is mid-flight in `src/codegen/builtins/**` or `src/docs/spec/**` | `git worktree list` + `git -C <wt> status --porcelain` filtered to those paths, per memory `peer-sessions-share-main-checkout` | **MET** 2026-09-12 — swept all 16 live `.claude/worktrees/*`. Exactly one hit: `P-covdev` carries `src/codegen/builtins/canvas/mod.rs` **+2 lines** (`#[cfg(test)] mod tests_codegen;`) plus an untracked `tests_codegen.rs`, last touched `Sep 5 06:19`. That is a test-module declaration, not a prose field — disjoint from every edit plan-125 makes, and a week cold. No other worktree touches either surface. |
 
 Everything below is written against the world where these hold.
 
@@ -205,55 +205,68 @@ states the rules; nothing measures compliance.
 
 ### Measured populations
 
-All commands run 2026-09-04 at HEAD `90f6c1357` with `target/release/mfb`
-(mtime 10:36).
+All commands **re-run 2026-09-12 at HEAD `b49ca1610`** (Phase 1) with a
+`target/release/mfb` rebuilt from it. The 2026-09-04 figures at `90f6c1357`
+are kept in the right-hand column wherever they moved, because a drifting
+denominator is itself a result: eight days and ~50 commits shifted the man
+surface by +7 pages and the spec's broken-citation count by +1.
 
-| What | Count | Command |
-|---|---|---|
-| renderable man packages | 31 | `./scripts/man-census.sh --fill` → 31 package rows (32 dirs under `src/codegen/builtins/` minus `perf`, which is not an MFB package — `mfb man perf` → `unknown package`, resolved in plan-108-A §"the errorcode/perf anomaly") |
-| man function pages | **538** | `./scripts/man-census.sh --fill` → `TOTAL 538 538 538 538 884/884` |
-| man parameter descriptions | 884 | same row |
-| man package overview pages | 31 | one per renderable package (`PKGDOC` column `11` for all 31) |
-| man `types` pages | 20 | census `TYPES` column non-`-` |
-| narrative guide topics | 10 | `ls src/docs/man/` minus `mod.rs` |
-| narrative guide **pages** (topic + subtopics) | 32 | `find src/docs/man -name '*.md' \| wc -l` → 32 (flow 8, types 10, tour 6, tooling 2, and 6 single-page topics) |
-| narrative guide lines | 3,924 | `cat $(find src/docs/man -name '*.md') \| wc -l` |
-| **man review units, iteration 1 / 3** | **41** | 31 packages + 10 topics |
-| **man review units, iteration 2** | **621** | 538 function + 31 overview + 20 types + 32 guide pages |
-| rendered `mfb man --all` | 51,540 lines | `./target/release/mfb man --all \| wc -l` |
-| function pages **missing** from `mfb man --all` | 30 | `testing` 12 + `general` 18 — `render_all_markdown` filters `is_unqualified_global()`; `mfb man --all \| grep -cE '^(TESTING\|GENERAL)$'` → 0 |
-| guide pages missing from `mfb man --all` | 32 | all of them; `--all` renders registry packages only |
-| man fill state | 100% | census: `pages with neither Description nor Examples: 0` |
-| man memory-vocabulary hits | **0 unclassified** (15 carve-out 1 datetime arithmetic borrow, 23 carve-out 2 derived Errors rows) | `./scripts/man-census.sh --memory-scope` |
-| man internals-vocabulary hits | 0 | `./scripts/man-census.sh --scope` |
-| leaked `[[` in rendered man | 0 real (5 hits, all nested-list literals `[["name","age"]]`) | `./target/release/mfb man --all \| grep -n '\[\['` — read all 5 |
-| packages changed since plan-108 closed | 27 of 31 | `git log --since=2026-08-31 --name-only --format='' -- src/codegen/builtins \| grep -oE 'builtins/[a-zA-Z]+/' \| sort -u \| wc -l` |
-| spec packages | **12** | `sed -n '43,56p' src/docs/spec/mod.rs` (`PACKAGE_ORDER`) |
-| spec files | **146** | `find src/docs/spec -name '*.md' \| wc -l` |
-| spec lines / words | 26,482 / 223,085 | per-dir `cat */*.md \| wc -l`; `cat $(find src/docs/spec -name '*.md') \| wc -w` |
-| **spec review units, iteration 1 / 3** | **12** | one per package |
-| **spec review units, iteration 2** | **146** | one per file |
-| spec `[[ ]]` citations (total / unique) | 1,970 / 1,414 | `grep -rhoE '\[\[[^]]+\]\]' src/docs/spec --include='*.md' \| wc -l`; `… \| sort -u \| wc -l` |
-| unique citations that are file/dir only (no suffix) | 115 | §2 citation script, `nosuffix` counter |
-| unique citations with a line-range suffix | 19, **0 out of range** | same script, `lin`/`linbad` |
-| unique citations with a symbol suffix | 1,280 | same script, `sym` |
-| **symbol citations whose symbol is not in the cited file** | **61** | same script, `symbad` — the rot baseline plan-125 drives to 0 |
-| citations with an unresolvable path | 2 (`finalize_vreg_body_with_locals`, `run_register_allocation` — malformed: symbol with no path) | path-existence loop over the unique list |
-| spec code fences | 363 | `grep -rc '^```' src/docs/spec --include='*.md' \| awk -F: '{s+=$2} END {print s/2}'` |
-| distinct `mfb spec <pkg>` link targets, all resolving | 12 / 12 | loop over `grep -rhoE 'mfb spec [a-zA-Z-]+'` targets, `-d src/docs/spec/$t` |
-| `mfb spec --all` (global) | **renders 0 lines** | `./target/release/mfb spec --all \| wc -l` → 0; only per-package `mfb spec <pkg> --all` works (`mfb spec language --all \| wc -l` → 5,604) |
-| **review units across the whole plan** | **869** | man 699 (A pilot 31 + B 39 + C 150 + D 142 + E 142 + F 156 + G 39) + spec 170 (A pilot 5 + I 11 + J 47 + K 45 + L 51 + M 11) |
-| **total `codex exec` runs plan-125 will make** | **897** | 869 unit runs + 16 consistency runs (4 each in B, G, I, M) + 12 final-lens runs (6 in H, 6 in N) |
+| What | Count (2026-09-12, `b49ca1610`) | Command | Was (2026-09-04, `90f6c1357`) |
+|---|---|---|---|
+| renderable man packages | **31** | `./scripts/man-census.sh --fill` → 31 package rows. 33 dirs under `src/codegen/builtins/` minus `perf` **and `tests`**, neither of which is an MFB package (`mfb man perf`, `mfb man tests` → `unknown package`) | 31 (32 dirs minus `perf`) |
+| man function pages | **544** | `./scripts/man-census.sh --fill` → `TOTAL 544 544 544 544 903/903` | 538 |
+| man parameter descriptions | **903** | same row | 884 |
+| man package overview pages | 31 | one per renderable package (`PKGDOC` column `11` for all 31) | 31 |
+| man `types` pages | **21** | `awk 'NR>2 && /^-----/{exit} NR>2 && $NF!="-"{n++} END{print n}'` over the `--fill` table | 20 |
+| narrative guide topics | 10 | `ls src/docs/man/` minus `mod.rs` | 10 |
+| narrative guide **pages** (topic + subtopics) | 32 | `find src/docs/man -name '*.md' \| wc -l`; corroborated by `./scripts/man-manual.sh --count` (flow 8, types 10, tour 6, tooling 2, six single-page topics) | 32 |
+| narrative guide lines | **4,015** | `find src/docs/man -name '*.md' -exec cat {} + \| wc -l` | 3,924 |
+| **man review units, iteration 1 / 3** | **41** | 31 packages + 10 topics | 41 |
+| **man review units, iteration 2** | **628** | 544 function + 31 overview + 21 types + 32 guide pages; independently confirmed as the `═`-rule count of the complete manual (`./scripts/man-manual.sh --count` → `PAGES 628`) | 621 |
+| complete manual artifact | **61,181 lines / 628 pages** | `./scripts/man-manual.sh --count` | — |
+| function pages **missing** from `mfb man --all` | 30 | `testing` 12 + `general` 18 — `render_all_markdown` filters `is_unqualified_global()`; deliberate, kept (§4.1). `scripts/man-manual.sh` supplies them | 30 |
+| guide pages missing from `mfb man --all` | **0** | the §4.1 decision was taken: `render_all_markdown` now appends every guide topic. `./scripts/man-manual.sh \| grep -cE '^(TESTING\|GENERAL\|A TOUR OF MFBASIC)$'` → 3 | 32 |
+| man fill state | 100% | census: `pages with neither Description nor Examples: 0` | 100% |
+| man memory-vocabulary hits, **registry packages only** | **0 unclassified** (15 carve-out 1, **40** carve-out 2) | `./scripts/man-census.sh --memory-scope <31 packages>` | 0 unclassified (15 / 23) |
+| man internals-vocabulary hits, **registry packages only** | 0 | `./scripts/man-census.sh --scope <31 packages>` | 0 |
+| man memory-vocabulary hits, **whole surface (incl. guide topics)** | **109 unclassified** | `./scripts/man-census.sh --memory-scope` (no args now sweeps the 10 topics too) — `tour` 45, `types` 39, `optimizations` 8, `link` 8, `lambda` 7, `errors` 2 | never measured: plan-108 excluded the topics |
+| man internals-vocabulary hits, **whole surface (incl. guide topics)** | **9** (+27 carve-out 3) | `./scripts/man-census.sh --scope` → `internals-vocabulary hits: 9` — `optimizations` 5, `tour` 3, `types` 1 | never measured |
+| spec packages | **12** | `./scripts/spec-census.sh --fill` → 12 rows, in `PACKAGE_ORDER` | 12 |
+| spec files | **146** | `--fill` `TOTAL` row, `FILES` column | 146 |
+| spec lines / words | **27,261 / 230,854** | `--fill` `TOTAL` row | 26,482 / 223,085 |
+| **spec review units, iteration 1 / 3** | **12** | one per package | 12 |
+| **spec review units, iteration 2** | **146** | one per file | 146 |
+| spec `[[ ]]` citations (total / unique) | **2,021 / 1,456** | `--fill` `CITES` column; `--citations` `TOTAL unique=` | 1,970 / 1,414 |
+| unique citations that are file/dir only (no suffix) | 115 | `--citations` → `nosuffix=115` | 115 |
+| unique citations with a line-range suffix | 19, **0 out of range** | `--citations` → `line=19`, `MISS-LINE 0` | 19, 0 |
+| unique citations with a symbol suffix | **1,322** | `--citations` → `symbol=1322` | 1,280 |
+| **symbol citations whose symbol is not in the cited file** | **62** — **49 stale-by-move, 13 stale-by-deletion** | `--citations` → `MISS-SYMBOL 62  (stale-by-move 49, stale-by-deletion 13)` | 61 (split never measured) |
+| citations with an unresolvable path | **2** (`finalize_vreg_body_with_locals`, `run_register_allocation` — malformed: symbol with no path, both on `src/docs/spec/memory/08_program-startup.md:228`) | `--citations` → `MISS-PATH 2` | 2 |
+| spec code fences | **366** | `--fill` `FENCES` column | 363 |
+| spec `mfb spec`/`mfb man` cross-links | **928** | `--fill` `LINKS` column | — |
+| `mfb spec --all` (global) | **renders 0 lines** | `./target/release/mfb spec --all \| wc -l` → 0; only per-package `mfb spec <pkg> --all` works | 0 |
+| **review units across the whole plan** | **876** | man 706 (A pilot 31 + B 39 + C–F 590→**597** + G 39) + spec 170. The +7 is iteration 2's man page growth; §"Corrections" records which letters absorb it | 869 |
+| **total `codex exec` runs plan-125 will make** | **904** | 876 unit runs + 16 consistency runs (4 each in B, G, I, M) + 12 final-lens runs (6 in H, 6 in N) | 897 |
 
 ### Verified properties
 
-- **`mfb man --all` is not the whole developer manual** — VERIFIED by reading
+- **`mfb man --all` was not the whole developer manual — now it is, bar 30
+  pages by design.** VERIFIED at plan-writing by reading
   `src/cli/man.rs:render_all_markdown` (filters `is_unqualified_global()`) and
-  by grep: `TESTING`/`GENERAL` headers appear 0 times in the output, and no
-  guide-topic body text appears. 62 of the 621 man pages (10%) are outside it.
-  This directly affects the final gate the user asked for; §4.1 resolves it.
-- **The 61 unresolved symbol citations are two distinct rot classes** —
-  VERIFIED by spot-check, not inferred: `__http_dechunk` is cited as
+  by grep. **RESOLVED in Phase 1**: the §4.1 decision was taken and
+  `render_all_markdown` now appends every guide topic in the index's sorted
+  order, so the 32 guide pages are in `--all`. `testing` (12) and `general`
+  (18) stay filtered for the documented reason and are supplied by
+  `scripts/man-manual.sh`. The complete artifact is 628 pages / 61,181 lines,
+  cross-checked three ways (census `544+31+21=596` registry pages; the
+  artifact's own `═`-rule count `628`; per-topic renders summing to `32`).
+- **The unresolved symbol citations are two distinct rot classes, and the
+  split is now MEASURED, not spot-checked** — `./scripts/spec-census.sh
+  --citations` → `MISS-SYMBOL 62  (stale-by-move 49, stale-by-deletion 13)`.
+  The 13 stale-by-deletion citations are the **suspect-claim list** letters
+  I–N triage as claims, not links; they are enumerated in §2.1 below. The
+  original spot-check that motivated the split stands:
+  `__http_dechunk` is cited as
   `src/codegen/builtins/http/mod.rs:__http_dechunk` but now lives in
   `helper_dechunk_bytes.rs` (`grep -rl '__http_dechunk'
   src/codegen/builtins/http/`) — **stale by move**, the package.mfb split
@@ -269,6 +282,14 @@ All commands run 2026-09-04 at HEAD `90f6c1357` with `target/release/mfb`
 - **`perf` is not an MFB package** — VERIFIED: `mfb man perf` errors
   `unknown package`; `src/codegen/builtins/perf/perf.rs:1-6` says so. 31, not
   32, is the package denominator.
+- **`tests` is not an MFB package either, and the census did not know that** —
+  VERIFIED in Phase 1: `mfb man tests` → ``unknown package `tests` ``;
+  `src/codegen/builtins/tests/` is a `#[cfg(test)]` Rust module tree
+  (`abi_inline.rs`, `app_surface.rs`, …) added after `man-census.sh`'s filter
+  was written. Before the fix the census printed a **32nd package row with
+  `PKGDOC 00`** — a row that reads exactly like an unfilled overview and is
+  really a directory with no man surface at all. Fixed in the same commit
+  (`grep -vE '^(perf|tests)$'`), and the denominator is 31 again.
 - **The `datetime` `borrow` hits are arithmetic, not memory** — VERIFIED by
   `--memory-scope` classification (15 CARVE-1 rows, all "borrows a whole
   second"). Carried forward from plan-108-A carve-out 1.
@@ -279,6 +300,40 @@ All commands run 2026-09-04 at HEAD `90f6c1357` with `target/release/mfb`
 - **UNVERIFIED — spec accuracy at HEAD.** Nothing has ever checked it. The 61
   broken citations are the only measurable proxy and they are a lower bound:
   a claim can be wrong with a perfectly resolving citation.
+
+### 2.1 The suspect-claim list — 13 stale-by-DELETION citations
+
+Measured in Phase 1 by `./scripts/spec-census.sh --citations` (the
+`ELSEWHERE=no` column). These are **not broken links**. The symbol each one
+cites exists nowhere under `src/`, `build.rs` or `repository/src`, so the
+thing the surrounding sentence describes has been deleted or renamed out of
+existence — and the *claim*, not just the marker, is suspect. Re-pointing the
+path would silently ratify a sentence about a compiler that no longer exists.
+
+Letters I–N triage every row here as a **claim** (verify it still holds at
+HEAD, then re-cite it; or cut it), never as a link fix.
+
+| Spec site | Citation |
+|---|---|
+| `src/docs/spec/diagnostics/02_error-codes.md:161` | `[[build.rs:generate_errorcode_table]]` |
+| `src/docs/spec/diagnostics/01_rule-codes.md:155` | `[[src/cli/dispatch.rs:exit_after_diagnostics]]` |
+| `src/docs/spec/architecture/14_aarch64-instruction-set.md:247` | `[[src/arch/aarch64/encode/sizing.rs:wide_imm_word_count]]` |
+| `src/docs/spec/memory/07_runtime-helper-abi.md:103` | `[[src/codegen/builtins/datetime/mod.rs:DATETIME_NOW_NANOS_SPEC]]` |
+| `src/docs/spec/stdlib/02_datetime.md:143` | `[[src/codegen/builtins/datetime/mod.rs:NOW_NANOS]]` |
+| `src/docs/spec/app/03_console-io.md:32` **and** `:153` | `[[src/codegen/builtins/io/func_read_byte.rs:lower_io_read_byte_helper]]` |
+| `src/docs/spec/memory/07_runtime-helper-abi.md:80` | `[[src/codegen/builtins/io/func_write.rs:lower_io_write_helper]]` |
+| `src/docs/spec/stdlib/04_json.md:66` | `[[src/codegen/builtins/json/mod.rs:is_json_value_type]]` |
+| `src/docs/spec/memory/05_collections.md:249` **and** `09_closures.md:122` | `[[src/codegen/engine/types/type_utils.rs:is_function_type]]` |
+| `src/docs/spec/language/04_types.md:109` | `[[src/codegen/error/emission/builder_error_emission.rs:emit_float_domain_return]]` |
+| `src/docs/spec/threading/06_thread-runtime-helpers.md:34` | `[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_helper]]` |
+| `src/docs/spec/linker/06_macos-aarch64.md:56` | `[[src/os/macos/link/macho.rs:write_load_commands]]` |
+| `src/docs/spec/app/02_linux-runtime.md:291` **and** `04_term-backend.md:682` | `[[src/target/linux_gtk/mod.rs:ARENA_REG]]` |
+
+13 unique citations across 16 spec sites. The remaining **49** `MISS-SYMBOL`
+rows are stale-by-move: the symbol is still in `src/`, at another path, and a
+re-point is the correct repair (the `http` and `net` families dominate — the
+`package.mfb` split recorded in memory
+`splitting-package-mfb-render-order-doc-asymmetry`).
 
 ## 3. Design Overview
 
@@ -463,7 +518,8 @@ paths that vary, `LC_ALL` set — its header comments explain why). Modes:
   fences, citation count, cross-link count; a `TOTAL` row. The denominator
   every spec letter reconciles against.
 - **`--citations [pkg…]`** — the instrument that does not exist today.
-  For each unique `[[…]]`: split on the **last** `:`; verify the path exists
+  For each unique `[[…]]`: split on the **first** `:` (Correction C-3 — the
+  last-colon rule shreds a Rust symbol containing `::`); verify the path exists
   (file or directory); for a numeric suffix verify the line is within the
   file; for a symbol suffix `grep -F` the symbol in the cited file. Emit
   `OK` / `MISS-PATH` / `MISS-LINE` / `MISS-SYMBOL` with **the spec file and
@@ -581,29 +637,56 @@ question:
 Establishes the denominators every later letter reconciles against, before any
 standard or tool is written to the wrong shape.
 
-- [ ] Rebuild `cargo build --release`; confirm the binary post-dates HEAD.
-- [ ] Re-run `./scripts/man-census.sh --fill`, `--functions`, `--memory-scope`,
+- [x] Rebuild `cargo build --release`; confirm the binary post-dates HEAD.
+      Was stale (`Sep 8 07:36` vs HEAD `b49ca1610` at `Sep 11 13:06`); rebuilt
+      in the `P-125` worktree → `Sep 12 06:15`.
+- [x] Re-run `./scripts/man-census.sh --fill`, `--functions`, `--memory-scope`,
       `--scope`; paste all four outputs into §2 of this file, replacing the
-      2026-09-04 figures if they moved.
-- [ ] Write the §2 citation-measurement script into `scripts/spec-census.sh`
+      2026-09-04 figures if they moved. All four moved — §2's table now carries
+      the measured numbers with the 2026-09-04 values beside them, and
+      Corrections C-1 records which letters absorb the +7 pages.
+- [x] **(added)** Give `man-census.sh` the `--topics` mode §1 requires, and
+      widen `--memory-scope` / `--scope` to the guide topics on a whole-surface
+      run. No Phase checkbox carried this and §1 states it as a goal; without
+      it the census denominator is 596 of 628 pages. `--topics` reconciles
+      rendered pages against markdown files per topic (32 == 32) and fails if
+      they disagree.
+- [x] Write the §2 citation-measurement script into `scripts/spec-census.sh`
       as `--citations` (§4.2) and confirm it reproduces `MISS-SYMBOL 61`,
       `MISS-PATH 2`, `MISS-LINE 0`. A different number is a Correction, not a
-      quiet edit.
-- [ ] Classify all 61 `MISS-SYMBOL` hits into *stale by move* vs *stale by
+      quiet edit. **Reproduces exactly** at the plan's own commit — see C-4 for
+      the run and for the +1 drift to 62 at HEAD; C-3 records the one rule in
+      §4.2 that had to change (first colon, not last).
+- [x] Classify all 61 `MISS-SYMBOL` hits into *stale by move* vs *stale by
       deletion* using the "exists anywhere in `src/`" column; record both
       counts here. The deletion class is a list of **suspect claims** handed
-      to letters I–N, not just broken links.
-- [ ] Decide §4.1: does `mfb man --all` render guide topics? Record the
+      to letters I–N, not just broken links. Measured: **49 stale-by-move, 13
+      stale-by-deletion** (62 at HEAD). The 13 are enumerated in §2.1 with
+      their spec sites.
+- [x] Decide §4.1: does `mfb man --all` render guide topics? Record the
       decision and, if yes, make the one permitted renderer change and re-run
       `cargo test --bin mfb man` + `tests/cli/cli_man_summary_plain.rs`.
-- [ ] Write `scripts/man-manual.sh`; confirm its output covers all 621 man
-      pages (assert the page count against the census).
+      **DECIDED: yes.** `render_all_markdown` now appends every guide topic in
+      the index's sorted order. `cargo test --release --bin mfb man` → 291
+      passed, 0 failed (including `all_renders_the_whole_registry_manual`);
+      `cargo test --release --test cli_man_summary_plain` → 1 passed.
+      `testing`/`general` stay filtered for the documented reason. This is the
+      only renderer change plan-125 permits and it is now spent.
+- [x] Write `scripts/man-manual.sh`; confirm its output covers all ~~621~~ 628
+      man pages (assert the page count against the census).
+      `./scripts/man-manual.sh --count` → `PAGES 628`, and the guide-page count
+      agrees across two independent measurements (32 summed per topic; 32 as
+      artifact-total minus registry-total). Registry pages 596 = the census's
+      `544 fn + 31 overview + 21 types`. Three instruments, one number.
 
 Acceptance: `scripts/spec-census.sh --citations` runs and prints the measured
 baseline; `scripts/man-manual.sh` output contains a header for all 31
 packages **and** `testing`, `general`, and all 10 topics
 (`./scripts/man-manual.sh | grep -cE '^(TESTING|GENERAL|A TOUR OF MFBASIC)$'`
 → 3); §2's tables in this file are the numbers those commands just printed.
+**MET** — the acceptance grep returns exactly `3`; `--citations` prints
+`MISS-PATH 2 / MISS-LINE 0 / MISS-SYMBOL 62 (49 move, 13 deletion)`; §2 and
+§2.1 are those outputs.
 Commit: —
 
 ### Phase 2 — The two content standards
@@ -739,6 +822,13 @@ Commit: —
 
 ## Open Decisions
 
+- ~~**Should `mfb man --all` render the guide topics?**~~ — **SETTLED YES,
+  Phase 1.** `render_all_markdown` appends every guide topic in the index's
+  sorted order; `mfb man --all` is now 628 pages minus the 30 deliberately
+  filtered `testing`/`general` pages. `cargo test --release --bin mfb man`
+  (291 passed) and `cargo test --release --test cli_man_summary_plain`
+  (1 passed) are green. The plan's one permitted renderer change is spent.
+  Original reasoning follows.
 - **Should `mfb man --all` render the guide topics?** — **Recommend yes**
   (§4.1): the user's final gate is literally `mfb man --all` as the full
   developer doc, and today it omits 62 of 621 pages. One contained change in
@@ -764,6 +854,144 @@ Commit: —
 <!-- Filled in DURING execution: every place this letter turned out to be
      wrong — the claim, what was actually true, the evidence, and whether
      another letter's scope was derived from the wrong number. -->
+
+### C-1 (Phase 1) — every population drifted; D and F absorb +7 man pages
+
+**Claimed** (2026-09-04, `90f6c1357`): 538 man function pages, 884 parameter
+descriptions, 20 `types` pages, 621 iteration-2 man units; guide topics 3,924
+lines.
+
+**Actually true** (2026-09-12, `b49ca1610`, `./scripts/man-census.sh --fill`):
+544 / 903 / 21 / **628**; guide topics 4,015 lines
+(`find src/docs/man -name '*.md' -exec cat {} + | wc -l`). Eight days and ~50
+commits.
+
+**Whose scope was derived from the wrong number.** Measured per batch with
+`./target/release/mfb man <pkg> --all | grep -c '^═'` summed over each
+letter's package list:
+
+| Letter | Packages | Plan said | Measured | Δ |
+|---|---|---|---|---|
+| A (pilot) | `color` + `variable` | 31 | 30 + 1 = **31** | 0 |
+| C | collections, datetime, encoding, math | 150 | **150** | 0 |
+| D | fs, strings, term, astrings, io | 142 | **144** | **+2** |
+| E | crypto, canvas, http, vector, os, general, bits | 142 | **142** | 0 |
+| F | 14 small/resource packages + 31 guide pages | 156 | 130 + 31 = **161** | **+5** |
+
+`30+150+144+142+130+32 = 628`, reconciling against the artifact's own page
+count. **D and F are re-scoped in place to 144 and 161**; C and E are
+unchanged and A's pilot is unchanged. The feature is not re-split — this is
+the "correct the count, re-scope in place" row of the skill's table, not a
+re-batching trigger.
+
+Plan-wide totals move with it: unit runs 869 → **876**, total `codex exec`
+runs 897 → **904**.
+
+### C-2 (Phase 1) — `tests/` was censusing as a 32nd, unfilled man package
+
+**Claimed**: "31 renderable packages — 32 dirs under `src/codegen/builtins/`
+minus `perf`".
+
+**Actually true**: there are now **33** dirs. `src/codegen/builtins/tests/` is
+a `#[cfg(test)]` Rust module tree added after `man-census.sh`'s filter was
+written, and `mfb man tests` → ``unknown package `tests` ``. The census
+printed it as a package row with `PKGDOC 00` — indistinguishable from a real
+package whose overview has neither intro nor description. The conclusion (31)
+was right; the instrument was wrong, which is worse, because every later
+letter reconciles against the instrument.
+
+Fixed in `scripts/man-census.sh:packages()` (`grep -vE '^(perf|tests)$'`) with
+the reason recorded in its header comment beside `perf`'s.
+
+### C-3 (Phase 1) — the citation split rule is FIRST colon, not last
+
+§4.2 specified "split on the **last** `:`". That shreds
+`[[src/codegen/engine/value/builder_values.rs:NirValue::FunctionRef]]` — a
+Rust symbol legitimately containing `::` — into a nonexistent path plus a bare
+`FunctionRef`, and reports `MISS-PATH` on a citation that is perfectly fine.
+Measured: last-colon gave `MISS-PATH 3`, first-colon gives `MISS-PATH 2`,
+which is the plan's own baseline. No path anywhere in the tree contains `:`
+(`grep -rhoE '\[\[[^]]+\]\]' src/docs/spec --include='*.md' | sort -u |
+awk -F: 'NF>2'` → exactly one hit, that one), so the first colon is always the
+path/suffix seam. `scripts/spec-census.sh` implements first-colon and says why.
+
+### C-4 (Phase 1) — the citation baseline reproduces exactly, and has since drifted +1
+
+The acceptance was "reproduce `MISS-SYMBOL 61`, `MISS-PATH 2`, `MISS-LINE 0`".
+Run against a detached worktree at the plan's own commit
+(`git worktree add --detach /tmp/plan125-base 90f6c1357`, then
+`./scripts/spec-census.sh --citations`):
+
+```
+TOTAL unique=1411  nosuffix=115  line=19  symbol=1277
+MISS-PATH 2
+MISS-LINE 0
+MISS-SYMBOL 61  (stale-by-move 49, stale-by-deletion 12)
+```
+
+**Exact match on all three MISS counters.** Two smaller discrepancies in the
+plan's own §2 figures, both harmless and both recorded rather than quietly
+edited: the plan wrote unique **1,414** where the measurement is **1,411**,
+and symbol **1,280** where it is **1,277** (the plan was measured against a
+tree carrying uncommitted `term` work — see the Prerequisites row that was
+`NOT MET` at plan-writing).
+
+At HEAD `b49ca1610` the same command gives **62** `(49 move, 13 deletion)`.
+The delta is three moves, identified by diffing the two runs' citation lists:
+`[[src/cli/dispatch.rs:exit_after_diagnostics]]` and
+`[[src/codegen/builtins/strings/gen_strings_support.rs:static_strings_package_string]]`
+newly broke; `[[src/codegen/builtins/regex/mod.rs:resolve_call]]` was fixed.
+
+### C-5 (Phase 1) — the man surface was never certified clean; it was certified over 31 of 41 units
+
+This is the most consequential correction in Phase 1, and it is a *finding*,
+not a scope change.
+
+plan-108 and §2's "man memory-vocabulary hits: **0 unclassified**; man
+internals-vocabulary hits: **0**" were measured over the 31 registry packages
+only, because `man-census.sh` had no notion of the guide topics at all. §1
+required a `--topics` mode; no Phase checkbox carried it, so one was added
+(see Phase 1's appended task) and the sweeps were widened.
+
+Whole-surface, at HEAD:
+
+- `./scripts/man-census.sh --memory-scope` → **109 unclassified** memory-
+  vocabulary hits, every one of them in a guide topic: `tour` 45, `types` 39,
+  `optimizations` 8, `link` 8, `lambda` 7, `errors` 2. They are not marginal —
+  `tour` opens with "built around value **ownership**: every value has a single
+  **owner**", `types` says a Map "stores its keys and values in one contiguous
+  **allocation**", `lambda` teaches an explicit **borrow** model.
+- `./scripts/man-census.sh --scope` → **9** internals-vocabulary hits:
+  `optimizations` 5, `tour` 3, `types` 1 (e.g. `types` line 26,
+  "monomorphized before code is generated").
+
+These are handed to the letters that own those topics (B iteration 1, F
+iteration 2, G iteration 3), not fixed here. Phase 1's job is the denominator.
+
+### C-6 (Phase 1) — carve-out 3: the generated optimizer-catalog table
+
+Widening `--scope` to the topics turned up 36 hits on `optimizations`, of
+which **27 are not page prose**: `src/cli/man.rs:render_topic_overview`
+substitutes `{{optimizer-catalog}}` with
+`optimizer::catalog::render_markdown_table()` at display time, exactly so the
+page and the compiler cannot disagree about which passes exist. Its Stage
+column is literally `NIR` / `MIR` / `regalloc` / `codegen`, and no page author
+can edit any of it — the same shape as plan-108-E's carve-out 2 for derived
+`Errors` rows.
+
+Added as **carve-out 3**, counted and printed separately, never dropped. It is
+bounded by the two rendered headings around the marker and carves only
+box-drawing table ROWS inside that region, so the authored sentences in the
+same section ("Stage says where the pass runs: NIR …") remain HITs — which is
+the point, since those are prose a reviewer can rewrite. 36 → 9 real hits.
+
+### C-7 (Phase 1) — the spec is bigger than the plan measured
+
+`./scripts/spec-census.sh --fill` at HEAD: **146 files** (unchanged),
+**27,261 lines / 230,854 words** (plan: 26,482 / 223,085), **366 code fences**
+(plan: 363), **2,021 citations** (plan: 1,970). The `unicode` pilot package is
+**3 files / 571 lines**, not 508. Iteration-2 spec units are still **146**, so
+no spec letter is re-scoped.
 
 ## Summary
 

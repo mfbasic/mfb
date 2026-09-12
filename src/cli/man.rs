@@ -141,6 +141,16 @@ fn render_all_markdown() -> String {
         }
         md.push_str(&render_package_all_markdown(package));
     }
+    // Then every narrative guide topic, in the same sorted order the index lists
+    // them. `--all` is the whole manual a developer asked for, and a registry-only
+    // sweep omitted all 32 guide pages — the `variable` topic every package page
+    // links to for the value model among them.
+    let mut topics: Vec<_> = man::topics().iter().collect();
+    topics.sort_by_key(|topic| topic.name);
+    for topic in topics {
+        md.push_str(&man_rule());
+        md.push_str(&render_topic_all_markdown(topic));
+    }
     md
 }
 

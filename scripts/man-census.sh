@@ -20,7 +20,12 @@
 #   man-census.sh --scope [pkg...]      rendered hits for the compiler-internals
 #                                       vocabulary the standard forbids (bug/plan
 #                                       numbers, mangled symbols, codegen terms)
+#   man-census.sh --topics [topic...]   per-topic inventory for the narrative
+#                                       guide topics under src/docs/man/**
 #   man-census.sh --banned-list         print the canonical banned-word list
+#
+# A whole-surface --memory-scope / --scope run (no package arguments) sweeps the
+# guide topics too; a run scoped to named packages does not.
 #
 # With no package arguments every registry package is censused, in sorted order.
 # Output is deterministic: no timestamps, no paths, stable ordering.
@@ -100,12 +105,41 @@ usage() {
 #     compiler-injected timing helpers (perf/perf.rs:1-6: "These are NOT an MFB
 #     `perf::` package — there is no language surface"), so `mfb man perf`
 #     correctly errors. It is excluded here and owned by no letter.
+#   * `tests/` is the same class as `perf/`: a Rust `#[cfg(test)]` module tree
+#     (`tests/abi_inline.rs` etc.), not a package. `mfb man tests` errors
+#     `unknown package `tests``. It did not exist when this filter was written,
+#     so it censused as a phantom 32nd package with PKGDOC `00` — a row that
+#     looks like an unfilled overview and is really a directory with no man
+#     surface at all. Excluded for the same reason `perf` is.
 #
 # `general` and `testing` are the reverse case: real registry packages that the
 # `mfb man` index deliberately omits (their members are unqualified globals
 # needing no IMPORT), but `mfb man general` renders. They ARE in scope.
 packages() {
-	ls "$BUILTINS" | grep -v '^mod\.rs$' | grep -v '^perf$' | sed 's/^errorcode$/errorCode/' | sort
+	ls "$BUILTINS" | grep -v '^mod\.rs$' | grep -vE '^(perf|tests)$' | sed 's/^errorcode$/errorCode/' | sort
+}
+
+# ---------------------------------------------------------------------------
+# The narrative guide topics under src/docs/man/** — `errors`, `flow`, `types`,
+# … — embedded at build time by src/docs/man/mod.rs and reached by
+# `mfb man <topic>`. plan-108 excluded them entirely, so until plan-125 the man
+# census denominator was 31 of the 41 units a developer can actually read, and
+# 596 of 628 pages. They are registry-free (plain markdown), but they render
+# through the SAME renderer and are held to the same content standard, so every
+# sweep here covers them.
+#
+# Derived from the directory rather than hard-coded: a new topic must not be
+# able to appear without the census noticing.
+MANDOCS=${MANDOCS:-src/docs/man}
+topics() {
+	ls "$MANDOCS" | grep -v '^mod\.rs$' | sort
+}
+
+# A topic's pages: its overview plus each subtopic file. `mfb man <topic> --all`
+# renders all of them, one `═` rule apiece.
+topic_pages() {
+	local topic=$1
+	"$MFB" man "$topic" --all 2>/dev/null | grep -c '^═'
 }
 
 # The function names a package's overview page lists. Continuation rows of a
@@ -318,6 +352,38 @@ mode_fill() {
 }
 
 # ---------------------------------------------------------------------------
+# --topics: the narrative-guide half of the denominator.
+#
+# PAGES is read from the RENDERED output (`═` rules), not from a file count, for
+# the same reason every other mode reads rendered output: a markdown file that
+# the topic index does not list renders nowhere and is not part of the surface.
+# The FILES column is printed beside it precisely so a disagreement between the
+# two is visible rather than silently resolved in favour of one of them.
+mode_topics() {
+	local topics=("$@")
+	local t pages files lines fences
+	local t_pages=0 t_files=0 t_lines=0 t_fences=0
+	printf '%-16s %6s %6s %7s %7s\n' TOPIC PAGES FILES LINES FENCES
+	printf -- '------------------------------------------------\n'
+	for t in "${topics[@]}"; do
+		pages=$(topic_pages "$t")
+		files=$(find "$MANDOCS/$t" -name '*.md' | wc -l | tr -d ' ')
+		lines=$(find "$MANDOCS/$t" -name '*.md' -exec cat {} + | wc -l | tr -d ' ')
+		fences=$(find "$MANDOCS/$t" -name '*.md' -exec cat {} + | grep -c '^```')
+		fences=$(( fences / 2 ))
+		printf '%-16s %6s %6s %7s %7s\n' "$t" "$pages" "$files" "$lines" "$fences"
+		t_pages=$((t_pages+pages)); t_files=$((t_files+files))
+		t_lines=$((t_lines+lines)); t_fences=$((t_fences+fences))
+		if [ "$pages" -ne "$files" ]; then
+			printf '%-16s MISMATCH: %s rendered pages vs %s markdown files\n' "$t" "$pages" "$files"
+		fi
+	done
+	printf -- '------------------------------------------------\n'
+	printf '%-16s %6s %6s %7s %7s\n' TOTAL "$t_pages" "$t_files" "$t_lines" "$t_fences"
+	[ "$t_pages" -eq "$t_files" ]
+}
+
+# ---------------------------------------------------------------------------
 # Rendered hits for the banned memory vocabulary, attributed to the page they
 # render on.
 #
@@ -365,6 +431,14 @@ mode_memory_scope() {
 		done
 	done
 
+	# The guide topics are held to the same ban. `pkg` is reused as the carve-1
+	# key and no topic is named `datetime`, so no topic hit can be mis-carved.
+	local topic
+	for topic in $SWEEP_TOPICS; do
+		pkg=$topic
+		scan_page "$topic (guide)" "$("$MFB" man "$topic" --all 2>/dev/null)"
+	done
+
 	printf '\n'
 	printf 'unclassified memory-vocabulary hits: %d\n' "$unclassified"
 	printf 'carve-out 1 (datetime arithmetic borrow): %d\n' "$carve"
@@ -379,13 +453,40 @@ mode_memory_scope() {
 # words while still naming a bug number or a mangled symbol.
 mode_scope() {
 	local pkgs=("$@")
-	local pkg fn hits=0
+	local pkg fn hits=0 carve3=0
+
+	# Carve-out 3 (plan-125-A Phase 1): the `optimizations` guide's pass table is
+	# NOT page prose. `src/cli/man.rs:render_topic_overview` substitutes the
+	# `{{optimizer-catalog}}` marker with `optimizer::catalog::render_markdown_table()`
+	# at display time, precisely so the page and the compiler can never disagree
+	# about which passes exist. Its Stage column is literally `NIR` / `MIR` /
+	# `regalloc` / `codegen`, so every row trips the internals sweep, and no page
+	# author can edit any of it — the same shape as carve-out 2's derived Errors
+	# rows. Counted separately, never silently dropped.
+	#
+	# The region is bounded by the two rendered headings around the marker, and
+	# only box-drawing TABLE ROWS inside it are carved: the authored sentences in
+	# the same section (the "Stage says where the pass runs" intro) stay HITs,
+	# which is the point — they are prose a reviewer can rewrite.
+	local cat_lo=0 cat_hi=0
+	if [ -z "${SWEEP_TOPICS:-}" ] || printf '%s' "${SWEEP_TOPICS:-}" | grep -q optimizations; then
+		cat_lo=$("$MFB" man optimizations --all 2>/dev/null | grep -nx 'Passes' | head -1 | cut -d: -f1)
+		cat_hi=$("$MFB" man optimizations --all 2>/dev/null | grep -nx 'Always-on lowering (Level 0)' | head -1 | cut -d: -f1)
+		: "${cat_lo:=0}" "${cat_hi:=0}"
+	fi
 
 	scope_page() { # $1 = label, $2 = rendered text
 		local label=$1 text=$2 line
 		while IFS= read -r line; do
 			local n=${line%%:*}
 			local body=${line#*:}
+			if [ "$label" = 'optimizations (guide)' ] && [ "$cat_hi" -gt 0 ] &&
+				[ "$n" -gt "$cat_lo" ] && [ "$n" -lt "$cat_hi" ] &&
+				printf '%s' "$body" | grep -q '^│'; then
+				carve3=$((carve3 + 1))
+				printf 'CARVE-3  %-28s %5s  %s\n' "$label" "$n" "$body"
+				continue
+			fi
 			hits=$((hits + 1))
 			printf 'HIT      %-28s %5s  %s\n' "$label" "$n" "$body"
 		# Case-SENSITIVE on purpose: several patterns are all-caps host names
@@ -404,8 +505,14 @@ mode_scope() {
 		done
 	done
 
+	local topic
+	for topic in $SWEEP_TOPICS; do
+		scope_page "$topic (guide)" "$("$MFB" man "$topic" --all 2>/dev/null)"
+	done
+
 	printf '\n'
 	printf 'internals-vocabulary hits: %d\n' "$hits"
+	printf 'carve-out 3 (generated optimizer-catalog row): %d\n' "$carve3"
 	[ "$hits" -eq 0 ]
 }
 
@@ -417,6 +524,7 @@ main() {
 	--functions) mode=functions; shift ;;
 	--memory-scope) mode=memory-scope; shift ;;
 	--scope) mode=scope; shift ;;
+	--topics) mode=topics; shift ;;
 	--banned-list) printf '%s\n' "$BANNED_CORE"; return 0 ;;
 	-h | --help) usage; return 0 ;;
 	esac
@@ -426,12 +534,30 @@ main() {
 		return 2
 	fi
 
+	if [ "$mode" = topics ]; then
+		local tps
+		if [ "$#" -gt 0 ]; then
+			tps=("$@")
+		else
+			# shellcheck disable=SC2207
+			tps=($(topics))
+		fi
+		mode_topics "${tps[@]}"
+		return
+	fi
+
 	local pkgs
+	# SWEEP_TOPICS is the guide-topic half of the two vocabulary sweeps. A run
+	# scoped to named packages is answering a question about those packages, so
+	# it stays scoped; only a whole-surface run (no arguments) sweeps the topics
+	# as well — otherwise `--scope color` would silently re-report every topic.
 	if [ "$#" -gt 0 ]; then
 		pkgs=("$@")
+		SWEEP_TOPICS=''
 	else
 		# shellcheck disable=SC2207
 		pkgs=($(packages))
+		SWEEP_TOPICS=$(topics | tr '\n' ' ')
 	fi
 
 	case "$mode" in
