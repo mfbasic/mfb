@@ -5,7 +5,7 @@ Effort: small–medium (one more producer to opt into bug-536 shape B; the audit
 Severity: MEDIUM (unbounded leak in any loop that reads a `String` element without binding it)
 Class: Memory / correctness
 
-Status: Fixed on branch `bug-592-getor-element-owner` (not yet merged)
+Status: **FIXED** — landed on main in round 3, merge `6ca7e8b8e` (branch `bug-592-getor-element-owner`)
 Regression Test: `tests/runtime/rt_scope_drop_leaks.rs` — `an_unbound_{list,hash_map,scan_map}_getor_{hit,miss}_runs_at_constant_rss`, `a_returned_getor_element_runs_at_constant_rss`, `a_borrowed_get_with_a_fresh_key_operand_runs_at_constant_rss`; positive pins `a_bound_getor_element_still_runs_at_constant_rss`, `an_unbound_get_element_still_runs_at_constant_rss`, `a_borrowed_get_element_still_runs_at_constant_rss`, `every_unbound_collection_element_position_still_produces_the_right_value`; census `every_collections_member_returning_an_element_has_an_ownership_verdict` (`src/codegen/builtins/tests/collections.rs`)
 
 Found while fixing bug-576, and measured to be a **different defect**: it needs no
