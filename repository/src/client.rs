@@ -691,8 +691,54 @@ fn fetch_checkpoint_unpinned(
 }
 
 /// Fetch, verify and pin the current checkpoint.
+///
+/// This is the **only** primitive that advances the local pin, and every advance
+/// past an existing pin is gated on an RFC 6962 consistency proof (bug-582).
+/// Signatures and monotonicity alone cannot establish an append-only history: a
+/// registry holding its online key can sign any larger tree it likes, so a
+/// bigger head is a *candidate*, never evidence. Before the gate moved here,
+/// `fetch_checkpoint` wrote any `size > pinned_size` straight over the pin,
+/// which erased the root the fork would have been detected against — and
+/// `verify_publish_inclusion`, the whole of `pkg install --proof`'s contact with
+/// the log, advanced through it with no consistency check anywhere in the flow.
 pub fn fetch_checkpoint(repo_url: &str, paths: &LocalPaths) -> Result<CheckpointResponse, String> {
+    // Read the pin BEFORE the fetch, so the value proven against is the one the
+    // client already accepted and not anything this exchange may have written.
+    let pinned = local::read_checkpoint(paths)?;
+    // Deliberately unpinned (bug-276 R2): the candidate head must not overwrite
+    // the pin until its consistency against that pin has been proven, or a fork
+    // erases the very evidence it would be caught by.
     let checkpoint = fetch_checkpoint_unpinned(repo_url, paths)?;
+    let Some((pinned_size, pinned_root)) = pinned else {
+        // Trust on first use: there is no predecessor to prove an extension of.
+        local::write_checkpoint(paths, checkpoint.size, &checkpoint.root_hash)?;
+        return Ok(checkpoint);
+    };
+    if checkpoint.size == pinned_size {
+        // `fetch_checkpoint_unpinned` has already refused every other root at
+        // this size, so this IS the pinned head. Nothing advances, so there is
+        // nothing to prove and no proof to ask the registry for.
+        return Ok(checkpoint);
+    }
+    // Strictly larger — a smaller size was refused above as a ROLLBACK.
+    let proof = get_json::<ConsistencyProofResponse>(
+        repo_url,
+        &format!("/log/consistency?from={pinned_size}&to={}", checkpoint.size),
+    )?;
+    let old_root = decode_hex32(&pinned_root, "pinned root")?;
+    let new_root = decode_hex32(&checkpoint.root_hash, "rootHash")?;
+    let mut path = Vec::new();
+    for node in &proof.path {
+        path.push(decode_hex32(node, "proof node")?);
+    }
+    crate::log::verify_consistency(
+        pinned_size as usize,
+        checkpoint.size as usize,
+        &old_root,
+        &new_root,
+        &path,
+    )?;
+    // Proven an extension of the pinned history — only now advance the pin.
     local::write_checkpoint(paths, checkpoint.size, &checkpoint.root_hash)?;
     Ok(checkpoint)
 }
@@ -781,38 +827,16 @@ pub fn verify_publish_inclusion(
 
 /// Fetch and verify a consistency proof between the pinned checkpoint and
 /// the current one.
+///
+/// Since bug-582 this is exactly `fetch_checkpoint`: the consistency gate lives
+/// in the one pin-advance primitive rather than in one of its two callers, so a
+/// call site cannot pick the unsafe half by accident. The name is kept because
+/// it says at the call site *why* the log is being contacted.
 pub fn verify_log_consistency(
     repo_url: &str,
     paths: &LocalPaths,
 ) -> Result<CheckpointResponse, String> {
-    let Some((pinned_size, pinned_root)) = local::read_checkpoint(paths)? else {
-        // Nothing pinned yet: fetch_checkpoint establishes the first pin.
-        return fetch_checkpoint(repo_url, paths);
-    };
-    // Deliberately unpinned (bug-276 R2): the candidate head must not overwrite
-    // the pin until its consistency against that pin has been proven, or a fork
-    // erases the very evidence it would be caught by.
-    let checkpoint = fetch_checkpoint_unpinned(repo_url, paths)?;
-    let proof = get_json::<ConsistencyProofResponse>(
-        repo_url,
-        &format!("/log/consistency?from={pinned_size}&to={}", checkpoint.size),
-    )?;
-    let old_root = decode_hex32(&pinned_root, "pinned root")?;
-    let new_root = decode_hex32(&checkpoint.root_hash, "rootHash")?;
-    let mut path = Vec::new();
-    for node in &proof.path {
-        path.push(decode_hex32(node, "proof node")?);
-    }
-    crate::log::verify_consistency(
-        pinned_size as usize,
-        checkpoint.size as usize,
-        &old_root,
-        &new_root,
-        &path,
-    )?;
-    // Proven an extension of the pinned history — only now advance the pin.
-    local::write_checkpoint(paths, checkpoint.size, &checkpoint.root_hash)?;
-    Ok(checkpoint)
+    fetch_checkpoint(repo_url, paths)
 }
 
 fn decode_hex32(value: &str, field: &str) -> Result<[u8; 32], String> {
@@ -3587,6 +3611,242 @@ mod tests {
             local::read_checkpoint(&paths).unwrap(),
             Some((2, hex::encode(root2))),
             "an unproven head must not overwrite the pin it would be caught by"
+        );
+    }
+
+    /// bug-582: a validly signed *larger* head is not evidence of an extension.
+    ///
+    /// `fetch_checkpoint`'s only growth check was monotonicity, so any head with
+    /// `size > pinned_size` was written straight over the pin without asking for
+    /// a consistency proof. That is the same defect bug-276 R2 fixed for
+    /// `verify_log_consistency`, left standing in the sibling primitive — and it
+    /// is reachable, because `verify_publish_inclusion` (the whole of
+    /// `pkg install --proof`'s log contact) advances the pin through it.
+    ///
+    /// The two halves matter separately: refusing an *absent* proof is easy, and
+    /// refusing a proof that is genuine **for the fork's own history** is what
+    /// proves the check is anchored to the pinned root rather than to the
+    /// registry's arithmetic.
+    #[test]
+    fn fetch_checkpoint_rejects_an_unproven_larger_fork() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let leaf = crate::log::leaf_hash;
+        let honest = [
+            leaf(b"a"),
+            leaf(b"b"),
+            leaf(b"c"),
+            leaf(b"d"),
+            leaf(b"e"),
+            leaf(b"f"),
+        ];
+        let root4 = crate::log::root(&honest[..4]);
+        let root6 = crate::log::root(&honest);
+        // A fork: it grows past the pin but rewrites leaf 3, so it is not an
+        // extension of the history this client already accepted.
+        let fork = [leaf(b"a"), leaf(b"b"), leaf(b"c"), leaf(b"X"), leaf(b"e")];
+        let root5 = crate::log::root(&fork);
+        let hexpath =
+            |path: Vec<[u8; 32]>| -> Vec<String> { path.iter().map(hex::encode).collect() };
+
+        // Trust on first use: no predecessor, so size 4 pins.
+        let first = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(4, &root4))
+            .serve();
+        assert_eq!(fetch_checkpoint(&first.url, &paths).unwrap().size, 4);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4)))
+        );
+
+        // A bigger fork with no proof offered at all.
+        let silent = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(5, &root5))
+            .serve();
+        assert!(
+            fetch_checkpoint(&silent.url, &paths).is_err(),
+            "a larger head with no consistency proof must not be accepted"
+        );
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4))),
+            "a refused head must never overwrite the pin it would be caught by"
+        );
+
+        // A bigger fork with a proof that is perfectly valid inside the fork's
+        // own history — 4 -> 5 over the forked leaves. It cannot reproduce the
+        // pinned root, and that is the only thing the client may trust.
+        let forged = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(5, &root5))
+            .ok(
+                "/log/consistency",
+                serde_json::json!({
+                    "from": 4, "to": 5,
+                    "path": hexpath(crate::log::consistency_path(4, &fork)),
+                })
+                .to_string(),
+            )
+            .serve();
+        let err = fetch_checkpoint(&forged.url, &paths).unwrap_err();
+        // Which of the two roots the walk fails to reproduce depends on where
+        // the forked leaf sits, so the assertion is on the anchor rather than
+        // on the side: a proof that is internally valid is still refused
+        // because it cannot tie the candidate to the pinned history.
+        assert!(
+            err.contains("consistency proof does not reproduce"),
+            "the proof must be anchored to the PINNED root, got: {err}"
+        );
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4)))
+        );
+
+        // POSITIVE: a genuine 4 -> 6 extension still advances the pin. Without
+        // this the fix could be "refuse every advance" and still look green.
+        let extended = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(6, &root6))
+            .ok(
+                "/log/consistency",
+                serde_json::json!({
+                    "from": 4, "to": 6,
+                    "path": hexpath(crate::log::consistency_path(4, &honest)),
+                })
+                .to_string(),
+            )
+            .serve();
+        assert_eq!(fetch_checkpoint(&extended.url, &paths).unwrap().size, 6);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((6, hex::encode(root6)))
+        );
+        assert!(
+            target_of(&extended.request_to("/log/consistency")).contains("from=4&to=6"),
+            "the proof is requested between the pinned and candidate sizes"
+        );
+
+        // POSITIVE: re-reading the head the client is already pinned to is not
+        // an advance. `fetch_checkpoint_unpinned` has already refused every
+        // other root at this size, so there is nothing left to prove and no
+        // consistency request to make.
+        let steady = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(6, &root6))
+            .serve();
+        assert_eq!(fetch_checkpoint(&steady.url, &paths).unwrap().size, 6);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((6, hex::encode(root6)))
+        );
+        assert!(
+            !steady
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| path_of(request) == "/log/consistency"),
+            "an unchanged head must not need a proof of itself"
+        );
+    }
+
+    /// bug-582: `pkg install --proof` reaches the log only through
+    /// `verify_publish_inclusion`, and nothing on that path ever called
+    /// `verify_log_consistency` first — so the larger-fork attack landed on the
+    /// pin there with no consistency check anywhere in the flow.
+    #[test]
+    fn verify_publish_inclusion_rejects_an_unproven_larger_fork() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let leaf = crate::log::leaf_hash;
+        let publish = crate::log::leaf_hash(
+            publish_leaf_payload("alice#pkg", "1.0.0", &"a".repeat(64)).as_bytes(),
+        );
+        let honest = [publish, leaf(b"b"), leaf(b"c"), leaf(b"d")];
+        let root2 = crate::log::root(&honest[..2]);
+        let root4 = crate::log::root(&honest);
+        // A fork of the same size-4 history that rewrites leaf 1.
+        let fork = [publish, leaf(b"X"), leaf(b"c"), leaf(b"d")];
+        let root4f = crate::log::root(&fork);
+
+        let log_routes = |routes: Routes, leaves: &[[u8; 32]]| -> Routes {
+            let path: Vec<String> = crate::log::inclusion_path(0, leaves)
+                .iter()
+                .map(hex::encode)
+                .collect();
+            routes
+                .ok(
+                    "/log/publish",
+                    serde_json::json!({"index": 0, "leafHash": hex::encode(publish)}).to_string(),
+                )
+                .ok(
+                    "/log/proof/",
+                    serde_json::json!({
+                        "index": 0,
+                        "size": leaves.len(),
+                        "leafHash": hex::encode(publish),
+                        "path": path,
+                    })
+                    .to_string(),
+                )
+        };
+
+        // Pin at size 2 by trust on first use.
+        let first = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(2, &root2))
+            .serve();
+        assert_eq!(fetch_checkpoint(&first.url, &paths).unwrap().size, 2);
+
+        // A larger fork, offering no consistency proof.
+        let attacker = log_routes(
+            registry
+                .routes()
+                .ok("/log/checkpoint", registry.checkpoint_body(4, &root4f)),
+            &fork,
+        )
+        .serve();
+        assert!(
+            verify_publish_inclusion(&attacker.url, &paths, "alice#pkg", "1.0.0", &"a".repeat(64))
+                .is_err(),
+            "inclusion must not be reported against an unproven fork"
+        );
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((2, hex::encode(root2))),
+            "the fork must not have replaced the pin"
+        );
+
+        // POSITIVE: the honest 2 -> 4 extension, with its proof, still verifies
+        // the publish and advances the pin.
+        let good = log_routes(
+            registry
+                .routes()
+                .ok("/log/checkpoint", registry.checkpoint_body(4, &root4))
+                .ok(
+                    "/log/consistency",
+                    serde_json::json!({
+                        "from": 2, "to": 4,
+                        "path": crate::log::consistency_path(2, &honest)
+                            .iter()
+                            .map(hex::encode)
+                            .collect::<Vec<String>>(),
+                    })
+                    .to_string(),
+                ),
+            &honest,
+        )
+        .serve();
+        let (entry, checkpoint) =
+            verify_publish_inclusion(&good.url, &paths, "alice#pkg", "1.0.0", &"a".repeat(64))
+                .expect("an honest publish under a proven extension still verifies");
+        assert_eq!(entry.index, 0);
+        assert_eq!(checkpoint.size, 4);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4)))
         );
     }
 

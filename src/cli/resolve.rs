@@ -636,8 +636,11 @@ pub(crate) fn resolve(
     packages.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Consistency-proved rather than merely monotonic (bug-276 R2): a forked log
-    // that keeps growing satisfies fetch_checkpoint's size/root checks, so the
-    // proof against the pinned head is what makes this an append-only guarantee.
+    // that keeps growing satisfies the signature and size/root checks on their
+    // own, so the RFC-6962 proof against the pinned head is what makes this an
+    // append-only guarantee. Since bug-582 that proof is demanded by the single
+    // pin-advance primitive, so `fetch_checkpoint` is the same call; the name
+    // here records why the log is being contacted.
     let checkpoint = client::verify_log_consistency(&repo_url, &paths)?;
     let repo_fingerprint = nodes
         .values()
