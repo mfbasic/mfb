@@ -505,7 +505,11 @@ impl CodeBuilder<'_> {
         // value returns, so the statement-scope temp list claims it — under the same
         // gate the `Bind` path applies, which excludes `thread.*` (another arena's
         // block) and everything `is_freeable_flat_value` refuses.
-        self.mark_runtime_helper_result_fresh(target, result_type, Operand::from(register.render()));
+        self.mark_runtime_helper_result_fresh(
+            target,
+            result_type,
+            Operand::from(register.render()),
+        );
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
