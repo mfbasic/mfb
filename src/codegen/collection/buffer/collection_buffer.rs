@@ -27,6 +27,7 @@ impl CodeBuilder<'_> {
             closure_captures: None,
             capacity_slot: None,
             loop_alias_slot: None,
+            result_wrapper: None,
         })?;
         let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), keep));
