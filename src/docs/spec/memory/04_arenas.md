@@ -54,9 +54,11 @@ ArenaState (at x19)
   +1160 U64  outEnabled       ; io::setBuffered flag (0 = unbuffered default)
   +1168 U64  largeBin[64]     ; segregated large-block bin heads, hashed by exact
                               ; size (index = (size >> 4) & 63); chunks > 2048; 0 = empty
-  +1680 U64  v128Slots[256]   ; per-thread v128 scalarization region (2048 bytes);
+  +1680 U128 v128Slots[127]   ; per-thread v128 scalarization region (2032 bytes);
                               ; reserved on every target, addressed only by rv64
-                              ; codegen; placed last so its offset stays layout-neutral
+                              ; codegen; kept low so its offset fits rv64's 12-bit addi
+  +3712 U64  flagRhs          ; rv64 flag-emulation compare rhs snapshot (16 bytes,
+                              ; carved from the v128 region); addressed only by rv64 codegen
   +3728 U64  currentError     ; in-flight owned Error block base for trap adoption
                               ; (0 when none); addressed by a computed register on rv64
   +3736 U64  stdinLocalBuf    ; plan-15 stdin broadcast: per-thread 4 KiB copy buffer
