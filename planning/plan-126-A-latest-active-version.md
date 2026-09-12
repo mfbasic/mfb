@@ -32,8 +32,8 @@ Sub-plans B–F point here rather than restating them.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Workspace builds and tests clean at HEAD | `rustup run 1.96.0 cargo test --no-fail-fast` → 0 failures | UNVERIFIED — run before starting |
-| `repository` is a workspace member (so its tests are in the denominator) | `rustup run 1.96.0 cargo metadata --no-deps --format-version 1` → `workspace_members` length 2 | MET (measured 2026-09-06) |
+| Workspace builds and tests clean at HEAD | `rustup run 1.96.0 cargo test --no-fail-fast` → 0 failures | MET (measured 2026-09-12: 161 suites, 5317 passed, 0 failed, exit 0) |
+| `repository` is a workspace member (so its tests are in the denominator) | `rustup run 1.96.0 cargo metadata --no-deps --format-version 1` → `workspace_members` length 2 | MET (re-measured 2026-09-12: 2 members) |
 
 Everything below is written against the world where these hold.
 
@@ -194,26 +194,34 @@ registry from `select_index_version`.
 Adds the predicate and query in isolation so the semantics are pinned before
 anything reads them.
 
-- [ ] Add `pub fn state_is_active(state: &str) -> bool` to
+- [x] Add `pub fn state_is_active(state: &str) -> bool` to
       `repository/src/validation.rs`, `matches!(state, "available" | "deprecated")`,
-      with a doc comment citing `src/cli/pkg.rs:1371` as the definition it mirrors
-      and naming all five states so the allowlist rationale is on the page.
-- [ ] Add `Store::latest_active_version(&self, ident: &str) -> Result<Option<(String, String)>, String>`
+      with a doc comment citing `state_is_floating_eligible` as the definition it
+      mirrors and naming all five states so the allowlist rationale is on the page.
+- [x] Add `Store::latest_active_version(&self, ident: &str) -> Result<Option<(String, String)>, String>`
       to `repository/src/store.rs` beside `package_detail`: same `ORDER BY
       pv.created_at DESC, pv.id DESC`, `WHERE p.ident = ?1 AND pv.state IN
       ('available','deprecated')`, `LIMIT 1`, returning `(version, state)`.
-- [ ] Tests in `repository/src/store.rs`'s test module: newest is yanked → returns
+- [x] Tests in `repository/src/store.rs`'s test module: newest is yanked → returns
       the older active one; newest is `blocked` → same; newest is
       `legal-tombstoned` → same; all versions inactive → `None`; no versions →
       `None`; newest is `deprecated` → returns it *with* state `deprecated`.
-- [ ] Test in `repository/src/validation.rs` asserting `state_is_active` agrees
-      with `state_is_floating_eligible` across all five states, with a comment
-      naming `src/cli/pkg.rs:2310` as the sibling table.
+      Six tests plus a `store_with_versions` helper; the yanked and all-inactive
+      tests additionally assert `list_package_versions` still returns both rows,
+      so the selection filter cannot be mistaken for a listing filter.
+- [x] Test in `repository/src/validation.rs` asserting `state_is_active` agrees
+      with `state_is_floating_eligible` across all five states
+      (`active_states_are_an_allowlist_matching_the_install_client`), citing the
+      sibling table by symbol + grep rather than by line number.
 
-Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes
-with the six new store tests, and a test that constructs a package whose newest
-version is `blocked` proves the selection skips it (a denylist implementation of
-the same function fails that test).
+Acceptance: MET. `rustup run 1.96.0 cargo test -p mfb_repository --lib
+--no-fail-fast` → `373 passed; 0 failed` (was 366; +6 store, +1 validation).
+The denylist proof was run, not assumed: rewriting the predicate as
+`pv.state != 'yanked'` turns **three** tests red —
+`latest_active_version_skips_a_blocked_newest_release`,
+`..._skips_a_legal_tombstoned_newest_release` and
+`..._is_none_when_every_version_is_inactive` (`test result: FAILED. 3 passed;
+3 failed`) — and the allowlist was restored.
 Commit: —
 
 ### Phase 2 — Route `package_detail` and the Overview through it

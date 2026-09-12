@@ -1578,6 +1578,53 @@ impl Store {
         Ok(versions)
     }
 
+    /// The package's headline "latest" release: newest by `published_at` among
+    /// the versions whose state is **active** (plan-126-A).
+    ///
+    /// Returns `(version, state)`, or `None` when the package has no active
+    /// release at all — every published version yanked, blocked or
+    /// legal-tombstoned — which is a statement to render, not missing data.
+    ///
+    /// This is the **only** server-side "latest version" selection. Before it
+    /// existed, both the package page and the search results took
+    /// `ORDER BY created_at DESC LIMIT 1` with no state predicate, so a package
+    /// whose newest release was yanked advertised that release as its headline
+    /// version — on the search page with no state badge at all.
+    ///
+    /// Two properties are load-bearing:
+    ///
+    /// * **The predicate is an allowlist**, `state IN ('available','deprecated')`,
+    ///   matching [`crate::validation::state_is_active`] and through it the
+    ///   install client's `state_is_floating_eligible`. Written as
+    ///   `state != 'yanked'` it would admit `blocked` and `legal-tombstoned`.
+    /// * **Ordering is by publish time**, not semver — `max_by_key(published_at)`
+    ///   is how the install client selects, and diverging here would put the two
+    ///   surfaces in disagreement about the same package.
+    ///
+    /// This filters the *selection* only. [`Self::package_detail`] still returns
+    /// every version unfiltered; the transparency listing is never narrowed.
+    pub fn latest_active_version(&self, ident: &str) -> Result<Option<(String, String)>, String> {
+        let conn = self.conn();
+        conn.query_row(
+            // The two state literals are the SQL spelling of
+            // `validation::state_is_active`. Keep them in step: a state added to
+            // the active set there must be added here, and the
+            // `active_states_are_an_allowlist_matching_the_install_client` test
+            // plus this module's yanked/blocked/tombstoned tests are what catch
+            // a one-sided edit.
+            "SELECT pv.version, pv.state
+             FROM package_versions pv
+             JOIN packages p ON p.id = pv.package_id
+             WHERE p.ident = ?1 AND pv.state IN ('available', 'deprecated')
+             ORDER BY pv.created_at DESC, pv.id DESC
+             LIMIT 1",
+            params![ident],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|err| format!("failed to load latest active version: {err}"))
+    }
+
     /// Everything `GET /packages/:ident` renders: the package's owner, its
     /// recorded metadata, and **every** version with its native target rows
     /// (plan-61-B §3).
@@ -5692,6 +5739,113 @@ pub(crate) mod tests {
         );
         assert!(store.package_owner("alice#missing").unwrap().is_none());
         let _ = alice;
+    }
+
+    // === plan-126-A: latest-active-version selection ======================
+    //
+    // Publish two versions and move the newer one's state, then assert which
+    // version the selection names. `publish_package_version` stamps both rows
+    // with the same `created_at` second, so the tie resolves on `pv.id DESC` —
+    // the later-inserted row wins, which is what makes "newest" meaningful in a
+    // test that runs in milliseconds.
+
+    /// Publish `versions` in order under `alice#toolbox` and return the store.
+    fn store_with_versions(versions: &[(&str, &str)]) -> (tempfile::TempDir, Store) {
+        let (temp, store) = test_store();
+        register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        for (version, state) in versions {
+            store
+                .publish_package_version(
+                    owner_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("hash-{version}"),
+                    &format!("path-{version}"),
+                    "{}",
+                    &[],
+                    &PublishMetadata::default(),
+                )
+                .unwrap();
+            if *state != "available" {
+                store
+                    .set_release_state(owner_id, "alice#toolbox", version, state)
+                    .unwrap();
+            }
+        }
+        (temp, store)
+    }
+
+    /// The bug plan-126-A fixes: the newest release is yanked, so the headline
+    /// version must be the older active one — not the yanked newest.
+    #[test]
+    fn latest_active_version_skips_a_yanked_newest_release() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "available"), ("2.0.0", "yanked")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), "available".to_string())),
+        );
+        // The transparency listing is untouched: both versions are still there.
+        let versions = store.list_package_versions("alice#toolbox").unwrap();
+        assert_eq!(versions.len(), 2);
+    }
+
+    /// `blocked` is operator-set and never reaches the maintainer route, so a
+    /// denylist written as `state != 'yanked'` would pass the test above and
+    /// fail this one. That is the whole reason the predicate is an allowlist.
+    #[test]
+    fn latest_active_version_skips_a_blocked_newest_release() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "available"), ("2.0.0", "blocked")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), "available".to_string())),
+        );
+    }
+
+    /// The second operator-only state, for the same reason.
+    #[test]
+    fn latest_active_version_skips_a_legal_tombstoned_newest_release() {
+        let (_temp, store) =
+            store_with_versions(&[("1.5.0", "available"), ("2.0.0", "legal-tombstoned")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), "available".to_string())),
+        );
+    }
+
+    /// `deprecated` **is** active — the install client installs it on a floating
+    /// add — and the state travels with the version so the page can badge it.
+    #[test]
+    fn latest_active_version_returns_a_deprecated_release_with_its_state() {
+        let (_temp, store) =
+            store_with_versions(&[("1.5.0", "available"), ("2.0.0", "deprecated")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("2.0.0".to_string(), "deprecated".to_string())),
+        );
+    }
+
+    /// Every published version inactive: `None` means "no active release", a
+    /// statement the page renders — not "this package does not exist".
+    #[test]
+    fn latest_active_version_is_none_when_every_version_is_inactive() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "yanked"), ("2.0.0", "blocked")]);
+        assert_eq!(store.latest_active_version("alice#toolbox").unwrap(), None);
+        // The versions themselves are still listed.
+        assert_eq!(
+            store.list_package_versions("alice#toolbox").unwrap().len(),
+            2
+        );
+    }
+
+    /// No versions at all, and an ident no package carries: both `None`, and
+    /// neither is an error.
+    #[test]
+    fn latest_active_version_is_none_for_no_versions_and_unknown_idents() {
+        let (_temp, store) = store_with_versions(&[]);
+        assert_eq!(store.latest_active_version("alice#toolbox").unwrap(), None);
+        assert_eq!(store.latest_active_version("alice#nope").unwrap(), None);
+        assert_eq!(store.latest_active_version("not-an-ident").unwrap(), None);
     }
 
     #[test]

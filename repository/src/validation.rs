@@ -37,6 +37,30 @@ pub fn validate_owner_name(owner: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether a release state counts as **active** — eligible to be advertised as
+/// a package's headline "latest" version.
+///
+/// Mirrors the install client's `state_is_floating_eligible`
+/// (`grep -n "fn state_is_floating_eligible" src/cli/pkg.rs`): the registry must
+/// not name a version the installer would refuse on a floating add.
+///
+/// The release-state vocabulary has **five** members, and this is deliberately
+/// an **allowlist** of two rather than a denylist of `yanked`:
+///
+/// * `available` — active.
+/// * `deprecated` — active. Still installed on a floating add, so a package
+///   whose only maintained line is deprecated must not read as having no
+///   release at all.
+/// * `yanked` — not active; installable only by exact pin.
+/// * `blocked` — not active; operator-set, never installed.
+/// * `legal-tombstoned` — not active; operator-set, never installed.
+///
+/// A `state != "yanked"` filter would silently admit the last two, which is the
+/// same class of bug this predicate exists to prevent.
+pub fn state_is_active(state: &str) -> bool {
+    matches!(state, "available" | "deprecated")
+}
+
 /// Validate the `package` component of an `owner#package` ident (REPO-17). The
 /// package part reaches the log payload (`{"ident":...}`), the `/index/<ident>`
 /// route, and the REPO-14 log-lookup pattern, so it is restricted to an explicit
@@ -159,6 +183,34 @@ mod tests {
             assert!(validate_version(version).is_err(), "{version:?}");
         }
         assert!(validate_version(&"1".repeat(VERSION_LIMIT + 1)).is_err());
+    }
+
+    /// plan-126-A: `state_is_active` must agree with the install client's
+    /// `state_is_floating_eligible` across the **whole** five-member release
+    /// vocabulary, not just the three the maintainer route accepts.
+    ///
+    /// The sibling table lives in the compiler crate — see the states enumerated
+    /// by `grep -n "state_is_floating_eligible" -A 6 src/cli/pkg.rs` and its test
+    /// (`grep -n "legal-tombstoned" src/cli/pkg.rs`). This crate cannot import
+    /// it, so the vocabulary is restated here and the *agreement* is the
+    /// assertion: a denylist implementation (`state != "yanked"`) fails on the
+    /// `blocked` and `legal-tombstoned` rows.
+    #[test]
+    fn active_states_are_an_allowlist_matching_the_install_client() {
+        for (state, expected) in [
+            ("available", true),
+            ("deprecated", true),
+            ("yanked", false),
+            ("blocked", false),
+            ("legal-tombstoned", false),
+        ] {
+            assert_eq!(state_is_active(state), expected, "{state}");
+        }
+        // An unknown state is not active: a vocabulary this predicate has never
+        // heard of must not be advertised as a package's headline release.
+        assert!(!state_is_active(""));
+        assert!(!state_is_active("Available"));
+        assert!(!state_is_active("withdrawn"));
     }
 
     #[test]
