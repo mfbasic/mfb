@@ -177,17 +177,26 @@ fn redirect_policy() -> reqwest::redirect::Policy {
                 "repository redirected more than {MAX_REDIRECTS} times"
             ));
         }
-        match ensure_redirect_target(attempt.url()) {
+        let target = attempt.url();
+        // Two stages, deliberately separate: the static URL check, then the
+        // resolution check that closes the hostname hole (bug-585).
+        let vetted = ensure_redirect_target(target)
+            .and_then(|()| ensure_redirect_host_resolves_public(target, resolve_redirect_host));
+        match vetted {
             Ok(()) => attempt.follow(),
             Err(message) => attempt.error(message),
         }
     })
 }
 
-/// Vet a single redirect target: https only (no plaintext downgrade), and never
-/// an IP literal in an SSRF-sensitive range (bug-420 item 2). A hostname that
-/// resolves to an internal address is out of scope for this literal check — the
-/// documented threat is a 302 straight to `169.254.169.254`/`127.0.0.1`/RFC-1918.
+/// Vet a single redirect target's URL TEXT: https only (no plaintext
+/// downgrade), and never an IP literal in an SSRF-sensitive range (bug-420
+/// item 2).
+///
+/// This is half the guard. It decides everything that can be read off the URL
+/// without touching the network, so it stays pure and cheap. A target written
+/// as a HOSTNAME is decided by [`ensure_redirect_host_resolves_public`]
+/// (bug-585); [`redirect_policy`] is the one place both run.
 fn ensure_redirect_target(url: &reqwest::Url) -> Result<(), String> {
     if url.scheme() != "https" {
         return Err(format!(
@@ -206,6 +215,102 @@ fn ensure_redirect_target(url: &reqwest::Url) -> Result<(), String> {
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+/// Resolve a redirect target's hostname through the platform resolver — the same
+/// `getaddrinfo` reqwest's own connector will call a moment later.
+///
+/// Split out from [`ensure_redirect_host_resolves_public`] so the policy can be
+/// tested against a deterministic answer set: a security filter whose tests
+/// depend on live DNS is a filter nobody can prove either way offline.
+fn resolve_redirect_host(host: &str, port: u16) -> Result<Vec<std::net::IpAddr>, String> {
+    use std::net::ToSocketAddrs as _;
+    (host, port)
+        .to_socket_addrs()
+        .map(|addrs| addrs.map(|addr| addr.ip()).collect())
+        .map_err(|err| err.to_string())
+}
+
+/// The other half of the redirect guard: refuse a target whose HOSTNAME resolves
+/// into a blocked range (bug-585).
+///
+/// `ensure_redirect_target` only ever parsed the host as an `IpAddr`, so a
+/// hostile registry could 302 a blob fetch at `https://localhost:<port>/` — or
+/// any attacker-controlled name with an `A` record of `127.0.0.1`,
+/// `169.254.169.254`, or RFC-1918 space — and reqwest would resolve the name
+/// itself and open a real socket to a service reachable only from the developer
+/// or CI machine. Measured, not reasoned:
+/// `a_hostname_redirect_resolving_to_loopback_is_refused_before_connecting`
+/// recorded an accepted connection on the loopback probe before this landed.
+///
+/// Three properties a reader needs, stated plainly:
+///
+/// - **It fails CLOSED.** A name that will not resolve, or that resolves to an
+///   empty answer, is refused rather than followed. That costs nothing real: an
+///   unresolvable hop cannot be connected to either, so the request was going to
+///   fail regardless — it just fails with an honest message instead of a
+///   connector error. And a filter that treats "I could not check" as "allowed"
+///   is not a filter.
+/// - **ANY blocked answer refuses the hop**, not just the first. A name with a
+///   mixed public/internal answer set is exactly how this gets smuggled past a
+///   check that only looks at `addrs[0]`, and reqwest walks the whole list.
+/// - **It is NOT airtight against DNS rebinding, and cannot be made so here.**
+///   This resolves, then reqwest resolves again and connects: a classic TOCTOU.
+///   A name with a ~0 TTL answering public once and `127.0.0.1` the next time
+///   wins the race. Closing it needs the connection to be pinned to the exact
+///   address this function approved — a custom `reqwest::dns::Resolve` on the
+///   shared client — and that is not available *here*, because the resolver is
+///   handed a bare hostname with no way to tell an initial URL from a redirect
+///   hop, and `http://localhost:<port>` is a SUPPORTED local-dev registry
+///   (`ensure_transport_security`). So this raises the attack from "write the
+///   address in the `Location` header" to "win a resolver race", and the OS
+///   resolver cache plus a realistic TTL make that unreliable for the attacker.
+///   Blob bytes remain SHA-256 verified regardless; what is at stake is the
+///   transport-level probe, not integrity.
+///
+/// Cost: one `getaddrinfo` per redirect hop, on a name reqwest is about to
+/// resolve anyway, so in practice it is a warm-cache lookup. A legitimate blob
+/// fetch is one hop.
+fn ensure_redirect_host_resolves_public(
+    url: &reqwest::Url,
+    resolve: impl Fn(&str, u16) -> Result<Vec<std::net::IpAddr>, String>,
+) -> Result<(), String> {
+    let Some(host) = url.host_str() else {
+        return Ok(());
+    };
+    // An IP literal was already decided by `ensure_redirect_target`; there is no
+    // name to look up, and no lookup is performed. (`host_str` brackets an IPv6
+    // literal, so strip them before parsing.)
+    if host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>()
+        .is_ok()
+    {
+        return Ok(());
+    }
+    let port = url.port_or_known_default().unwrap_or(443);
+    let addresses = resolve(host, port).map_err(|err| {
+        format!(
+            "refusing to follow a repository redirect to '{host}': its address could not be \
+             resolved ({err}). The redirect guard fails closed — a hop that cannot be shown \
+             to be public is not followed."
+        )
+    })?;
+    if addresses.is_empty() {
+        return Err(format!(
+            "refusing to follow a repository redirect to '{host}': it resolved to no \
+             addresses. The redirect guard fails closed."
+        ));
+    }
+    if let Some(blocked) = addresses.iter().find(|ip| is_blocked_redirect_ip(**ip)) {
+        return Err(format!(
+            "refusing to follow a repository redirect to '{host}': it resolves to internal \
+             address {blocked}. A redirect to a private, loopback, or link-local host is a \
+             possible SSRF, whether the address is written in the URL or answered by DNS."
+        ));
     }
     Ok(())
 }
@@ -1636,10 +1741,16 @@ mod tests {
     ///
     /// This document was filed "not demonstrated end to end", on the grounds that
     /// the redirect guard requires an https target so a loopback harness cannot
-    /// drive it. That is escapable: `ensure_redirect_target` blocks IP LITERALS,
-    /// and its own doc says a hostname resolving to an internal address is out of
-    /// scope — so `https://localhost:<port>/` passes the guard. The hop therefore
-    /// gets attempted for real, and the attempt is observable in the error.
+    /// drive it. That is escapable: at the time, `ensure_redirect_target` blocked
+    /// IP LITERALS only, so `https://localhost:<port>/` passed the guard. The hop
+    /// therefore gets attempted for real, and the attempt is observable in the
+    /// error.
+    ///
+    /// bug-585 has since closed that hole in the SHARED client's policy, but this
+    /// test is unaffected and still measures what it always did: a
+    /// credential-bearing POST runs on `no_redirect_client`, which consults no
+    /// policy at all. That independence is the point — the guarantee here is
+    /// "never follows a redirect", not "follows only safe ones".
     ///
     /// The target port has nothing listening, deliberately: pointing it at a stub
     /// would make the client open a TLS handshake against a plain-HTTP socket and
@@ -4656,6 +4767,194 @@ mod tests {
         assert!(
             internal.requests.lock().unwrap().is_empty(),
             "the client must not connect to the internal redirect target"
+        );
+    }
+
+    /// A loopback listener that reports only THAT a connection arrived.
+    ///
+    /// This is the right instrument for an SSRF test: the attack succeeds the
+    /// moment a socket is opened to the internal service, whatever is spoken
+    /// over it afterwards. The accepted socket is dropped immediately so a TLS
+    /// client fails its handshake at once instead of waiting out `BLOB_TIMEOUT`.
+    fn spawn_connection_probe() -> (u16, std::sync::mpsc::Receiver<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            for connection in listener.incoming() {
+                if connection.is_err() || tx.send(()).is_err() {
+                    return;
+                }
+            }
+        });
+        (port, rx)
+    }
+
+    /// bug-585: a redirect to a HOSTNAME whose DNS answer is internal must be
+    /// refused before any socket is opened.
+    ///
+    /// `localhost` is the deterministic case of the general attack — a name the
+    /// resolver answers with `127.0.0.1` — and it needs no network. Before the
+    /// fix `ensure_redirect_target` parsed the host as an `IpAddr`, failed, and
+    /// returned `Ok(())`; reqwest then resolved the name itself and connected.
+    /// Measured on the pre-fix code: the probe below received a connection.
+    #[test]
+    fn a_hostname_redirect_resolving_to_loopback_is_refused_before_connecting() {
+        let (port, connected) = spawn_connection_probe();
+        let registry = spawn_raw(move |_request| {
+            format!(
+                "HTTP/1.1 302 Found\r\nLocation: https://localhost:{port}/blob\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .into_bytes()
+        });
+
+        let err = fetch_blob(&registry.url, &"0".repeat(64))
+            .expect_err("a redirect to a loopback-resolving hostname must be refused");
+        assert!(
+            connected.recv_timeout(Duration::from_millis(500)).is_err(),
+            "the client opened a socket to the loopback-only service named by the \
+             redirect: that is the SSRF"
+        );
+        assert!(
+            err.contains("redirect"),
+            "the refusal must come from the redirect policy, not from a failed \
+             handshake against the internal service; got: {err}"
+        );
+    }
+
+    /// bug-585 POSITIVE PIN, and the one that matters most: an ordinary public
+    /// https hop — the S3/Tigris presigned-URL 302 that `GET /blob` exists to
+    /// follow — must still be followed after the guard learned to resolve names.
+    ///
+    /// An SSRF filter's standing failure mode is refusing VALID input, and a
+    /// DNS-based filter that breaks blob downloads is worse than the bug it
+    /// closes. The resolver is injected so this is decided by the POLICY and not
+    /// by whether the machine running the test has a network: a security check
+    /// nobody can prove offline is a check nobody re-verifies.
+    #[test]
+    fn a_presigned_blob_redirect_to_a_public_host_is_still_allowed() {
+        let url = |raw: &str| raw.parse::<reqwest::Url>().unwrap();
+        let public = |_: &str, _: u16| {
+            Ok(vec![
+                "52.219.128.1".parse::<std::net::IpAddr>().unwrap(),
+                "2600:1f18:1::1".parse::<std::net::IpAddr>().unwrap(),
+            ])
+        };
+
+        for target in [
+            "https://bucket.s3.us-east-1.amazonaws.com/blobs/abc?X-Amz-Signature=deadbeef",
+            "https://fly.storage.tigris.dev/bucket/blobs/abc?X-Amz-Expires=900",
+            "https://packages.example.com/blob/abc",
+            // A non-default port on a public host is still a legitimate hop.
+            "https://cdn.example.com:8443/blob/abc",
+        ] {
+            assert_eq!(
+                ensure_redirect_host_resolves_public(&url(target), public),
+                Ok(()),
+                "{target} is an ordinary public presigned hop and must be followed"
+            );
+        }
+
+        // An IP literal is decided by `ensure_redirect_target` alone: the
+        // resolution stage must not look it up at all. Pinned by a resolver that
+        // panics if it is ever called — so the literal path pays no DNS cost and
+        // cannot be failed closed by a resolver outage.
+        let never = |host: &str, _: u16| -> Result<Vec<std::net::IpAddr>, String> {
+            panic!("resolved the IP literal '{host}'")
+        };
+        assert_eq!(
+            ensure_redirect_host_resolves_public(&url("https://93.184.216.34/blob"), never),
+            Ok(())
+        );
+        assert_eq!(
+            ensure_redirect_host_resolves_public(&url("https://[2606:2800:220::1]/blob"), never),
+            Ok(())
+        );
+    }
+
+    /// bug-585: every blocked family reached by NAME is refused, and a mixed
+    /// answer set is refused on the blocked member rather than allowed on the
+    /// public one — reqwest walks the whole list, so checking `addrs[0]` would
+    /// be a hole an attacker controls the ordering of.
+    #[test]
+    fn a_redirect_host_resolving_into_a_blocked_range_is_refused() {
+        let url = |raw: &str| raw.parse::<reqwest::Url>().unwrap();
+        let target = url("https://blob.attacker.example/blob");
+        let ip = |raw: &str| raw.parse::<std::net::IpAddr>().unwrap();
+
+        for answer in [
+            "127.0.0.1",        // loopback
+            "169.254.169.254",  // cloud metadata (link-local)
+            "10.0.0.5",         // RFC 1918
+            "192.168.1.1",      //
+            "172.16.0.1",       //
+            "100.64.0.1",       // CGNAT
+            "0.0.0.0",          // unspecified
+            "::1",              // IPv6 loopback
+            "fe80::1",          // IPv6 link-local
+            "fc00::1",          // IPv6 unique-local
+            "::ffff:127.0.0.1", // IPv4-mapped loopback
+        ] {
+            let err = ensure_redirect_host_resolves_public(&target, |_, _| Ok(vec![ip(answer)]))
+                .expect_err("a blocked answer must refuse the hop");
+            assert!(err.contains("redirect"), "{answer}: {err}");
+            assert!(err.contains("blob.attacker.example"), "{answer}: {err}");
+        }
+
+        // Mixed answers: public FIRST, internal second. The blocked member wins.
+        let mixed = |_: &str, _: u16| Ok(vec![ip("93.184.216.34"), ip("169.254.169.254")]);
+        let err = ensure_redirect_host_resolves_public(&target, mixed)
+            .expect_err("a mixed answer set must be refused on its blocked member");
+        assert!(err.contains("169.254.169.254"), "{err}");
+    }
+
+    /// bug-585: the guard FAILS CLOSED. A hop whose name will not resolve, or
+    /// that resolves to nothing, is refused rather than handed to the connector
+    /// unchecked — "I could not check" must never mean "allowed".
+    ///
+    /// This costs nothing real: an unresolvable hop could not have been
+    /// connected to either, so the request fails either way; it just fails with
+    /// a message that names the reason.
+    #[test]
+    fn an_unresolvable_redirect_host_fails_closed() {
+        let url = |raw: &str| raw.parse::<reqwest::Url>().unwrap();
+        let target = url("https://blob.attacker.example/blob");
+
+        let err = ensure_redirect_host_resolves_public(&target, |_, _| {
+            Err("nodename nor servname provided".to_string())
+        })
+        .expect_err("a resolution failure must refuse the hop");
+        assert!(err.contains("fails closed"), "{err}");
+
+        let err = ensure_redirect_host_resolves_public(&target, |_, _| Ok(Vec::new()))
+            .expect_err("an empty answer set must refuse the hop");
+        assert!(err.contains("no addresses"), "{err}");
+    }
+
+    /// bug-585: the injected resolver above proves the POLICY; this proves the
+    /// policy is wired to the REAL resolver, which is the half an injected
+    /// double can never show.
+    ///
+    /// Both cases are deterministic with no network: `localhost` is answered
+    /// from the hosts file, and `.invalid` is guaranteed never to resolve
+    /// (RFC 2606) whether the machine is online or not.
+    #[test]
+    fn the_redirect_guard_uses_the_platform_resolver() {
+        let answers = resolve_redirect_host("localhost", 443).expect("localhost resolves");
+        assert!(!answers.is_empty(), "localhost resolved to nothing");
+        assert!(
+            answers.iter().all(|ip| ip.is_loopback()),
+            "localhost answered something other than loopback: {answers:?}"
+        );
+        assert!(
+            answers.iter().all(|ip| is_blocked_redirect_ip(*ip)),
+            "every localhost answer must be a blocked redirect target: {answers:?}"
+        );
+
+        assert!(
+            resolve_redirect_host("mfb-585-does-not-exist.invalid", 443).is_err(),
+            "an RFC 2606 .invalid name must not resolve"
         );
     }
 
