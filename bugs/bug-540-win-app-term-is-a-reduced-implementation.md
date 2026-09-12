@@ -1,14 +1,15 @@
 # bug-540: Windows `--app` `term::` is a reduced implementation — styles ignored, fixed 80x25, no resize, no clustering
 
-Last updated: 2026-09-05
+Last updated: 2026-09-12
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open — **WIN-01 and WIN-05 are fixed; WIN-02, WIN-03 and WIN-04 remain**
-Regression Test: `tests/cli/cli_win_app_term_fidelity.rs` (three cases, covering
-WIN-01 and WIN-05) and the `term::` style/reset case in `scripts/test-winapp.sh`
-(box 2230). Nothing yet covers WIN-02/03/04.
+Status: Open — **WIN-01, WIN-04 and WIN-05 are fixed; WIN-02 and WIN-03 remain**
+(blocked on the scripted-resize product decision below)
+Regression Test: `tests/cli/cli_win_app_term_fidelity.rs` (five cases, covering
+WIN-01, WIN-04 and WIN-05), the `term::` style/reset case and the `term::drawText`
+cluster case in `scripts/test-winapp.sh` (box 2230). Nothing yet covers WIN-02/03.
 
 The Windows `mfb build --app` `term::` backend draws, but it is not the same
 surface the console and macOS backends present. Four documented contracts are
@@ -393,11 +394,68 @@ Commit: —
       surface avoids a UI-thread/worker race over the memDC's bitmap entirely.
 - [ ] WIN-03: latch a resize flag in the `WM_SIZE` handler; add the
       `"term.didResize"` arm that reads and clears it.
-- [ ] WIN-04: share `emit_app_io_write`'s cluster walk with
-      `emit_term_draw_text_at` under a "do not commit the cursor" mode, including
-      the trailing-column reservation. Its labels must gain a per-call-site tag
-      first; today they are bare (`term_loop`, `term_extend`, `term_nl`, …) and two
-      copies in one object would collide.
+- [x] WIN-04: `emit_app_io_write`'s grid walk is now `emit_win_term_cluster_walk`,
+      specialized at emit time by `WinTermWriteMode::{Write, DrawText}` (the
+      `linux_gtk` `TermWriteMode` shape); `emit_term_draw_text_at` calls it. See
+      "WIN-04 landed" below.
+
+### WIN-04 landed (2026-09-12)
+
+**Root cause held.** At `integ-576-590` (`d2e1b7fe3` ancestor)
+`emit_term_draw_text_at` iterated UTF-16 units with no fold, tested only
+`CURCOL >= TUI_COLS` before stamping, and additionally — not in the report —
+handed control units to `TextOutW` and had no row bound, against
+`mfb man term drawText` ("control characters … advance one column but stamp
+nothing"; "if `row` is outside `0 .. rows-1` the call draws nothing").
+
+**RED** (baseline release binary, `cargo test --release --no-fail-fast --test
+cli_win_app_term_fidelity`, exit 101, 3 passed / 2 failed):
+`windows_app_mode_draw_text_shares_the_io_write_cluster_walk` ("term::drawText has
+no cluster fold") and
+`windows_app_mode_draw_text_drops_a_wide_cluster_at_the_edge_and_skips_controls`
+(no run-ending branch between width lookup and stamp). Its control-character and
+row-guard clauses were also checked against the baseline `-ncode`: both absent.
+**GREEN**: same command on the fixed binary, 5 passed, exit 0.
+
+**Positive pins.** The `Write` specialization is byte-identical: on one program,
+`_mfb_rt_io_io_print`'s `-ncode` JSON is equal before and after, and
+`_mfb_rt_term_term_drawText` is the only function of 102 that differs in
+`macos-app-mode-term`'s Windows app plan. `scripts/artifact-gate.sh all`: 2009
+goldens, **1 diff** — `macos_app_mode_term.windows-x86_64.app.ncode`, the one app
+fixture that calls `term::drawText`; `macos-app-mode-io` and
+`macos-app-mode-plumbing` Windows app sums and every non-Windows golden passed.
+
+**Correction — the label-collision premise was wrong in its conclusion.** Labels
+ARE untagged, and a duplicate label in ONE function is an encoder error
+(`src/arch/x86_64/encode/tests.rs`, "duplicate label"). But labels are
+function-scoped (`entry` is a label in six Windows helpers), and sharing the walk
+never puts two copies in one function: `io::write` and `term::drawText` are separate
+`abi_function` bodies. Tagging was still done — every walk label, including
+`emit_win_wide_width`'s, now carries its specialization's prefix (`term_`/`ww_`
+for `Write`, unchanged spellings; `dt_`/`dt_ww_` for `DrawText`) — but it was not
+the hard part. The hard part was the SLOT set: `-ncode` offsets are post-finalize,
+so the two bodies only emit identical walk instructions if they address the same
+stack slots, which is why both now use the `WALK_*` constants.
+
+**Correction — the Failing Reproduction's count.** `"cafe" & "́" & "|日本|"`
+occupies **10** cells (c a f é | = 5, 日本 = 4, | = 1), not 8. The unit walk drew it
+in 11.
+
+**Not closed by this, and recorded rather than implied:** the walk's cluster rule
+is this backend's approximation, not UAX #29 — it folds U+0300..U+036F and a ZWJ
+plus its scalar only, so a mark such as U+FE0F is its own cluster on `io::write`
+and `term::drawText` alike (now documented in `mfb spec app term-backend`). And the
+macOS `mfbDrawText:` leaves the column unchanged for a control character, where
+the man page and the console advance one column — a macOS divergence, outside this
+backend.
+
+**Runtime.** Box 2230 refused connections for the whole session (`nc -z
+127.0.0.1 2230` → 1, polled ~50 min; 2228 answered). **Nothing ran on Windows.**
+`scripts/test-winapp.sh` gained a `term::drawText` cluster case that exercises
+every `DrawText`-only branch headlessly (exit code + final marker); its five builds
+were cross-compiled on the host with the fixed binary, all exit 0, so no `set -e`
+hard stop hides it. Even when run, that case proves the body executes, not which
+cell a cluster lands in — the GDI grid has no readback.
 
 Acceptance: met for WIN-01 and WIN-05.
 Commit: —

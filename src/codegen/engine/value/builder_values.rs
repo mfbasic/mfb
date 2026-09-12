@@ -85,6 +85,14 @@ pub(crate) enum EscapingValue {
 
 impl CodeBuilder<'_> {
     pub(crate) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+        // bug-592: plan-86 E's borrow flag belongs to exactly one frame — the
+        // borrowed `get` node the `Bind` arm armed it for. Taking the armed bit
+        // here and clearing the flag otherwise means every operand frame below
+        // lowers normally (copy + statement-scope free). Restored on the way out.
+        let borrow_saved = std::mem::replace(
+            &mut self.borrow_get_result,
+            std::mem::take(&mut self.borrow_get_armed),
+        );
         // Track the source location of the node being lowered so that any error
         // freshly created while lowering it (overflow, divide-by-zero, helper
         // failure, conversion failure) stamps a real `ErrorLoc`. The save/restore
@@ -165,6 +173,7 @@ impl CodeBuilder<'_> {
                 vr.origin = Some(value.clone());
             }
         }
+        self.borrow_get_result = borrow_saved;
         result
     }
 
