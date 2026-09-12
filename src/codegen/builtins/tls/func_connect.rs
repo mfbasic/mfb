@@ -99,7 +99,7 @@ is still checked, so `serverName` must be a name the certificate carries:
 IMPORT tls
 
 SUB main()
-  RES conn = tls::connect("127.0.0.1", 7413, serverName := "localhost", allowSelfSigned := TRUE)
+  RES conn = tls::connect("127.0.0.1", 7413, timeoutMs := 5000, serverName := "localhost", allowSelfSigned := TRUE)
   ' conn closes itself when this scope ends
 END SUB
 ```"#;
