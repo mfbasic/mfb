@@ -497,8 +497,10 @@ off the grid fills its visible part. Present-driven — no redraw request. [[src
 `TV_GLYPH_G`/`X`/`Y`; the IMP stamps that one cell (clamped) with the current
 attributes. `term::drawText` parks the start cell in `TV_TEXT_X`/`Y` and passes the
 text as an NSString `withObject:` argument (built like `mfbWriteString:`); the IMP
-iterates `characterAtIndex:`, stamping one cell per unit on the row, clipping at
-the right edge and skipping control characters — without moving the cursor. Both
+walks the string by composed character sequence, stamping each cluster at the
+running column and advancing it by the cluster's display width, clipping at the
+right edge; a control character takes one column and stamps nothing — without
+moving the cursor. Both
 are marshaled (`waitUntilDone:YES`) and present-driven. Control code points are
 skipped so they cannot corrupt the surface. [[src/target/macos_aarch64/app/term_view.rs:emit_term_draw_glyph_helper]] [[src/target/macos_aarch64/app/term_view.rs:emit_term_draw_text_helper]] [[src/target/macos_aarch64/app/app_io.rs:emit_app_draw_text]]
 

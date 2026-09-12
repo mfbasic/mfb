@@ -2320,9 +2320,11 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
         off_base,
     ));
     asm.push(abi::label("dt_not_surr"));
-    // Control char (< 0x20): advance i by L, leave the column unchanged.
+    // Control char (< 0x20): takes one column and stamps nothing (bug-594) — the
+    // `mfb man term drawText` contract the console and GTK backends keep. `dt_control`
+    // sets width = 1 and joins the stamp path's own column advance.
     asm.push(abi::compare_immediate(cp, "32"));
-    asm.push(abi::branch_lt("dt_advance_i"));
+    asm.push(abi::branch_lt("dt_control"));
     // Display width from the base scalar (gated); spilled across the pool msgSend.
     if uses_term {
         app_emit_charwidth(
@@ -2433,6 +2435,12 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
     asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_l));
     asm.push(abi::add_registers(i, i, abi::SCRATCH[0]));
     asm.push(abi::branch("dt_loop"));
+    // A control character: width 1 into the slot `dt_after_stamp` reads, so the
+    // column moves by exactly the step a width-1 stamp takes, with no stamp.
+    asm.push(abi::label("dt_control"));
+    asm.push(abi::move_immediate(width, "Integer", "1"));
+    asm.push(abi::store_u64(width, abi::stack_pointer(), off_w));
+    asm.push(abi::branch("dt_after_stamp"));
     asm.push(abi::label("dt_done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     for (reg, off) in saved {
