@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-12
-Open bugs: **14** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **17** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — repository security intake, worked
 
@@ -261,13 +261,43 @@ Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
 539 and 545. **Do not re-dispatch these** — the table that used to sit here said
 "agent running" for all three and was stale for a full session.
 
-## Tier 2 — the one remaining HIGH
+## Tier 2 — the open HIGHs
+
+**This section was STALE and is corrected.** It said "536 is the only open HIGH"
+and listed shape B-2 as remaining; B-2 landed `b845db0de` on 2026-09-06. bug-536
+now has **no actionable work**: A, B and B-2 are fixed and shape C is a design
+decision, not a bug fix. Do not dispatch 536.
+
+The real open HIGHs are three defects that were **measured but never filed** —
+recorded inside bug-536's document "so the numbering does not race with a peer
+session", which kept them invisible to this backlog. Filed 2026-09-12:
 
 | Bug | Sev | Effort | Title | Note |
 |---|---|---|---|---|
-| 536 | HIGH | large | scope drop leaks: shapes **B-2** and **C** remain | **memory gate** |
+| 589 | HIGH | small fix, real audit | a `String`-returning CALLBACK double-frees and **SIGSEGVs** | **memory gate** |
+| 587 | HIGH | unknown | `s = s & <expr>` leaks ~190 B per evaluation | **memory gate** |
+| 588 | HIGH | unknown | a `Result OF T` bound through `TRAP` is never freed | **memory gate** |
 
-**536 is the only open HIGH.** Three of its four parts are done:
+**Take 589 first.** It is a crash on a fourteen-line valid program, not a leak,
+so no flatness pin can see it — pin it by exit status. The fix is believed to be
+one word (drop the `callback_referenced` arm from
+`function_returns_fresh_string`), but it changes the callback ABI's ownership
+contract, so the *audit* is the work: enumerate every producer that can reach a
+`FunctionRef` return slot and assert the enumeration is TOTAL. A default-to-safe
+gate here is how bug-572 nearly shipped a use-after-free.
+
+**587 and 588 together are the whole of `csv::parse`'s residual ~112 MB per
+repeat call** — do not attribute that to bug-536 B-2. 587 is the hottest leaking
+line in the tree, because `s = s & ch` is the idiom `.ai` recommends for string
+building and is what `__encoding_utf32Decode` and `__csv_decodeRange` are built
+out of, once per scalar.
+
+Each doc carries an explicit warning that its suspected root cause is INHERITED
+from bug-536's measurements and not independently confirmed. Reproduce first.
+
+### bug-536 itself — closed out except for a design question
+
+Three of its four parts are done:
 
 - **Shape A** — `RETURN <constructor>` abandoned the fresh block. Fixed
   `f9be6e128`, merged `c210cc67d`.
@@ -279,7 +309,7 @@ Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
   Golden delta was 142 `.ncodesum` + 4 `.ncode` + 1 `.mir` and **zero**
   `.run`/`build.log`.
 - **Shape B-2, callee half** — a `String` returned by a user / `.mfb`-bodied
-  function. **Open**, and it is what still costs the decoders: `csv::parse` is
+  function. **FIXED `b845db0de`** (2026-09-06). It was what had cost the decoders: `csv::parse` is
   byte-identically unchanged by the native fix. The bug doc's old claim that "csv
   has a SECOND leak that is NOT shape B" is **wrong** and now corrected there — it
   is shape B one level up (`row = append(row, __csv_fieldValue(...))`). Needs a
