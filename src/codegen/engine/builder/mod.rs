@@ -174,10 +174,23 @@ pub(crate) struct CodeBuilder<'a> {
     /// owns the element). The copy-skip AND the free-skip are BOTH gated on this set
     /// (a freed borrow is a double-free into the container).
     pub(crate) borrow_get_locals: HashSet<String>,
-    /// plan-86 E: set while lowering the initializer of a `borrow_get_locals`
-    /// binding, so `materialize_owned_element` returns the aliasing borrow instead of
-    /// copying it. Scoped to the one initializer (reset immediately after).
+    /// plan-86 E: true inside the `lower_value` frame of the ONE borrowed `get`
+    /// node (a `borrow_get_locals` binding's initializer), so
+    /// `materialize_owned_element` returns the aliasing borrow instead of copying
+    /// it and `register_pending_temp` does not free it.
+    ///
+    /// bug-592: it is scoped to that node's own frame, NOT the whole initializer.
+    /// `lower_value` takes it from [`Self::borrow_get_armed`] on entry and clears it
+    /// for every operand frame, so an operand of the borrowed call (a `String` map
+    /// key built by `getOr` or `&`) takes the ordinary copy + statement-scope free.
+    /// Covering the whole initializer suppressed those frees and leaked them.
+    /// Both readers see the same narrowed value, so a nested `get` operand is
+    /// copied exactly when it is freed — never an alias that gets freed.
     pub(crate) borrow_get_result: bool,
+    /// bug-592: set by the `Bind` arm immediately before it lowers a borrowed
+    /// initializer; consumed by the very next `lower_value` frame, which is that
+    /// initializer's own node.
+    pub(crate) borrow_get_armed: bool,
     /// plan-86 K1: true while lowering a function whose every value-return is a bare
     /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
     /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
@@ -544,6 +557,7 @@ impl<'a> CodeBuilder<'a> {
             value_used_locals: HashSet::new(),
             borrow_get_locals: HashSet::new(),
             borrow_get_result: false,
+            borrow_get_armed: false,
             current_returns_param_borrow: false,
             current_returns_fresh_string: false,
             callback_referenced_functions: HashSet::new(),

@@ -717,8 +717,12 @@ impl CodeBuilder<'_> {
                             let result = if aliases_union_variant || by_ref_capture_slot {
                                 self.lower_value(value)?
                             } else if is_borrow_get {
-                                self.borrow_get_result = true;
+                                // bug-592: ARM, do not set — `lower_value` turns the
+                                // flag on for this initializer's own node only, so
+                                // its operands keep their ordinary frees.
+                                self.borrow_get_armed = true;
                                 let r = self.lower_value(value);
+                                self.borrow_get_armed = false;
                                 self.borrow_get_result = false;
                                 r?
                             } else {

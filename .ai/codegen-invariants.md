@@ -192,6 +192,20 @@ an argument or a container corrupts the free list, surfacing much later as
   writes this thread's free list into another thread's heap. The catalog-wide audit
   is `every_block_returning_runtime_helper_is_classified` /
   `every_string_returning_runtime_helper_is_marked_fresh` in `codegen::registry`.
+- **A producer that JOINS two allocating paths must mark at the join.**
+  `collections::getOr` on a `String` element materializes the found element
+  (marked) and, on the miss path, copies the caller's default with
+  `emit_copy_owned_string` — whose own materializer overwrote the mark with the
+  COPY's register, not the joined `result`. The identity test rejected it and every
+  unbound `getOr` leaked 64 B per call (bug-592); `get` was flat only because its
+  miss path raises. `mark_fresh_element_result` now marks `result` after the join
+  label in `lower_list_get_common`, `lower_map_get` and `lower_map_get_or` (both
+  the hash and the scan arm each). This realizes §14.6's "Reads produce owned
+  values, not aliases into the buffer" for an unbound read, and it only ADDS a free.
+  The alias side stays closed: the plan-86 E `borrow_get_result` alias is only
+  taken for a non-`String` element, and `register_pending_temp` early-returns while
+  that flag is set. The member census is
+  `every_collections_member_returning_an_element_has_an_ownership_verdict`.
 
 ## A `.mfb` callee's `String`: assume-guarantee, not a per-site classification
 

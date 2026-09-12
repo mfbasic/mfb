@@ -466,3 +466,108 @@ fn collections_get_declares_errors_per_overload_not_merged() {
         "the map overload's key description still carries the list form's prose: {key_desc}"
     );
 }
+
+/// bug-592: the TOTAL ownership verdict for every `collections` member that hands
+/// back a bare ELEMENT, the only shape whose result can be a standalone `String`
+/// read out of a container.
+///
+/// A bare `String` temp is freed at statement scope only with freshness
+/// provenance (bug-536 shape B), and the verdict decides whether a member may
+/// state it. Stated for an ALIAS into the container, it is an `arena_free` INTO
+/// the container's data region, a wild free rather than a leak. So the set is
+/// computed from the registry, not remembered: a new member whose return is an
+/// element type variable (`T`/`V`), or `Arg(i)` echoing an element-typed
+/// parameter, fails here until it is given a verdict below. The verdict `match`
+/// has no wildcard arm, so a new kind of verdict is a build error, not a default.
+///
+/// The members the bug report asked about that do NOT appear are not missing:
+/// `collections` has no `first`/`last`/`pop`; `find`/`findIndex` return an
+/// `Integer`; `keys`/`values` return a whole `List` (a freeable-flat collection
+/// that needs no `String` provenance); `FOR EACH` binds its item to a loop
+/// variable whose per-iteration drop compares against the container's alias base
+/// (bug-571), not through this path.
+#[test]
+fn every_collections_member_returning_an_element_has_an_ownership_verdict() {
+    use crate::types::ParameterType;
+
+    enum Verdict {
+        /// `lower_list_get_common` / `lower_map_get` / `lower_map_get_or` call
+        /// `mark_fresh_element_result` at the join, where every path has written a
+        /// block the lowering itself allocated (the `String` payload arm's
+        /// materialization, or the `getOr` miss path's copy of the default).
+        FreshAtJoinPoint,
+        /// The result is the CALLBACK's return, threaded through as the
+        /// accumulator, not an element read out of the container. Its ownership is
+        /// the callee's `function_returns_fresh_string` promise (bug-536 shape
+        /// B-2), which this producer does not touch.
+        CallbackAccumulator,
+    }
+
+    const AUDITED: &[(&str, Verdict)] = &[
+        ("get", Verdict::FreshAtJoinPoint),
+        ("getOr", Verdict::FreshAtJoinPoint),
+        ("reduce", Verdict::CallbackAccumulator),
+        ("reduceRight", Verdict::CallbackAccumulator),
+    ];
+
+    let package = crate::codegen::registry::registry()
+        .packages()
+        .iter()
+        .find(|package| package.import_name() == "collections")
+        .expect("the collections package is registered");
+    let mut element_returning: Vec<&str> = package
+        .functions()
+        .iter()
+        .filter(|function| {
+            function.implementations().iter().any(|implementation| {
+                match &implementation.return_type {
+                    ParameterType::Var(_) => true,
+                    ParameterType::Arg(index) => matches!(
+                        implementation.params.get(*index).map(|param| &param.ty),
+                        Some(ParameterType::Var(_))
+                    ),
+                    _ => false,
+                }
+            })
+        })
+        .map(|function| function.name)
+        .collect();
+    element_returning.sort_unstable();
+    element_returning.dedup();
+    let mut audited: Vec<&str> = AUDITED.iter().map(|(name, _)| *name).collect();
+    audited.sort_unstable();
+    assert_eq!(
+        element_returning, audited,
+        "the set of `collections` members that return a bare element changed. \
+         Each one needs an ownership verdict: a `String` it hands back is freed at \
+         statement scope only if its lowering marks it fresh, and marking an ALIAS \
+         into the container is a wild free, not a leak"
+    );
+
+    for (name, verdict) in AUDITED {
+        match verdict {
+            Verdict::FreshAtJoinPoint => {
+                let function = package.function(name).expect("audited member exists");
+                for implementation in function.implementations() {
+                    assert!(
+                        matches!(implementation.return_type, ParameterType::Var(_)),
+                        "{name}: a join-point-marked member returns the element type \
+                         variable itself"
+                    );
+                }
+            }
+            Verdict::CallbackAccumulator => {
+                let function = package.function(name).expect("audited member exists");
+                for implementation in function.implementations() {
+                    assert!(
+                        implementation
+                            .params
+                            .iter()
+                            .any(|param| matches!(param.ty, ParameterType::Func(..))),
+                        "{name}: an accumulator member threads a callback's result"
+                    );
+                }
+            }
+        }
+    }
+}

@@ -4947,3 +4947,493 @@ fn every_unbound_helper_result_position_still_produces_the_right_value() {
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------- bug-592
+
+/// bug-592: an UNBOUND `collections::getOr` `String` element had no owner.
+///
+/// `§14.6` of `mfb spec language memory-semantics`: "Reads produce owned values,
+/// not aliases into the buffer." An owned value nothing binds is dropped at
+/// statement scope — but a bare `String` temp is freed there only with freshness
+/// provenance (bug-536 shape B), and `getOr` lost its mark: the MISS path's
+/// `emit_copy_owned_string` runs after the found path's materialization and
+/// overwrites the mark with its own register, which is not the lowering's
+/// result, so `lower_value`'s identity test rejected it. `get` has no copying
+/// miss path (it raises), which is why `get` was always flat.
+///
+/// Measured on the pre-fix release binary (`integ-576-590`), 200k -> 400k
+/// iterations, `/usr/bin/time -l` peak RSS:
+///
+/// | shape | per call |
+/// | --- | --- |
+/// | list `getOr` hit | 64 B |
+/// | list `getOr` miss | 129 B |
+/// | `Map OF String TO String` (hash probe) `getOr` hit / miss | 64 B / 128 B |
+/// | `Map OF Scalar TO String` (entry scan) `getOr` hit / miss | 65 B / 130 B |
+/// | unbound `get`, list / hash map / scan map | 0 B |
+/// | `LET`-bound `getOr` | 0 B |
+///
+/// The fix ADDS a statement-scope `arena_free`, so the failure it risks is a
+/// WILD or DOUBLE free, not a leak: a block the container, the caller's default,
+/// or an owning binding still holds. The positive pins below and the value probe
+/// are that half.
+const SHAPE_592_LIST_GETOR_HIT: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT names AS List OF String = [\"aarch64\"]\n\
+    n = n + len(collections::getOr(names, 0, \"\"))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// The miss path: the result is `emit_copy_owned_string`'s copy of the caller's
+/// default. Freeing it must never free the DEFAULT itself — the value probe reads
+/// the default back after thousands of misses.
+const SHAPE_592_LIST_GETOR_MISS: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT names AS List OF String = [\"aarch64\"]\n\
+    n = n + len(collections::getOr(names, 5, \"fallback\"))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// `lower_map_get_or`'s hash-probe arm (a `String` key is probe-eligible).
+const SHAPE_592_HASH_MAP_GETOR_HIT: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT m AS Map OF String TO String = Map OF String TO String {\"k\" := \"aarch64\"}\n\
+    n = n + len(collections::getOr(m, \"k\", \"\"))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+const SHAPE_592_HASH_MAP_GETOR_MISS: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT m AS Map OF String TO String = Map OF String TO String {\"k\" := \"aarch64\"}\n\
+    n = n + len(collections::getOr(m, \"zz\", \"fallback\"))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// `lower_map_get_or`'s linear entry-scan arm (a `Scalar` key is not
+/// probe-eligible) — a separate emission path with its own join point.
+const SHAPE_592_SCAN_MAP_GETOR_HIT: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT m AS Map OF Scalar TO String = Map OF Scalar TO String {}\n\
+    m = collections::set(m, `k`, \"aarch64\")\n\
+    n = n + len(collections::getOr(m, `k`, \"\"))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+const SHAPE_592_SCAN_MAP_GETOR_MISS: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT m AS Map OF Scalar TO String = Map OF Scalar TO String {}\n\
+    m = collections::set(m, `k`, \"aarch64\")\n\
+    n = n + len(collections::getOr(m, `z`, \"fallback\"))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// `RETURN collections::getOr(..)` — with no pending temp to claim, the callee's
+/// `function_returns_fresh_string` promise was delivered by a `copy_flat_block`
+/// that left the original block ownerless (bug-576's returned row, one producer
+/// over). Marked, the temp is claimed and MOVED to the caller. Also a
+/// double-free pin: a missed claim with a registered free hands the caller a
+/// freed block, which the value probe reads back.
+const SHAPE_592_RETURNED: &str = "IMPORT io\n\
+IMPORT collections\n\
+FUNC firstName(names AS List OF String) AS String\n  RETURN collections::getOr(names, 0, \"none\")\nEND FUNC\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT names AS List OF String = [\"aarch64\"]\n\
+    LET s AS String = firstName(names)\n\
+    n = n + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// POSITIVE PIN. The report's flat row: the bind owns the block. With the mark
+/// the bind CLAIMS the pending temp instead; a missed claim is a double free.
+const SHAPE_592_CONTRAST_BOUND_GETOR: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT names AS List OF String = [\"aarch64\"]\n\
+    LET e AS String = collections::getOr(names, 0, \"\")\n\
+    n = n + len(e)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// POSITIVE PIN. Unbound `get` on a list and on both map arms was already flat —
+/// the producer's own mark survived because the miss path raises. The join-point
+/// mark restates it; it must not add a second free.
+const SHAPE_592_CONTRAST_UNBOUND_GET: &str = "IMPORT io\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT names AS List OF String = [\"aarch64\"]\n\
+    MUT m AS Map OF String TO String = Map OF String TO String {\"k\" := \"x86_64\"}\n\
+    MUT s AS Map OF Scalar TO String = Map OF Scalar TO String {}\n\
+    s = collections::set(s, `k`, \"riscv64\")\n\
+    n = n + len(collections::get(names, 0)) + len(collections::get(m, \"k\")) + len(collections::get(s, `k`))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// POSITIVE PIN — the ALIAS direction. plan-86 E: `LET e = get(L, i)` used only
+/// as a `MATCH` scrutinee over an immutable `L` makes `e` an ALIAS into `L`'s
+/// data region (`borrow_get_result`), never freed. Its element is a non-`String`
+/// union, so `mark_fresh_element_result` never marks it, and
+/// `register_pending_temp` early-returns while the flag is set. A wrong free here
+/// is an `arena_free` into the container; the value probe reads the container
+/// back (and adds a borrowed read whose map KEY is an unbound `String` `getOr`
+/// inside the borrowed initializer) to see that as a corrupted neighbour.
+const SHAPE_592_CONTRAST_BORROWED_GET: &str = "IMPORT io\n\
+IMPORT collections\n\
+TYPE Dot\n  x AS Integer\nEND TYPE\n\
+TYPE Tag\n  name AS String\nEND TYPE\n\
+UNION Shape\n  Dot\n  Tag\nEND UNION\n\
+SUB main()\n\
+  LET shapes AS List OF Shape = [Dot[1], Tag[\"tag-name-long-enough-to-matter\"], Dot[3]]\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET e AS Shape = collections::get(shapes, i - (i / 3) * 3)\n\
+    MATCH e\n\
+      CASE Dot(d)\n\
+        n = n + d.x\n\
+      CASE Tag(t)\n\
+        n = n + len(t.name)\n\
+    END MATCH\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_list_getor_hit_runs_at_constant_rss() {
+    assert_flat(
+        "b592_list_getor_hit",
+        SHAPE_592_LIST_GETOR_HIT,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_list_getor_miss_runs_at_constant_rss() {
+    assert_flat(
+        "b592_list_getor_miss",
+        SHAPE_592_LIST_GETOR_MISS,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_hash_map_getor_hit_runs_at_constant_rss() {
+    assert_flat(
+        "b592_hash_map_getor_hit",
+        SHAPE_592_HASH_MAP_GETOR_HIT,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_hash_map_getor_miss_runs_at_constant_rss() {
+    assert_flat(
+        "b592_hash_map_getor_miss",
+        SHAPE_592_HASH_MAP_GETOR_MISS,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_scan_map_getor_hit_runs_at_constant_rss() {
+    assert_flat(
+        "b592_scan_map_getor_hit",
+        SHAPE_592_SCAN_MAP_GETOR_HIT,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_scan_map_getor_miss_runs_at_constant_rss() {
+    assert_flat(
+        "b592_scan_map_getor_miss",
+        SHAPE_592_SCAN_MAP_GETOR_MISS,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_returned_getor_element_runs_at_constant_rss() {
+    assert_flat("b592_returned", SHAPE_592_RETURNED, 200_000, 400_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_bound_getor_element_still_runs_at_constant_rss() {
+    assert_flat(
+        "b592_bound_getor",
+        SHAPE_592_CONTRAST_BOUND_GETOR,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_get_element_still_runs_at_constant_rss() {
+    assert_flat(
+        "b592_unbound_get",
+        SHAPE_592_CONTRAST_UNBOUND_GET,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_borrowed_get_element_still_runs_at_constant_rss() {
+    assert_flat(
+        "b592_borrowed_get",
+        SHAPE_592_CONTRAST_BORROWED_GET,
+        200_000,
+        400_000,
+    );
+}
+
+/// The VALUE half, and the half that carries the risk. Every position whose
+/// `getOr`/`get` `String` now has a statement-scope owner, and every position that
+/// must NOT gain one, exercised in one process after a churn loop that recycles
+/// anything freed too early into a later allocation:
+///
+/// * unbound `getOr` hit and miss on all three emission paths (list, hash map,
+///   scan map) and unbound `get` on list and hash map;
+/// * the caller's DEFAULT (`dflt`), read back after thousands of misses — the
+///   miss path frees its copy, never the default;
+/// * a `LET`-bound, a reassigned `MUT`, a returned, and an appended element — the
+///   positions that own the block through a claim;
+/// * two plan-86 E borrowed (ALIAS) reads: a union element used only as a `MATCH`
+///   scrutinee, and one whose map KEY is itself an unbound `String` `getOr`
+///   inside the borrowed initializer;
+/// * the containers themselves, read back element by element at the end — a
+///   free that landed INTO a container shows up here as a corrupted element.
+const SHAPE_592_VALUES: &str = "IMPORT io\n\
+IMPORT collections\n\
+TYPE Dot\n  x AS Integer\nEND TYPE\n\
+TYPE Tag\n  name AS String\nEND TYPE\n\
+UNION Shape\n  Dot\n  Tag\nEND UNION\n\
+FUNC firstName(names AS List OF String) AS String\n  RETURN collections::getOr(names, 0, \"none\")\nEND FUNC\n\
+SUB main()\n\
+  LET names AS List OF String = [\"alpha-element-000\", \"beta-element-1111\", \"gamma-element-22222\"]\n\
+  LET byKey AS Map OF String TO String = Map OF String TO String {\"a\" := \"map-alpha-value\", \"b\" := \"map-beta-value-longer\"}\n\
+  MUT byScalar AS Map OF Scalar TO String = Map OF Scalar TO String {}\n\
+  byScalar = collections::set(byScalar, `a`, \"scalar-alpha-value\")\n\
+  LET shapes AS List OF Shape = [Dot[1], Tag[\"tag-name-long-enough-to-matter\"], Dot[3]]\n\
+  LET byShape AS Map OF String TO Shape = Map OF String TO Shape {\"alpha-element-000\" := Tag[\"via-map\"], \"none\" := Dot[9]}\n\
+  LET dflt AS String = \"default-\" & toString(7)\n\
+  MUT churn AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < 5000\n\
+    churn = churn + len(collections::getOr(names, i - (i / 4) * 4, dflt))\n\
+    churn = churn + len(collections::getOr(byKey, \"a\", dflt)) + len(collections::getOr(byKey, \"zz\", dflt))\n\
+    churn = churn + len(collections::getOr(byScalar, `a`, dflt)) + len(collections::getOr(byScalar, `z`, dflt))\n\
+    churn = churn + len(collections::get(names, 1)) + len(collections::get(byKey, \"b\"))\n\
+    LET scratch AS String = \"pad-\" & toString(i) & \"-pad\"\n\
+    churn = churn + len(scratch)\n\
+    LET e AS Shape = collections::get(shapes, i - (i / 3) * 3)\n\
+    MATCH e\n\
+      CASE Dot(d)\n\
+        churn = churn + d.x\n\
+      CASE Tag(t)\n\
+        churn = churn + len(t.name)\n\
+    END MATCH\n\
+    LET k AS Shape = collections::get(byShape, collections::getOr(names, 5, \"none\"))\n\
+    MATCH k\n\
+      CASE Dot(d)\n\
+        churn = churn + d.x\n\
+      CASE Tag(t)\n\
+        churn = churn + len(t.name)\n\
+    END MATCH\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"churn=\" & toString(churn))\n\
+  io::print(\"concat=\" & collections::getOr(names, 2, \"x\") & \"|\" & collections::getOr(names, 9, dflt))\n\
+  io::print(\"dflt=\" & dflt)\n\
+  LET bound AS String = collections::getOr(names, 1, dflt)\n\
+  MUT reassigned AS String = \"seed\"\n\
+  reassigned = collections::getOr(byKey, \"b\", dflt)\n\
+  io::print(\"bound=\" & bound & \" reassigned=\" & reassigned)\n\
+  io::print(\"returned=\" & firstName(names))\n\
+  MUT copied AS List OF String = []\n\
+  copied = collections::append(copied, collections::getOr(names, 0, dflt))\n\
+  copied = collections::append(copied, collections::getOr(byScalar, `q`, dflt))\n\
+  io::print(\"copied=\" & collections::get(copied, 0) & \",\" & collections::get(copied, 1))\n\
+  io::print(\"names=\" & collections::get(names, 0) & \",\" & collections::get(names, 1) & \",\" & collections::get(names, 2))\n\
+  io::print(\"maps=\" & collections::get(byKey, \"a\") & \",\" & collections::get(byKey, \"b\") & \",\" & collections::get(byScalar, `a`))\n\
+  io::print(\"bound=\" & bound & \" dflt=\" & dflt)\n\
+END SUB\n";
+
+#[test]
+fn every_unbound_collection_element_position_still_produces_the_right_value() {
+    // The churn total, derived from the literal lengths rather than from any
+    // compiler's output (a leaky binary prints the same number; a wrong free does
+    // not).
+    let names = [
+        "alpha-element-000",
+        "beta-element-1111",
+        "gamma-element-22222",
+    ];
+    let dflt = "default-7";
+    let tag = "tag-name-long-enough-to-matter";
+    let mut churn: usize = 0;
+    for i in 0..5000usize {
+        churn += match i % 4 {
+            3 => dflt.len(),
+            j => names[j].len(),
+        };
+        churn += "map-alpha-value".len() + dflt.len();
+        churn += "scalar-alpha-value".len() + dflt.len();
+        churn += names[1].len() + "map-beta-value-longer".len();
+        churn += format!("pad-{i}-pad").len();
+        churn += match i % 3 {
+            0 => 1,
+            1 => tag.len(),
+            _ => 3,
+        };
+        churn += 9; // byShape["none"] = Dot[9]
+    }
+    let expected = [
+        format!("churn={churn}"),
+        format!("concat={}|{dflt}", names[2]),
+        format!("dflt={dflt}"),
+        format!("bound={} reassigned=map-beta-value-longer", names[1]),
+        format!("returned={}", names[0]),
+        format!("copied={},{dflt}", names[0]),
+        format!("names={},{},{}", names[0], names[1], names[2]),
+        "maps=map-alpha-value,map-beta-value-longer,scalar-alpha-value".to_string(),
+        format!("bound={} dflt={dflt}", names[1]),
+    ]
+    .join("\n");
+
+    let project = common::temp_project("b592_values", SHAPE_592_VALUES);
+    let exe = common::build_project(&project);
+    for run in 1..=25 {
+        let output = std::process::Command::new(&exe)
+            .current_dir(&project)
+            .output()
+            .expect("run the unbound-collection-element ownership probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout.trim(),
+            expected,
+            "run {run}: a collection element read back wrong. bug-592 adds a \
+             statement-scope `arena_free` to an unbound `getOr` `String`, so its \
+             failure direction is a block freed while someone still holds it — a \
+             `names=`/`maps=` mismatch means the free landed INTO a container, a \
+             `dflt=` mismatch that it freed the caller's default"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// bug-592 audit finding: plan-86 E's `borrow_get_result` flag covered the WHOLE
+/// initializer, not the borrowed `get` node. So a fresh temp in one of the
+/// borrowed call's OPERANDS — here an unbound `String` `getOr` used as the map
+/// KEY — had its statement-scope registration suppressed too, and leaked 64 B per
+/// evaluation (measured on the bug-592 join-point fix alone, 200k -> 400k). The
+/// flag now applies only inside the borrowed node's own `lower_value` frame; each
+/// operand frame lowers it with the flag clear, which is the ordinary copy + free
+/// path. `materialize_owned_element` reads the same narrowed flag, so a nested
+/// `get` operand is COPIED (never an unfreed alias) exactly when it is freed.
+const SHAPE_592_BORROWED_GET_WITH_A_FRESH_KEY: &str = "IMPORT io\n\
+IMPORT collections\n\
+TYPE Dot\n  x AS Integer\nEND TYPE\n\
+TYPE Tag\n  name AS String\nEND TYPE\n\
+UNION Shape\n  Dot\n  Tag\nEND UNION\n\
+SUB main()\n\
+  LET byShape AS Map OF String TO Shape = Map OF String TO Shape {\"alpha\" := Tag[\"via-map\"], \"none\" := Dot[9]}\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT names AS List OF String = [\"alpha\"]\n\
+    LET k AS Shape = collections::get(byShape, collections::getOr(names, 0, \"none\"))\n\
+    MATCH k\n\
+      CASE Dot(d)\n\
+        n = n + d.x\n\
+      CASE Tag(t)\n\
+        n = n + len(t.name)\n\
+    END MATCH\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn a_borrowed_get_with_a_fresh_key_operand_runs_at_constant_rss() {
+    assert_flat(
+        "b592_borrowed_get_fresh_key",
+        SHAPE_592_BORROWED_GET_WITH_A_FRESH_KEY,
+        200_000,
+        400_000,
+    );
+}
