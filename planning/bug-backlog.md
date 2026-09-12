@@ -9,6 +9,7 @@ Open bugs: **9** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 | Bug | Sev | On main | Outcome |
 |---|---|---|---|
+| 472 | MED | `17c424988` | the man-example gate is its own CI job (`man-examples`); merged-tree Linux sweep 1029 examples / 0 failed / exit 0; it found bugs 595, 596 and 597 on its first run |
 | 596 | MED | `3b8e0f31c` | a named call may omit an overloaded builtin's trailing DEFAULTED parameters (`tls::connect`'s documented form built again); the first cut re-opened bug-349 and was reworked to fail closed before landing |
 | 597 | MED | `e633cefff` | `tls::listen("")` binds every interface on Linux and Windows (bug-113's `getaddrinfo(NULL, NULL)` defect in the TLS helpers); runtime-proven on boxes 2223 and 2230 |
 | 594 | MED | round 4 `b5c8757a4` | macOS `term::drawText` advances the column for a control character |
