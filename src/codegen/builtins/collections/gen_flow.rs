@@ -53,6 +53,7 @@ impl CodeBuilder<'_> {
                 closure_captures: None,
                 capacity_slot: None,
                 loop_alias_slot: None,
+                result_wrapper: None,
             })?;
             for (reg, slot) in regs.iter().zip(&slots) {
                 self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));

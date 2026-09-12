@@ -588,6 +588,36 @@ impl CodeBuilder<'_> {
                             && !promote_vector
                             && !is_borrow_get
                             && self.is_freeable_flat_value(type_);
+                        // bug-593: the `$trap_resN : Result OF T = CallResult(..)` an
+                        // inline `TRAP` binds is a `{tag, size, payload}` block THIS
+                        // frame allocated (`fresh_trapped_result_value` is its only
+                        // constructor). A flat `T` is released by the branch above; a
+                        // non-flat `T` — a resource, or a collection of `net::Address`
+                        // — got no owner at all, and on the error path that wrapper
+                        // carries the whole trapped `Error` inline. §14 preamble: every
+                        // live value is owned by exactly one temporary; §14.7: it drops
+                        // on every scope edge. This names the owner. It ADDS the one
+                        // wrapper free and moves no lifetime: the payload is never
+                        // walked, and the Ok wrapper of an inlined block payload — which
+                        // `ResultValue` hands the binding as an alias — is kept.
+                        let result_wrapper = match (type_, value.as_ref()) {
+                            (
+                                ParameterType::ResultOf(payload),
+                                Some(NirValue::CallResult { .. }),
+                            ) if !owns_freeable_value
+                                && !aliases_union_variant
+                                && !by_ref_capture_slot
+                                && !runtime_managed
+                                && !promote_vector =>
+                            {
+                                Some(if self.result_payload_is_block(payload) {
+                                    ResultWrapperDrop::ErrorOnly
+                                } else {
+                                    ResultWrapperDrop::Always
+                                })
+                            }
+                            _ => None,
+                        };
                         // This binding will register a resource-close cleanup (a
                         // plain resource or a resource union) rather than a flat-value
                         // free. Its slot faces the same not-yet-initialized hazard as
@@ -640,6 +670,7 @@ impl CodeBuilder<'_> {
                         // stays null and the scope-drop free/close skips it instead of
                         // touching an uninitialized pointer.
                         if owns_freeable_value
+                            || result_wrapper.is_some()
                             || owns_resource_slot
                             || owns_thread_slot
                             || is_non_escaping_closure
@@ -688,6 +719,7 @@ impl CodeBuilder<'_> {
                                             // headroom.
                                             capacity_slot: None,
                                             loop_alias_slot: None,
+                                            result_wrapper: None,
                                         },
                                     ));
                                     self.owned_value_slots.push(stack_offset);
@@ -865,6 +897,22 @@ impl CodeBuilder<'_> {
                                     // drop would orphan it on every scope exit.
                                     capacity_slot: self.string_capacity_slot_for(name, type_),
                                     loop_alias_slot: None,
+                                    result_wrapper: None,
+                                },
+                            ));
+                            self.owned_value_slots.push(stack_offset);
+                        } else if let Some(wrapper) = result_wrapper {
+                            // bug-593: the inline-`TRAP` wrapper of a non-flat `T` —
+                            // see `result_wrapper` above. The slot is zero-initialized
+                            // with the owned values, so a bind that never ran reads 0.
+                            self.active_cleanups.push(ActiveCleanup::OwnedValue(
+                                OwnedValueCleanup {
+                                    type_: type_.clone(),
+                                    stack_offset,
+                                    closure_captures: None,
+                                    capacity_slot: None,
+                                    loop_alias_slot: None,
+                                    result_wrapper: Some(wrapper),
                                 },
                             ));
                             self.owned_value_slots.push(stack_offset);
@@ -888,6 +936,7 @@ impl CodeBuilder<'_> {
                                         // A closure object, not a `String`.
                                         capacity_slot: None,
                                         loop_alias_slot: None,
+                                        result_wrapper: None,
                                     },
                                 ));
                                 self.owned_value_slots.push(stack_offset);
@@ -958,6 +1007,7 @@ impl CodeBuilder<'_> {
                                 // self-append arm only ever fires on a `MUT` local.
                                 capacity_slot: None,
                                 loop_alias_slot: None,
+                                result_wrapper: None,
                             })?;
                             let new_ptr = self.allocate_register();
                             self.emit(abi::load_u64(&new_ptr, abi::stack_pointer(), new_slot));
@@ -1190,6 +1240,7 @@ impl CodeBuilder<'_> {
                                     capacity_slot: self
                                         .string_capacity_slot_for(name, &result.type_),
                                     loop_alias_slot: None,
+                                    result_wrapper: None,
                                 })?;
                                 Some(slot)
                             } else {
@@ -1611,6 +1662,7 @@ impl CodeBuilder<'_> {
                                 closure_captures: None,
                                 capacity_slot: None,
                                 loop_alias_slot: None,
+                                result_wrapper: None,
                             }));
                         self.owned_value_slots.push(trap_offset);
                         let handler_result = self.lower_ops_inner(body, handler_scope_start);
@@ -2497,6 +2549,7 @@ impl CodeBuilder<'_> {
                     closure_captures: None,
                     capacity_slot: None,
                     loop_alias_slot: Some(*alias_slot),
+                    result_wrapper: None,
                 }));
             self.owned_value_slots.push(*item_slot);
         }

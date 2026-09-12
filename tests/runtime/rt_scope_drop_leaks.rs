@@ -5437,3 +5437,247 @@ fn a_borrowed_get_with_a_fresh_key_operand_runs_at_constant_rss() {
         400_000,
     );
 }
+
+// ---------------------------------------------------------------- bug-593
+//
+// A failing call under an inline `TRAP` grew memory by a flat ~1 KB per call
+// when the binding's type was not a flat value — a `RES` (`fs::open`,
+// `tcp::connect`, `tls::connect`, or a user callee returning a resource) or a
+// `List OF net::Address`. bug-574 and bug-575 both measured it on runtime helpers
+// and read it as "the failing helper"; it is not the helper. A user `FUNC` that
+// `FAIL`s into a `RES` binding grows identically, and a failing `fs::readText`
+// (a `String`) does not grow at all.
+//
+// The inline-`TRAP` desugar binds `$trap_resN : Result OF T = CallResult(..)`.
+// That `{tag, size, payload}` wrapper is allocated by this frame and, on the
+// error path, carries the whole trapped `Error` inlined at +16. A flat `T` gets
+// an owned scope drop for it (`is_freeable_flat_value`); a non-flat `T` got
+// none, so every failing iteration orphaned the wrapper and the `Error` in it.
+// That is why the growth was flat in the ARGUMENT and differed by platform: its
+// size is the error MESSAGE's.
+//
+// ## Why these are message-length comparisons and not `assert_flat`
+//
+// A `RES` binding's error path also allocates the default CLOSED resource record
+// for `$trap_valN`, and a resource record is never reclaimed — it is the
+// tombstone every alias reads the closed flag from (plan-52-B, Open Decisions:
+// "Should the record itself ever be reclaimed? Not here."). A SUCCEEDING
+// `fs::open` + `fs::close` loop grows the same way. A `List OF net::Address`
+// binding likewise keeps its default empty list, because a list of a
+// pointer-`String` record is not a flat value and has no drop. Neither is this
+// bug, and freeing either would move a lifetime, so neither shape can be flat.
+//
+// What IS this bug is scaled by the trapped `Error`, and nothing else is. So each
+// case runs the same program twice at the same count, differing only in the
+// length of the message the callee `FAIL`s with; the tombstone and the default
+// list are identical in both runs and cancel. Measured at 20 000 iterations,
+// macOS aarch64, peak RSS:
+//
+// | binding | message | base (04c81a605) | fixed |
+// | --- | --- | --- | --- |
+// | `RES fs::File` | 14 chars | 17.8 MB | 8.8 MB |
+// | `RES fs::File` | 4 014 chars | 328.7 MB | 8.8 MB |
+// | `List OF net::Address` | 14 chars | 14.2 MB | 5.0 MB |
+// | `List OF net::Address` | 4 014 chars | 328.8 MB | 5.0 MB |
+//
+// +311 MB before and 0 after on both; the threshold is 32 MB. The two cases take
+// the fix's two drop kinds: a resource payload is a pointer word nothing aliases,
+// so its wrapper is released on every path (`ResultWrapperDrop::Always`); a
+// `List OF net::Address` payload is inlined in the wrapper and the Ok binding
+// aliases it, so only the error-tagged wrapper is (`ErrorOnly`).
+//
+// The report's own shapes, measured the same way (base -> fixed): a refused
+// `tcp::connect` 212.9 -> 424.3 MB became 81.4 -> 161.3 MB at 200 000 / 400 000;
+// `tls::connect` refused 54.2 -> 101.5 MB became 38.7 -> 69.6 MB at
+// 20 000 / 40 000; a failing `net::lookup` 23.2 -> 40.4 MB became
+// 10.1 -> 14.1 MB. What remains on each is the tombstone or the default list.
+
+/// A loop of `{N}` iterations whose callee always `FAIL`s with `message` into a
+/// binding declared `binding`, produced by `producer` (whose success body is
+/// never reached).
+#[cfg(unix)]
+fn b593_trapped_error_probe(imports: &str, binding: &str, producer: &str, message: &str) -> String {
+    format!(
+        "IMPORT io\n\
+         {imports}\
+         FUNC make(i AS Integer) AS {binding}\n\
+        \x20 IF i >= 0 THEN\n\
+        \x20   FAIL error(7, \"{message}\")\n\
+        \x20 END IF\n\
+        \x20 {producer}\n\
+         END FUNC\n\
+         SUB main()\n\
+        \x20 MUT n AS Integer = 0\n\
+        \x20 MUT i AS Integer = 0\n\
+        \x20 WHILE i < {{N}}\n\
+        \x20   __BIND__ = make(i) TRAP(e)\n\
+        \x20     n = n + 1\n\
+        \x20     i = i + 1\n\
+        \x20     CONTINUE WHILE\n\
+        \x20   END TRAP\n\
+        \x20   __USE__\n\
+        \x20   i = i + 1\n\
+        \x20 END WHILE\n\
+        \x20 io::print(\"n=\" & toString(n))\n\
+         END SUB\n"
+    )
+}
+
+/// Assert that the two message lengths cost the same peak RSS at `N` iterations.
+#[cfg(unix)]
+fn b593_assert_error_not_retained(name: &str, short: &str, long: &str) {
+    const N: u64 = 20_000;
+    let small = peak_rss(&format!("{name}_short"), short, N);
+    let large = peak_rss(&format!("{name}_long"), long, N);
+    let grew = large.saturating_sub(small);
+    assert!(
+        grew < 32 * 1024 * 1024,
+        "{name}: a {N}-iteration loop of trapped errors cost {} MB more with a \
+         4 014-character error message than with a 14-character one ({} MB -> {} MB). \
+         The inline `TRAP` built a `Result` wrapper holding the whole `Error` inline \
+         and nothing released it (bug-593)",
+        grew / (1024 * 1024),
+        small / (1024 * 1024),
+        large / (1024 * 1024),
+    );
+}
+
+#[cfg(unix)]
+fn b593_long_message() -> String {
+    format!("b593-long-msg-{}", "m".repeat(4_000))
+}
+
+#[cfg(unix)]
+fn b593_resource_probe(message: &str) -> String {
+    b593_trapped_error_probe(
+        "IMPORT fs\n",
+        "fs::File",
+        "RES f AS fs::File = fs::open(\"/tmp/b593-does-not-exist/nope.txt\", \"r\")\n  RETURN f",
+        message,
+    )
+    .replace("__BIND__", "RES f AS fs::File")
+    .replace("__USE__", "fs::close(f)")
+}
+
+#[cfg(unix)]
+fn b593_address_list_probe(message: &str) -> String {
+    b593_trapped_error_probe(
+        "IMPORT net\n",
+        "List OF net::Address",
+        "RETURN net::lookup(\"127.0.0.1\", 80)",
+        message,
+    )
+    .replace("__BIND__", "LET xs AS List OF net::Address")
+    .replace("__USE__", "n = n + len(xs)")
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trapped_error_bound_as_a_resource_is_not_retained() {
+    b593_assert_error_not_retained(
+        "b593_res",
+        &b593_resource_probe("b593-short-msg"),
+        &b593_resource_probe(&b593_long_message()),
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trapped_error_bound_as_an_address_list_is_not_retained() {
+    b593_assert_error_not_retained(
+        "b593_list",
+        &b593_address_list_probe("b593-short-msg"),
+        &b593_address_list_probe(&b593_long_message()),
+    );
+}
+
+/// The VALUE half, and the direction that matters: the fix ADDS a free of the
+/// `Result` wrapper, and on the error path that wrapper holds the trapped `Error`
+/// inline. Anything that still read that `Error` after the scope drop would read
+/// freed memory — a wrong message or origin, or a fault at a later allocation,
+/// never a failing free. So every way a handler can carry the `Error` across a
+/// drop edge is here, each followed by more allocation before it is compared:
+///
+/// * `RETURN` from inside the handler, building the result from `e`;
+/// * `FAIL inner` — a re-raise, where the drop runs on the `FAIL` edge and the
+///   caller must still see the ORIGINAL origin (line 17, the `fs::open`);
+/// * the hoisted chain form (bug-457), whose `Error` goes through `$trap_err`;
+/// * a refused `tcp::connect`, and a user callee failing into `RES`;
+/// * `List OF net::Address`, whose Ok payload IS inlined in the wrapper and
+///   aliased by the binding — its Ok wrapper must NOT be released, and a resolved
+///   address read back after more allocation is the pin for that;
+/// * a SUCCEEDING `fs::open` read back, whose Ok wrapper now is released.
+///
+/// Every iteration's row is compared with the first iteration's, and the first
+/// row with the text the base compiler printed, where nothing was freed.
+const B593_VALUES: &str = "IMPORT io\n\
+IMPORT fs\n\
+IMPORT tcp\n\
+IMPORT net\n\
+IMPORT collections\n\
+FUNC describe(e AS Error) AS String\n  RETURN toString(e.code) & \"|\" & e.message & \"|\" & e.source.filename & \":\" & toString(e.source.line)\n\
+END FUNC\n\
+FUNC openMissing(i AS Integer) AS String\n  RES f AS fs::File = fs::open(\"/tmp/b593-does-not-exist/nope.txt\", \"r\") TRAP(e)\n    RETURN \"open:\" & describe(e)\n  END TRAP\n  fs::close(f)\n  RETURN \"opened\"\n\
+END FUNC\n\
+FUNC reraiseMissing(i AS Integer) AS Integer\n  RES f AS fs::File = fs::open(\"/tmp/b593-does-not-exist/nope.txt\", \"r\") TRAP(inner)\n    FAIL inner\n  END TRAP\n  fs::close(f)\n  RETURN i\n\
+END FUNC\n\
+FUNC pathFor(i AS Integer) AS String\n  IF i < 0 THEN\n    FAIL error(9, \"negative\")\n  END IF\n  RETURN \"/tmp/b593-does-not-exist/hoisted.txt\"\n\
+END FUNC\n\
+FUNC hoisted(i AS Integer) AS String\n  RES f AS fs::File = fs::open(pathFor(i), \"r\") TRAP(e)\n    RETURN \"hoisted:\" & describe(e)\n  END TRAP\n  fs::close(f)\n  RETURN \"opened\"\n\
+END FUNC\n\
+FUNC refused(i AS Integer) AS String\n  RES s AS tcp::Socket = tcp::connect(\"127.0.0.1\", 1, 1000) TRAP(e)\n    RETURN \"tcp:\" & describe(e)\n  END TRAP\n  tcp::close(s)\n  RETURN \"connected\"\n\
+END FUNC\n\
+FUNC opener(i AS Integer) AS fs::File\n  IF i >= 0 THEN\n    FAIL error(7, \"opener-\" & toString(i MOD 1))\n  END IF\n  RES f AS fs::File = fs::open(\"/tmp/b593-does-not-exist/nope.txt\", \"r\")\n  RETURN f\n\
+END FUNC\n\
+FUNC userRes(i AS Integer) AS String\n  RES f AS fs::File = opener(i) TRAP(e)\n    RETURN \"user:\" & describe(e)\n  END TRAP\n  fs::close(f)\n  RETURN \"opened\"\n\
+END FUNC\n\
+FUNC okOpen(path AS String) AS String\n  RES f AS fs::File = fs::open(path, \"r\") TRAP(e)\n    RETURN \"ok-open-failed:\" & describe(e)\n  END TRAP\n  LET text AS String = fs::readAll(f)\n  fs::close(f)\n  RETURN \"ok:\" & text\n\
+END FUNC\n\
+FUNC lookupOk(i AS Integer) AS String\n  LET xs AS List OF net::Address = net::lookup(\"127.0.0.1\", 80 + i MOD 1) TRAP(e)\n    RETURN \"lookup-failed:\" & describe(e)\n  END TRAP\n  LET churn AS List OF String = [\"c1-\" & toString(i), \"c2-\" & toString(i), \"c3-\" & toString(i)]\n  LET first AS net::Address = collections::get(xs, 0)\n  RETURN \"lookup:\" & first.host & \":\" & toString(first.port) & \"/\" & toString(len(churn))\n\
+END FUNC\n\
+FUNC lookupFails(i AS Integer) AS String\n  LET xs AS List OF net::Address = net::lookup(\"b593-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.invalid\", 80) TRAP(e)\n    RETURN \"lookup:\" & describe(e)\n  END TRAP\n  RETURN \"resolved:\" & toString(len(xs))\n\
+END FUNC\n\
+SUB main()\n  LET okPath AS String = fs::pathJoin([fs::tempDirectory(), \"b593_values_probe.txt\"])\n  fs::writeText(okPath, \"hello\")\n  MUT firsts AS List OF String = []\n  MUT mismatches AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < 500\n    LET r0 AS String = openMissing(i)\n    LET r1 AS String = toString(reraiseMissing(i)) TRAP(e1)\n      RECOVER \"reraised:\" & describe(e1)\n    END TRAP\n    LET r2 AS String = hoisted(i)\n    LET r3 AS String = refused(i)\n    LET r4 AS String = userRes(i)\n    LET r5 AS String = okOpen(okPath)\n    LET r6 AS String = lookupOk(i)\n    LET r7 AS String = lookupFails(i)\n    LET junk AS List OF String = [r0 & \"#\", r1 & \"#\", r2 & \"#\", r3 & \"#\", r4 & \"#\", r5 & \"#\", r6 & \"#\", r7 & \"#\"]\n    LET row AS List OF String = [r0, r1, r2, r3, r4, r5, r6, r7]\n    IF i = 0 THEN\n      firsts = row\n    ELSE\n      MUT k AS Integer = 0\n      WHILE k < len(row)\n        IF collections::get(row, k) <> collections::get(firsts, k) THEN\n          mismatches = mismatches + 1\n        END IF\n        k = k + 1\n      END WHILE\n    END IF\n    mismatches = mismatches + len(junk) - 8\n    i = i + 1\n  END WHILE\n  FOR EACH line IN firsts\n    io::print(line)\n  NEXT\n  io::print(\"mismatches=\" & toString(mismatches))\n\
+END SUB\n";
+
+/// `B593_VALUES`' stdout on the base compiler (04c81a605), which released no
+/// wrapper at all and so could not have read one back freed.
+const B593_VALUES_EXPECTED: &str =
+    "open:77030001|Filesystem path does not exist.|src/main.mfb:10\n\
+reraised:77030001|Filesystem path does not exist.|src/main.mfb:17\n\
+hoisted:77030001|Filesystem path does not exist.|src/main.mfb:30\n\
+tcp:77070003|Network operation failed before a connection was established.|src/main.mfb:37\n\
+user:7|opener-0|src/main.mfb:45\n\
+ok:hello\n\
+lookup:127.0.0.1:80/3\n\
+lookup:77070002|Network host name or address could not be resolved.|src/main.mfb:74\n\
+mismatches=0";
+
+#[cfg(unix)]
+#[test]
+fn every_failing_resource_call_still_reports_its_error_and_origin() {
+    let project = common::temp_project("b593_values", B593_VALUES);
+    let exe = common::build_project(&project);
+    // A use-after-free is not deterministic: a freed wrapper only reads back
+    // wrong once the arena has handed its bytes to a later allocation.
+    for run in 1..=10 {
+        let output = std::process::Command::new(&exe)
+            .output()
+            .expect("run the bug-593 value probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            B593_VALUES_EXPECTED,
+            "run {run}: a trapped error or a trapped value read back wrong. bug-593 \
+             releases the `Result` wrapper an inline `TRAP` built, which holds the \
+             trapped `Error` inline — a changed message or origin means something \
+             still read the wrapper after its scope drop"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}
