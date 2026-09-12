@@ -188,6 +188,10 @@ name = "cli_macos_app_io_input_imports"
 path = "tests/cli/cli_macos_app_io_input_imports.rs"
 
 [[test]]
+name = "cli_macos_app_term_draw_text"
+path = "tests/cli/cli_macos_app_term_draw_text.rs"
+
+[[test]]
 name = "cli_man_summary_plain"
 path = "tests/cli/cli_man_summary_plain.rs"
 
