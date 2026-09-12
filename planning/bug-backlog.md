@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-12
-Open bugs: **17** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **13** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — repository security intake, worked
 
@@ -261,39 +261,50 @@ Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
 539 and 545. **Do not re-dispatch these** — the table that used to sit here said
 "agent running" for all three and was stale for a full session.
 
-## Tier 2 — the open HIGHs
+## Tier 2 — there is NO open HIGH
 
-**This section was STALE and is corrected.** It said "536 is the only open HIGH"
-and listed shape B-2 as remaining; B-2 landed `b845db0de` on 2026-09-06. bug-536
-now has **no actionable work**: A, B and B-2 are fixed and shape C is a design
-decision, not a bug fix. Do not dispatch 536.
+bug-536 has **no actionable work**: shapes A, B and B-2 are fixed (B-2 landed
+`b845db0de`, 2026-09-06) and shape C is a design decision, not a bug fix. **Do
+not dispatch 536.**
 
-The real open HIGHs are three defects that were **measured but never filed** —
-recorded inside bug-536's document "so the numbering does not race with a peer
-session", which kept them invisible to this backlog. Filed 2026-09-12:
+### A correction, because this section was wrong twice in one day
 
-| Bug | Sev | Effort | Title | Note |
-|---|---|---|---|---|
-| 589 | HIGH | small fix, real audit | a `String`-returning CALLBACK double-frees and **SIGSEGVs** | **memory gate** |
-| 587 | HIGH | unknown | `s = s & <expr>` leaks ~190 B per evaluation | **memory gate** |
-| 588 | HIGH | unknown | a `Result OF T` bound through `TRAP` is never freed | **memory gate** |
+It first said "536 is the only open HIGH" with shape B-2 listed as remaining —
+stale by six days. Correcting that, I then made it worse: I filed three "new"
+HIGHs (587/588/589) out of bug-536's list of defects "recorded rather than filed
+so the numbering does not race with a peer session", and promoted them here as
+"the real HIGHs".
 
-**Take 589 first.** It is a crash on a fourteen-line valid program, not a leak,
-so no flatness pin can see it — pin it by exit status. The fix is believed to be
-one word (drop the `callback_referenced` arm from
-`function_returns_fresh_string`), but it changes the callback ABI's ownership
-contract, so the *audit* is the work: enumerate every producer that can reach a
-`FunctionRef` return slot and assert the enumeration is TOTAL. A default-to-safe
-gate here is how bug-572 nearly shipped a use-after-free.
+**All three were duplicates of bugs that were already fixed.** That note in
+bug-536 was stale: the defects were filed the next day as **560, 561 and 562**
+(`8c57683f3`), and all three were fixed on 2026-09-07. 587/588/589 are withdrawn
+(`fdad98ccc`) and moved to `bugs/completed/`.
 
-**587 and 588 together are the whole of `csv::parse`'s residual ~112 MB per
-repeat call** — do not attribute that to bug-536 B-2. 587 is the hottest leaking
-line in the tree, because `s = s & ch` is the idiom `.ai` recommends for string
-building and is what `__encoding_utf32Decode` and `__csv_decodeRange` are built
-out of, once per scalar.
+**The lesson is about which question gets asked.** The number checks
+(`ls bugs/ bugs/completed/`, `git log --all --grep=bug-NNN`) all passed, because
+they answer *"is this NUMBER free?"* — it was. Nobody asked *"is this DEFECT
+already tracked?"*. `git grep -il "self.append" bugs/` would have found bug-560
+in one command.
 
-Each doc carries an explicit warning that its suspected root cause is INHERITED
-from bug-536's measurements and not independently confirmed. Reproduce first.
+**Two durable rules:**
+- **Before filing, search for the DEFECT, not the number** — grep
+  `bugs/completed/` for the symptom, the function name and the idiom.
+- **A "recorded but not filed" note is a dated claim about the past.** Check
+  whether it is still true before acting on it, and when you DO file such items,
+  go back and edit the originating document — the un-updated list is what
+  produced the duplicate six days later.
+
+The proximate enabler was also a stale doc: `.ai/codegen-invariants.md` still
+described `function_returns_fresh_string` as excluding callback-referenced
+functions and said "dropping the arm is the fix; it wants its own callback-ABI
+audit" — five days after the arm was dropped. Corrected in `7faff2d3b`, with the
+live guards named inline so it cannot be silently re-added.
+
+That fix was additionally proven load-bearing by **negative control**: re-adding
+only the `callback_referenced` arm restores `exit 139` on the filed program (5/5
+runs), while current main prints `c=n0` and exits 0 across 50 runs. Worth copying
+as a technique — when a bug is already fixed, a RED is impossible, and the
+negative control is what distinguishes "fixed" from "never reproduced here".
 
 ### bug-536 itself — closed out except for a design question
 
