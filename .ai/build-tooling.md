@@ -37,11 +37,11 @@ Two traps:
 
 ## clippy --fix trims double-double constants
 
-`cargo clippy --fix --all-targets` rewrites every full-precision `hi` half in `src/target/shared/code/builder_pow.rs` and `builder_simd_float_math.rs` to the shortest literal that round-trips a lone `f64` (e.g. `6.931_471_805_599_452_862_27e-01` → `6.931_471_805_599_453e-1`). Those extra digits are exactly what the paired `lo` tail recombines against, so the "fix" silently degrades `pow`/`exp`/`log`/`sin`/`cos` accuracy.
+`cargo clippy --fix --all-targets` rewrites every full-precision `hi` half in `src/codegen/builtins/math/gen_pow.rs` and `src/codegen/builtins/vector/builder_simd_float_math.rs` to the shortest literal that round-trips a lone `f64` (e.g. `6.931_471_805_599_452_862_27e-01` → `6.931_471_805_599_453e-1`). Those extra digits are exactly what the paired `lo` tail recombines against, so the "fix" silently degrades `pow`/`exp`/`log`/`sin`/`cos` accuracy.
 
 Why: `--fix` applies `excessive_precision` mechanically; it cannot read the prose saying the precision is deliberate.
 
-**How to apply:** add `#![allow(clippy::excessive_precision)]` and `#![allow(clippy::approx_constant)]` to both files **before** running `--fix`, never after. Both allows are in the tree — re-check the two files' diffs after any `--fix` run.
+**How to apply:** add `#![allow(clippy::excessive_precision)]` and `#![allow(clippy::approx_constant)]` to both files **before** running `--fix`, never after. Both allows are in the tree — re-check the two files' diffs after any `--fix` run. (The files moved: `src/target/shared/code/builder_pow.rs` → `src/codegen/builtins/math/builder_pow.rs` in `efba4fa8b`, then renamed to `gen_pow.rs` in `0c78bd8e7`; `builder_simd_float_math.rs` now lives under `src/codegen/builtins/vector/`. Both allows travelled with them.)
 
 Related trap: `approx_constant` is **deny-by-default** (clippy correctness group), so a missing allow makes `cargo clippy --all-targets` exit non-zero, not merely warn.
 
