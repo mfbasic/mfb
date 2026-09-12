@@ -1,0 +1,118 @@
+You are reviewing MFBASIC's compiler specification as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+FILE: src/docs/spec/{{TARGET}}
+
+## Who this documentation is for
+
+`mfb spec` is written for **the compiler contributor**, and for the developer
+who wants the internal detail. Internals are not merely permitted here, they
+are the point — and every non-obvious one carries a `[[path:Symbol]]`
+provenance citation.
+
+This is the mirror image of `mfb man`, which bans all of that. Do not apply
+man-page rules here.
+
+Read both standards before you start:
+
+    cat .ai/spec-content.md
+    cat .ai/specifications.md
+
+## Your lens — ITERATION 2: ONE file, and the time to verify EVERY claim
+
+You have been given exactly one file and no siblings. That is deliberate. This
+is the depth pass, and it is the only pass that can afford to check every
+claim against the code.
+
+Your duty, per claim, is to answer: **is this true of the compiler at HEAD?**
+Not plausible. Not what the author intended. Not what the design says. True.
+
+Work through all of:
+
+1. **Every normative statement.** Exact values, exact ranges, exact ordering,
+   exact error behaviour. "Generally returns quickly" is not a contract.
+2. **Every `[[path:Symbol]]` citation.** Does the symbol exist in that file?
+   Does the code there actually say what the surrounding sentence claims? A
+   resolving citation over a wrong claim is the failure mode this pass exists
+   to catch — the link being green proves nothing about the sentence.
+3. **Every uncited non-obvious claim** — a magic number, an offset, an ABI
+   register, an enum variant, a capability list, a pass ordering. It needs a
+   citation. Find the symbol and propose one, or report it as
+   `UNCITED-UNCHECKABLE`.
+4. **Guaranteed versus incidental.** Where the file states a behaviour, does
+   it say whether that is a promise or an implementation accident? A
+   contributor cannot tell by inspection.
+5. **Backend qualification.** A claim true only on one target and stated
+   unqualified is a wrong claim on the others. Check which targets it holds
+   for.
+6. **Failure modes.** Overflow, empty input, boundary, concurrency. A topic
+   that documents only the success path is incomplete.
+7. **Scope.** Tutorial prose, marketing ("blazingly fast", "simply",
+   "elegant"), a second full copy of another topic's body, or aspirational
+   behaviour that does not exist yet.
+8. **Code fences.** Spec fences are legitimately illustrative and often
+   deliberately partial, so a non-compiling fence is a finding to triage, NOT
+   an automatic defect. But a fence tagged as MFBASIC that reads like a whole
+   program and does not compile IS a defect — copy it to {{SCRATCH}} and build
+   it with {{MFB}}.
+
+## Render it
+
+    {{MFB}} spec <package> <topic>
+
+and measure the file's own citations:
+
+    ./scripts/spec-census.sh --citations <package>
+
+## The two rot classes
+
+- **STALE BY MOVE** (`ELSEWHERE=yes`) — the symbol still exists at another
+  path. Re-point the link; the claim is probably still fine.
+- **STALE BY DELETION** (`ELSEWHERE=no`) — the symbol exists nowhere in
+  `src/`. **The CLAIM is suspect, not just the link.** Verify the behaviour
+  from scratch. Re-pointing a path here turns the link green and leaves the
+  sentence wrong.
+
+## Verification duty
+
+1. **Citation first** — read the cited symbol.
+2. **Probe second** — if the claim is externally observable, build a program
+   under {{SCRATCH}} and run it with {{MFB}}.
+3. **Flag third** — `UNCITED-UNCHECKABLE`.
+
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+If the spec says X and the code does Y, **do not average them.** Say which you
+believe is wrong and why. If you believe the CODE is wrong, say so explicitly
+and loudly — a documentation pass is allowed to find compiler bugs and is not
+allowed to ignore them.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    UNIT:      {{UNIT}}
+    LINE:      <line number in src/docs/spec/{{TARGET}}>
+    CATEGORY:  wrong-claim | stale-citation-move | stale-citation-deletion | uncited-uncheckable | guarantee-unstated | backend-unqualified | missing-failure-mode | out-of-scope | aspirational | broken-fence | SUSPECTED-COMPILER-BUG
+    CLAIM:     <the sentence, quoted verbatim>
+    EVIDENCE:  <the file:symbol you read and what it says, or the probe and its output>
+    SUGGESTED: <the wording you would use instead, with its citation>
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph naming the symbols you read and any probe you ran,
+so the absence is auditable. "I read it and it looked fine" is not an
+acceptable no-findings report on this pass.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text. Every
+  fix is applied by the main thread; an edit here is discarded and recorded as
+  a harness violation.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.

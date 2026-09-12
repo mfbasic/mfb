@@ -774,23 +774,40 @@ selftest-dirty:one      0       8       0               DIRTY   OpenAI Codex v0.
 
 Banner for the record, per plan-108's practice: `OpenAI Codex v0.153.0`,
 model `gpt-5.6-terra`.
-Commit: —
+Commit: `7bf6060ee`
 
 ### Phase 4 — The eight reviewer prompts
 
-- [ ] Write all eight prompts verbatim into §5 of this file (man 1/2/3 +
+- [x] Write all eight prompts verbatim into §5 of this file (man 1/2/3 +
       final; spec 1/2/3 + final), each stating: the audience, the lens, the
       standard file to read, the rendering command, the verification duty
       (read the code; run probes; **do not** attempt to bind a socket — the
       main thread runs network probes), the structured findings format
       (`unit / claim / verdict / evidence / suggested wording`), and the
-      instruction to make **no repository edits**.
-- [ ] Store each prompt also as a file under `planning/plan-125-prompts/` so
+      instruction to make **no repository edits**. §5.1–§5.8, generated.
+- [x] Store each prompt also as a file under `planning/plan-125-prompts/` so
       the harness can pass it with `-`; the file and §5 must match (a
-      `diff` check in the pilot).
+      `diff` check in the pilot). The files are the **source** and §5 is
+      generated from them by `scripts/plan-125-prompts-sync.sh` — see the
+      note above §5 for why two hand-maintained copies were refused.
+
+Each prompt additionally carries two things the plan did not list, both of
+which exist to make a *silent* failure loud:
+
+- **A required no-findings report.** "NO FINDINGS" must be followed by a
+  paragraph naming the probe that was run and what it printed. An unaudited
+  "looks fine" from a reviewer is indistinguishable from a reviewer that did
+  not look, and ~900 of those would be the plan's worst outcome.
+- **A named category for the iteration-3 success test.** A factual error found
+  in iteration 3 is tagged `fact-escaped-iter2`, so §3.2's claim that
+  iteration 3 finds *seams* rather than *facts* is measured rather than
+  asserted.
 
 Acceptance: eight prompt files exist; `diff` between each file and its §5
 block is empty.
+**MET** — `ls planning/plan-125-prompts/` → 8 files;
+`./scripts/plan-125-prompts-sync.sh --check` → `§5 matches all 8 prompt files`,
+exit 0.
 Commit: —
 
 ### Phase 5 — Pilot: `color`, the `variable` topic, and the `unicode` spec package
@@ -835,7 +852,879 @@ Commit: —
 <!-- Filled in by Phase 4, verbatim, and mirrored into
      planning/plan-125-prompts/*.txt. Every later letter runs these unchanged;
      a prompt edit mid-plan makes findings incomparable and is recorded as a
-     Correction. -->
+     Correction.
+
+     The mirror is GENERATED, not hand-copied: the files are the source and
+     `scripts/plan-125-prompts-sync.sh --check` is the diff Phase 4's
+     acceptance asks for. Two hand-maintained copies of a thousand lines is a
+     copy that drifts, which is the same reason `.ai/man-content.md` §4.2
+     refuses to re-type the banned-word list. -->
+
+<!-- BEGIN GENERATED PROMPTS -- edit planning/plan-125-prompts/*.txt, then scripts/plan-125-prompts-sync.sh --write -->
+
+The eight prompts every one of plan-125's reviewer runs uses, verbatim.
+They are generated from `planning/plan-125-prompts/*.txt`, which is what
+`doc-review-fanout.sh --prompt` actually passes to `codex exec`; run
+`./scripts/plan-125-prompts-sync.sh --check` to prove this section matches.
+
+The harness substitutes `{{UNIT}}`, `{{KIND}}`, `{{TARGET}}`, `{{MFB}}` and
+`{{SCRATCH}}` per run; everything else is identical across all ~900 runs, so
+findings stay comparable between letters.
+
+### 5.1 Man, iteration 1 — the package or topic as a whole
+
+`planning/plan-125-prompts/man-iter1-package.txt`
+
+```
+You are reviewing MFBASIC's developer documentation as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+
+## Who this documentation is for
+
+`mfb man` is written for **the MFBASIC developer at the terminal** — someone
+using and learning the language. It is NOT written for a compiler contributor.
+The test for any sentence: *if it only matters to someone reading compiler
+source, it does not belong on the page.*
+
+Read the standard before you start:
+
+    cat .ai/man-content.md
+
+## Your lens — ITERATION 1: the unit as a WHOLE
+
+This pass is the only one that sees the unit all at once, so it is the only
+one that can find these four things. Look for them specifically; a later pass
+reads one page at a time and is structurally blind to all of them.
+
+1. **Coverage.** Something a developer needs that no page mentions at all.
+   What question would they arrive with that this unit never answers?
+2. **Internal consistency.** Two sibling pages describing the same concept in
+   two different ways, or using two different words for one thing.
+3. **The overview's promises versus what the functions deliver.** Does the
+   overview describe a package that these functions actually add up to?
+4. **Ordering and discoverability.** Can a developer find the right page from
+   the overview? Is the reading order sensible?
+
+Do NOT do a sentence-by-sentence proofread. A later pass does that with far
+more time per page than you have. If you find yourself listing wording nits,
+you are in the wrong pass — go back up to the four questions.
+
+## Render the unit
+
+For a package unit (`man-pkg:<name>`):
+
+    {{MFB}} man {{TARGET}} --all
+    {{MFB}} man {{TARGET}} types
+
+For a guide-topic unit (`man-topic:<name>`):
+
+    {{MFB}} man {{TARGET}} --all
+
+## Verification duty
+
+Every factual claim you challenge must be challenged **with evidence**, not
+with an impression:
+
+- Read the implementation. Builtin pages are rendered from the clean-room
+  registry descriptors under `src/codegen/builtins/<pkg>/`; guide topics are
+  markdown under `src/docs/man/<topic>/`.
+- Run probe programs. Write them under {{SCRATCH}} — **never inside the
+  repository** — and compile and run them with {{MFB}}.
+- **Do not attempt to bind or connect a socket.** Your sandbox cannot, and a
+  failure there tells you nothing. If a claim about `tcp`, `udp`, `tls`, `net`
+  or `http` needs a live socket to check, say so in the finding and mark it
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+A claim you cannot check is reported as `UNVERIFIED` with what you tried. Do
+not guess, and do not pad the list to look thorough — a short list of real
+findings is worth far more than a long list of maybes.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    UNIT:      {{UNIT}}
+    PAGE:      <the specific page, or "package-wide">
+    CATEGORY:  coverage | consistency | overview-mismatch | discoverability
+    CLAIM:     <the sentence or gap, quoted verbatim where it is a sentence>
+    VERDICT:   wrong | misleading | missing | inconsistent
+    EVIDENCE:  <the command you ran and what it printed, or the file:symbol you read>
+    SUGGESTED: <the wording you would use instead, or what to add>
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph on what you checked, so the absence is auditable.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text. Every
+  fix is applied by the main thread; an edit here is discarded and recorded as
+  a harness violation.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.
+```
+
+### 5.2 Man, iteration 2 — one page, every sentence verified
+
+`planning/plan-125-prompts/man-iter2-page.txt`
+
+```
+You are reviewing MFBASIC's developer documentation as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+
+## Who this documentation is for
+
+`mfb man` is written for **the MFBASIC developer at the terminal** — someone
+using and learning the language. It is NOT written for a compiler contributor.
+The test for any sentence: *if it only matters to someone reading compiler
+source, it does not belong on the page.*
+
+Read the standard before you start:
+
+    cat .ai/man-content.md
+
+## Your lens — ITERATION 2: ONE page, and the time to verify EVERY sentence
+
+You have been given exactly one page and no siblings. That is deliberate. This
+is the depth pass, and it is the only pass that can afford to check every
+sentence against the implementation.
+
+Your duty, per sentence, is to answer: **is this true of the binary at HEAD?**
+Not plausible. Not what the author intended. True.
+
+Work through all of:
+
+1. **Every sentence of the intro and description.** Each one is a claim.
+2. **Every parameter description.** Units, valid range, and what happens at
+   zero, empty, and negative. Whether a range bound is inclusive or exclusive
+   — the parameter's NAME does not say, so the description must.
+3. **Every row of the Errors table**, against the condition that actually
+   raises it.
+4. **The example: compile it and run it.** Copy it to {{SCRATCH}} and build it
+   with {{MFB}}. An example that does not compile is a finding. An example
+   whose output differs from what the page implies is a finding.
+5. **The sharp edges.** Does it clamp or raise? Unicode scalar or grapheme?
+   Mutation or a new value? Is ordering stable? A page that omits a sharp edge
+   has failed even if every sentence on it is true — `strings::mid` raises
+   where `left` and `right` clamp, and a page that does not say so is wrong by
+   omission.
+6. **Scope.** Any sentence that requires a compiler mental model
+   (`.ai/man-content.md` §3), and any use of the banned memory vocabulary
+   (§4 — the only permitted words are **copy**, **mutate**, **value**, and
+   **alias**, the last for a `RES` handle only).
+7. **The subtler §4 failure, which no grep can find**: a sentence that teaches
+   a borrow/ownership mental model *without using a banned word*. Flag it.
+
+## Render the page
+
+    {{MFB}} man {{TARGET}}
+
+(For a `man-page:<pkg>/<fn>` unit run `{{MFB}} man <pkg> <fn>`; for
+`man-page:<pkg>/types` run `{{MFB}} man <pkg> types`; for a `man-topic-page`
+unit render the topic and read the named page.)
+
+## Verification duty
+
+- Read the implementation for this member: the registry descriptor under
+  `src/codegen/builtins/<pkg>/`, and the lowering it names.
+- Run probe programs. Write them under {{SCRATCH}} — **never inside the
+  repository** — and compile and run them with {{MFB}}.
+- **Do not attempt to bind or connect a socket.** Your sandbox cannot, and a
+  failure there tells you nothing. If a claim about `tcp`, `udp`, `tls`, `net`
+  or `http` needs a live socket to check, say so in the finding and mark it
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+A claim you cannot check is reported as `UNVERIFIED` with what you tried. Do
+not guess.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    UNIT:      {{UNIT}}
+    CLAIM:     <the sentence, quoted verbatim>
+    VERDICT:   wrong | misleading | incomplete | out-of-scope | banned-vocabulary | example-broken
+    EVIDENCE:  <the probe program and its output, or the file:symbol you read>
+    SUGGESTED: <the wording you would use instead>
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph naming the probe you ran and what it printed, so the
+absence is auditable. "I read it and it looked fine" is not an acceptable
+no-findings report on this pass.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text. Every
+  fix is applied by the main thread; an edit here is discarded and recorded as
+  a harness violation.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.
+```
+
+### 5.3 Man, iteration 3 — re-integration after the page pass
+
+`planning/plan-125-prompts/man-iter3-package.txt`
+
+```
+You are reviewing MFBASIC's developer documentation as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+
+## Who this documentation is for
+
+`mfb man` is written for **the MFBASIC developer at the terminal** — someone
+using and learning the language. It is NOT written for a compiler contributor.
+
+Read the standard before you start:
+
+    cat .ai/man-content.md
+
+## Your lens — ITERATION 3: RE-INTEGRATION, after the surgery
+
+Every page in this unit has just been edited **independently of its
+siblings**, one page at a time, by a pass that could not see any of the
+others. That reliably introduces three things, and you are the first reader to
+see the unit in its final form:
+
+1. **Divergence.** Two pages now explain one concept in two different ways, or
+   use two different words for the same thing. Both may be individually
+   correct. That is still a defect: the reader meets both.
+2. **Redundancy.** The same explanation restated on five pages, where one page
+   should own it and the others should link. `mfb man variable` is the page
+   that owns the value model; a package page that re-explains it is a defect
+   even if the explanation is right.
+3. **Broken seams.** A cross-reference to a page that no longer says what the
+   referring page claims it says; a "see also" that now points at the wrong
+   sibling; an overview that promises something a rewritten page no longer
+   delivers.
+
+**Findings on this pass should mostly be about SEAMS, not facts.** That is the
+success test for the pass before you: if you find many *factual* errors here,
+the per-page pass under-performed, and that is itself a result worth
+reporting. So: if a finding is a plain factual error, still report it, and
+mark its CATEGORY `fact-escaped-iter2` so the plan can count them.
+
+## Render the unit
+
+For a package unit (`man-pkg:<name>`):
+
+    {{MFB}} man {{TARGET}} --all
+    {{MFB}} man {{TARGET}} types
+
+For a guide-topic unit (`man-topic:<name>`):
+
+    {{MFB}} man {{TARGET}} --all
+
+Read it end to end, in order, as a developer meeting this package for the
+first time would.
+
+## Verification duty
+
+- For a seam finding, the evidence is the two places that disagree, quoted.
+- For any factual finding, the evidence is a probe program under {{SCRATCH}}
+  compiled and run with {{MFB}}, or the `file:symbol` you read.
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    UNIT:      {{UNIT}}
+    PAGES:     <the two or more pages involved>
+    CATEGORY:  divergence | redundancy | broken-seam | fact-escaped-iter2
+    QUOTE-A:   <the first wording, verbatim, with its page>
+    QUOTE-B:   <the second wording, verbatim, with its page>
+    VERDICT:   <which should win, and why>
+    SUGGESTED: <the single wording both should use, or the link that replaces one>
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph on what you compared, so the absence is auditable.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text. Every
+  fix is applied by the main thread; an edit here is discarded and recorded as
+  a harness violation.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.
+```
+
+### 5.4 Man, final sweep — one lens over the complete manual
+
+`planning/plan-125-prompts/man-final-lens.txt`
+
+```
+You are reviewing MFBASIC's complete developer manual as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+LENS: {{TARGET}}
+
+## Who this documentation is for
+
+`mfb man` is written for **the MFBASIC developer at the terminal** — someone
+using and learning the language. It is NOT written for a compiler contributor.
+
+Read the standard before you start:
+
+    cat .ai/man-content.md
+
+## The artifact
+
+Generate the complete manual — all 628 pages, including the two packages
+`mfb man --all` deliberately omits:
+
+    ./scripts/man-manual.sh > {{SCRATCH}}/manual.txt
+    ./scripts/man-manual.sh --count
+
+It is about 61,000 lines. **You cannot read it end to end with useful
+attention, and you are not being asked to.** You have been given exactly ONE
+question. Answer that one question across the whole artifact, and ignore
+everything else — five other runs are asking the other five questions.
+
+## Your lens
+
+**{{TARGET}}** — the question you are answering:
+
+- **terminology** — Is one concept spelled one way everywhere? Check at least:
+  handle vs resource; fails vs errors vs raises; index vs position vs offset;
+  byte vs character vs code point vs grapheme; empty vs blank vs missing.
+  Report each concept that has more than one spelling, with a count of each
+  and the pages using the minority form.
+
+- **example-style** — Do the examples across packages look like they came from
+  one manual? Are imports shown, or assumed? Is output shown? Is error
+  handling shown? Are variables named consistently? Report each axis on which
+  packages disagree, naming the packages on each side.
+
+- **audience-scope** — Read for any sentence that requires a compiler mental
+  model. This lens exists because a grep cannot find the important cases: a
+  page can teach a borrow-and-ownership model without using a single banned
+  word. That is the failure recorded from the previous plan's certification,
+  and it is what you are here for. Quote each one.
+
+- **errors** — Is every failure a developer can actually hit documented, and
+  documented consistently across sibling functions? Two functions that raise
+  the same error should describe it the same way. A function that can fail and
+  documents no failure is the more serious finding.
+
+- **cross-links** — Does every `mfb man <x>` reference in the prose resolve?
+  Check by running it. Can a developer reach the right page from the index
+  (`mfb man` with no arguments)? Report every dead link and every page that is
+  reachable only by already knowing its name.
+
+- **memory-vocabulary** — The hard ban in `.ai/man-content.md` §4. Run
+  `./scripts/man-census.sh --memory-scope` and confirm it reports 0
+  unclassified. Then do the thing the script cannot: check that nobody passed
+  the grep by **deleting a true contract**. For every resource-returning or
+  resource-taking function, does the page still say whether the handle stays
+  open or is closed by the call? A page that is silent on that has been
+  sanitized, not fixed, and that is a worse defect than the banned word was.
+
+## Verification duty
+
+- Evidence is a command and its output. `grep -c` over the artifact, a probe
+  program under {{SCRATCH}} compiled with {{MFB}}, or a rendered page.
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    LENS:      {{TARGET}}
+    SCOPE:     <the pages or packages involved>
+    CLAIM:     <the inconsistency or gap, with quotes from each side>
+    VERDICT:   <which form should win, and why>
+    EVIDENCE:  <the command you ran and what it printed>
+    SUGGESTED: <the single form to standardize on, or the text to add>
+
+Order your findings by how many pages each affects, most first.
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph naming the commands you ran across the artifact.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.
+```
+
+### 5.5 Spec, iteration 1 — the package as a whole
+
+`planning/plan-125-prompts/spec-iter1-package.txt`
+
+```
+You are reviewing MFBASIC's compiler specification as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+
+## Who this documentation is for
+
+`mfb spec` is written for **the compiler contributor**, and for the developer
+who wants the internal detail. Internals are not merely permitted here, they
+are the point — and every non-obvious one carries a `[[path:Symbol]]`
+provenance citation.
+
+This is the mirror image of `mfb man`, which bans all of that. Do not apply
+man-page rules here.
+
+Read both standards before you start:
+
+    cat .ai/spec-content.md
+    cat .ai/specifications.md
+
+## Your lens — ITERATION 1: the package as a WHOLE
+
+This pass is the only one that sees the package all at once, so it is the only
+one that can find these four things. A later pass reads one file at a time and
+is structurally blind to all of them.
+
+1. **Contract completeness.** An externally observable contract the compiler
+   has that no topic in this package covers. What would a contributor arrive
+   needing to know that this package never states?
+2. **Single source of truth.** Two topics carrying full bodies of the same
+   fact, or — worse — carrying two bodies that disagree. Each fact has one
+   canonical topic; others summarize and link.
+3. **The overview versus the topics.** Does the package overview describe a
+   package these topics actually add up to? Is the stated reading order the
+   order that works?
+4. **Guaranteed versus incidental.** A contributor cannot tell by inspection
+   whether a stated behaviour is a promise or an accident of the current
+   implementation. Flag every place the package states a behaviour without
+   saying which it is — silently promoting an accident to a contract is how
+   the next contributor gets trapped into preserving it.
+
+Do NOT proofread sentence by sentence. A later pass does that per file.
+
+## Render the unit
+
+    {{MFB}} spec {{TARGET}} --all
+
+and measure it:
+
+    ./scripts/spec-census.sh --citations {{TARGET}}
+    ./scripts/spec-census.sh --links {{TARGET}}
+    ./scripts/spec-census.sh --fences {{TARGET}}
+
+## The accuracy rule, and the two rot classes
+
+**The spec describes the compiler AS IT IS AT HEAD** — not as designed, not as
+it will be. A planned contract that does not exist yet is a lie with a
+citation attached; flag it.
+
+`--citations` splits its failures into two classes and they need different
+repairs. Respect the difference:
+
+- **STALE BY MOVE** (`ELSEWHERE=yes`) — the symbol still exists at another
+  path. Re-point the link; the claim is probably still fine.
+- **STALE BY DELETION** (`ELSEWHERE=no`) — the symbol exists nowhere in
+  `src/`. **The CLAIM is suspect, not just the link.** The thing the sentence
+  describes has been deleted or renamed out of existence. Verify the behaviour
+  from scratch. A reviewer who only re-points paths here turns the link green
+  and leaves the sentence wrong, and the surface then looks audited.
+
+## Verification duty
+
+Verifying a spec claim can mean reading a whole compiler pass, so triage:
+
+1. **Citation first** — a claim with a resolving `[[path:Symbol]]` is checked
+   at that symbol. Read it.
+2. **Probe second** — if the claim is externally observable, build a program
+   under {{SCRATCH}} and run it with {{MFB}}.
+3. **Flag third** — a claim with no citation that you cannot locate in the
+   code and cannot observe is not a contract. Report it as `UNCITED-UNCHECKABLE`.
+
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    UNIT:      {{UNIT}}
+    TOPIC:     <the file, or "package-wide">
+    CATEGORY:  missing-contract | duplicate-body | contradiction | reading-order | guarantee-unstated | stale-by-deletion | uncited-uncheckable
+    CLAIM:     <the sentence or gap, quoted verbatim where it is a sentence>
+    VERDICT:   wrong | misleading | missing | duplicated | aspirational
+    EVIDENCE:  <the command you ran and what it printed, or the file:symbol you read>
+    SUGGESTED: <the wording you would use instead, or what to add, with its citation>
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph on what you checked, so the absence is auditable.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text. Every
+  fix is applied by the main thread; an edit here is discarded and recorded as
+  a harness violation.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.
+```
+
+### 5.6 Spec, iteration 2 — one file, every claim verified
+
+`planning/plan-125-prompts/spec-iter2-file.txt`
+
+```
+You are reviewing MFBASIC's compiler specification as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+FILE: src/docs/spec/{{TARGET}}
+
+## Who this documentation is for
+
+`mfb spec` is written for **the compiler contributor**, and for the developer
+who wants the internal detail. Internals are not merely permitted here, they
+are the point — and every non-obvious one carries a `[[path:Symbol]]`
+provenance citation.
+
+This is the mirror image of `mfb man`, which bans all of that. Do not apply
+man-page rules here.
+
+Read both standards before you start:
+
+    cat .ai/spec-content.md
+    cat .ai/specifications.md
+
+## Your lens — ITERATION 2: ONE file, and the time to verify EVERY claim
+
+You have been given exactly one file and no siblings. That is deliberate. This
+is the depth pass, and it is the only pass that can afford to check every
+claim against the code.
+
+Your duty, per claim, is to answer: **is this true of the compiler at HEAD?**
+Not plausible. Not what the author intended. Not what the design says. True.
+
+Work through all of:
+
+1. **Every normative statement.** Exact values, exact ranges, exact ordering,
+   exact error behaviour. "Generally returns quickly" is not a contract.
+2. **Every `[[path:Symbol]]` citation.** Does the symbol exist in that file?
+   Does the code there actually say what the surrounding sentence claims? A
+   resolving citation over a wrong claim is the failure mode this pass exists
+   to catch — the link being green proves nothing about the sentence.
+3. **Every uncited non-obvious claim** — a magic number, an offset, an ABI
+   register, an enum variant, a capability list, a pass ordering. It needs a
+   citation. Find the symbol and propose one, or report it as
+   `UNCITED-UNCHECKABLE`.
+4. **Guaranteed versus incidental.** Where the file states a behaviour, does
+   it say whether that is a promise or an implementation accident? A
+   contributor cannot tell by inspection.
+5. **Backend qualification.** A claim true only on one target and stated
+   unqualified is a wrong claim on the others. Check which targets it holds
+   for.
+6. **Failure modes.** Overflow, empty input, boundary, concurrency. A topic
+   that documents only the success path is incomplete.
+7. **Scope.** Tutorial prose, marketing ("blazingly fast", "simply",
+   "elegant"), a second full copy of another topic's body, or aspirational
+   behaviour that does not exist yet.
+8. **Code fences.** Spec fences are legitimately illustrative and often
+   deliberately partial, so a non-compiling fence is a finding to triage, NOT
+   an automatic defect. But a fence tagged as MFBASIC that reads like a whole
+   program and does not compile IS a defect — copy it to {{SCRATCH}} and build
+   it with {{MFB}}.
+
+## Render it
+
+    {{MFB}} spec <package> <topic>
+
+and measure the file's own citations:
+
+    ./scripts/spec-census.sh --citations <package>
+
+## The two rot classes
+
+- **STALE BY MOVE** (`ELSEWHERE=yes`) — the symbol still exists at another
+  path. Re-point the link; the claim is probably still fine.
+- **STALE BY DELETION** (`ELSEWHERE=no`) — the symbol exists nowhere in
+  `src/`. **The CLAIM is suspect, not just the link.** Verify the behaviour
+  from scratch. Re-pointing a path here turns the link green and leaves the
+  sentence wrong.
+
+## Verification duty
+
+1. **Citation first** — read the cited symbol.
+2. **Probe second** — if the claim is externally observable, build a program
+   under {{SCRATCH}} and run it with {{MFB}}.
+3. **Flag third** — `UNCITED-UNCHECKABLE`.
+
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+If the spec says X and the code does Y, **do not average them.** Say which you
+believe is wrong and why. If you believe the CODE is wrong, say so explicitly
+and loudly — a documentation pass is allowed to find compiler bugs and is not
+allowed to ignore them.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    UNIT:      {{UNIT}}
+    LINE:      <line number in src/docs/spec/{{TARGET}}>
+    CATEGORY:  wrong-claim | stale-citation-move | stale-citation-deletion | uncited-uncheckable | guarantee-unstated | backend-unqualified | missing-failure-mode | out-of-scope | aspirational | broken-fence | SUSPECTED-COMPILER-BUG
+    CLAIM:     <the sentence, quoted verbatim>
+    EVIDENCE:  <the file:symbol you read and what it says, or the probe and its output>
+    SUGGESTED: <the wording you would use instead, with its citation>
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph naming the symbols you read and any probe you ran,
+so the absence is auditable. "I read it and it looked fine" is not an
+acceptable no-findings report on this pass.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text. Every
+  fix is applied by the main thread; an edit here is discarded and recorded as
+  a harness violation.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.
+```
+
+### 5.7 Spec, iteration 3 — re-integration after the file pass
+
+`planning/plan-125-prompts/spec-iter3-package.txt`
+
+```
+You are reviewing MFBASIC's compiler specification as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+
+## Who this documentation is for
+
+`mfb spec` is written for **the compiler contributor**, and for the developer
+who wants the internal detail. Internals are the point here, and every
+non-obvious one carries a `[[path:Symbol]]` provenance citation.
+
+Read the standard before you start:
+
+    cat .ai/spec-content.md
+
+## Your lens — ITERATION 3: RE-INTEGRATION, after the surgery
+
+Every topic in this package has just been edited **independently of its
+siblings**, one file at a time, by a pass that could not see any of the
+others. That reliably introduces three things, and you are the first reader to
+see the package in its final form:
+
+1. **Divergence.** Two topics now state one contract in two different ways, or
+   use two different terms for one construct. Both may be individually
+   correct. That is still a defect: a contributor meets both and cannot tell
+   which is normative.
+2. **Redundancy and lost ownership.** The same contract restated in full in
+   three topics, where one should own it and the others should summarize and
+   link. Worse: the per-file pass may have *added* a full body to a topic that
+   previously linked, quietly creating a second source of truth.
+3. **Broken seams.** A `mfb spec <pkg> <topic>` link to a topic that no longer
+   says what the referring topic claims; a `## See Also` that now points
+   somewhere wrong; a package overview whose reading-order prose describes an
+   order the topics no longer follow.
+
+**Findings on this pass should mostly be about SEAMS, not facts.** That is the
+success test for the pass before you: if you find many *factual* errors here,
+the per-file pass under-performed, and that is itself a result worth
+reporting. So: if a finding is a plain factual error, still report it, and
+mark its CATEGORY `fact-escaped-iter2` so the plan can count them.
+
+## Render and measure the unit
+
+    {{MFB}} spec {{TARGET}} --all
+    ./scripts/spec-census.sh --citations {{TARGET}}
+    ./scripts/spec-census.sh --links {{TARGET}}
+    ./scripts/spec-census.sh --render {{TARGET}}
+
+`--render` must report 0 leaked `[[` markers: the renderer strips them
+everywhere, so any that survives into rendered output is malformed.
+
+Read the package end to end, in its stated reading order, as a contributor
+meeting it for the first time would.
+
+## Verification duty
+
+- For a seam finding, the evidence is the two places that disagree, quoted,
+  with their files.
+- For any factual finding, the evidence is the `file:symbol` you read or a
+  probe under {{SCRATCH}} run with {{MFB}}.
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    UNIT:      {{UNIT}}
+    TOPICS:    <the two or more topics involved>
+    CATEGORY:  divergence | redundancy | lost-ownership | broken-seam | leaked-marker | fact-escaped-iter2
+    QUOTE-A:   <the first wording, verbatim, with its file and line>
+    QUOTE-B:   <the second wording, verbatim, with its file and line>
+    VERDICT:   <which should win, and why — which topic OWNS this fact>
+    SUGGESTED: <the single wording, or the link that replaces the duplicate body>
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph on what you compared, so the absence is auditable.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text. Every
+  fix is applied by the main thread; an edit here is discarded and recorded as
+  a harness violation.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.
+```
+
+### 5.8 Spec, final sweep — one lens over the whole spec
+
+`planning/plan-125-prompts/spec-final-lens.txt`
+
+```
+You are reviewing MFBASIC's complete compiler specification as an independent
+second opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+LENS: {{TARGET}}
+
+## Who this documentation is for
+
+`mfb spec` is written for **the compiler contributor**, and for the developer
+who wants the internal detail. Internals are the point here.
+
+Read the standard before you start:
+
+    cat .ai/spec-content.md
+
+## The artifact
+
+Generate the whole spec — all 12 packages, in `PACKAGE_ORDER`:
+
+    for p in architecture language memory linker threading package \
+             diagnostics tooling package-manager unicode app stdlib; do
+      echo "===== $p ====="
+      {{MFB}} spec $p --all
+    done > {{SCRATCH}}/spec.txt
+
+(Note `mfb spec --all` with no package renders 0 lines; only the per-package
+form works. That is why the loop is spelled out.)
+
+It is about 27,000 lines. **You cannot read it end to end with useful
+attention, and you are not being asked to.** You have been given exactly ONE
+question. Answer that one question across the whole artifact, and ignore
+everything else — five other runs are asking the other five questions.
+
+## Your lens
+
+**{{TARGET}}** — the question you are answering:
+
+- **contract-completeness** — Is every externally observable contract the
+  compiler has covered by some topic? Work from the compiler outward, not from
+  the spec inward: enumerate the surfaces (CLI flags, manifest keys, `.mfp`
+  fields, error codes, ABI registers, IR ops, target backends) and ask which
+  have no topic. An uncovered contract is invisible if you only read the spec.
+
+- **single-source-of-truth** — Duplicated or contradicting bodies across
+  topics. Two topics stating one fact is a defect even when they agree,
+  because they will not agree forever. Report each duplicated fact with all
+  the places it lives and which topic should own it.
+
+- **citation-integrity** — Run `./scripts/spec-census.sh --citations` and
+  confirm 0 `MISS-*`. Then do the thing the script cannot: sample claims that
+  have a *resolving* citation and check the cited code actually says what the
+  sentence claims. A green link over a wrong claim is invisible to every
+  instrument. Also report non-obvious claims that carry no citation at all.
+
+- **accuracy-at-head** — Spot-verify claims against the code, weighted to the
+  areas that have changed most since each topic was last touched (use
+  `git log --since` over `src/` versus over `src/docs/spec/`). The spec
+  describes the compiler AS IT IS — flag anything aspirational.
+
+- **reading-order** — `PACKAGE_ORDER`, each package's reading-order prose,
+  every `## See Also`, and every `mfb spec` / `mfb man` link. Run
+  `./scripts/spec-census.sh --links` and then judge the order a human would
+  actually need: does a contributor reading in this order ever meet a term
+  before it is defined?
+
+- **man-spec-agreement** — The two surfaces must not contradict each other.
+  Your checklist is `planning/plan-125-belongs-in-spec.md`: every row there is
+  a sentence cut from a man page for being too internal, and every row must be
+  resolved to COVERED (name the topic), FILLED, or REJECTED (with disproving
+  evidence). Then, separately, look for places where `mfb man` and `mfb spec`
+  state the same thing incompatibly — the overlap is the memory model,
+  resources, and stdlib semantics. Render both and compare.
+
+## Verification duty
+
+- Evidence is a command and its output. A `grep -c` over the artifact, a
+  `file:symbol` you read, or a probe under {{SCRATCH}} run with {{MFB}}.
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+- If you believe the CODE is wrong rather than the spec, say so explicitly and
+  loudly.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    LENS:      {{TARGET}}
+    SCOPE:     <the topics or packages involved>
+    CLAIM:     <the gap or contradiction, with quotes from each side>
+    VERDICT:   <what is authoritative, and why>
+    EVIDENCE:  <the command you ran and what it printed>
+    SUGGESTED: <the text to add or change, with its citation>
+
+Order your findings by how many topics each affects, most first.
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph naming the commands you ran across the artifact.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.
+```
+
+<!-- END GENERATED PROMPTS -->
 
 ## Validation Plan
 

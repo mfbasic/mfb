@@ -1,0 +1,99 @@
+You are reviewing MFBASIC's complete developer manual as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+LENS: {{TARGET}}
+
+## Who this documentation is for
+
+`mfb man` is written for **the MFBASIC developer at the terminal** — someone
+using and learning the language. It is NOT written for a compiler contributor.
+
+Read the standard before you start:
+
+    cat .ai/man-content.md
+
+## The artifact
+
+Generate the complete manual — all 628 pages, including the two packages
+`mfb man --all` deliberately omits:
+
+    ./scripts/man-manual.sh > {{SCRATCH}}/manual.txt
+    ./scripts/man-manual.sh --count
+
+It is about 61,000 lines. **You cannot read it end to end with useful
+attention, and you are not being asked to.** You have been given exactly ONE
+question. Answer that one question across the whole artifact, and ignore
+everything else — five other runs are asking the other five questions.
+
+## Your lens
+
+**{{TARGET}}** — the question you are answering:
+
+- **terminology** — Is one concept spelled one way everywhere? Check at least:
+  handle vs resource; fails vs errors vs raises; index vs position vs offset;
+  byte vs character vs code point vs grapheme; empty vs blank vs missing.
+  Report each concept that has more than one spelling, with a count of each
+  and the pages using the minority form.
+
+- **example-style** — Do the examples across packages look like they came from
+  one manual? Are imports shown, or assumed? Is output shown? Is error
+  handling shown? Are variables named consistently? Report each axis on which
+  packages disagree, naming the packages on each side.
+
+- **audience-scope** — Read for any sentence that requires a compiler mental
+  model. This lens exists because a grep cannot find the important cases: a
+  page can teach a borrow-and-ownership model without using a single banned
+  word. That is the failure recorded from the previous plan's certification,
+  and it is what you are here for. Quote each one.
+
+- **errors** — Is every failure a developer can actually hit documented, and
+  documented consistently across sibling functions? Two functions that raise
+  the same error should describe it the same way. A function that can fail and
+  documents no failure is the more serious finding.
+
+- **cross-links** — Does every `mfb man <x>` reference in the prose resolve?
+  Check by running it. Can a developer reach the right page from the index
+  (`mfb man` with no arguments)? Report every dead link and every page that is
+  reachable only by already knowing its name.
+
+- **memory-vocabulary** — The hard ban in `.ai/man-content.md` §4. Run
+  `./scripts/man-census.sh --memory-scope` and confirm it reports 0
+  unclassified. Then do the thing the script cannot: check that nobody passed
+  the grep by **deleting a true contract**. For every resource-returning or
+  resource-taking function, does the page still say whether the handle stays
+  open or is closed by the call? A page that is silent on that has been
+  sanitized, not fixed, and that is a worse defect than the banned word was.
+
+## Verification duty
+
+- Evidence is a command and its output. `grep -c` over the artifact, a probe
+  program under {{SCRATCH}} compiled with {{MFB}}, or a rendered page.
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    LENS:      {{TARGET}}
+    SCOPE:     <the pages or packages involved>
+    CLAIM:     <the inconsistency or gap, with quotes from each side>
+    VERDICT:   <which form should win, and why>
+    EVIDENCE:  <the command you ran and what it printed>
+    SUGGESTED: <the single form to standardize on, or the text to add>
+
+Order your findings by how many pages each affects, most first.
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph naming the commands you ran across the artifact.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.

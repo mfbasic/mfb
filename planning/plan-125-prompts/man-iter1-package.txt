@@ -1,0 +1,91 @@
+You are reviewing MFBASIC's developer documentation as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+
+## Who this documentation is for
+
+`mfb man` is written for **the MFBASIC developer at the terminal** — someone
+using and learning the language. It is NOT written for a compiler contributor.
+The test for any sentence: *if it only matters to someone reading compiler
+source, it does not belong on the page.*
+
+Read the standard before you start:
+
+    cat .ai/man-content.md
+
+## Your lens — ITERATION 1: the unit as a WHOLE
+
+This pass is the only one that sees the unit all at once, so it is the only
+one that can find these four things. Look for them specifically; a later pass
+reads one page at a time and is structurally blind to all of them.
+
+1. **Coverage.** Something a developer needs that no page mentions at all.
+   What question would they arrive with that this unit never answers?
+2. **Internal consistency.** Two sibling pages describing the same concept in
+   two different ways, or using two different words for one thing.
+3. **The overview's promises versus what the functions deliver.** Does the
+   overview describe a package that these functions actually add up to?
+4. **Ordering and discoverability.** Can a developer find the right page from
+   the overview? Is the reading order sensible?
+
+Do NOT do a sentence-by-sentence proofread. A later pass does that with far
+more time per page than you have. If you find yourself listing wording nits,
+you are in the wrong pass — go back up to the four questions.
+
+## Render the unit
+
+For a package unit (`man-pkg:<name>`):
+
+    {{MFB}} man {{TARGET}} --all
+    {{MFB}} man {{TARGET}} types
+
+For a guide-topic unit (`man-topic:<name>`):
+
+    {{MFB}} man {{TARGET}} --all
+
+## Verification duty
+
+Every factual claim you challenge must be challenged **with evidence**, not
+with an impression:
+
+- Read the implementation. Builtin pages are rendered from the clean-room
+  registry descriptors under `src/codegen/builtins/<pkg>/`; guide topics are
+  markdown under `src/docs/man/<topic>/`.
+- Run probe programs. Write them under {{SCRATCH}} — **never inside the
+  repository** — and compile and run them with {{MFB}}.
+- **Do not attempt to bind or connect a socket.** Your sandbox cannot, and a
+  failure there tells you nothing. If a claim about `tcp`, `udp`, `tls`, `net`
+  or `http` needs a live socket to check, say so in the finding and mark it
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+A claim you cannot check is reported as `UNVERIFIED` with what you tried. Do
+not guess, and do not pad the list to look thorough — a short list of real
+findings is worth far more than a long list of maybes.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    UNIT:      {{UNIT}}
+    PAGE:      <the specific page, or "package-wide">
+    CATEGORY:  coverage | consistency | overview-mismatch | discoverability
+    CLAIM:     <the sentence or gap, quoted verbatim where it is a sentence>
+    VERDICT:   wrong | misleading | missing | inconsistent
+    EVIDENCE:  <the command you ran and what it printed, or the file:symbol you read>
+    SUGGESTED: <the wording you would use instead, or what to add>
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph on what you checked, so the absence is auditable.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text. Every
+  fix is applied by the main thread; an edit here is discarded and recorded as
+  a harness violation.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.

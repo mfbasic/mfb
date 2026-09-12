@@ -1,0 +1,110 @@
+You are reviewing MFBASIC's compiler specification as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+
+## Who this documentation is for
+
+`mfb spec` is written for **the compiler contributor**, and for the developer
+who wants the internal detail. Internals are not merely permitted here, they
+are the point — and every non-obvious one carries a `[[path:Symbol]]`
+provenance citation.
+
+This is the mirror image of `mfb man`, which bans all of that. Do not apply
+man-page rules here.
+
+Read both standards before you start:
+
+    cat .ai/spec-content.md
+    cat .ai/specifications.md
+
+## Your lens — ITERATION 1: the package as a WHOLE
+
+This pass is the only one that sees the package all at once, so it is the only
+one that can find these four things. A later pass reads one file at a time and
+is structurally blind to all of them.
+
+1. **Contract completeness.** An externally observable contract the compiler
+   has that no topic in this package covers. What would a contributor arrive
+   needing to know that this package never states?
+2. **Single source of truth.** Two topics carrying full bodies of the same
+   fact, or — worse — carrying two bodies that disagree. Each fact has one
+   canonical topic; others summarize and link.
+3. **The overview versus the topics.** Does the package overview describe a
+   package these topics actually add up to? Is the stated reading order the
+   order that works?
+4. **Guaranteed versus incidental.** A contributor cannot tell by inspection
+   whether a stated behaviour is a promise or an accident of the current
+   implementation. Flag every place the package states a behaviour without
+   saying which it is — silently promoting an accident to a contract is how
+   the next contributor gets trapped into preserving it.
+
+Do NOT proofread sentence by sentence. A later pass does that per file.
+
+## Render the unit
+
+    {{MFB}} spec {{TARGET}} --all
+
+and measure it:
+
+    ./scripts/spec-census.sh --citations {{TARGET}}
+    ./scripts/spec-census.sh --links {{TARGET}}
+    ./scripts/spec-census.sh --fences {{TARGET}}
+
+## The accuracy rule, and the two rot classes
+
+**The spec describes the compiler AS IT IS AT HEAD** — not as designed, not as
+it will be. A planned contract that does not exist yet is a lie with a
+citation attached; flag it.
+
+`--citations` splits its failures into two classes and they need different
+repairs. Respect the difference:
+
+- **STALE BY MOVE** (`ELSEWHERE=yes`) — the symbol still exists at another
+  path. Re-point the link; the claim is probably still fine.
+- **STALE BY DELETION** (`ELSEWHERE=no`) — the symbol exists nowhere in
+  `src/`. **The CLAIM is suspect, not just the link.** The thing the sentence
+  describes has been deleted or renamed out of existence. Verify the behaviour
+  from scratch. A reviewer who only re-points paths here turns the link green
+  and leaves the sentence wrong, and the surface then looks audited.
+
+## Verification duty
+
+Verifying a spec claim can mean reading a whole compiler pass, so triage:
+
+1. **Citation first** — a claim with a resolving `[[path:Symbol]]` is checked
+   at that symbol. Read it.
+2. **Probe second** — if the claim is externally observable, build a program
+   under {{SCRATCH}} and run it with {{MFB}}.
+3. **Flag third** — a claim with no citation that you cannot locate in the
+   code and cannot observe is not a contract. Report it as `UNCITED-UNCHECKABLE`.
+
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    UNIT:      {{UNIT}}
+    TOPIC:     <the file, or "package-wide">
+    CATEGORY:  missing-contract | duplicate-body | contradiction | reading-order | guarantee-unstated | stale-by-deletion | uncited-uncheckable
+    CLAIM:     <the sentence or gap, quoted verbatim where it is a sentence>
+    VERDICT:   wrong | misleading | missing | duplicated | aspirational
+    EVIDENCE:  <the command you ran and what it printed, or the file:symbol you read>
+    SUGGESTED: <the wording you would use instead, or what to add, with its citation>
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph on what you checked, so the absence is auditable.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text. Every
+  fix is applied by the main thread; an edit here is discarded and recorded as
+  a harness violation.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.
