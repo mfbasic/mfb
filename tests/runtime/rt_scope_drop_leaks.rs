@@ -5294,3 +5294,46 @@ fn every_unbound_collection_element_position_still_produces_the_right_value() {
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+/// bug-592 audit finding: plan-86 E's `borrow_get_result` flag covered the WHOLE
+/// initializer, not the borrowed `get` node. So a fresh temp in one of the
+/// borrowed call's OPERANDS — here an unbound `String` `getOr` used as the map
+/// KEY — had its statement-scope registration suppressed too, and leaked 64 B per
+/// evaluation (measured on the bug-592 join-point fix alone, 200k -> 400k). The
+/// flag now applies only inside the borrowed node's own `lower_value` frame; each
+/// operand frame lowers it with the flag clear, which is the ordinary copy + free
+/// path. `materialize_owned_element` reads the same narrowed flag, so a nested
+/// `get` operand is COPIED (never an unfreed alias) exactly when it is freed.
+const SHAPE_592_BORROWED_GET_WITH_A_FRESH_KEY: &str = "IMPORT io\n\
+IMPORT collections\n\
+TYPE Dot\n  x AS Integer\nEND TYPE\n\
+TYPE Tag\n  name AS String\nEND TYPE\n\
+UNION Shape\n  Dot\n  Tag\nEND UNION\n\
+SUB main()\n\
+  LET byShape AS Map OF String TO Shape = Map OF String TO Shape {\"alpha\" := Tag[\"via-map\"], \"none\" := Dot[9]}\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT names AS List OF String = [\"alpha\"]\n\
+    LET k AS Shape = collections::get(byShape, collections::getOr(names, 0, \"none\"))\n\
+    MATCH k\n\
+      CASE Dot(d)\n\
+        n = n + d.x\n\
+      CASE Tag(t)\n\
+        n = n + len(t.name)\n\
+    END MATCH\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn a_borrowed_get_with_a_fresh_key_operand_runs_at_constant_rss() {
+    assert_flat(
+        "b592_borrowed_get_fresh_key",
+        SHAPE_592_BORROWED_GET_WITH_A_FRESH_KEY,
+        200_000,
+        400_000,
+    );
+}
