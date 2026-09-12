@@ -113,6 +113,16 @@ pub struct NewSession {
     pub expires_at: i64,
 }
 
+/// The outcome of a machine-link fetch (bug-583). `Unapproved` is separated
+/// from `Missing` on purpose: the caller found a live pairing but did not
+/// prove possession of the pairing code, and nothing was consumed.
+#[derive(Debug, Clone)]
+pub enum PairingFetch {
+    Relayed { blob: Vec<u8>, salt: Vec<u8> },
+    Missing,
+    Unapproved,
+}
+
 pub struct OpenedRepository {
     pub store: Store,
     pub packages_dir: PathBuf,
@@ -414,6 +424,7 @@ impl Store {
                 lookup TEXT NOT NULL UNIQUE,
                 blob BLOB NOT NULL,
                 salt BLOB NOT NULL,
+                approval_key BLOB NOT NULL DEFAULT x'',
                 created_at INTEGER NOT NULL,
                 expires_at INTEGER NOT NULL,
                 used_at INTEGER NULL
@@ -573,6 +584,16 @@ impl Store {
             &conn,
             "auth_challenges",
             "purpose TEXT NOT NULL DEFAULT 'login'",
+        )?;
+        // bug-583: the code-derived approval public key. Pre-migration rows
+        // default to the empty key, which no approval signature can ever
+        // verify under, so an in-flight pairing across the upgrade is refused
+        // rather than silently accepted on the old lookup-only rule. Pairings
+        // live ten minutes, so the window closes on its own.
+        add_column_if_missing(
+            &conn,
+            "pairing_blobs",
+            "approval_key BLOB NOT NULL DEFAULT x''",
         )?;
         Ok(())
     }
@@ -868,6 +889,7 @@ impl Store {
         lookup: &str,
         blob: &[u8],
         salt: &[u8],
+        approval_key: &[u8],
     ) -> Result<i64, String> {
         let now = now_unix();
         let expires_at = now + 600;
@@ -880,9 +902,10 @@ impl Store {
         )
         .map_err(|err| format!("failed to clear expired pairing blobs: {err}"))?;
         conn.execute(
-            "INSERT INTO pairing_blobs (owner_id, lookup, blob, salt, created_at, expires_at, used_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
-            params![owner_id, lookup, blob, salt, now, expires_at],
+            "INSERT INTO pairing_blobs
+                 (owner_id, lookup, blob, salt, approval_key, created_at, expires_at, used_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)",
+            params![owner_id, lookup, blob, salt, approval_key, now, expires_at],
         )
         .map_err(|err| {
             if is_unique_violation(&err) {
@@ -896,20 +919,31 @@ impl Store {
 
     /// Fetch-and-consume a pairing blob: single use, refused after expiry.
     /// The stored ciphertext is destroyed as it is handed out.
-    pub fn take_pairing_blob(
+    ///
+    /// bug-583: `approve` is handed the row's code-derived approval public key
+    /// and decides, INSIDE the transaction, whether this caller proved
+    /// possession of the pairing code. A refusal rolls the transaction back,
+    /// so a caller holding only the (server-visible) lookup can neither take
+    /// the blob nor burn the honest machine's pending pairing. Consumption is
+    /// therefore atomic with authorization.
+    pub fn take_pairing_blob<F>(
         &self,
         owner: &str,
         lookup: &str,
-    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, String> {
+        approve: F,
+    ) -> Result<PairingFetch, String>
+    where
+        F: FnOnce(&[u8]) -> bool,
+    {
         let folded = fold_owner(owner);
         let now = now_unix();
         let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start pairing transaction: {err}"))?;
-        let row: Option<(i64, Vec<u8>, Vec<u8>)> = tx
+        let row: Option<(i64, Vec<u8>, Vec<u8>, Vec<u8>)> = tx
             .query_row(
-                "SELECT p.id, p.blob, p.salt
+                "SELECT p.id, p.blob, p.salt, p.approval_key
                  FROM pairing_blobs p
                  JOIN owners o ON o.id = p.owner_id
                  WHERE p.lookup = ?1
@@ -918,14 +952,18 @@ impl Store {
                    AND p.used_at IS NULL
                    AND p.expires_at > ?3",
                 params![lookup, folded, now],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()
             .map_err(|err| format!("failed to load pairing blob: {err}"))?;
-        let Some((id, blob, salt)) = row else {
+        let Some((id, blob, salt, approval_key)) = row else {
             tx.commit().ok();
-            return Ok(None);
+            return Ok(PairingFetch::Missing);
         };
+        if !approve(&approval_key) {
+            tx.rollback().ok();
+            return Ok(PairingFetch::Unapproved);
+        }
         tx.execute(
             "UPDATE pairing_blobs SET used_at = ?1, blob = x'' WHERE id = ?2",
             params![now, id],
@@ -933,7 +971,7 @@ impl Store {
         .map_err(|err| format!("failed to consume pairing blob: {err}"))?;
         tx.commit()
             .map_err(|err| format!("failed to commit pairing fetch: {err}"))?;
-        Ok(Some((blob, salt)))
+        Ok(PairingFetch::Relayed { blob, salt })
     }
 
     /// Register an additional machine's auth key on an existing account
@@ -3557,6 +3595,15 @@ pub(crate) mod tests {
         assert_eq!(reopened.store.server_public_key().unwrap(), public);
     }
 
+    /// Helper: the approval predicate every honest fetch passes.
+    fn approved(_key: &[u8]) -> bool {
+        true
+    }
+
+    fn is_missing(fetch: &PairingFetch) -> bool {
+        matches!(fetch, PairingFetch::Missing)
+    }
+
     #[test]
     fn pairing_blob_is_single_use_and_expires() {
         let (_temp, store) = test_store();
@@ -3564,26 +3611,52 @@ pub(crate) mod tests {
         let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         let lookup = crypto::pairing_lookup("test-code");
         store
-            .store_pairing_blob(owner_id, &lookup, b"ciphertext", b"salt")
+            .store_pairing_blob(owner_id, &lookup, b"ciphertext", b"salt", b"approval")
             .unwrap();
 
         // Wrong owner or wrong lookup yields nothing.
-        assert!(store.take_pairing_blob("bob", &lookup).unwrap().is_none());
-        assert!(store
-            .take_pairing_blob("alice", &crypto::pairing_lookup("other"))
-            .unwrap()
-            .is_none());
+        assert!(is_missing(
+            &store.take_pairing_blob("bob", &lookup, approved).unwrap()
+        ));
+        assert!(is_missing(
+            &store
+                .take_pairing_blob("alice", &crypto::pairing_lookup("other"), approved)
+                .unwrap()
+        ));
 
-        // First fetch succeeds; the second finds the blob consumed.
-        let (blob, salt) = store.take_pairing_blob("alice", &lookup).unwrap().unwrap();
+        // bug-583: a caller that fails the approval predicate is refused AND
+        // does not consume the pairing — the honest fetch below still works.
+        assert!(matches!(
+            store
+                .take_pairing_blob("alice", &lookup, |_key| false)
+                .unwrap(),
+            PairingFetch::Unapproved
+        ));
+
+        // First fetch succeeds; the second finds the blob consumed. The stored
+        // approval key is exactly what the predicate is handed.
+        let PairingFetch::Relayed { blob, salt } = store
+            .take_pairing_blob("alice", &lookup, |key| key == b"approval")
+            .unwrap()
+        else {
+            panic!("the approved fetch must relay the blob");
+        };
         assert_eq!(blob, b"ciphertext");
         assert_eq!(salt, b"salt");
-        assert!(store.take_pairing_blob("alice", &lookup).unwrap().is_none());
+        assert!(is_missing(
+            &store.take_pairing_blob("alice", &lookup, approved).unwrap()
+        ));
 
         // An expired blob is never handed out.
         let expired_lookup = crypto::pairing_lookup("expired-code");
         store
-            .store_pairing_blob(owner_id, &expired_lookup, b"ciphertext", b"salt")
+            .store_pairing_blob(
+                owner_id,
+                &expired_lookup,
+                b"ciphertext",
+                b"salt",
+                b"approval",
+            )
             .unwrap();
         store
             .conn
@@ -3594,10 +3667,11 @@ pub(crate) mod tests {
                 params![now_unix() - 1, expired_lookup],
             )
             .unwrap();
-        assert!(store
-            .take_pairing_blob("alice", &expired_lookup)
-            .unwrap()
-            .is_none());
+        assert!(is_missing(
+            &store
+                .take_pairing_blob("alice", &expired_lookup, approved)
+                .unwrap()
+        ));
     }
 
     #[test]
@@ -5527,7 +5601,7 @@ pub(crate) mod tests {
             .unwrap_err()
             .contains("failed to load package owner"));
         assert!(store
-            .take_pairing_blob("alice", "lookup")
+            .take_pairing_blob("alice", "lookup", approved)
             .unwrap_err()
             .contains("failed to load pairing blob"));
         assert!(store
@@ -5786,7 +5860,7 @@ pub(crate) mod tests {
 
         drop_tables(&store, &["pairing_blobs"]);
         assert!(store
-            .store_pairing_blob(owner, "lookup", b"blob", b"salt")
+            .store_pairing_blob(owner, "lookup", b"blob", b"salt", b"approval")
             .unwrap_err()
             .contains("failed to clear expired pairing blobs"));
     }

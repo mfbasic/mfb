@@ -1,5 +1,5 @@
 use crate::blobstore::{BlobFetch, BlobKind, BlobStore};
-use crate::store::{now_unix, NewSession, Store};
+use crate::store::{now_unix, NewSession, PairingFetch, Store};
 use crate::{crypto, package};
 use axum::extract::{ConnectInfo, State};
 use axum::http::{header, StatusCode};
@@ -191,6 +191,12 @@ pub struct LinkStartRequest {
     pub blob: String,
     /// Base64url argon2id salt.
     pub salt: String,
+    /// Base64url Ed25519 PUBLIC half of the code-derived approval keypair
+    /// (bug-583). The old machine derives it from the code it just generated;
+    /// the server keeps it as the verifier for the fetch half. It is public
+    /// by construction — holding it does not let the relay sign anything.
+    #[serde(rename = "approvalKey")]
+    pub approval_key: String,
     #[serde(rename = "sessionToken")]
     pub session_token: String,
 }
@@ -211,6 +217,11 @@ pub struct LinkFetchRequest {
     pub auth_key: String,
     /// Role-separated proof-of-possession for the new auth key.
     pub proof: String,
+    /// Base64url Ed25519 signature over
+    /// `crypto::pairing_approval_message(lookup, authKey)`, made with the
+    /// private half derived from the typed pairing code (bug-583). This — not
+    /// the server-visible lookup — is the pairing approval.
+    pub approval: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -2495,9 +2506,16 @@ async fn link_start(
     if blob.is_empty() || blob.len() > 4096 || salt.is_empty() || salt.len() > 64 {
         return Err(bad_request("malformed pairing blob".to_string()));
     }
+    // bug-583: the approval verifier must be a well-formed Ed25519 public key,
+    // or the fetch half would have nothing real to check the code against.
+    let approval_key =
+        crypto::decode_bytes(&request.approval_key, "approvalKey").map_err(bad_request)?;
+    if approval_key.len() != crypto::PUBLIC_KEY_LEN {
+        return Err(bad_request("malformed pairing approval key".to_string()));
+    }
     let expires_at = state
         .store
-        .store_pairing_blob(owner.id, &request.lookup, &blob, &salt)
+        .store_pairing_blob(owner.id, &request.lookup, &blob, &salt, &approval_key)
         .map_err(conflict_or_bad_request)?;
     Ok(Json(LinkStartResponse {
         owner: owner.owner_display,
@@ -2505,15 +2523,19 @@ async fn link_start(
     }))
 }
 
-/// New-machine side of a link: presenting the correct code-derived lookup is
-/// the pairing approval. The new machine's auth key is registered to the
-/// account and the (single-use) blob handed over in the same exchange.
+/// New-machine side of a link: the pairing approval is a signature made with
+/// the key derived from the typed pairing CODE (bug-583) over this exact auth
+/// public key. The lookup only *finds* the pending pairing — it is visible to
+/// the relay and to anyone who can read the database, so it authorizes
+/// nothing. On a valid approval the new machine's auth key is registered to
+/// the account and the (single-use) blob handed over in the same exchange.
 async fn link_fetch(
     State(state): State<AppState>,
     Json(request): Json<LinkFetchRequest>,
 ) -> Result<Json<LinkFetchResponse>, (StatusCode, Json<ErrorResponse>)> {
     let auth_key = crypto::decode_bytes(&request.auth_key, "authKey").map_err(bad_request)?;
     let proof = crypto::decode_bytes(&request.proof, "proof").map_err(bad_request)?;
+    let approval = crypto::decode_bytes(&request.approval, "approval").map_err(bad_request)?;
     // Verify the proof BEFORE consuming the single-use blob, so a malformed
     // request cannot burn a pending pairing.
     let Some((owner_record, _ident)) = state
@@ -2527,14 +2549,28 @@ async fn link_fetch(
         crypto::registration_message(crypto::ROLE_AUTH, &owner_record.owner_display, &auth_key);
     crypto::verify(&auth_key, &message, &proof)
         .map_err(|_| bad_request("invalid auth proof-of-possession signature".to_string()))?;
-    let Some((blob, salt)) = state
+    // The approval is checked inside the store transaction, so a caller that
+    // cannot prove the code neither receives the blob nor spends the honest
+    // machine's single-use pairing.
+    let approval_message = crypto::pairing_approval_message(&request.lookup, &auth_key);
+    let fetched = state
         .store
-        .take_pairing_blob(&request.owner, &request.lookup)
-        .map_err(internal)?
-    else {
-        return Err(bad_request(
-            "unknown, used, or expired pairing code".to_string(),
-        ));
+        .take_pairing_blob(&request.owner, &request.lookup, |approval_key| {
+            crypto::verify(approval_key, &approval_message, &approval).is_ok()
+        })
+        .map_err(internal)?;
+    let (blob, salt) = match fetched {
+        PairingFetch::Relayed { blob, salt } => (blob, salt),
+        PairingFetch::Unapproved => {
+            return Err(bad_request(
+                "pairing approval does not prove the pairing code".to_string(),
+            ))
+        }
+        PairingFetch::Missing => {
+            return Err(bad_request(
+                "unknown, used, or expired pairing code".to_string(),
+            ))
+        }
     };
     let (owner, key) = state
         .store
@@ -6701,12 +6737,15 @@ mod tests {
         let salt = vec![9u8; 16];
         let good_blob = crypto::encode_bytes(&blob);
         let good_salt = crypto::encode_bytes(&salt);
+        let (approval_public, approval_private) = crypto::pairing_approval_keypair(&code).unwrap();
+        let good_approval_key = crypto::encode_bytes(&approval_public);
         let start =
             |owner: &str, session: &str, lookup: &str, blob: &str, salt: &str| LinkStartRequest {
                 owner: owner.to_string(),
                 lookup: lookup.to_string(),
                 blob: blob.to_string(),
                 salt: salt.to_string(),
+                approval_key: good_approval_key.clone(),
                 session_token: session.to_string(),
             };
 
@@ -6811,11 +6850,21 @@ mod tests {
             .unwrap(),
         );
         let key = crypto::encode_bytes(&new_public);
+        // The pairing approval: the typed code signs THIS auth key for THIS
+        // pairing (bug-583).
+        let approval = crypto::encode_bytes(
+            &crypto::sign(
+                &approval_private,
+                &crypto::pairing_approval_message(&lookup, &new_public),
+            )
+            .unwrap(),
+        );
         let fetch = |owner: &str, lookup: &str, auth_key: &str, proof: &str| LinkFetchRequest {
             owner: owner.to_string(),
             lookup: lookup.to_string(),
             auth_key: auth_key.to_string(),
             proof: proof.to_string(),
+            approval: approval.clone(),
         };
 
         assert_eq!(
@@ -6909,6 +6958,145 @@ mod tests {
             err_of(link_fetch(State(h.state), Json(fetch("alice", &lookup, &key, &proof)),).await)
                 .1,
             "unknown, used, or expired pairing code",
+        );
+    }
+
+    /// bug-583: the server-visible `lookup` is NOT the pairing approval. The
+    /// relay (or any database reader) sees the lookup the moment the old
+    /// machine parks the blob; if that alone enrols an auth key, a server
+    /// that provably cannot read the ident blob can still impersonate the
+    /// account at the auth layer — exactly what plan-23 §2 ("a full server
+    /// compromise yields zero user keys", machines are equals) forbids.
+    /// Authorization must require the pairing CODE, which only the user
+    /// carries from the old machine to the new one.
+    #[tokio::test]
+    async fn pairing_lookup_without_code_cannot_enrol_an_auth_key() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+
+        // An honest link starts: the old machine seals its ident keypair
+        // under the code and parks it. The relay now knows the lookup.
+        let code = crypto::generate_pairing_code();
+        let lookup = crypto::pairing_lookup(&code);
+        let mut plaintext = keys.ident_private.clone();
+        plaintext.extend_from_slice(&keys.ident_public);
+        let (blob, salt) = crypto::seal_pairing_blob(&code, &plaintext).unwrap();
+        let (approval_public, approval_private) = crypto::pairing_approval_keypair(&code).unwrap();
+        let _ = link_start(
+            State(h.state.clone()),
+            Json(LinkStartRequest {
+                owner: "alice".to_string(),
+                lookup: lookup.clone(),
+                blob: crypto::encode_bytes(&blob),
+                salt: crypto::encode_bytes(&salt),
+                approval_key: crypto::encode_bytes(&approval_public),
+                session_token: token.clone(),
+            }),
+        )
+        .await
+        .expect("pairing blob stored");
+
+        // The relay adversary: it has the lookup, the blob, the salt and the
+        // approval public key — everything the server stores — and nothing
+        // else. It cannot open the blob, but it can mint a keypair and sign
+        // the ordinary auth proof-of-possession over its OWN key, and it can
+        // attach an approval signature made with a key of its own choosing.
+        let (relay_public, relay_private) = crypto::generate_keypair();
+        let relay_proof = crypto::sign(
+            &relay_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &relay_public),
+        )
+        .unwrap();
+        let (forged_public, forged_private) = crypto::generate_keypair();
+        assert_ne!(forged_public, approval_public);
+        let relay_fetch = |approval: Vec<u8>| LinkFetchRequest {
+            owner: "alice".to_string(),
+            lookup: lookup.clone(),
+            auth_key: crypto::encode_bytes(&relay_public),
+            proof: crypto::encode_bytes(&relay_proof),
+            approval: crypto::encode_bytes(&approval),
+        };
+        let forged = crypto::sign(
+            &forged_private,
+            &crypto::pairing_approval_message(&lookup, &relay_public),
+        )
+        .unwrap();
+        for attempt in [forged, vec![0u8; crypto::SIGNATURE_LEN]] {
+            let (status, message) =
+                err_of(link_fetch(State(h.state.clone()), Json(relay_fetch(attempt))).await);
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{message}");
+            assert_eq!(message, "pairing approval does not prove the pairing code");
+        }
+        // No auth key was enrolled for the relay's fingerprint, so it cannot
+        // complete a login challenge.
+        assert!(h
+            .store
+            .owner_auth_key_by_fingerprint("alice", &crypto::fingerprint(&relay_public))
+            .unwrap()
+            .is_none());
+
+        // An approval the honest new machine made for ITS key cannot be
+        // re-pointed at the relay's key: the auth key is inside the signed
+        // bytes.
+        let (new_public, new_private) = crypto::generate_keypair();
+        let new_proof = crypto::sign(
+            &new_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &new_public),
+        )
+        .unwrap();
+        let honest_approval = crypto::sign(
+            &approval_private,
+            &crypto::pairing_approval_message(&lookup, &new_public),
+        )
+        .unwrap();
+        assert_eq!(
+            err_of(
+                link_fetch(
+                    State(h.state.clone()),
+                    Json(relay_fetch(honest_approval.clone())),
+                )
+                .await
+            )
+            .1,
+            "pairing approval does not prove the pairing code",
+        );
+
+        // POSITIVE PIN: none of the refusals burned the pairing. The honest
+        // new machine, holding the typed code, still completes the link, gets
+        // the exact relayed bytes back, and its key opens a real session.
+        let fetched = link_fetch(
+            State(h.state.clone()),
+            Json(LinkFetchRequest {
+                owner: "alice".to_string(),
+                lookup: lookup.clone(),
+                auth_key: crypto::encode_bytes(&new_public),
+                proof: crypto::encode_bytes(&new_proof),
+                approval: crypto::encode_bytes(&honest_approval),
+            }),
+        )
+        .await
+        .expect("the machine holding the code still links")
+        .0;
+        assert_eq!(crypto::decode_bytes(&fetched.blob, "blob").unwrap(), blob);
+        assert_eq!(
+            crypto::open_pairing_blob(
+                &code,
+                &crypto::decode_bytes(&fetched.blob, "blob").unwrap(),
+                &crypto::decode_bytes(&fetched.salt, "salt").unwrap(),
+            )
+            .unwrap(),
+            plaintext,
+        );
+        let session = open_session_for_key(
+            &h.store,
+            "alice",
+            &new_private,
+            &crypto::fingerprint(&new_public),
+        );
+        assert_eq!(
+            verify_session_token(&h.store, &session).unwrap().sub,
+            "alice"
         );
     }
 
@@ -7741,16 +7929,19 @@ mod tests {
         let token_session =
             open_session_for_key(&h.store, "alice", &token_private, &token_fingerprint);
 
-        let lookup = crypto::pairing_lookup(&crypto::generate_pairing_code());
-        let start = |session: &str, lookup: &str| LinkStartRequest {
+        let code = crypto::generate_pairing_code();
+        // Both halves derive their pairing approval material from the code, as
+        // the real client does (bug-583).
+        let start = |session: &str, code: &str| LinkStartRequest {
             owner: "alice".to_string(),
-            lookup: lookup.to_string(),
+            lookup: crypto::pairing_lookup(code),
             blob: crypto::encode_bytes(&[7u8; 64]),
             salt: crypto::encode_bytes(&[9u8; 16]),
+            approval_key: crypto::encode_bytes(&crypto::pairing_approval_keypair(code).unwrap().0),
             session_token: session.to_string(),
         };
         assert_eq!(
-            err_of(link_start(State(h.state.clone()), Json(start(&token_session, &lookup)),).await),
+            err_of(link_start(State(h.state.clone()), Json(start(&token_session, &code)),).await),
             (
                 StatusCode::BAD_REQUEST,
                 "a publish token session cannot link a machine".to_string(),
@@ -7766,14 +7957,25 @@ mod tests {
             )
             .unwrap(),
         );
-        let fetch = |lookup: &str| LinkFetchRequest {
-            owner: "alice".to_string(),
-            lookup: lookup.to_string(),
-            auth_key: crypto::encode_bytes(&new_public),
-            proof: proof.clone(),
+        let fetch = |code: &str| {
+            let lookup = crypto::pairing_lookup(code);
+            let approval_private = crypto::pairing_approval_keypair(code).unwrap().1;
+            LinkFetchRequest {
+                approval: crypto::encode_bytes(
+                    &crypto::sign(
+                        &approval_private,
+                        &crypto::pairing_approval_message(&lookup, &new_public),
+                    )
+                    .unwrap(),
+                ),
+                owner: "alice".to_string(),
+                lookup,
+                auth_key: crypto::encode_bytes(&new_public),
+                proof: proof.clone(),
+            }
         };
         assert_eq!(
-            err_of(link_fetch(State(h.state.clone()), Json(fetch(&lookup))).await).1,
+            err_of(link_fetch(State(h.state.clone()), Json(fetch(&code))).await).1,
             "unknown, used, or expired pairing code",
         );
         // Refusing the link did not narrow the token further: it still attests
@@ -7795,10 +7997,10 @@ mod tests {
 
         // A real two-machine link is untouched: the account's machine key parks
         // the blob and the new machine fetches it.
-        let _ = link_start(State(h.state.clone()), Json(start(&owner_session, &lookup)))
+        let _ = link_start(State(h.state.clone()), Json(start(&owner_session, &code)))
             .await
             .expect("a machine-key session still starts a link");
-        let fetched = link_fetch(State(h.state.clone()), Json(fetch(&lookup)))
+        let fetched = link_fetch(State(h.state.clone()), Json(fetch(&code)))
             .await
             .expect("the new machine still fetches the pairing")
             .0;
@@ -7807,10 +8009,10 @@ mod tests {
         // itself enrol the next machine.
         let linked_session =
             open_session_for_key(&h.store, "alice", &new_private, &fetched.auth_fingerprint);
-        let next_lookup = crypto::pairing_lookup(&crypto::generate_pairing_code());
+        let next_code = crypto::generate_pairing_code();
         let _ = link_start(
             State(h.state.clone()),
-            Json(start(&linked_session, &next_lookup)),
+            Json(start(&linked_session, &next_code)),
         )
         .await
         .expect("a linked machine key can pair another machine");

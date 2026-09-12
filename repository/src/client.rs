@@ -420,6 +420,11 @@ pub fn link_start(
     let mut plaintext = ident_private.clone();
     plaintext.extend_from_slice(&ident_public);
     let (blob, salt) = crypto::seal_pairing_blob(&code, &plaintext)?;
+    // bug-583: publish the PUBLIC half of the code-derived approval keypair as
+    // the verifier for the fetch half. The code itself never leaves this
+    // machine, so the relay cannot derive the private half and cannot approve
+    // an auth key of its own.
+    let (approval_public, _approval_private) = crypto::pairing_approval_keypair(&code)?;
     let response = post_json::<LinkStartResponse>(
         repo_url,
         "/machines/link",
@@ -428,6 +433,7 @@ pub fn link_start(
             lookup: crypto::pairing_lookup(&code),
             blob: crypto::encode_bytes(&blob),
             salt: crypto::encode_bytes(&salt),
+            approval_key: crypto::encode_bytes(&approval_public),
             session_token,
         },
     )?;
@@ -449,14 +455,24 @@ pub fn link_fetch(
     let (auth_public, auth_private) = crypto::generate_keypair();
     let message = crypto::registration_message(crypto::ROLE_AUTH, owner, &auth_public);
     let proof = crypto::sign(&auth_private, &message)?;
+    // bug-583: prove possession of the typed code by signing THIS auth key
+    // with the code-derived approval private key. The lookup only names the
+    // pending pairing; it is not authorization.
+    let lookup = crypto::pairing_lookup(code.trim());
+    let (_approval_public, approval_private) = crypto::pairing_approval_keypair(code.trim())?;
+    let approval = crypto::sign(
+        &approval_private,
+        &crypto::pairing_approval_message(&lookup, &auth_public),
+    )?;
     let response = post_json::<LinkFetchResponse>(
         repo_url,
         "/machines/link/fetch",
         &LinkFetchRequest {
             owner: owner.to_string(),
-            lookup: crypto::pairing_lookup(code.trim()),
+            lookup,
             auth_key: crypto::encode_bytes(&auth_public),
             proof: crypto::encode_bytes(&proof),
+            approval: crypto::encode_bytes(&approval),
         },
     )?;
     let blob = crypto::decode_bytes(&response.blob, "blob")?;
@@ -3181,6 +3197,15 @@ mod tests {
         let mut expected = ident_private;
         expected.extend_from_slice(&ident_public);
         assert_eq!(opened, expected);
+
+        // bug-583: the parked row also carries the PUBLIC half of the
+        // code-derived approval keypair — the verifier the fetch half is
+        // checked against. The private half stays with the code.
+        let (approval_public, _approval_private) = crypto::pairing_approval_keypair(&code).unwrap();
+        assert_eq!(
+            crypto::decode_bytes(&field(&request, "approvalKey"), "approvalKey").unwrap(),
+            approval_public
+        );
     }
 
     /// The new machine installs the relayed ident keypair alongside a fresh
@@ -3245,6 +3270,19 @@ mod tests {
             &crypto::registration_message(crypto::ROLE_AUTH, "alice", &auth_public),
         );
         assert_eq!(field(&request, "lookup"), crypto::pairing_lookup(code));
+
+        // bug-583 cohesion pin: the approval this client sends is exactly what
+        // the server verifies — the code-derived approval key signing THIS
+        // pairing's lookup and THIS auth key. (`link_start`'s half of the pair
+        // is pinned in the sibling test above, so the two together are the
+        // end-to-end approval the server checks.)
+        let (approval_public, _approval_private) = crypto::pairing_approval_keypair(code).unwrap();
+        assert_signed(
+            &request,
+            "approval",
+            &approval_public,
+            &crypto::pairing_approval_message(&crypto::pairing_lookup(code), &auth_public),
+        );
     }
 
     /// A blob that decrypts but is not a well-formed ident keypair is refused

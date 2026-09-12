@@ -261,6 +261,49 @@ pub fn pairing_lookup(code: &str) -> String {
     hex::encode(sha256(&message))
 }
 
+/// The pairing *approval* keypair, derived from the code alone (bug-583).
+///
+/// The old machine publishes only the PUBLIC half at `link_start`; the new
+/// machine re-derives the private half from the code the user typed and signs
+/// its own auth public key with it. The relay sees the lookup and this public
+/// key, neither of which lets it forge the signature, so the code — not the
+/// server-visible lookup — is the pairing approval plan-23 §3.2 step 1 names.
+///
+/// The derivation is deterministic in the code (argon2id over a
+/// domain-tagged password, salted with the code's own lookup) so nothing new
+/// has to cross the wire, and it is domain-separated from the blob key: a
+/// different password prefix and a different salt, so the approval key can
+/// never decrypt the blob.
+pub fn pairing_approval_keypair(code: &str) -> Result<(Vec<u8>, Vec<u8>), String> {
+    use argon2::Argon2;
+    let mut password = Vec::new();
+    password.extend_from_slice(b"mfb-pairing-approval-v1\0");
+    password.extend_from_slice(code.as_bytes());
+    let salt = pairing_lookup(code);
+    let mut seed = [0u8; 32];
+    Argon2::default()
+        .hash_password_into(&password, salt.as_bytes(), &mut seed)
+        .map_err(|err| format!("failed to derive pairing approval key: {err}"))?;
+    let signing = SigningKey::from_bytes(&seed);
+    Ok((
+        signing.verifying_key().to_bytes().to_vec(),
+        signing.to_bytes().to_vec(),
+    ))
+}
+
+/// What the pairing approval signs: the exact pairing row (by its lookup) and
+/// the exact auth public key being enrolled. Binding the key is what stops a
+/// relay from substituting its own key into an honest pairing; binding the
+/// lookup stops an approval from being replayed onto another pairing.
+pub fn pairing_approval_message(lookup: &str, auth_key: &[u8]) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-pairing-approve-v1\0");
+    message.extend_from_slice(lookup.as_bytes());
+    message.push(0);
+    message.extend_from_slice(auth_key);
+    message
+}
+
 fn pairing_key(code: &str, salt: &[u8]) -> Result<[u8; 32], String> {
     use argon2::Argon2;
     let mut key = [0u8; 32];
@@ -381,6 +424,56 @@ mod tests {
         assert_eq!(pairing_lookup(&code), pairing_lookup(&code));
         assert_ne!(pairing_lookup(&code), pairing_lookup(&wrong));
         assert_eq!(pairing_lookup(&code).len(), 64);
+    }
+
+    /// bug-583: the approval keypair is a pure function of the code, is
+    /// different for every code, and is domain-separated from the blob key —
+    /// so publishing its public half tells the relay nothing, and the signed
+    /// bytes name the exact pairing and the exact auth key.
+    #[test]
+    fn pairing_approval_is_derived_from_the_code_and_binds_the_auth_key() {
+        let code = generate_pairing_code();
+        let (public, private) = pairing_approval_keypair(&code).unwrap();
+        assert_eq!(
+            pairing_approval_keypair(&code).unwrap(),
+            (public.clone(), private.clone())
+        );
+        assert_eq!(public_from_private(&private).unwrap(), public);
+
+        let other = generate_pairing_code();
+        assert_ne!(pairing_approval_keypair(&other).unwrap().0, public);
+
+        // The approval key is not the blob key: it cannot open a blob sealed
+        // under the same code.
+        let (blob, salt) = seal_pairing_blob(&code, b"ident-keypair").unwrap();
+        assert!(open_pairing_blob(&encode_bytes(&private), &blob, &salt).is_err());
+
+        // A signature made for one auth key does not verify for another, and
+        // does not carry across pairings.
+        let lookup = pairing_lookup(&code);
+        let (auth_public, _auth_private) = generate_keypair();
+        let (rogue_public, _rogue_private) = generate_keypair();
+        let approval = sign(&private, &pairing_approval_message(&lookup, &auth_public)).unwrap();
+        verify(
+            &public,
+            &pairing_approval_message(&lookup, &auth_public),
+            &approval,
+        )
+        .unwrap();
+        assert!(verify(
+            &public,
+            &pairing_approval_message(&lookup, &rogue_public),
+            &approval
+        )
+        .is_err());
+        assert!(verify(
+            &public,
+            &pairing_approval_message(&pairing_lookup(&other), &auth_public),
+            &approval
+        )
+        .is_err());
+        assert!(pairing_approval_message(&lookup, &auth_public)
+            .starts_with(b"mfb-pairing-approve-v1\0"));
     }
 
     #[test]

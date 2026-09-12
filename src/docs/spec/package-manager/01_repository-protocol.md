@@ -97,7 +97,7 @@ response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]]
 | `/timestamp.json` | GET | none | — | `SignedMetadataResponse` | `repo trust` |
 | `/idents/<owner>` | GET | none | — | `IdentChainResponse` | pin-follow (`pkg verify`) |
 | `/machines/link` | POST | session token | `LinkStartRequest` | `LinkStartResponse` | `repo link --start` |
-| `/machines/link/fetch` | POST | pairing code + proof | `LinkFetchRequest` | `LinkFetchResponse` | `repo link` |
+| `/machines/link/fetch` | POST | pairing-code approval + proof | `LinkFetchRequest` | `LinkFetchResponse` | `repo link` |
 | `/machines/revoke/challenge` | POST | none (challenge issuance) | `RevokeChallengeRequest` | `ChallengeResponse` | `machine revoke` (step 1) |
 | `/machines/revoke` | POST | ident signature | `RevokeRequest` | `RevokeResponse` | `machine revoke` (step 2) |
 | `/validate` | POST | session token | `PackageArtifactRequest` | `ValidatePackageResponse` | `repo publish` (step 1) |
@@ -590,6 +590,7 @@ ChaCha20-Poly1305 under an argon2id key derived from the code, and posts
   "lookup": "<hex sha256 of 'mfb-pairing-lookup-v1\\0' || code>",
   "blob": "<base64url: 12-byte nonce || ciphertext+tag>",
   "salt": "<base64url argon2id salt>",
+  "approvalKey": "<base64url public half of the code-derived approval keypair>",
   "sessionToken": "<JWT>"
 }
 ```
@@ -601,6 +602,14 @@ pending pairing with the same lookup yields `400` (`already pending`; only
 `lookup` is a one-way hash of the code, so the relaying server can neither
 read the blob nor derive its key.[[repository/src/store.rs:store_pairing_blob]]
 
+The row also carries the **approval key**: the public half of an Ed25519
+keypair whose seed is `argon2id("mfb-pairing-approval-v1\0" || code,
+salt = lookup)`. The old machine derives it from the code it just generated
+and publishes only the public half, which is the verifier the fetch half is
+checked against. It is domain-separated from the blob key (different password
+prefix, different salt), so it can never open the blob.
+[[repository/src/crypto.rs:pairing_approval_keypair]]
+
 New machine (`repo link <owner>`, types the code): generates its **own auth
 keypair**, builds the role-separated registration proof, and posts
 `LinkFetchRequest`:[[repository/src/server.rs:link_fetch]]
@@ -610,14 +619,32 @@ keypair**, builds the role-separated registration proof, and posts
   "owner": "alice",
   "lookup": "<hex, derived from the typed code>",
   "authKey": "<base64url new auth public key>",
-  "proof": "<base64url signature over registration_message(auth)>"
+  "proof": "<base64url signature over registration_message(auth)>",
+  "approval": "<base64url signature over pairing_approval_message(lookup, authKey)>"
 }
 ```
 
-Presenting the correct code-derived lookup **is** the pairing approval: the
-server verifies the proof (before consuming the blob, so a malformed request
-cannot burn a pending pairing), consumes the blob (single use — the stored
-ciphertext is destroyed as it is handed out), registers the new auth key on
+The pairing approval is the **`approval` signature**, not the lookup. The
+lookup only *names* the pending pairing: the server saw it the moment the old
+machine parked the blob, and so does anyone who can read the database, so it
+authorizes nothing. The approval is made with the private half of the
+code-derived approval keypair over
+
+```text
+"mfb-pairing-approve-v1\0" || lookup || "\0" || authKey
+```
+
+which binds the exact pairing *and* the exact auth key being enrolled: a relay
+can neither forge it without the 125-bit code nor re-point an honest machine's
+approval at a key of its own.[[repository/src/crypto.rs:pairing_approval_message]]
+
+The server verifies the proof (before consuming the blob, so a malformed
+request cannot burn a pending pairing), then verifies the approval **inside
+the consuming transaction** — a failed approval rolls back, so a caller
+holding only the lookup can neither take the blob nor spend the honest
+machine's single-use pairing (`400 pairing approval does not prove the pairing
+code`). On success it consumes the blob (single use — the stored ciphertext is
+destroyed as it is handed out), registers the new auth key on
 the account, and returns
 `{"owner", "blob", "salt", "authFingerprint"}`. The client decrypts with the
 typed code (a wrong code fails the AEAD tag), cross-checks the ident keypair,
