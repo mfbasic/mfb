@@ -1,0 +1,72 @@
+' bug-550 ("`collections::append([], x)` type-checks and then fails to build").
+'
+' RED half: every line below that passes an inline `[]` to a generic collections
+' parameter refused to build before the fix, with the internal
+'   error: native collection list item must be Unknown, got Integer
+' because the empty literal reached codegen typed `List OF Unknown` and the item
+' check compared the item against an element type nothing had filled in.
+'
+' POSITIVE half: the same members written the ways that ALREADY worked — a
+' non-empty literal, a named empty binding, a nested element type — must keep
+' producing the same values. The fix gives a generic parameter position an
+' expected type it never had, so what is at risk is OVERLOAD RESOLUTION: `append`
+' has an element form and a concatenating form, and picking the wrong one changes
+' a length and an element, not an exit code. Every assertion is therefore a VALUE.
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  ' --- RED: an inline `[]` at a generic parameter, against a declared type. ---
+  LET grown AS List OF Integer = collections::append([], 1)
+  io::print("append=" & toString(len(grown)) & " " & toString(collections::get(grown, 0)))
+
+  LET front AS List OF String = collections::prepend([], "a")
+  io::print("prepend=" & toString(len(front)) & " " & collections::get(front, 0))
+
+  LET placed AS List OF Integer = collections::insert([], 0, 9)
+  io::print("insert=" & toString(len(placed)) & " " & toString(collections::get(placed, 0)))
+
+  ' The CONCATENATING overload against an empty literal. Both `append` forms
+  ' unify with `([], List OF String)`; the declared type is what selects this one,
+  ' so a length of 1 here would mean the element form won and the result is a
+  ' `List OF List OF String`.
+  LET joined AS List OF String = collections::append([], ["a", "b"])
+  io::print("concat=" & toString(len(joined)) & " " & collections::get(joined, 1))
+
+  ' A nested element type: the empty literal is the OUTER list.
+  LET nested AS List OF List OF Integer = collections::append([], [1, 2])
+  io::print("nested=" & toString(len(nested)) & " " & toString(len(collections::get(nested, 0))))
+
+  ' No annotation at all. This BUILDS now (it did not before), and the list it
+  ' produces has one element. Its static type stays `List OF Unknown`, because an
+  ' unannotated `LET` freezes the binding's type from the call's `Arg(0)` return
+  ' before any argument is lowered — the same pre-existing limitation that makes
+  ' `LET e = []` followed by `collections::get(e, 0)` an Unknown-typed call. That
+  ' is not bug-550 (it reproduces with no `append` in sight), so this line pins
+  ' only what the fix changed: the program builds and the length is right.
+  LET inferred = collections::append([], 5)
+  io::print("inferred=" & toString(len(inferred)))
+
+  ' --- POSITIVE: the spellings that already built must be unchanged. ---
+  LET literal AS List OF Integer = collections::append([1, 2], 3)
+  io::print("literal=" & toString(len(literal)) & " " & toString(collections::get(literal, 2)))
+
+  LET concatenated AS List OF Integer = collections::append([1, 2], [3, 4])
+  io::print("both=" & toString(len(concatenated)) & " " & toString(collections::get(concatenated, 3)))
+
+  LET named AS List OF Integer = []
+  LET fromNamed AS List OF Integer = collections::append(named, 7)
+  io::print("named=" & toString(len(named)) & " " & toString(len(fromNamed)) & " " & toString(collections::get(fromNamed, 0)))
+
+  MUT accumulated AS List OF Byte = []
+  FOR i = 65 TO 67
+    accumulated = collections::append(accumulated, toByte(i))
+  NEXT
+  io::print("loop=" & toString(len(accumulated)) & " " & toString(collections::get(accumulated, 2)))
+
+  ' Other generic positions the same expected-type path now answers: a query
+  ' whose element type is decided by the second argument, and a slice.
+  io::print("find=" & toString(collections::find([10, 20, 30], 20)))
+  io::print("mid=" & toString(len(collections::mid([1, 2, 3, 4], 1, 2))))
+  RETURN 0
+END FUNC

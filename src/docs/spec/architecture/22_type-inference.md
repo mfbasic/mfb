@@ -35,6 +35,7 @@ where the declared or contextual type re-types an unsuffixed literal.
 | Constructor field value `Field := <expr>` | the field's declared type | constructor lowering |
 | `WITH` field update value | the field's declared type | `WITH` lowering |
 | Typed list-literal element | `expected_element` of `List OF E` | list-literal lowering |
+| Call argument | the parameter's type (see below) | builtin & user call lowering |
 | Inline `TRAP <call>` success value | propagated through to the inner call | `Trapped` arm |
 
 A binding **without** an annotation, an assignment to an existing variable, and a
@@ -52,17 +53,34 @@ These positions are **synthesized bottom-up only** (expected is never consulted)
   with no `OF` clause is not a valid synthesis source.
   [[src/ir/lower.rs:lower_expression_with_expected]]
 
-### Call arguments — expected is NOT pushed into the argument
+### Call arguments — the parameter type IS the expected type
 
-The prose model says a call argument is checked against its parameter type, and
-it is — but the parameter type is **not** threaded into argument *inference*.
-Each argument is typed with no expected type, then validated with
-`expression_compatible(param_type, actual, expr)`: on the source path by the
-shape pass over the HIR argument list (where the literal shapes are still
-visible), on the package path by the IR verifier over the lowered arguments.
-Literal coercion (e.g. `Integer` literal → `Byte`/`Fixed`) therefore happens at
-the **check** site, not by re-inferring the literal at the parameter type.
+A call argument is lowered with its parameter type as the expected type, from
+`call_argument_expected_type`, which answers in this order:
+[[src/ir/lower.rs:call_argument_expected_type]]
+
+1. the built-in's positional parameter types, when the member has one
+   monomorphic overload (`argument_types_typed`);
+2. the type every overload agrees on at that position (`agreed_argument_type`) —
+   this is what decides union wrapping, so a union-typed parameter still receives
+   a tagged union after its member gains a second overload;
+3. for a **generic** parameter (`collections::append`'s `List OF T`), the type
+   the registry's own overload selection resolves it to from the call's actual
+   argument types, with the call's own expected type seeding the unification
+   (`resolved_parameter_type`); an ambiguous position — one where the surviving
+   overloads disagree — yields no expected type rather than a guess;
+4. the user function's declared parameter types, or a callable-typed local's.
+
+An argument with no answer from any of those lowers with no expected type. The
+argument is then *validated* with `expression_compatible(param_type, actual,
+expr)`: on the source path by the shape pass over the HIR argument list (where
+the literal shapes are still visible), on the package path by the IR verifier
+over the lowered arguments.
 [[src/ir/shape.rs:check_call_shape]] [[src/ir/verify/calls.rs:check_call_argument_types]]
+
+Rule 3 is what gives an empty `[]` written at a generic parameter an element
+type. Without it the literal lowers as `List OF Unknown` and the collections
+lowering has no element type to check the item against.
 
 ### Overload resolution
 
@@ -223,7 +241,7 @@ list_literal_type(values, expected):
       for v in values: check expression_compatible(Ee, infer(v with expected Ee), v)
       → List(Ee)                              ; bidirectional path
   else:
-      if values empty → List(Unknown)
+      if values empty → List(Unknown)          ; only where there is no context at all
       element_type := infer(values[0])        ; FIRST element drives the type
       for v in values[1..]:
           a := infer(v)

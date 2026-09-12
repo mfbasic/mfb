@@ -3199,6 +3199,94 @@ pub(crate) fn agreed_argument_type(qualified: &str, index: usize) -> Option<Para
     agreed.cloned()
 }
 
+/// The expected type of argument `index` for a call to `qualified` whose actual
+/// argument types are `arg_types` — the *generic* case neither
+/// [`argument_types_typed`] nor [`agreed_argument_type`] can answer.
+///
+/// bug-550 (`collections::append([], x)` type-checks and then fails to build —
+/// NOT the archived bug-550 about `debug_assert!`). Both of those decline the
+/// moment a parameter mentions a
+/// [`ParameterType::Var`], because a generic parameter has no expected type
+/// independent of the call. It does have one *given* the call: overload selection
+/// already unifies every parameter against every actual argument and records the
+/// variable bindings, so `collections::append([], 1)` binds `T := Unknown` from the
+/// empty literal and then REFINES it to `Integer` from the item. Substituting that
+/// back into parameter 0 yields `List OF Integer` — the expected type the empty
+/// literal needs to lower as, instead of the `List OF Unknown` that reaches
+/// `collection_argument_as_list_slot` and fails the item-type check with an
+/// internal "must be Unknown, got Integer".
+///
+/// `expected_return`, when the call sits somewhere with a declared type (a `LET`
+/// annotation, a parameter, a `RETURN`), SEEDS the unification: an `Arg(n)` return
+/// is the n-th parameter's pattern, so `LET xs AS List OF String =
+/// collections::append([], ["a", "b"])` binds `T := String` from the annotation
+/// before any argument is looked at. Without that seed both `append` overloads
+/// unify with `([], List OF String)` — the element form binding `T := List OF
+/// String`, the concatenating form `T := String` — and the position has no single
+/// answer; with it only the concatenating form survives.
+///
+/// Deliberately LENIENT: this feeds type propagation, not validation, so a
+/// not-yet-resolved argument must not reject an overload. It also answers only when
+/// the surviving overloads AGREE, mirroring [`agreed_argument_type`] — an ambiguous
+/// position yields `None` and lowers exactly as it did before, never a guess.
+/// Returns `None` too when no overload selects, when the position has no parameter,
+/// when that parameter is not generic, or when its variables are not all bound.
+pub(crate) fn resolved_parameter_type(
+    qualified: &str,
+    index: usize,
+    arg_types: &[ParameterType],
+    expected_return: Option<&ParameterType>,
+) -> Option<ParameterType> {
+    let function = registry().resolve_func(qualified)?.function;
+    let mut agreed: Option<ParameterType> = None;
+    for implementation in &function.implementations {
+        let required = implementation
+            .params
+            .iter()
+            .filter(|param| matches!(param.default, DefaultValue::None))
+            .count();
+        if arg_types.len() < required || arg_types.len() > implementation.params.len() {
+            continue;
+        }
+        let mut bindings = BTreeMap::new();
+        if let Some(expected) = expected_return {
+            let pattern = match &implementation.return_type {
+                ParameterType::Arg(n) => implementation.params.get(*n).map(|param| &param.ty),
+                other => Some(other),
+            };
+            if let Some(pattern) = pattern {
+                if !unify(pattern, expected, &mut bindings, false) {
+                    continue;
+                }
+            }
+        }
+        if !implementation
+            .params
+            .iter()
+            .zip(arg_types.iter())
+            .all(|(param, arg)| unify(&param.ty, arg, &mut bindings, false))
+        {
+            continue;
+        }
+        // Only the GENERIC positions are this function's business. A monomorphic
+        // parameter is already answered by `argument_types_typed` /
+        // `agreed_argument_type`, and a position those two deliberately decline
+        // (overloads that DISAGREE on a concrete type — `json::stringify`'s
+        // `indent`) must keep going through the existing selection path.
+        let param = implementation.params.get(index)?;
+        if !contains_var(&param.ty) {
+            return None;
+        }
+        let resolved = substitute(&param.ty, &bindings)?;
+        match &agreed {
+            None => agreed = Some(resolved),
+            Some(seen) if seen == &resolved => {}
+            Some(_) => return None,
+        }
+    }
+    agreed
+}
+
 pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
     let function = &registry().resolve_func(qualified)?.function;
     // A hand-authored phrasing on the descriptor wins — the union/range/generic-`or`
@@ -5221,6 +5309,69 @@ mod tests {
             matches!(&params[0], ParameterType::ThreadHandle { worker: true, .. }),
             "the first param is a ThreadWorker handle (got {:?})",
             params[0]
+        );
+    }
+
+    /// bug-550 (`append([], x)` does not build): a GENERIC parameter's expected
+    /// type, resolved from the call.
+    ///
+    /// `collections::append`'s parameter 0 is `List OF T`, which has no expected
+    /// type on its own — so `argument_types_typed`/`agreed_argument_type` both
+    /// decline and an inline `[]` written there used to lower as `List OF Unknown`.
+    /// Given the call's actual argument types the position DOES have an answer:
+    /// unification binds `T := Unknown` from the empty literal and refines it to
+    /// `Integer` from the item.
+    #[test]
+    fn resolved_parameter_type_infers_a_generic_position_from_the_call() {
+        let unknown_list = list_of(ParameterType::Unknown);
+        assert_eq!(
+            resolved_parameter_type(
+                "collections.append",
+                0,
+                &[unknown_list.clone(), ParameterType::Integer],
+                None,
+            ),
+            Some(list_of(ParameterType::Integer)),
+            "T refines Unknown -> Integer, so parameter 0 is List OF Integer"
+        );
+
+        // Both `append` overloads unify with `([], List OF String)` — the element
+        // form binding `T := List OF String`, the concatenating form `T := String` —
+        // and they disagree about parameter 0. With nothing to break the tie the
+        // answer is NONE, never a guess: the call keeps lowering exactly as before.
+        let string_list = list_of(ParameterType::String);
+        assert_eq!(
+            resolved_parameter_type(
+                "collections.append",
+                0,
+                &[unknown_list.clone(), string_list.clone()],
+                None,
+            ),
+            None,
+            "an ambiguous generic position declines"
+        );
+
+        // The declared type of what the call feeds breaks that tie. `append`
+        // returns `Arg(0)`, so the expected return IS parameter 0's pattern:
+        // seeding `T := String` leaves only the concatenating overload.
+        assert_eq!(
+            resolved_parameter_type(
+                "collections.append",
+                0,
+                &[unknown_list.clone(), string_list.clone()],
+                Some(&string_list),
+            ),
+            Some(string_list.clone()),
+            "the expected return type seeds the unification"
+        );
+
+        // A MONOMORPHIC position is not this function's business — the two
+        // existing providers answer it, and a position they deliberately decline
+        // must keep going through the existing selection path.
+        assert_eq!(
+            resolved_parameter_type("strings.upper", 0, &[ParameterType::String], None),
+            None,
+            "a non-generic parameter declines"
         );
     }
 

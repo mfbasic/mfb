@@ -1,0 +1,21 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/empty-list-literal-argument-rt
+Wrote AST to tests/rt-behavior/collections/empty-list-literal-argument-rt/empty_list_literal_argument_rt.ast
+Wrote IR to tests/rt-behavior/collections/empty-list-literal-argument-rt/empty_list_literal_argument_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/empty-list-literal-argument-rt
+Wrote executable to tests/rt-behavior/collections/empty-list-literal-argument-rt/build/empty_list_literal_argument_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/empty-list-literal-argument-rt/build/empty_list_literal_argument_rt.out
+append=1 1
+prepend=1 a
+insert=1 9
+concat=2 b
+nested=1 2
+inferred=1
+literal=3 3
+both=4 4
+named=0 1 7
+loop=3 67
+find=1
+mid=2
+[exit 0]

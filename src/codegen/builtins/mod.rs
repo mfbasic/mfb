@@ -680,6 +680,19 @@ pub(crate) fn agreed_argument_type(
     crate::codegen::registry::agreed_argument_type(callee, index)
 }
 
+/// The expected type of argument `index` at a call to `callee` whose actual argument
+/// types are `arg_types`, for a GENERIC parameter the two functions above decline
+/// (bug-550, `collections::append([], x)` does not build). See
+/// [`crate::codegen::registry::resolved_parameter_type`].
+pub(crate) fn resolved_argument_type(
+    callee: &str,
+    index: usize,
+    arg_types: &[crate::types::ParameterType],
+    expected_return: Option<&crate::types::ParameterType>,
+) -> Option<crate::types::ParameterType> {
+    crate::codegen::registry::resolved_parameter_type(callee, index, arg_types, expected_return)
+}
+
 /// Whether parameter `index` of the built-in `callee` is a compiler-known
 /// *non-escaping* callback position: the callee is
 /// guaranteed to invoke the callback only synchronously during the call, never
