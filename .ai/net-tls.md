@@ -233,7 +233,20 @@ In `repository/src/client.rs`, `ensure_transport_security(repo_url)` validates O
 
 The one shared `reqwest::blocking::Client` is built once in `http_client()` (a `OnceLock`) — that is the ONLY place `connect_timeout` AND the redirect policy can be set. Per-hop transport enforcement therefore lives in `redirect_policy()` / `ensure_redirect_target()`, not in `ensure_transport_security`. The redirect guard is https-only and blocks private/loopback/link-local/CGNAT/unspecified IP literals (incl. IPv4-mapped IPv6) — otherwise a hostile registry 302 drives blind SSRF (169.254.169.254, 127.0.0.1, RFC-1918) or an https→http downgrade leak. Blob bytes stay SHA-256 checked and control-plane bodies signature-checked regardless; the redirect guard only closes the transport-level leak.
 
-**The redirect guard is ORIGIN-BLIND, deliberately — so a credential-bearing request must not use it at all (bug-490).** `ensure_redirect_target` vets a hop's scheme and IP-LITERAL class, and its own doc says a hostname resolving to an internal address is out of scope. So `https://attacker.example/` — or `https://localhost:1/` — passes, and it has to, because a presigned blob URL is exactly that shape.
+**The redirect guard is ORIGIN-BLIND, deliberately — so a credential-bearing request must not use it at all (bug-490).** It vets a hop's scheme and destination, not WHO the hop belongs to, so `https://attacker.example/` passes — and it has to, because a presigned blob URL is exactly that shape.
+
+The guard is TWO stages, and both must pass (bug-585):
+
+1. `ensure_redirect_target` — scheme is https, and the host, *if it is an IP literal*, is not private/loopback/link-local/CGNAT/unspecified (incl. IPv4-mapped IPv6).
+2. `ensure_redirect_host_resolves_public` — the host NAME is resolved through the platform resolver and **every** returned address is checked, not just the first (reqwest walks the whole list and the order is attacker-controlled).
+
+So `https://localhost:1/` no longer passes: stage 1 never parsed it as an IP and waved it through, which was a live SSRF — a hostile 302 reached loopback-only services on the developer or CI machine, and via the shared `http_client()` that covers `get_json` (`/index`, `/root.json`, `/log/*`) as well as `fetch_blob`/`blob_exists`. `MAX_REDIRECTS = 10` bounded the chain, not the attack: each hop was a fresh probe of a registry-chosen host.
+
+Three properties to keep in mind before touching it:
+
+- **It fails CLOSED.** Unresolvable, or an empty answer set, is refused. An unresolvable hop could not have been connected to anyway, so this costs nothing real — and a filter that reads "could not check" as "allowed" is not a filter.
+- **An IP literal is not resolved at all**, so that path pays no DNS cost and cannot be failed closed by a resolver outage.
+- **DNS rebinding is NOT closed, by design.** Resolve-then-connect is TOCTOU: a ~0-TTL name that answers public once and `127.0.0.1` on the connector's lookup still wins. The fix raises the bar from "write the address in the `Location` header" to "win a resolver race"; it does not end the class. Pinning the connection to the approved address needs a custom `reqwest::dns::Resolve`, which is handed a bare hostname with no way to tell an initial URL from a redirect hop — and `http://localhost:<port>` is a SUPPORTED local-dev registry, so a blanket filtering resolver would break local dev and every loopback test. That is why it was not done.
 
 That is safe for a blob GET (bytes are content-address-verified afterwards) and unsafe for the control plane, because **the registry credential is a BODY field (`sessionToken`), not a header**. reqwest's cross-host stripping (`remove_sensitive_headers`: AUTHORIZATION, COOKIE, …) covers headers only, and a 307/308 preserves method and body. So a control-plane call answered with `307 Location: https://attacker.example/x` re-posts the session token — and for `/publish` the whole base64 `.mfp`, for `/machines/link` the sealed ident keypair.
 
