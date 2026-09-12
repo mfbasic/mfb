@@ -5,7 +5,7 @@ Effort: small-to-medium (generalise an existing test; most of the mechanism is a
 Severity: MEDIUM (shipped documentation is wrong; also hides unlocated compiler errors)
 Class: Missing gate / documentation correctness
 
-Status: **Gate built** — `scripts/man-examples-gate.sh`, CI job `man-examples` (see "2026-09-12: the gate" at the end)
+Status: **FIXED** — landed on main in `17c424988`: `scripts/man-examples-gate.sh`, CI job `man-examples`; merged-tree Linux sweep 1029 examples / 0 failed / exit 0 (see "2026-09-12: the gate")
 Regression Test: the gate itself; its own pins are recorded in that section
 
 
