@@ -5,7 +5,7 @@ Effort: small
 Severity: HIGH — a compiler panic, on a program the parser accepts deliberately
 Class: Correctness (internal panic) / Error model
 
-Status: **FIXED.** Reproduced with the release compiler and attributed to
+Status: **FIXED** (`1c83b7dda`). Reproduced with the release compiler and attributed to
 `main` (a clean `git archive main` build in `/tmp`), so it predates this branch.
 
 ## Reproduction
@@ -115,3 +115,10 @@ lines short and its gap is the inline-TRAP lifting internals — the `Eval` targ
 for a discarded trapped call, the `Checked` root operator, the closure and union
 arms of `scan_trap_call`. Writing one fixture that puts a trap in every legal
 position produced this panic on the first build.
+
+## Archived
+
+Fixed in `1c83b7dda`. Verified present at HEAD by content, not by the claim above —
+the fix symbols and the runtime fixture are both in the tree
+(`git grep ... HEAD`, `git ls-tree -r HEAD -- <fixture>`), which is what
+distinguishes a landed fix from a doc that says so.

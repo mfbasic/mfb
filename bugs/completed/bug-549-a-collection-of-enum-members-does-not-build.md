@@ -5,7 +5,7 @@ Effort: unknown — small if enums are simply missing from the payload classifie
 Severity: MEDIUM
 Class: Correctness (valid program does not build) / Diagnostics
 
-Status: **FIXED.** Reproduced with the release compiler, then closed — see
+Status: **FIXED** (`8144872bd`). Reproduced with the release compiler, then closed — see
 "The fix" below.
 
 ## Reproduction
@@ -132,3 +132,10 @@ there is nothing left to refuse. It does still apply to the neighbouring
 `native collection packed payload does not support type` refusals for the types
 that genuinely cannot be collection elements, and bug-550 (`append([], x)`) is
 another instance of the same reporting problem.
+
+## Archived
+
+Fixed in `8144872bd`. Verified present at HEAD by content, not by the claim above —
+the fix symbols and the runtime fixture are both in the tree
+(`git grep ... HEAD`, `git ls-tree -r HEAD -- <fixture>`), which is what
+distinguishes a landed fix from a doc that says so.
