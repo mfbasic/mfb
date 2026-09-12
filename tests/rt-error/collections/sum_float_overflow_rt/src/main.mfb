@@ -1,0 +1,12 @@
+IMPORT collections
+
+' bug-590: `collections::sum`'s Float arm folds with a bare float_add_d and
+' raises nothing, so the +Inf it produced used to be bound to a named local with
+' no trap and printed as f64::MAX's digits (exit 0). `mfb spec language types`
+' makes "bound to a named local" an observation boundary, so this must raise
+' ErrFloatOverflow (7-705-0015) at the LET.
+FUNC main AS Integer
+  LET values AS List OF Float = [1.0e308, 1.0e308, 1.0e308]
+  LET total AS Float = collections::sum(values)
+  RETURN 0
+END FUNC

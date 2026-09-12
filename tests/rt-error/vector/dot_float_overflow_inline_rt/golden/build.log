@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-error/vector/dot_float_overflow_inline_rt
+Wrote AST to tests/rt-error/vector/dot_float_overflow_inline_rt/func_vector_dot_float_overflow_inline_rt.ast
+Wrote IR to tests/rt-error/vector/dot_float_overflow_inline_rt/func_vector_dot_float_overflow_inline_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/vector/dot_float_overflow_inline_rt
+Wrote executable to tests/rt-error/vector/dot_float_overflow_inline_rt/build/func_vector_dot_float_overflow_inline_rt.out
+[exit 0]
+$ tests/rt-error/vector/dot_float_overflow_inline_rt/build/func_vector_dot_float_overflow_inline_rt.out
+Error: 7-705-0015
+Floating-point arithmetic overflowed to infinity.
+[exit 255]
