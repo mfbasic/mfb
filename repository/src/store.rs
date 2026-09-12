@@ -123,6 +123,80 @@ pub enum PairingFetch {
     Unapproved,
 }
 
+/// Tighten `path` so no group/other bit is set (bug-586).
+///
+/// The metadata database holds `server_keys.private_key`, the
+/// `server_secrets.secret` used to sign sessions, and
+/// `registry_config.{snapshot_private,timestamp_private}` — all in plaintext.
+/// SQLite creates the database and its `-wal`/`-shm` sidecars with the process
+/// umask, so under the ordinary `umask 022` they land at `0644` inside a `0755`
+/// directory: any other account on the host or with access to the mounted
+/// volume can copy the server's signing key and forge attestations, sessions
+/// and signed metadata.
+///
+/// This only ever REMOVES access. A path that is already private is left
+/// untouched (it may legitimately be `0400`, or owned differently), so this can
+/// never widen an operator's deliberate hardening. When a path IS exposed and
+/// cannot be tightened — typically a volume owned by another UID — the open
+/// fails with operator guidance rather than serving with the keys readable,
+/// because "start anyway" is exactly the silent widening this must not do.
+#[cfg(unix)]
+fn make_private(path: &Path, mode: u32, what: &str) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        // Not every sidecar exists at every call; absence is not exposure.
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => {
+            return Err(format!(
+                "failed to inspect {what} '{}': {err}",
+                path.display()
+            ))
+        }
+    };
+    let current = metadata.permissions().mode() & 0o777;
+    if current & 0o077 == 0 {
+        return Ok(());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).map_err(|err| {
+        format!(
+            "{what} '{}' is accessible to other accounts (mode {current:o}) and its permissions \
+             could not be tightened to {mode:o}: {err}. It holds the server signing key, the \
+             session secret and the online metadata keys in plaintext. Repair the volume, e.g. \
+             `chown -R mfb:mfb <dir> && chmod 700 <dir> && chmod 600 <dir>/meta.db*`, then restart.",
+            path.display()
+        )
+    })
+}
+
+/// The metadata directory, the database, and its SQLite sidecars, all made
+/// private to the service account (bug-586).
+#[cfg(unix)]
+fn harden_private_state(db_dir: Option<&Path>, dbpath: &Path) -> Result<(), String> {
+    if let Some(dir) = db_dir {
+        make_private(dir, 0o700, "database directory")?;
+    }
+    make_private(dbpath, 0o600, "database")?;
+    // `-wal` and `-shm` are written by SQLite with the same umask and carry the
+    // same rows; protecting only `meta.db` would leave the secrets readable in
+    // the write-ahead log.
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = dbpath.as_os_str().to_os_string();
+        sidecar.push(suffix);
+        make_private(Path::new(&sidecar), 0o600, "database journal")?;
+    }
+    Ok(())
+}
+
+/// Non-Unix targets have no POSIX mode to enforce. This is deliberately a
+/// no-op rather than a best-effort imitation: claiming enforcement that did not
+/// happen is worse than stating plainly that it did not. The deployed server is
+/// Linux (`repository/Dockerfile`); see `repository/DEPLOY.md`.
+#[cfg(not(unix))]
+fn harden_private_state(_db_dir: Option<&Path>, _dbpath: &Path) -> Result<(), String> {
+    Ok(())
+}
+
 pub struct OpenedRepository {
     pub store: Store,
     pub packages_dir: PathBuf,
@@ -136,6 +210,7 @@ impl Store {
                 dbpath.display()
             ));
         }
+        let mut db_dir = None;
         if let Some(parent) = dbpath.parent() {
             fs::create_dir_all(parent).map_err(|err| {
                 format!(
@@ -143,7 +218,15 @@ impl Store {
                     parent.display()
                 )
             })?;
+            if !parent.as_os_str().is_empty() {
+                db_dir = Some(parent);
+            }
         }
+        // bug-586: tighten the directory BEFORE the database is created. The
+        // file itself is created by SQLite under the process umask, so there is
+        // a window in which it exists at 0644; a 0700 directory means no other
+        // account can traverse into it during that window.
+        harden_private_state(db_dir, dbpath)?;
         // A remote (`s3://…`) data path has no local directory to create; the
         // blob backend is constructed separately (see `blobstore`). Operator
         // subcommands that only touch the metadata DB still work in S3 mode.
@@ -176,6 +259,10 @@ impl Store {
             .map_err(|err| format!("failed to enable WAL: {err}"))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|err| format!("failed to set busy timeout: {err}"))?;
+        // bug-586: now that the database and its WAL/SHM sidecars exist, make
+        // them private too — before `migrate`/`ensure_server_secret`/
+        // `ensure_server_keypair` below write any key material into them.
+        harden_private_state(db_dir, dbpath)?;
         let store = Store {
             conn: Arc::new(Mutex::new(conn)),
         };
@@ -4053,6 +4140,120 @@ pub(crate) mod tests {
             .complete_challenge("no-such-id", &[0u8; 64])
             .unwrap_err()
             .contains("unknown challenge"));
+    }
+
+    /// bug-586: the metadata database holds the server signing key, the session
+    /// secret and the online snapshot/timestamp keys in plaintext. SQLite
+    /// creates it and its `-wal`/`-shm` sidecars with the process umask, so
+    /// under the ordinary `umask 022` they land at 0644 in a 0755 directory and
+    /// any other local account can copy the credentials.
+    ///
+    /// The RED case is made deterministic by pre-creating the directory and an
+    /// empty database file at exposed modes rather than by setting the umask.
+    /// `umask` is process-global and libtest runs in parallel, so a test that
+    /// set it would race every other test that creates a file; pre-setting the
+    /// modes proves the same defect without that hazard, and additionally
+    /// covers the upgrade path — an ALREADY deployed volume whose files are
+    /// exposed today.
+    #[cfg(unix)]
+    #[test]
+    fn open_repository_makes_the_key_bearing_database_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("data");
+        let dbpath = dir.join("meta.db");
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        // A zero-length file is a valid empty SQLite database, so this is the
+        // real "existing world-readable deployment" shape.
+        fs::write(&dbpath, b"").unwrap();
+        fs::set_permissions(&dbpath, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(mode(&dir), 0o755, "precondition: the directory is exposed");
+        assert_eq!(
+            mode(&dbpath),
+            0o644,
+            "precondition: the database is exposed"
+        );
+
+        let opened = Store::open_repository(&dbpath, &temp.path().join("blobs")).unwrap();
+
+        assert_eq!(mode(&dir), 0o700, "the metadata directory must be private");
+        assert_eq!(mode(&dbpath), 0o600, "the database must be private");
+        // The sidecars carry the same rows; protecting only meta.db would leave
+        // the secrets readable in the write-ahead log.
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = dir.join(format!("meta.db{suffix}"));
+            assert!(sidecar.exists(), "WAL mode must have created {suffix}");
+            assert_eq!(
+                mode(&sidecar),
+                0o600,
+                "the {suffix} sidecar must be private"
+            );
+        }
+
+        // And the keys really are in there, so the modes above are guarding
+        // something: this is what makes the bug HIGH-value rather than cosmetic.
+        let (_public, private) = opened.store.server_keypair().unwrap();
+        assert!(!private.is_empty());
+    }
+
+    /// POSITIVE (bug-586): hardening must not break an ordinary open, and must
+    /// never WIDEN an operator's deliberate choice.
+    ///
+    /// Without this, "refuse every open" and "chmod everything to 0600
+    /// unconditionally" would both pass the test above. A `0400` database is a
+    /// legitimate read-only hardening; tightening is allowed to remove access,
+    /// never to grant it.
+    #[cfg(unix)]
+    #[test]
+    fn open_repository_leaves_an_already_private_database_alone_and_still_works() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("data");
+        let dbpath = dir.join("meta.db");
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+
+        // A normal open on a fresh path: the store is fully functional.
+        let opened = Store::open_repository(&dbpath, &temp.path().join("blobs")).unwrap();
+        let store = opened.store;
+        let keys = register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            store.list_package_versions("alice#toolbox").unwrap().len(),
+            1
+        );
+        assert_eq!(mode(&dbpath), 0o600);
+        assert_eq!(mode(&dir), 0o700);
+        drop(store);
+
+        // An operator who deliberately narrowed further keeps their choice:
+        // re-opening must not relax 0400 back up to 0600.
+        fs::set_permissions(&dbpath, fs::Permissions::from_mode(0o400)).unwrap();
+        let reopened = Store::open_repository(&dbpath, &temp.path().join("blobs"));
+        assert!(reopened.is_ok(), "a 0400 database must still open");
+        assert_eq!(
+            mode(&dbpath),
+            0o400,
+            "hardening may remove access, never grant it"
+        );
+        let _ = keys;
     }
 
     #[test]

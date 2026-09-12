@@ -93,6 +93,35 @@ image runs the server as the unprivileged `mfb` user (uid 10001) that owns
 `/data`. Writing the DB as root leaves root-owned SQLite files the server then
 cannot write.
 
+### Volume permissions (bug-586)
+
+`/data/meta.db` holds the **server signing private key**, the session-signing
+secret, and the online snapshot/timestamp private keys — all in plaintext. Its
+`-wal` and `-shm` sidecars carry the same rows. SQLite creates all three with
+the process umask, so under the ordinary `umask 022` they would land at `0644`.
+
+Two halves protect them, because neither is sufficient alone:
+
+- The image creates `/data` as `0700` (`Dockerfile`). A **mounted volume
+  replaces that directory with its own mode**, so on Fly this does not survive
+  a `fly volumes create`.
+- `mfb-repo` therefore tightens the directory to `0700` and the database and
+  both sidecars to `0600` every time it opens the store, before it writes any
+  key material. It only ever removes access — an operator who has deliberately
+  narrowed further (say `0400`) keeps that.
+
+If the files are exposed and cannot be tightened — normally a volume owned by
+another UID — startup **fails** with a message naming the path, rather than
+serving with the keys readable. Repair it and restart:
+
+```sh
+fly ssh console -C "chown -R mfb:mfb /data && chmod 700 /data && chmod 600 /data/meta.db*"
+```
+
+(as root, i.e. without `-u mfb`). Existing deployments are repaired
+automatically on the next restart when the service account already owns the
+files; the command above is only needed when it does not.
+
 Store the printed **root PRIVATE key** offline — it is never persisted on the
 server. Pin the printed root fingerprint out of band. (`reanchor` is likewise
 run via `fly ssh console`.)
