@@ -6436,6 +6436,7 @@ mod raw_result_block_ownership {
         "os.getEnvOr",
         "os.hostName",
         "os.name",
+        "os.prog",
         "os.resourcePath",
         "os.userName",
         "os.version",
