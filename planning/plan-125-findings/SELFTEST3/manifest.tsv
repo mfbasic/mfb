@@ -1,0 +1,4 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-topic:variable	0	7	1	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:color	0	7	1	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:NOSUCHPACKAGE	0	8	1	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

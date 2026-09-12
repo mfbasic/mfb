@@ -719,29 +719,61 @@ open with an `> **Audience: …**` blockquote; `grep -n 'spec-content' AGENTS.md
 .ai/man-content.md` returns AGENTS.md:107, :109, :158 and man-content.md:6,
 :262; `planning/plan-125-belongs-in-spec.md` exists with its row format,
 resolution vocabulary (COVERED / FILLED / REJECTED) and re-derivable counters.
-Commit: —
+Commit: `bd566a610`
 
 ### Phase 3 — The fan-out harness
 
-- [ ] Write `scripts/doc-review-fanout.sh` per §4.3: unit list, prompt
+- [x] Write `scripts/doc-review-fanout.sh` per §4.3: unit list, prompt
       template, concurrency, N reusable detached worktrees with no `target/`,
       `MFB=` pointing at the primary release binary, per-unit findings file,
       `manifest.tsv` with exit/seconds/findings/dirty/banner, one re-queue then
-      `FAILED`, per-run timeout, `/tmp/plan-125/<unit>/` scratch.
-- [ ] Self-test it on a 3-unit list including **one unit that must fail**
-      (a nonexistent package) and confirm the manifest records `FAILED` rather
-      than dropping it — memory
+      `FAILED`, per-run timeout, ~~`/tmp/plan-125/<unit>/`~~
+      `/tmp/plan-125-scratch/<letter>/<slug>/` scratch (per-letter, so two
+      letters cannot collide on a unit name).
+- [x] Self-test it on a 3-unit list including **one unit that must fail**
+      (~~a nonexistent package~~ — see C-8: a nonexistent package does *not*
+      fail, so the failure is induced by the watchdog) and confirm the manifest
+      records `FAILED` rather than dropping it — memory
       `diagnostic-harness-must-record-exit-and-unlocated-errors`.
-- [ ] Self-test the dirty-worktree path: have a run touch a file, confirm
+- [x] Self-test the dirty-worktree path: have a run touch a file, confirm
       `DIRTY` is recorded and the worktree is reset before reuse — memory
-      `subagent-edits-can-silently-vanish`.
-- [ ] Add a `--reconcile` mode: given a unit list and a manifest, print any
+      `subagent-edits-can-silently-vanish`. The reviewer really did create
+      `HARNESS_SELFTEST_MARKER.txt` (its `diff --git` is in the transcript);
+      the manifest row reads `DIRTY`; `git status --porcelain` in that worktree
+      is empty afterwards and the file is gone.
+- [x] Add a `--reconcile` mode: given a unit list and a manifest, print any
       unit missing, `FAILED`, or without a findings file; exit non-zero if any.
-      Every letter runs this before it closes.
+      Every letter runs this before it closes. Also reports `ORPHAN` — a
+      manifest row whose unit is *not* in the list, which means the list moved
+      under the run and a review was made that no letter's accounting covers.
 
 Acceptance: the 3-unit self-test manifest has one `FAILED` row and
 `--reconcile` exits non-zero on it and zero after the re-run; a deliberately
 dirty run is recorded `DIRTY`.
+
+**MET**, measured (letter `SELFTEST`, `planning/plan-125-findings/SELFTEST/manifest.tsv`):
+
+```
+unit                    exit    seconds findings_lines  dirty   banner
+man-pkg:NOSUCHPACKAGE   FAILED  5       1               clean   OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:NOSUCHPACKAGE   0       8       1               clean   OpenAI Codex v0.153.0/gpt-5.6-terra
+selftest-dirty:one      0       8       0               DIRTY   OpenAI Codex v0.153.0/gpt-5.6-terra
+```
+
+- **FAILED path**: `--timeout 5` → `exit=124`, re-queued exactly once, second
+  attempt also 124, row recorded `FAILED`. `--reconcile` → `unaccounted=1`,
+  exit 1.
+- **Re-run**: same unit at `--timeout 600` → exit 0 in 8s; `--reconcile` →
+  `unaccounted=0`, exit 0. (This is what C-9 fixed: reconcile read the *first*
+  row and would have reported the stale `FAILED` forever.)
+- **DIRTY path**: recorded, worktree reset, marker file gone.
+- **MISSING path**: reconciling the 3-unit manifest against a 4-unit list →
+  `MISSING man-pkg:neverran`, exit 1.
+- **Parallel path** (letter `SELFTEST3`, 3 units at `--jobs 3`): all three ran
+  concurrently at 7–8s each, `unaccounted=0 orphans=0`.
+
+Banner for the record, per plan-108's practice: `OpenAI Codex v0.153.0`,
+model `gpt-5.6-terra`.
 Commit: —
 
 ### Phase 4 — The eight reviewer prompts
@@ -989,6 +1021,55 @@ bounded by the two rendered headings around the marker and carves only
 box-drawing table ROWS inside that region, so the authored sentences in the
 same section ("Stage says where the pass runs: NIR …") remain HITs — which is
 the point, since those are prose a reviewer can rewrite. 36 → 9 real hits.
+
+### C-8 (Phase 3) — a nonexistent package does NOT make a reviewer run fail
+
+Phase 3's self-test called for "one unit that must fail (a nonexistent
+package)". Measured, it does not: `codex exec` on `man-pkg:NOSUCHPACKAGE` runs
+`mfb man NOSUCHPACKAGE`, sees the error, reports it, and **exits 0** with a
+perfectly good findings file:
+
+```
+UNIT: man-pkg:NOSUCHPACKAGE
+FIRST: ERROR
+```
+
+That is the reviewer behaving correctly, and it is worth knowing for a
+different reason: **a unit whose target does not exist will sail through this
+harness as a clean review.** The harness cannot detect it, because the harness
+is target-agnostic by design. The defence is the unit LIST: every letter
+derives its units from a census command, never by hand, and `--reconcile`
+proves list and manifest agree. A typo in a hand-written unit list is the one
+way a page can be skipped and still look reviewed.
+
+The self-test's deliberate failure is therefore induced by the watchdog
+(`--timeout 5` → exit 124), which exercises the same path the real failures
+will take: a run that dies, is re-queued once, and is recorded `FAILED`.
+
+### C-9 (Phase 3) — two harness defects the self-test caught
+
+Both were found by running the self-test, not by reading the script, and both
+would have silently corrupted a letter's accounting:
+
+1. **`--reconcile` read the FIRST manifest row for a unit.** A re-run appends
+   rather than rewriting, so a unit that failed and was then re-run
+   successfully keeps its stale `FAILED` row — and reconcile would report it
+   forever, with no way to close the letter. Now reads the last row.
+2. **macOS has no `timeout`(1)** (`command -v timeout` → empty) and ships
+   **bash 3.2**, where `wait -n` does not exist. The first draft used both. A
+   missing `wait -n` does not error — it falls through to a bare `wait` that
+   blocks on *all* jobs, which would have collapsed the fan-out into lockstep
+   batches of N with nothing to notice. Both are now spelled out: an explicit
+   watchdog subshell (reporting 124, the code GNU `timeout` uses, so the
+   manifest reads the same on either platform), and a polled free-slot table.
+
+A third was designed out rather than found: the first draft assigned unit *n*
+to worktree *n % JOBS*. That is not the same as a slot pool — when one review
+runs long, round-robin still hands the next unit to its worktree, so two
+`codex` processes share one working tree, interleave their probe builds, and
+each sees the other's files in `git status`. The `DIRTY` check would report
+noise and the reset would wipe a live run's scratch. Slots are now released by
+PID.
 
 ### C-7 (Phase 1) — the spec is bigger than the plan measured
 

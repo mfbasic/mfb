@@ -1,0 +1,5 @@
+# Full reviewer transcripts. One per unit, and plan-125 runs ~900 of them — tens
+# of megabytes of model chatter whose only use is auditing a FAILED row, which
+# you do on the machine that produced it. The findings (`<slug>.md`) and the
+# accounting (`manifest.tsv`) are committed; the transcripts are not.
+*.log
