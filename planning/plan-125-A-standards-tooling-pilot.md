@@ -687,33 +687,38 @@ packages **and** `testing`, `general`, and all 10 topics
 **MET** — the acceptance grep returns exactly `3`; `--citations` prints
 `MISS-PATH 2 / MISS-LINE 0 / MISS-SYMBOL 62 (49 move, 13 deletion)`; §2 and
 §2.1 are those outputs.
-Commit: —
+Commit: `2a51694d4`
 
 ### Phase 2 — The two content standards
 
-- [ ] Extend `.ai/man-content.md`: state the audience in one line at the top
+- [x] Extend `.ai/man-content.md`: state the audience in one line at the top
       (the §3.1 row); add a section governing the **narrative topics** — the
       same MUST/MUST-NOT list, the same memory ban, the same rule that every
       code block is compiled and run; note that topics have subtopic pages and
       that `mfb man <topic>` is the verification command.
-- [ ] Author `.ai/spec-content.md` — the contributor-audience review standard:
+- [x] Author `.ai/spec-content.md` — the contributor-audience review standard:
       what a topic must contain (normative contract, `[[ ]]` provenance at
       claim-cluster granularity, the as-is rule), what it must not (tutorial
       prose, marketing, a second full copy of another topic's body,
       unverifiable or aspirational claims), how to triage a spec/code
       disagreement (§3.5), and the two rot classes from Phase 1 with the rule
       that a *stale-by-deletion* citation makes the claim suspect.
-- [ ] Cross-reference the two standards at the seam: `.ai/man-content.md`
+- [x] Cross-reference the two standards at the seam: `.ai/man-content.md`
       points at `.ai/spec-content.md` for "this belongs in spec", and back.
-- [ ] Create `planning/plan-125-belongs-in-spec.md` with its header and empty
+- [x] Create `planning/plan-125-belongs-in-spec.md` with its header and empty
       table (§3.1); letters B–H append, I–N consume.
-- [ ] Update AGENTS.md's "Creating or updating `mfb man` content" section to
+- [x] Update AGENTS.md's "Creating or updating `mfb man` content" section to
       name `.ai/spec-content.md` alongside `.ai/man-content.md`, and to say
       which audience each serves.
 
 Acceptance: both standards exist and each states its audience in its first 10
 lines; `grep -n 'spec-content' AGENTS.md .ai/man-content.md` returns hits in
 both; the ledger file exists.
+**MET** — `.ai/man-content.md` line 3 and `.ai/spec-content.md` line 3 each
+open with an `> **Audience: …**` blockquote; `grep -n 'spec-content' AGENTS.md
+.ai/man-content.md` returns AGENTS.md:107, :109, :158 and man-content.md:6,
+:262; `planning/plan-125-belongs-in-spec.md` exists with its row format,
+resolution vocabulary (COVERED / FILLED / REJECTED) and re-derivable counters.
 Commit: —
 
 ### Phase 3 — The fan-out harness
