@@ -7,9 +7,11 @@ Severity: MEDIUM — shipped documentation states the wrong types and prose for
 every overload after the first
 Class: Documentation correctness / `mfb man` renderer
 
-Status: Open
-Regression Test: a `src/cli/man.rs` rendering assertion, in the shape bug-558
-used for the Errors table.
+Status: **FIXED** (`8361ec0c6`).
+Regression Test: `every_overloads_parameters_appear_in_its_parameters_table`,
+`collections_get_shows_the_map_key_as_its_own_parameter_row`,
+`a_parameters_table_with_no_disagreement_has_no_overloads_column`, and
+`every_parameters_overload_number_names_a_rendered_signature` (`src/cli/man.rs`).
 
 Found while fixing bug-563. **Reproduced** on the release compiler at
 `ceeefcf24`.
@@ -93,3 +95,71 @@ byte-identical afterwards**.
    renderer output, so say so;
 4. a POSITIVE pin that `scripts/man-run-examples.sh` still compiles and runs
    every example on the affected pages.
+
+## Outcome
+
+Fixed in `8361ec0c6`.
+
+### Root cause, measured
+
+`union_parameters` built the table by de-duplicating on parameter **name**, first
+occurrence winning. That is correct for overload sets that only ADD parameters —
+`process::spawn`'s `cwd`, `env` and `envReplace` — and silently wrong when two
+overloads declare the same name in different forms. `collections::get`'s map
+overload takes `index AS K`, "The key to look up", and was replaced on the page by
+overload 1's `index AS Integer`, "The list index, zero-based".
+
+It was an implementation choice from the renderer rewrite (`31276d8c4`). No spec
+text or `.ai/man-content.md` rule mandates first-occurrence-wins, and the one test
+pinning the union (`multi_overload_function_renders_overloads_and_union_parameters`)
+uses `spawn` and asserts only that each name appears. It says nothing about
+same-named parameters of different types, so it did not have to change.
+
+### Fix
+
+The same remedy bug-558 applied to the Errors table:
+
+- Rows are grouped by how a parameter RENDERS: name, type, description, aliases
+  and optional flag. Those are exactly the cells a reader sees.
+- When any name has more than one rendered form, the table gains an **Overloads**
+  column naming which numbered signature each row belongs to.
+- When no name differs, the column is omitted and rows keep their old
+  first-appearance order. Single-overload pages and additive overload sets
+  render byte for byte as before.
+
+`union_parameters` was removed rather than left dead.
+
+### RED and GREEN on the same four tests
+
+| test | pre-fix renderer | fix |
+|---|---|---|
+| `every_overloads_parameters_appear_in_its_parameters_table` | **FAILED** | ok |
+| `collections_get_shows_the_map_key_as_its_own_parameter_row` | **FAILED** | ok |
+| `a_parameters_table_with_no_disagreement_has_no_overloads_column` | ok | ok |
+| `every_parameters_overload_number_names_a_rendered_signature` | ok | ok |
+
+RED was run by rebuilding `man.rs` from the pre-fix commit with only the four new
+tests added: `38 passed; 2 failed`, exit 101. The two that fail are the ones
+asserting the bug. The two that pass in both columns are the containment pin and
+the cross-reference pin — **they are supposed to pass in both**, and a pin that
+only passed after the fix would be asserting the new behaviour rather than
+guarding the old.
+
+GREEN: `cargo test --bin mfb -- cli::man::tests` = **40 passed, 0 failed**, exit 0.
+`rustfmt --check` exit 0.
+
+The first test is **total over the registry**. Every multi-overload member's every
+overload's every parameter must appear on one row with its own name and rendered
+type. There is no list to maintain, so the next member to reuse a parameter name
+in a new form is caught without anyone adding it here.
+
+### Instrument
+
+The artifact gate cannot see this — renderer output is not a golden. The
+`cli::man::tests` module is the instrument.
+
+### What it unblocks
+
+bug-563's correction to the map key's description is now visible on
+`mfb man collections get`, where it had been right in the descriptor and never
+rendered.
