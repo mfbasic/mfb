@@ -87,6 +87,7 @@ negotiate. Letters B–N point here.
 |---|---|---|
 | release `mfb` at current HEAD (every unit of every letter renders pages and compiles probes with it) | `cargo build --release`; `ls -l target/release/mfb` mtime ≥ HEAD commit date | **MET** 2026-09-12 — was stale (binary `Sep 8 07:36`, HEAD `b49ca1610` is `Sep 11 13:06`), rebuilt in the `P-125` worktree; binary `Sep 12 06:15`. |
 | `codex` CLI installed and non-interactive | `~/local/bin/codex --version` → `codex-cli 0.153.0` | **MET** 2026-09-12 — still `codex-cli 0.153.0` (plan-108 ran `0.150.0`; not pinned — see plan-108-A Open Decisions, "do NOT pin") |
+| **the Codex account can actually spend a request** (added 2026-09-12 — this row is the one that stopped the pilot, and no row above tested it) | `printf 'Reply with exactly: PONG\n' \| ~/local/bin/codex exec -s read-only --skip-git-repo-check -C /tmp -o /tmp/codex-probe.txt -` → exit 0 and `PONG` | **NOT MET** 2026-09-12 — account at its usage limit. An installed, working CLI and an account with quota are different facts, and the version check cannot see the second. **Every letter must run this probe before dispatching a batch**: discovering it 150 units into `C` costs a great deal more than discovering it in one 8-second call. |
 | the working tree is clean of unrelated in-flight work, or the in-flight work is on another branch | `git status --porcelain` | **MET** 2026-09-12 — `git status --porcelain` in the main checkout is empty; the `term` work that blocked this at plan-writing has landed. All plan-125 work is on `worktree-P-125`, forked from `main` at `b49ca1610`. |
 | no peer session is mid-flight in `src/codegen/builtins/**` or `src/docs/spec/**` | `git worktree list` + `git -C <wt> status --porcelain` filtered to those paths, per memory `peer-sessions-share-main-checkout` | **MET** 2026-09-12 — swept all 16 live `.claude/worktrees/*`. Exactly one hit: `P-covdev` carries `src/codegen/builtins/canvas/mod.rs` **+2 lines** (`#[cfg(test)] mod tests_codegen;`) plus an untracked `tests_codegen.rs`, last touched `Sep 5 06:19`. That is a test-module declaration, not a prose field — disjoint from every edit plan-125 makes, and a week cold. No other worktree touches either surface. |
 
@@ -2057,6 +2058,22 @@ runs long, round-robin still hands the next unit to its worktree, so two
 each sees the other's files in `git status`. The `DIRTY` check would report
 noise and the reset would wipe a live run's scratch. Slots are now released by
 PID.
+
+### C-11 (Phase 5) — the Prerequisites gate never tested that Codex could spend a request
+
+A **Prerequisites defect**, recorded here as the skill requires, because it is
+a precondition the entry gate could have tested and did not.
+
+The gate asked `codex --version` and got `codex-cli 0.153.0`. That proves the
+CLI is installed and runs non-interactively. It does not prove the **account
+has quota**, and those are different facts — plan-125 spends ~904 requests, so
+quota is the resource it actually consumes. The pilot stopped mid-batch when
+the account hit its limit, with the version check still green.
+
+A new Prerequisites row carries the probe (one `codex exec` that must print
+`PONG`), and **every letter runs it before dispatching a batch**. The cost
+asymmetry is the whole argument: the probe is one ~8-second call, and
+discovering the same fact 150 units into letter C is not.
 
 ### C-10 (Phase 5) — a citation can be stale-by-DELETION and still grep as a move
 
