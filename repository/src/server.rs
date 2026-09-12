@@ -7604,9 +7604,11 @@ mod tests {
             "reg-1",
             &pinned_fingerprint,
             0,
+            0,
             now_unix(),
         )
         .expect("the first chain verifies under the pinned root");
+        assert_eq!(before.root_version, 1);
 
         // The operator renews with the offline root key they stored at init.
         let version = h
@@ -7624,10 +7626,13 @@ mod tests {
             &snapshot,
             "reg-1",
             &pinned_fingerprint,
+            before.root_version,
             before.snapshot_version,
             now_unix(),
         )
         .expect("the renewed chain verifies under the SAME pinned root");
+        // The renewal advanced the pinned root version...
+        assert_eq!(after.root_version, 2);
         // ...the delegated attestation key still cross-checks against the
         // server key the client pinned, and the root document really did move.
         assert_eq!(after.server_key, h.store.server_public_key().unwrap());
@@ -7653,6 +7658,7 @@ mod tests {
             &snapshot,
             "reg-1",
             &pinned_fingerprint,
+            after.root_version,
             after.snapshot_version,
             now_unix(),
         )

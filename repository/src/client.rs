@@ -990,6 +990,9 @@ pub struct DelegatedMetadata {
     /// The root-delegated server (attestation) key. A consumer refuses any
     /// attestation not signed by this exact key.
     pub server_key: Vec<u8>,
+    /// The verified `root.json` version (bug-584). Pinned locally and never
+    /// allowed to go backwards, so a renewal cannot be rolled back.
+    pub root_version: i64,
     pub snapshot_version: i64,
     pub index_hash: String,
 }
@@ -997,13 +1000,20 @@ pub struct DelegatedMetadata {
 /// Verify the signed-metadata chain (plan-10-C2): root → timestamp → snapshot.
 /// Rejects a bad root fingerprint, a registry-id mismatch, expired metadata,
 /// an undelegated key, a snapshot/timestamp that disagree, and a version
-/// rollback below `min_snapshot_version`. `now` is passed in for testability.
+/// rollback below `min_root_version` or `min_snapshot_version`. `now` is passed
+/// in for testability.
+///
+/// The root version floor is bug-584: root renewal rotates the delegated online
+/// keys under the same anchor, so an old-but-unexpired `root.json` — correctly
+/// signed by the very key the client pinned — would otherwise resurrect the
+/// snapshot/timestamp keys a renewal retired.
 pub fn verify_registry_metadata(
     root: &RootResponse,
     timestamp: &SignedMetadataResponse,
     snapshot: &SignedMetadataResponse,
     expected_registry_id: &str,
     pinned_root_fingerprint: &str,
+    min_root_version: i64,
     min_snapshot_version: i64,
     now: i64,
 ) -> Result<DelegatedMetadata, String> {
@@ -1022,6 +1032,12 @@ pub fn verify_registry_metadata(
     let root_doc = parse_metadata(&root.signed, "root.json")?;
     check_field(&root_doc, "registryId", expected_registry_id, "root.json")?;
     check_not_expired(&root_doc, now, "root.json")?;
+    let root_version = metadata_i64(&root_doc, "version", "root.json")?;
+    if root_version < min_root_version {
+        return Err(format!(
+            "metadata ROLLBACK: root version {root_version} is below the pinned version {min_root_version}"
+        ));
+    }
     let server_key = decode_delegated_key(&root_doc, "serverKey")?;
     let snapshot_key = decode_delegated_key(&root_doc, "snapshotKey")?;
     let timestamp_key = decode_delegated_key(&root_doc, "timestampKey")?;
@@ -1078,6 +1094,7 @@ pub fn verify_registry_metadata(
 
     Ok(DelegatedMetadata {
         server_key,
+        root_version,
         snapshot_version,
         index_hash: snapshot_index_hash,
     })
@@ -1141,7 +1158,7 @@ pub fn trust_registry(
     root_fingerprint: &str,
 ) -> Result<i64, String> {
     let server_key = ensure_server_key(repo_url, paths)?;
-    let delegated = fetch_and_verify_metadata(repo_url, registry_id, root_fingerprint, 0)?;
+    let delegated = fetch_and_verify_metadata(repo_url, registry_id, root_fingerprint, 0, 0)?;
     if delegated.server_key != server_key {
         return Err(
             "registry attestation key is not delegated by the pinned root; refusing to trust"
@@ -1149,6 +1166,7 @@ pub fn trust_registry(
         );
     }
     local::write_root_pin(paths, registry_id, root_fingerprint)?;
+    local::write_root_version(paths, delegated.root_version)?;
     local::write_snapshot_version(paths, delegated.snapshot_version)?;
     Ok(delegated.snapshot_version)
 }
@@ -1162,14 +1180,19 @@ pub fn verify_pinned_metadata(repo_url: &str, paths: &LocalPaths) -> Result<(), 
         return Ok(());
     };
     let server_key = ensure_server_key(repo_url, paths)?;
+    let min_root = local::read_root_version(paths)?.unwrap_or(0);
     let min = local::read_snapshot_version(paths)?.unwrap_or(0);
-    let delegated = fetch_and_verify_metadata(repo_url, &registry_id, &root_fingerprint, min)?;
+    let delegated =
+        fetch_and_verify_metadata(repo_url, &registry_id, &root_fingerprint, min_root, min)?;
     if delegated.server_key != server_key {
         return Err(
             "registry attestation key is not delegated by the pinned root; refusing to trust"
                 .to_string(),
         );
     }
+    // A root renewal advances this; a client pinned before the renewal follows
+    // it, and the retired root can never be replayed back over it (bug-584).
+    local::write_root_version(paths, delegated.root_version)?;
     local::write_snapshot_version(paths, delegated.snapshot_version)?;
     Ok(())
 }
@@ -1178,6 +1201,7 @@ fn fetch_and_verify_metadata(
     repo_url: &str,
     registry_id: &str,
     root_fingerprint: &str,
+    min_root_version: i64,
     min_snapshot_version: i64,
 ) -> Result<DelegatedMetadata, String> {
     let root = get_json::<RootResponse>(repo_url, "/root.json")?;
@@ -1189,6 +1213,7 @@ fn fetch_and_verify_metadata(
         &snapshot,
         registry_id,
         root_fingerprint,
+        min_root_version,
         min_snapshot_version,
         crate::store::now_unix(),
     )
@@ -2232,6 +2257,7 @@ mod tests {
             "reg-1",
             &m.root_fingerprint,
             0,
+            0,
             1_000,
         )
         .expect("valid chain verifies");
@@ -2251,6 +2277,7 @@ mod tests {
             "reg-1",
             "deadbeef",
             0,
+            0,
             1_000,
         )
         .is_err());
@@ -2262,6 +2289,7 @@ mod tests {
             &m.snapshot,
             "reg-2",
             &m.root_fingerprint,
+            0,
             0,
             1_000,
         )
@@ -2275,6 +2303,7 @@ mod tests {
             "reg-1",
             &m.root_fingerprint,
             0,
+            0,
             9_000,
         )
         .unwrap_err()
@@ -2287,11 +2316,27 @@ mod tests {
             &m.snapshot,
             "reg-1",
             &m.root_fingerprint,
+            0,
             6,
             1_000,
         )
         .unwrap_err()
         .contains("ROLLBACK"));
+
+        // bug-584: a root version below the pinned floor is a rollback, even
+        // though the chain is otherwise perfect.
+        assert!(verify_registry_metadata(
+            &m.root,
+            &m.timestamp,
+            &m.snapshot,
+            "reg-1",
+            &m.root_fingerprint,
+            2,
+            0,
+            1_000,
+        )
+        .unwrap_err()
+        .contains("root version 1 is below the pinned version 2"));
 
         // Tampered snapshot signature.
         let mut tampered = build_metadata("reg-1", 5, 2_000, "idxhash", "idxhash");
@@ -2302,6 +2347,7 @@ mod tests {
             &tampered.snapshot,
             "reg-1",
             &tampered.root_fingerprint,
+            0,
             0,
             1_000,
         )
@@ -2315,6 +2361,7 @@ mod tests {
             &m2.snapshot,
             "reg-1",
             &m2.root_fingerprint,
+            0,
             0,
             1_000,
         )
@@ -2510,6 +2557,7 @@ mod tests {
             "reg-1",
             &m.root_fingerprint,
             0,
+            0,
             1_000,
         )
         .unwrap_err()
@@ -2524,6 +2572,7 @@ mod tests {
             &m2.snapshot,
             "reg-1",
             &m2.root_fingerprint,
+            0,
             0,
             1_000,
         )
@@ -2601,6 +2650,7 @@ mod tests {
             "reg-1",
             &m.root_fingerprint,
             0,
+            0,
             1_000,
         )
         .unwrap_err();
@@ -2614,6 +2664,7 @@ mod tests {
             &matched.snapshot,
             "reg-1",
             &matched.root_fingerprint,
+            0,
             0,
             1_000,
         )
@@ -4123,6 +4174,26 @@ mod tests {
         expires: i64,
         server_public: &[u8],
     ) -> MetadataFixture {
+        build_metadata_delegating_at_root_version(
+            authority,
+            registry_id,
+            1,
+            version,
+            expires,
+            server_public,
+        )
+    }
+
+    /// `build_metadata_delegating` with an explicit `root.json` version — what a
+    /// root RENEWAL moves (bug-584).
+    fn build_metadata_delegating_at_root_version(
+        authority: &MetadataAuthority,
+        registry_id: &str,
+        root_version: i64,
+        version: i64,
+        expires: i64,
+        server_public: &[u8],
+    ) -> MetadataFixture {
         let MetadataAuthority {
             root_public,
             root_private,
@@ -4132,7 +4203,7 @@ mod tests {
             timestamp_private,
         } = authority;
         let root_signed = format!(
-            "{{\"type\":\"root\",\"registryId\":\"{registry_id}\",\"version\":1,\"expires\":{expires},\"serverKey\":\"{}\",\"snapshotKey\":\"{}\",\"timestampKey\":\"{}\"}}",
+            "{{\"type\":\"root\",\"registryId\":\"{registry_id}\",\"version\":{root_version},\"expires\":{expires},\"serverKey\":\"{}\",\"snapshotKey\":\"{}\",\"timestampKey\":\"{}\"}}",
             crypto::encode_bytes(server_public),
             crypto::encode_bytes(snapshot_public),
             crypto::encode_bytes(timestamp_public),
@@ -4296,6 +4367,66 @@ mod tests {
             "{err}"
         );
         assert_eq!(local::read_snapshot_version(&paths).unwrap(), Some(3));
+    }
+
+    /// bug-584: a root RENEWAL (same anchor, higher `root.json` version)
+    /// advances the pinned root version, and the retired root — still correctly
+    /// signed by the pinned key, still unexpired — cannot be replayed back over
+    /// it. Without this floor, a renewal performed to retire a compromised
+    /// online snapshot/timestamp key would be undone by serving the old
+    /// root.json that still delegates it.
+    #[test]
+    fn verify_pinned_metadata_follows_a_renewal_and_refuses_the_retired_root() {
+        let registry = Registry::new();
+        let authority = MetadataAuthority::new();
+        let future = crate::store::now_unix() + 3600;
+        let (_temp, paths) = temp_paths();
+
+        let first = build_metadata_delegating_at_root_version(
+            &authority,
+            "reg-1",
+            1,
+            5,
+            future,
+            &registry.public,
+        );
+        let stub = with_metadata_routes(registry.routes(), &first).serve();
+        trust_registry(&stub.url, &paths, "reg-1", &first.root_fingerprint).unwrap();
+        assert_eq!(local::read_root_version(&paths).unwrap(), Some(1));
+
+        // The operator renews: same anchor, root version 2. The pinned client
+        // follows it with no out-of-band step.
+        let renewed = build_metadata_delegating_at_root_version(
+            &authority,
+            "reg-1",
+            2,
+            6,
+            future,
+            &registry.public,
+        );
+        let stub2 = with_metadata_routes(registry.routes(), &renewed).serve();
+        verify_pinned_metadata(&stub2.url, &paths).expect("a renewed root is followed");
+        assert_eq!(local::read_root_version(&paths).unwrap(), Some(2));
+        // Re-verifying the SAME root version is not a rollback.
+        verify_pinned_metadata(&stub2.url, &paths).expect("the same root version still verifies");
+
+        // The retired root, replayed with a newer snapshot, is refused.
+        let replayed = build_metadata_delegating_at_root_version(
+            &authority,
+            "reg-1",
+            1,
+            7,
+            future,
+            &registry.public,
+        );
+        let stub3 = with_metadata_routes(registry.routes(), &replayed).serve();
+        let err = verify_pinned_metadata(&stub3.url, &paths).unwrap_err();
+        assert!(
+            err.contains("root version 1 is below the pinned version 2"),
+            "{err}"
+        );
+        assert_eq!(local::read_root_version(&paths).unwrap(), Some(2));
+        assert_eq!(local::read_snapshot_version(&paths).unwrap(), Some(6));
     }
 
     // --- org / token / transfer / release-state ---------------------------

@@ -1081,7 +1081,11 @@ and both append a transparency-log entry (`root-init`, `root-renew`,
   client verifies the renewed chain with no out-of-band step. A key that is not
   the configured root, or a registry id that is not the configured one, is
   refused without touching any stored
-  field.[[repository/src/store.rs:renew_registry_root]]
+  field.[[repository/src/store.rs:renew_registry_root]] The client pins the
+  highest `root.json` version it has verified (`root-version`, beside
+  `snapshot-version`) and refuses a lower one, so a retired root — still signed
+  by the pinned key and not yet expired — cannot be replayed to resurrect the
+  online keys a renewal retired.[[repository/src/client.rs:verify_registry_metadata]]
 - **Re-anchor** — `mfb-repo reanchor-root …` mints a new offline root key and
   replaces the anchor. It exists only for a **lost** root key and mirrors the
   ident `reanchor` ceremony: every client that pinned the old fingerprint fails

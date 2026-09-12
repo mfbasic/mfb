@@ -126,6 +126,33 @@ Store the printed **root PRIVATE key** offline — it is never persisted on the
 server. Pin the printed root fingerprint out of band. (`reanchor` is likewise
 run via `fly ssh console`.)
 
+### Renewing it (bug-584)
+
+`init-root` really is once: run against a registry that already has a root of
+trust it **refuses**, because overwriting the anchor is indistinguishable, from
+a pinned client's side, from a takeover. To extend the root expiry and rotate
+the online snapshot/timestamp keys, use `renew-root` with the offline root key
+you stored above. Write the key to a file — never pass it as an argument, which
+would put it in the process table — and delete the file afterwards:
+
+```sh
+fly ssh console -u mfb -C "sh -c 'umask 077; cat > /data/root.key'" < root.key
+fly ssh console -u mfb -C "mfb-repo renew-root --dbpath /data/meta.db \
+    --datapath s3://<bucket>/packages --registry-id my-registry \
+    --root-key-file /data/root.key --expires-days 365"
+fly ssh console -u mfb -C "rm -f /data/root.key"
+```
+
+The root fingerprint does **not** change, so every already-pinned client keeps
+verifying with no out-of-band step; the command prints the unchanged fingerprint
+so you can confirm that. It is safe while the server is serving.
+
+If the offline root key is **lost**, the only recovery is `mfb-repo
+reanchor-root` (same flags as `init-root`), which mints a new anchor and prints
+a new fingerprint. Every client that pinned the old one fails hard until it
+re-pins out of band, so treat it as a published security event, not routine
+maintenance.
+
 ## Reclaiming abandoned uploads
 
 `PUT /blob` accepts a vendored library **before** any package version references
