@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-12
-Open bugs: **20** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **16** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — repository security intake, worked
 
@@ -12,16 +12,31 @@ it**. The instrument is the `mfb_repository` unit suite and its loopback-HTTP
 stub registry. Say so explicitly in any future repository bug — a green gate
 there proves nothing at all.
 
-| Bug | Outcome |
-|---|---|
-| 578 HIGH | **Landed** `f2368455b` — absolute MFPC section/pool/export/meta ceilings. |
-| 582 HIGH | **Landed** `ac1a6ec79` — every log-pin advance is consistency-proof-gated. |
-| 581 HIGH | **PARTIAL** `ed87c111a` — route binding landed; Phase 2 is an open design decision. |
+**The repository security intake is CLOSED** except one LOW (580), one still in
+flight (584) and 581's recorded decision. Nine bugs, eight landed:
 
-Also landed: `7ed3fa226` (see below). Archived as already-fixed and verified at
-HEAD: **549** (`8144872bd`), **551-inline-trap** (`1c83b7dda`).
+| Bug | Sev | Outcome |
+|---|---|---|
+| 578 | HIGH | **Landed** `f2368455b` — absolute MFPC section/pool/export/meta ceilings. |
+| 581 | HIGH | **PARTIAL** `ed87c111a` — route binding landed; Phase 2 is an open design decision (below). |
+| 582 | HIGH | **Landed** `ac1a6ec79` — every log-pin advance is consistency-proof-gated. |
+| 583 | MED | **Landed** `01d3529d1` — pairing approval is the CODE, not the relay-visible lookup. |
+| 585 | MED | **Landed** `c7e7f1fec` — a redirect hostname is resolved before the hop is followed. |
+| 586 | MED | **Landed** `9f1a0879d` — metadata DB + WAL/SHM are service-private. |
+| 579 | MED | **Landed** `460b983dd` — memoised signed tree head, bounded anonymous log routes. |
+| 584 | MED | in flight |
+| 580 | LOW | open |
 
-### Four things this pass taught that generalize
+Also landed: `7ed3fa226` and `f9569fe70` (see below). Archived as already-fixed
+and verified at HEAD: **549** (`8144872bd`), **551-inline-trap** (`1c83b7dda`).
+
+**Merged-tree verification, not per-branch**: `cargo test -p mfb_repository
+--no-fail-fast` = **356 lib + 21 bin, exit 0**, re-run from a clean
+`git worktree` after 579 and 585 landed in parallel. Neither parent's green run
+is evidence for the merge, and a clean worktree is the only place the
+untracked-fixture class of defect shows.
+
+### Findings that generalize
 
 - **A signature over values the RESPONSE supplies binds nothing.** bug-581's
   name binding verified `name_binding_message(response.owner,
@@ -51,6 +66,27 @@ HEAD: **549** (`8144872bd`), **551-inline-trap** (`1c83b7dda`).
   "harness and code drift, harness reports success" shape — and the sharpest,
   because the check could not run *anywhere* but one laptop.
   **When a test reads a file, check `git ls-files` says the file is in the repo.**
+- **Sizing a rate limit is a measurement, not a round number** (bug-579).
+  `verify_publish_inclusion` makes three log requests and `pkg install --proof`
+  calls it once PER DEPENDENCY, so a 200-dep install is a ~600-request burst
+  from one IP — shared by everyone behind a NAT or CI egress. That number had
+  just GROWN, because bug-582 added a consistency proof per pin advance. A
+  budget picked from the attacker's side would have broken installs and looked
+  correct in every test. Derive it from the client, and leave a test that forces
+  the next person to.
+- **To test a cache, find an input the cache cannot see** (bug-579). "The same
+  bytes came back" proves nothing when Ed25519 signing is deterministic — a full
+  recompute is byte-identical. The first draft of that test asserted exactly
+  that and would have passed against the unfixed code. If you cannot name an
+  input the cache is blind to, your test is not observing the cache.
+- **A permissions fix in an image is undone by the volume it protects**
+  (bug-586). `chmod 700 /data` in a Dockerfile is correct and nearly
+  irrelevant — a mount replaces that inode. Any at-rest guarantee on mounted
+  data must be re-established by the process at every start.
+- **Tightening and widening are not symmetric** (bug-586). The obvious
+  `set_permissions(0o600)` passes every negative test and silently relaxes an
+  operator's `0400`. Assert the `0400` survives, or the fix is "set access to
+  what I assumed" rather than "remove access".
 
 ### bug-581 Phase 2 is an OPEN DECISION — do not dispatch it as a bug fix
 
