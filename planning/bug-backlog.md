@@ -9,6 +9,9 @@ Open bugs: **11** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 | Bug | Sev | On main | Outcome |
 |---|---|---|---|
+| 592 | MED | round 3 `6ca7e8b8e` | an unbound `collections::get`/`getOr` `String` element has an owner (`os.prog` joined the fresh-result census after a lowering audit) |
+| 540 | MED | round 3 `6ca7e8b8e` | WIN-04 only: Windows `term::drawText` shares `io::write`'s cluster walk — **stays OPEN** (WIN-02/03 decision; Windows smoke run owed) |
+| 564 | MED | docs `77038ccc0` | sighting 2 reproduced (6/600 → 0/600 with a store reorder) and root-caused; the reorder is not landable until the AArch64 encoder can emit `STLR` — an agent is adding it |
 | 576 | MED | round 2 `2f40cf6b4` | an unbound runtime-helper `String` result has an owner |
 | 590 | HIGH | round 2 `2f40cf6b4` | a non-finite `Float` from a builtin call no longer escapes the observation boundary |
 | 575 | MED | round 2 `2f40cf6b4` | the `String` argument every `tls::` call marshals is released |
@@ -20,12 +23,18 @@ Round 2 was verified on the merged tree, not per branch: artifact gate 1431 / 15
 2009, 0 diffs; merged `rt_scope_drop_leaks` 98 passed; merged release unit suite
 4132 passed, 0 failed.
 
-**In flight:** round 3 (592 getOr element owner, 540 WIN-04 Windows `drawText`) being
-assembled; 594 (macOS `drawText` control-character column) with an agent; 564's second
-sighting with an agent.
+Round 3 was verified the same way: artifact gate 1431 / 1597 / 2009, 0 diffs; merged
+release unit suite 4137 passed, 0 failed; merged `rt_scope_drop_leaks` 110 passed.
 
-**Filed this stretch:** 593 (a failing runtime-helper call grows a flat block per call —
-two bugs measured it and neither filed it), 594 (macOS `drawText` column), 592.
+**In flight:** round 4 (594, macOS `drawText` control-character column) being verified;
+593 with an agent; 564's `STLR` store-release op with an agent; 472 (the man-example CI
+gate) with the lead — its first whole-corpus Linux sweep found a real stale example
+(`http::finish`, unqualified `STATE` since bug-480 Phase 4b) and bug-595.
+
+**Filed this stretch:** 595 (a `STATE` type name is never resolved — unlocated
+`TYPE_STATE_INVALID`, internal `pkg.Name` spelling in a mismatch message), 593 (a
+failing runtime-helper call grows a flat block per call — two bugs measured it and
+neither filed it), 594 (macOS `drawText` column), 592.
 
 ### Open decisions — these need the owner, not an agent
 
