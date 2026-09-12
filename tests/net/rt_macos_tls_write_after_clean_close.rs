@@ -10,16 +10,23 @@
 //!
 //! * a write to a LIVE peer must still succeed, and the peer must receive the
 //!   bytes. A gate that reads as terminal too early would fail it.
-//! * a CLEAN close must still be observed. Here the peer sends `close_notify`
-//!   and exits, which is the ordinary way a TLS session ends, and `tls::read`
-//!   must report `ErrConnectionClosed`. A write AFTER that close is NOT pinned
-//!   here, because macOS gets it wrong on the pre-fix compiler too: the send
-//!   completes silently. That failure is recorded as OPEN in bugs/bug-564.
+//! * a write after a CLEAN close must raise `ErrConnectionClosed`. Here the peer
+//!   sends `close_notify` and exits, which is the ordinary way a TLS session
+//!   ends. `mfb spec stdlib transports` (§17) and `mfb man tls write` require
+//!   `ErrConnectionClosed` for a write to a peer that has gone away, and
+//!   `ErrTlsFailed` is reserved for handshake, certificate and protocol failures.
+//!   A later `tls::read` must report the same code.
 //!
 //! The peer is `openssl s_client` with `-msg`, and the test asserts that its
 //! trace records the `close_notify` alert. So "clean close" is measured, not
-//! assumed. As in `rt_macos_tls_write_capacity.rs`, the identity is minted at
-//! run time and the server announces the port it bound.
+//! assumed. The server waits on a stdin line that the test sends only after
+//! s_client has exited, so the write happens after the peer is gone. As in
+//! `rt_macos_tls_write_capacity.rs`, the identity is minted at run time and the
+//! server announces the port it bound.
+//!
+//! NOT pinned here: a write after `tls::read` has ALREADY reported the close.
+//! On macOS that write never raises, on the pre-fix compiler too. It is recorded
+//! as OPEN in bugs/bug-564, with the repro.
 //!
 //! Gated to macOS: the trampolines under test exist only in the
 //! Network.framework backend.
@@ -30,7 +37,7 @@
 mod common;
 
 use std::fs;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -86,7 +93,7 @@ fn write_cert(root: &Path) -> (PathBuf, PathBuf) {
 
 fn build_server(root: &Path, cert: &Path, key: &Path) -> PathBuf {
     let source = format!(
-        "IMPORT errorCode\nIMPORT io\nIMPORT net\nIMPORT tls\n\n\
+        "IMPORT errorCode\nIMPORT io\nIMPORT net\nIMPORT strings\nIMPORT tls\n\n\
          FUNC liveWrite(RES conn AS tls::Socket) AS String\n\
         \x20 tls::write(conn, \"{PAYLOAD}\" & toString([toByte(10)]))\n\
         \x20 RETURN \"live=OK\"\n\
@@ -94,13 +101,21 @@ fn build_server(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20   RETURN \"live=RAISED \" & toString(err.code)\n\
         \x20 END TRAP\n\
          END FUNC\n\n\
-         FUNC readUntilClosed(RES conn AS tls::Socket) AS String\n\
-        \x20 WHILE TRUE\n\
-        \x20   LET chunk AS List OF Byte = tls::read(conn, 4096)\n\
-        \x20 END WHILE\n\
-        \x20 RETURN \"eof=NONE\"\n\
+         FUNC writeAfterClose(RES conn AS tls::Socket) AS String\n\
+        \x20 LET chunk AS String = strings::repeat(\"x\", 65536)\n\
+        \x20 FOR i = 1 TO 200\n\
+        \x20   tls::write(conn, chunk)\n\
+        \x20 NEXT\n\
+        \x20 RETURN \"after=COMPLETED\"\n\
         \x20 TRAP(err)\n\
-        \x20   RETURN \"eof=\" & toString(err.code = errorCode::ErrConnectionClosed)\n\
+        \x20   RETURN \"after=\" & toString(err.code = errorCode::ErrConnectionClosed) & \" code=\" & toString(err.code)\n\
+        \x20 END TRAP\n\
+         END FUNC\n\n\
+         FUNC readAfterClose(RES conn AS tls::Socket) AS String\n\
+        \x20 LET chunk AS List OF Byte = tls::read(conn, 4096)\n\
+        \x20 RETURN \"read=GOT\"\n\
+        \x20 TRAP(err)\n\
+        \x20   RETURN \"read=\" & toString(err.code = errorCode::ErrConnectionClosed)\n\
         \x20 END TRAP\n\
          END FUNC\n\n\
          FUNC main AS Integer\n\
@@ -109,7 +124,9 @@ fn build_server(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 io::print(\"port=\" & toString(at.port))\n\
         \x20 RES conn = tls::accept(s)\n\
         \x20 io::print(liveWrite(conn))\n\
-        \x20 io::print(readUntilClosed(conn))\n\
+        \x20 LET peerGone AS String = io::input()\n\
+        \x20 io::print(writeAfterClose(conn))\n\
+        \x20 io::print(readAfterClose(conn))\n\
         \x20 RETURN 0\n\
          END FUNC\n",
         cert = common::mfb_path_literal(cert),
@@ -150,11 +167,13 @@ fn macos_tls_write_succeeds_live_and_raises_connection_closed_after_close_notify
     let exe = build_server(&root, &cert, &key);
 
     let mut server = Command::new(&exe)
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn mfb tls server");
     let server_pid = server.id();
+    let mut server_stdin = server.stdin.take().expect("server stdin");
     let (server_tx, server_lines) = mpsc::channel::<String>();
     let server_stdout = server.stdout.take().expect("server stdout");
     std::thread::spawn(move || {
@@ -229,45 +248,63 @@ fn macos_tls_write_succeeds_live_and_raises_connection_closed_after_close_notify
     }
 
     // 2. Close the peer cleanly: EOF on s_client's stdin makes it send
-    //    close_notify and exit.
+    //    close_notify and exit. Wait for the exit before letting the server
+    //    write, so the write is to a peer that has gone away.
     drop(peer_stdin);
-    let eof = next_server_line(&pids, "read until closed");
-    assert_eq!(
-        eof, "eof=TRUE",
-        "the server must observe the clean close as ErrConnectionClosed on read"
-    );
-    // A write AFTER the close_notify is deliberately not asserted here. It
-    // should raise ErrConnectionClosed, and on macOS it does not: every
-    // `nw_connection_send` completes with a null error and nothing is
-    // transmitted (1.28 GiB "written" in under a second with no server-side
-    // socket left in the kernel table). The same happens on the pre-fix
-    // compiler, so this is not the ordering race. It is recorded as OPEN in
-    // bugs/bug-564, with the repro.
-
-    let (done_tx, done) = mpsc::channel();
+    let (peer_done_tx, peer_done) = mpsc::channel();
     std::thread::spawn(move || {
-        let status = peer.wait();
-        let server_status = server.wait();
-        let mut server_err = String::new();
-        if let Some(mut e) = server.stderr.take() {
-            let _ = e.read_to_string(&mut server_err);
-        }
-        let _ = done_tx.send((status, server_status, server_err));
+        let _ = peer_done_tx.send(peer.wait());
     });
-    let (peer_status, server_status, server_err) = done
-        .recv_timeout(DEADLINE)
-        .unwrap_or_else(|_| fail(&pids, &root, "server or peer did not exit".to_string()));
+    let peer_status = peer_done.recv_timeout(DEADLINE).unwrap_or_else(|_| {
+        fail(
+            &pids,
+            &root,
+            "s_client did not exit after stdin EOF".to_string(),
+        )
+    });
     while let Ok(chunk) = peer_chunks.recv_timeout(Duration::from_millis(200)) {
         transcript.extend(chunk);
     }
     let transcript = String::from_utf8_lossy(&transcript).into_owned();
-    let _ = fs::remove_dir_all(&root);
-
     assert!(
         transcript.contains("close_notify") || transcript.contains("close notify"),
         "the peer's -msg trace must show it sent close_notify, or this is not a clean close:\n{transcript}"
     );
     assert!(peer_status.is_ok(), "s_client exits: {peer_status:?}");
+
+    // 3. A write after the clean close raises ErrConnectionClosed, and so does
+    //    a read after it.
+    server_stdin
+        .write_all(b"peer-gone\n")
+        .expect("release the server's write");
+    drop(server_stdin);
+    let after = next_server_line(&[server_pid], "write after close");
+    let read = next_server_line(&[server_pid], "read after close");
+
+    let (done_tx, done) = mpsc::channel();
+    std::thread::spawn(move || {
+        let server_status = server.wait();
+        let mut server_err = String::new();
+        if let Some(mut e) = server.stderr.take() {
+            let _ = e.read_to_string(&mut server_err);
+        }
+        let _ = done_tx.send((server_status, server_err));
+    });
+    let (server_status, server_err) = done
+        .recv_timeout(DEADLINE)
+        .unwrap_or_else(|_| fail(&[server_pid], &root, "server did not exit".to_string()));
+    let _ = fs::remove_dir_all(&root);
+
+    assert!(
+        after.starts_with("after=TRUE "),
+        "a write after the peer's close_notify must raise ErrConnectionClosed \
+         (`after=COMPLETED` means it never raised; `after=FALSE code=<c>` names what it \
+         raised instead), got {after:?}\nserver stderr:\n{server_err}"
+    );
+    assert_eq!(
+        read, "read=TRUE",
+        "a read after the peer's close_notify must raise ErrConnectionClosed\nserver stderr:\n{server_err}"
+    );
     let server_status = server_status.expect("server wait");
     assert!(
         server_status.success(),
