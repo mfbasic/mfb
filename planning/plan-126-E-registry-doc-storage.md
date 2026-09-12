@@ -334,49 +334,106 @@ publish. Then `mfb-repo backfill-metadata`:
   run 2 → `doc sections: 0 recorded, 0 undecodable`, **exit 0**.
 Final state: 0.2.0's row is back at exactly **112** bytes, byte count matching
 what the server wrote, and 0.1.0 still has none.
-Commit: —
+Commit: 1940b4dd4
 
 ## Validation Plan
 
-- **Tests:** `repository/src/store.rs` (round-trip, absent, yanked-fallback),
-  `repository/src/server.rs` (present / absent / malformed at publish),
-  `repository/src/backfill.rs` (fill, idempotent, quiet-when-absent, skip-malformed).
-- **Coverage check:** the repository crate is a workspace member, so its 351 lib
-  tests are in the `cargo test` denominator. `scripts/artifact-gate.sh` covers none
-  of this — do not cite a 0-diff as evidence for this sub-plan.
-- **Runtime proof:** against a local `mfb-repo` — publish `packages/jwt/jwt.mfp`
-  (27,951 B section measured) and confirm `sqlite3 <datapath>/registry.db 'SELECT
-  length(doc_section) FROM package_version_docs'` reports 27951 exactly. Then publish
-  `examples/browser/dom/dom.mfp` (no section 17) and confirm no second row appears.
-- **Storage sanity:** confirm the aggregate 4.9% figure holds on the test datapath by
-  comparing `SUM(length(doc_section))` against the total blob bytes — if it is
-  wildly higher, the per-version decision should be revisited in Corrections.
-- **Doc sync:** `repository/DEPLOY.md` if it documents the backfill command's output;
-  check with `grep -n backfill repository/DEPLOY.md`.
-- **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast`;
-  `tests/cli/cli_repo_publish.rs`; `docker build -f repository/Dockerfile .`.
+- **Tests:** DONE — **10**, not the planned 9. `repository/src/store.rs` has 5
+  (round-trip, absent, yanked-fallback, plus never-borrow-older-docs and
+  first-write-wins); `repository/src/server.rs` 3 (present / absent / truncated at
+  publish); `repository/src/backfill.rs` 2 (fill + quiet-when-absent + idempotent
+  in one, malformed-is-counted in the other). Three of them were shown
+  load-bearing by mutation: the yanked-fallback selection, the publish decode gate,
+  and the backfill's inserted-count.
+- **Coverage check:** DONE. The repository crate is a workspace member, so its lib
+  tests are in the `cargo test` denominator — **384** after this sub-plan (374
+  before; the plan said 351). `scripts/artifact-gate.sh` covers none of this code
+  and no 0-diff from it is cited as evidence here.
+- **Runtime proof:** DONE, against a live `mfb-repo` whose database predates
+  plan-126-E. The real `jwt` package, published from a `/tmp` copy of the committed
+  `packages/jwt` source, stored a doc section of **27,951 B**. That is exactly the
+  plan's measured figure, and **byte-identical** to section 17 extracted from the
+  published blob itself (compared as bytes, not just lengths). The database file is
+  `meta.db`, not `registry.db` (Corrections). The undocumented case was proven by
+  `alice#p126pkg@0.1.0`, which has no row, because `dom.mfp` is not committed
+  (Corrections). The backfill half is in Phase 3's acceptance: `1 recorded`, then
+  `0 recorded`, both exit 0.
+- **Storage sanity:** DONE. On that datapath: 28,063 doc bytes of 707,247 blob
+  bytes = **4.0%**, and jwt alone 4.0% — not "wildly higher" than the plan's 4.9%
+  aggregate, so the per-version decision stands (Open Decisions).
+- **Doc sync:** DONE. `grep -n backfill repository/DEPLOY.md` → nothing; DEPLOY.md
+  does not document the backfill output. The `backfill-metadata` usage text in
+  `repository/src/main.rs` was the stale description and is updated (Phase 3).
+- **Acceptance:** DONE, apart from the plan-wide final gate.
+  `cargo test --test cli_repo_publish --test cli_repo_install --test cli_repo_auth
+  --test cli_repo_governance` → 4 / 7 / 9 / 6 passed (Phase 2).
+  `docker build --load -f repository/Dockerfile -t mfb-repo-p126:e .` → **exit 0**,
+  compiling `mfb_wire v0.1.0 (/build/wire)` then `mfb_repository`.
+  The whole-workspace `rustup run 1.96.0 cargo test --no-fail-fast` is follow-plan
+  §5's final gate, run once for all letters.
 - **Format:** `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
 ## Open Decisions
 
-- **Per-version storage, or latest-active only?** Recommended **per version**, for
-  the yank-fallback correctness reason in §3; the measured cost is 4.9% of aggregate
-  `.mfp` bytes on data the registry already keeps forever. The alternative — keep
-  only the latest active version's section and delete on each publish — halves an
-  already-small number and reintroduces a blob fetch on the yank path. Note the
-  measured counter-case: for the smallest package (`libsnd`, 38 KB) the doc section
-  is 40% of the file, so the ratio is size-dependent and worth re-measuring on real
-  registry data before treating 4.9% as general. (§3)
-- **Should `GET /packages/:ident` gain a docs presence flag?** Recommended **no** here
-  — it is plan-126-F's call, alongside the JSON parity route. Deciding it in this
-  sub-plan would add a response field with no consumer. (§1)
+- **Per-version storage, or latest-active only?** **RESOLVED: per version**, taking
+  the recommendation. It was re-measured on real registry data rather than assumed
+  from the tree census. On the runtime-proof datapath, the real `jwt` package's
+  stored doc section is 27,951 B of a 703,235 B blob = **4.0%** (the plan's own jwt
+  figure, exactly), and the whole datapath is 28,063 doc bytes of 707,247 blob
+  bytes = **4.0%**. That is not "wildly higher", so the per-version decision stands.
+  The counter-case caveat still applies: the share is size-dependent (the plan
+  measured `libsnd` at 40%), so a registry dominated by tiny packages would show a
+  larger ratio of a smaller absolute number. (§3)
+- **Should `GET /packages/:ident` gain a docs presence flag?** **RESOLVED: no, not
+  here**, taking the recommendation — it is plan-126-F's call, alongside its JSON
+  parity route. No response field was added by this sub-plan. (§1)
 
 ## Corrections
 
-<!-- Fill in during execution. Watch for: the real doc-section share on a populated
-     datapath (the 4.9% is six packages in this tree, not a registry census), and
-     whether the publish INSERT can genuinely carry a second table write in the same
-     transaction without restructuring `store.rs:1818-1828`. -->
+- **The publish INSERT carried the second table write without restructuring —
+  answering this section's own watch item.** The doc row is written inside
+  `publish_package_version`'s existing transaction, right after
+  `tx.last_insert_rowid()`. The only structural choice was how the bytes reach it:
+  a new positional argument would have touched **57** call sites
+  (`grep -rn "publish_package_version(" --include='*.rs' repository/src src tests`),
+  a `docs` field on `PublishMetadata` touched the **3** literals `cargo check`
+  reported. The field won.
+
+- **The real doc-section share, measured on a populated datapath** — the other
+  watch item: **4.0%** (see Open Decisions), consistent with the plan, so no
+  revision.
+
+- **The runtime-proof command queries a file that does not exist.** § Validation
+  Plan says `sqlite3 <datapath>/registry.db`. `mfb-repo` takes its database path
+  from `--dbpath`, and the registry here used `meta.db` (the name its own tests and
+  the plan-126-A/C runtime proofs use). There is no `registry.db`. Queried
+  `meta.db`.
+
+- **Neither runtime-proof fixture is committed, so both were substituted.**
+  - `packages/jwt/jwt.mfp` is a gitignored build artifact (plan-126-B § Verified
+    properties). jwt was published from a `/tmp` copy of the **committed**
+    `packages/jwt` source with `"ident": "alice#jwt"` added, since `mfb repo publish`
+    requires an ident. The committed source was not modified.
+  - `examples/browser/dom/dom.mfp` is not committed either
+    (`git ls-files 'examples/browser/*/*.mfp'` → nothing). The property it was to
+    prove — a package with no section 17 gets no row — was proven instead by
+    `alice#p126pkg@0.1.0`, the `init-pkg` template (no `DOC` blocks), which has no
+    row after both publish and backfill.
+
+- **Phase 2 captures section 17 without calling `read_package_doc_section`.** That
+  function returns *decoded* `PackageDocs`, but Phase 1 stores the **raw** bytes. So
+  the handler calls `mfpc::read_section_table` → section 17 and keeps the raw
+  slice, using `read_doc_table` only as a gate: bytes that fail to decode are not
+  stored. `read_package_doc_section` remains the one-call path the plan's §1
+  describes, for a decoded view.
+
+- **Phase 3 changed Phase 1's `put_version_docs` API** from `Result<(), String>` to
+  `Result<bool, String>`. The backfill needs to know whether a row was actually
+  inserted, so a second run reports zero instead of re-claiming rows. The five
+  Phase 1 tests only `.unwrap()` it and needed no edit.
+
+- **Populations re-measured 2026-09-12** (plan figures in parentheses): repository
+  crate lib tests at the start of this sub-plan **374** (351); after it **384**.
 
 ## Summary
 

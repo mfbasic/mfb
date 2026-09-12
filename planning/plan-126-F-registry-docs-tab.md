@@ -29,8 +29,8 @@ See plan-126-A § Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-126-E complete (docs are stored and retrievable) | `grep -c latest_active_version_docs repository/src/store.rs` → ≥1 | NOT MET |
-| plan-126-A complete (`latest_active_version` exists) | `grep -c 'fn latest_active_version' repository/src/store.rs` → 1 | NOT MET |
+| plan-126-E complete (docs are stored and retrievable) | `grep -c latest_active_version_docs repository/src/store.rs` → ≥1 | MET (measured 2026-09-12: **7**; E landed as acdbe0648, f9e26140a, 1940b4dd4, and was runtime-proven by publishing the real `jwt` package, whose stored 27,951-byte doc section is byte-identical to the published blob's section 17) |
+| plan-126-A complete (`latest_active_version` exists) | `grep -c 'fn latest_active_version(' repository/src/store.rs` → 1 (corrected from `'fn latest_active_version'`) | MET (measured 2026-09-12: exactly **1**; A landed as 1285d1f96, 90150eff1, cce8f7b02). The original command returns **8**, not 1: without the `(` it also matches `fn latest_active_version_docs` and test names such as `fn latest_active_version_skips_a_yanked_newest_release`. The requirement holds; the command was miscalibrated. |
 
 If either is not complete, this sub-plan cannot start, full stop.
 
