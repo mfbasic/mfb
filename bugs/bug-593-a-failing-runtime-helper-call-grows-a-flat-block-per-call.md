@@ -196,7 +196,20 @@ its payload. Which paths it covers is decided by the SAME predicate
    temporary's value and had no owner. The fix **only adds a free**: no existing free moves, no
    payload is released, and the one block whose Ok payload a binding aliases keeps its lifetime
    (`ErrorOnly`).
-3. Golden delta: see "Gate" below.
+3. **Golden delta: none.** `bash scripts/artifact-gate.sh target/release/mfb all` →
+   `1431 tests, 1597 build(s), 2009 golden(s) checked, 0 diff(s)`, exit 0; zero golden files
+   changed on the branch, zero `.run`. The zero is coverage-correct, not a blind pass: no
+   fixture that owns a `.ncode`/`.ncodesum` golden contains an inline `TRAP` at all (grep over
+   every golden-bearing fixture's `.mfb` finds none), and the gate's binary does emit the new
+   drop (4 `owned_value_free_skip` sites in the user-`RES` probe's `main`, against 1 on base).
+   The fixtures that DO exercise it — `closed-default-drop-rt`, `closed-default-tls-drop-rt`,
+   `inline-trap-producer-float-rt`, `tcp-udp-poll-list-trap-rt`, `tls-poll-list-rt`,
+   `inline-trap-union-bind-rt` (a `json::Json` result), `native-link-inline-trap-rt`,
+   `func_fs_openWithin_valid`, `native-res-state-inline-trap-valid` — run under
+   `scripts/test-accept.sh target/release/mfb …` with their `build.log` output compared:
+   9 passed, exit 0. Full suite
+   `cargo test --release --no-fail-fast -- --skip artifact_gate_all` (gate run separately
+   above): cargo exit 0, 161 test binaries, 5 346 passed, 0 failed, 6 ignored.
 4. Positive pin `every_failing_resource_call_still_reports_its_error_and_origin`: `RETURN` from
    the handler reading `e`, a `FAIL inner` re-raise (origin stays line 17, the `fs::open`), the
    hoisted chain form (bug-457), a refused `tcp::connect`, a user `FAIL` into `RES`, a
