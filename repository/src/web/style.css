@@ -894,3 +894,35 @@ details.hex[open] > summary .hx { display: none; }
   body { font-size: 14px; }
   table.grid td, .versions .v-main td, table.targets td { grid-template-columns: 6.5rem 1fr; }
 }
+
+/* --------------------------------------------------------- docs tab ----- */
+/* plan-126-F: the Docs tab renders publisher DOC blocks. Callouts reuse the
+   site's semantic tokens (note / warn / danger), which already carry dark-mode
+   values, rather than importing the compiler renderer's palette. */
+.doc-intro { margin: 1rem 0 1.5rem; max-width: 60rem; }
+.doc-intro p { margin: 0.5rem 0; text-wrap: pretty; }
+.callout {
+  margin: 0.75rem 0;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  max-width: 60rem;
+}
+.callout--info {
+  color: var(--note);
+  border-color: var(--note-border);
+  background: var(--note-bg);
+}
+.callout--warning {
+  color: var(--warn);
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+.callout--danger {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+.callout__label { font-weight: 700; margin-right: 0.35rem; }

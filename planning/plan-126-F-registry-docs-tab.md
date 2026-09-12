@@ -1,6 +1,6 @@
 # plan-126-F: The registry "Docs" tab
 
-Last updated: 2026-09-06
+Last updated: 2026-09-12
 Effort: medium (1h–2h)
 Depends on: plan-126-E
 
@@ -188,46 +188,65 @@ decision; the URL is designed so `?v=` is additive if it is ever wanted.
 Lands the navigation and the undocumented-package case first, so the route exists
 and is reachable before any doc markup is written.
 
-- [ ] Measure and record the current `grep -rc PreEscaped repository/src/web/` count
+- [x] Measure and record the current `grep -rc PreEscaped repository/src/web/` count
       in Corrections; it is the baseline the rest of this sub-plan must not raise.
-- [ ] Replace `package_tabs(ident, audit: bool)` (`repository/src/web/mod.rs:389-400`)
+- [x] Replace `package_tabs(ident, audit: bool)` (`repository/src/web/mod.rs:389-400`)
       with a `PackageTab` enum parameter and update its two existing callers
       (`package_page` at `:500`, `audit_page` at `:671`).
-- [ ] Add `DocsView { ident, version: Option<String>, page: Option<DocPage> }` and a
+- [x] Add `DocsView { ident, version: Option<String>, page: Option<DocPage> }` and a
       `docs_page` that, for `page: None`, renders the shell, the tab strip, and
       explicit copy: the package's author did not include documentation in this
       release, with a pointer to `mfb man` for the language itself.
-- [ ] Add the `/p/:ident/docs` route and `package_docs_html` handler
+- [x] Add the `/p/:ident/docs` route and `package_docs_html` handler
       (`repository/src/server.rs:875-877`), reusing `package_detail`'s not-found
       path so an unknown ident returns the same `message_page` as the other tabs.
-- [ ] Tests in `repository/src/web/mod.rs`: all three tabs render with exactly one
+- [x] Tests in `repository/src/web/mod.rs`: all three tabs render with exactly one
       `aria-current="page"`, once per tab; the empty-docs page contains the
       no-documentation copy and no declaration markup.
 
 Acceptance: `GET /p/<ident>/docs` for a package with no stored docs returns HTTP 200
 with the three-tab strip and the explicit no-documentation statement; a rendered-HTML
 test asserts exactly one `aria-current` attribute on each of the three pages.
+**Met (2026-09-12):** router test `the_docs_tab_states_when_a_release_has_no_documentation`
+(`grep -n 'fn the_docs_tab_states_when_a_release_has_no_documentation' repository/src/server.rs`)
+publishes an undocumented release and asserts HTTP 200, the three-tab strip and the
+no-documentation copy; `every_package_tab_page_marks_exactly_one_current_tab` fetches
+all three routes and asserts exactly one `aria-current` on each, on the right tab;
+`package_tabs_mark_exactly_the_current_tab` pins the same at the renderer.
+`rustup run 1.96.0 cargo test --no-fail-fast --manifest-path repository/Cargo.toml --lib`
+→ 392 passed, 0 failed.
 Commit: —
 
 ### Phase 2 — Render one real package
 
 Resolves the density question against real content before the markup is finalized.
 
-- [ ] Wire `Store::latest_active_version_docs` into the handler, decode with
+- [x] Wire `Store::latest_active_version_docs` into the handler, decode with
       `mfb_wire::docs::read_package_doc_section` and build the `DocPage` with
       `mfb_wire::docpage::from_package`.
-- [ ] Render the package header (name, version, subtitle), intro prose, and the four
+- [x] Render the package header (name, version, subtitle), intro prose, and the four
       `Prose` kinds as paragraph plus `info` / `warning` / `danger` callouts,
       mirroring the mapping at `src/doc/html.rs:44-49`.
-- [ ] Add the corresponding rules to `repository/src/web/style.css`, reusing the
+- [x] Add the corresponding rules to `repository/src/web/style.css`, reusing the
       site's existing colour and spacing tokens.
-- [ ] Publish `packages/jwt/jwt.mfp` to a local `mfb-repo` and look at
+- [x] Publish `packages/jwt/jwt.mfp` to a local `mfb-repo` and look at
       `/p/<ident>/docs`. Adjust before writing the declaration markup.
 
 Acceptance: the page renders `jwt`'s package-level documentation with correctly
 styled callouts, and `curl -sI` confirms the response still carries the unchanged
 `Content-Security-Policy` header. Loading it in a browser produces **no CSP violation
 in the console** — the check that would have caught reusing the compiler's renderer.
+**Met (2026-09-12):** `jwt.mfp` published to a local `mfb-repo` on 127.0.0.1:7792.
+`curl -sI 'http://127.0.0.1:7792/p/alice%23jwt/docs'` → `HTTP/1.1 200 OK` with
+`content-security-policy: default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`
+(identical to `CSP` in `repository/src/web/mod.rs`). The body (7,020 bytes) names `v0.1.0`,
+carries the subtitle, and renders 6 `callout--danger` blocks. In the browser:
+`document.styleSheets.length` = 1 (the served `/style.css`), computed `.callout`
+`border-left-width` = `4px` (the stylesheet applied — a blocked sheet would leave it `0px`),
+0 `[style]` elements, 0 `<style>`/`<script>`, and the only `aria-current` is `Docs`.
+A static audit of the served HTML (`python3 /tmp/p126-csp-audit.py`) found 0 `style=`
+attributes, 0 `on*` handlers, 0 `javascript:` URLs, and one loaded resource,
+same-origin `/style.css`; nothing on the page can trip `default-src 'none'`.
 Commit: —
 
 ### Phase 3 — Declarations, and the escaping proof (largest blast radius)
@@ -297,9 +316,35 @@ Commit: —
 
 ## Corrections
 
-<!-- Fill in during execution. Record: the Phase 1 `PreEscaped` baseline count; the
-     internal-declarations decision; and anything the real-package render in Phase 2
-     shows about density that changes the markup plan. -->
+- **Phase 1 `PreEscaped` baseline = 1** (`grep -rc PreEscaped repository/src/web/` →
+  `mod.rs:1`, `style.css:0`; also 1 at the fork commit,
+  `git show e66e594a4:repository/src/web/mod.rs | grep -c PreEscaped`). The one hit is
+  the module doc *naming* the bypass, not a use — `grep -n 'PreEscaped(' repository/src/web/`
+  returns nothing. The count is of mentions, so a doc comment can raise it: this
+  sub-plan's own `doc_prose` comment first said "PreEscaped" and took the count to 2; it
+  was reworded ("never reaches for maud's escaping bypass") to hold the baseline.
+- **Phase 2 names the wrong decoder.** It says decode with
+  `mfb_wire::docs::read_package_doc_section`, but that function takes a whole `.mfp`
+  *payload* and locates section 17 itself; `package_version_docs` stores the raw
+  section-17 bytes (plan-126-E), so the handler decodes them with
+  `mfb_wire::docs::read_doc_table` (`grep -n 'pub fn read_doc_table\|pub fn read_package_doc_section' wire/src/docs.rs`).
+  Passing the stored bytes to `read_package_doc_section` would fail to find a section table.
+- **Phases 1 and 2 landed as one commit.** Phase 1's route could not be exercised end to
+  end without Phase 2's store read (the handler has one body), so both phases' boxes
+  are ticked in the same commit as the code.
+- **Browser check method.** The preview tool's `snapshot` call failed on every tab and
+  `evaluate` timed out twice on the first; the in-browser measurements above come from a
+  fresh tab's `evaluate`, backed by the static HTML audit, which does not depend on the
+  tool at all.
+- **Store and decode failures are a 500, not the empty state.** An error reading or
+  decoding the stored section renders "Documentation unavailable" (HTTP 500) instead of
+  the no-documentation copy, so a corrupt row can never be displayed as "the author
+  included none" — the indistinguishability § Design Overview rejects hiding the tab for.
+- **Phase 2 density review.** The package-level render (header, intro, callouts) fits the
+  site's existing `pkg-head` / `pkg-latest` / `pkg-desc` classes and its existing
+  `--note*` / `--warn*` / `--danger*` tokens (each already with light and dark values)
+  without a second design system: `git diff -- repository/src/web/style.css` is 32 added
+  lines, 0 removed, and no new custom property. No change to the Phase 3 markup plan.
 
 ## Summary
 

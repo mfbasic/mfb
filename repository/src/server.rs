@@ -910,6 +910,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/search.html", get(search_html))
         .route("/p/:ident", get(package_page_html))
         .route("/p/:ident/audit", get(package_audit_html))
+        .route("/p/:ident/docs", get(package_docs_html))
         .route("/search", get(search))
         .route("/index/:ident", get(package_index))
         // plan-61-B: anonymous read surface. These read no credential of any
@@ -1278,6 +1279,75 @@ async fn search_html(
         StatusCode::OK,
         crate::web::search_page(&registry_id, &text, &rows),
     )
+}
+
+/// `GET /p/:ident/docs` — the Docs tab (plan-126-F).
+///
+/// Resolves the package through `package_detail` first, so an unknown ident gets
+/// the identical not-found page and status the Overview and Audit tabs give. It
+/// then reads the documentation of the **latest active** release
+/// (`Store::latest_active_version_docs`, built on plan-126-A's selection) — the
+/// same release `detail.latest_version` names, so the version shown is the
+/// version documented.
+///
+/// The stored bytes were decode-validated when they were recorded, so a decode
+/// failure here means the database no longer matches what was written. That is
+/// reported as an explicit error page, never a panic, and never rendered as
+/// "no documentation", which would hide it.
+async fn package_docs_html(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Response {
+    let (registry_id, _fingerprint) = registry_identity(&state);
+    let detail =
+        match package_detail(State(state.clone()), axum::extract::Path(ident.clone())).await {
+            Ok(Json(detail)) => detail,
+            Err((status, Json(error))) => {
+                return crate::web::html_response(
+                    status,
+                    crate::web::message_page(&registry_id, "Package not found", &error.error),
+                )
+            }
+        };
+
+    let fallback_name = detail
+        .ident
+        .split_once('#')
+        .map(|(_, package)| package.to_string())
+        .unwrap_or_else(|| detail.ident.clone());
+    let page = match state.store.latest_active_version_docs(&detail.ident) {
+        Ok(Some((_version, section))) => match mfb_wire::docs::read_doc_table(&section) {
+            Ok(docs) => Some(mfb_wire::docpage::from_package(docs, &fallback_name)),
+            Err(_) => {
+                return crate::web::html_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    crate::web::message_page(
+                        &registry_id,
+                        "Documentation unavailable",
+                        "The stored documentation for this release could not be decoded.",
+                    ),
+                )
+            }
+        },
+        Ok(None) => None,
+        Err(_) => {
+            return crate::web::html_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                crate::web::message_page(
+                    &registry_id,
+                    "Documentation unavailable",
+                    "The registry could not load this package's documentation.",
+                ),
+            )
+        }
+    };
+
+    let view = crate::web::DocsView {
+        ident: detail.ident,
+        version: detail.latest_version,
+        page,
+    };
+    crate::web::html_response(StatusCode::OK, crate::web::docs_page(&registry_id, &view))
 }
 
 /// `GET /p/:ident` — the rendered package page (plan-61-C Phase 3).
@@ -6597,6 +6667,123 @@ mod tests {
         // The copy frames this as evidence, not assurance.
         assert!(body.contains("evidence for you to check"));
         assert!(!body.contains("<script"));
+    }
+
+    // === plan-126-F: the Docs tab through the real router ==================
+
+    /// Publish `alice#toolbox@1.0.0` with optional documentation.
+    fn seed_toolbox(h: &Harness, docs: Option<Vec<u8>>) {
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash-1.0.0",
+                "data/1.0.0.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata {
+                    docs,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+
+    fn toolbox_doc_section() -> Vec<u8> {
+        mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
+            package: Some(mfb_wire::docs::PackageDocEntry {
+                name: "toolbox".to_string(),
+                desc: vec![
+                    (0, "Toolbox subtitle.".to_string()),
+                    (2, "An informational note.".to_string()),
+                ],
+                deprecated: None,
+            }),
+            decls: Vec::new(),
+        })
+    }
+
+    /// **plan-126-F Phase 1's acceptance test.** Each of the three package pages,
+    /// rendered through the real router, carries exactly one
+    /// `aria-current="page"`, on its own tab.
+    #[tokio::test]
+    async fn every_package_tab_page_marks_exactly_one_current_tab() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        for (uri, label) in [
+            ("/p/alice%23toolbox", "Overview"),
+            ("/p/alice%23toolbox/docs", "Docs"),
+            ("/p/alice%23toolbox/audit", "Audit"),
+        ] {
+            let (status, _headers, body) = get_page(&h.state, uri).await;
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert_eq!(
+                body.matches("aria-current=\"page\"").count(),
+                1,
+                "{uri} must mark exactly one tab: {body}"
+            );
+            assert!(
+                body.contains(&format!("aria-current=\"page\">{label}</a>")),
+                "{uri} must mark {label}: {body}"
+            );
+        }
+    }
+
+    /// A release with no stored documentation gets the tab, HTTP 200, and an
+    /// explicit statement — not a 404 and not a hidden tab.
+    #[tokio::test]
+    async fn the_docs_tab_states_when_a_release_has_no_documentation() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (status, headers, body) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_SECURITY_POLICY).unwrap(),
+            crate::web::CONTENT_SECURITY_POLICY,
+        );
+        assert!(body.contains("did not include documentation"), "{body}");
+        assert!(body.contains("v1.0.0"), "{body}");
+    }
+
+    /// Stored documentation renders under the unchanged site CSP, with no inline
+    /// style and no script — the two things the compiler's own renderer would
+    /// have needed.
+    #[tokio::test]
+    async fn the_docs_tab_renders_stored_documentation_under_the_site_csp() {
+        let h = harness();
+        seed_toolbox(&h, Some(toolbox_doc_section()));
+        let (status, headers, body) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_SECURITY_POLICY).unwrap(),
+            crate::web::CONTENT_SECURITY_POLICY,
+        );
+        assert!(body.contains("Toolbox subtitle."), "{body}");
+        assert!(body.contains("An informational note."), "{body}");
+        assert!(body.contains("callout--info"), "{body}");
+        assert!(!body.contains("did not include documentation"), "{body}");
+        assert!(!body.contains("<style"), "no inline style: {body}");
+        assert!(!body.contains("<script"), "no script: {body}");
+    }
+
+    /// An unknown ident's Docs tab 404s exactly like the other tabs, with the
+    /// same not-found page, because it resolves through `package_detail`.
+    #[tokio::test]
+    async fn an_unknown_packages_docs_tab_404s_like_the_other_tabs() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (overview_status, _h1, overview_body) = get_page(&h.state, "/p/alice%23nope").await;
+        let (docs_status, _h2, docs_body) = get_page(&h.state, "/p/alice%23nope/docs").await;
+        assert_eq!(docs_status, StatusCode::NOT_FOUND);
+        assert_eq!(docs_status, overview_status);
+        assert!(docs_body.contains("Package not found"), "{docs_body}");
+        assert!(
+            overview_body.contains("Package not found"),
+            "{overview_body}"
+        );
     }
 
     /// An unknown package renders a 404 **page**, not a bare status — and that

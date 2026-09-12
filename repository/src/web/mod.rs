@@ -410,18 +410,149 @@ fn hex_value(value: &str) -> Markup {
     }
 }
 
-/// The tab strip shared by the two package views. The audit "tab" is a separate
-/// URL, not a script toggle — the site has no script.
-fn package_tabs(ident: &str, audit: bool) -> Markup {
+/// Which package view a page is (plan-126-F).
+///
+/// An enum rather than the `audit: bool` it replaced: with three tabs a bool
+/// cannot name the third, and two bools could claim two current tabs at once.
+/// Each variant marks exactly one tab current by construction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PackageTab {
+    Overview,
+    Docs,
+    Audit,
+}
+
+/// The tab strip shared by the package views. Each "tab" is a separate URL, not
+/// a script toggle — the site has no script.
+///
+/// `aria-current="page"` is emitted on the current tab **only**: maud's optional
+/// attribute syntax omits the attribute entirely when the value is `None`,
+/// rather than rendering an empty one.
+fn package_tabs(ident: &str, current: PackageTab) -> Markup {
     let base = package_path(ident);
+    let mark = |tab: PackageTab| (current == tab).then_some("page");
     html! {
         nav."tabs" aria-label="Package views" {
-            @if audit {
-                a."tab" href=(base) { "Overview" }
-                a."tab" href={ (base) "/audit" } aria-current="page" { "Audit" }
-            } @else {
-                a."tab" href=(base) aria-current="page" { "Overview" }
-                a."tab" href={ (base) "/audit" } { "Audit" }
+            a."tab" href=(base) aria-current=[mark(PackageTab::Overview)] { "Overview" }
+            a."tab" href={ (base) "/docs" } aria-current=[mark(PackageTab::Docs)] { "Docs" }
+            a."tab" href={ (base) "/audit" } aria-current=[mark(PackageTab::Audit)] { "Audit" }
+        }
+    }
+}
+
+/// What the Docs tab renders (plan-126-F).
+pub struct DocsView {
+    pub ident: String,
+    /// The latest active release — the same plan-126-A selection that picked
+    /// the documentation, so the version named is the version documented.
+    /// `None` when the package has no active release.
+    pub version: Option<String>,
+    /// The documentation of that release, or `None` when its author included
+    /// none.
+    pub page: Option<mfb_wire::docpage::DocPage>,
+}
+
+/// `GET /p/:ident/docs` — the Docs tab (plan-126-F).
+///
+/// **Every string on this page is publisher-controlled**: package prose,
+/// subtitles, signatures, examples, parameter descriptions. The defence is the
+/// same as everywhere on this site — maud escapes every interpolated value, and
+/// this function never reaches for maud's escaping bypass. The compiler's `src/doc/html.rs`
+/// renderer is deliberately **not** reused: it emits an inline `<style>` the CSP
+/// blocks, and embedding its HTML would need exactly that bypass. The shared
+/// thing is the *model* (`mfb_wire::docpage`), not the markup.
+///
+/// A package whose release carries no documentation still gets this tab, with an
+/// explicit statement: a missing tab would make "no documentation" and "the docs
+/// failed to load" indistinguishable.
+pub fn docs_page(registry_id: &str, view: &DocsView) -> Markup {
+    let body = html! {
+        div."wrap" {
+            div."pkg-head" {
+                h1."pkg-head__ident" { (view.ident) }
+                div."pkg-head__row" {
+                    @if let Some(version) = &view.version {
+                        span."pkg-latest" { "v" (version) }
+                    }
+                    span."muted" { "documentation" }
+                }
+                @if let Some(page) = &view.page {
+                    @if !page.subtitle.is_empty() {
+                        p."pkg-desc" { (page.subtitle) }
+                    }
+                }
+            }
+
+            (package_tabs(&view.ident, PackageTab::Docs))
+
+            @match &view.page {
+                Some(page) => {
+                    @if let Some(message) = &page.package_deprecated {
+                        div."callout callout--warning" role="note" {
+                            strong."callout__label" { "Deprecated." }
+                            (message)
+                        }
+                    }
+                    @if !page.intro.is_empty() {
+                        div."doc-intro" {
+                            (doc_prose(&page.intro))
+                        }
+                    }
+                },
+                None => {
+                    div."empty" role="note" {
+                        h2 { "No documentation in this release" }
+                        p {
+                            "The package's author did not include documentation in "
+                            @match &view.version {
+                                Some(version) => { "release " span."mono" { "v" (version) } },
+                                None => { "any active release" },
+                            }
+                            "."
+                        }
+                        p."muted" {
+                            "For the MFBASIC language itself, run "
+                            span."mono" { "mfb man" }
+                            "."
+                        }
+                    }
+                },
+            }
+        }
+    };
+    page(&format!("{} — docs", view.ident), registry_id, body)
+}
+
+/// Render prose blocks: a `DESC` is a paragraph, and `WARN` / `INFO` / `SEC` are
+/// callouts — the same four-way mapping the compiler's renderer uses
+/// (`src/doc/html.rs`, `render_prose`), expressed with the site's semantic
+/// colour tokens instead of that renderer's palette.
+fn doc_prose(prose: &[mfb_wire::docpage::Prose]) -> Markup {
+    use mfb_wire::docs::DocProseKind;
+    html! {
+        @for block in prose {
+            @match block.kind {
+                DocProseKind::Desc => {
+                    p { (block.text) }
+                },
+                DocProseKind::Warn => {
+                    div."callout callout--warning" role="note" {
+                        strong."callout__label" { "Warning." }
+                        (block.text)
+                    }
+                },
+                DocProseKind::Info => {
+                    div."callout callout--info" role="note" {
+                        strong."callout__label" { "Note." }
+                        (block.text)
+                    }
+                },
+                DocProseKind::Sec => {
+                    div."callout callout--danger" role="note" {
+                        strong."callout__label" { "Security." }
+                        (block.text)
+                    }
+                },
             }
         }
     }
@@ -554,7 +685,7 @@ pub fn package_page(registry_id: &str, view: &PackageView) -> Markup {
                 }
             }
 
-            (package_tabs(&view.ident, false))
+            (package_tabs(&view.ident, PackageTab::Overview))
 
             h2."section-title" {
                 "Versions " span."muted" { "(" (view.versions.len()) ")" }
@@ -725,7 +856,7 @@ pub fn audit_page(registry_id: &str, view: &AuditView) -> Markup {
                 }
             }
 
-            (package_tabs(&view.ident, true))
+            (package_tabs(&view.ident, PackageTab::Audit))
 
             div."prose" {
                 p {
@@ -1162,6 +1293,116 @@ mod tests {
             log_index: Some(1),
             targets: Vec::new(),
         }
+    }
+
+    // === plan-126-F: tabs and the Docs tab ================================
+
+    /// Every tab variant marks exactly one tab current, and it is the right one.
+    #[test]
+    fn package_tabs_mark_exactly_the_current_tab() {
+        for (current, label) in [
+            (PackageTab::Overview, "Overview"),
+            (PackageTab::Docs, "Docs"),
+            (PackageTab::Audit, "Audit"),
+        ] {
+            let rendered = package_tabs("acme#matrix", current).into_string();
+            assert_eq!(
+                rendered.matches("aria-current=\"page\"").count(),
+                1,
+                "{current:?}: {rendered}"
+            );
+            assert!(
+                rendered.contains(&format!("aria-current=\"page\">{label}</a>")),
+                "{current:?} must mark {label}: {rendered}"
+            );
+        }
+    }
+
+    fn docs_view(page: Option<mfb_wire::docpage::DocPage>) -> DocsView {
+        DocsView {
+            ident: "acme#matrix".to_string(),
+            version: Some("4.2.0".to_string()),
+            page,
+        }
+    }
+
+    fn doc_page_with_intro(
+        desc: Vec<(u8, String)>,
+        deprecated: Option<String>,
+    ) -> mfb_wire::docpage::DocPage {
+        mfb_wire::docpage::from_package(
+            mfb_wire::docs::PackageDocs {
+                package: Some(mfb_wire::docs::PackageDocEntry {
+                    name: "matrix".to_string(),
+                    desc,
+                    deprecated,
+                }),
+                decls: Vec::new(),
+            },
+            "matrix",
+        )
+    }
+
+    /// No documentation is stated explicitly, names the release, points at
+    /// `mfb man`, and renders no documentation markup.
+    #[test]
+    fn the_empty_docs_page_states_the_author_included_no_documentation() {
+        let rendered = docs_page("reg", &docs_view(None)).into_string();
+        assert!(
+            rendered.contains("did not include documentation"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("v4.2.0"), "{rendered}");
+        assert!(rendered.contains("mfb man"), "{rendered}");
+        assert!(!rendered.contains("callout"), "{rendered}");
+        assert!(!rendered.contains("doc-intro"), "{rendered}");
+        assert_eq!(rendered.matches("aria-current=\"page\"").count(), 1);
+        assert!(
+            rendered.contains("aria-current=\"page\">Docs</a>"),
+            "{rendered}"
+        );
+    }
+
+    /// The first `DESC` is the subtitle, the rest is intro, and each of the four
+    /// prose kinds renders as its own element and callout class.
+    #[test]
+    fn the_docs_page_renders_package_prose_and_every_callout_kind() {
+        let page = doc_page_with_intro(
+            vec![
+                (0, "The subtitle.".to_string()),
+                (0, "A paragraph.".to_string()),
+                (1, "A warning.".to_string()),
+                (2, "A note.".to_string()),
+                (3, "A security caveat.".to_string()),
+            ],
+            Some("use matrix2".to_string()),
+        );
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+        assert!(rendered.contains("The subtitle."), "{rendered}");
+        assert!(rendered.contains("<p>A paragraph.</p>"), "{rendered}");
+        assert!(rendered.contains("callout--warning"), "{rendered}");
+        assert!(rendered.contains("callout--info"), "{rendered}");
+        assert!(rendered.contains("callout--danger"), "{rendered}");
+        assert!(rendered.contains("Deprecated."), "{rendered}");
+        assert!(rendered.contains("use matrix2"), "{rendered}");
+        assert!(
+            !rendered.contains("did not include documentation"),
+            "{rendered}"
+        );
+    }
+
+    /// Publisher prose is escaped, never rendered as markup. The full escaping
+    /// proof across signatures, examples and parameters is plan-126-F Phase 3.
+    #[test]
+    fn docs_page_escapes_publisher_prose() {
+        let hostile = "<script>alert(1)</script>";
+        let page = doc_page_with_intro(
+            vec![(0, hostile.to_string()), (2, hostile.to_string())],
+            Some(hostile.to_string()),
+        );
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+        assert!(!rendered.contains("<script"), "{rendered}");
+        assert!(rendered.contains("&lt;script&gt;"), "{rendered}");
     }
 
     /// maud escapes interpolated values by default. This asserts the property
