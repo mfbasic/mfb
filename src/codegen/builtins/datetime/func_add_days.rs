@@ -44,6 +44,34 @@ SUB main()
   LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
   LET yesterday AS datetime::DateTime = datetime::addDays(dt, -1)
 END SUB
+```
+
+Cross a daylight-saving transition. Both examples above use `datetime::utc()`
+values, which have no transitions, so neither reaches the re-resolution this
+member's description promises — this one does. It assumes `TZ=America/New_York`,
+because `datetime::local()` reads the host zone and there is no way to name a
+zone in the language yet. The values shown are measured:
+
+```
+IMPORT io
+IMPORT datetime
+
+SUB main()
+  LET before AS datetime::DateTime = datetime::civil(datetime::date(2026, 3, 7), datetime::time(12, 0), datetime::local())
+  LET after AS datetime::DateTime = datetime::addDays(before, 1)
+
+  io::print(datetime::format(before, "yyyy-MM-dd HH:mm:ss ZZ"))
+  ' 2026-03-07 12:00:00 -05:00
+  io::print(datetime::format(after, "yyyy-MM-dd HH:mm:ss ZZ"))
+  ' 2026-03-08 12:00:00 -04:00
+
+  ' The WALL CLOCK is preserved — both read 12:00 — while the offset moved from
+  ' -05:00 to -04:00. So the underlying instant advanced by 23 hours, not 24:
+  ' this prints 82800, not 86400.
+  LET moved AS Integer = datetime::resolve(after).seconds - datetime::resolve(before).seconds
+  io::print(toString(moved))
+  ' 82800
+END SUB
 ```"#;
 
 #[rustfmt::skip]

@@ -58,6 +58,33 @@ SUB main()
   LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::utc())
   LET at AS datetime::Instant = datetime::resolve(dt)
 END SUB
+```
+
+Resolve a local time on the two days a year when one does not exist, or exists
+twice. Both cases below assume `TZ=America/New_York`; `datetime::local()` reads
+the host zone, and there is no way to name a zone in the language yet, so the
+zone is part of the example's premise rather than its code. The values shown are
+measured, not derived from the policy:
+
+```
+IMPORT io
+IMPORT datetime
+
+SUB main()
+  ' Spring forward. 2026-03-08 02:30 local is SKIPPED — the clock jumps from
+  ' 01:59:59 -05:00 to 03:00:00 -04:00. A gap shifts forward onto the
+  ' post-transition offset, so this names 03:30, not 01:30.
+  LET gap AS datetime::DateTime = datetime::civil(datetime::date(2026, 3, 8), datetime::time(2, 30), datetime::local())
+  io::print(datetime::format(gap, "yyyy-MM-dd HH:mm:ss ZZ"))
+  ' 2026-03-08 03:30:00 -04:00
+
+  ' Fall back. 2026-11-01 01:30 local happens TWICE, once at -04:00 and again
+  ' an hour later at -05:00. An overlap takes the EARLIER, pre-transition
+  ' offset, so this is the first 01:30.
+  LET overlap AS datetime::DateTime = datetime::civil(datetime::date(2026, 11, 1), datetime::time(1, 30), datetime::local())
+  io::print(datetime::format(overlap, "yyyy-MM-dd HH:mm:ss ZZ"))
+  ' 2026-11-01 01:30:00 -04:00
+END SUB
 ```"#;
 
 #[rustfmt::skip]
