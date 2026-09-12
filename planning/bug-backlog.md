@@ -3,6 +3,60 @@
 Last updated: 2026-09-12
 Open bugs: **11** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
+## 2026-09-12 — integration rounds and what they taught
+
+### Landed
+
+| Bug | Sev | On main | Outcome |
+|---|---|---|---|
+| 576 | MED | round 2 `2f40cf6b4` | an unbound runtime-helper `String` result has an owner |
+| 590 | HIGH | round 2 `2f40cf6b4` | a non-finite `Float` from a builtin call no longer escapes the observation boundary |
+| 575 | MED | round 2 `2f40cf6b4` | the `String` argument every `tls::` call marshals is released |
+| 591 | MED | `8361ec0c6` | a multi-overload man page renders each overload's own parameters |
+| — | — | `5c1e09c33` | cleared the four deny-level clippy errors on main (CI never runs clippy) |
+| 552 | LOW | `d83714554` | all three Level-2 global optimizer rows fire; full suite on main 161 targets, 0 failed |
+
+Round 2 was verified on the merged tree, not per branch: artifact gate 1431 / 1597 /
+2009, 0 diffs; merged `rt_scope_drop_leaks` 98 passed; merged release unit suite
+4132 passed, 0 failed.
+
+**In flight:** round 3 (592 getOr element owner, 540 WIN-04 Windows `drawText`) being
+assembled; 594 (macOS `drawText` control-character column) with an agent; 564's second
+sighting with an agent.
+
+**Filed this stretch:** 593 (a failing runtime-helper call grows a flat block per call —
+two bugs measured it and neither filed it), 594 (macOS `drawText` column), 592.
+
+### Open decisions — these need the owner, not an agent
+
+- **bug-581 Phase 2**: what a client does when `snapshot.json` carries no per-package
+  commitment. Fail closed breaks every deployed registry; fail open makes the fix a no-op.
+- **`collections::sum` (bug-590) and `set` (bug-563) declared errors**: whether an error
+  raised at the CALLER's observation boundary belongs in the callee's `errors` list. The
+  list drives inline-`TRAP` fallibility, so it moves more than a man page.
+- **bug-540 WIN-02/03**: proving a Windows resize needs a test-only `term::` resize hook —
+  product surface. WIN-04 did not need it.
+- **A clippy CI job**: four deny-level errors reached main because nothing runs clippy.
+
+### What the integration rounds taught
+
+- **Integrate stale-base branches in rounds.** Each agent branch regenerated goldens on its
+  own old base; every merge then conflicted on goldens a later commit also moved. One
+  integration worktree per round — merge the batch, rebuild once, regenerate once under
+  bash, gate once — resolved it. Both rounds changed EXACTLY the conflicted placeholder
+  goldens and nothing else, which is the containment proof a post-merge regen can give.
+- **Verify where you can still land.** A long suite in the shared main checkout made main
+  un-advanceable for hours: landing writes goldens under it. Run long verification in a
+  worktree.
+- **The merged unit suite catches what per-branch suites cannot.** bug-576's census was
+  correct on its branch and failed on the merged tree, because `os.prog` reached main from a
+  peer after 576 branched. The fix was an AUDIT (does `os.prog` really allocate in the
+  caller's arena?) before touching the list, not adding the name to make it green.
+- **A landing gate must fail closed on the unexpected.** It aborted once on a peer's
+  spec-markdown commit it had not anticipated; inspecting it before landing is the point.
+- **zsh does not word-split an unquoted variable.** It silently broke a multi-path
+  `git checkout` and a file loop this session. Run multi-path shell under bash.
+
 ## 2026-09-12 — compiler pass (after the repository intake)
 
 | Bug | Sev | Commit | Outcome |
