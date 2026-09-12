@@ -610,6 +610,87 @@ case "$sout" in
   *) fail "term::on did not reset the term state — bold and underline survived a term::off + term::on, which happens on no other backend (bug-540 WIN-05)" ;;
 esac
 
+# ---------------------------------------------------------------------------
+# `term::drawText` clusters on Windows (bug-540 WIN-04)
+#
+# `term::drawText` walked UTF-16 units: `e` + U+0301 and a ZWJ emoji took several
+# cells, a wide unit in column 79 was drawn half off the surface, control units went
+# to `TextOutW`, and any row was stamped. It now runs `io::write`'s own cluster walk,
+# specialized for drawText (`WinTermWriteMode::DrawText` in
+# `src/target/win_x86_64/app/mod.rs`).
+#
+# **What this run proves, and what it does not.** Which cell a cluster landed in is
+# NOT observable from this box — the GDI grid has no readback and headless has no
+# window. That is pinned by codegen inspection
+# (`tests/cli/cli_win_app_term_fidelity.rs`: the drawText fold is instruction-for-
+# instruction the io::write fold). This run proves the new body EXECUTES on every
+# branch the specialization added — right clip, wide-at-edge drop, control skip,
+# negative start column, off-grid rows, ZWJ and combining folds — without faulting,
+# and that the shared walk still serves io::print while TUI mode is on.
+wcproj="$work/wincluster"
+mkdir -p "$wcproj/src"
+cat > "$wcproj/project.json" <<'JSON'
+{ "name": "wincluster", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$wcproj/src/main.mfb" <<'MFB'
+IMPORT term
+IMPORT io
+IMPORT strings
+
+SUB main()
+  term::on()
+  ' combining acute (U+0301) and a ZWJ family (man + ZWJ + woman + ZWJ + girl)
+  term::drawText(1, 0, "cafe\u{301}|\u{65E5}\u{672C}|")
+  term::drawText(2, 0, "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}|")
+  ' a wide cluster whose second column would be off the surface: dropped, run ends
+  term::drawText(3, 79, "\u{65E5}after")
+  term::drawText(4, 78, "\u{65E5}\u{672C}")
+  ' control characters advance a column and stamp nothing
+  term::drawText(5, 0, "a\tb\nc\rd")
+  ' a negative start column, off-grid rows, an empty run, a run far past the edge
+  term::drawText(6, -3, "\u{65E5}abcdef")
+  term::drawText(-1, 0, "above")
+  term::drawText(25, 0, "below")
+  term::drawText(7, 0, "")
+  term::drawText(8, 0, strings::repeat("x\u{301}", 300))
+  ' the Write specialization of the same walk, while TUI mode is on
+  io::print("grid cafe\u{301} \u{65E5}")
+  term::sync()
+  term::off()
+  io::print("win04=ok")
+END SUB
+MFB
+
+echo "--- building the term cluster program for windows-x86_64 ---"
+"$MFB_EXE" build --app --target windows-x86_64 "$wcproj" >/dev/null
+
+cat > "$work/wincluster.bat" <<'BAT'
+@echo off
+setlocal
+set MFB_WINAPP_HEADLESS=1
+cd /d C:\mfbwin
+wincluster.exe > wincluster.out 2>&1
+echo rc=%errorlevel%
+type wincluster.out
+BAT
+
+ssh -p "$PORT" "$host" "del /q $remote\\wincluster.out 2>nul" >/dev/null 2>&1 || true
+scp -P "$PORT" "$wcproj/build/wincluster.exe" "$host:C:/mfbwin/wincluster.exe" >/dev/null
+scp -P "$PORT" "$work/wincluster.bat" "$host:C:/mfbwin/wincluster.bat" >/dev/null
+cout="$(ssh -p "$PORT" "$host" "$remote\\wincluster.bat" 2>&1 || true)"
+echo "$cout" | sed 's/^/    /'
+
+case "$cout" in
+  *"rc=0"*) pass "term::drawText's cluster walk ran every drawText-only branch without faulting (bug-540 WIN-04)" ;;
+  *) fail "the term cluster program did not exit 0 — the shared cluster walk's drawText specialization faults at run time (bug-540 WIN-04)" ;;
+esac
+case "$cout" in
+  *"win04=ok"*) pass "the program reached its last statement after the cluster runs" ;;
+  *) fail "the term cluster program never reached its final print (bug-540 WIN-04)" ;;
+esac
+
 if [ "$fails" -eq 0 ]; then
   echo "windows app-mode, canvas and Vulkan runtime tests passed"
 else

@@ -298,8 +298,12 @@ fn arena_alloc(
 /// ARG[0..3] usable (no SCRATCH pool), so the two-stage trie is impractical here, and
 /// a range test keeps the ~1.5 MB table out of every Windows app. Covers CJK
 /// ideographs, Kana, Hangul, fullwidth forms, and astral emoji/CJK-ext. Uses
-/// ARG[0]/ARG[1] only; labels `ww_*` are function-local (emitted once per helper).
-fn emit_win_wide_width(ins: &mut Vec<CodeInstruction>, cp_off: usize, w_off: usize) {
+/// ARG[0]/ARG[1] only. Its labels are `{tag}_next_N` / `{tag}_done`; the cluster walk
+/// passes its specialization's width tag (`ww` for `io::write`, the spelling this
+/// always had, and `dt_ww` for `term::drawText`), so every label the walk emits
+/// carries that specialization's prefix.
+fn emit_win_wide_width(ins: &mut Vec<CodeInstruction>, cp_off: usize, w_off: usize, tag: &str) {
+    let done = format!("{tag}_done");
     const WIDE_RANGES: [(u32, u32); 13] = [
         (0x1100, 0x115F),
         (0x2E80, 0x303E),
@@ -319,7 +323,7 @@ fn emit_win_wide_width(ins: &mut Vec<CodeInstruction>, cp_off: usize, w_off: usi
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), w_off)); // width = 1
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), cp_off)); // cp
     for (i, (lo, hi)) in WIDE_RANGES.iter().enumerate() {
-        let next = format!("ww_next_{i}");
+        let next = format!("{tag}_next_{i}");
         ins.push(abi::move_immediate(
             abi::mfb_arg(1),
             "Integer",
@@ -336,10 +340,10 @@ fn emit_win_wide_width(ins: &mut Vec<CodeInstruction>, cp_off: usize, w_off: usi
         ins.push(abi::branch_gt(&next));
         ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "2"));
         ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), w_off)); // width = 2
-        ins.push(abi::branch("ww_done"));
+        ins.push(abi::branch(&done));
         ins.push(abi::label(&next));
     }
-    ins.push(abi::label("ww_done"));
+    ins.push(abi::label(&done));
 }
 
 fn code_function(
@@ -1701,19 +1705,15 @@ pub(super) fn emit_app_io_write(
     // hardcodes `sp+0x20`/`sp+0x28`. The lowest slot is `NL_BYTE = 0x30`, leaving
     // `[0,0x30)` unused in the reserved region (harmless).
     const NL_BYTE: usize = 0x30;
-    const STR: usize = 0x38;
+    // The string, arena-buffer and memDC slots are the cluster walk's own (`WALK_*`):
+    // the TUI grid path hands this frame to `emit_win_term_cluster_walk`, which
+    // `term::drawText` shares.
+    const STR: usize = WALK_STR;
     const WRITTEN: usize = 0x40;
     const HANDLE: usize = 0x48;
     const EDITH: usize = 0x50; // transcript EDIT HWND
-    const WBUF: usize = 0x58; // arena UTF-16 buffer
-                              // plan-66-J-5 TUI grid path slots.
-    const GI: usize = 0x60; // per-unit loop index (UTF-16 units)
-    const GMEMDC: usize = 0x70; // cached memory DC
-                                // plan-70-F TUI decode slots.
-    const WCCOUNT: usize = 0x78; // UTF-16 unit count from MultiByteToWideChar
-    const CPSLOT: usize = 0x80; // decoded codepoint (astral-combined)
-    const UCOUNT: usize = 0x88; // UTF-16 units this cluster advances (1 BMP / 2 astral)
-    const WIDTHSLOT: usize = 0x90; // display width (1 or 2)
+    const WBUF: usize = WALK_WBUF; // arena UTF-16 buffer
+    const GMEMDC: usize = WALK_MEMDC; // cached memory DC
     let std_fd = if stderr {
         FILE_FLAG_STDERR_FD
     } else {
@@ -1947,367 +1947,16 @@ pub(super) fn emit_app_io_write(
         ));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GMEMDC));
         call_external(symbol, "SetBkColor", GDI32, &mut ins, &mut rel);
-        // plan-70-F: convert the whole UTF-8 string to UTF-16 once (into a 64 KB arena
-        // buffer), then iterate UTF-16 units so a multi-byte scalar reaches the CJK
-        // font as a real codepoint instead of per-byte tofu. Astral scalars draw as
-        // their 2-unit surrogate pair (one glyph); an East-Asian-wide codepoint takes
-        // two columns and wraps at the edge.
-        arena_alloc("65536", symbol, &mut ins, &mut rel);
-        ins.push(abi::store_u64(
-            abi::mfb_return(1),
-            abi::stack_pointer(),
-            WBUF,
-        ));
-        ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-        ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 0)); // 5th lpWideCharStr
-        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "32767"));
-        ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 1)); // 6th cchWideChar
-        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8));
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
-        ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), STR));
-        ins.push(abi::load_u64(abi::mfb_arg(3), abi::mfb_arg(2), 0)); // cbMultiByte = len
-        ins.push(abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 8)); // lpMultiByteStr = str+8
-        call_external(symbol, "MultiByteToWideChar", KERNEL32, &mut ins, &mut rel);
-        ins.push(abi::move_immediate(
-            abi::mfb_arg(1),
-            "Integer",
-            "4294967295",
-        ));
-        // The wide-char count is a C result (`rax`), not the aligned MFB bank.
-        ins.push(abi::and_registers(
-            abi::mfb_arg(0),
-            abi::c_return(0),
-            abi::mfb_arg(1),
-        ));
-        ins.push(abi::compare_immediate(abi::mfb_arg(0), "32767"));
-        ins.push(abi::branch_le("term_wc_ok"));
-        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "32767"));
-        ins.push(abi::label("term_wc_ok"));
-        ins.push(abi::store_u64(
-            abi::mfb_arg(0),
-            abi::stack_pointer(),
-            WCCOUNT,
-        ));
-        ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), GI));
-        ins.push(abi::label("term_loop"));
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-        ins.push(abi::load_u64(
-            abi::mfb_arg(1),
-            abi::stack_pointer(),
-            WCCOUNT,
-        ));
-        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::branch_ge("term_grid_done"));
-        // unit = wbuf[i]; default cp = unit (BMP), unitCount = 1.
-        ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-        ins.push(abi::shift_left_immediate(
-            abi::mfb_arg(1),
-            abi::mfb_arg(0),
-            1,
-        )); // i*2
-        ins.push(abi::add_registers(
-            abi::mfb_arg(2),
-            abi::mfb_arg(2),
-            abi::mfb_arg(1),
-        )); // &wbuf[i]
-        ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // unit
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "1"));
-        ins.push(abi::store_u64(
-            abi::mfb_arg(1),
-            abi::stack_pointer(),
-            UCOUNT,
-        ));
-        ins.push(abi::store_u64(
-            abi::mfb_arg(0),
-            abi::stack_pointer(),
-            CPSLOT,
-        ));
-        ins.push(abi::compare_immediate(abi::mfb_arg(0), "10"));
-        ins.push(abi::branch_eq("term_nl"));
-        ins.push(abi::compare_immediate(abi::mfb_arg(0), "13"));
-        ins.push(abi::branch_eq("term_cr"));
-        // astral: high surrogate 0xD800..0xDBFF followed by an in-bounds unit.
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "55296")); // 0xD800
-        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::branch_lt("term_have_cp"));
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "56320")); // 0xDC00
-        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::branch_ge("term_have_cp"));
-        ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), GI));
-        ins.push(abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1));
-        ins.push(abi::load_u64(
-            abi::mfb_arg(3),
-            abi::stack_pointer(),
-            WCCOUNT,
-        ));
-        ins.push(abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(3)));
-        ins.push(abi::branch_ge("term_have_cp"));
-        // lo = wbuf[i+1]
-        ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-        ins.push(abi::shift_left_immediate(
-            abi::mfb_arg(1),
-            abi::mfb_arg(1),
-            1,
-        )); // (i+1)*2
-        ins.push(abi::add_registers(
-            abi::mfb_arg(2),
-            abi::mfb_arg(2),
-            abi::mfb_arg(1),
-        ));
-        ins.push(abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(2), 0)); // lo
-                                                                      // cp = 0x10000 + ((hi-0xD800)<<10) + (lo-0xDC00); hi=ARG[0], lo=ARG[1].
-        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "55296"));
-        ins.push(abi::subtract_registers(
-            abi::mfb_arg(0),
-            abi::mfb_arg(0),
-            abi::mfb_arg(2),
-        ));
-        ins.push(abi::shift_left_immediate(
-            abi::mfb_arg(0),
-            abi::mfb_arg(0),
-            10,
-        ));
-        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "56320"));
-        ins.push(abi::subtract_registers(
-            abi::mfb_arg(1),
-            abi::mfb_arg(1),
-            abi::mfb_arg(2),
-        ));
-        ins.push(abi::add_registers(
-            abi::mfb_arg(0),
-            abi::mfb_arg(0),
-            abi::mfb_arg(1),
-        ));
-        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "65536"));
-        ins.push(abi::add_registers(
-            abi::mfb_arg(0),
-            abi::mfb_arg(0),
-            abi::mfb_arg(2),
-        ));
-        ins.push(abi::store_u64(
-            abi::mfb_arg(0),
-            abi::stack_pointer(),
-            CPSLOT,
-        ));
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "2"));
-        ins.push(abi::store_u64(
-            abi::mfb_arg(1),
-            abi::stack_pointer(),
-            UCOUNT,
-        ));
-        ins.push(abi::label("term_have_cp"));
-        // plan-70-F: fold trailing combining marks (U+0300..U+036F) and ZWJ sequences
-        // (U+200D + the joined scalar) into this cluster's unit run so a single
-        // TextOutW composes them (café NFD, ZWJ emoji families). Combining marks are
-        // zero-width, so the cluster keeps the base's display width.
-        ins.push(abi::label("term_extend"));
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-        ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::add_registers(
-            abi::mfb_arg(0),
-            abi::mfb_arg(0),
-            abi::mfb_arg(1),
-        )); // j = i + uc
-        ins.push(abi::load_u64(
-            abi::mfb_arg(1),
-            abi::stack_pointer(),
-            WCCOUNT,
-        ));
-        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::branch_ge("term_extend_done"));
-        ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-        ins.push(abi::shift_left_immediate(
-            abi::mfb_arg(1),
-            abi::mfb_arg(0),
-            1,
-        ));
-        ins.push(abi::add_registers(
-            abi::mfb_arg(2),
-            abi::mfb_arg(2),
-            abi::mfb_arg(1),
-        ));
-        ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // nextUnit
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "8205")); // ZWJ U+200D
-        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::branch_eq("term_ext_zwj"));
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "768")); // U+0300
-        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::branch_lt("term_extend_done"));
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "879")); // U+036F
-        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::branch_gt("term_extend_done"));
-        // combining mark → extend by one unit and re-test.
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::store_u64(
-            abi::mfb_arg(0),
-            abi::stack_pointer(),
-            UCOUNT,
-        ));
-        ins.push(abi::branch("term_extend"));
-        ins.push(abi::label("term_ext_zwj"));
-        // ZWJ: consume the joiner, then the joined scalar (BMP 1 / astral 2 units).
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::store_u64(
-            abi::mfb_arg(0),
-            abi::stack_pointer(),
-            UCOUNT,
-        ));
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-        ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::add_registers(
-            abi::mfb_arg(0),
-            abi::mfb_arg(0),
-            abi::mfb_arg(1),
-        )); // k
-        ins.push(abi::load_u64(
-            abi::mfb_arg(1),
-            abi::stack_pointer(),
-            WCCOUNT,
-        ));
-        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::branch_ge("term_extend_done")); // ZWJ at end (defensive)
-        ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-        ins.push(abi::shift_left_immediate(
-            abi::mfb_arg(1),
-            abi::mfb_arg(0),
-            1,
-        ));
-        ins.push(abi::add_registers(
-            abi::mfb_arg(2),
-            abi::mfb_arg(2),
-            abi::mfb_arg(1),
-        ));
-        ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // unit after ZWJ
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "55296")); // 0xD800
-        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::branch_lt("term_zwj_bmp"));
-        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "56320")); // 0xDC00
-        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-        ins.push(abi::branch_ge("term_zwj_bmp"));
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 2)); // astral scalar
-        ins.push(abi::store_u64(
-            abi::mfb_arg(0),
-            abi::stack_pointer(),
-            UCOUNT,
-        ));
-        ins.push(abi::branch("term_extend"));
-        ins.push(abi::label("term_zwj_bmp"));
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1)); // BMP scalar
-        ins.push(abi::store_u64(
-            abi::mfb_arg(0),
-            abi::stack_pointer(),
-            UCOUNT,
-        ));
-        ins.push(abi::branch("term_extend"));
-        ins.push(abi::label("term_extend_done"));
-        emit_win_wide_width(&mut ins, CPSLOT, WIDTHSLOT);
-        // wide-at-edge: a width-2 glyph that would straddle the right edge wraps first.
-        ins.push(abi::load_u64(
-            abi::mfb_arg(0),
-            abi::stack_pointer(),
-            WIDTHSLOT,
-        ));
-        ins.push(abi::compare_immediate(abi::mfb_arg(0), "2"));
-        ins.push(abi::branch_ne("term_edge_ok"));
-        load_addr(abi::mfb_arg(2), TUI_COL_SYM, symbol, &mut ins, &mut rel);
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::compare_immediate(
-            abi::mfb_arg(0),
-            &TUI_COLS.to_string(),
-        ));
-        ins.push(abi::branch_lt("term_edge_ok"));
-        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(2), 0)); // col = 0
-        load_addr(abi::mfb_arg(1), TUI_ROW_SYM, symbol, &mut ins, &mut rel);
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0)); // row++
-        ins.push(abi::label("term_edge_ok"));
-        // TextOutW(memDC, col*8, row*16, &wbuf[i], unitCount)
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 0)); // 5th arg c (unit count)
-        ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), WBUF));
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-        ins.push(abi::shift_left_immediate(
-            abi::mfb_arg(0),
-            abi::mfb_arg(0),
-            1,
-        ));
-        ins.push(abi::add_registers(
-            abi::mfb_arg(3),
-            abi::mfb_arg(3),
-            abi::mfb_arg(0),
-        )); // &wbuf[i]
-        load_addr(abi::mfb_arg(1), TUI_COL_SYM, symbol, &mut ins, &mut rel);
-        ins.push(abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(1), 0));
-        ins.push(abi::shift_left_immediate(
-            abi::mfb_arg(1),
-            abi::mfb_arg(1),
-            3,
-        )); // x = col*8
-        load_addr(abi::mfb_arg(2), TUI_ROW_SYM, symbol, &mut ins, &mut rel);
-        ins.push(abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(2), 0));
-        ins.push(abi::shift_left_immediate(
-            abi::mfb_arg(2),
-            abi::mfb_arg(2),
-            4,
-        )); // y = row*16
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GMEMDC));
-        call_external(symbol, "TextOutW", GDI32, &mut ins, &mut rel);
-        // col += width; wrap at TUI_COLS → col=0, row++.
-        load_addr(abi::mfb_arg(2), TUI_COL_SYM, symbol, &mut ins, &mut rel);
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0));
-        ins.push(abi::load_u64(
-            abi::mfb_arg(1),
-            abi::stack_pointer(),
-            WIDTHSLOT,
-        ));
-        ins.push(abi::add_registers(
-            abi::mfb_arg(0),
-            abi::mfb_arg(0),
-            abi::mfb_arg(1),
-        ));
-        ins.push(abi::compare_immediate(
-            abi::mfb_arg(0),
-            &TUI_COLS.to_string(),
-        ));
-        ins.push(abi::branch_ge("term_wrap"));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // col += width
-        ins.push(abi::branch("term_next"));
-        ins.push(abi::label("term_wrap"));
-        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(2), 0)); // col = 0
-        load_addr(abi::mfb_arg(1), TUI_ROW_SYM, symbol, &mut ins, &mut rel);
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0)); // row++
-        ins.push(abi::branch("term_next"));
-        // '\n' → row++, col=0.
-        ins.push(abi::label("term_nl"));
-        load_addr(abi::mfb_arg(1), TUI_ROW_SYM, symbol, &mut ins, &mut rel);
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
-        load_addr(abi::mfb_arg(1), TUI_COL_SYM, symbol, &mut ins, &mut rel);
-        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(1), 0));
-        ins.push(abi::branch("term_next"));
-        // '\r' → col=0.
-        ins.push(abi::label("term_cr"));
-        load_addr(abi::mfb_arg(1), TUI_COL_SYM, symbol, &mut ins, &mut rel);
-        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(1), 0));
-        ins.push(abi::label("term_next"));
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-        ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::add_registers(
-            abi::mfb_arg(0),
-            abi::mfb_arg(0),
-            abi::mfb_arg(1),
-        ));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-        ins.push(abi::branch("term_loop"));
+        // bug-540 WIN-04: the UTF-8 → UTF-16 conversion and the cluster walk live in
+        // [`emit_win_term_cluster_walk`], shared with `term::drawText`; this is its
+        // `Write` specialization (the cursor, wrapping and `\n`/`\r` handling).
+        emit_win_term_cluster_walk(
+            &mut ins,
+            &mut rel,
+            symbol,
+            WinTermWriteMode::Write,
+            "term_grid_done",
+        );
         ins.push(abi::label("term_grid_done"));
         invalidate_main(symbol, &mut ins, &mut rel);
         ins.push(abi::move_immediate(
@@ -2319,6 +1968,588 @@ pub(super) fn emit_app_io_write(
     }
     instructions.extend(ins);
     relocations.extend(rel);
+}
+
+/// bug-540 WIN-04: which member the GDI-grid cluster walk
+/// ([`emit_win_term_cluster_walk`]) is being emitted for. The Windows twin of
+/// `linux_gtk::term_draw::TermWriteMode`, and for the same reason: `io::write` and
+/// `term::drawText` must decide how a string becomes cells with the SAME
+/// instructions, or they come to disagree about the same string — which is exactly
+/// what bug-540 found on this backend.
+///
+/// | | `Write` (`io::write`/`print`) | `DrawText` (`term::drawText`) |
+/// |---|---|---|
+/// | start | the `TUI_ROW`/`TUI_COL` globals | the `(row, column)` arguments |
+/// | `column >= cols` | wraps to the next row | ends the run (right clip) |
+/// | `column < 0` | impossible (the cursor is clamped) | advances without stamping |
+/// | wide cluster at the edge | wraps first, never split | dropped, ends the run |
+/// | control unit | `\n` new row, `\r` col 0, others stamp | one column, no stamp |
+/// | on return | the globals hold the new cursor | the cursor is untouched |
+///
+/// Everything else — the UTF-8 → UTF-16 conversion, the surrogate-pair decode, the
+/// combining-mark and ZWJ fold, the display-width lookup and the `TextOutW` stamp of
+/// the whole cluster — is literally the same emitted code. Specialized at EMIT time,
+/// not by a runtime flag, so the `Write` body is byte-identical to the walk it was
+/// extracted from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WinTermWriteMode {
+    Write,
+    DrawText,
+}
+
+impl WinTermWriteMode {
+    /// Prefix of every label the walk emits. `term` is the spelling the `Write` walk
+    /// always had. Labels are function-scoped (the encoder rejects a duplicate
+    /// within one function), so one tag per specialization is enough: each member
+    /// emits the walk once, into its own function.
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Write => "term",
+            Self::DrawText => "dt",
+        }
+    }
+
+    /// Prefix of [`emit_win_wide_width`]'s labels inside the walk.
+    fn width_tag(self) -> &'static str {
+        match self {
+            Self::Write => "ww",
+            Self::DrawText => "dt_ww",
+        }
+    }
+}
+
+// Local-scratch slots of the cluster walk, shared by both specializations so the
+// two emissions are the same instructions down to the stack offset (the
+// `abi_function` finalizer sizes each body's scratch from the slots it addresses).
+/// The `{len@0, bytes@8}` string object being walked.
+const WALK_STR: usize = 0x38;
+/// `term::drawText` only: the running column (starts at the `column` argument).
+const WALK_DT_COL: usize = 0x40;
+/// `term::drawText` only: the row the whole run is stamped on.
+const WALK_DT_ROW: usize = 0x48;
+/// Arena UTF-16 buffer.
+const WALK_WBUF: usize = 0x58;
+/// Index of the cluster's first UTF-16 unit.
+const WALK_GI: usize = 0x60;
+/// Cached memory DC.
+const WALK_MEMDC: usize = 0x70;
+/// UTF-16 unit count from `MultiByteToWideChar`.
+const WALK_WCCOUNT: usize = 0x78;
+/// Decoded base code point (astral-combined).
+const WALK_CP: usize = 0x80;
+/// UTF-16 units the cluster spans (base + folded marks/joined scalars).
+const WALK_UCOUNT: usize = 0x88;
+/// Display width of the cluster (1 or 2).
+const WALK_WIDTH: usize = 0x90;
+
+/// bug-540 WIN-04: convert the string at `WALK_STR` to UTF-16 and stamp it into the
+/// memDC at `WALK_MEMDC` one extended cluster at a time — the walk `io::write` and
+/// `term::drawText` share. See [`WinTermWriteMode`] for what differs. The caller
+/// has already loaded the memDC and set the colours; the walk branches to `done`
+/// once the string (or, for `DrawText`, the row) is exhausted, and the caller
+/// emits that label.
+///
+/// Cluster rule (plan-70-F): a trailing combining mark in U+0300..U+036F, and a ZWJ
+/// (U+200D) plus the scalar it joins, fold into the base's unit run so one
+/// `TextOutW` composes them; the cluster keeps the base's width.
+fn emit_win_term_cluster_walk(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    symbol: &str,
+    mode: WinTermWriteMode,
+    done: &str,
+) {
+    const STR: usize = WALK_STR;
+    const WBUF: usize = WALK_WBUF;
+    const GI: usize = WALK_GI;
+    const GMEMDC: usize = WALK_MEMDC;
+    const WCCOUNT: usize = WALK_WCCOUNT;
+    const CPSLOT: usize = WALK_CP;
+    const UCOUNT: usize = WALK_UCOUNT;
+    const WIDTHSLOT: usize = WALK_WIDTH;
+    let draw_text = mode == WinTermWriteMode::DrawText;
+    let tag = mode.tag();
+    let wc_ok = format!("{tag}_wc_ok");
+    let top = format!("{tag}_loop");
+    let have_cp = format!("{tag}_have_cp");
+    let extend = format!("{tag}_extend");
+    let ext_zwj = format!("{tag}_ext_zwj");
+    let zwj_bmp = format!("{tag}_zwj_bmp");
+    let extend_done = format!("{tag}_extend_done");
+    let edge_ok = format!("{tag}_edge_ok");
+    let next = format!("{tag}_next");
+    // `Write` only.
+    let nl = format!("{tag}_nl");
+    let cr = format!("{tag}_cr");
+    let wrap = format!("{tag}_wrap");
+    // `DrawText` only.
+    let ctrl = format!("{tag}_ctrl");
+    let after_stamp = format!("{tag}_after_stamp");
+
+    // plan-70-F: convert the whole UTF-8 string to UTF-16 once (into a 64 KB arena
+    // buffer), then iterate clusters so a multi-byte scalar reaches the CJK font as a
+    // real codepoint instead of per-byte tofu. Astral scalars draw as their 2-unit
+    // surrogate pair (one glyph); an East-Asian-wide codepoint takes two columns.
+    arena_alloc("65536", symbol, ins, rel);
+    ins.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        WBUF,
+    ));
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 0)); // 5th lpWideCharStr
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "32767"));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 1)); // 6th cchWideChar
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), STR));
+    ins.push(abi::load_u64(abi::mfb_arg(3), abi::mfb_arg(2), 0)); // cbMultiByte = len
+    ins.push(abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 8)); // lpMultiByteStr = str+8
+    call_external(symbol, "MultiByteToWideChar", KERNEL32, ins, rel);
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        "4294967295",
+    ));
+    // The wide-char count is a C result (`rax`), not the aligned MFB bank.
+    ins.push(abi::and_registers(
+        abi::mfb_arg(0),
+        abi::c_return(0),
+        abi::mfb_arg(1),
+    ));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "32767"));
+    ins.push(abi::branch_le(&wc_ok));
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "32767"));
+    ins.push(abi::label(&wc_ok));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        WCCOUNT,
+    ));
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), GI));
+    ins.push(abi::label(&top));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        WCCOUNT,
+    ));
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_ge(done));
+    if draw_text {
+        // Right clip: the column only grows, so once it reaches the edge nothing
+        // more of the run is visible.
+        ins.push(abi::load_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WALK_DT_COL,
+        ));
+        ins.push(abi::compare_immediate(
+            abi::mfb_arg(0),
+            &TUI_COLS.to_string(),
+        ));
+        ins.push(abi::branch_ge(done));
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
+    }
+    // unit = wbuf[i]; default cp = unit (BMP), unitCount = 1.
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(0),
+        1,
+    )); // i*2
+    ins.push(abi::add_registers(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        abi::mfb_arg(1),
+    )); // &wbuf[i]
+    ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // unit
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "1"));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        UCOUNT,
+    ));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        CPSLOT,
+    ));
+    if draw_text {
+        // Control characters (below U+0020, newline and tab included) advance one
+        // column and stamp nothing — `mfb man term drawText`, and the console
+        // `emit_draw_text`'s skip.
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "32"));
+        ins.push(abi::branch_lt(&ctrl));
+    } else {
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "10"));
+        ins.push(abi::branch_eq(&nl));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "13"));
+        ins.push(abi::branch_eq(&cr));
+    }
+    // astral: high surrogate 0xD800..0xDBFF followed by an in-bounds unit.
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "55296")); // 0xD800
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_lt(&have_cp));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "56320")); // 0xDC00
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_ge(&have_cp));
+    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), GI));
+    ins.push(abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(3),
+        abi::stack_pointer(),
+        WCCOUNT,
+    ));
+    ins.push(abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(3)));
+    ins.push(abi::branch_ge(&have_cp));
+    // lo = wbuf[i+1]
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        1,
+    )); // (i+1)*2
+    ins.push(abi::add_registers(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        abi::mfb_arg(1),
+    ));
+    ins.push(abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(2), 0)); // lo
+                                                                  // cp = 0x10000 + ((hi-0xD800)<<10) + (lo-0xDC00); hi=ARG[0], lo=ARG[1].
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "55296"));
+    ins.push(abi::subtract_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(2),
+    ));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        10,
+    ));
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "56320"));
+    ins.push(abi::subtract_registers(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        abi::mfb_arg(2),
+    ));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+    ));
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "65536"));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(2),
+    ));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        CPSLOT,
+    ));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "2"));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        UCOUNT,
+    ));
+    ins.push(abi::label(&have_cp));
+    // plan-70-F: fold trailing combining marks (U+0300..U+036F) and ZWJ sequences
+    // (U+200D + the joined scalar) into this cluster's unit run so a single
+    // TextOutW composes them (café NFD, ZWJ emoji families). Combining marks are
+    // zero-width, so the cluster keeps the base's display width.
+    ins.push(abi::label(&extend));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
+    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+    )); // j = i + uc
+    ins.push(abi::load_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        WCCOUNT,
+    ));
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_ge(&extend_done));
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(0),
+        1,
+    ));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        abi::mfb_arg(1),
+    ));
+    ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // nextUnit
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "8205")); // ZWJ U+200D
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_eq(&ext_zwj));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "768")); // U+0300
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_lt(&extend_done));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "879")); // U+036F
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_gt(&extend_done));
+    // combining mark → extend by one unit and re-test.
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
+    ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        UCOUNT,
+    ));
+    ins.push(abi::branch(&extend));
+    ins.push(abi::label(&ext_zwj));
+    // ZWJ: consume the joiner, then the joined scalar (BMP 1 / astral 2 units).
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
+    ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        UCOUNT,
+    ));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
+    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+    )); // k
+    ins.push(abi::load_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        WCCOUNT,
+    ));
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_ge(&extend_done)); // ZWJ at end (defensive)
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(0),
+        1,
+    ));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        abi::mfb_arg(1),
+    ));
+    ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // unit after ZWJ
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "55296")); // 0xD800
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_lt(&zwj_bmp));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "56320")); // 0xDC00
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_ge(&zwj_bmp));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
+    ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 2)); // astral scalar
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        UCOUNT,
+    ));
+    ins.push(abi::branch(&extend));
+    ins.push(abi::label(&zwj_bmp));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
+    ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1)); // BMP scalar
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        UCOUNT,
+    ));
+    ins.push(abi::branch(&extend));
+    ins.push(abi::label(&extend_done));
+    emit_win_wide_width(ins, CPSLOT, WIDTHSLOT, mode.width_tag());
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        WIDTHSLOT,
+    ));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "2"));
+    ins.push(abi::branch_ne(&edge_ok));
+    if draw_text {
+        // Wide-at-edge: a width-2 cluster with only one column left is DROPPED and
+        // the run ends — never split across the edge, never wrapped
+        // (`mfb man term drawText`; console `emit_draw_text`, macOS `mfbDrawText:`).
+        ins.push(abi::load_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WALK_DT_COL,
+        ));
+        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+        ins.push(abi::compare_immediate(
+            abi::mfb_arg(0),
+            &TUI_COLS.to_string(),
+        ));
+        ins.push(abi::branch_ge(done));
+        ins.push(abi::label(&edge_ok));
+        // Left of the surface (a negative start column): advance without stamping.
+        ins.push(abi::load_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WALK_DT_COL,
+        ));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+        ins.push(abi::branch_lt(&after_stamp));
+    } else {
+        // wide-at-edge: a width-2 glyph that would straddle the right edge wraps first.
+        load_addr(abi::mfb_arg(2), TUI_COL_SYM, symbol, ins, rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0));
+        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+        ins.push(abi::compare_immediate(
+            abi::mfb_arg(0),
+            &TUI_COLS.to_string(),
+        ));
+        ins.push(abi::branch_lt(&edge_ok));
+        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(2), 0)); // col = 0
+        load_addr(abi::mfb_arg(1), TUI_ROW_SYM, symbol, ins, rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0)); // row++
+        ins.push(abi::label(&edge_ok));
+    }
+    // TextOutW(memDC, col*8, row*16, &wbuf[i], unitCount)
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 0)); // 5th arg c (unit count)
+    ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), WBUF));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        1,
+    ));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(3),
+        abi::mfb_arg(3),
+        abi::mfb_arg(0),
+    )); // &wbuf[i]
+    if draw_text {
+        ins.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::stack_pointer(),
+            WALK_DT_COL,
+        ));
+    } else {
+        load_addr(abi::mfb_arg(1), TUI_COL_SYM, symbol, ins, rel);
+        ins.push(abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(1), 0));
+    }
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        3,
+    )); // x = col*8
+    if draw_text {
+        ins.push(abi::load_u64(
+            abi::mfb_arg(2),
+            abi::stack_pointer(),
+            WALK_DT_ROW,
+        ));
+    } else {
+        load_addr(abi::mfb_arg(2), TUI_ROW_SYM, symbol, ins, rel);
+        ins.push(abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(2), 0));
+    }
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        4,
+    )); // y = row*16
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GMEMDC));
+    call_external(symbol, "TextOutW", GDI32, ins, rel);
+    if draw_text {
+        // col += width (no wrap: the right clip at the loop top ends the run).
+        ins.push(abi::label(&after_stamp));
+        ins.push(abi::load_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WALK_DT_COL,
+        ));
+        ins.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::stack_pointer(),
+            WIDTHSLOT,
+        ));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            abi::mfb_arg(1),
+        ));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WALK_DT_COL,
+        ));
+        ins.push(abi::branch(&next));
+        // control → one column, nothing stamped.
+        ins.push(abi::label(&ctrl));
+        ins.push(abi::load_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WALK_DT_COL,
+        ));
+        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+        ins.push(abi::store_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WALK_DT_COL,
+        ));
+    } else {
+        // col += width; wrap at TUI_COLS → col=0, row++.
+        load_addr(abi::mfb_arg(2), TUI_COL_SYM, symbol, ins, rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0));
+        ins.push(abi::load_u64(
+            abi::mfb_arg(1),
+            abi::stack_pointer(),
+            WIDTHSLOT,
+        ));
+        ins.push(abi::add_registers(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            abi::mfb_arg(1),
+        ));
+        ins.push(abi::compare_immediate(
+            abi::mfb_arg(0),
+            &TUI_COLS.to_string(),
+        ));
+        ins.push(abi::branch_ge(&wrap));
+        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // col += width
+        ins.push(abi::branch(&next));
+        ins.push(abi::label(&wrap));
+        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(2), 0)); // col = 0
+        load_addr(abi::mfb_arg(1), TUI_ROW_SYM, symbol, ins, rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0)); // row++
+        ins.push(abi::branch(&next));
+        // '\n' → row++, col=0.
+        ins.push(abi::label(&nl));
+        load_addr(abi::mfb_arg(1), TUI_ROW_SYM, symbol, ins, rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+        load_addr(abi::mfb_arg(1), TUI_COL_SYM, symbol, ins, rel);
+        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(1), 0));
+        ins.push(abi::branch(&next));
+        // '\r' → col=0.
+        ins.push(abi::label(&cr));
+        load_addr(abi::mfb_arg(1), TUI_COL_SYM, symbol, ins, rel);
+        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(1), 0));
+    }
+    ins.push(abi::label(&next));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
+    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
+    ins.push(abi::add_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+    ));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
+    ins.push(abi::branch(&top));
 }
 
 /// App-mode `io.input` body (plan-66-J-4): render the prompt to the transcript
@@ -3243,239 +3474,65 @@ fn emit_term_fill_rect(
     relocations.extend(rel);
 }
 
-/// plan-70-F: `term::drawText(row, column, text)` — stamp a UTF-8 string starting at
-/// `(row, column)`, one grapheme per cell at its display width, no wrap (clips at
-/// the right edge). Args: ARG[0]=row, ARG[1]=column, ARG[2]=text ptr
+/// plan-70-F / bug-540 WIN-04: `term::drawText(row, column, text)` — stamp a UTF-8
+/// string starting at `(row, column)`, one grapheme cluster per position at its
+/// display width, no wrap. Args: ARG[0]=row, ARG[1]=column, ARG[2]=text ptr
 /// `{len@0, bytes@8}` — row before column, like every `term::` position.
+///
+/// The walk is NOT this function's own: it is `io::write`'s grid walk emitted a
+/// second time under [`WinTermWriteMode::DrawText`]. Until bug-540 this body carried
+/// a second, reduced walk over UTF-16 units — no combining-mark or ZWJ fold, no
+/// wide-at-the-edge drop, control units handed to `TextOutW`, no row bound — so the
+/// two members of one backend disagreed about the same string.
 fn emit_term_draw_text_at(
     symbol: &str,
     tso: usize,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    // Append shape (plan-101): no own frame — the finalizer builds it. Local scratch
-    // slots below (text-ptr scratch at 0x88); MultiByteToWideChar's 5th/6th and
-    // TextOutW's 5th args go through the outgoing-arg sentinel.
-    const MEMDC: usize = 0x38;
-    const SX: usize = 0x40; // starting column (arg 2)
-    const SY: usize = 0x48; // row (arg 1)
-    const WBUF: usize = 0x50;
-    const WCC: usize = 0x58; // UTF-16 unit count
-    const GI: usize = 0x60; // unit index
-    const CPSLOT: usize = 0x68;
-    const UCOUNT: usize = 0x70;
-    const WIDTHSLOT: usize = 0x78;
-    const CURCOL: usize = 0x80;
+    // Append shape (plan-101): no own frame — the finalizer builds it and sizes the
+    // local scratch from the slots the body addresses (the walk's `WALK_*` set).
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     // bug-541: inert while TUI mode is off.
     emit_win_term_active_gate(&mut ins, tso, "dt_inactive");
     // `drawText(row, column, text)` — the point is row-first.
-    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), SX));
     ins.push(abi::store_u64(
         abi::mfb_arg(1),
         abi::stack_pointer(),
-        CURCOL,
-    )); // running col = column
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), SY));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x88)); // text ptr scratch
+        WALK_DT_COL,
+    ));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        WALK_DT_ROW,
+    ));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        WALK_STR,
+    ));
+    // A row off the surface draws nothing (`mfb man term drawText`); the console
+    // `emit_draw_text` and macOS `mfbDrawText:` both test it before walking.
+    win_guard_on_grid(&mut ins, WALK_DT_ROW, TUI_ROWS - 1, "dt_done");
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        WALK_MEMDC,
+    ));
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
     ins.push(abi::branch_eq("dt_done"));
-    win_set_colors(&mut ins, &mut rel, from, tso, MEMDC);
-    // Convert UTF-8 → UTF-16 into a 64 KB arena buffer.
-    arena_alloc("65536", from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        abi::mfb_return(1),
-        abi::stack_pointer(),
-        WBUF,
-    ));
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 0)); // 5th lpWideCharStr
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "32767"));
-    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 1)); // 6th cchWideChar
-    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8));
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x88)); // text ptr
-    ins.push(abi::load_u64(abi::mfb_arg(3), abi::mfb_arg(2), 0)); // len
-    ins.push(abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 8)); // bytes
-    call_external(from, "MultiByteToWideChar", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(
-        abi::mfb_arg(1),
-        "Integer",
-        "4294967295",
-    ));
-    // The wide-char count is a C result (`rax`), not the aligned MFB bank.
-    ins.push(abi::and_registers(
-        abi::mfb_arg(0),
-        abi::c_return(0),
-        abi::mfb_arg(1),
-    ));
-    ins.push(abi::compare_immediate(abi::mfb_arg(0), "32767"));
-    ins.push(abi::branch_le("dt_wc_ok"));
-    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "32767"));
-    ins.push(abi::label("dt_wc_ok"));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), WCC));
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), GI));
-    ins.push(abi::label("dt_loop"));
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), WCC));
-    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-    ins.push(abi::branch_ge("dt_done"));
-    // clip at the right edge (col only grows).
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), CURCOL));
-    ins.push(abi::compare_immediate(
-        abi::mfb_arg(0),
-        &TUI_COLS.to_string(),
-    ));
-    ins.push(abi::branch_ge("dt_done"));
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-    ins.push(abi::shift_left_immediate(
-        abi::mfb_arg(1),
-        abi::mfb_arg(0),
-        1,
-    ));
-    ins.push(abi::add_registers(
-        abi::mfb_arg(2),
-        abi::mfb_arg(2),
-        abi::mfb_arg(1),
-    ));
-    ins.push(abi::load_u16(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // unit
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "1"));
-    ins.push(abi::store_u64(
-        abi::mfb_arg(1),
-        abi::stack_pointer(),
-        UCOUNT,
-    ));
-    ins.push(abi::store_u64(
-        abi::mfb_arg(0),
-        abi::stack_pointer(),
-        CPSLOT,
-    ));
-    // astral?
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "55296"));
-    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-    ins.push(abi::branch_lt("dt_have_cp"));
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "56320"));
-    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-    ins.push(abi::branch_ge("dt_have_cp"));
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), GI));
-    ins.push(abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1));
-    ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), WCC));
-    ins.push(abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(3)));
-    ins.push(abi::branch_ge("dt_have_cp"));
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-    ins.push(abi::shift_left_immediate(
-        abi::mfb_arg(1),
-        abi::mfb_arg(1),
-        1,
-    ));
-    ins.push(abi::add_registers(
-        abi::mfb_arg(2),
-        abi::mfb_arg(2),
-        abi::mfb_arg(1),
-    ));
-    ins.push(abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(2), 0)); // lo
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "55296"));
-    ins.push(abi::subtract_registers(
-        abi::mfb_arg(0),
-        abi::mfb_arg(0),
-        abi::mfb_arg(2),
-    ));
-    ins.push(abi::shift_left_immediate(
-        abi::mfb_arg(0),
-        abi::mfb_arg(0),
-        10,
-    ));
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "56320"));
-    ins.push(abi::subtract_registers(
-        abi::mfb_arg(1),
-        abi::mfb_arg(1),
-        abi::mfb_arg(2),
-    ));
-    ins.push(abi::add_registers(
-        abi::mfb_arg(0),
-        abi::mfb_arg(0),
-        abi::mfb_arg(1),
-    ));
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "65536"));
-    ins.push(abi::add_registers(
-        abi::mfb_arg(0),
-        abi::mfb_arg(0),
-        abi::mfb_arg(2),
-    ));
-    ins.push(abi::store_u64(
-        abi::mfb_arg(0),
-        abi::stack_pointer(),
-        CPSLOT,
-    ));
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "2"));
-    ins.push(abi::store_u64(
-        abi::mfb_arg(1),
-        abi::stack_pointer(),
-        UCOUNT,
-    ));
-    ins.push(abi::label("dt_have_cp"));
-    emit_win_wide_width(&mut ins, CPSLOT, WIDTHSLOT);
-    // TextOutW(memDC, curcol*8, y*16, &wbuf[i], unitCount)
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
-    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 0)); // TextOutW 5th arg (count)
-    ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), WBUF));
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-    ins.push(abi::shift_left_immediate(
-        abi::mfb_arg(0),
-        abi::mfb_arg(0),
-        1,
-    ));
-    ins.push(abi::add_registers(
-        abi::mfb_arg(3),
-        abi::mfb_arg(3),
-        abi::mfb_arg(0),
-    ));
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), CURCOL));
-    ins.push(abi::shift_left_immediate(
-        abi::mfb_arg(1),
-        abi::mfb_arg(1),
-        3,
-    ));
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), SY));
-    ins.push(abi::shift_left_immediate(
-        abi::mfb_arg(2),
-        abi::mfb_arg(2),
-        4,
-    ));
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
-    call_external(from, "TextOutW", GDI32, &mut ins, &mut rel);
-    // curcol += width; i += unitCount.
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), CURCOL));
-    ins.push(abi::load_u64(
-        abi::mfb_arg(1),
-        abi::stack_pointer(),
-        WIDTHSLOT,
-    ));
-    ins.push(abi::add_registers(
-        abi::mfb_arg(0),
-        abi::mfb_arg(0),
-        abi::mfb_arg(1),
-    ));
-    ins.push(abi::store_u64(
-        abi::mfb_arg(0),
-        abi::stack_pointer(),
-        CURCOL,
-    ));
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), UCOUNT));
-    ins.push(abi::add_registers(
-        abi::mfb_arg(0),
-        abi::mfb_arg(0),
-        abi::mfb_arg(1),
-    ));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
-    ins.push(abi::branch("dt_loop"));
+    win_set_colors(&mut ins, &mut rel, from, tso, WALK_MEMDC);
+    emit_win_term_cluster_walk(
+        &mut ins,
+        &mut rel,
+        from,
+        WinTermWriteMode::DrawText,
+        "dt_done",
+    );
     ins.push(abi::label("dt_done"));
     invalidate_main(from, &mut ins, &mut rel);
     ins.push(abi::label("dt_inactive"));
@@ -4611,8 +4668,10 @@ mod tests {
             // `ErrUnsupported` stubs with real memDC emitters, so what this asserts
             // now is that each still has a Windows arm rather than falling through
             // to the console lowering (which would find no grid and no-op silently).
-            // The `LineStyle`/`FillStyle` ordinal is deliberately ignored by this
-            // backend — see `emit_term_draw_box` and `mfb spec app term-backend`.
+            // The `LineStyle`/`FillStyle` ordinal selects from the shared
+            // `TERM_*_CODEPOINTS` tables (bug-540 WIN-01), and `term.drawText` runs
+            // the io::write cluster walk (bug-540 WIN-04) — see
+            // `mfb spec app term-backend`.
             "term.drawHLine",
             "term.drawVLine",
             "term.drawBox",
