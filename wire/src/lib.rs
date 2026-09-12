@@ -51,4 +51,5 @@
 // `mfpc`, `docs`, `docpage`).
 pub mod bytes;
 pub mod mfp;
+pub mod terminal_safe;
 pub mod validation;

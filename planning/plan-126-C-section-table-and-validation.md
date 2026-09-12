@@ -243,23 +243,37 @@ Acceptance: MET. `cargo test -p mfb_wire` → **30 passed**;
 out + 1 new shim test). The divergence test is present and green, so the next
 reader learns the two policies differ only by a length cap rather than having to
 diff them.
-Commit: —
+Commit: 8af4a40eb
 
 ### Phase 2 — Terminal sanitizer
 
-- [ ] Move `repository/src/terminal_safe.rs`'s 100-line implementation and its 4
-      tests to `wire/src/terminal_safe.rs`.
-- [ ] Replace `repository/src/terminal_safe.rs` with a re-export shim, and update
-      `src/terminal_safe.rs`'s shim to point at `mfb_wire`. Rewrite both doc
-      comments: the bug-489 rationale ("`mfb_repository` cannot depend on `mfb`") is
-      now obsolete and would mislead — say instead that the sanitizer is shared
-      wire-adjacent code with one home in `mfb_wire`.
-- [ ] Confirm neither shim removal orphaned a doc comment onto a neighbouring item.
+- [x] Move `repository/src/terminal_safe.rs`'s 100-line implementation and its 4
+      tests to `wire/src/terminal_safe.rs` (via `git mv`).
+- [x] Replace `repository/src/terminal_safe.rs` with a re-export shim, and update
+      `src/terminal_safe.rs`'s shim to point at `mfb_wire`. Both doc comments
+      rewritten: each now says the sanitizer lives in `mfb_wire` because it is
+      shared, records that bug-489's rationale described a constraint that no
+      longer binds, and says explicitly **not to restore it** — the old wording
+      left a *terminal sanitizer* owned by the package-registry crate.
+- [x] Confirm neither shim removal orphaned a doc comment onto a neighbouring
+      item. Both shim files were rewritten whole, so there is no neighbouring
+      item for a comment to land on.
+- [x] Added task: fix the spec provenance citation this move invalidated.
+      `src/docs/spec/tooling/04_audit-format.md` cited
+      `[[src/terminal_safe.rs:is_terminal_unsafe]]`, which is now a shim rather
+      than the implementation. Re-pointed at
+      `[[wire/src/terminal_safe.rs:is_terminal_unsafe]]`. The file-level
+      citation gate could not have caught this — the cited file still exists and
+      even still contains the symbol's *name*, in the `pub(crate) use` line.
+      Second instance of this class in plan-126; see Corrections.
 
-Acceptance: `rustup run 1.96.0 cargo test --no-fail-fast` passes with the 4 tests
-reported under `mfb_wire`; `git diff --stat` shows **no** change to any of the 39
-call sites (37 compiler + 2 registry) — only the two shim files and the moved
-implementation.
+Acceptance: MET. `cargo test -p mfb_wire` → **34 passed**, with all four
+`terminal_safe::tests::*` reported under `mfb_wire`.
+`cargo test -p mfb_repository --lib` → **372 passed; 0 failed** (376 − 4 moved).
+Call sites re-counted after the move: **37 compiler + 2 registry = 39**, and
+`git status` lists only the two shim files, the moved implementation, the
+citation, and the plan — **no call site changed**.
+`cargo test --bin mfb citations_resolve` → ok.
 Commit: —
 
 ### Phase 3 — One MFPC section table (largest blast radius)
