@@ -241,7 +241,7 @@ prints the real usage banner. Note a bare `docker build` under a buildx driver
 does **not** load the image into the local store — `--load` is required before
 `docker run` can see it, which is why the first verification attempt reported
 "Unable to find image".
-Commit: —
+Commit: baf71a193 (with Phase 2)
 
 ### Phase 2 — Move the byte primitives
 
@@ -276,55 +276,90 @@ reported as `bytes::tests::*` under `mfb_wire`.
 `git diff --stat HEAD -- src/binary_repr/{reader,writer,sections,builder}.rs`
 prints **nothing**: zero changes to all four. The glob re-export reached every
 one of the ~200 call sites (`cursor_u32` alone has 128) with no call-site edit.
-Commit: —
+Commit: baf71a193 (with Phase 1)
 
 ### Phase 3 — Move the MFP framing (largest blast radius)
 
-- [ ] Create `wire/src/mfp.rs` holding `MFP_MAGIC`, `FIXED_PREFIX_LEN`, and the
-      fixed-prefix field readers, taken from `src/manifest/package.rs:169-225` (the
-      copy that already enforces per-field byte limits and UTF-8, since it is the
-      stricter of the two and its extra guards are parameters, not policy).
-- [ ] Move the signature-header rule there: `validate_mfp_signature_header`
-      (`src/binary_repr/mod.rs:32`, defined in `reader.rs`) and
-      `repository/src/package.rs:315 validate_signature_header` must become one
-      function. Read both first and confirm they agree; if they do not, that
-      divergence is a finding — record it in Corrections and keep the stricter.
-- [ ] Re-point `src/manifest/package.rs:read_mfp_header` at the shared readers,
-      **keeping** its `ident` `required=false` argument and its
-      `validate_package_name(&name)` call.
-- [ ] Re-point `repository/src/package.rs:parse_mfp_package` at the shared readers,
-      **keeping** its `ident` `required=true` argument and its absence of a name
-      charset guard. Delete the literal `MFP_MAGIC` at `repository/src/package.rs:3`
-      and its private `read_mfp_string`/`read_mfp_bytes`/`read_u16`/`read_u32`
-      (`:324`, `:339`, `:421`, `:428`).
-- [ ] Update the bug-340 B8 note at `src/binary_repr/mod.rs:25-31` in place: it must
-      now say the two decoders share their *primitives* and remain separate
-      *policies*, and name where the shared layer lives. Do not delete it — the
-      decision it records is still in force.
-- [ ] Tests: a test in `wire/src/mfp.rs` for each field reader's truncation and
-      UTF-8 rejection; and a cross-crate test asserting the two decoders still
-      disagree as designed — the same bytes with an empty `ident` accepted by
-      `read_mfp_header` and rejected by `parse_mfp_package`.
+- [x] Create `wire/src/mfp.rs` holding `MFP_MAGIC`, `FIXED_PREFIX_LEN`, and the
+      fixed-prefix field readers, taken from the manifest reader (the copy that
+      already enforces per-field byte limits and UTF-8, since it is the
+      stricter and its extra guards are parameters, not policy). The module doc
+      carries the **three**-decoder policy table (see Corrections in this file)
+      and the field-order diagram.
+- [x] Move the signature-header rule there. Both copies were read and **diffed
+      before merging**: `diff` of the two function bodies reports no
+      difference — they agree exactly, so neither was chosen over the other and
+      there is no divergence finding to record. `src/binary_repr/mod.rs`
+      re-exports it under the old name so `validate_mfp_signature_header`
+      call sites and the existing `reader_tests` test are unchanged.
+- [x] Re-point `read_mfp_header` at the shared readers, **keeping** its `ident`
+      `required=false` argument and its `validate_package_name(&name)` call.
+      Deleted its five private helpers.
+- [x] Re-point `parse_mfp_package` at the shared readers, **keeping** its
+      `ident` `required=true` argument and its absence of a name charset guard.
+      Deleted the unnamed literal `MFP_MAGIC`, the private `FIXED_PREFIX_LEN`,
+      `validate_signature_header`, and the private
+      `read_mfp_string`/`read_mfp_bytes`/`read_u16`/`read_u32`/`read_u64`
+      (**six** helpers plus two constants, not the four the plan listed).
+- [x] Update the bug-340 B8 note at the top of `src/binary_repr/mod.rs` in
+      place — kept, not deleted. It now names `mfb_wire::mfp` as the shared
+      layer, enumerates all **three** decoders with the specific guard each
+      one keeps, and says why the guards are call-site arguments.
+- [x] Tests: **9** in `wire/src/mfp.rs` — the frozen magic/prefix values,
+      round-trip and offset advance, truncated field vs truncated header,
+      over-cap reported as a limit rather than as truncation, invalid UTF-8,
+      the `required` divergence, the signature-header rule's five outcomes,
+      the header scalar readers' error text, and a PKG-07 wrap-offset negative.
+      Plus **two** cross-crate tests in `src/manifest/package.rs`:
+      `the_two_mfp_decoders_still_disagree_about_an_empty_ident_by_design` and
+      `only_the_manifest_reader_applies_the_name_charset_guard`.
+- [x] Added task: fix the spec provenance citation that the move invalidated.
+      `src/docs/spec/package/01_container-format.md` cited
+      `[[src/binary_repr/reader.rs:validate_mfp_signature_header]]`; the symbol
+      left that file. `spec_citations_resolve` is **file-level only**
+      (`.ai/testing-gates.md`), so it would have stayed green with the citation
+      silently decayed. Re-pointed at `[[wire/src/mfp.rs:validate_signature_header]]`
+      and the gate re-run.
 
-Acceptance: `rustup run 1.96.0 cargo test --no-fail-fast` passes, **including** every
-`rt-behavior` test that consumes one of the 159 committed `.mfp` fixtures; and
-`scripts/artifact-gate.sh target/release/mfb all` reports `diffs=0` with no golden
-regenerated. The cross-crate divergence test is what proves bug-340 B8 was honored
-rather than silently undone.
+Acceptance: MET.
+`cargo test -p mfb_wire` → 23 passed (14 `bytes` + 9 `mfp`).
+`cargo test --bin mfb manifest::package` → 81 passed, 0 failed, including both
+cross-crate divergence tests.
+`cargo test -p mfb_repository --lib` → 381 passed, 0 failed.
+`cargo test --bin mfb citations_resolve` → `spec_citations_resolve` ok.
+`scripts/artifact-gate.sh target/release/mfb all` → 1427 tests, 1593 builds,
+**2001 goldens checked, 0 diffs**, with `git status tests/` clean (no golden
+regenerated). A rebuilt `packages/jwt/jwt.mfp` is `cmp`-identical to the
+pre-Phase-3 build.
+Runtime proof that the moved framing still decodes *existing* bytes: both
+`mfb pkg info` and `mfb pkg doc` succeed against a `jwt.mfp` written by the
+pre-change compiler (the doc run produced a 54,788-byte page).
+The whole-workspace `cargo test --no-fail-fast` — the run that covers the 160
+committed `.mfp` fixtures' `rt-behavior` tests — is the plan-wide final gate in
+§5 rather than a per-phase one.
+The cross-crate divergence tests are what prove bug-340 B8 was honored rather
+than silently undone; both were **red first**, for a fixture reason recorded in
+Corrections.
 Commit: —
 
 ## Validation Plan
 
-- **Tests:** `wire/src/bytes.rs` (17 moved tests), `wire/src/mfp.rs` (new field-reader
-  and signature-header tests, including truncation and invalid-UTF-8 negatives), and
-  the cross-crate divergence test in Phase 3.
-- **Coverage check:** `mfb_wire` must be in `default-members` or its tests are
-  outside a bare `cargo test` — exactly the hole bug-347 fixed for `repository/`.
-  Verify with `cargo test --no-fail-fast 2>&1 | grep 'Running.*mfb_wire'` before
-  trusting a green run.
-- **Runtime proof:** `mfb pkg info packages/jwt/jwt.mfp` and `mfb pkg doc
-  packages/jwt/jwt.mfp` both succeed against a package built by the *pre-change*
-  compiler, proving the moved framing still decodes existing bytes.
+- **Tests:** `wire/src/bytes.rs` (**14** moved — see Corrections),
+  `wire/src/mfp.rs` (9 new field-reader and signature-header tests, including
+  truncation, over-cap, invalid-UTF-8 and wrap-offset negatives), the **two**
+  cross-crate divergence tests in `src/manifest/package.rs`, and the 3
+  package-meta tests relocated to `src/binary_repr/tests/reader_tests.rs`.
+- **Coverage check:** DONE. `mfb_wire` is in `default-members`, so its tests are
+  inside a bare `cargo test` — the hole bug-347 fixed for `repository/`.
+  Confirmed by `cargo metadata --no-deps` → 3 members and by the crate's own
+  `Running unittests src/lib.rs (target/debug/deps/mfb_wire-…)` line reporting
+  23 passed.
+- **Runtime proof:** DONE. `mfb pkg info` and `mfb pkg doc` both succeed against
+  a `jwt.mfp` written by the **pre-change** compiler (saved before Phase 2 as
+  `/tmp/p126-bytecheck/jwt-prechange.mfp`, 702,134 B); the doc run wrote a
+  54,788-byte page. Note the plan's literal path does not work as written:
+  `packages/*/*.mfp` are gitignored build artifacts and absent from a fresh
+  worktree, so the package must be built first (`mfb build packages/jwt`).
 - **Byte-identity:** `scripts/artifact-gate.sh target/release/mfb all` → `diffs=0`.
   Per `.ai/testing-gates.md`, run it against the **release** binary. Acquire
   `scripts/gate-lock.sh` first — `artifact-gate.sh` and `test-accept.sh` are
@@ -333,9 +368,14 @@ Commit: —
   byte-identical to the pre-change build (`cmp`). The `mfp` dump kind is
   deliberately *not* in the artifact gate (`.ai/testing-gates.md`), so this check
   must be run by hand.
-- **Doc sync:** `.ai/build-tooling.md:21` (stale workspace claim, Phase 1);
-  `src/binary_repr/mod.rs:25-31` (bug-340 B8 note, Phase 3). No `mfb man` or
-  `src/docs/spec/**` change — this is internal crate layout.
+- **Doc sync:** DONE, and **one item more than the plan listed**.
+  `.ai/build-tooling.md` (stale workspace claim *and* the stale second-fmt-pass
+  claim beside it, Phase 1); the bug-340 B8 note in `src/binary_repr/mod.rs`
+  (Phase 3). The plan asserted "no `src/docs/spec/**` change — this is internal
+  crate layout", which is **wrong**: `src/docs/spec/package/01_container-format.md`
+  carries a `[[path:Symbol]]` provenance citation for the very function Phase 3
+  moves. Corrected, and recorded in Corrections along with why the citation gate
+  could not have caught it.
 - **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast`; `docker build -f
   repository/Dockerfile .`.
 - **Format:** `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run
@@ -344,13 +384,19 @@ Commit: —
 
 ## Open Decisions
 
-- **Crate name and directory.** Recommended `mfb_wire` in `wire/`, matching the
-  `repository/` → `mfb_repository` convention. Alternative `mfb_format`; the
-  contents are wire formats specifically, so `wire` is the more honest name. (§3)
-- **Does `Section` belong in `bytes.rs` or its own `mfpc.rs`?** Recommended
-  `bytes.rs` for now, since only `encode_sections` uses it; plan-126-C adds the
-  section *table reader* and may be the better home. Revisit there rather than
-  guessing now. (§Phase 2)
+- **Crate name and directory.** **RESOLVED: `mfb_wire` in `wire/`**, taking the
+  recommendation. The contents really are wire formats specifically, and the
+  name matches the `repository/` → `mfb_repository` convention. (§3)
+- **Does `Section` belong in `bytes.rs` or its own `mfpc.rs`?** **RESOLVED for
+  now: `bytes.rs`, and plan-126-C should move it.** Landed in `bytes.rs` as
+  recommended — but the decision is now better informed than when it was
+  written. `MFPC_MAJOR_VERSION` had to come along too (Corrections), so
+  `bytes.rs` currently holds `Section`, `encode_sections` *and* the container
+  major version: that is an `mfpc` module in all but name, sitting inside a file
+  whose stated job is arch-neutral byte primitives. When plan-126-C creates
+  `wire/src/mfpc.rs` for the section ids and the section-table reader, these
+  three should move into it, leaving `bytes.rs` genuinely primitive-only. Each
+  carries a doc note saying so. (§Phase 2)
 
 ## Corrections
 
@@ -400,6 +446,43 @@ Commit: —
   shared primitives, so Phase 2 covered it for free. It is a third policy, not a
   third copy, and the bug-340 B8 note's "the two full decoders" wording
   undercounts. Phase 3 must not fold it in either.
+
+- **The two signature-header rules agreed exactly — no divergence to resolve.**
+  Phase 3 required reading both first and recording a finding if they differed.
+  Diffing the two function bodies (`diff <(sed -n '/^pub(crate) fn
+  validate_mfp_signature_header/,/^}/p' src/binary_repr/reader.rs | tail -n +5)
+  <(sed -n '/^fn validate_signature_header/,/^}/p' repository/src/package.rs |
+  tail -n +2)`) reports **no difference**. Only the signature formatting
+  differed (one wrapped its parameters, one did not). So the merged function is
+  that rule, not a choice between two.
+
+- **The move invalidated a spec provenance citation, and the gate that exists
+  for those cannot see it.** `src/docs/spec/package/01_container-format.md`
+  cited `[[src/binary_repr/reader.rs:validate_mfp_signature_header]]`.
+  `spec_citations_resolve` is **file-level only** — `.ai/testing-gates.md` says
+  so explicitly: "it passes as long as the cited file exists, even if the symbol
+  moved out of it". `reader.rs` still exists, so the gate would have stayed
+  green with the citation pointing at a symbol no longer there. Found by
+  grepping for the old symbol name rather than by any test. Re-pointed to
+  `[[wire/src/mfp.rs:validate_signature_header]]`. **Any future sub-plan that
+  moves a cited symbol must grep; the gate will not tell it.**
+
+- **Both cross-crate divergence tests were red on first run, from the fixture
+  and not the code.** The existing `build_mfp` helper writes `proofSig` and
+  `attestationSig` as 64 zero bytes, and `parse_mfp_package` additionally
+  enforces that an *unsigned* package carries none of the trust chain — so the
+  registry rejected the fixture with "unsigned .mfp package must not carry
+  proofSig", which is not the `ident` guard under test. A fixture rejected for
+  the wrong reason would have made both tests pass vacuously the moment the
+  assertion was loosened to `is_err()`. Added
+  `build_mfp_for_both_decoders`, whose chain fields are genuinely empty, so both
+  decoders consider the fixture well-formed apart from the one field being
+  tested. The helper's doc comment records why it cannot just reuse `build_mfp`.
+
+- **The registry had six private helpers and two constants to delete, not
+  four helpers.** Phase 3 listed `read_mfp_string`/`read_mfp_bytes`/`read_u16`/
+  `read_u32` plus the literal magic. Also present and now removed:
+  `read_u64`, `validate_signature_header`, and a private `FIXED_PREFIX_LEN`.
 
 - **Populations re-measured 2026-09-12** (plan figures in parentheses): committed
   `.mfp` fixtures **160** (159); `util.rs` **29** `pub(super) fn` converted — the

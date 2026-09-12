@@ -47,6 +47,7 @@
 //! decoder would drop trust-boundary guards. They share the primitives in this
 //! crate and remain separate policies.
 
-// Further modules land in plan-126-B Phase 3 (`mfp`) and plan-126-C/D
-// (`validation`, `terminal_safe`, `mfpc`, `docs`, `docpage`).
+// Further modules land in plan-126-C/D (`validation`, `terminal_safe`,
+// `mfpc`, `docs`, `docpage`).
 pub mod bytes;
+pub mod mfp;

@@ -26,14 +26,31 @@ use sections::*;
 // so this single line reaches all ~200 call sites and none of them changed.
 pub(crate) use mfb_wire::bytes::*;
 
-// bug-340 B8: the `.mfp` container is the wire format `binary_repr` owns. The
-// manifest-layer header reader (`manifest::package::read_mfp_header`) shares its
-// magic and signature-header rule from here rather than re-implementing them.
-// (The two full decoders are deliberately NOT merged — the manifest reader
-// additionally enforces per-field byte limits, UTF-8, required-non-empty, and
-// `validate_package_name`, and returns fields this identity/payload decoder omits;
-// folding them would drop those trust-boundary guards. See the bug-340 B8 note.)
-pub(crate) use reader::validate_mfp_signature_header;
+// bug-340 B8, as amended by plan-126-B: the `.mfp` container framing — the
+// magic, the fixed-prefix field readers and the signature-header rule — now has
+// one home in `mfb_wire::mfp`, the crate both this one and `mfb_repository` may
+// depend on. Read that module's doc before touching any of it.
+//
+// **The decoders are still deliberately NOT merged; only their primitives are
+// shared.** There are THREE of them, not two (the original note undercounted):
+//
+//   * `manifest::package::read_mfp_header` — per-field byte limits, UTF-8,
+//     `ident` optional, and `validate_package_name` on the name, because that
+//     name becomes `packages/<name>.mfp` and `../../x` would escape the project.
+//   * `reader::mfp_binary_repr_payload` (below) — no per-field caps; it needs
+//     only the identity fields to cross-check the payload's own manifest, and
+//     the payload is covered by `packageBinaryHash` regardless.
+//   * `mfb_repository::package::parse_mfp_package` — per-field caps, `ident`
+//     REQUIRED, no name charset guard.
+//
+// Those differences are policy and they are load-bearing; folding the decoders
+// into one would have to drop one side's guards or impose them on another. The
+// guards stay call-site arguments (`limit`, `required`) precisely so one reader
+// can serve all three without any of them losing a check.
+pub(crate) use mfb_wire::mfp::validate_signature_header as validate_mfp_signature_header;
+// `MFP_MAGIC` and `FIXED_PREFIX_LEN` come from the same module; re-exported so
+// this crate's existing `crate::binary_repr::MFP_MAGIC` paths still resolve.
+pub(crate) use mfb_wire::mfp::{FIXED_PREFIX_LEN, MFP_MAGIC};
 use writer::*;
 
 // Section ids are wire format and frozen; the values are declared here in
@@ -84,10 +101,9 @@ const PACKAGE_META_FIELD_DESCRIPTION: u16 = 1;
 // `MFPC_MAJOR_VERSION` moved to `mfb_wire::bytes` with `encode_sections`, which
 // stamps it (plan-126-B); it arrives here through the glob re-export above.
 
-/// The 8-byte `.mfp` container magic (plan-23 §4). The single home shared by this
-/// crate's `mfp_binary_repr_payload` and the manifest layer's `read_mfp_header`,
-/// which previously each defined their own copy (bug-340 B8).
-pub(crate) const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
+// `MFP_MAGIC` moved to `mfb_wire::mfp` (plan-126-B) and is re-exported above,
+// so `crate::binary_repr::MFP_MAGIC` still resolves. The registry's unnamed
+// literal copy went with it.
 
 /// ABI signature-hash input format.
 ///

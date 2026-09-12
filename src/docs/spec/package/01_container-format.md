@@ -223,7 +223,7 @@ The current container readers reject an `.mfp` package when: [[src/binary_repr/r
 * `containerMajor.containerMinor` is not exactly `1.0`. The current compiler reports this as `unsupported MFP container version <maj>.<min> (expected 1.0)`. This check is hard: there is no backwards compatibility with earlier layouts.
 * Any length-prefixed field exceeds its limit or runs past the end of the file (`.mfp <field> exceeds the <limit> byte limit` / `truncated .mfp <field>`).
 * `signatureType` is unknown. The current compiler reports this as `unsupported .mfp signature type <n>`.
-* `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`. [[src/binary_repr/reader.rs:validate_mfp_signature_header]]
+* `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`. [[wire/src/mfp.rs:validate_signature_header]]
 * The declared signature length runs past the end of the file. The current compiler reports this as `truncated .mfp signature`.
 * `binaryReprLength` does not exactly match the remaining byte count, or there are trailing bytes after `packageBinaryRepr`. The current compiler reports both as `invalid .mfp binary representation length`.
 * A signed package is missing any trust chain field, or an unsigned package carries one (`signed .mfp package is missing <field>` / `unsigned .mfp package must not carry <field>`). [[repository/src/package.rs:parse_mfp_package]]

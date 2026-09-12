@@ -264,8 +264,13 @@ pub(super) fn read_package_binary_repr(path: &Path) -> Result<PackageBinaryRepr,
 }
 
 pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
-    use super::MFP_MAGIC;
-    if bytes.len() < 20 {
+    // The third `.mfp` fixed-prefix decoder (see the table in
+    // `mfb_wire::mfp`'s module doc). Its policy is the laxest of the three: no
+    // per-field byte caps, because it only needs the identity fields to
+    // cross-check against the payload's own manifest, and the payload is
+    // already covered by `packageBinaryHash`. It shares the primitives and
+    // keeps that policy.
+    if bytes.len() < FIXED_PREFIX_LEN {
         return Err("package is too small to be a valid .mfp package".to_string());
     }
     if bytes[0..8] != MFP_MAGIC {
@@ -280,7 +285,7 @@ pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, 
         ));
     }
 
-    let mut offset = 20usize;
+    let mut offset = FIXED_PREFIX_LEN;
     let name = read_length_prefixed(bytes, &mut offset, "name")?;
     let ident = read_length_prefixed(bytes, &mut offset, "ident")?;
     let version = read_length_prefixed(bytes, &mut offset, "version")?;
@@ -334,17 +339,9 @@ pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, 
     })
 }
 
-pub(crate) fn validate_mfp_signature_header(
-    signature_type: u16,
-    signature_length: usize,
-) -> Result<(), String> {
-    match (signature_type, signature_length) {
-        (0, 0) | (1, 64) => Ok(()),
-        (0, _) => Err("unsigned .mfp package must have zero signature length".to_string()),
-        (1, _) => Err("Ed25519 .mfp package must have a 64 byte signature".to_string()),
-        _ => Err(format!("unsupported .mfp signature type {signature_type}")),
-    }
-}
+// `validate_mfp_signature_header` moved to `mfb_wire::mfp` as
+// `validate_signature_header` (plan-126-B). The registry had a byte-identical
+// copy; they were diffed before merging, so neither was chosen over the other.
 
 pub(super) fn validate_container_manifest_identity(
     identity: &MfpIdentity,
