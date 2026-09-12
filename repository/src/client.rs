@@ -11,7 +11,7 @@ use crate::server::{
     TokenIssueRequest, TokenIssueResponse, TokenRevokeRequest, TokenRevokeResponse,
     TransferAcceptRequest, TransferOfferRequest, TransferResponse, ValidatePackageResponse,
 };
-use crate::validation::validate_owner_name;
+use crate::validation::{fold_owner, validate_owner_name};
 use crate::DEFAULT_REPO_URL;
 use reqwest::blocking::Client;
 use serde::de::DeserializeOwned;
@@ -1284,6 +1284,37 @@ pub fn fetch_index(
     let ident = format!("{owner}#{package}");
     let response =
         get_json::<IndexResponse>(repo_url, &format!("/index/{}", percent_encode(&ident)))?;
+    // bug-581: bind the response to the route BEFORE anything in it is trusted.
+    //
+    // Every signature check below is self-referential: the name binding is
+    // verified over `name_binding_message(response.owner, response.ident_fingerprint)`,
+    // i.e. over values the response itself supplies. It therefore proves the
+    // registry signed *something*, never that it answered the question that was
+    // asked. A registry holding its online server key could return a validly
+    // signed binding and version list for a different package entirely and the
+    // client would return it as the requested index.
+    //
+    // The ident is compared exactly because the registry echoes the requested
+    // ident verbatim (`server.rs:package_index` returns the raw path parameter),
+    // so this is a true route binding and not a guess about normalization.
+    if response.ident != ident {
+        return Err(format!(
+            "registry index is for a different package: requested {ident}, served {}",
+            sanitize_server_text(&response.ident)
+        ));
+    }
+    // The owner, by contrast, is compared CASE-FOLDED. The registry resolves
+    // owners by `owner_folded` and answers with `owner_display`, so `Alice#pkg`
+    // is a legitimate request whose honest answer says `alice`. An exact
+    // comparison here would refuse valid input — the failure mode this repo has
+    // shipped four times. `fold_owner` is the registry's own rule, not a
+    // second, drifting copy of it.
+    if fold_owner(&response.owner) != fold_owner(owner) {
+        return Err(format!(
+            "registry index names a different owner: requested {owner}, served {}",
+            sanitize_server_text(&response.owner)
+        ));
+    }
     // The pinned ident is only as trustworthy as the name binding: verify it
     // under the pinned server key and cross-check the fingerprint.
     let ident_public = crypto::decode_bytes(
@@ -4324,14 +4355,29 @@ mod tests {
     // --- index ------------------------------------------------------------
 
     fn index_body(registry: &Registry, ident_key: &str, ident_fingerprint: &str) -> String {
+        index_body_for(registry, "alice", "alice#pkg", ident_key, ident_fingerprint)
+    }
+
+    /// The same body with the route-identifying fields under the caller's
+    /// control, so a test can serve an index that is *validly signed* and yet
+    /// answers a different question than the one asked (bug-581). The signature
+    /// is always over the `owner` the body carries — that is precisely the
+    /// self-referential property that made the binding useless on its own.
+    fn index_body_for(
+        registry: &Registry,
+        owner: &str,
+        ident: &str,
+        ident_key: &str,
+        ident_fingerprint: &str,
+    ) -> String {
         let signature = crypto::sign(
             &registry.private,
-            &crypto::name_binding_message("alice", ident_fingerprint),
+            &crypto::name_binding_message(owner, ident_fingerprint),
         )
         .unwrap();
         serde_json::json!({
-            "ident": "alice#pkg",
-            "owner": "alice",
+            "ident": ident,
+            "owner": owner,
             "identKey": ident_key,
             "identFingerprint": ident_fingerprint,
             "nameBindingSignature": crypto::encode_bytes(&signature),
@@ -4417,6 +4463,93 @@ mod tests {
             err,
             "registry name binding does not verify under the pinned server key"
         );
+    }
+
+    /// bug-581: a signature over values the RESPONSE supplies cannot bind the
+    /// response to the REQUEST.
+    ///
+    /// `fetch_index` verified `name_binding_message(response.owner,
+    /// response.ident_fingerprint)` and nothing else, so a registry holding its
+    /// online server key could answer any `/index/<ident>` with a validly signed
+    /// binding and version list for a package of its choosing. The client
+    /// returned it as the requested index, and `mfb pkg add` would pin that
+    /// ident key as the anchor for a dependency it never asked for.
+    ///
+    /// All three substitutions below are *cryptographically valid*. Each fails
+    /// only on the route binding, and each defeats a different half-fix.
+    #[test]
+    fn fetch_index_rejects_a_validly_signed_response_for_another_ident() {
+        let registry = Registry::new();
+        let (ident_public, _) = crypto::generate_keypair();
+        let ident_key = format!("ed25519:{}", crypto::encode_bytes(&ident_public));
+        let fingerprint = crypto::fingerprint(&ident_public);
+
+        let serve = |owner: &str, ident: &str| {
+            registry
+                .routes()
+                .ok(
+                    "/index/",
+                    index_body_for(&registry, owner, ident, &ident_key, &fingerprint),
+                )
+                .serve()
+        };
+
+        // A wholly different package, under a different owner.
+        let (_t1, p1) = temp_paths();
+        let stub = serve("mallory", "mallory#other");
+        let err = fetch_index(&stub.url, &p1, "alice", "pkg").unwrap_err();
+        assert!(
+            err.contains("different package"),
+            "the response ident must be checked against the route, got: {err}"
+        );
+
+        // Same owner, different package. An owner-only check would accept this.
+        let (_t2, p2) = temp_paths();
+        let stub = serve("alice", "alice#other");
+        let err = fetch_index(&stub.url, &p2, "alice", "pkg").unwrap_err();
+        assert!(err.contains("different package"), "{err}");
+
+        // The right ident echoed back, but signed for — and keyed to — a
+        // different owner. An ident-only check would accept this, and it is the
+        // attack in its purest form: the name binding verifies perfectly,
+        // because it is a binding of the response to itself.
+        let (_t3, p3) = temp_paths();
+        let stub = serve("mallory", "alice#pkg");
+        let err = fetch_index(&stub.url, &p3, "alice", "pkg").unwrap_err();
+        assert!(
+            err.contains("different owner"),
+            "the signed owner must be checked against the route, got: {err}"
+        );
+    }
+
+    /// POSITIVE (bug-581): the route binding must not refuse honest answers.
+    ///
+    /// The registry resolves owners case-folded (`owner_folded`) and answers
+    /// with `owner_display`, so `Alice#pkg` is a legitimate request whose honest
+    /// response says `owner: "alice"`. An exact owner comparison would have
+    /// broken every mixed-case `mfb pkg add` — the precise shape of guard that
+    /// has shipped and rejected valid input four times in this repo.
+    #[test]
+    fn fetch_index_accepts_an_honest_response_whose_owner_case_differs() {
+        let registry = Registry::new();
+        let (ident_public, _) = crypto::generate_keypair();
+        let ident_key = format!("ed25519:{}", crypto::encode_bytes(&ident_public));
+        let fingerprint = crypto::fingerprint(&ident_public);
+
+        // Requested `Alice#pkg`; the registry echoes the ident verbatim and
+        // answers with the registered display form of the owner.
+        let (_temp, paths) = temp_paths();
+        let stub = registry
+            .routes()
+            .ok(
+                "/index/",
+                index_body_for(&registry, "alice", "Alice#pkg", &ident_key, &fingerprint),
+            )
+            .serve();
+        let response =
+            fetch_index(&stub.url, &paths, "Alice", "pkg").expect("a case-folded owner is honest");
+        assert_eq!(response.owner, "alice");
+        assert_eq!(response.versions.len(), 1);
     }
 
     // --- blobs ------------------------------------------------------------
