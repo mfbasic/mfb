@@ -125,25 +125,47 @@ fn record_error_domain(
 /// `failed` from this handler BEFORE the program's next write ever posts a send,
 /// so the send completion's own classification is not always there to read.
 fn state_invoke_function() -> CodeFunction {
-    let sig = format!("{STATE_INVOKE}_sig");
+    let publish = format!("{STATE_INVOKE}_publish");
+    // bug-564: classify FIRST, publish the gates LAST. `tls::write` reads
+    // `CTX_STATE` (terminal-state guard) or `CTX_ERROR` (after its wait) and
+    // THEN `CTX_EDOM`, from another thread with no lock. Storing the gates
+    // before the domain call left a window in which a writer saw a failed
+    // connection with no domain yet and raised `ErrTlsFailed` for a departed
+    // peer. Measured: `tls-write-peer-closed-raises-rt` printed
+    // `write raised=FALSE` in 6 of 600 loaded runs, and every one was a run
+    // whose only classified error came from this handler.
+    //
+    // Program order alone is not enough. Under the ARMv8 memory model another
+    // core may observe plain `str`s out of program order. So each gate is
+    // stored with a store-release (`stlr`), which becomes visible only after
+    // every program-order-prior store, `CTX_EDOM` included. The reader's side
+    // of the contract is a load-acquire on the gate
+    // (`gen_macos/client.rs:lower_tls_write_macos`). The state and error ride
+    // in the frame's two spare slots across the call.
     let instructions: Vec<CodeInstruction> = vec![
         abi::label("entry"),
         abi::subtract_stack(32),
         abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
         abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
-        abi::move_register(abi::LOCAL[0], abi::c_arg(0)), // x19 = block
-        abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], BLK_CAP), // x19 = ctx
-        abi::store_u64(abi::c_arg(1), abi::LOCAL[0], CTX_STATE),
-        abi::store_u64(abi::c_arg(2), abi::LOCAL[0], CTX_ERROR),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), 16), // state
+        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), 24), // error
+        abi::move_register(abi::LOCAL[0], abi::c_arg(0)),        // x19 = block
+        abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], BLK_CAP),    // x19 = ctx
     ]
     .into_iter()
     .chain({
         let mut tail = Vec::new();
-        record_error_domain(&mut tail, abi::LOCAL[0], abi::c_arg(2), &sig);
+        record_error_domain(&mut tail, abi::LOCAL[0], abi::c_arg(2), &publish);
         tail
     })
     .chain([
-        abi::label(&sig),
+        abi::label(&publish),
+        abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), 24),
+        abi::add_immediate(abi::SCRATCH[2], abi::LOCAL[0], CTX_ERROR),
+        abi::store_release_u64(abi::SCRATCH[1], abi::SCRATCH[2]),
+        abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), 16),
+        abi::add_immediate(abi::SCRATCH[2], abi::LOCAL[0], CTX_STATE),
+        abi::store_release_u64(abi::SCRATCH[1], abi::SCRATCH[2]),
         abi::load_u64(abi::SCRATCH[1], abi::LOCAL[0], CTX_SIGNAL),
         abi::load_u64(abi::c_arg(0), abi::LOCAL[0], CTX_SEM),
         abi::branch_link_register(abi::SCRATCH[1]),
@@ -183,24 +205,32 @@ fn state_invoke_function() -> CodeFunction {
 /// the scratch registers, so the ctx pointer has to live in a callee-saved one —
 /// the same shape `recv_invoke_impl` uses.
 fn send_invoke_function() -> CodeFunction {
-    let sig = format!("{SEND_INVOKE}_sig");
+    let publish = format!("{SEND_INVOKE}_publish");
+    // bug-564: domain before `CTX_ERROR`, and `CTX_ERROR` by store-release, for
+    // the reasons `state_invoke_function` spells out. The writer need not be
+    // woken by THIS completion's signal. The state handler signals the same
+    // semaphore, so the writer can read a `CTX_ERROR` this block has published
+    // but not yet classified.
     let instructions: Vec<CodeInstruction> = vec![
         abi::label("entry"),
         abi::subtract_stack(32),
         abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
         abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
-        abi::move_register(abi::LOCAL[0], abi::c_arg(0)), // x19 = block
-        abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], BLK_CAP), // x19 = ctx
-        abi::store_u64(abi::c_arg(1), abi::LOCAL[0], CTX_ERROR),
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), 16), // error
+        abi::move_register(abi::LOCAL[0], abi::c_arg(0)),        // x19 = block
+        abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], BLK_CAP),    // x19 = ctx
     ]
     .into_iter()
     .chain({
         let mut tail = Vec::new();
-        record_error_domain(&mut tail, abi::LOCAL[0], abi::c_arg(1), &sig);
+        record_error_domain(&mut tail, abi::LOCAL[0], abi::c_arg(1), &publish);
         tail
     })
     .chain([
-        abi::label(&sig),
+        abi::label(&publish),
+        abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), 16),
+        abi::add_immediate(abi::SCRATCH[2], abi::LOCAL[0], CTX_ERROR),
+        abi::store_release_u64(abi::SCRATCH[1], abi::SCRATCH[2]),
         abi::load_u64(abi::SCRATCH[1], abi::LOCAL[0], CTX_SIGNAL),
         abi::load_u64(abi::c_arg(0), abi::LOCAL[0], CTX_SEM),
         abi::branch_link_register(abi::SCRATCH[1]),

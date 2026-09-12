@@ -114,20 +114,22 @@ trampoline**, on the dispatch queue. bug-483 parks
 both `SEND_INVOKE` and `STATE_INVOKE` record the domain into `CTX_EDOM` while the
 object is alive; `tls::write` then classifies from that integer.
 
-Three things that design has to get right, all of them load-bearing. A fourth is
-known BROKEN and open (bug-564, second sighting):
+Four things that design has to get right, all of them load-bearing:
 
-- **OPEN: the trampolines publish the gate BEFORE the domain.** `tls::write` reads
-  a gate (`CTX_STATE >= 4`, or `CTX_ERROR != 0` after its wait) and then
-  `CTX_EDOM`, from another thread, with no lock. `STATE_INVOKE` and `SEND_INVOKE`
-  store the gate first and `CTX_EDOM` only after the `nw_error_get_error_domain`
-  call, so a writer inside that window raises `ErrTlsFailed` for a departed peer.
-  This was reproduced, and the numbers are in the bug doc. **Swapping the stores
-  is not a fix on AArch64.** ARMv8's memory model lets another core observe plain
-  `STR`s out of program order; only a barrier (`DMB`) or a release store (`STLR`)
-  fences that (Chong, Sorensen & Wickerson, PLDI'18 §6). clang emits `STLR`/`LDAR`
-  for C11 `atomic_store`/`atomic_load`. This ABI layer can emit none of those
-  instructions. Do not land the reorder alone.
+- **Payload before gate, fenced on BOTH sides (bug-564).** `tls::write` reads a
+  gate (`CTX_STATE >= 4`, or `CTX_ERROR != 0` after its wait) and then
+  `CTX_EDOM`, from another thread, with no lock. So each trampoline classifies
+  first and stores the gates last. Program order alone is not enough on AArch64,
+  because the ARMv8 memory model lets another core observe plain `str`/`ldr` out
+  of program order. So the gate STORES are `stlr` (`abi::store_release_u64`,
+  "visible after all program-order prior stores"), and the writer's gate LOADS are
+  `ldar` (`abi::load_acquire_u32/u64`, "execute before all program-order
+  successors"). Sources: Sullivan, *Compiling a Calculus for Relaxed Memory*, §5.4,
+  and Arm ARM DDI0487 B2.6.11. Without the `ldar`, the later `CTX_EDOM` load may
+  run early against older memory even when the handler published in order. Keep
+  any new gate/payload pair on this pattern. The pins are
+  `gen_macos::tests::{trampolines_publish_the_error_domain_before_the_gate,
+  write_loads_its_gates_by_load_acquire}`.
 
 - **`CTX_EDOM` is sticky.** `emit_fresh_sem` clears `CTX_ERROR` before every
   operation and must NOT clear the domain: the terminal-state guard on a *later*
