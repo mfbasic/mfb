@@ -267,31 +267,60 @@ built first and the comparison run against that saved build.
 A rebuilt `packages/jwt/jwt.mfp` is `cmp`-identical to the pre-change build.
 The whole-workspace `cargo test --no-fail-fast` is the plan-wide final gate in
 follow-plan §5.
-Commit: —
+Commit: 1d8a900e7
 
 ### Phase 2 — The page model
 
-- [ ] Create `wire/src/docpage.rs` with `DocPage`, `DocGroup`, `DocDecl`, `Prose`
-      (`src/doc/mod.rs:13-52`), the nine shared helpers (`:54-162` and `:391-398`)
-      made `pub`, and `from_package` (`:166-211`).
-- [ ] Reduce `src/doc/mod.rs` to `from_source` (`:215-348`) and `source_decl_meta`
-      (`:352-388`), importing the model and helpers from `mfb_wire` and re-exporting
-      the model so `src/doc/html.rs` and `src/cli/doc.rs` are unchanged.
-- [ ] Verify `src/doc/html.rs` (734 lines, 16 tests) and `src/html.rs` are untouched;
-      if either needed an edit, the re-export is incomplete.
-- [ ] Confirm neither extraction orphaned a doc comment onto a neighbouring item in
-      `src/doc/mod.rs`, `src/ast/types.rs`, `src/binary_repr/mod.rs` or `reader.rs`.
-- [ ] Tests: move any `from_package` coverage out of `src/doc/html.rs`'s 16 tests
-      into `wire/src/docpage.rs` (`from_package_no_package_uses_fallback_and_empty_render`
-      at `src/doc/html.rs:402` and `from_package_full_page_renders_every_element` at
-      `:414` both exercise it); add a test that `from_source` and `from_package`
-      produce the same anchors for the same symbol names, pinning the shared helper.
+- [x] Create `wire/src/docpage.rs` with `DocPage`, `DocGroup`, `DocDecl`, `Prose`,
+      the shared helpers made `pub`, and `from_package`, all moved verbatim. **Eight**
+      helpers are `pub`, not nine: `prose_from_codes` has a single caller
+      (`from_package`) and stays private (Corrections). **`PAGE_INTRO_ANCHOR` is also
+      `pub`**, because `src/doc/html.rs`'s production renderer uses it (Corrections).
+- [x] Reduce `src/doc/mod.rs` to `from_source` and `source_decl_meta`, glob-re-
+      exporting `mfb_wire::docpage::*` so `src/doc/html.rs` (via `use super::*`) and
+      `src/cli` (`crate::doc::{DocPage, from_package}`) resolve unchanged. Kept the
+      `DocProseKind` and `HashMap` imports `html.rs` reaches through the glob.
+      `HashSet` is now `#[cfg(test)]` (Corrections). `src/cli/doc.rs` was not edited:
+      `cargo fmt --all`'s `git diff --stat` listed only `src/doc/mod.rs` and
+      `wire/src/lib.rs`.
+- [x] Verify `src/doc/html.rs` and `src/html.rs` are untouched:
+      `git diff --stat HEAD -- src/doc/html.rs src/html.rs` → **empty**. `html.rs` is
+      still **734 lines, 16 tests** (`wc -l`, `grep -c '#\[test\]'`), exactly the
+      plan's figures. No edit was needed, so the re-export is complete.
+- [x] Confirm neither extraction orphaned a doc comment onto a neighbouring item.
+      By construction, each deletion span in `src/doc/mod.rs`, `src/ast/types.rs`,
+      `src/binary_repr/mod.rs` and `reader.rs` began at the removed item's own first
+      `///` line (or at a `//` section comment that was rewritten) and ended at its
+      closing brace, so no preceding or following item lost or gained a comment.
+      `cargo check --all-targets` reports no `unused doc comment`. **One
+      pre-existing orphan was found and fixed:** the "Slugify a declaration name
+      into a unique anchor id." line was sitting above `PAGE_INTRO_ANCHOR` instead of
+      `fn anchor` (Corrections).
+- [x] Tests: `from_package` coverage **kept** in `src/doc/html.rs` rather than moved,
+      because those tests assert on rendered HTML and the plan also requires
+      `html.rs` untouched (Corrections resolves the contradiction). Added **three**
+      model-level `from_package` tests in `wire/src/docpage.rs`. Added the anchor-
+      parity test `from_source_and_from_package_assign_identical_anchors` in the
+      **compiler** (`src/doc/mod.rs`), the only crate where both entry points are
+      reachable (Corrections).
 
-Acceptance: `rustup run 1.96.0 cargo test --no-fail-fast` passes with the 16
-`src/doc/html.rs` tests still green; `mfb doc <a source project> --out /tmp/b.html`
-and `mfb pkg doc packages/jwt/jwt.mfp --out /tmp/c.html` both produce files
-`cmp`-identical to pre-change output. The `from_source`/`from_package` anchor-parity
-test is what proves the helpers were shared rather than duplicated.
+Acceptance: MET.
+`cargo check --all-targets` → `mfb` **warning-free** (only the three pre-existing
+`repository/src/server.rs` warnings remain).
+`cargo test --bin mfb doc::` → **28 passed**: the 16 `src/doc/html.rs` tests (still
+green, file untouched) plus `from_source_and_from_package_assign_identical_anchors`.
+`cargo test -p mfb_wire` → **54 passed**, including the three `docpage::tests::*`.
+`mfb doc packages/jwt --out …` (from **source**) is **`cmp`-identical** to the
+pre-change binary's output (exit 0; the pre-change reference was rendered from the
+same committed `packages/jwt` source by the binary saved before plan-126-B).
+`mfb pkg doc` on the pre-change `jwt.mfp` is **`cmp`-identical** to pre-change (exit
+0). The undocumented package's empty-docs page is **`cmp`-identical**, exit 0 on
+both binaries.
+`scripts/artifact-gate.sh target/release/mfb all` → 1427 tests, 1593 builds,
+**2001 goldens checked, 0 diffs**, `git status tests/` clean.
+The anchor-parity test is what proves the helpers were shared rather than duplicated.
+The whole-workspace `cargo test --no-fail-fast` is the plan-wide final gate in
+follow-plan §5.
 Commit: —
 
 ## Validation Plan
@@ -385,6 +414,70 @@ Commit: —
   read_doc_table` / `doc_kind_name` / `encode_doc_table` and the local
   `DOC_KIND_*` consts would each **silently shadow** that glob and compile with
   two copies. They must be deleted, not re-exported over.
+
+- **Eight of the "nine shared helpers" are shared; `prose_from_codes` is not.**
+  § Verified properties says `from_source` calls all nine. Measured by locating
+  every call site against the function spans in `src/doc/mod.rs`
+  (`from_package` at lines 166–211, `from_source` at 215–348): `kind_label`,
+  `badge_class`, `member_label`, `group_title`, `assemble_groups`,
+  `reserved_anchors`, `anchor` and `split_subtitle` each have one call in each
+  entry point, but **both** `prose_from_codes` calls (lines 170 and 190) are inside
+  `from_package`. `from_source` builds `Prose` straight from AST kinds and never
+  reads wire codes. This is exactly the case the plan's own Corrections
+  placeholder said to watch for, so `prose_from_codes` moved as a **private**
+  helper of `from_package` in `wire/src/docpage.rs`, and only the eight are `pub`.
+
+- **The plan contradicts itself about `src/doc/html.rs`; resolved in favour of
+  "untouched", with coverage added rather than moved.** Phase 2 task 5 says to
+  move `from_package` coverage *out of* `html.rs`. Task 3 and the acceptance say
+  `html.rs` must be **untouched**, and that needing to edit it means the
+  re-export is incomplete. Both cannot hold. Those tests are also not pure model
+  tests: `from_package_no_package_uses_fallback_and_empty_render` and
+  `from_package_full_page_renders_every_element` assert on the **rendered HTML**,
+  and the renderer stays in the compiler, so they cannot move to `mfb_wire`
+  whole. They stay where they are, now exercising the shared model through the
+  glob re-export. `wire/src/docpage.rs` gains **new** model-level tests covering
+  the same behaviour without rendering: the fallback name, subtitle/intro split,
+  callout decoding, first-appearance group order, the public/internal split, and
+  anchor reservation. Coverage went up; no assertion was removed.
+
+- **A third `from_package` caller in `html.rs`.** The plan names the tests at
+  `:402` and `:414`. `grep -n from_package src/doc/html.rs` also finds line 490,
+  inside `subtitle_without_intro_still_emits_intro_anchor`. That test stays too,
+  for the same reason.
+
+- **The anchor-parity test cannot live in `wire/src/docpage.rs`.** Phase 2 task 5
+  places it there, but `from_source` needs the compiler's AST and parser, and
+  `mfb_wire` depends on neither. As with plan-126-B's cross-crate divergence
+  test, it goes in the one place both entry points are reachable: a new
+  `#[cfg(test)] mod tests` at the end of `src/doc/mod.rs`
+  (`from_source_and_from_package_assign_identical_anchors`). It hands both entry
+  points the same names in the same order, one of them `intro` so the bug-299 D3
+  reservation is exercised. It asserts the anchor lists are equal **and** equal
+  the literal `["intro-2", "add-up"]`, so a regression that shifts both paths
+  identically still fails.
+
+- **A pre-existing orphaned doc comment, fixed in the move.** In the original
+  `src/doc/mod.rs`, the line "Slugify a declaration name into a unique anchor
+  id." sat above `const PAGE_INTRO_ANCHOR`, documenting the constant instead of
+  `fn anchor` two items below. That is the classic result of inserting an item
+  between a doc comment and its target. In `wire/src/docpage.rs` the line is back
+  on `anchor`, with a note recording where it had been.
+
+- **`PAGE_INTRO_ANCHOR` had to become `pub`, and not only for tests.** The plan
+  lists nine helpers to widen and does not mention the constant.
+  `grep -n PAGE_INTRO_ANCHOR src/doc/html.rs` shows the **production renderer**
+  using it at lines 183, 211 and 216 (the sidebar link and the intro
+  `<section id>`), reached through `use super::*`. Left private in
+  `mfb_wire::docpage`, the compiler's HTML renderer would stop compiling.
+
+- **`HashSet` in `src/doc/mod.rs` is now test-only, so its import is gated.**
+  After the move, `cargo check --all-targets` warned `unused import: HashSet`
+  for the non-test binary. It could not simply be deleted: `html.rs`'s *test*
+  module calls `HashSet::new()` (line 349) through `use super::*`, so removal
+  would have broken those tests and forced an `html.rs` edit. It is now
+  `#[cfg(test)] use std::collections::HashSet;` with a comment saying why — a
+  targeted gate, not a blanket suppression.
 
 ## Summary
 
