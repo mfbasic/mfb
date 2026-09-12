@@ -25,7 +25,7 @@ use std::collections::HashMap;
 /// = 4; both share the ctx prefix (`CTX_SEM` / `CTX_STATE`). `wait_off` must hold
 /// a resolved `dispatch_semaphore_wait`; the wait is DISPATCH_TIME_FOREVER. This
 /// mirrors the connect-path drain (`client.rs`, bug-380).
-fn emit_cancel_drain(
+pub(super) fn emit_cancel_drain(
     ins: &mut Vec<CodeInstruction>,
     ctx_off: usize,
     wait_off: usize,
