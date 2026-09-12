@@ -198,10 +198,48 @@ concurrency outliving `main`: a libdispatch serial queue holding a callback over
 arena memory. This crash report is the counter-example.
 
 That is left as a *latent* hazard rather than widened here, because the fix below
-removes the only `tls` path that relied on it. Worth auditing the same predicate
-against `process::detach` (its reaper `_mfb_rt_process_reaper` is a real pthread
-whose runtime symbol is `process.detach`, not `thread.*`) and the macOS
-AudioQueue callbacks — both are the same shape and neither was checked here.
+removes the only `tls` path that relied on it.
+
+### The two sibling shapes HAVE now been audited — both are safe
+
+Audited after the fix landed, by reading the emitters rather than by reasoning
+from the predicate. Recorded here because "not checked" is an open question and
+this closes it.
+
+**`process::detach`'s reaper pthread — safe by construction.** It never touches
+arena memory, and that is deliberate and already documented at
+`src/codegen/builtins/process/gen_unix.rs:lower_process_reaper_helper`:
+
+> The child pid arrives **by value** in the C first-argument register, never a
+> pointer to the `Process` record: the record's arena block may be reclaimed at
+> the detaching scope's exit while this thread is still blocked in `waitpid`.
+
+> **Arena.** Arena state is per-thread and a spawned thread gets its own zeroed
+> copy, so a reaper must not allocate, free, or read through `x19`. It does not:
+> the whole body is register moves, `waitpid`, the errno accessor, and a return.
+
+So `arena_destroy` cannot fault it — bug-474 had already solved this exact
+problem for a different reason (a `SIGCHLD` disposition bug) and got the memory
+discipline right on the way past.
+
+**The macOS AudioQueue callbacks — safe by construction.** The callback does
+dereference a state block under a mutex (`S_CLOSED`, `S_FREE_TOP`, `S_XRUNS`,
+`S_COND`), so it *looks* like the `tls` shape. It is not: that block is its own
+`mmap`, not arena memory. `src/codegen/builtins/audio/gen_shared.rs:33` declares
+`H_STATE: usize = 64; // -> mmap'd AudioState`, and
+`gen_macos_stream.rs` allocates it with a direct anonymous `mmap`
+(`fd = -1`, `STATE_PAGE`). The decisive check: **`arena_alloc` does not appear
+anywhere under `src/codegen/builtins/audio/`** (`grep -rn arena_alloc
+src/codegen/builtins/audio/` -> no matches). `arena_destroy` walks only the
+arena's own block chain, so it never unmaps this page.
+
+**Conclusion: `tls` was the only exposed case.** The predicate at
+`builder/mod.rs:1338` is still *stated* wrongly and should be corrected in place
+— platform-owned callback threads (libdispatch queues, AudioQueue, the reaper)
+are governed by a different rule than the `thread.` gate: each must either touch
+no arena memory, or be drained before `main` returns. The three known cases now
+satisfy that rule. Correcting the prose is a separate, behaviour-free change; the
+gate's *condition* needs no widening.
 
 ## The fix
 
