@@ -56,6 +56,13 @@ pub struct PublishMetadata {
     /// published before plan-61-D, which simply carries no section 18 — that is
     /// a normal outcome, not a failure.
     pub description: Option<String>,
+    /// The raw MFPC section-17 bytes (the `DOC` table) to record in
+    /// `package_version_docs` (plan-126-E). `None` for an undocumented package,
+    /// **and** for one whose section 17 failed to decode: documentation "does not
+    /// affect execution or the ABI", so a malformed doc table must never reject a
+    /// signed package -- it is simply not recorded. Written inside the same
+    /// transaction as the version row.
+    pub docs: Option<Vec<u8>>,
 }
 
 /// One `package_version_targets` row as `Store::target_rows_for_test` yields it:
@@ -2135,6 +2142,18 @@ impl Store {
         // uploaded via PUT /blob and their `package_blobs` rows exist; nothing
         // reads these edges in this plan.
         let package_version_id = tx.last_insert_rowid();
+        // plan-126-E: the doc row is written in the SAME transaction as the version
+        // row. A crash between two separate writes would leave a version whose docs
+        // never appear -- and no backfill run could tell that apart from a package
+        // that was simply never documented.
+        if let Some(section) = &metadata.docs {
+            tx.execute(
+                "INSERT OR IGNORE INTO package_version_docs (package_version_id, doc_section)
+                 VALUES (?1, ?2)",
+                params![package_version_id, section],
+            )
+            .map_err(|err| format!("failed to record version documentation: {err}"))?;
+        }
         for vendor in vendor_blobs {
             tx.execute(
                 "INSERT OR IGNORE INTO package_version_blobs (package_version_id, hash)

@@ -236,22 +236,49 @@ Commit: —
 
 ### Phase 2 — Capture at publish
 
-- [ ] In the publish handler, call
-      `mfb_wire::docs::read_package_doc_section(&package.payload)` alongside the
-      existing four parses (`repository/src/server.rs:2861-2903`, `:3163-3198`),
-      keeping the best-effort posture: a parse error means "no documentation", never
-      a rejected publish.
-- [ ] Write the row inside the same transaction as the version INSERT
-      (`repository/src/store.rs:1818-1828`), not as a separate call afterwards.
-- [ ] Tests in `repository/src/server.rs`: publishing a payload with a valid section
-      17 stores it and it reads back byte-identical; publishing a payload **without**
-      section 17 stores no row and still succeeds; publishing a payload whose section
-      17 is truncated still succeeds with no row stored (the negative that proves
-      documentation cannot break a publish).
+- [x] In the publish handler, capture section 17 alongside the existing parses,
+      keeping the best-effort posture: a parse error means "no documentation",
+      never a rejected publish. **Refined from the plan:** the handler calls
+      `mfb_wire::mfpc::read_section_table` → section 17 → `read_doc_table`, rather
+      than `read_package_doc_section`. That function returns *decoded*
+      `PackageDocs`, but Phase 1 stores the **raw** section bytes. So the handler
+      keeps the raw slice and uses the decode only as a gate: bytes that fail to
+      decode are not stored, and are never a rejection. Both `PublishMetadata`
+      match arms carry `docs` explicitly — left to `..Default::default()`, the
+      no-MANIFEST arm would silently drop documentation the publisher signed.
+- [x] Write the row inside the same transaction as the version INSERT, not as a
+      separate call afterwards. Implemented by adding `docs: Option<Vec<u8>>` to
+      `PublishMetadata` and writing `package_version_docs` right after
+      `tx.last_insert_rowid()` inside `publish_package_version`'s transaction.
+      **Chosen by measurement over a new positional argument:** that would have
+      touched **57** `publish_package_version(` call sites; the field touched
+      **3** struct literals (`cargo check` reported exactly three
+      missing-field errors — `backfill.rs:135`, `server.rs:5478`, `server.rs:6410`)
+      plus the insert. The struct already carries section-derived publisher
+      metadata (section 18's `description`), so section 17 fits its purpose.
+- [x] Tests in `repository/src/server.rs`, driving the real `publish_package`
+      handler with a signed artifact:
+      `publishing_a_documented_package_stores_its_doc_section_byte_for_byte`,
+      `publishing_an_undocumented_package_succeeds_and_stores_no_doc_row`, and
+      `a_truncated_doc_section_still_publishes_and_records_nothing`. The last
+      first asserts its fixture genuinely fails to decode, so it cannot pass
+      vacuously, and also asserts the version itself landed.
 
-Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes and
-`tests/cli/cli_repo_publish.rs` is green. The truncated-section test is the important
-one: it proves a malformed doc table cannot reject a signed package.
+Acceptance: MET.
+`rustup run 1.96.0 cargo test -p mfb_repository --lib --no-fail-fast` → **382
+passed; 0 failed** (379 + 3).
+`cargo test --test cli_repo_publish --test cli_repo_install --test cli_repo_auth
+--test cli_repo_governance` against a freshly rebuilt release `mfb-repo` → **4 / 7 /
+9 / 6 passed, 0 failed**.
+**The truncated-section test is load-bearing, measured:** deleting the handler's
+single decode-gate line (`mfb_wire::docs::read_doc_table(section).ok()?;` — 1
+match before, 0 after) turned exactly that test red (`test result: FAILED. 2
+passed; 1 failed`), while the documented and undocumented tests stayed green.
+`server.rs` was then restored and `cmp` confirmed it byte-identical to the
+post-format backup. That gate is what stops a malformed doc table from being
+recorded.
+`cargo check --all-targets` → only the three pre-existing `unused axum::Json`
+warnings.
 Commit: —
 
 ### Phase 3 — Backfill (largest blast radius: touches every stored blob)

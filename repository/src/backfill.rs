@@ -136,6 +136,7 @@ pub async fn run(store: &Store, blob_store: &BlobStore) -> Result<BackfillReport
                 author: Some(signed.author).filter(|value| !value.is_empty()),
                 url: Some(signed.url).filter(|value| !value.is_empty()),
                 description,
+                docs: None,
             },
             None => PublishMetadata {
                 description,

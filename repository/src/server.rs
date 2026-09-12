@@ -3029,14 +3029,33 @@ async fn publish_package(
         .and_then(|package| crate::abi::parse_package_description(&package.payload).ok())
         .flatten()
         .filter(|value| !value.is_empty());
+    // plan-126-E: capture MFPC section 17 (the `DOC` table) from the payload this
+    // handler already holds, best-effort. The RAW section bytes are what gets
+    // stored -- `mfb_wire::docs` stays the only decoder -- but only once they
+    // decode, so a malformed doc table is never recorded. It is never a reason to
+    // refuse the publish either: documentation "does not affect execution or the
+    // ABI" (src/binary_repr/writer.rs), and turning a doc-table defect into a
+    // rejected signed package would be a new failure mode on a trust path. Same
+    // posture as `parse_package_description` directly above.
+    let docs = parsed.as_ref().and_then(|package| {
+        let sections = mfb_wire::mfpc::read_section_table(&package.payload).ok()?;
+        let section = sections.get(&mfb_wire::mfpc::SECTION_DOC_TABLE)?;
+        mfb_wire::docs::read_doc_table(section).ok()?;
+        Some(section.to_vec())
+    });
     let publish_metadata = match manifest_metadata {
         Some(meta) => crate::store::PublishMetadata {
             author: Some(meta.author).filter(|value| !value.is_empty()),
             url: Some(meta.url).filter(|value| !value.is_empty()),
             description,
+            docs,
         },
+        // `docs` is set explicitly here too. Left to `..Default::default()` it
+        // would silently become `None` for every package without a MANIFEST
+        // section, dropping documentation the publisher did sign.
         None => crate::store::PublishMetadata {
             description,
+            docs,
             ..Default::default()
         },
     };
@@ -5460,6 +5479,7 @@ mod tests {
                         author: Some("alice".to_string()),
                         url: Some("https://example.invalid".to_string()),
                         description: None,
+                        docs: None,
                     },
                 )
                 .unwrap();
@@ -6393,6 +6413,7 @@ mod tests {
                     url: Some("javascript:alert(1)".to_string()),
                     // plan-61-E extends this fixture to the description too.
                     description: Some("<img src=x onerror=alert('desc')>".to_string()),
+                    docs: None,
                 },
             )
             .unwrap();
@@ -9843,6 +9864,108 @@ mod tests {
         assert_eq!(*libc, None, "the fixture locator declares no libc");
         assert_eq!(lib_type, "vendor");
         assert_eq!(source, "libsnd.a");
+    }
+
+    // === plan-126-E Phase 2: section 17 captured at publish ================
+
+    /// A publishable payload with an optional section 17 (`doc`). Same shape
+    /// `validate_writes_no_target_rows_but_publish_does` publishes -- a string
+    /// pool and an ABI index -- minus the section-10 vendor table, which would
+    /// need an uploaded blob.
+    fn payload_with_doc_section(doc_section: Option<Vec<u8>>) -> Vec<u8> {
+        let mut sections = vec![
+            (2, mfpc_string_pool(&["greet"])),
+            (15, mfpc_abi_section(&[(0, [0xab; 32])])),
+        ];
+        if let Some(section) = doc_section {
+            sections.push((17, section));
+        }
+        mfpc_container(&sections)
+    }
+
+    /// A well-formed section-17 body, produced by the one shared encoder.
+    fn sample_doc_section() -> Vec<u8> {
+        mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
+            package: Some(mfb_wire::docs::PackageDocEntry {
+                name: "toolbox".to_string(),
+                desc: vec![(0, "A toolbox.".to_string())],
+                deprecated: None,
+            }),
+            decls: vec![mfb_wire::docs::DeclDocEntry {
+                kind: "func".to_string(),
+                name: "greet".to_string(),
+                signature: "EXPORT FUNC greet() AS String".to_string(),
+                group: String::new(),
+                desc: vec![(0, "Greets.".to_string())],
+                args: Vec::new(),
+                props: Vec::new(),
+                ret: "a greeting".to_string(),
+                errors: Vec::new(),
+                example: String::new(),
+                internal: false,
+                deprecated: None,
+            }],
+        })
+    }
+
+    /// Publish `payload` as `alice#toolbox@1.0.0` through the real handler.
+    async fn publish_payload(payload: Vec<u8>) -> Harness {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let (_artifact, request) = signed_request(&h.state, &keys, &token, "1.0.0", payload).await;
+        let _ = publish_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("publish succeeds");
+        h
+    }
+
+    /// A documented package's section 17 is stored, and reads back byte for
+    /// byte -- the raw bytes, not a re-encoding.
+    #[tokio::test]
+    async fn publishing_a_documented_package_stores_its_doc_section_byte_for_byte() {
+        let section = sample_doc_section();
+        let h = publish_payload(payload_with_doc_section(Some(section.clone()))).await;
+        assert_eq!(
+            h.store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.0.0".to_string(), section)),
+        );
+    }
+
+    /// No section 17 is the normal undocumented case: publish succeeds, no row.
+    #[tokio::test]
+    async fn publishing_an_undocumented_package_succeeds_and_stores_no_doc_row() {
+        let h = publish_payload(payload_with_doc_section(None)).await;
+        assert_eq!(
+            h.store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+    }
+
+    /// **plan-126-E Phase 2's important negative.** A truncated section 17 must
+    /// not reject a signed package -- documentation "does not affect execution
+    /// or the ABI" -- and must not be recorded either.
+    #[tokio::test]
+    async fn a_truncated_doc_section_still_publishes_and_records_nothing() {
+        let mut truncated = sample_doc_section();
+        truncated.truncate(truncated.len() - 3);
+        assert!(
+            mfb_wire::docs::read_doc_table(&truncated).is_err(),
+            "the fixture must genuinely fail to decode, or this test proves nothing"
+        );
+        let h = publish_payload(payload_with_doc_section(Some(truncated))).await;
+        assert_eq!(
+            h.store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+        // The version itself landed: a doc-table defect did not block the publish.
+        assert_eq!(
+            h.store
+                .latest_active_version("alice#toolbox")
+                .unwrap()
+                .map(|(version, _)| version),
+            Some("1.0.0".to_string()),
+        );
     }
 
     #[tokio::test]
