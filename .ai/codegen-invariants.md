@@ -180,6 +180,18 @@ an argument or a container corrupts the free list, surfacing much later as
 - A **user/`.mfb`-bodied** function returning `String` needs the callee-side
   contract below — the mark is set by a producer's own lowering and cannot travel
   out of a callee.
+- A **native runtime helper** (`os::hostName`, `fs::readText`, `io::readLine`, …)
+  allocates its result with `_mfb_arena_alloc` and hands back the only pointer, but
+  `emit_runtime_helper_call` set no mark, so only the `Bind` spelling owned it:
+  `LET s AS String = os::arch()` was flat while `len(os::arch())` leaked 64 B per
+  call, `os::hostName()` 129 B, `fs::tempDirectory()` 260 B (bug-576). It now marks
+  its own result when `runtime_result_is_caller_owned` holds — the SAME gate the
+  `Bind` path and bug-566's inline-`TRAP` path already ask, so the licence is not a
+  new one. The exclusion it turns on is `thread.*`: `x19` is per-thread, a
+  `thread::waitFor` result is the WORKER's block, and freeing it from this thread
+  writes this thread's free list into another thread's heap. The catalog-wide audit
+  is `every_block_returning_runtime_helper_is_classified` /
+  `every_string_returning_runtime_helper_is_marked_fresh` in `codegen::registry`.
 
 ## A `.mfb` callee's `String`: assume-guarantee, not a per-site classification
 

@@ -6035,7 +6035,7 @@ mod tests {
 #[cfg(test)]
 mod raw_result_block_ownership {
     //! bug-566: the per-helper ownership audit behind
-    //! [`CodeBuilder::raw_runtime_result_is_caller_owned`](crate::codegen::engine::builder::CodeBuilder::raw_runtime_result_is_caller_owned).
+    //! [`CodeBuilder::runtime_result_is_caller_owned`](crate::codegen::engine::builder::CodeBuilder::runtime_result_is_caller_owned).
     //!
     //! A runtime helper called under an inline `TRAP` has its result copied into a
     //! `Result` block, after which the helper's ORIGINAL block is dead. Freeing it
@@ -6253,6 +6253,83 @@ mod raw_result_block_ownership {
                 .len(),
             "the three classes must cover the whole runtime-call catalog"
         );
+    }
+
+    /// bug-576: the `String` slice of `CALLER_ARENA_BLOCK_RESULTS` — the helpers
+    /// whose result needs the bug-536 shape B freshness MARK before an UNBOUND
+    /// result is freed at statement scope.
+    ///
+    /// A composite result (`List OF Byte`, `net.Address`, …) is freed by
+    /// `register_pending_temp` with no provenance at all, so only these rows
+    /// changed behaviour: before bug-576 `LET s AS String = os::arch()` was flat
+    /// while `len(os::arch())` leaked its block for the life of the process.
+    ///
+    /// It is a derived list, not a second source of truth — the test below scrapes
+    /// the catalog and asserts this IS the scrape — so a new `String`-returning
+    /// helper reds here and forces the same caller's-arena confirmation
+    /// `CALLER_ARENA_BLOCK_RESULTS` demands.
+    const STRING_RESULT_HELPERS: &[&str] = &[
+        "fs.canonicalPath",
+        "fs.currentDirectory",
+        "fs.readAll",
+        "fs.readLine",
+        "fs.readText",
+        "fs.tempDirectory",
+        "io.input",
+        "io.readChar",
+        "io.readLine",
+        "os.arch",
+        "os.executablePath",
+        "os.getEnv",
+        "os.getEnvOr",
+        "os.hostName",
+        "os.name",
+        "os.resourcePath",
+        "os.userName",
+        "os.version",
+        "process.receive",
+        "process.receiveFrom",
+    ];
+
+    /// bug-576: every `String`-returning runtime helper is one the calling thread
+    /// may free, and every one is already catalogued as caller-arena.
+    ///
+    /// The emitter consults no list — `mark_runtime_helper_result_fresh` asks
+    /// `runtime_result_is_caller_owned`, the `Bind` gate — so this is the audit that
+    /// the ANSWERS are the intended ones for the type the mark exists for. A new
+    /// `String` helper whose block is NOT this thread's would be a wild free at
+    /// every unbound call site (SIGBUS on rodata, free-list corruption on a view),
+    /// so it must red here rather than inherit the verdict.
+    #[test]
+    fn every_string_returning_runtime_helper_is_marked_fresh() {
+        let mut string_results: Vec<&str> = runtime_specs()
+            .iter()
+            .filter(|call| call.return_type == ParameterType::String)
+            .map(|call| call.name)
+            .collect();
+        string_results.sort();
+        string_results.dedup();
+        assert_eq!(
+            string_results, STRING_RESULT_HELPERS,
+            "the set of runtime calls returning a bare `String` changed. Each one \
+             has its result block freed at statement scope when nothing binds it \
+             (bug-576). Add it here only after confirming the helper allocates the \
+             result with `_mfb_arena_alloc` in the CALLER's arena and hands back the \
+             only pointer — a rodata pointer or a view into an argument freed here \
+             is SIGBUS or free-list corruption, not a leak"
+        );
+        for name in STRING_RESULT_HELPERS {
+            assert!(
+                CALLER_ARENA_BLOCK_RESULTS.contains(name),
+                "{name} returns a `String` but is not catalogued as caller-arena, \
+                 so the two audits disagree about the same block"
+            );
+            assert!(
+                !CodeBuilder::runtime_call_result_is_foreign_arena(name),
+                "{name} is catalogued as caller-owned but the emitter declines it, \
+                 so its block keeps leaking at every unbound call site"
+            );
+        }
     }
 
     /// The whole `thread` family is declined, not just the seven above: a thread

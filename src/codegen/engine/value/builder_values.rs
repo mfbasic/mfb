@@ -954,9 +954,10 @@ impl CodeBuilder<'_> {
         target.starts_with("thread.") || target.starts_with("thread::")
     }
 
-    /// bug-566: whether the block a raw (inline-`TRAP`) runtime-helper call
-    /// returned is this frame's to free once `materialize_current_result` has
-    /// copied it into the `Result`.
+    /// bug-566 / bug-576: whether the block a runtime-helper call returned is this
+    /// frame's to free once the value it yielded is dead — after
+    /// `materialize_current_result` copied it into an inline-`TRAP`'s `Result`
+    /// (bug-566), or at statement scope when nothing bound it at all (bug-576).
     ///
     /// This is the SAME gate a `Bind` of the same call already applies —
     /// `owns_freeable_value` in `lower_ops_inner` registers a scope-drop
@@ -968,13 +969,93 @@ impl CodeBuilder<'_> {
     ///
     /// A resource handle, a `Thread`, a scalar: `is_freeable_flat_value` is false,
     /// so nothing is emitted. A `thread.*` result: foreign arena, likewise nothing.
-    pub(crate) fn raw_runtime_result_is_caller_owned(
+    pub(crate) fn runtime_result_is_caller_owned(
         &self,
         target: &str,
         result_type: &ParameterType,
     ) -> bool {
         !Self::runtime_call_result_is_foreign_arena(target)
             && self.is_freeable_flat_value(result_type)
+    }
+
+    /// bug-576: whether a runtime helper must MARK its result fresh
+    /// (`mark_fresh_string`) for the statement-scope free to claim it — the extra
+    /// hurdle exactly one result type has.
+    ///
+    /// `register_pending_temp` already frees an unbound, freeable-flat call result
+    /// with no provenance at all: a `List OF Byte` from `fs::readBytes`, a
+    /// `net.Address` from `tcp::localAddress`. Those blocks are self-contained and
+    /// could only have come from an allocation. A bare `String` is the one shape
+    /// that might instead be rodata or a view into an argument, so plan-25 exempted
+    /// every `String` and bug-536 shape B reinstated the free only for a producer
+    /// that marks the block it just allocated. A runtime helper allocates its result
+    /// with `_mfb_arena_alloc` in the calling thread's arena and hands back the only
+    /// pointer — but it never marked, so `LET s AS String = os::arch()` was flat
+    /// while `len(os::arch())` leaked 64 B per call, `os::hostName()` 129 B and
+    /// `fs::tempDirectory()` 260 B.
+    ///
+    /// Wildcard-free on purpose: a new `ParameterType` variant is a BUILD ERROR
+    /// here rather than a silent `false`. (`false` is the pre-fix leaking
+    /// direction for a `String`-like shape and the already-correct answer for
+    /// everything else, so the wildcard would be quiet in both directions.)
+    fn runtime_result_needs_fresh_string_mark(result_type: &ParameterType) -> bool {
+        match result_type {
+            // The one type `pending_temp_is_freeable` refuses without provenance.
+            ParameterType::String => true,
+            // Everything else is already answered by `pending_temp_is_freeable`
+            // alone: a scalar / `Nothing` / handle / type-level shape is not
+            // freeable-flat and nothing is emitted for it, and a composite block
+            // (collection, `Result`, record, data union) is freed unmarked.
+            ParameterType::AttributeString
+            | ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Integer
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::ListOf(_)
+            | ParameterType::MapOf(_, _)
+            | ParameterType::SetOf(_)
+            | ParameterType::MapEntryOf(_, _)
+            | ParameterType::ResultOf(_)
+            | ParameterType::Res(_)
+            | ParameterType::Stateful { .. }
+            | ParameterType::C(_)
+            | ParameterType::Named(_)
+            | ParameterType::UserOf(_, _)
+            | ParameterType::Var(_)
+            | ParameterType::Func(_, _, _)
+            | ParameterType::Arg(_)
+            | ParameterType::Unknown
+            | ParameterType::ThreadHandle { .. } => false,
+        }
+    }
+
+    /// bug-576: mark a non-`raw` runtime helper's `String` result as a fresh block
+    /// this frame owns, so an UNBOUND one reaches the statement-scope free.
+    ///
+    /// Called by `emit_runtime_helper_call` on the value it is about to return, so
+    /// the mark names that node's own result operand and `lower_value`'s identity
+    /// test accepts it. The gate is [`Self::runtime_result_is_caller_owned`] — the
+    /// SAME question the `Bind` path (`owns_freeable_value`) and bug-566's
+    /// inline-`TRAP` path already ask of this call, so no new licence is created
+    /// here: it is the licence `LET s AS String = fs::readText(p)` has always
+    /// exercised, asked at the position that had no owner at all. `thread.*` is
+    /// excluded (its block is the WORKER's — `x19` is per-thread), and a bound or
+    /// returned result is unaffected because its owner claims the temp
+    /// (`claim_pending_temp`) exactly as it does for a marked native producer.
+    pub(crate) fn mark_runtime_helper_result_fresh(
+        &mut self,
+        target: &str,
+        result_type: &ParameterType,
+        block: impl Into<Operand>,
+    ) {
+        if Self::runtime_result_needs_fresh_string_mark(result_type)
+            && self.runtime_result_is_caller_owned(target, result_type)
+        {
+            self.mark_fresh_string(block);
+        }
     }
 
     /// Whether a `RES` bind's initializer merely names an **already-live**
