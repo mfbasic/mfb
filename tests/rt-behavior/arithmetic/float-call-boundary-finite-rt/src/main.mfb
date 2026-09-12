@@ -1,0 +1,33 @@
+IMPORT io
+IMPORT collections
+IMPORT math
+IMPORT vector
+
+' bug-590 POSITIVE pin. The fix makes an observation boundary re-check a builtin
+' call result; a boundary that fires too eagerly would break documented, tested
+' behaviour, so this pins the three shapes that must NOT trap.
+FUNC main AS Integer
+  LET p AS Byte = 4
+
+  ' 1. Ordinary finite Float work through the now-observed call results.
+  LET xs AS List OF Float = [1.5, 2.25]
+  io::print(toString(collections::sum(xs), p))
+  LET v AS vector::Float3 = vector::Float3[1.0, 2.0, 3.0]
+  io::print(toString(vector::dot(v, v), p))
+  io::print(toString(math::sqrt(2.0), p))
+
+  ' 2. The spec's own transient-recovery example: an anonymous intermediate may be
+  ' non-finite and recover to finite without trapping.
+  LET big AS Float = toFloat("1e200")
+  LET recovered AS Float = 1.0 / (big * big)
+  io::print(toString(recovered, p))
+
+  ' 3. FMA contraction is semantics, not an optimization: the single-use
+  ' `a * 2.0 - a` rounds once from the exact product and stays finite.
+  LET a AS Float = toFloat("1.5e308")
+  LET fused AS Float = a * 2.0 - a
+  IF fused > 0.0 THEN
+    io::print("fused-finite-ok")
+  END IF
+  RETURN 0
+END FUNC
