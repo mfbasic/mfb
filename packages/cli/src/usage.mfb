@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 IMPORT os
 
@@ -8,20 +9,93 @@ PRIVATE FUNC kindName(kind AS OptionKind) AS String
   RETURN " <string>"
 END FUNC
 
-EXPORT FUNC showUsage(header AS List OF String, options AS List OF Option, footer AS List OF String) AS Nothing
+' The rendered help text, one entry per line. Split out from `showUsage` so the
+' layout can be asserted without capturing stdout.
+PUBLIC FUNC usageLines(header AS List OF String, options AS List OF Option, footer AS List OF String) AS List OF String
   validateSchema(options)
+  MUT lines AS List OF String = []
   FOR EACH line IN header
-    io::print(line)
+    lines = collections::append(lines, line)
   NEXT
-  io::print("Usage: " & os::prog() & " [options]")
+  lines = collections::append(lines, "Usage: " & os::prog() & " [options]")
   FOR EACH choice IN options
     MUT row AS String = "  "
+    ' Four columns either way, so the long spellings line up whether or not an
+    ' option has an alias.
     IF choice.alias <> "" THEN row = row & "-" & choice.alias & ", " ELSE row = row & "    "
     row = row & "--" & choice.name & kindName(choice.kind)
     IF choice.required THEN row = row & " (required)"
-    io::print(row)
+    lines = collections::append(lines, row)
   NEXT
   FOR EACH line IN footer
+    lines = collections::append(lines, line)
+  NEXT
+  RETURN lines
+END FUNC
+
+DOC
+  FUNC showUsage
+  GROUP Reporting
+  DESC Print help text for `options` to standard output.
+  DESC
+  DESC The schema drives both the parser and this text, so the two cannot
+  DESC disagree about what the program accepts: pass `cli::showUsage` the same
+  DESC list you passed `cli::parse`.
+  DESC
+  DESC Each option renders as `  -a, --name <kind>`, with `(required)` appended
+  DESC when it is, and with the short column blank when the option has no alias
+  DESC so the long spellings stay aligned. A `Flag` shows no `<kind>`, because it
+  DESC takes no value. The `Usage:` line names the running program through
+  DESC `os::prog()`.
+  DESC
+  DESC Nothing else is printed: no automatic `--help`, no wrapping, and no
+  DESC descriptions per option. Put whatever a reader needs around the table in
+  DESC `header` and `footer`.
+  ARG header Lines printed before the `Usage:` line. Pass `[]` for none.
+  ARG options The schema to render. The same list `cli::parse` is given.
+  ARG footer Lines printed after the option table. Pass `[]` for none.
+  RET Nothing.
+  ERROR 77050002 The schema is malformed: an empty or duplicated name, or an alias that is not exactly one unique scalar.
+  EXAMPLE
+    IMPORT cli
+
+    FUNC main() AS Integer
+      LET options AS List OF cli::Option = [cli::Option[name := "port", alias := "p", required := TRUE, kind := cli::OptionKind.Integer], cli::Option[name := "quiet", alias := "", required := FALSE, kind := cli::OptionKind.Flag]]
+      cli::showUsage(["Serve a directory over HTTP.", ""], options, ["", "Report bugs to support@example.com"])
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC showUsage(header AS List OF String, options AS List OF Option, footer AS List OF String) AS Nothing
+  FOR EACH line IN usageLines(header, options, footer)
     io::print(line)
   NEXT
 END FUNC
+
+TESTING
+  TGROUP "usage"
+    TCASE "every kind and both alias columns render"
+      LET options AS List OF Option = [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer], Option[name := "enabled", alias := "b", required := FALSE, kind := OptionKind.Bool], Option[name := "title", alias := "t", required := FALSE, kind := OptionKind.String], Option[name := "quiet", alias := "", required := FALSE, kind := OptionKind.Flag]]
+      LET lines AS List OF String = usageLines(["header"], options, ["footer"])
+      expectInteger(len(lines), 7)
+      expectString(collections::get(lines, 0), "header")
+      expectString(collections::get(lines, 2), "  -p, --port <integer> (required)")
+      expectString(collections::get(lines, 3), "  -b, --enabled <bool>")
+      expectString(collections::get(lines, 4), "  -t, --title <string>")
+      expectString(collections::get(lines, 5), "      --quiet")
+      expectString(collections::get(lines, 6), "footer")
+    END TCASE
+    TCASE "the usage line names the running program"
+      LET lines AS List OF String = usageLines([], [], [])
+      expectInteger(len(lines), 1)
+      expectString(collections::get(lines, 0), "Usage: " & os::prog() & " [options]")
+    END TCASE
+    TCASE "a required flag still renders without a kind"
+      LET lines AS List OF String = usageLines([], [Option[name := "force", alias := "f", required := TRUE, kind := OptionKind.Flag]], [])
+      expectString(collections::get(lines, 1), "  -f, --force (required)")
+    END TCASE
+    TCASE "a malformed schema is refused before anything renders"
+      expectTrap(usageLines([], [Option[name := "", alias := "", required := FALSE, kind := OptionKind.Flag]], []), 77050002)
+    END TCASE
+  END TGROUP
+END TESTING

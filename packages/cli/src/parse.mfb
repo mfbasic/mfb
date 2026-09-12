@@ -3,9 +3,13 @@ IMPORT errorCode
 IMPORT os
 IMPORT strings
 
+' The published command line. `parse` fills these once; every accessor in
+' get.mfb reads them, and `parsed` is what makes a second `parse` a cache hit
+' rather than a second walk of `os::args()`.
 PUBLIC MUT parsed AS Boolean = FALSE
 PUBLIC MUT cachedOptions AS List OF Option = []
 PUBLIC MUT cachedValues AS Map OF String TO String = Map OF String TO String {}
+PUBLIC MUT cachedOperands AS List OF String = []
 
 PRIVATE FUNC failArgument(detail AS String) AS Error
   RETURN error(errorCode::ErrInvalidArgument, "cli: " & detail)
@@ -18,32 +22,120 @@ PRIVATE FUNC optionNamed(options AS List OF Option, spelling AS String) AS Optio
   FAIL failArgument("unknown option `" & spelling & "`")
 END FUNC
 
-PRIVATE FUNC parseArgs(args AS List OF String, options AS List OF Option) AS Map OF String TO String
+' The scalar index of the first `=` in `token`, or -1 when it holds none.
+' `strings::find` raises rather than returning a sentinel, so the count comes
+' first.
+PRIVATE FUNC equalsAt(token AS String) AS Integer
+  IF strings::count(token, "=") = 0 THEN RETURN -1
+  RETURN strings::find(token, "=")
+END FUNC
+
+PRIVATE FUNC parseArgs(args AS List OF String, options AS List OF Option) AS ParseResult
   validateSchema(options)
   MUT values AS Map OF String TO String = Map OF String TO String {}
+  MUT operands AS List OF String = []
+  MUT afterSeparator AS Boolean = FALSE
   MUT at AS Integer = 0
   WHILE at < len(args)
-    LET spelling AS String = collections::get(args, at)
-    LET choice AS Option = optionNamed(options, spelling)
-    IF collections::hasKey(values, choice.name) THEN FAIL failArgument("duplicate option `" & spelling & "`")
-    IF choice.kind = OptionKind.Flag THEN
-      values = collections::set(values, choice.name, "true")
-    ELSE
+    LET token AS String = collections::get(args, at)
+    IF afterSeparator THEN
+      operands = collections::append(operands, token)
       at = at + 1
-      IF at >= len(args) THEN FAIL failArgument("option `" & spelling & "` needs a value")
-      LET value AS String = collections::get(args, at)
-      IF len(value) > 0 AND strings::left(value, 1) = "-" THEN FAIL failArgument("option `" & spelling & "` needs a value")
-      values = collections::set(values, choice.name, value)
+    ELSEIF token = "--" THEN
+      afterSeparator = TRUE
+      at = at + 1
+    ELSE
+      LET eq AS Integer = equalsAt(token)
+      MUT spelling AS String = token
+      MUT inlineValue AS String = ""
+      MUT hasInline AS Boolean = FALSE
+      IF eq >= 0 AND strings::startsWith(token, "--") THEN
+        ' `--=x` names no option; requiring one scalar before the `=` keeps the
+        ' failure about the token the caller actually wrote.
+        IF eq < 3 THEN FAIL failArgument("unknown option `" & token & "`")
+        spelling = strings::left(token, eq)
+        inlineValue = strings::mid(token, eq + 1, len(token) - eq - 1)
+        hasInline = TRUE
+      ELSEIF eq > 0 AND strings::startsWith(token, "-") THEN
+        FAIL failArgument("option `" & strings::left(token, eq) & "` takes its value as a separate argument")
+      END IF
+      LET choice AS Option = optionNamed(options, spelling)
+      IF collections::hasKey(values, choice.name) THEN FAIL failArgument("duplicate option `" & spelling & "`")
+      IF choice.kind = OptionKind.Flag THEN
+        IF hasInline THEN FAIL failArgument("option `" & spelling & "` takes no value")
+        values = collections::set(values, choice.name, "true")
+      ELSEIF hasInline THEN
+        values = collections::set(values, choice.name, inlineValue)
+      ELSE
+        at = at + 1
+        IF at >= len(args) THEN FAIL failArgument("option `" & spelling & "` needs a value")
+        LET value AS String = collections::get(args, at)
+        ' A separate value that looks like a switch is a missing value, not a
+        ' value. Write `--name=-1` to pass a leading dash on purpose.
+        IF len(value) > 0 AND strings::left(value, 1) = "-" THEN FAIL failArgument("option `" & spelling & "` needs a value")
+        values = collections::set(values, choice.name, value)
+      END IF
+      at = at + 1
     END IF
-    at = at + 1
   END WHILE
   FOR EACH choice IN options
     IF choice.required AND NOT collections::hasKey(values, choice.name) THEN FAIL error(errorCode::ErrNotFound, "cli: required option `" & choice.name & "` is absent")
   NEXT
-  RETURN values
+  RETURN ParseResult[values := values, operands := operands]
 END FUNC
 
+DOC
+  FUNC parse
+  GROUP Parsing
+  DESC Parse this process's command line against `options` and publish the
+  DESC result for the accessors to read.
+  DESC
+  DESC Call it once, from the main thread, before any worker thread reads an
+  DESC option. A second call with the same schema is a cache hit that returns the
+  DESC same values without re-reading the command line; a second call with a
+  DESC different schema fails, because the accessors can only serve one schema.
+  DESC
+  DESC Parsing is strict. Every token must be an option this schema declares:
+  DESC there is no "ignore what you do not recognise" mode, and an unknown
+  DESC switch, a repeated option, or a missing value stops the program rather
+  DESC than being silently ignored.
+  DESC
+  DESC Accepted spellings
+  DESC
+  INFO `--name value` and `-a value` -- the value is the next argument.
+  INFO
+  INFO `--name=value` -- the value is joined to the option. This is the only
+  INFO spelling that can pass a value beginning with `-`, because a separate
+  INFO argument starting with a dash is read as a missing value rather than as
+  INFO the value. Write `--offset=-3`, not `--offset -3`.
+  INFO
+  INFO `--flag` and `-f` -- a `Flag` takes no value. `--flag=true` fails.
+  INFO
+  INFO `--` -- ends option parsing. Every remaining argument is an operand,
+  INFO whatever it looks like, and is read back with `cli::operands`.
+  DESC
+  DESC A short option never takes an inline value: `-p=3000` fails and says so,
+  DESC because `p=3000` is not a one-scalar alias.
+  ARG options The schema. Validated on every call, so a malformed schema fails the same way whether or not the command line has been parsed yet.
+  RET The raw values, keyed by long option name. An option that was absent has no key; an option given an empty value has a key whose value is `""`. Prefer the typed accessors over reading this map.
+  ERROR 77050002 The schema is malformed, an argument is an unknown option, an option is repeated, a non-flag option has no value, a flag was given one, a short option used `=`, or `parse` was already called with a different schema.
+  ERROR 77050004 A `required` option is absent from the command line.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET options AS List OF cli::Option = [cli::Option[name := "port", alias := "p", required := FALSE, kind := cli::OptionKind.Integer], cli::Option[name := "offset", alias := "o", required := FALSE, kind := cli::OptionKind.Integer], cli::Option[name := "verbose", alias := "v", required := FALSE, kind := cli::OptionKind.Flag]]
+      cli::parse(options)
+      io::print("port " & toString(cli::getInteger("port", 8080)))
+      io::print("offset " & toString(cli::getInteger("offset", 0)))
+      io::print("verbose " & toString(cli::getFlag("verbose", FALSE)))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
 EXPORT FUNC parse(options AS List OF Option) AS Map OF String TO String
+  validateSchema(options)
   IF parsed THEN
     IF len(options) <> len(cachedOptions) THEN FAIL failArgument("parse was already called with a different schema")
     FOR EACH choice IN options
@@ -55,18 +147,52 @@ EXPORT FUNC parse(options AS List OF Option) AS Map OF String TO String
     NEXT
     RETURN cachedValues
   END IF
-  LET values AS Map OF String TO String = parseArgs(os::args(), options)
+  LET result AS ParseResult = parseArgs(os::args(), options)
   cachedOptions = options
-  cachedValues = values
+  cachedValues = result.values
+  cachedOperands = result.operands
   parsed = TRUE
-  RETURN values
+  RETURN cachedValues
+END FUNC
+
+DOC
+  FUNC operands
+  GROUP Parsing
+  DESC The arguments that followed a bare `--`, in the order they were written.
+  DESC
+  DESC Everything after `--` is taken literally: a token spelled like an option
+  DESC is an operand there, not an option. That is how a file named `-v`, or a
+  DESC command to hand to another program, survives a strict parser.
+  DESC
+  DESC The list is empty when the command line held no `--`, and also when `--`
+  DESC was the last argument.
+  RET The operands. Empty when there were none.
+  ERROR 77050002 `cli::parse` has not been called yet, so there is nothing to report.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET options AS List OF cli::Option = [cli::Option[name := "verbose", alias := "v", required := FALSE, kind := cli::OptionKind.Flag]]
+      cli::parse(options)
+      ' Run as: prog -v -- report.txt -v
+      FOR EACH operand IN cli::operands()
+        io::print("operand " & operand)
+      NEXT
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC operands() AS List OF String
+  IF NOT parsed THEN FAIL failArgument("operands was called before parse")
+  RETURN cachedOperands
 END FUNC
 
 TESTING
   TGROUP "parse"
     TCASE "long short and flags retain raw values"
       LET options AS List OF Option = [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer], Option[name := "verbose", alias := "v", required := FALSE, kind := OptionKind.Flag]]
-      LET values AS Map OF String TO String = parseArgs(["-p", "3000", "--verbose"], options)
+      LET values AS Map OF String TO String = parseArgs(["-p", "3000", "--verbose"], options).values
       expectString(collections::get(values, "port"), "3000")
       expectString(collections::get(values, "verbose"), "true")
     END TCASE
@@ -87,6 +213,71 @@ TESTING
       LET values AS Map OF String TO String = parse(options)
       expectString(collections::get(values, "port"), "3000")
       expectTrap(parse([]), 77050002)
+    END TCASE
+    TCASE "an inline value carries a leading dash"
+      LET options AS List OF Option = [Option[name := "offset", alias := "o", required := FALSE, kind := OptionKind.Integer], Option[name := "title", alias := "t", required := FALSE, kind := OptionKind.String]]
+      LET values AS Map OF String TO String = parseArgs(["--offset=-3", "--title=a=b"], options).values
+      expectString(collections::get(values, "offset"), "-3")
+      expectString(collections::get(values, "title"), "a=b")
+    END TCASE
+    TCASE "an inline value may be empty and is not the fallback"
+      LET options AS List OF Option = [Option[name := "title", alias := "t", required := FALSE, kind := OptionKind.String]]
+      LET values AS Map OF String TO String = parseArgs(["--title="], options).values
+      expectEqual(collections::hasKey(values, "title"), TRUE)
+      expectString(collections::get(values, "title"), "")
+    END TCASE
+    TCASE "an empty separate value is kept"
+      LET options AS List OF Option = [Option[name := "title", alias := "t", required := FALSE, kind := OptionKind.String]]
+      LET values AS Map OF String TO String = parseArgs(["-t", ""], options).values
+      expectEqual(collections::hasKey(values, "title"), TRUE)
+      expectString(collections::get(values, "title"), "")
+    END TCASE
+    TCASE "an inline value satisfies a required option and a duplicate"
+      LET options AS List OF Option = [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer]]
+      expectString(collections::get(parseArgs(["--port=1"], options).values, "port"), "1")
+      expectTrap(parseArgs(["--port=1", "-p", "2"], options), 77050002)
+    END TCASE
+    TCASE "inline spellings the parser refuses"
+      LET options AS List OF Option = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer], Option[name := "verbose", alias := "v", required := FALSE, kind := OptionKind.Flag]]
+      expectTrap(parseArgs(["--verbose=true"], options), 77050002)
+      expectTrap(parseArgs(["-p=1"], options), 77050002)
+      expectTrap(parseArgs(["--=1"], options), 77050002)
+      expectTrap(parseArgs(["--nope=1"], options), 77050002)
+    END TCASE
+    TCASE "a bare double dash ends option parsing"
+      LET options AS List OF Option = [Option[name := "verbose", alias := "v", required := FALSE, kind := OptionKind.Flag]]
+      LET result AS ParseResult = parseArgs(["-v", "--", "report.txt", "-v", "--nope", "--"], options)
+      expectString(collections::get(result.values, "verbose"), "true")
+      expectInteger(len(result.operands), 4)
+      expectString(collections::get(result.operands, 0), "report.txt")
+      expectString(collections::get(result.operands, 1), "-v")
+      expectString(collections::get(result.operands, 2), "--nope")
+      expectString(collections::get(result.operands, 3), "--")
+    END TCASE
+    TCASE "a trailing separator leaves no operands and still checks required"
+      LET options AS List OF Option = [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer]]
+      expectInteger(len(parseArgs(["-p", "1", "--"], options).operands), 0)
+      expectTrap(parseArgs(["--"], options), 77050004)
+    END TCASE
+    TCASE "operands before parse is refused"
+      parsed = FALSE
+      cachedOperands = []
+      expectTrap(operands(), 77050002)
+    END TCASE
+    TCASE "operands reports what parse published"
+      parsed = TRUE
+      cachedOptions = []
+      cachedValues = Map OF String TO String {}
+      cachedOperands = ["a", "b"]
+      expectInteger(len(operands()), 2)
+      expectString(collections::get(operands(), 1), "b")
+    END TCASE
+    TCASE "a malformed schema fails even on the cached path"
+      LET duplicated AS List OF Option = [Option[name := "x", alias := "", required := FALSE, kind := OptionKind.Flag], Option[name := "x", alias := "", required := FALSE, kind := OptionKind.Flag]]
+      parsed = TRUE
+      cachedOptions = duplicated
+      cachedValues = Map OF String TO String {}
+      expectTrap(parse(duplicated), 77050002)
     END TCASE
   END TGROUP
 END TESTING

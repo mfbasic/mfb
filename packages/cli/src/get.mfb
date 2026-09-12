@@ -1,6 +1,10 @@
 IMPORT collections
 IMPORT errorCode
+IMPORT strings
 
+' The option `name` refers to, refusing an accessor whose kind is not the one
+' the schema declared. Reading a `String` option with `getInteger` is a mistake
+' in the program, not in the command line, so it fails at the call.
 PRIVATE FUNC cachedOption(name AS String, kind AS OptionKind) AS Option
   FOR EACH choice IN cachedOptions
     IF choice.name = name THEN
@@ -11,33 +15,138 @@ PRIVATE FUNC cachedOption(name AS String, kind AS OptionKind) AS Option
   FAIL error(errorCode::ErrInvalidArgument, "cli: unknown option `" & name & "`")
 END FUNC
 
-PRIVATE FUNC raw(name AS String, kind AS OptionKind) AS String
+' Whether the command line carried `name` at all. Presence is a key test, never
+' a test against `""` -- `--title=` supplies an empty value on purpose, and
+' answering that with the fallback would make the two indistinguishable.
+PRIVATE FUNC supplied(name AS String, kind AS OptionKind) AS Boolean
   cachedOption(name, kind)
-  IF NOT collections::hasKey(cachedValues, name) THEN RETURN ""
+  RETURN collections::hasKey(cachedValues, name)
+END FUNC
+
+DOC
+  FUNC getString
+  GROUP Reading values
+  DESC Read a `String` option, or `fallback` when the command line omitted it.
+  DESC
+  DESC An option given an empty value -- `--title=` -- was supplied, so it reads
+  DESC back as `""` and not as `fallback`.
+  ARG name The option's long name, written without dashes, exactly as the schema spells it.
+  ARG fallback The value to return when the option was absent from the command line.
+  RET The option's text, or `fallback`.
+  ERROR 77050002 `cli::parse` has not published a schema naming `name`, or `name` is declared with a kind other than `String`.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET options AS List OF cli::Option = [cli::Option[name := "title", alias := "t", required := FALSE, kind := cli::OptionKind.String]]
+      cli::parse(options)
+      io::print(cli::getString("title", "untitled"))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC getString(name AS String, fallback AS String) AS String
+  IF NOT supplied(name, OptionKind.String) THEN RETURN fallback
   RETURN collections::get(cachedValues, name)
 END FUNC
 
-EXPORT FUNC getString(name AS String, fallback AS String) AS String
-  LET value AS String = raw(name, OptionKind.String)
-  IF value = "" THEN RETURN fallback
-  RETURN value
-END FUNC
+DOC
+  FUNC getInteger
+  GROUP Reading values
+  DESC Read an `Integer` option, or `fallback` when the command line omitted it.
+  DESC
+  DESC A negative value has to be written inline -- `--offset=-3` -- because a
+  DESC separate argument beginning with `-` is read as a missing value.
+  ARG name The option's long name, written without dashes, exactly as the schema spells it.
+  ARG fallback The value to return when the option was absent from the command line.
+  RET The option's value as an `Integer`, or `fallback`.
+  ERROR 77050002 `cli::parse` has not published a schema naming `name`, or `name` is declared with a kind other than `Integer`.
+  ERROR 77050003 The supplied value is not a whole number.
+  ERROR 77050010 The supplied value is a whole number too large for an `Integer`.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
 
+    FUNC main() AS Integer
+      LET options AS List OF cli::Option = [cli::Option[name := "port", alias := "p", required := FALSE, kind := cli::OptionKind.Integer]]
+      cli::parse(options)
+      io::print(toString(cli::getInteger("port", 8080)))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
 EXPORT FUNC getInteger(name AS String, fallback AS Integer) AS Integer
-  LET value AS String = raw(name, OptionKind.Integer)
-  IF value = "" THEN RETURN fallback
-  RETURN toInt(value)
+  IF NOT supplied(name, OptionKind.Integer) THEN RETURN fallback
+  LET value AS String = collections::get(cachedValues, name)
+  ' Re-raise with the option named. `toInt` reports what it could not read, but
+  ' not which switch supplied it, and a program with several integer options
+  ' gives the user no way to tell them apart. The code is preserved so a TRAP
+  ' still distinguishes a malformed number from one that overflows.
+  LET number AS Integer = toInt(value) TRAP(err)
+    FAIL error(err.code, "cli: option `" & name & "` is not a valid integer: `" & value & "`")
+  END TRAP
+  RETURN number
 END FUNC
 
+DOC
+  FUNC getFlag
+  GROUP Reading values
+  DESC Read a `Flag` option: `TRUE` when it was present, `fallback` when it was
+  DESC not.
+  DESC
+  DESC A flag carries no value, so `fallback` is only ever returned for an
+  DESC absent flag. Pass `FALSE` unless the flag is meant to default on.
+  ARG name The option's long name, written without dashes, exactly as the schema spells it.
+  ARG fallback The value to return when the flag was absent from the command line.
+  RET `TRUE` when the flag was given, otherwise `fallback`.
+  ERROR 77050002 `cli::parse` has not published a schema naming `name`, or `name` is declared with a kind other than `Flag`.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET options AS List OF cli::Option = [cli::Option[name := "verbose", alias := "v", required := FALSE, kind := cli::OptionKind.Flag]]
+      cli::parse(options)
+      IF cli::getFlag("verbose", FALSE) THEN io::print("verbose")
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
 EXPORT FUNC getFlag(name AS String, fallback AS Boolean) AS Boolean
-  LET value AS String = raw(name, OptionKind.Flag)
-  IF value = "" THEN RETURN fallback
+  IF NOT supplied(name, OptionKind.Flag) THEN RETURN fallback
   RETURN TRUE
 END FUNC
 
+DOC
+  FUNC getBool
+  GROUP Reading values
+  DESC Read a `Bool` option, or `fallback` when the command line omitted it.
+  DESC
+  DESC A `Bool` differs from a `Flag` in that it takes a value, so a caller can
+  DESC turn something OFF from the command line. The accepted spellings are
+  DESC exactly `true`, `false`, `1`, and `0`; `yes`, `TRUE`, and `on` are not
+  DESC among them, and fail rather than being guessed at.
+  ARG name The option's long name, written without dashes, exactly as the schema spells it.
+  ARG fallback The value to return when the option was absent from the command line.
+  RET The option's value, or `fallback`.
+  ERROR 77050002 `cli::parse` has not published a schema naming `name`, `name` is declared with a kind other than `Bool`, or the supplied value is not one of the four accepted spellings.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET options AS List OF cli::Option = [cli::Option[name := "cache", alias := "c", required := FALSE, kind := cli::OptionKind.Bool]]
+      cli::parse(options)
+      ' Run as: prog --cache false
+      io::print(toString(cli::getBool("cache", TRUE)))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
 EXPORT FUNC getBool(name AS String, fallback AS Boolean) AS Boolean
-  LET value AS String = raw(name, OptionKind.Bool)
-  IF value = "" THEN RETURN fallback
+  IF NOT supplied(name, OptionKind.Bool) THEN RETURN fallback
+  LET value AS String = collections::get(cachedValues, name)
   IF value = "true" OR value = "1" THEN RETURN TRUE
   IF value = "false" OR value = "0" THEN RETURN FALSE
   FAIL error(errorCode::ErrInvalidArgument, "cli: boolean option `" & name & "` must be true, false, 1, or 0")
@@ -62,6 +171,59 @@ TESTING
       cachedOptions = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer]]
       cachedValues = Map OF String TO String {"port" := "not-a-number"}
       expectTrap(getInteger("port", 0), 77050003)
+    END TCASE
+    TCASE "an accessor whose kind does not match is refused"
+      cachedOptions = [Option[name := "title", alias := "t", required := FALSE, kind := OptionKind.String]]
+      cachedValues = Map OF String TO String {"title" := "hello"}
+      expectTrap(getInteger("title", 0), 77050002)
+      expectTrap(getBool("title", FALSE), 77050002)
+      expectTrap(getFlag("title", FALSE), 77050002)
+      expectString(getString("title", "fallback"), "hello")
+    END TCASE
+    TCASE "an option outside the schema is refused"
+      cachedOptions = [Option[name := "title", alias := "t", required := FALSE, kind := OptionKind.String]]
+      cachedValues = Map OF String TO String {}
+      expectTrap(getString("nope", "fallback"), 77050002)
+    END TCASE
+    TCASE "an empty supplied value is not the fallback"
+      cachedOptions = [Option[name := "title", alias := "t", required := FALSE, kind := OptionKind.String], Option[name := "absent", alias := "", required := FALSE, kind := OptionKind.String]]
+      cachedValues = Map OF String TO String {"title" := ""}
+      expectString(getString("title", "fallback"), "")
+      expectString(getString("absent", "fallback"), "fallback")
+    END TCASE
+    TCASE "an empty value is refused by the typed accessors"
+      cachedOptions = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer], Option[name := "enabled", alias := "b", required := FALSE, kind := OptionKind.Bool]]
+      cachedValues = Map OF String TO String {"port" := "", "enabled" := ""}
+      expectTrap(getInteger("port", 1), 77050003)
+      expectTrap(getBool("enabled", TRUE), 77050002)
+    END TCASE
+    TCASE "a negative integer reads back"
+      cachedOptions = [Option[name := "offset", alias := "o", required := FALSE, kind := OptionKind.Integer]]
+      cachedValues = Map OF String TO String {"offset" := "-3"}
+      expectInteger(getInteger("offset", 0), -3)
+    END TCASE
+    TCASE "a malformed integer names its option"
+      cachedOptions = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer]]
+      cachedValues = Map OF String TO String {"port" := "12x"}
+      MUT reported AS String = ""
+      LET unused AS Integer = getInteger("port", 0) TRAP(err)
+        reported = err.message
+        RECOVER 0
+      END TRAP
+      expectEqual(strings::find(reported, "`port`") >= 0, TRUE)
+    END TCASE
+    TCASE "every accepted boolean spelling"
+      cachedOptions = [Option[name := "enabled", alias := "b", required := FALSE, kind := OptionKind.Bool]]
+      cachedValues = Map OF String TO String {"enabled" := "true"}
+      expectEqual(getBool("enabled", FALSE), TRUE)
+      cachedValues = Map OF String TO String {"enabled" := "1"}
+      expectEqual(getBool("enabled", FALSE), TRUE)
+      cachedValues = Map OF String TO String {"enabled" := "false"}
+      expectEqual(getBool("enabled", TRUE), FALSE)
+      cachedValues = Map OF String TO String {"enabled" := "0"}
+      expectEqual(getBool("enabled", TRUE), FALSE)
+      cachedValues = Map OF String TO String {"enabled" := "TRUE"}
+      expectTrap(getBool("enabled", FALSE), 77050002)
     END TCASE
   END TGROUP
 END TESTING

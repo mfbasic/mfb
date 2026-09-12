@@ -1,15 +1,111 @@
 IMPORT collections
 IMPORT errorCode
+IMPORT strings
 
+DOC
+  PACKAGE
+  DESC Declarative command-line options: one schema drives strict parsing, typed
+  DESC accessors, and the usage text.
+  DESC
+  DESC You write a `List OF cli::Option` describing what the program accepts,
+  DESC hand it to `cli::parse` once, and read values back by name with
+  DESC `cli::getInteger`, `cli::getString`, `cli::getBool`, or `cli::getFlag`.
+  DESC The same list renders the help text through `cli::showUsage`, so the
+  DESC options a program documents and the options it accepts are the same list
+  DESC and cannot drift apart.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET options AS List OF cli::Option = [cli::Option[name := "port", alias := "p", required := FALSE, kind := cli::OptionKind.Integer], cli::Option[name := "host", alias := "h", required := FALSE, kind := cli::OptionKind.String], cli::Option[name := "verbose", alias := "v", required := FALSE, kind := cli::OptionKind.Flag]]
+      cli::parse(options)
+      io::print("serving " & cli::getString("host", "127.0.0.1") & ":" & toString(cli::getInteger("port", 8080)))
+      IF cli::getFlag("verbose", FALSE) THEN cli::showUsage([], options, [])
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+  DESC
+  DESC Strict by design
+  DESC
+  DESC There is no lenient mode. An unknown switch, a repeated option, a missing
+  DESC value, an absent required option, or a `Bool` spelled anything but `true`,
+  DESC `false`, `1`, or `0` fails the program instead of being guessed at or
+  DESC ignored. A command line is a user's instruction; acting on a misread one
+  DESC is worse than refusing it.
+  DESC
+  DESC The accessors are equally strict about the schema rather than the input:
+  DESC reading an option the schema does not declare, or reading a `String`
+  DESC option with `cli::getInteger`, fails at the call. Those are mistakes in
+  DESC the program, and they fail whatever the user typed.
+  DESC
+  DESC What it does not do
+  DESC
+  INFO No subcommands. `git commit`-style verbs are a program's own dispatch;
+  INFO read the verb from `cli::operands` after a `--`, or parse it yourself.
+  INFO
+  INFO No automatic `--help` or `--version`. Declare them as `Flag` options and
+  INFO call `cli::showUsage` yourself, so the program decides what help means and
+  INFO what it exits with.
+  INFO
+  INFO No repeated options. A second `--include` is a duplicate and fails; there
+  INFO is no list-valued kind.
+  INFO
+  INFO No clustered short flags. `-abc` is one unknown option, not `-a -b -c`.
+  INFO
+  INFO No environment-variable or config-file fallback. `fallback` is the only
+  INFO default, and it is written at the call site where it is read.
+  WARN Call `cli::parse` once, from the main thread, before starting any worker
+  WARN thread. It publishes into package-level state that every accessor reads,
+  WARN and it neither locks that state nor re-reads the command line, so a
+  WARN parse racing a reader in another thread is a data race. Parsing first and
+  WARN reading afterwards is always safe.
+END DOC
+
+DOC
+  ENUM OptionKind
+  DESC What one command-line option carries, and therefore which accessor reads
+  DESC it back.
+  DESC
+  DESC The kind is half of an option's identity: an accessor whose kind does not
+  DESC match the schema's is refused rather than coerced, so `cli::getString` on
+  DESC an option declared `Integer` is an error at the call, not a surprising
+  DESC value later.
+  PROP Flag    Present or absent, written `--name` or `-n` with no value.
+  PROP Bool    A value spelled exactly `true`, `false`, `1`, or `0`.
+  PROP Integer A whole number, read back with `cli::getInteger`.
+  PROP String  Arbitrary text, read back with `cli::getString`.
+END DOC
 EXPORT ENUM OptionKind
   Flag, Bool, Integer, String
 END ENUM
 
+DOC
+  TYPE Option
+  DESC One option in a command line's schema.
+  DESC
+  DESC A schema is a `List OF Option` that you build once and hand to
+  DESC `cli::parse`, `cli::showUsage`, or both. The same list drives parsing and
+  DESC the help text, so usage output cannot drift from what the parser accepts.
+  PROP name     The long spelling, written without dashes. `"port"` is accepted as `--port`. Must be non-empty, unique within the schema, free of `=`, and not start with `-` — those describe a switch no command line could match.
+  PROP alias    The short spelling, written without its dash, or `""` for none. Exactly one Unicode scalar when present, unique within the schema, and neither `-` nor `=`. `"p"` is accepted as `-p`.
+  PROP required Whether `cli::parse` fails when the option is absent. A `Flag` is never usefully required.
+  PROP kind     What the option carries, and which accessor reads it back.
+END DOC
 EXPORT TYPE Option
   name AS String
   alias AS String
   required AS Boolean
   kind AS OptionKind
+END TYPE
+
+' What one `parseArgs` walk produced: the option values keyed by long name, and
+' the operands that followed a bare `--`. Package-private -- `parse` publishes
+' the two halves through `cli::parse` and `cli::operands` rather than exporting
+' a record an importer would have to name.
+PUBLIC TYPE ParseResult
+  values AS Map OF String TO String
+  operands AS List OF String
 END TYPE
 
 PUBLIC FUNC invalid(detail AS String) AS Error
@@ -25,12 +121,19 @@ PUBLIC FUNC validateSchema(options AS List OF Option) AS Boolean
   MUT aliases AS List OF String = []
   FOR EACH choice IN options
     IF choice.name = "" THEN FAIL invalid("option name is empty")
+    ' A name carrying `=`, or starting with `-`, describes a switch no command
+    ' line could ever match: `--a=b` is split at the `=` before any name is
+    ' looked up, and `---a` is not a spelling the parser produces. Refuse the
+    ' schema rather than accept an option that can never be given.
+    IF strings::count(choice.name, "=") > 0 THEN FAIL invalid("option name `" & choice.name & "` must not contain `=`")
+    IF strings::startsWith(choice.name, "-") THEN FAIL invalid("option name `" & choice.name & "` must not start with `-`")
     FOR EACH known IN names
       IF known = choice.name THEN FAIL invalid("duplicate option `" & choice.name & "`")
     NEXT
     names = collections::append(names, choice.name)
     IF choice.alias <> "" THEN
       IF len(choice.alias) <> 1 THEN FAIL invalid("alias for `" & choice.name & "` must be one scalar")
+      IF choice.alias = "-" OR choice.alias = "=" THEN FAIL invalid("alias for `" & choice.name & "` must not be `" & choice.alias & "`")
       FOR EACH knownAlias IN aliases
         IF knownAlias = choice.alias THEN FAIL invalid("duplicate alias `" & choice.alias & "`")
       NEXT
@@ -50,6 +153,28 @@ TESTING
       expectTrap(validateSchema([Option[name := "", alias := "", required := FALSE, kind := OptionKind.Flag]]), 77050002)
       expectTrap(validateSchema([Option[name := "x", alias := "ab", required := FALSE, kind := OptionKind.Flag]]), 77050002)
       expectTrap(validateSchema([Option[name := "x", alias := "a", required := FALSE, kind := OptionKind.Flag], Option[name := "x", alias := "b", required := FALSE, kind := OptionKind.Flag]]), 77050002)
+    END TCASE
+    TCASE "an empty schema is valid and a duplicate alias is refused"
+      expectEqual(validateSchema([]), TRUE)
+      expectTrap(validateSchema([Option[name := "x", alias := "a", required := FALSE, kind := OptionKind.Flag], Option[name := "y", alias := "a", required := FALSE, kind := OptionKind.Flag]]), 77050002)
+    END TCASE
+    TCASE "a name or alias the parser could never match is refused"
+      expectTrap(validateSchema([Option[name := "a=b", alias := "", required := FALSE, kind := OptionKind.String]]), 77050002)
+      expectTrap(validateSchema([Option[name := "-a", alias := "", required := FALSE, kind := OptionKind.String]]), 77050002)
+      expectTrap(validateSchema([Option[name := "a", alias := "-", required := FALSE, kind := OptionKind.String]]), 77050002)
+      expectTrap(validateSchema([Option[name := "a", alias := "=", required := FALSE, kind := OptionKind.String]]), 77050002)
+    END TCASE
+    TCASE "a multi-scalar alias is measured in scalars"
+      expectTrap(validateSchema([Option[name := "x", alias := "ab", required := FALSE, kind := OptionKind.String]]), 77050002)
+      expectEqual(validateSchema([Option[name := "x", alias := "é", required := FALSE, kind := OptionKind.String]]), TRUE)
+    END TCASE
+    TCASE "sameOption compares every field"
+      LET base AS Option = Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer]
+      expectEqual(sameOption(base, Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer]), TRUE)
+      expectEqual(sameOption(base, Option[name := "ports", alias := "p", required := TRUE, kind := OptionKind.Integer]), FALSE)
+      expectEqual(sameOption(base, Option[name := "port", alias := "q", required := TRUE, kind := OptionKind.Integer]), FALSE)
+      expectEqual(sameOption(base, Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer]), FALSE)
+      expectEqual(sameOption(base, Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.String]), FALSE)
     END TCASE
   END TGROUP
 END TESTING
