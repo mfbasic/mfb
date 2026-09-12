@@ -264,9 +264,15 @@ one is now fixed (bug-560).**
 
 **The `TRAP` row here was wrong twice and is now closed; do not re-derive it.**
 It read "a `Result OF T` bound through `TRAP` (128 B per call for `Integer`,
-type-independent — the `$trap_resN` binding gets no scope-drop free)". The
-`$trap_resN` binding always DID get a scope-drop free (`ResultOf` is a freeable
-flat value). What leaked was, in order:
+type-independent — the `$trap_resN` binding gets no scope-drop free)". For a
+FLAT `T` the `$trap_resN` binding always DID get a scope-drop free (`Result OF T`
+is then a freeable flat value). **For a non-flat `T` it did not** — a resource
+(`RES f = fs::open(..) TRAP`, `tcp::connect`, `tls::connect`) or a collection of a
+pointer-`String` record (`List OF net::Address`) fails `type_is_memcpy_copyable`,
+so `is_freeable_flat_value` registered nothing and every failing iteration
+orphaned the wrapper with the trapped `Error` inlined in it: ~1 KB per call, flat
+in the argument, sized by the error message (bug-593, fixed by a wrapper-only
+drop, `ResultWrapperDrop`). What leaked for a flat `T` was, in order:
 
 * the block the PRODUCER returned, which `emit_build_result_inline` copies into
   the `Result` and nothing then owned — bug-561, fixed;
