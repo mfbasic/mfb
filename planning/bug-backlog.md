@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-12
-Open bugs: **11** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **9** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — integration rounds and what they taught
 
@@ -9,6 +9,9 @@ Open bugs: **11** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 | Bug | Sev | On main | Outcome |
 |---|---|---|---|
+| 596 | MED | `3b8e0f31c` | a named call may omit an overloaded builtin's trailing DEFAULTED parameters (`tls::connect`'s documented form built again); the first cut re-opened bug-349 and was reworked to fail closed before landing |
+| 597 | MED | `e633cefff` | `tls::listen("")` binds every interface on Linux and Windows (bug-113's `getaddrinfo(NULL, NULL)` defect in the TLS helpers); runtime-proven on boxes 2223 and 2230 |
+| 594 | MED | round 4 `b5c8757a4` | macOS `term::drawText` advances the column for a control character |
 | 592 | MED | round 3 `6ca7e8b8e` | an unbound `collections::get`/`getOr` `String` element has an owner (`os.prog` joined the fresh-result census after a lowering audit) |
 | 540 | MED | round 3 `6ca7e8b8e` | WIN-04 only: Windows `term::drawText` shares `io::write`'s cluster walk — **stays OPEN** (WIN-02/03 decision; Windows smoke run owed) |
 | 564 | MED | docs `77038ccc0` | sighting 2 reproduced (6/600 → 0/600 with a store reorder) and root-caused; the reorder is not landable until the AArch64 encoder can emit `STLR` — an agent is adding it |
@@ -26,12 +29,17 @@ Round 2 was verified on the merged tree, not per branch: artifact gate 1431 / 15
 Round 3 was verified the same way: artifact gate 1431 / 1597 / 2009, 0 diffs; merged
 release unit suite 4137 passed, 0 failed; merged `rt_scope_drop_leaks` 110 passed.
 
-**In flight:** round 4 (594, macOS `drawText` control-character column) being verified;
-593 with an agent; 564's `STLR` store-release op with an agent; 472 (the man-example CI
-gate) with the lead — its first whole-corpus Linux sweep found a real stale example
-(`http::finish`, unqualified `STATE` since bug-480 Phase 4b) and bug-595.
+Round 4 (594) was verified the same way: artifact gate 0 diffs; merged release unit suite
+4137 passed; `cli_macos_app_term_draw_text` 3 passed (the gate is blind to app mode).
 
-**Filed this stretch:** 595 (a `STATE` type name is never resolved — unlocated
+**In flight:** 472 (the man-example CI gate) integrated with 596 on main — merged-tree
+artifact gate 0 diffs, Linux whole-corpus sweep 1029 examples / 0 failed, and the merged
+unit suite and a clean re-sweep are running; 593 with an agent (fix committed on its
+branch); 564's `STLR`/`LDAR` store-release ops with an agent (fix committed on its branch).
+
+**Filed this stretch:** 597 and 596 (both found by the 472 gate's first sweep — a Linux/
+Windows `tls::listen("")` runtime defect and a bug-477 named-argument regression), 595
+(found by the same sweep: a `STATE` type name is never resolved — unlocated
 `TYPE_STATE_INVALID`, internal `pkg.Name` spelling in a mismatch message), 593 (a
 failing runtime-helper call grows a flat block per call — two bugs measured it and
 neither filed it), 594 (macOS `drawText` column), 592.
