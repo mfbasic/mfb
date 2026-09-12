@@ -550,8 +550,17 @@ pub struct PackageDetailResponse {
     /// `null` until plan-61-E populates it. Present in the shape from day one
     /// so E adds no field and breaks no consumer.
     pub description: Option<String>,
+    /// The newest **active** release (plan-126-A) — `null` when every published
+    /// version is yanked, blocked or legal-tombstoned, which is a statement
+    /// about the package rather than missing data. `null` was already a possible
+    /// value here (a package with no versions), so no consumer gains a new shape.
     #[serde(rename = "latestVersion")]
     pub latest_version: Option<String>,
+    /// The release state of `latestVersion`, so a `deprecated` headline is
+    /// visibly deprecated rather than reading as current. `null` exactly when
+    /// `latestVersion` is (plan-126-A).
+    #[serde(rename = "latestState")]
+    pub latest_state: Option<String>,
     /// **Every** version, newest first, including yanked and superseded — see
     /// `PackageDetailVersionResponse::state`.
     pub versions: Vec<PackageDetailVersionResponse>,
@@ -1292,6 +1301,7 @@ async fn package_page_html(
         url: detail.url,
         description: detail.description,
         latest_version: detail.latest_version,
+        latest_state: detail.latest_state,
         versions: detail
             .versions
             .into_iter()
@@ -1473,8 +1483,22 @@ async fn package_detail(
     }
 
     let (server_public, _server_private) = state.store.server_keypair().map_err(internal)?;
+    // plan-126-A: the headline version is the newest **active** release, not
+    // simply the newest row. `versions.first()` had no state predicate, so a
+    // package whose newest release was yanked advertised that release here — and
+    // API consumers read this field as "the version to use". `versions` itself
+    // stays complete and unfiltered above; only this selection narrows.
+    let latest = state
+        .store
+        .latest_active_version(&ident)
+        .map_err(internal)?;
+    let (latest_version, latest_state) = match latest {
+        Some((version, release_state)) => (Some(version), Some(release_state)),
+        None => (None, None),
+    };
     Ok(Json(PackageDetailResponse {
-        latest_version: versions.first().map(|version| version.version.clone()),
+        latest_version,
+        latest_state,
         ident,
         owner: owner_record.owner_display,
         ident_key: format!("ed25519:{}", crypto::encode_bytes(&ident_key.public_key)),
@@ -5447,8 +5471,12 @@ mod tests {
         assert_eq!(detail.ident, "alice#toolbox");
         assert_eq!(detail.owner, "alice");
         assert_eq!(detail.versions.len(), 2, "the yanked version is still here");
-        // Newest first, so `latestVersion` is the un-yanked 2.0.0.
+        // The yanked release here is the *older* one, so the newest-active
+        // selection (plan-126-A) and a bare newest-row pick agree: 2.0.0.
+        // The case where they disagree is covered by
+        // `package_detail_names_the_newest_active_release_not_a_yanked_newest`.
         assert_eq!(detail.latest_version.as_deref(), Some("2.0.0"));
+        assert_eq!(detail.latest_state.as_deref(), Some("available"));
         let yanked = detail
             .versions
             .iter()
@@ -5473,6 +5501,74 @@ mod tests {
         // `description` is in the shape from day one, null until plan-61-E, so
         // that sub-plan adds no field and breaks no consumer.
         assert_eq!(detail.description, None);
+    }
+
+    /// plan-126-A — the handler seam, which the `web::package_page` tests cannot
+    /// reach: `package_detail` must read its headline version from
+    /// `Store::latest_active_version`, not from `versions.first()`.
+    ///
+    /// The newest release is yanked here, which is precisely the shape
+    /// `package_detail_lists_every_version_including_yanked_ones` does *not*
+    /// cover — that test yanks the older version, so both selections agree and
+    /// it stayed green throughout the bug's lifetime.
+    #[tokio::test]
+    async fn package_detail_names_the_newest_active_release_not_a_yanked_newest() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        for version in ["1.5.0", "2.0.0"] {
+            h.store
+                .publish_package_version(
+                    alice_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("hash-{version}"),
+                    &format!("data/{version}.mfp"),
+                    "{}",
+                    &[],
+                    &crate::store::PublishMetadata::default(),
+                )
+                .unwrap();
+        }
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "yanked")
+            .unwrap();
+
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+
+        assert_eq!(
+            detail.latest_version.as_deref(),
+            Some("1.5.0"),
+            "a yanked newest release must not be advertised as the latest",
+        );
+        assert_eq!(detail.latest_state.as_deref(), Some("available"));
+        // And the listing is still complete: the selection narrowed, the
+        // transparency view did not.
+        assert_eq!(detail.versions.len(), 2);
+        assert_eq!(detail.versions[0].version, "2.0.0");
+        assert_eq!(detail.versions[0].state, "yanked");
+
+        // Withdraw the fallback too: now there is no active release, and the
+        // field is null rather than naming an ineligible version.
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "1.5.0", "yanked")
+            .unwrap();
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+        assert_eq!(detail.latest_version, None);
+        assert_eq!(detail.latest_state, None);
+        assert_eq!(detail.versions.len(), 2, "still listed, still auditable");
     }
 
     /// An unknown package 404s with the standard error shape, and an unknown

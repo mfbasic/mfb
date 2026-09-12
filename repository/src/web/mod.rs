@@ -433,7 +433,14 @@ pub struct PackageView {
     pub author: Option<String>,
     pub url: Option<String>,
     pub description: Option<String>,
+    /// The newest **active** release (plan-126-A), not simply the newest row.
+    /// `None` means every published version is yanked, blocked or
+    /// legal-tombstoned — rendered as an explicit statement, not an omission.
     pub latest_version: Option<String>,
+    /// The release state of `latest_version`, badged beside it so a
+    /// `deprecated` headline does not read as current. `None` exactly when
+    /// `latest_version` is.
+    pub latest_state: Option<String>,
     pub versions: Vec<VersionRow>,
 }
 
@@ -452,8 +459,32 @@ pub fn package_page(registry_id: &str, view: &PackageView) -> Markup {
             div."pkg-head" {
                 h1."pkg-head__ident" { (view.ident) }
                 div."pkg-head__row" {
-                    @if let Some(latest) = &view.latest_version {
-                        span."pkg-latest" { "latest v" (latest) }
+                    // plan-126-A: the headline version is the newest *active*
+                    // release, and its state is badged beside it — a
+                    // `deprecated` headline must not read as current. When
+                    // there is no active release the absence is *stated*: an
+                    // omitted chip and a package with no releases at all would
+                    // otherwise render identically, and the reader could not
+                    // tell "nothing published" from "everything withdrawn".
+                    @match &view.latest_version {
+                        Some(latest) => {
+                            span."pkg-latest" { "latest v" (latest) }
+                            @if let Some(release_state) = &view.latest_state {
+                                span class={ "state state--" (state_modifier(release_state)) } {
+                                    (release_state)
+                                }
+                            }
+                        }
+                        None => {
+                            @if !view.versions.is_empty() {
+                                span."pkg-latest pkg-latest--none" {
+                                    "no active release"
+                                }
+                                span."muted" {
+                                    "every published version is yanked or blocked"
+                                }
+                            }
+                        }
                     }
                     span."muted" { "owner " span."mono" { (view.owner) } }
                 }
@@ -972,6 +1003,7 @@ mod tests {
             url: None,
             description: None,
             latest_version: Some("4.2.0".to_string()),
+            latest_state: Some("available".to_string()),
             versions: vec![version("4.2.0"), version("3.6.0")],
         };
         let rendered = package_page("reg", &view).into_string();
@@ -993,6 +1025,117 @@ mod tests {
         // Both versions' target rows are still present in the markup.
         assert!(rendered.contains("m-4.2.0.so"), "{rendered}");
         assert!(rendered.contains("m-3.6.0.so"), "{rendered}");
+    }
+
+    // === plan-126-A: the Overview header's headline release =================
+
+    /// A `PackageView` whose newest *listed* version is yanked. The header must
+    /// name the older active release, **and** the versions table must still
+    /// contain the yanked one — the second half is what proves the selection
+    /// filter did not leak into the transparency listing.
+    #[test]
+    fn the_header_names_the_newest_active_release_while_the_table_keeps_the_yanked_one() {
+        let view = PackageView {
+            latest_version: Some("1.5.0".to_string()),
+            latest_state: Some("available".to_string()),
+            versions: vec![
+                header_test_version("2.0.0", "yanked"),
+                header_test_version("1.5.0", "available"),
+            ],
+            ..header_test_view()
+        };
+        let rendered = package_page("reg", &view).into_string();
+
+        assert!(rendered.contains("latest v1.5.0"), "{rendered}");
+        assert!(!rendered.contains("latest v2.0.0"), "{rendered}");
+        // The yanked release is still listed, with its state visible.
+        assert!(rendered.contains("state--yanked"), "{rendered}");
+        assert_eq!(rendered.matches("2.0.0").count() >= 1, true, "{rendered}");
+    }
+
+    /// A `deprecated` headline is badged, so it cannot read as current. This is
+    /// the case the bare version chip could never express.
+    #[test]
+    fn a_deprecated_headline_release_carries_its_state_badge() {
+        let view = PackageView {
+            latest_version: Some("2.0.0".to_string()),
+            latest_state: Some("deprecated".to_string()),
+            versions: vec![header_test_version("2.0.0", "deprecated")],
+            ..header_test_view()
+        };
+        let rendered = package_page("reg", &view).into_string();
+        assert!(rendered.contains("latest v2.0.0"), "{rendered}");
+        assert!(rendered.contains("state--deprecated"), "{rendered}");
+    }
+
+    /// Versions exist but none is active. The header states that, rather than
+    /// silently omitting the chip — otherwise "everything withdrawn" and
+    /// "nothing published" render identically.
+    #[test]
+    fn no_active_release_is_stated_not_omitted() {
+        let view = PackageView {
+            latest_version: None,
+            latest_state: None,
+            versions: vec![
+                header_test_version("2.0.0", "blocked"),
+                header_test_version("1.5.0", "yanked"),
+            ],
+            ..header_test_view()
+        };
+        let rendered = package_page("reg", &view).into_string();
+
+        assert!(rendered.contains("no active release"), "{rendered}");
+        assert!(
+            rendered.contains("every published version is yanked or blocked"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("latest v"), "{rendered}");
+        // Both versions are still in the table.
+        assert!(rendered.contains("state--blocked"), "{rendered}");
+        assert!(rendered.contains("state--yanked"), "{rendered}");
+    }
+
+    /// A package identity with no published version at all takes neither
+    /// branch: there is nothing to state the absence *of*.
+    #[test]
+    fn a_package_with_no_versions_renders_no_release_copy_at_all() {
+        let view = PackageView {
+            latest_version: None,
+            latest_state: None,
+            versions: Vec::new(),
+            ..header_test_view()
+        };
+        let rendered = package_page("reg", &view).into_string();
+        assert!(!rendered.contains("latest v"), "{rendered}");
+        assert!(!rendered.contains("no active release"), "{rendered}");
+    }
+
+    fn header_test_view() -> PackageView {
+        PackageView {
+            ident: "acme#matrix".to_string(),
+            owner: "acme".to_string(),
+            ident_key: "00".to_string(),
+            ident_fingerprint: "00".to_string(),
+            server_fingerprint: "00".to_string(),
+            author: None,
+            url: None,
+            description: None,
+            latest_version: None,
+            latest_state: None,
+            versions: Vec::new(),
+        }
+    }
+
+    fn header_test_version(version: &str, state: &str) -> VersionRow {
+        VersionRow {
+            version: version.to_string(),
+            hash: "sha256:00".to_string(),
+            published_at: 0,
+            state: state.to_string(),
+            abi_symbols: 1,
+            log_index: Some(1),
+            targets: Vec::new(),
+        }
     }
 
     /// maud escapes interpolated values by default. This asserts the property

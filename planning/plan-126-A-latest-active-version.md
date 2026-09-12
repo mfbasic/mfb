@@ -178,7 +178,8 @@ registry from `select_index_version`.
   **value** for packages whose newest release is not active. The field's type and
   name are unchanged; `null` was already a possible value (a package with no
   versions), so no consumer gains a new shape.
-- `SearchResponse` gains a `latestState` field. Additive; existing consumers ignore it.
+- `SearchResponse` **and `PackageDetailResponse`** each gain a `latestState`
+  field (corrected — see Corrections). Additive; existing consumers ignore it.
 - `GET /index/:ident`, the publish path, the DB schema, and every signed payload are
   untouched.
 
@@ -222,31 +223,45 @@ The denylist proof was run, not assumed: rewriting the predicate as
 `..._skips_a_legal_tombstoned_newest_release` and
 `..._is_none_when_every_version_is_inactive` (`test result: FAILED. 3 passed;
 3 failed`) — and the allowlist was restored.
-Commit: —
+Commit: 1285d1f96
 
 ### Phase 2 — Route `package_detail` and the Overview through it
 
-- [ ] Replace `versions.first()` at `repository/src/server.rs:1433` with a call to
-      `Store::latest_active_version`, keeping the full unfiltered `versions` vector
-      in the response exactly as it is today.
-- [ ] Add `latest_state: Option<String>` to `crate::web::PackageView`
-      (`repository/src/web/mod.rs:436` region) and populate it in
-      `package_page_html` (`repository/src/server.rs:1249-1289`).
-- [ ] Render the state badge beside the header's `latest v<N>` chip
-      (`repository/src/web/mod.rs:455-457`) using the existing
-      `state state--<modifier>` classes and `state_modifier`.
-- [ ] When `latest_version` is `None` **and** the package has versions, render
-      explicit copy in the header — e.g. "no active release" — rather than omitting
-      the chip silently.
-- [ ] Tests in `repository/src/web/mod.rs`: a `PackageView` whose newest listed
-      version is yanked renders the older active version in the header; a view with
-      versions but `latest_version: None` renders the no-active-release copy; the
-      versions table still contains every version in both cases.
+- [x] Replace `versions.first()` in `package_detail`
+      (`grep -n "fn package_detail" repository/src/server.rs`) with a call to
+      `Store::latest_active_version`, keeping the full unfiltered `versions`
+      vector in the response exactly as it is today.
+- [x] Add `latest_state: Option<String>` to `crate::web::PackageView` and
+      populate it in `package_page_html`. **Also** added `latestState` to
+      `PackageDetailResponse` — see Corrections; without it the HTML page would
+      have had to run its own second selection, breaking the handler's stated
+      "the two surfaces cannot disagree" property.
+- [x] Render the state badge beside the header's `latest v<N>` chip using the
+      existing `state state--<modifier>` classes and `state_modifier`.
+- [x] When `latest_version` is `None` **and** the package has versions, render
+      explicit copy in the header — "no active release" plus "every published
+      version is yanked or blocked" — rather than omitting the chip silently.
+      A package with **no** versions takes neither branch: there is nothing to
+      state the absence of. New `.pkg-latest--none` CSS rule reuses the existing
+      danger tokens.
+- [x] Tests in `repository/src/web/mod.rs`: four —
+      `the_header_names_the_newest_active_release_while_the_table_keeps_the_yanked_one`,
+      `a_deprecated_headline_release_carries_its_state_badge`,
+      `no_active_release_is_stated_not_omitted`, and
+      `a_package_with_no_versions_renders_no_release_copy_at_all`.
+- [x] Added task: a **handler-seam** test the web tests cannot reach —
+      `package_detail_names_the_newest_active_release_not_a_yanked_newest`
+      (`repository/src/server.rs`). See Corrections: the pre-existing
+      `package_detail_lists_every_version_including_yanked_ones` yanks the
+      *older* version, so both selections agree there and it stayed green
+      throughout the bug's lifetime. Its misleading "Newest first, so
+      `latestVersion` is the un-yanked 2.0.0" comment was corrected in place.
 
-Acceptance: a repository test renders `package_page` for a fixture whose newest
-version is yanked and asserts the header names the older active version **while the
-table still contains the yanked one** — the second half is what proves the
-transparency listing was not filtered.
+Acceptance: MET. `the_header_names_the_newest_active_release_while_the_table_keeps_the_yanked_one`
+renders `package_page` for a view whose newest version is yanked and asserts the
+header names `latest v1.5.0`, does **not** contain `latest v2.0.0`, and the table
+still carries the yanked row (`state--yanked` present). `cargo test -p
+mfb_repository --lib --no-fail-fast` → `378 passed; 0 failed`.
 Commit: —
 
 ### Phase 3 — Search results carry state (the actual bug)
@@ -310,6 +325,45 @@ Commit: —
   error. (§Phase 2)
 
 ## Corrections
+
+- **Every line citation in this sub-plan had drifted.** The plan was written
+  2026-09-06 against line numbers that no longer resolve. Measured 2026-09-12:
+  `latest_version: versions.first()…` is at `repository/src/server.rs:1477`, not
+  `:1433`; `Store::package_detail` at `store.rs:1592`, not `:1456`; the search
+  latest-version statement at `store.rs:1858-1867`, not `:1706-1713`;
+  `SearchResultRow` at `store.rs:3286`, not `:2965`; `state_is_floating_eligible`
+  at `src/cli/pkg.rs:1374`, not `:1369`. Everything below cites symbol + grep
+  instead, per the project's citation rule.
+
+- **`PackageDetailResponse` needed a `latestState` field, which
+  § Compatibility did not list.** The plan called for `latest_state` on
+  `web::PackageView` populated in `package_page_html`, but that handler builds
+  its view *entirely* from `package_detail`'s response and its doc comment makes
+  the "renders the same output the JSON route serves, so the two surfaces cannot
+  disagree" property normative. Threading the state any other way (a second
+  `latest_active_version` call in the HTML handler, or re-deriving it by scanning
+  `versions` for the matching row) would add a second path to the same fact.
+  Added `latestState` to the JSON response instead — additive, `null` exactly
+  when `latestVersion` is, and symmetric with the `latestState` the plan already
+  specified for `SearchResponse`. § Compatibility should have said "both
+  responses gain `latestState`".
+
+- **The pre-existing yanked test never covered the bug.**
+  `package_detail_lists_every_version_including_yanked_ones`
+  (`repository/src/server.rs`) yanks **1.0.0** and leaves **2.0.0** available —
+  the *older* release. Under that fixture `versions.first()` and
+  newest-active agree, so the test was green for the entire life of the defect,
+  and its comment ("Newest first, so `latestVersion` is the un-yanked 2.0.0")
+  positively asserted the broken selection was correct. Comment corrected in
+  place; a new handler test covers the newest-yanked shape, including the
+  further case where the fallback is withdrawn too and the field goes `null`.
+
+- **Populations re-measured 2026-09-12** (plan figures in parentheses):
+  repository crate lib tests **366** at HEAD (351);
+  `CREATE TABLE IF NOT EXISTS` statements in `store.rs` **22** (21);
+  `repository/src/abi.rs` **1,488 lines / 29 tests** (1,063 / 21 — it grew with
+  bug-578); committed `.mfp` fixtures **160** (159). None of these re-scope any
+  phase; they are recorded so the next reader does not trust a stale number.
 
 - **Semver ordering is not a defect.** During research this was raised as a third
   consequence ("a 1.9.1 published after 2.0.0 reads as latest"). Reading

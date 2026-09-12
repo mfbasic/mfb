@@ -435,6 +435,14 @@ table.grid td.mono, table.grid th.mono { font-family: var(--font-mono); }
   border-radius: 999px;
   padding: 0.1rem 0.6rem;
 }
+/* plan-126-A: no active release. Styled as a real statement rather than a
+   missing chip, so "everything withdrawn" cannot be misread as "nothing
+   published". Reuses the danger tokens the yanked state badge already uses. */
+.pkg-latest--none {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
 .pkg-desc { margin: 0.9rem 0 0; max-width: 60rem; font-size: 1.02rem; text-wrap: pretty; }
 
 /* definition list for author / url / keys */
