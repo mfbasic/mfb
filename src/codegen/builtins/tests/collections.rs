@@ -389,3 +389,80 @@ END FUNC
         "every one of these zips must take the native path"
     );
 }
+
+/// bug-563: `collections::get`'s two overloads must each declare the errors
+/// **its own lowering** raises, not a merged union of both.
+///
+/// `lower_get` branches by the collection's static shape: a list routes to
+/// `lower_list_get` and a map to `lower_map_get`. Each path has exactly one
+/// raise (`gen_list.rs` -> `ErrIndexOutOfRange`, `gen_map.rs` -> `ErrNotFound`),
+/// so the merged `["ErrIndexOutOfRange", "ErrNotFound"]` on both claimed the
+/// list form could raise `ErrNotFound` and the map form could be out of range.
+/// bug-558's per-overload column on `mfb man` is what made it visible.
+///
+/// Both directions are asserted, and the second is the one that matters:
+/// **no overload may declare an error its lowering cannot raise.** A wrong list
+/// is worse than a merged one — it feeds `inline_builtin_is_infallible` bad
+/// data, which is the mechanism behind three dead-handler MISCOMPILES
+/// (bug-486, bug-533, and `strings::left`/`right`/`padLeft`/`padRight`).
+#[test]
+fn collections_get_declares_errors_per_overload_not_merged() {
+    let function = crate::codegen::registry::registry()
+        .packages()
+        .iter()
+        .find(|package| package.import_name() == "collections")
+        .expect("the collections package is registered")
+        .function("get")
+        .expect("collections::get is registered");
+    let implementations = function.implementations();
+    assert_eq!(
+        implementations.len(),
+        2,
+        "collections::get is a two-overload set (list, map); a new overload \
+         needs its own errors derived from its own lowering"
+    );
+
+    // The overloads are distinguished by their FIRST parameter's shape, which
+    // is exactly what `lower_get` branches on — keying the assertion on the
+    // same thing the lowering does, rather than on declaration order.
+    let mut seen_list = false;
+    let mut seen_map = false;
+    for implementation in implementations {
+        let collection = &implementation.params[0].ty;
+        let rendered = format!("{collection}");
+        if rendered.starts_with("List") {
+            seen_list = true;
+            assert_eq!(
+                implementation.errors,
+                vec!["ErrIndexOutOfRange"],
+                "the list overload raises only ErrIndexOutOfRange (gen_list.rs); \
+                 it has no key and so cannot raise ErrNotFound"
+            );
+        } else if rendered.starts_with("Map") {
+            seen_map = true;
+            assert_eq!(
+                implementation.errors,
+                vec!["ErrNotFound"],
+                "the map overload raises only ErrNotFound (gen_map.rs); a map \
+                 key is not an index and cannot be out of range"
+            );
+        } else {
+            panic!("unexpected collections::get overload shape: {rendered}");
+        }
+    }
+    assert!(seen_list && seen_map, "both shapes must be covered");
+
+    // The map key's description must not be the list index's. It carried the
+    // list prose verbatim ("The list index, zero-based. Out of range raises"),
+    // which is wrong three ways for a key: not an index, not zero-based, not
+    // out of range.
+    let map = implementations
+        .iter()
+        .find(|implementation| format!("{}", implementation.params[0].ty).starts_with("Map"))
+        .expect("the map overload");
+    let key_desc = map.params[1].desc;
+    assert!(
+        !key_desc.contains("index") && !key_desc.contains("zero-based"),
+        "the map overload's key description still carries the list form's prose: {key_desc}"
+    );
+}
