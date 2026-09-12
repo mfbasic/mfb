@@ -75,6 +75,27 @@ with the fixed binary:
 | `tls::connect("h", 443, allowSelfSigned := TRUE)` | rejected | rejected |
 | every positional form, and every all-named form | builds | builds |
 
+## The first cut re-opened bug-349, and what stops that now
+
+The first version of the fallback (`1d0fa73b9`) accepted any longer overload the supplied
+names prefix-filled, without asking whether the slots it left out had defaults.
+`datetime::instant`'s overloads drop REQUIRED components off the front
+(`instant(seconds)` … `instant(days, hours, mins, seconds, nanos)`). So
+`datetime::instant(days := 5)` prefix-filled the 5-arg form, and its one argument then
+type-checked against the 1-arg `seconds` form: 5 days would be read as 5 seconds. That
+is bug-349's silent misbinding, back. The full unit suite caught it.
+`the_syntax_corpus_reproduces_its_goldens_in_process` reported that
+`bug349_instant_named_arg_arity_invalid`'s three `TYPE_CALL_ARITY_MISMATCH` errors had
+become an accepted program.
+
+The fallback now fails CLOSED. `registry::call_param_name_overload_required` gives, per
+overload, the count of leading parameters up to the last `DefaultValue::None`. A longer
+overload is selected only when the call supplies at least that many, so every omitted
+slot is `Fill` or `Optional`. With no counts there is no fallback. Both callers pass the
+counts: `ir::shape`'s checker and `ir::lower`'s normalization. The fixture reproduces its
+three errors again, identical to its golden, and `the_fallback_never_leaves_out_a_required_parameter`
+pins `instant(days)`, `instant(days, hours)` and `duration(hours)` to no selection.
+
 ## Not changed, recorded
 
 A builtin still rejects a named call that skips a MIDDLE defaulted parameter:

@@ -3423,6 +3423,31 @@ pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>
 /// front-dropping constructor's named arguments bind to the right slot. Replaces
 /// the per-package `call_param_name_overloads`. Only the three constructor families
 /// qualify, and only at a call site that mixes named arguments.
+/// For each overload in [`call_param_name_overloads`]'s table (same order), how
+/// many LEADING parameters a call must supply: the position just past the last
+/// parameter with no default (`DefaultValue::None`). A `Fill` or `Optional` tail
+/// may be left out; anything before it may not (bug-596). `None` exactly when the
+/// name table is `None`.
+pub(crate) fn call_param_name_overload_required(qualified: &str) -> Option<Vec<usize>> {
+    let function = &registry().resolve_func(qualified)?.function;
+    if !overloads_disagree_on_layout(function) {
+        return None;
+    }
+    Some(
+        function
+            .implementations
+            .iter()
+            .map(|implementation| {
+                implementation
+                    .params
+                    .iter()
+                    .rposition(|param| matches!(param.default, DefaultValue::None))
+                    .map_or(0, |index| index + 1)
+            })
+            .collect(),
+    )
+}
+
 pub(crate) fn call_param_name_overloads(qualified: &str) -> Option<Vec<Vec<&'static str>>> {
     let function = &registry().resolve_func(qualified)?.function;
     if !overloads_disagree_on_layout(function) {
