@@ -21,8 +21,14 @@
 //!   `term::off`, `term::on`, `term::getBold` answered `TRUE` on Windows and
 //!   `FALSE` everywhere else.
 //!
-//! WIN-02 (fixed 80x25 surface), WIN-03 (`didResize` always `FALSE`) and WIN-04
-//! (UTF-16 units rather than grapheme clusters) are NOT closed here; see the bug.
+//! * **WIN-04** `term::drawText` walked UTF-16 units — no combining-mark or ZWJ
+//!   fold, no wide-at-the-edge drop, control units stamped, no row bound — while
+//!   the same backend's `io::write` grid path already folded clusters. Asserted
+//!   against THAT walk rather than against macOS: the fix emits the io::write walk
+//!   a second time, so the fold must be the same instructions in both bodies.
+//!
+//! WIN-02 (fixed 80x25 surface) and WIN-03 (`didResize` always `FALSE`) are NOT
+//! closed here; see the bug.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -255,4 +261,150 @@ fn windows_app_mode_term_on_resets_every_term_state_field() {
 
 fn fields_base(functions: &serde_json::Map<String, Value>) -> String {
     slot_of(functions, "_mfb_rt_term_term_isOn", "ldr_u64").0
+}
+
+// ---------------------------------------------------------------------------
+// bug-540 WIN-04: `term::drawText` runs the SAME cluster walk `io::write` does.
+// ---------------------------------------------------------------------------
+
+/// The io write body is the function that owns the TUI grid path — located by that
+/// label rather than by a symbol spelling, so renaming the io member cannot turn
+/// this into a test of nothing.
+fn io_write_grid_body(functions: &serde_json::Map<String, Value>) -> &[Value] {
+    functions
+        .values()
+        .filter_map(Value::as_array)
+        .find(|instructions| {
+            instructions.iter().any(|instruction| {
+                instruction["op"] == "label" && instruction["name"] == "term_grid_path"
+            })
+        })
+        .expect("an io::print in a term:: app build emits the io write body's TUI grid path")
+}
+
+fn label_index(instructions: &[Value], name: &str) -> Option<usize> {
+    instructions
+        .iter()
+        .position(|instruction| instruction["op"] == "label" && instruction["name"] == name)
+}
+
+/// Strip a walk's specialization tag (`term_` in `io::write`, `dt_` in `drawText`)
+/// from every label and branch target, so the two emissions compare instruction for
+/// instruction. Nothing else is normalised: registers, immediates and slot offsets
+/// must already be identical.
+fn untag(instructions: &[Value]) -> Vec<Value> {
+    instructions
+        .iter()
+        .map(|instruction| {
+            let mut instruction = instruction.clone();
+            for key in ["name", "target"] {
+                if let Some(text) = instruction.get(key).and_then(Value::as_str) {
+                    let bare = text
+                        .strip_prefix("term_")
+                        .or_else(|| text.strip_prefix("dt_"))
+                        .unwrap_or(text)
+                        .to_string();
+                    instruction[key] = Value::String(bare);
+                }
+            }
+            instruction
+        })
+        .collect()
+}
+
+/// `[label {tag}_extend ..= label {width_tag}_done]` — the combining-mark / ZWJ fold
+/// and the display-width lookup, the two halves of "how many cells is this cluster".
+fn cluster_window(instructions: &[Value], tag: &str, width_tag: &str) -> Option<Vec<Value>> {
+    let start = label_index(instructions, &format!("{tag}_extend"))?;
+    let end = label_index(instructions, &format!("{width_tag}_done"))?;
+    (start < end).then(|| untag(&instructions[start..=end]))
+}
+
+/// bug-540 WIN-04. `term::drawText` on Windows iterated UTF-16 units: a combining
+/// mark or a ZWJ-joined scalar took its own cell, where `mfb man term drawText`
+/// promises one position per grapheme cluster. The same file's `io::write` grid
+/// path already folds clusters, so the fix emits THAT walk for `drawText` too, and
+/// this asserts the fold and the width lookup are the same instructions in both
+/// bodies. Before the fix the `drawText` body had no fold at all.
+#[test]
+fn windows_app_mode_draw_text_shares_the_io_write_cluster_walk() {
+    let windows = app_ncode_functions("win_app_term_draw_text_walk", "windows-x86_64");
+    let write = cluster_window(io_write_grid_body(&windows), "term", "ww").expect(
+        "the io::write grid path folds clusters and looks up a width — the oracle this \
+         test compares against",
+    );
+    assert!(
+        write.len() > 40,
+        "the io::write cluster window is implausibly short ({} instructions) — this test's \
+         premise is wrong",
+        write.len()
+    );
+    let draw_text = body(&windows, "_mfb_rt_term_term_drawText");
+    let shared = cluster_window(draw_text, "dt", "dt_ww").unwrap_or_else(|| {
+        panic!(
+            "term::drawText has no cluster fold: it walks UTF-16 units, so `e` + U+0301 and a \
+             ZWJ emoji take several cells on Windows and one everywhere else (bug-540 WIN-04)"
+        )
+    });
+    assert_eq!(
+        shared, write,
+        "term::drawText's cluster fold and width lookup must be the io::write walk emitted a \
+         second time, not a second walk — two walks are how the two members come to disagree \
+         about the same string (bug-540 WIN-04)"
+    );
+}
+
+/// bug-540 WIN-04, the edge half, plus the two `drawText` rules the unit walk also
+/// skipped. `mfb man term drawText`: a double-width cluster with one column left is
+/// DROPPED and the run stops; control characters advance a column and stamp nothing;
+/// a row off the surface draws nothing. The unit walk tested only `col >= 80`, so it
+/// drew a wide unit in column 79, handed control characters to `TextOutW`, and
+/// stamped any row it was given.
+#[test]
+fn windows_app_mode_draw_text_drops_a_wide_cluster_at_the_edge_and_skips_controls() {
+    let windows = app_ncode_functions("win_app_term_draw_text_edge", "windows-x86_64");
+    let draw_text = body(&windows, "_mfb_rt_term_term_drawText");
+    let stamp = draw_text
+        .iter()
+        .position(|instruction| instruction["op"] == "bl" && instruction["target"] == "TextOutW")
+        .expect("term::drawText stamps through TextOutW");
+    let width_done = draw_text
+        .iter()
+        .rposition(|instruction| {
+            instruction["op"] == "label"
+                && instruction["name"]
+                    .as_str()
+                    .is_some_and(|name| name.ends_with("ww_done"))
+        })
+        .expect("term::drawText looks up a display width");
+    assert!(width_done < stamp, "the width lookup precedes the stamp");
+    assert!(
+        draw_text[width_done..stamp].iter().any(|instruction| {
+            instruction["op"]
+                .as_str()
+                .is_some_and(|op| op.starts_with("b."))
+                && instruction["target"] == "dt_done"
+        }),
+        "between the width lookup and the stamp, term::drawText must be able to END the run: \
+         a width-2 cluster with only one column left is dropped, never drawn half off the \
+         surface (bug-540 WIN-04)"
+    );
+    assert!(
+        draw_text[..stamp]
+            .iter()
+            .any(|instruction| instruction["op"] == "cmp_imm" && instruction["rhs"] == "32"),
+        "term::drawText must test for a control character (< U+0020) before stamping — the \
+         documented contract skips them, and TextOutW draws whatever the font maps a C0 unit to"
+    );
+    let row_guard = draw_text.windows(3).any(|w| {
+        w[0]["op"] == "mov_imm"
+            && w[0]["value"] == "24"
+            && w[1]["op"] == "cmp"
+            && w[2]["op"] == "b.gt"
+            && w[2]["target"] == "dt_done"
+    });
+    assert!(
+        row_guard,
+        "term::drawText must draw nothing for a row off the surface (row > rows-1)"
+    );
 }
