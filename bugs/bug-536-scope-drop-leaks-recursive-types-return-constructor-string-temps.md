@@ -551,13 +551,25 @@ introduces a double free is not a fix):
   after — **235 MB → 112 MB per repeat call**. The residual is two separate
   pre-existing leaks (findings 1 and 2 below), not shape B-2.
 
-### Found while fixing B-2 — three SEPARATE pre-existing defects, not fixed here
+### Found while fixing B-2 — three SEPARATE pre-existing defects, NOW FILED
+
+**All three are now filed with their own numbers (2026-09-12).** They were
+recorded here rather than filed because the numbering would have raced a peer
+session; that has been resolved and the analysis below is carried into each doc:
+
+| | filed as | severity |
+|---|---|---|
+| 1. `s = s & <expr>` self-append leak | **bug-587** | HIGH |
+| 2. `Result OF T` bound through `TRAP` never freed | **bug-588** | HIGH |
+| 3. `String`-returning CALLBACK double-free / SIGSEGV | **bug-589** | HIGH |
+
+They are kept here too, because this is where they were measured and where the
+contrast against B-2 is recorded. **Do not work them from this document** — the
+filed bugs are the work orders.
 
 All three reproduce unchanged on the base commit and are unaffected by B-2. The
 first two are the whole of `csv::parse`'s residual 112 MB per repeat call, so
-anyone tracking DEC-03 should not attribute that to B-2. Each wants its own
-bug number; they are recorded here rather than filed so the numbering does not
-race with a peer session.
+anyone tracking DEC-03 should not attribute that to B-2.
 
 1. **`s = s & <expr>` on a `MUT String` leaks ~190 B per evaluation.** The
    document's own shape-B table records `s = toString(i)` as "flat — the
