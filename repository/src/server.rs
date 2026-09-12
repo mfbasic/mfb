@@ -732,6 +732,22 @@ pub struct SessionClaims {
 /// by `/validate` and `/publish` so a single upload cannot exhaust memory.
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
+/// Anonymous transparency-log routes, shared per-IP budget (bug-579).
+///
+/// Sized from the WORST LEGITIMATE CLIENT, not from a round number. A single
+/// `verify_publish_inclusion` makes three log requests (`/log/checkpoint`,
+/// `/log/publish`, `/log/proof/:index`) and `mfb pkg install --proof` calls it
+/// once PER DEPENDENCY, so a 200-dependency install is a ~600-request burst in
+/// seconds — and every developer behind one NAT or one CI egress IP shares this
+/// key. A tight budget here would not harden the registry, it would break
+/// installs. 1200/minute leaves 2x headroom over that worst case while still
+/// converting "unbounded" into "bounded".
+///
+/// Note this grew with bug-582: a client now fetches a consistency proof on
+/// every pin advance, so the log is contacted more than it used to be. Any
+/// future tightening has to be re-derived from the client, not guessed.
+const LOG_PER_IP_MAX: usize = 1200;
+
 /// Per-client (peer-IP) rate caps on the anonymous auth endpoints, replacing the
 /// old global-string buckets that let one client lock the whole user base out of
 /// registration/login (audit-2 REPO-12 / bug-188). A generous global ceiling is
@@ -1010,17 +1026,19 @@ async fn challenge(
 
 async fn log_checkpoint(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
 ) -> Result<Json<CheckpointResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let leaves = state.store.log_leaf_hashes(None).map_err(internal)?;
-    let root = crate::log::root(&leaves);
-    let (_public, private) = state.store.server_keypair().map_err(internal)?;
-    let signature = crypto::sign(
-        &private,
-        &crate::log::checkpoint_signing_input(leaves.len() as u64, &root),
-    )
-    .map_err(internal)?;
+    if !state
+        .rate_limiter
+        .allow(&format!("log:{}", peer.ip()), LOG_PER_IP_MAX, 60)
+    {
+        return Err(too_many_requests());
+    }
+    // bug-579: memoised by log size, so a repeated call is a COUNT(*) rather
+    // than loading every leaf, rebuilding the Merkle root and signing it again.
+    let (size, root, signature) = state.store.signed_checkpoint().map_err(internal)?;
     Ok(Json(CheckpointResponse {
-        size: leaves.len() as i64,
+        size,
         root_hash: hex::encode(root),
         signature: crypto::encode_bytes(&signature),
     }))
@@ -1033,9 +1051,16 @@ struct ProofQuery {
 
 async fn log_inclusion_proof(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     axum::extract::Path(index): axum::extract::Path<i64>,
     axum::extract::Query(query): axum::extract::Query<ProofQuery>,
 ) -> Result<Json<InclusionProofResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state
+        .rate_limiter
+        .allow(&format!("log:{}", peer.ip()), LOG_PER_IP_MAX, 60)
+    {
+        return Err(too_many_requests());
+    }
     let leaves = state.store.log_leaf_hashes(query.size).map_err(internal)?;
     let size = leaves.len() as i64;
     if index < 0 || index >= size {
@@ -1306,10 +1331,18 @@ async fn package_page_html(
 /// `GET /p/:ident/audit` — the rendered transparency tab (plan-61-C Phase 3).
 async fn package_audit_html(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     axum::extract::Path(ident): axum::extract::Path<String>,
 ) -> Response {
     let (registry_id, _fingerprint) = registry_identity(&state);
-    let audit = match package_audit(State(state.clone()), axum::extract::Path(ident.clone())).await
+    // Shares the JSON route's budget on purpose: the HTML page does the same
+    // full-log work, so exempting it would leave the bypass open.
+    let audit = match package_audit(
+        State(state.clone()),
+        ConnectInfo(peer),
+        axum::extract::Path(ident.clone()),
+    )
+    .await
     {
         Ok(Json(audit)) => audit,
         Err((status, Json(error))) => {
@@ -1461,13 +1494,27 @@ async fn package_detail(
 /// history rather than take the registry's word for it.
 async fn package_audit(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     axum::extract::Path(ident): axum::extract::Path<String>,
 ) -> Result<Json<PackageAuditResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state
+        .rate_limiter
+        .allow(&format!("log:{}", peer.ip()), LOG_PER_IP_MAX, 60)
+    {
+        return Err(too_many_requests());
+    }
     let (owner_part, _package_part) = split_ident(&ident)?;
     let Some(audit) = state.store.package_audit(&ident).map_err(internal)? else {
         return Err(not_found("unknown package".to_string()));
     };
 
+    // Deliberately NOT `signed_checkpoint()`: this route needs the leaf vector
+    // itself to build an inclusion path per publish, so the memo would save
+    // nothing and would introduce a race — a head memoised at one size beside
+    // paths built from a differently-sized leaf set. Computing both from ONE
+    // read keeps the response internally coherent, which is the property the
+    // bug's non-goals protect. It is the per-IP budget above that bounds this
+    // route, not the cache.
     let leaves = state.store.log_leaf_hashes(None).map_err(internal)?;
     let root = crate::log::root(&leaves);
     let (_public, private) = state.store.server_keypair().map_err(internal)?;
@@ -1547,8 +1594,15 @@ struct ConsistencyQuery {
 
 async fn log_consistency_proof(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     axum::extract::Query(query): axum::extract::Query<ConsistencyQuery>,
 ) -> Result<Json<ConsistencyProofResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state
+        .rate_limiter
+        .allow(&format!("log:{}", peer.ip()), LOG_PER_IP_MAX, 60)
+    {
+        return Err(too_many_requests());
+    }
     let leaves = state.store.log_leaf_hashes(query.to).map_err(internal)?;
     let to = leaves.len() as i64;
     if query.from < 0 || query.from > to {
@@ -2036,15 +2090,17 @@ async fn snapshot_metadata(
     };
     let version = state.store.log_size().map_err(internal)?;
     let index_hash = state.store.index_canonical_hash().map_err(internal)?;
-    let leaves = state.store.log_leaf_hashes(None).map_err(internal)?;
-    let checkpoint_root = hex::encode(crate::log::root(&leaves));
+    // bug-579: the same memoised head as /log/checkpoint.
+    let (checkpoint_size, checkpoint_root_bytes, _signature) =
+        state.store.signed_checkpoint().map_err(internal)?;
+    let checkpoint_root = hex::encode(checkpoint_root_bytes);
     let signed = format!(
         "{{\"type\":\"snapshot\",\"registryId\":{},\"version\":{},\"expires\":{},\"indexHash\":{},\"checkpoint\":{{\"size\":{},\"rootHash\":{}}}}}",
         json_str(&config.registry_id),
         version,
         now_unix() + SNAPSHOT_TTL_SECS,
         json_str(&index_hash),
-        leaves.len(),
+        checkpoint_size,
         json_str(&checkpoint_root),
     );
     let signature = crypto::sign(
@@ -5052,7 +5108,10 @@ mod tests {
             )
             .await;
         }
-        let checkpoint_small = log_checkpoint(State(state.clone())).await.unwrap().0;
+        let checkpoint_small = log_checkpoint(State(state.clone()), peer("127.0.0.1"))
+            .await
+            .unwrap()
+            .0;
         assert_eq!(checkpoint_small.size, 4);
 
         // The checkpoint signature verifies under the server key.
@@ -5071,6 +5130,7 @@ mod tests {
         for index in 0..checkpoint_small.size {
             let proof = log_inclusion_proof(
                 State(state.clone()),
+                peer("127.0.0.1"),
                 axum::extract::Path(index),
                 axum::extract::Query(ProofQuery { size: None }),
             )
@@ -5112,10 +5172,14 @@ mod tests {
             &crypto::fingerprint(&signing_public),
         )
         .await;
-        let checkpoint_big = log_checkpoint(State(state.clone())).await.unwrap().0;
+        let checkpoint_big = log_checkpoint(State(state.clone()), peer("127.0.0.1"))
+            .await
+            .unwrap()
+            .0;
         assert_eq!(checkpoint_big.size, 5);
         let proof = log_consistency_proof(
             State(state.clone()),
+            peer("127.0.0.1"),
             axum::extract::Query(ConsistencyQuery {
                 from: checkpoint_small.size,
                 to: None,
@@ -5443,6 +5507,7 @@ mod tests {
         let audit_known = err_of(
             package_audit(
                 State(h.state.clone()),
+                peer("127.0.0.1"),
                 axum::extract::Path("alice#nosuchpackage".to_string()),
             )
             .await,
@@ -5450,6 +5515,7 @@ mod tests {
         let audit_unknown = err_of(
             package_audit(
                 State(h.state.clone()),
+                peer("127.0.0.1"),
                 axum::extract::Path("mallory#nosuchpackage".to_string()),
             )
             .await,
@@ -5500,6 +5566,7 @@ mod tests {
 
         let audit = package_audit(
             State(h.state.clone()),
+            peer("127.0.0.1"),
             axum::extract::Path("alice#toolbox".to_string()),
         )
         .await
@@ -6405,6 +6472,141 @@ mod tests {
             response.results[0].description.as_deref(),
             Some(exact.as_str())
         );
+    }
+
+    /// bug-579: the anonymous transparency-log routes each loaded EVERY leaf,
+    /// rebuilt the whole Merkle root and produced a fresh signature, on every
+    /// request, with no limiter key consumed. Cost grew with the log and nothing
+    /// bounded the repetition.
+    ///
+    /// This pins the route CONTRACT: a repeat at an unchanged size is identical,
+    /// an APPEND is observed rather than masked, and what is served still
+    /// verifies under the server key. A cache that got the append wrong would be
+    /// a far worse bug than the one being fixed, because clients pin what this
+    /// returns. The memo's mechanism is probed separately in
+    /// `store::tests::signed_checkpoint_is_memoised_by_log_size`.
+    #[tokio::test]
+    async fn log_checkpoint_follows_an_append_and_still_verifies() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        let first = log_checkpoint(State(h.state.clone()), peer("10.0.0.1"))
+            .await
+            .unwrap()
+            .0;
+
+        // A repeat at an unchanged size is byte-identical.
+        //
+        // Note this alone does NOT prove the memo engaged: Ed25519 signing is
+        // deterministic (RFC 8032), so a full recompute would produce exactly
+        // the same bytes. It pins the contract, not the mechanism.
+        let repeat = log_checkpoint(State(h.state.clone()), peer("10.0.0.1"))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(repeat.size, first.size);
+        assert_eq!(repeat.root_hash, first.root_hash);
+        assert_eq!(repeat.signature, first.signature);
+
+        // An append MUST be observed. This is the half a stale cache breaks.
+        // The memo's *mechanism* is probed in
+        // `store::tests::signed_checkpoint_is_memoised_by_log_size`, which can
+        // reach the connection directly; here the contract is what matters.
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash-1",
+                "data/1.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata::default(),
+            )
+            .unwrap();
+        let after = log_checkpoint(State(h.state.clone()), peer("10.0.0.1"))
+            .await
+            .unwrap()
+            .0;
+        assert!(
+            after.size > first.size,
+            "the memo must not hide an append: {} -> {}",
+            first.size,
+            after.size
+        );
+        assert_ne!(after.root_hash, first.root_hash);
+
+        // And the served head is the real one, not a cached artefact: it must
+        // verify under the server key and match a freshly computed root.
+        let leaves = h.store.log_leaf_hashes(None).unwrap();
+        assert_eq!(after.root_hash, hex::encode(crate::log::root(&leaves)));
+        let (server_public, _) = h.store.server_keypair().unwrap();
+        crypto::verify(
+            &server_public,
+            &crate::log::checkpoint_signing_input(after.size as u64, &crate::log::root(&leaves)),
+            &crypto::decode_bytes(&after.signature, "signature").unwrap(),
+        )
+        .expect("the memoised checkpoint must still verify under the server key");
+    }
+
+    /// bug-579: the anonymous log routes now consume a shared per-IP budget.
+    #[tokio::test]
+    async fn anonymous_log_routes_are_rate_limited_per_ip() {
+        let h = harness();
+        for _ in 0..LOG_PER_IP_MAX {
+            log_checkpoint(State(h.state.clone()), peer("10.0.0.2"))
+                .await
+                .expect("within budget");
+        }
+        let (status, _) = err_of(log_checkpoint(State(h.state.clone()), peer("10.0.0.2")).await);
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+
+        // The budget is shared across the log routes, so an exhausted peer
+        // cannot simply switch to the proof route for more full-log work.
+        let (status, _) = err_of(
+            log_consistency_proof(
+                State(h.state.clone()),
+                peer("10.0.0.2"),
+                axum::extract::Query(ConsistencyQuery { from: 0, to: None }),
+            )
+            .await,
+        );
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+
+        // It is PER IP: one abusive peer must not deny the rest of the world.
+        log_checkpoint(State(h.state.clone()), peer("10.0.0.3"))
+            .await
+            .expect("a different peer has its own budget");
+    }
+
+    /// POSITIVE (bug-579): the budget must clear the worst LEGITIMATE client.
+    ///
+    /// `verify_publish_inclusion` makes three log requests — `/log/checkpoint`,
+    /// `/log/publish`, `/log/proof/:index` — and `mfb pkg install --proof` calls
+    /// it once per dependency, so a large install is a single burst of roughly
+    /// `3 x deps` requests, all from one IP. Behind a NAT or a CI egress address
+    /// that IP is shared by everyone. A budget tuned for "abuse" without this
+    /// number would not harden the registry, it would break installs.
+    ///
+    /// This pins the headroom explicitly so that anyone tightening
+    /// `LOG_PER_IP_MAX` has to confront the client's real request shape.
+    #[tokio::test]
+    async fn the_log_budget_clears_a_full_install_burst_from_one_ip() {
+        let h = harness();
+        const DEPENDENCIES: usize = 200;
+        const REQUESTS_PER_DEPENDENCY: usize = 3;
+        let burst = DEPENDENCIES * REQUESTS_PER_DEPENDENCY;
+        assert!(
+            burst <= LOG_PER_IP_MAX,
+            "a {DEPENDENCIES}-dependency `pkg install --proof` is {burst} log \
+             requests from one IP; LOG_PER_IP_MAX is {LOG_PER_IP_MAX}"
+        );
+        for _ in 0..burst {
+            log_checkpoint(State(h.state.clone()), peer("10.0.0.4"))
+                .await
+                .expect("an ordinary install burst must not be throttled");
+        }
     }
 
     fn peer(ip: &str) -> ConnectInfo<SocketAddr> {
@@ -7505,6 +7707,7 @@ mod tests {
             let (status, message) = err_of(
                 log_inclusion_proof(
                     State(h.state.clone()),
+                    peer("127.0.0.1"),
                     axum::extract::Path(index),
                     axum::extract::Query(ProofQuery { size: None }),
                 )
@@ -7518,6 +7721,7 @@ mod tests {
         // with it: index 1 is outside a one-leaf tree.
         let historic = log_inclusion_proof(
             State(h.state.clone()),
+            peer("127.0.0.1"),
             axum::extract::Path(0),
             axum::extract::Query(ProofQuery { size: Some(1) }),
         )
@@ -7531,6 +7735,7 @@ mod tests {
             err_of(
                 log_inclusion_proof(
                     State(h.state.clone()),
+                    peer("127.0.0.1"),
                     axum::extract::Path(1),
                     axum::extract::Query(ProofQuery { size: Some(1) }),
                 )
@@ -7544,6 +7749,7 @@ mod tests {
             let (status, message) = err_of(
                 log_consistency_proof(
                     State(h.state.clone()),
+                    peer("127.0.0.1"),
                     axum::extract::Query(ConsistencyQuery { from, to: None }),
                 )
                 .await,

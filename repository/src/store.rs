@@ -12,6 +12,23 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
+    /// The signed tree head, memoised by log size (bug-579).
+    head_cache: Arc<Mutex<Option<CachedLogHead>>>,
+}
+
+/// A signed tree head, valid for exactly the log size it was computed at.
+///
+/// The transparency log is append-only and dense — nothing in the crate
+/// deletes or rewrites a `log_entries` row (the only `UPDATE`/`DROP` against
+/// that table are tests that deliberately corrupt it to prove the readers
+/// degrade to an error) — so `size` uniquely determines the root, and the size
+/// is a sound cache key. `COUNT(*)` on a B-tree is far cheaper than loading and
+/// re-hashing every leaf, which is what this avoids.
+#[derive(Clone)]
+struct CachedLogHead {
+    size: i64,
+    root: [u8; 32],
+    signature: Vec<u8>,
 }
 
 /// `auth_challenges.purpose` for a challenge minted by `/auth/challenge` (an
@@ -265,6 +282,7 @@ impl Store {
         harden_private_state(db_dir, dbpath)?;
         let store = Store {
             conn: Arc::new(Mutex::new(conn)),
+            head_cache: Arc::new(Mutex::new(None)),
         };
         store.migrate()?;
         store.ensure_server_secret()?;
@@ -2866,6 +2884,60 @@ impl Store {
             .map_err(|err| format!("failed to size the log: {err}"))
     }
 
+    /// The current signed tree head: `(size, root, signature)`, memoised by
+    /// log size (bug-579).
+    ///
+    /// `/log/checkpoint`, `/packages/:ident/audit` and `/snapshot.json` are all
+    /// anonymous and each rebuilt this independently: every request loaded every
+    /// leaf, recomputed the whole Merkle root and produced a fresh signature. The
+    /// cost grew with the log and nothing bounded the repetition, so public
+    /// traffic could pin the CPU and serialize unrelated work behind `Store`'s
+    /// single connection mutex.
+    ///
+    /// The memo is deliberately NOT inside `log_leaf_hashes`. That reader has a
+    /// documented contract about surfacing a malformed leaf as an error, and a
+    /// test corrupts leaves in place — leaving the row COUNT unchanged — to prove
+    /// it. A cache keyed on size inside that function would serve the pre-corruption
+    /// leaves and silently defeat the check. Here the key is sound because
+    /// production only ever appends.
+    ///
+    /// The signature is recomputed only when the size moves, so a cache hit is
+    /// also one fewer Ed25519 signing operation.
+    pub fn signed_checkpoint(&self) -> Result<(i64, [u8; 32], Vec<u8>), String> {
+        let size = self.log_size()?;
+        {
+            let cached = self
+                .head_cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(head) = cached.as_ref() {
+                if head.size == size {
+                    return Ok((head.size, head.root, head.signature.clone()));
+                }
+            }
+        }
+        let leaves = self.log_leaf_hashes(None)?;
+        // Re-read rather than trusting the count taken above: an append between
+        // the two reads would otherwise cache a root under the wrong size.
+        let size = leaves.len() as i64;
+        let root = crate::log::root(&leaves);
+        let (_public, private) = self.server_keypair()?;
+        let signature = crypto::sign(
+            &private,
+            &crate::log::checkpoint_signing_input(size as u64, &root),
+        )?;
+        let mut cached = self
+            .head_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *cached = Some(CachedLogHead {
+            size,
+            root,
+            signature: signature.clone(),
+        });
+        Ok((size, root, signature))
+    }
+
     /// The ordered leaf hashes of the first `size` log entries (the whole
     /// log when `size` is None).
     pub fn log_leaf_hashes(&self, size: Option<i64>) -> Result<Vec<[u8; 32]>, String> {
@@ -4252,6 +4324,68 @@ pub(crate) mod tests {
             mode(&dbpath),
             0o400,
             "hardening may remove access, never grant it"
+        );
+        let _ = keys;
+    }
+
+    /// bug-579: `signed_checkpoint` memoises the signed tree head by log size,
+    /// so the anonymous routes stop loading every leaf and re-hashing the whole
+    /// Merkle tree on every request.
+    ///
+    /// Observing a cache is harder than it looks: Ed25519 signing is
+    /// deterministic (RFC 8032), so "the same bytes came back" is equally true
+    /// of a full recompute and proves nothing. The discriminator used here is a
+    /// leaf corruption applied IN PLACE, which leaves the row count — and so the
+    /// memo key — unchanged. A recompute surfaces `malformed log leaf hash`; a
+    /// cache hit returns the head it already holds.
+    ///
+    /// That is a PROBE of the mechanism, not a supported state. It is also the
+    /// soundness argument written as a test: size is a valid key precisely
+    /// because production only ever appends, and `log_leaf_hashes` is
+    /// deliberately left un-memoised so it still reports the corruption — see
+    /// `log_readers_reject_a_malformed_leaf_hash`.
+    #[test]
+    fn signed_checkpoint_is_memoised_by_log_size() {
+        let (_temp, store) = test_store();
+        let keys = register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        let (size, root, signature) = store.signed_checkpoint().unwrap();
+        assert_eq!(size, store.log_size().unwrap());
+
+        {
+            let conn = store.conn();
+            conn.execute("UPDATE log_entries SET leaf_hash = x'0011'", [])
+                .unwrap();
+        }
+        assert!(
+            store.log_leaf_hashes(None).is_err(),
+            "the un-memoised reader must still see the corruption"
+        );
+        let (cached_size, cached_root, cached_signature) = store.signed_checkpoint().unwrap();
+        assert_eq!(cached_size, size, "the memo answered");
+        assert_eq!(cached_root, root);
+        assert_eq!(cached_signature, signature);
+
+        // An append changes the size, so the key misses and the head is rebuilt
+        // — which, over the corrupted leaves, now correctly ERRORS rather than
+        // serving a stale root under a new size. Masking that would be the
+        // dangerous failure.
+        store
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
+            .unwrap();
+        assert!(
+            store.signed_checkpoint().is_err(),
+            "a size change must re-read, never serve the previous root"
         );
         let _ = keys;
     }
