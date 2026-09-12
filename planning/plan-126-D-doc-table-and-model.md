@@ -30,7 +30,7 @@ See plan-126-A § Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-126-C complete (`wire/src/mfpc.rs` owns the section ids and table reader) | `grep -c SECTION_DOC_TABLE wire/src/mfpc.rs` → 1 | NOT MET |
+| plan-126-C complete (`wire/src/mfpc.rs` owns the section ids and table reader) | `grep -c SECTION_DOC_TABLE wire/src/mfpc.rs` → **≥ 1** (corrected from "→ 1") | MET (measured 2026-09-12: **2**; C landed as 8af4a40eb, 3fd644f54, 427af4b4f). The count is 2, not 1, because `the_section_ids_are_frozen_wire_values` asserts the constant by name as well as defining it — the intent (mfpc.rs owns the id) holds, the expected count was miscalibrated. |
 
 If plan-126-C is not complete, this sub-plan cannot start, full stop.
 

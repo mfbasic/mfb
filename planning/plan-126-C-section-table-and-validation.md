@@ -350,7 +350,7 @@ the `MAX_MFPC_SECTIONS` ceiling. The 0-diff result is still the expected one —
 every real package declares ≤14 sections, far under 256.
 The whole-workspace `cargo test --no-fail-fast` is the plan-wide final gate in
 follow-plan §5.
-Commit: —
+Commit: 427af4b4f
 
 ## Validation Plan
 
