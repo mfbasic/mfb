@@ -48,7 +48,7 @@ nothing else in the reading.
 
 ## Measurements
 
-`mfb` built from `d8918c620` (before) and from this change (after). Peak RSS of a
+`mfb` built from `197d84d02` (before) and from this change (after). Peak RSS of a
 loop of failing `tls::connect` calls — the host is marshalled BEFORE it is
 resolved, which is why a failing call reaches the leak at all. The name is far
 past the 253-byte DNS limit, so no resolver queries the network for it.
