@@ -9764,4 +9764,141 @@ mod tests {
             auth_private,
         )
     }
+
+    /// bug-578, request level: an MFPC payload whose string pool declares more
+    /// entries than the format ceiling allows is rejected inside the parser,
+    /// before `/validate` builds a single `String` for it.
+    ///
+    /// The payload here is ~4 MiB — a sixteenth of `MAX_BODY_BYTES` — and
+    /// declares 1,048,577 zero-length pool entries. Pre-fix the parser accepted
+    /// the count and constructed every entry, so those 4 MiB of body became a
+    /// ~25 MiB `Vec<String>`; scaled to the full 64 MiB body limit the same
+    /// shape reached ~288 MiB on a 512 MiB server, and `validate_package_request`
+    /// pays it once per parser it calls. The request must come back with a
+    /// bounded diagnostic and an empty `abiIndex` instead.
+    #[tokio::test]
+    async fn oversized_string_pool_is_rejected_at_the_request_boundary() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let keys = register_owner_with_all_keys(&store, "alice");
+        let token = open_session(&store, "alice", &keys.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            blob_store: BlobStore::local(temp.path().join("data")),
+            rate_limiter: RateLimiter::new(),
+        };
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let ident_fingerprint = crypto::fingerprint(&keys.ident_public);
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+        let (attestation, attestation_sig) =
+            real_attestation(&state, &token, "1.0.0", &signing_fingerprint).await;
+        let proof = format!(
+            "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"1.0.0\",\"identFingerprint\":\"{}\",\"signingFingerprint\":\"{}\",\"issued\":1}}",
+            ident_fingerprint, signing_fingerprint,
+        );
+        let proof_sig = crypto::sign(
+            &keys.ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
+
+        // A minimal MFPC container: an oversized string pool (section 2), a
+        // one-entry native library table (section 10) so `parse_vendor_blobs`
+        // has to resolve the pool, and an ABI index (section 15) so
+        // `abi_index_json` does too.
+        let hostile_payload = {
+            let entries: u32 = 1_048_577; // MAX_STRING_POOL_ENTRIES + 1
+            let mut pool = Vec::with_capacity(4 + entries as usize * 4);
+            pool.extend_from_slice(&entries.to_le_bytes());
+            for _ in 0..entries {
+                pool.extend_from_slice(&0u32.to_le_bytes());
+            }
+            let mut table = Vec::new();
+            table.extend_from_slice(&1u32.to_le_bytes()); // one entry
+            table.extend_from_slice(&0u32.to_le_bytes()); // logical -> string 0
+            table.extend_from_slice(&0u32.to_le_bytes()); // zero locators
+            let mut abi = Vec::new();
+            abi.extend_from_slice(&1u16.to_le_bytes()); // format version
+            abi.extend_from_slice(&0u16.to_le_bytes()); // reserved
+            abi.extend_from_slice(&0u32.to_le_bytes()); // zero exports
+
+            let sections: [(u16, Vec<u8>); 3] = [(2, pool), (10, table), (15, abi)];
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"MFPC");
+            bytes.extend_from_slice(&2u16.to_le_bytes());
+            bytes.extend_from_slice(&0u16.to_le_bytes());
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+            bytes.extend_from_slice(&(sections.len() as u32).to_le_bytes());
+            let mut data_offset = 16 + sections.len() * 24;
+            for (id, data) in &sections {
+                bytes.extend_from_slice(&id.to_le_bytes());
+                bytes.extend_from_slice(&0u16.to_le_bytes());
+                bytes.extend_from_slice(&0u32.to_le_bytes());
+                bytes.extend_from_slice(&(data_offset as u64).to_le_bytes());
+                bytes.extend_from_slice(&(data.len() as u64).to_le_bytes());
+                data_offset += data.len();
+            }
+            for (_id, data) in &sections {
+                bytes.extend_from_slice(data);
+            }
+            bytes
+        };
+        assert!(
+            hostile_payload.len() < MAX_BODY_BYTES,
+            "the whole point is that this fits inside the body limit"
+        );
+
+        let artifact = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                author: "alice".to_string(),
+                url: String::new(),
+                payload: hostile_payload,
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+                proof,
+                proof_sig,
+                attestation,
+                attestation_sig,
+            },
+            &signing_private,
+        );
+        let parsed = package::parse_mfp_package(&artifact).unwrap();
+        let request = PackageArtifactRequest {
+            ident: parsed.ident.clone(),
+            version: parsed.version.clone(),
+            artifact: crypto::encode_bytes(&artifact),
+            content_hash: parsed.content_hash_hex(),
+            ident_fingerprint: parsed.ident_fingerprint().unwrap(),
+            signing_fingerprint: parsed.signing_fingerprint().unwrap(),
+            session_token: token.clone(),
+        };
+        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX)
+            .await
+            .unwrap();
+        assert!(!report.valid, "an over-ceiling pool must not validate");
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("string pool declares 1048577 entries")),
+            "expected a bounded string-pool diagnostic, got: {:?}",
+            report.diagnostics
+        );
+        // The diagnostic is a single bounded line, not a dump of the payload.
+        for diagnostic in &report.diagnostics {
+            assert!(
+                diagnostic.len() < 512,
+                "diagnostics must stay bounded: {diagnostic}"
+            );
+        }
+        // The best-effort ABI reader reports the empty object rather than
+        // building the pool behind the caller's back.
+        assert_eq!(report.abi_index, serde_json::json!({}));
+    }
 }
