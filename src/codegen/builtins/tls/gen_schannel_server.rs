@@ -292,6 +292,8 @@ pub(crate) fn lower_tls_listen(
     // PKCS#1 it is the file's own DER.
     const KEYPTR: usize = 184;
     const KEYLEN: usize = 192;
+    const SERVICE: usize = 200; // getaddrinfo service: NULL, or &SERVICE_STR
+    const SERVICE_STR: usize = 208; // the C string "0" for the bind-all path
     const FRAME_SIZE: usize = 0x100;
 
     let addr_off = platform.addrinfo_addr_offset();
@@ -329,6 +331,8 @@ pub(crate) fn lower_tls_listen(
         abi::store_u64(&v9, abi::stack_pointer(), HINTS),
         abi::move_immediate(&v9, "Integer", super::gen_shared::SOCK_STREAM),
         abi::store_u64(&v9, abi::stack_pointer(), HINTS + 8),
+        // A named host resolves with a NULL service; only bind-all sets one.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SERVICE),
         // Empty host => NULL node (bind all interfaces).
         abi::load_u64(&v9, abi::stack_pointer(), HOST),
         abi::load_u64(&v9, &v9, 0),
@@ -350,10 +354,17 @@ pub(crate) fn lower_tls_listen(
         abi::branch(&resolved),
         abi::label(&null_host),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HOSTCSTR),
+        // bug-597: Winsock's getaddrinfo, like glibc's, refuses a NULL node AND a
+        // NULL service, so bind-all points service at the C string "0" (bug-113's
+        // shape). The real port overwrites sin_port afterward.
+        abi::move_immediate(&v9, "Integer", "48"),
+        abi::store_u64(&v9, abi::stack_pointer(), SERVICE_STR),
+        abi::add_immediate(&v9, abi::stack_pointer(), SERVICE_STR),
+        abi::store_u64(&v9, abi::stack_pointer(), SERVICE),
         abi::label(&resolved),
-        // getaddrinfo(host, NULL, &hints, &res)
+        // getaddrinfo(host, service, &hints, &res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HOSTCSTR),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SERVICE),
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES),
     ]);

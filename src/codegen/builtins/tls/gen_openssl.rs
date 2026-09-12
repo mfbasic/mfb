@@ -1150,6 +1150,8 @@ pub(crate) fn lower_tls_listen_openssl(
     const FNPTR_OFFSET: usize = 104;
     const CTX_OFFSET: usize = 112;
     const HINTS_OFFSET: usize = 128; // 128..176
+    const SERVICE_OFFSET: usize = 176; // getaddrinfo service: NULL, or &SERVICE_STR
+    const SERVICE_STR_OFFSET: usize = 184; // the C string "0" for the bind-all path
 
     let null_host = format!("{symbol}_null_host");
     let resolved = format!("{symbol}_resolved");
@@ -1200,6 +1202,8 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::store_u64(&v9, abi::stack_pointer(), HINTS_OFFSET),
         abi::move_immediate(&v9, "Integer", SOCK_STREAM),
         abi::store_u64(&v9, abi::stack_pointer(), HINTS_OFFSET + 8),
+        // A named host resolves with a NULL service; only bind-all sets one.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SERVICE_OFFSET),
         // Empty host => NULL node (all interfaces).
         abi::load_u64(&v9, abi::stack_pointer(), HOST_OFFSET),
         abi::load_u64(&v9, &v9, 0),
@@ -1221,14 +1225,25 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::branch(&resolved),
         abi::label(&null_host),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HOSTCSTR_OFFSET),
+        // bug-597: bind-all passes a NULL node, so the service must be non-NULL —
+        // getaddrinfo(NULL, NULL, …) is EAI_NONAME on glibc and musl, which made
+        // `tls::listen("", …)` raise ErrInvalidAddress on Linux while the page
+        // documents it as binding every interface. Stage the C string "0" (0x30
+        // then a zero terminator) and point service at it, exactly as the shared
+        // socket helpers do for `tcp::listen` (bug-113). The real port overwrites
+        // sin_port afterward.
+        abi::move_immediate(&v9, "Integer", "48"),
+        abi::store_u64(&v9, abi::stack_pointer(), SERVICE_STR_OFFSET),
+        abi::add_immediate(&v9, abi::stack_pointer(), SERVICE_STR_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), SERVICE_OFFSET),
         abi::label(&resolved),
-        // getaddrinfo(host, NULL, &hints, &res)
+        // getaddrinfo(host, service, &hints, &res)
         abi::load_u64(
             abi::return_register(),
             abi::stack_pointer(),
             HOSTCSTR_OFFSET,
         ),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SERVICE_OFFSET),
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS_OFFSET),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES_OFFSET),
     ]);
@@ -3118,6 +3133,41 @@ mod error_path_release_tests {
         assert!(
             reloc_count(&rel, "sym_SSL_CTX_free") >= 1,
             "connect must free the SSL_CTX on OOM"
+        );
+    }
+
+    /// bug-597: `tls::listen("")` must hand `getaddrinfo` a non-NULL service.
+    /// `getaddrinfo(NULL, NULL, …)` is `EAI_NONAME` on glibc and musl, so a
+    /// literal-0 service made the documented bind-all form raise
+    /// `ErrInvalidAddress` on Linux. The bind-all path stages the C string "0"
+    /// (0x30); nothing between `resolved` and the call may zero the service.
+    #[test]
+    fn listen_bind_all_passes_a_non_null_service() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (ins, _rel, _s) =
+            lower_tls_listen_openssl("l", &imports, &TestPlatform).expect("lower listen");
+        let at = |label: &str| {
+            ins.iter()
+                .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("missing label {label}"))
+        };
+        let (null_host, resolved) = (at("l_null_host"), at("l_resolved"));
+        assert!(
+            ins[null_host..resolved]
+                .iter()
+                .any(|i| i.op == CodeOp::MovImm && i.get("value").as_deref() == Some("48")),
+            "bug-597: the bind-all path must stage the service string \"0\""
+        );
+        let service_reg = abi::c_arg(1).to_string();
+        let zeroed_service = ins[resolved..].iter().take(8).any(|i| {
+            i.op == CodeOp::MovImm
+                && i.get("dst").as_deref() == Some(service_reg.as_str())
+                && i.get("value").as_deref() == Some("0")
+        });
+        assert!(
+            !zeroed_service,
+            "bug-597: getaddrinfo's service argument must not be a literal NULL"
         );
     }
 
