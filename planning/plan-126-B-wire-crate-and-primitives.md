@@ -340,7 +340,7 @@ committed `.mfp` fixtures' `rt-behavior` tests — is the plan-wide final gate i
 The cross-crate divergence tests are what prove bug-340 B8 was honored rather
 than silently undone; both were **red first**, for a fixture reason recorded in
 Corrections.
-Commit: —
+Commit: c2ef2dc23
 
 ## Validation Plan
 

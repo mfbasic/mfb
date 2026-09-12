@@ -31,7 +31,7 @@ See plan-126-A § Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-126-B complete (`mfb_wire` exists with `bytes` + `mfp`) | `ls wire/src/bytes.rs wire/src/mfp.rs` → both exist | NOT MET |
+| plan-126-B complete (`mfb_wire` exists with `bytes` + `mfp`) | `ls wire/src/bytes.rs wire/src/mfp.rs` → both exist | MET (measured 2026-09-12: both exist; B landed as baf71a193 + c2ef2dc23) |
 
 If plan-126-B is not complete, this sub-plan cannot start, full stop.
 
@@ -199,29 +199,50 @@ strictly better); the union is the compiler's set.
 
 ### Phase 1 — Validation module
 
-- [ ] Measure first: `git ls-files '*.mfp' | while read f; do mfb pkg info "$f"; done`
-      (or read the header name of each of the 159 committed fixtures) and record
-      the longest package name in the tree. This decides the Open Decision below.
-- [ ] Create `wire/src/validation.rs` holding, from `repository/src/validation.rs`:
+- [x] Measure first: the longest package name across all **160** committed
+      `.mfp` fixtures is **34 bytes** (`native_resource_state_export_valid`), and
+      **zero** exceed 128. Measured by walking each fixture's header rather than
+      by `mfb pkg info` per file — the plan's loop would have been 160 process
+      spawns; a 30-line Python header walk over `git ls-files '*.mfp'` reads the
+      `name` field directly and reported 160/160 parsed, 0 unreadable. This
+      decides the Open Decision below.
+- [x] Create `wire/src/validation.rs` holding, from `repository/src/validation.rs`:
       `OWNER_LIMIT`, `PACKAGE_LIMIT`, `VERSION_LIMIT`, `fold_owner`,
       `validate_owner_name`, `validate_version`, `validate_ident`; and both name
       policies renamed to say what they guard —
-      `validate_path_component_name` (from `src/manifest/package.rs:58`, guards
-      `packages/<name>.mfp`) and `validate_registry_package_name` (from
-      `repository/src/validation.rs:47`, guards the log payload and `/index/<ident>`
-      route). Keep each function's current error strings verbatim.
-- [ ] Re-point `repository/src/validation.rs` to a re-export shim, and
-      `src/manifest/package.rs:58` likewise, so the 12 registry and 16 compiler
-      call sites are unchanged.
-- [ ] Move the 6 tests from `repository/src/validation.rs` into
-      `wire/src/validation.rs` and add one that documents the difference explicitly:
-      a 200-character all-legal-charset name **passes** `validate_path_component_name`
-      and **fails** `validate_registry_package_name`, with a comment naming
-      `PACKAGE_LIMIT` as the only substantive divergence.
+      `validate_path_component_name` (guards `packages/<name>.mfp`) and
+      `validate_registry_package_name` (guards the log payload and
+      `/index/<ident>`). Every error string kept verbatim.
+- [x] Re-point `repository/src/validation.rs` to a re-export shim, and
+      `src/manifest/package.rs` likewise, so the registry and compiler call
+      sites are unchanged. Verified: `git diff --stat HEAD` against
+      `repository/src/{server,store,client,local}.rs` prints **nothing**.
+      The registry's shim binds `validate_package_name` to the **registry**
+      policy — the name is ambiguous now that two exist, so a test pins which
+      one it resolves to (see below).
+- [x] Move the 6 tests from `repository/src/validation.rs` into
+      `wire/src/validation.rs` and add
+      `the_two_package_name_policies_differ_only_by_a_length_cap`: a
+      200-character all-legal-charset name passes the path-component policy and
+      fails the registry's. It goes further than the plan asked and asserts the
+      **charsets agree** across 7 accepted and 11 rejected inputs, so "the cap
+      is the only substantive divergence" is measured rather than claimed.
+- [x] Added task: `the_reexported_package_name_validator_is_the_registry_policy`
+      in `repository/src/validation.rs`. With two same-charset policies behind
+      one re-exported name, binding the shim to the wrong one would compile,
+      pass every existing test, and silently drop the `PACKAGE_LIMIT` cap from
+      the log payload. An over-cap name is the single input that tells them
+      apart, so it is now asserted.
+- [x] Added task: `state_is_active` (plan-126-A) stays in the registry crate and
+      did not move with the validators. Its doc comment now records why, and the
+      duplication it shares with the client's `state_is_floating_eligible` is
+      noted in Corrections as a candidate for a later pass.
 
-Acceptance: `rustup run 1.96.0 cargo test --no-fail-fast` passes; the divergence test
-above is present and green, so the next reader learns the two policies differ only
-by a length cap rather than having to diff them.
+Acceptance: MET. `cargo test -p mfb_wire` → **30 passed**;
+`cargo test -p mfb_repository --lib` → **376 passed; 0 failed** (381 − 6 moved
+out + 1 new shim test). The divergence test is present and green, so the next
+reader learns the two policies differ only by a length cap rather than having to
+diff them.
 Commit: —
 
 ### Phase 2 — Terminal sanitizer

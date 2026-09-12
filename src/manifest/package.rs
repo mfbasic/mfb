@@ -60,23 +60,18 @@ pub(crate) struct ProjectPackageDependency {
 
 /// Rejects a package name that cannot be used as a single path component.
 ///
-/// A `.mfp` header name and an `mfb.lock` name are untrusted: both are turned
-/// into `packages/<name>.mfp`. Without this guard a name of `../../x` escapes the
-/// project, and a name beginning with `.` hides the file. Legitimate names are
-/// identifier-like, so the charset is deliberately narrow.
-pub(crate) fn validate_package_name(name: &str) -> Result<(), String> {
-    let mut chars = name.chars();
-    let leading_ok = chars
-        .next()
-        .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_');
-    let rest_ok = chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'));
-    if !leading_ok || !rest_ok {
-        return Err(format!(
-            "package name `{name}` is not a valid path component (expected [A-Za-z0-9_][A-Za-z0-9_.-]*)"
-        ));
-    }
-    Ok(())
-}
+/// The implementation lives in `mfb_wire::validation` as
+/// `validate_path_component_name` (plan-126-C), beside the registry's sibling
+/// policy, so the two can be read together and neither can drift unnoticed.
+/// Re-exported under the local name so the 16 call sites in this crate are
+/// unchanged.
+///
+/// **This is the path-component policy, not the registry's.** It has no length
+/// cap; the registry's adds `PACKAGE_LIMIT`. That difference is the whole of the
+/// divergence, and `mfb_wire::validation`'s
+/// `the_two_package_name_policies_differ_only_by_a_length_cap` states it
+/// executably.
+pub(crate) use mfb_wire::validation::validate_path_component_name as validate_package_name;
 
 pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
     let bytes =
