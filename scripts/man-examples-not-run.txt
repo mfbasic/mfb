@@ -29,6 +29,7 @@ tls::accept#1  needs cert.pem/key.pem and a connecting TLS client
 tls::listen#1  needs cert.pem/key.pem and a connecting TLS client
 tls::localAddress#2  needs cert.pem/key.pem and a connecting TLS client
 tls::remoteAddress#1  needs cert.pem/key.pem and a connecting TLS client
+tls::connect#3  needs a development TLS server with a self-signed certificate on 127.0.0.1:7413
 
 # http servers
 http::handleRequest#1  serves: a plaintext accept loop on port 8080

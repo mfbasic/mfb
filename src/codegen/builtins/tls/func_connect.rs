@@ -87,7 +87,7 @@ IMPORT encoding
 IMPORT tls
 
 SUB main()
-  RES conn = tls::connect("93.184.216.34", 443, timeoutMs := 5000, serverName := "example.com")
+  RES conn = tls::connect("8.8.8.8", 443, timeoutMs := 5000, serverName := "dns.google")
   ' conn closes itself when this scope ends
 END SUB
 ```
