@@ -5,9 +5,7 @@ Effort: small (one wrapper-only drop); the attribution was the work
 Severity: MEDIUM — unbounded growth in any retry loop over a call that fails
 Class: Memory / correctness
 
-Status: **Fixed on branch `bug-593-failing-helper-flat-block` — reproduced, attributed
-(it is NOT a runtime-helper defect), and fixed by a wrapper-only drop. A by-design
-residual remains; see "What is left, and why it is not this bug".**
+Status: **FIXED** — landed on main in `8413676c0` (fix `76b08c1df`); residual closed-record growth is plan-52-B by design, and `List OF net::Address` is bug-599
 Regression Test: `tests/runtime/rt_scope_drop_leaks.rs` —
 `a_trapped_error_bound_as_a_resource_is_not_retained`,
 `a_trapped_error_bound_as_an_address_list_is_not_retained`, and the positive pin
