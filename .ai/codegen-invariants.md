@@ -187,12 +187,20 @@ bug-536 shape B-2. `function_returns_fresh_string(f)` is the callee half of the
 same contract `function_returns_param_borrow` states for the opposite answer, and
 the two are disjoint by construction (the fresh predicate checks the borrow one
 first and loses). It admits a function whose declared return is a bare `String`,
-that has at least one value return, that is not a param-borrow function, and that
-is not callback-referenced. That last exclusion is **conservative, not
-principled**: K1 excludes callbacks to FORCE a copy, while excluding them here
-removes the copy obligation — which leaves a pre-existing HOF SIGSEGV live
-(`collections::transform(xs, identish)` where `identish` is `RETURN toString(s)`).
-Dropping the arm is the fix; it wants its own callback-ABI audit.
+that has at least one value return, and that is not a param-borrow function.
+
+**A callback-referenced function is NOT excluded, and must not be** (bug-562,
+`1bba27392`). It was, when B-2 landed, purely to keep callback lowering
+byte-identical for one change — and that exclusion was the live half of a SIGSEGV:
+`collections::transform(xs, identish)` with `FUNC identish(s AS String) AS String
+/ RETURN toString(s)` was `[exit 139]`, because `toString`'s `String` arm is the
+identity and handed the HOF back the very block `free_collection_loop_item` was
+about to free. K1 excludes callbacks to FORCE a copy; excluding them *here*
+removed the copy obligation instead. Admitting the set makes the callee satisfy
+the `FunctionRef` ABI's ownership of the return value rather than weakening it.
+Do not re-add the arm — `tests/rt-behavior/collections/callback-string-return-identity-rt`
+and `tests/codegen/codegen_string_return_freshness.rs::being_used_as_a_callback_never_removes_the_return_copy`
+are the guards.
 
 **The guarantee is delivered, not observed.** `lower_returned_value` already
 makes three of the four return shapes fresh — a move-elided owned local moves its

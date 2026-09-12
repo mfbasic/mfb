@@ -563,6 +563,16 @@ session; that has been resolved and the analysis below is carried into each doc:
 | 2. `Result OF T` bound through `TRAP` never freed | **bug-588** | HIGH |
 | 3. `String`-returning CALLBACK double-free / SIGSEGV | **bug-589** | HIGH |
 
+> **STALE — read this before using the three items below.** They were also filed
+> on **2026-09-06** as bugs **560, 561, 562** (`8c57683f3`), from this same list,
+> and all three are now in `bugs/completed/`. The 2026-09-12 re-filing above
+> duplicated them because the text below was never re-measured. Item 3 was
+> re-measured on 2026-09-12 and **does not reproduce**: bug-562 fixed it on
+> 2026-09-07 (`1bba27392`), so **bug-589 is closed as a duplicate**. Items 1 and 2
+> map to completed bug-560 and bug-561 respectively and should be re-measured
+> before anyone works bug-587 or bug-588. The analysis below is preserved as the
+> record of what was measured *on 2026-09-06*; it is not a statement about main.
+
 They are kept here too, because this is where they were measured and where the
 contrast against B-2 is recorded. **Do not work them from this document** — the
 filed bugs are the work orders.
