@@ -1,12 +1,80 @@
 # Open bug backlog — triage and work order
 
-Last updated: 2026-09-07
-Open bugs: **24** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Last updated: 2026-09-12
+Open bugs: **20** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+
+## 2026-09-12 — repository security intake, worked
+
+**All three HIGHs from the 2026-09-11 intake are addressed.** They were entirely
+inside `repository/`, which makes them a different kind of work from everything
+above: no IR, no goldens, **the artifact gate is structurally blind to all of
+it**. The instrument is the `mfb_repository` unit suite and its loopback-HTTP
+stub registry. Say so explicitly in any future repository bug — a green gate
+there proves nothing at all.
+
+| Bug | Outcome |
+|---|---|
+| 578 HIGH | **Landed** `f2368455b` — absolute MFPC section/pool/export/meta ceilings. |
+| 582 HIGH | **Landed** `ac1a6ec79` — every log-pin advance is consistency-proof-gated. |
+| 581 HIGH | **PARTIAL** `ed87c111a` — route binding landed; Phase 2 is an open design decision. |
+
+Also landed: `7ed3fa226` (see below). Archived as already-fixed and verified at
+HEAD: **549** (`8144872bd`), **551-inline-trap** (`1c83b7dda`).
+
+### Four things this pass taught that generalize
+
+- **A signature over values the RESPONSE supplies binds nothing.** bug-581's
+  name binding verified `name_binding_message(response.owner,
+  response.ident_fingerprint)` — a binding of the response to *itself*. It looked
+  like authentication for as long as nobody asked "authenticating *which*
+  question?". When you see a signature check, find the request-derived value in
+  the signed message. If there isn't one, it is decoration.
+- **A safety gate placed in a CALLER is not a gate.** bug-276 R2 got
+  verify-before-pin right but installed it in `verify_log_consistency`, one of
+  two callers of the pin-advance path, leaving `fetch_checkpoint` free to skip
+  it. Every later call site then had to re-derive the choice, and `pkg install
+  --proof` got it wrong — reaching the log *only* through the unsafe helper. Fix
+  is to make the unsafe spelling not exist, not to pick the safe caller again.
+- **Two fields of one response can need two different comparison rules.**
+  bug-581's `ident` is echoed verbatim by the server (compare exactly); its
+  `owner` is returned as `owner_display` from a case-FOLDED lookup (compare
+  folded). The obvious uniform fix — compare both exactly — would have refused
+  every mixed-case `Alice#pkg`. Only measuring the server tells you which is
+  which; this is the fifth time a guard here nearly shipped rejecting valid
+  input, and the positive pin is what caught it again.
+- **A pin whose subject is untracked is not a pin** (`7ed3fa226`). bug-578's
+  sole "do the new ceilings refuse real packages?" test read
+  `packages/libsnd/libsnd.mfp`, which `.gitignore:34` excludes. It passed only
+  on a machine that had already built libsnd and failed on every fresh clone and
+  in CI. Found by running the suite in a clean worktree, where it was the only
+  failure out of 343. That is the fourth instance of the backlog's own
+  "harness and code drift, harness reports success" shape — and the sharpest,
+  because the check could not run *anywhere* but one laptop.
+  **When a test reads a file, check `git ls-files` says the file is in the repo.**
+
+### bug-581 Phase 2 is an OPEN DECISION — do not dispatch it as a bug fix
+
+Phase 1 closed *substitution*. *Staleness/truncation* (a correctly-identified
+version list with a newer version omitted) is not closed, and cannot be with the
+data on hand: `snapshot.indexHash` commits to the **global** index, there is no
+route that serves the full index, so a client holding one package's response
+can never recompute it. Closing it needs a per-package commitment signed by the
+**offline** snapshot key — either per-package targets in `snapshot.json` or a
+Merkle root plus inclusion proof reusing `log.rs`. Both are wire/metadata format
+changes, and both force a ruling that is not technical: **what does a client do
+when `snapshot.json` carries no per-package commitment?** Fail closed breaks
+every deployed registry; fail open means the fix does nothing. Full analysis in
+the bug doc.
 
 ## 2026-09-11 — repository security review intake
 
-- **578 HIGH** — a bounded repository upload can force multi-hundred-megabyte
-  allocations through unbounded MFPC string/section/export counts.
+- ~~**578 HIGH**~~ — **LANDED `f2368455b`.** A bounded repository upload could
+  force multi-hundred-megabyte allocations through unbounded MFPC
+  string/section/export counts. Measured pre-fix: 48 MiB of body -> 12,582,912
+  `String`s -> **288 MiB of headers alone**. Note bug-276 R8's existing
+  `count.min(bytes.len() / 4)` cap did NOT help — `bytes.len() / 4` is exactly
+  the number of empty entries the attacker supplies. Only an absolute ceiling
+  closes it; a relative one is satisfied by the attack payload.
 - **579 MEDIUM** — anonymous transparency-log routes rebuild and materialize
   the full log without limits or caching.
 - **580 LOW** — registration/linking allow an auth key to equal the ident key,
@@ -14,10 +82,13 @@ Open bugs: **24** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-11 — repository protocol-audit intake
 
-- **581 HIGH** — `fetch_index` accepts an index not bound to its requested
-  ident and does not bind it to verified snapshot metadata.
-- **582 HIGH** — larger signed transparency-log forks overwrite a client pin
-  without a consistency proof; publish inclusion uses that unsafe path.
+- ~~**581 HIGH**~~ — **PARTIAL, `ed87c111a`.** `fetch_index` accepted an index
+  not bound to its requested ident. Route binding landed; binding to signed
+  snapshot metadata is Phase 2, an open design decision (above).
+- ~~**582 HIGH**~~ — **LANDED `ac1a6ec79`.** Larger signed transparency-log
+  forks overwrote a client pin without a consistency proof, and publish
+  inclusion used that unsafe path — which made it reachable from `pkg install
+  --proof`, whose ONLY log contact was that helper.
 - **583 MEDIUM** — a relay-visible pairing lookup can enroll an attacker auth
   key, despite the code remaining secret.
 - **584 MEDIUM** — rerunning root initialization replaces the root anchor with
@@ -90,8 +161,15 @@ set**. Two of them were crashes rather than leaks (562's callback SIGSEGV, and
 
 - **Model:** fable for CRITICAL, opus for everything else. There is currently
   **no open CRITICAL**, so every dispatch below is opus.
-- **Concurrency:** one background agent at a time, plus the lead working a
-  second bug directly.
+- **Concurrency:** two background agents, plus the lead working a third bug
+  directly.
+- **Concurrency has a COMMIT hazard the gate lock does not cover.** Agents leave
+  uncommitted edits in the shared checkout, so `git add <file>` on a file an
+  agent is also editing sweeps their work into your commit. Before committing,
+  `git status --short` and confirm every file you stage is one only you touched;
+  if a peer is in the same file, pick a different bug rather than racing. Pick
+  bugs whose blast radii are *file-disjoint*, not merely topic-disjoint — this
+  pass had to defer bug-586 for exactly this reason (`store.rs`).
 - **Landing:** commit and merge each bug as it completes — never batch.
 - **Memory bugs carry an extra gate.** For any bug touching allocation,
   aliasing, ownership or drop (`487`, `536`, `538`, `479`, and the landed
