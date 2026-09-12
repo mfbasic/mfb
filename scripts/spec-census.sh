@@ -121,12 +121,32 @@ cite_suffix() {
 
 # Does a symbol appear anywhere under the tracked source roots? This is the
 # column that separates stale-by-move from stale-by-deletion.
+#
+# Three answers, not two. A plain text grep cannot tell an ITEM from a mention
+# of one, and the difference decides how the citation is repaired:
+#
+#   move          the symbol is live somewhere else -> re-point the path
+#   comment-only  the symbol survives ONLY in `//` comment text, which means
+#                 the item is GONE and somebody's prose still names it. Treat
+#                 this as stale-by-DELETION: the claim is suspect.
+#   deleted       the symbol appears nowhere at all
+#
+# `static_strings_package_string` is the case that forced this: cited by
+# unicode/01_tables-and-algorithms.md, it exists in exactly two Rust COMMENTS
+# and as no item anywhere (the live entry point is `static_string_value_vr`).
+# Reported as stale-by-move it would have been "fixed" by re-pointing the path
+# at one of those comments, ratifying a sentence about a symbol that no longer
+# exists — which is precisely the failure the two-class split exists to stop.
 symbol_exists_anywhere() {
 	local sym=$1
-	if grep -rqF --include='*.rs' -e "$sym" src build.rs repository/src 2>/dev/null; then
+	local hits
+	hits=$(grep -rhF --include='*.rs' -e "$sym" src build.rs repository/src 2>/dev/null)
+	[ -n "$hits" ] || { printf 'deleted'; return; }
+	# Any hit on a line that is not a comment means the symbol is still code.
+	if printf '%s\n' "$hits" | grep -qvE '^[[:space:]]*(//|/\*|\*)'; then
 		printf 'move'
 	else
-		printf 'deleted'
+		printf 'comment-only'
 	fi
 }
 
@@ -149,7 +169,7 @@ mode_citations() {
 	cut -f1 "$occ" | sort -u > "$uniq"
 
 	local n_uniq n_nosuffix=0 n_lin=0 n_sym=0
-	local n_misspath=0 n_missline=0 n_misssym=0 n_move=0 n_deleted=0
+	local n_misspath=0 n_missline=0 n_misssym=0 n_move=0 n_deleted=0 n_commentonly=0
 	n_uniq=$(wc -l < "$uniq" | tr -d ' ')
 
 	local marker body path suffix verdict extra hi total f l
@@ -190,6 +210,12 @@ mode_citations() {
 				case "$extra" in
 					move)    n_move=$((n_move+1));    extra='ELSEWHERE=yes  STALE-BY-MOVE' ;;
 					deleted) n_deleted=$((n_deleted+1)); extra='ELSEWHERE=no   STALE-BY-DELETION (claim suspect)' ;;
+					# Counted with the deletions, because that is what it IS: the
+					# item is gone and only prose still names it. Labelled
+					# separately so a reader can see why the plain grep disagrees.
+					comment-only)
+						n_deleted=$((n_deleted+1)); n_commentonly=$((n_commentonly+1))
+						extra='ELSEWHERE=comment-only  STALE-BY-DELETION (claim suspect; symbol survives only in Rust comments)' ;;
 				esac
 			fi
 		fi
@@ -212,7 +238,8 @@ mode_citations() {
 	printf 'TOTAL unique=%s  nosuffix=%s  line=%s  symbol=%s\n' "$n_uniq" "$n_nosuffix" "$n_lin" "$n_sym"
 	printf 'MISS-PATH %s\n' "$n_misspath"
 	printf 'MISS-LINE %s\n' "$n_missline"
-	printf 'MISS-SYMBOL %s  (stale-by-move %s, stale-by-deletion %s)\n' "$n_misssym" "$n_move" "$n_deleted"
+	printf 'MISS-SYMBOL %s  (stale-by-move %s, stale-by-deletion %s — of which %s survive only in comments)\n' \
+		"$n_misssym" "$n_move" "$n_deleted" "$n_commentonly"
 	rm -f "$occ" "$uniq"
 	[ "$((n_misspath+n_missline+n_misssym))" -eq 0 ]
 }

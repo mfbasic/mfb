@@ -240,7 +240,7 @@ surface by +7 pages and the spec's broken-citation count by +1.
 | unique citations that are file/dir only (no suffix) | 115 | `--citations` → `nosuffix=115` | 115 |
 | unique citations with a line-range suffix | 19, **0 out of range** | `--citations` → `line=19`, `MISS-LINE 0` | 19, 0 |
 | unique citations with a symbol suffix | **1,322** | `--citations` → `symbol=1322` | 1,280 |
-| **symbol citations whose symbol is not in the cited file** | **62** — **49 stale-by-move, 13 stale-by-deletion** | `--citations` → `MISS-SYMBOL 62  (stale-by-move 49, stale-by-deletion 13)` | 61 (split never measured) |
+| **symbol citations whose symbol is not in the cited file** | **62** — **48 stale-by-move, 14 stale-by-deletion** (1 of the 14 survives only in Rust comments) | `--citations` → `MISS-SYMBOL 62  (stale-by-move 48, stale-by-deletion 14 — of which 1 survive only in comments)` | 61 (split never measured) |
 | citations with an unresolvable path | **2** (`finalize_vreg_body_with_locals`, `run_register_allocation` — malformed: symbol with no path, both on `src/docs/spec/memory/08_program-startup.md:228`) | `--citations` → `MISS-PATH 2` | 2 |
 | spec code fences | **366** | `--fill` `FENCES` column | 363 |
 | spec `mfb spec`/`mfb man` cross-links | **928** | `--fill` `LINKS` column | — |
@@ -262,7 +262,7 @@ surface by +7 pages and the spec's broken-citation count by +1.
   artifact's own `═`-rule count `628`; per-topic renders summing to `32`).
 - **The unresolved symbol citations are two distinct rot classes, and the
   split is now MEASURED, not spot-checked** — `./scripts/spec-census.sh
-  --citations` → `MISS-SYMBOL 62  (stale-by-move 49, stale-by-deletion 13)`.
+  --citations` → `MISS-SYMBOL 62  (stale-by-move 48, stale-by-deletion 14 — of which 1 survive only in comments)`.
   The 13 stale-by-deletion citations are the **suspect-claim list** letters
   I–N triage as claims, not links; they are enumerated in §2.1 below. The
   original spot-check that motivated the split stands:
@@ -328,8 +328,9 @@ HEAD, then re-cite it; or cut it), never as a link fix.
 | `src/docs/spec/threading/06_thread-runtime-helpers.md:34` | `[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_helper]]` |
 | `src/docs/spec/linker/06_macos-aarch64.md:56` | `[[src/os/macos/link/macho.rs:write_load_commands]]` |
 | `src/docs/spec/app/02_linux-runtime.md:291` **and** `04_term-backend.md:682` | `[[src/target/linux_gtk/mod.rs:ARENA_REG]]` |
+| `src/docs/spec/unicode/01_tables-and-algorithms.md:17` | `[[src/codegen/builtins/strings/gen_strings_support.rs:static_strings_package_string]]` — **comment-only** (see C-10) |
 
-13 unique citations across 16 spec sites. The remaining **49** `MISS-SYMBOL`
+14 unique citations across 17 spec sites. The remaining **48** `MISS-SYMBOL`
 rows are stale-by-move: the symbol is still in `src/`, at another path, and a
 re-point is the correct repair (the `http` and `net` families dominate — the
 `package.mfb` split recorded in memory
@@ -816,35 +817,104 @@ The calibration run. `color` is chosen because **no plan-108 letter ever
 reviewed it** (it did not exist), so it is the most likely to yield real
 findings; `variable` because it is the topic every package page links to and
 was authored, never independently reviewed; `unicode` because it is the
-smallest spec package (3 files, 508 lines) and can absorb a tooling mistake.
+smallest spec package (3 files, ~~508~~ **571** lines) and can absorb a tooling
+mistake.
 
-- [ ] Iteration 1 on `color` (1 unit) and `variable` (1 unit): my pass →
+> **STOPPED MID-PHASE, 2026-09-12, by explicit user instruction: the Codex
+> account is at its usage limit.** Every reviewer run in plan-125 goes through
+> `codex exec`, so no further unit of any letter can run until that resets.
+> This is a stand-down, not a plan defect — Phases 1–4 are complete and
+> committed, and the state below is exactly where a resumed session picks up.
+
+- [x] Iteration 1 on `color` (1 unit) and `variable` (1 unit): my pass →
       Codex → apply. Record the ledger (finding / verdict / evidence /
-      disproving command for every rejection).
-- [ ] Iteration 2 on all 30 `color` pages and both `variable` pages
+      disproving command for every rejection). **3 findings, 3 confirmed by
+      probe, 3 applied** — see the ledger in §5.9 below. Commit `8ba8f8c5a`.
+- [~] Iteration 2 on all 30 `color` pages and both `variable` pages
       (`package.md` is the only file; 1 page) — 31 units through the harness
       at `N=6`. Every example compiled and run. Record wall-clock per unit.
+      **30 of 31 units REVIEWED** (all 30 `color` pages: 28 functions +
+      overview + types), `exit 0`, `clean`, findings committed under
+      `planning/plan-125-findings/A-iter2/`. **Remaining: (a) the 31st unit
+      `man-topic-page:variable/package` has no manifest row — `--reconcile`
+      reports it `MISSING`, exit 1; (b) NONE of the 30 findings files has been
+      triaged or applied yet.** Wall-clock is recorded below and is measured.
 - [ ] Iteration 3 on `color` and `variable` (2 units): the re-integration
       lens. Record whether its findings are seams or facts (§3.2's success
       test for iteration 2).
 - [ ] The same three iterations on the `unicode` spec package (1 + 3 + 1 = 5
-      units), including `--citations` before and after.
-- [ ] Record in this file, as a table: **units, wall-clock, findings raised,
+      units), including `--citations` before and after. **My own pass is done**
+      and already produced one finding (C-10, a tooling defect, fixed); the
+      package's baseline is `MISS-SYMBOL 1`, `MISS-PATH 0`, `MISS-LINE 0`,
+      `--links` 17/17 resolving, 2 code fences both tagged `text`. No Codex
+      unit has run.
+- [~] Record in this file, as a table: **units, wall-clock, findings raised,
       findings confirmed, findings rejected — per iteration, per surface.**
       These numbers size letters B–N; if the per-unit cost is more than 2× the
-      estimate, re-batch C–F and J–L before starting them.
-- [ ] Record the Codex banner (`codex --version` and the model it reports) for
-      the pilot, as plan-108 did.
-- [ ] Sweep the pilot's changes: `./scripts/man-census.sh --memory-scope color`
+      estimate, re-batch C–F and J–L before starting them. **Filled for man
+      iterations 1 and 2 below; iteration 3 and the whole spec surface are
+      still blank, and the re-batch decision cannot be taken until they are.**
+- [x] Record the Codex banner (`codex --version` and the model it reports) for
+      the pilot, as plan-108 did. `OpenAI Codex v0.153.0`, model
+      `gpt-5.6-terra`, on every one of the 32 runs made so far.
+- [~] Sweep the pilot's changes: `./scripts/man-census.sh --memory-scope color`
       and `--scope color` → 0 unclassified;
       `./scripts/spec-census.sh --citations unicode` → 0 `MISS-*`.
-- [ ] `--reconcile` clean for every pilot unit.
+      **man side done and green** (both `color` sweeps are 0 after the
+      iteration-1 edits; `variable`'s 10 code blocks all build and run).
+      **Spec side not met and not yet attempted**: `unicode` still reports
+      `MISS-SYMBOL 1`, the C-10 comment-only citation, which is a *claim* to
+      re-verify rather than a link to re-point.
+- [~] `--reconcile` clean for every pilot unit. **`A-iter1` clean (2/2).
+      `A-iter2` NOT clean: 1 unit missing of 31.**
+
+#### Measured cost so far
+
+| Iteration | Surface | Units run | Wall-clock | Findings raised | Confirmed | Rejected |
+|---|---|---|---|---|---|---|
+| 1 | man | 2 | 83s + 108s | 3 | 3 | 0 |
+| 2 | man | 30 | 64–202s per unit, median ~109s; 31 units at `N=6` ≈ 11 min wall | 30 files, not yet triaged | — | — |
+| 3 | man | 0 | — | — | — | — |
+| 1–3 | spec | 0 | — | — | — | — |
+
+Per-unit cost for man iteration 2 is **~109s median**, comfortably inside the
+estimate, so on this evidence C–F do **not** need re-batching — but that
+decision is deliberately left OPEN until iteration 3 and the spec surface have
+measured numbers too, because the plan ties it to all three.
 
 Acceptance: 36 pilot units all present in the manifest with `exit 0`, no
 `FAILED`, no `DIRTY`; the per-iteration cost table is filled with measured
 numbers; `color`, `variable` and `unicode` are through all three iterations
 with their ledgers recorded here; `git diff` on the pilot commits shows
 string-literal and markdown changes only.
+
+**NOT MET — 32 of 36 pilot units have run.** No `FAILED` and no `DIRTY` among
+them, and `git diff` on the pilot commits is string-literal and markdown only,
+but the acceptance needs all 36 and the cost table needs iteration 3 and the
+spec surface. Blocked on the Codex usage limit (see the note at the top of this
+phase), not on anything in the repository.
+
+#### Resuming this phase
+
+In order, and nothing here needs re-deriving:
+
+1. Triage the 30 `planning/plan-125-findings/A-iter2/*.md` files on the main
+   thread. Confirm each against the code or a probe before applying; record
+   every rejection **with the disproving command**. These reviews are already
+   paid for — do not re-run them.
+2. Run the missing 31st unit:
+   `./scripts/doc-review-fanout.sh --letter A-iter2 --units planning/plan-125-units/A-iter2.txt --prompt planning/plan-125-prompts/man-iter2-page.txt --jobs 6`
+   (already-completed units are re-run by this command; to run only the
+   missing one, pass a one-line unit file — reconcile reads the LAST manifest
+   row per unit, so either is correct).
+3. `--reconcile` must exit 0 for `A-iter2`.
+4. Iteration 3: units `man-pkg:color` and `man-topic:variable`, prompt
+   `man-iter3-package.txt`.
+5. The `unicode` spec pilot: iteration 1 (`spec-pkg:unicode`), iteration 2
+   (`spec-file:unicode/00_*.md` … one per file, 3 units), iteration 3
+   (`spec-pkg:unicode`), with `--citations unicode` before and after. Its C-10
+   citation is a claim to re-verify, not a link to re-point.
+6. Fill the cost table, then take the C–F/J–L re-batch decision.
 Commit: —
 
 ## 5. The reviewer prompts
@@ -1024,11 +1094,16 @@ Work through all of:
 
 ## Render the page
 
-    {{MFB}} man {{TARGET}}
+`{{TARGET}}` is `<pkg>/<page>`. Render exactly the one page it names:
 
-(For a `man-page:<pkg>/<fn>` unit run `{{MFB}} man <pkg> <fn>`; for
-`man-page:<pkg>/types` run `{{MFB}} man <pkg> types`; for a `man-topic-page`
-unit render the topic and read the named page.)
+| `{{TARGET}}` | Command |
+|---|---|
+| `<pkg>/overview` | `{{MFB}} man <pkg>` |
+| `<pkg>/types` | `{{MFB}} man <pkg> types` |
+| `<pkg>/<fn>` | `{{MFB}} man <pkg> <fn>` |
+| `<topic>/<page>` (`man-topic-page`) | `{{MFB}} man <topic> --all`, then read the named page |
+
+Review **only that page**. Its siblings are other units, reviewed separately.
 
 ## Verification duty
 
@@ -1726,6 +1801,29 @@ followed by one paragraph naming the commands you ran across the artifact.
 
 <!-- END GENERATED PROMPTS -->
 
+### 5.9 Pilot ledger — man iteration 1
+
+Three findings, three confirmed, none rejected. Every confirmation is a command
+that was run, not a reading.
+
+| # | Unit | Finding | Verdict | Confirming evidence | Applied |
+|---|---|---|---|---|---|
+| 1 | `man-pkg:color` | The 16 public `color::black`…`color::orange` constants appear on no rendered page | **CONFIRMED** | `src/codegen/builtins/color/constants.rs:BASIC` registers 16 via `pkg.add_constant`; `./target/release/mfb man color --all \| grep -c 'color::black\|color::orange'` → `0` | `MODULE_DESC` gains the list, the `green`=`#008000` trap, and the `gray` dual spelling |
+| 1a | `man-pkg:color` | *(found while confirming #1)* `color::gray` is both a constant and a function | **CONFIRMED** | probe: `LET c = color::gray` → `#808080`; `LET d = color::gray(64)` → `#404040`; both compile in one program | documented in the same paragraph |
+| 2 | `man-topic:variable` | "`WITH` is the only way to update a record's fields" is stated unconditionally; the `STATE` payload is an exception the topic never mentions | **CONFIRMED** | `mfb spec language types` §: "The one exception is a `RES` binding's `STATE` payload"; probe: `f.state.pos = 7` compiles and prints `7` | claim qualified, and a worked `STATE` section added that builds and runs |
+| 3 | `man-topic:variable` | "handed to **another thread** — and the rules above hold in every one of those places … closed once, when the scope that holds it ends" | **CONFIRMED** | `mfb man thread transfer`: "This call takes the handle: on success you cannot use it again" — the sending binding is closed by the call, not at scope end | thread transfer split out as the stated exception, with the cross-link |
+
+**Rejections: none.** Had there been one, this table would carry the command
+that disproved it, per §3.3 step 3.
+
+**Note on finding 3's own evidence.** The reviewer cited
+`src/codegen/engine/control/builder_control.rs::emit_state_assign` for finding
+2's implementation; `grep -n 'emit_state_assign' src/codegen/engine/control/builder_control.rs`
+returns nothing, so that citation is wrong. The finding is still correct — the
+spec citation and the probe both hold. Recorded because a reviewer's evidence
+is itself a claim, and accepting a finding is not the same as accepting every
+line of its justification.
+
 ## Validation Plan
 
 - **Tests**: none for man prose (Non-goals). For any spec letter:
@@ -1959,6 +2057,30 @@ runs long, round-robin still hands the next unit to its worktree, so two
 each sees the other's files in `git status`. The `DIRTY` check would report
 noise and the reset would wipe a live run's scratch. Slots are now released by
 PID.
+
+### C-10 (Phase 5) — a citation can be stale-by-DELETION and still grep as a move
+
+The `ELSEWHERE` column that splits the two rot classes was a plain text grep
+over `*.rs`, and a text grep cannot tell an **item** from a **mention** of one.
+
+Found on the `unicode` pilot. `unicode/01_tables-and-algorithms.md:17` cites
+`[[src/codegen/builtins/strings/gen_strings_support.rs:static_strings_package_string]]`
+for the compile-time-folding claim. That symbol is **not an item anywhere**:
+`grep -rn 'static_strings_package_string' src/ --include='*.rs'` returns
+exactly two hits, both inside `//` comment text
+(`src/codegen/memory/value/builder_value_semantics.rs:1065` and
+`src/codegen/builtins/tests/strings_fold.rs:10`). The live entry point the
+`strings::` `func_*` lowerings actually consult is `static_string_value_vr`
+(`src/codegen/memory/value/builder_value_semantics.rs:1012`).
+
+Reported as stale-by-**move**, the prescribed repair is to re-point the path —
+at a comment. That ratifies a sentence about a symbol that no longer exists,
+which is exactly the failure the two-class split was built to prevent, arriving
+through the instrument that was supposed to prevent it.
+
+`symbol_exists_anywhere` now returns three states, and `comment-only` is
+counted with the deletions and labelled separately so a reader can see why the
+plain grep disagrees. Whole-surface split moves **49/13 → 48/14**.
 
 ### C-7 (Phase 1) — the spec is bigger than the plan measured
 

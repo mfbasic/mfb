@@ -48,11 +48,16 @@ Work through all of:
 
 ## Render the page
 
-    {{MFB}} man {{TARGET}}
+`{{TARGET}}` is `<pkg>/<page>`. Render exactly the one page it names:
 
-(For a `man-page:<pkg>/<fn>` unit run `{{MFB}} man <pkg> <fn>`; for
-`man-page:<pkg>/types` run `{{MFB}} man <pkg> types`; for a `man-topic-page`
-unit render the topic and read the named page.)
+| `{{TARGET}}` | Command |
+|---|---|
+| `<pkg>/overview` | `{{MFB}} man <pkg>` |
+| `<pkg>/types` | `{{MFB}} man <pkg> types` |
+| `<pkg>/<fn>` | `{{MFB}} man <pkg> <fn>` |
+| `<topic>/<page>` (`man-topic-page`) | `{{MFB}} man <topic> --all`, then read the named page |
+
+Review **only that page**. Its siblings are other units, reviewed separately.
 
 ## Verification duty
 

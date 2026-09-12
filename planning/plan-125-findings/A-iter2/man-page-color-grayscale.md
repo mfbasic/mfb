@@ -1,0 +1,7 @@
+### 1. Quantisation and return semantics omitted
+
+UNIT:      man-page:color/grayscale  
+CLAIM:     "`grayscale` sets every colour channel to the colour's relative luminance, so the result is a neutral grey that looks as bright as the original did."  
+VERDICT:   wrong  
+EVIDENCE:  `src/codegen/builtins/color/func_grayscale.rs:__color_grayscale` computes an integer linear-light luminance, then calls `color::fromLinear`, which selects the nearest representable sRGB byte (`src/codegen/builtins/color/func_from_linear.rs:__color_fromLinear`). The probe at `/tmp/plan-125-scratch/A-iter2/man-page-color-grayscale/src/main.mfb` printed `FALSE` for both `luminance(green) = luminance(grayscale(green))` and the equivalent blue comparison; it printed `#dcdcdc11`, `#4c4c4c12`, `0.72`, `0.72`, `0.07`, `0.07`, `FALSE`, `FALSE`. The displayed decimals conceal the small difference. The exact rendered examples compiled and ran: green/blue printed `#dcdcdc` and `#4c4c4c`; idempotence printed `#6b6b6b` twice.  
+SUGGESTED: "`grayscale` returns a new neutral grey: its red, green, and blue channels are the nearest representable sRGB encoding of the input's relative luminance. Alpha is unchanged. Because colour channels are bytes, the result can differ slightly in luminance from the original."
