@@ -156,8 +156,11 @@ END SUB
 p.x = 1, q.x = 50
 ```
 
-`q` started as a copy of `p`, so updating `q` left `p` alone. `WITH` is the
-only way to update a record's fields.
+`q` started as a copy of `p`, so updating `q` left `p` alone. For an ordinary
+record value, `WITH` is the only way to update its fields — `q.x = 50` as a
+statement is rejected, because `=` also spells equality and such a line would
+otherwise compare and silently throw the result away. A `RES` handle's `STATE`
+payload is the one exception, and it has its own form; see below.
 
 ## The exception: RES handles
 
@@ -236,9 +239,16 @@ released *earlier* than the end of its scope.
 ## Where a handle can live
 
 A handle is not only a local binding. It can be a **field of a record** and an
-**element of a collection**, and it can be handed to **another thread** — and
-the rules above hold in every one of those places: the handle is still an alias,
-and it is still closed once, when the scope that holds it ends.
+**element of a collection** — and in both of those the rules above hold: the
+handle is still an alias, and it is still closed once, when the scope that holds
+it ends.
+
+Handing a handle to **another thread** is the one place they do not.
+`thread::transfer` takes the handle: on success the sending name cannot be used
+again, and the handle is closed by the call rather than at the end of its scope.
+`thread::accept` produces the same open thing at the other end, so there is
+still exactly one, and still exactly one close — it just happens somewhere else.
+See `mfb man thread transfer`.
 
 A record with a `RES` field is built the same way as any other record, with the
 positional `Type[...]` form:
@@ -297,6 +307,36 @@ The list closes each of them once, at the end of the scope that holds the list.
 Crossing a thread is the one shape that is not available to every handle. Each
 resource type page says which it is — `mfb man fs types`, `mfb man tcp types`
 and so on — and `mfb man thread` describes the resource channel that carries it.
+
+## A handle can carry its own data: STATE
+
+A `RES` binding may carry a data value alongside the open thing, written with
+`STATE`. That value is an ordinary copyable record, and it is the one place a
+field is updated by assignment rather than with `WITH`:
+
+```basic
+IMPORT io
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+SUB main()
+  fs::writeText("/tmp/variable-state.txt", "notes")
+  RES f AS fs::File STATE Cursor = fs::open("/tmp/variable-state.txt", "read")
+  f.state.pos = 7
+  io::print("at " & toString(f.state.pos))
+END SUB
+```
+
+```
+at 7
+```
+
+`f.state = value` replaces the whole payload; `f.state.field = value` updates
+one field of it. The payload starts at its default value, travels with the
+handle, and goes away when the handle does.
 
 ## What goes away, and when
 

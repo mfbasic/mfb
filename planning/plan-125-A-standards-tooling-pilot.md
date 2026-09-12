@@ -808,7 +808,7 @@ block is empty.
 **MET** — `ls planning/plan-125-prompts/` → 8 files;
 `./scripts/plan-125-prompts-sync.sh --check` → `§5 matches all 8 prompt files`,
 exit 0.
-Commit: —
+Commit: `281b4ae50`
 
 ### Phase 5 — Pilot: `color`, the `variable` topic, and the `unicode` spec package
 

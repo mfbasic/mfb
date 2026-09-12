@@ -127,7 +127,21 @@ all-zero colour is therefore fully transparent.
 a colour travels through an API that carries one number.
 
 Text forms use `color::fromHex` and `color::toHex`/`color::toHexAlpha`.
-`toString` on a colour renders the lossless `#rrggbbaa` form."#;
+`toString` on a colour renders the lossless `#rrggbbaa` form.
+
+**Sixteen basic colours are ready to use by name**, each fully opaque, written
+`color::<name>` with no call parentheses:
+
+`black`, `white`, `red`, `green`, `blue`, `yellow`, `cyan`, `magenta`, `gray`,
+`silver`, `maroon`, `olive`, `navy`, `teal`, `purple`, `orange`.
+
+These are the CSS basic colours, so `color::green` is `#008000` — **a dark
+green**. The vivid green most people picture is CSS `lime`, reached with
+`color::fromName("lime")`. The constant follows CSS because
+`color::fromName("green")` has to agree with it.
+
+`color::gray` reads two ways and both are correct: on its own it is the constant
+`#808080`, and `color::gray(level)` is the function that builds any neutral grey."#;
 
 /// Register the `color` package on the clean-room registry.
 ///
