@@ -14,13 +14,17 @@ mod reader;
 mod sections;
 #[cfg(test)]
 mod tests;
-mod util;
 mod writer;
 
 use builder::*;
 use reader::*;
 use sections::*;
-use util::*;
+// plan-126-B: the byte primitives that were `util.rs` now live in `mfb_wire`,
+// the one crate both this one and `mfb_repository` may depend on. Re-exported
+// by glob here rather than imported at each call site: `reader.rs`,
+// `writer.rs`, `sections.rs` and `builder.rs` all open with `use super::*;`,
+// so this single line reaches all ~200 call sites and none of them changed.
+pub(crate) use mfb_wire::bytes::*;
 
 // bug-340 B8: the `.mfp` container is the wire format `binary_repr` owns. The
 // manifest-layer header reader (`manifest::package::read_mfp_header`) shares its
@@ -77,9 +81,8 @@ const SECTION_PACKAGE_META: u16 = 18;
 /// additive within the container.
 const PACKAGE_META_FIELD_DESCRIPTION: u16 = 1;
 
-/// MFPC container major version. Bumped to 2 for the clean break to the
-/// structured Binary Representation payload — the reader rejects the old flat (v1) layout.
-const MFPC_MAJOR_VERSION: u16 = 2;
+// `MFPC_MAJOR_VERSION` moved to `mfb_wire::bytes` with `encode_sections`, which
+// stamps it (plan-126-B); it arrives here through the glob re-export above.
 
 /// The 8-byte `.mfp` container magic (plan-23 §4). The single home shared by this
 /// crate's `mfp_binary_repr_payload` and the manifest layer's `read_mfp_header`,
@@ -97,7 +100,9 @@ pub(crate) const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a,
 /// precisely, per symbol, by `validate_abi_index` recomputing it from the function
 /// table. Bump this only for an actual ABI_INDEX layout change.
 const ABI_FORMAT_VERSION: u16 = 1;
-const ABI_HASH_LEN: usize = 32;
+// `ABI_HASH_LEN` moved to `mfb_wire::bytes` with `hash_bytes`/`cursor_hash`/
+// `hex_hash`, which are typed on it (plan-126-B); it arrives here through the
+// glob re-export above.
 
 pub(crate) const TYPE_NOTHING: u32 = 1;
 pub(crate) const TYPE_BOOLEAN: u32 = 2;
@@ -1130,7 +1135,5 @@ struct Cleanup {
     flags: u32,
 }
 
-struct Section {
-    id: u16,
-    data: Vec<u8>,
-}
+// `Section` moved to `mfb_wire::bytes` with `encode_sections`, its only
+// consumer (plan-126-B); it arrives here through the glob re-export in mod.rs.

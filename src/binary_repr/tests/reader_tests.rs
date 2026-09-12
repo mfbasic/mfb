@@ -600,3 +600,85 @@ fn abi_serializer_rejects_deep_acyclic_type_chain() {
     .expect_err("deep chain must be rejected, not overflow the stack");
     assert!(err.contains("too deep"), "unexpected error: {err}");
 }
+
+// ---------------------------------------------------------------------------
+// Section 18 (PACKAGE_META) codec. These three tests were in `util_tests.rs`,
+// which covered the byte primitives — but `encode_package_meta` /
+// `read_package_meta` live in `reader.rs`, not in the primitives, so they were
+// misfiled. plan-126-B moved the primitives (and their tests) to `mfb_wire`
+// and left these behind here, where the code they cover actually lives.
+// ---------------------------------------------------------------------------
+
+/// plan-61-D Phase 2: section 18 round-trips, and is **omitted entirely**
+/// when there is no description — an empty section would change the bytes
+/// of every package that has none, which is the thing this design exists to
+/// avoid.
+#[test]
+fn package_meta_section_round_trips_and_is_omitted_when_empty() {
+    assert!(
+        encode_package_meta("").is_none(),
+        "no description means no section at all, not an empty one",
+    );
+
+    let encoded = encode_package_meta("A demo package.").expect("a description encodes");
+    assert_eq!(read_package_meta(&encoded).unwrap(), "A demo package.");
+
+    // UTF-8 survives, and the cap is counted in *bytes*, not characters.
+    let unicode = "描述 — naïve café 🎵";
+    let encoded = encode_package_meta(unicode).unwrap();
+    assert_eq!(read_package_meta(&encoded).unwrap(), unicode);
+}
+
+/// Unknown field ids inside section 18 are **skipped**, not rejected. That
+/// is what makes a later field (`license`, `keywords`) additive within the
+/// section, exactly as the section itself is additive within the container.
+#[test]
+fn an_unknown_package_meta_field_id_is_skipped_not_rejected() {
+    let mut bytes = Vec::new();
+    put_u32(&mut bytes, 3); // three fields
+                            // An unknown id *before* the description, so a reader that bailed on
+                            // the first unknown field would never reach the value it does know.
+    put_u16(&mut bytes, 999);
+    put_u32(&mut bytes, 5);
+    bytes.extend_from_slice(b"skipme");
+    // ...that was 6 bytes declared as 5, so trim to keep the frame honest.
+    bytes.truncate(bytes.len() - 1);
+    put_u16(&mut bytes, PACKAGE_META_FIELD_DESCRIPTION);
+    put_u32(&mut bytes, 4);
+    bytes.extend_from_slice(b"real");
+    // And an unknown id *after* it too.
+    put_u16(&mut bytes, 1000);
+    put_u32(&mut bytes, 2);
+    bytes.extend_from_slice(b"xy");
+
+    assert_eq!(
+        read_package_meta(&bytes).unwrap(),
+        "real",
+        "unknown field ids must be skipped on both sides of a known one",
+    );
+}
+
+/// The 4096-byte cap is re-checked at section-read time, not trusted from
+/// manifest validation — a hand-built payload never went through the
+/// manifest.
+#[test]
+fn an_over_cap_description_is_rejected_at_read_time() {
+    let mut bytes = Vec::new();
+    let oversized = "x".repeat(crate::manifest::MAX_DESCRIPTION_BYTES + 1);
+    put_u32(&mut bytes, 1);
+    put_u16(&mut bytes, PACKAGE_META_FIELD_DESCRIPTION);
+    put_u32(&mut bytes, oversized.len() as u32);
+    bytes.extend_from_slice(oversized.as_bytes());
+
+    let err = read_package_meta(&bytes).unwrap_err();
+    assert!(err.contains("exceeds the 4096 byte limit"), "{err}");
+
+    // A field claiming more bytes than the section holds is truncation, not
+    // a cap violation, and must not read past the end.
+    let mut bytes = Vec::new();
+    put_u32(&mut bytes, 1);
+    put_u16(&mut bytes, PACKAGE_META_FIELD_DESCRIPTION);
+    put_u32(&mut bytes, 100);
+    bytes.extend_from_slice(b"short");
+    assert!(read_package_meta(&bytes).is_err());
+}

@@ -1855,6 +1855,7 @@ dependencies = [
  "image",
  "libc",
  "mfb_repository",
+ "mfb_wire",
  "ring",
  "rusqlite",
  "serde_json",
@@ -1880,6 +1881,7 @@ dependencies = [
  "hex",
  "jsonwebtoken",
  "maud",
+ "mfb_wire",
  "rand 0.8.6",
  "rand_core 0.6.4",
  "reqwest",
@@ -1891,6 +1893,13 @@ dependencies = [
  "tokio",
  "tower 0.4.13",
  "uuid",
+]
+
+[[package]]
+name = "mfb_wire"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
 ]
 
 [[package]]

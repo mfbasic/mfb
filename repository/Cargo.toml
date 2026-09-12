@@ -39,6 +39,11 @@ jsonwebtoken = "9.3"
 # interpolation is a place to forget. Its whole tail is `itoa` plus proc-macro
 # crates already in the tree.
 maud = "0.27"
+# plan-126-B: the shared byte primitives and `.mfp`/MFPC framing. Depending on
+# it is what lets this crate stop restating the compiler's constants — see the
+# dependency rule in `wire/src/lib.rs`. It is `sha2`-only, so it adds nothing
+# to the deploy image beyond what is already here.
+mfb_wire = { path = "../wire" }
 rand = "0.8"
 rand_core = "0.6"
 # `rustls-tls` lets the package client reach https registries and, in S3 mode,

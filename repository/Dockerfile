@@ -22,11 +22,18 @@ RUN apt-get update \
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY repository/Cargo.toml ./repository/
+COPY wire/Cargo.toml ./wire/
 # `mfb` is a workspace member, so cargo must be able to resolve its manifest —
 # but it is never built here. A stub target satisfies the resolver without
 # copying the compiler source into the image, which also keeps an edit to
 # src/ from invalidating the dependency build below.
+#
+# `wire` (mfb_wire, plan-126-B) gets no such stub: unlike `mfb` it is a real
+# dependency of `mfb_repository`, so it is copied and compiled for real. It is
+# `sha2`-only by design — see `wire/src/lib.rs` — precisely so that being in
+# this image costs nothing.
 RUN mkdir -p src && printf 'fn main() {}\n' > src/main.rs
+COPY wire/src ./wire/src
 COPY repository/src ./repository/src
 # --locked: build the exact versions the root lock pins and CI tests. A lock
 # that cannot satisfy the manifest fails the deploy loudly instead of silently

@@ -210,52 +210,72 @@ external consumer sees.
 
 Proves the riskiest unknown (the Docker build) before any code moves.
 
-- [ ] Create `wire/Cargo.toml` (`name = "mfb_wire"`, edition 2021, `sha2 = "0.10"`,
+- [x] Create `wire/Cargo.toml` (`name = "mfb_wire"`, edition 2021, `sha2 = "0.10"`,
       and the same `[lints.clippy] items_after_test_module = "deny"` both existing
       crates carry) and `wire/src/lib.rs` with a crate doc stating the dependency
       rule: `mfb_wire` depends on neither sibling; both siblings depend on it.
-- [ ] Add `"wire"` to `[workspace] members` **and** `default-members` in the root
+      The crate doc also names the three prose apologies this crate retires and
+      records the bug-340 B8 rule that sharing primitives is not merging policies.
+- [x] Add `"wire"` to `[workspace] members` **and** `default-members` in the root
       `Cargo.toml`, so a bare `cargo test` still means the whole workspace
       (the reason bug-347 named both).
-- [ ] Add `mfb_wire = { path = "../wire" }` to `repository/Cargo.toml` and
+- [x] Add `mfb_wire = { path = "../wire" }` to `repository/Cargo.toml` and
       `mfb_wire = { path = "wire" }` to the root `Cargo.toml`.
-- [ ] Add `COPY wire/Cargo.toml ./wire/` beside the existing `COPY
-      repository/Cargo.toml` and `COPY wire/src ./wire/src` beside `COPY
-      repository/src` in `repository/Dockerfile` (lines 23-29). Leave the `mfb` stub
-      at `:28` in place and extend its comment to say the third member is built for
-      real.
-- [ ] Correct `.ai/build-tooling.md:21`: the root `[workspace]` table exists
-      (bug-347); state which crates `cargo fmt --all` now reaches and that
-      `repository/` keeps its own pass per AGENTS.md.
+- [x] Add `COPY wire/Cargo.toml ./wire/` and `COPY wire/src ./wire/src` to
+      `repository/Dockerfile`. The `mfb` stub stays, and its comment now says
+      why `wire` gets no stub: unlike `mfb` it is a real dependency of
+      `mfb_repository`, so it is compiled for real.
+- [x] Correct the stale workspace claim in `.ai/build-tooling.md` — but **not**
+      as the plan predicted. See Corrections: the claim that `cargo fmt --all`
+      does not reach `repository/` is *also* false now, which I established by
+      probe rather than by assuming the surrounding text was right.
 
-Acceptance: `docker build -f repository/Dockerfile .` from the repository root
-succeeds and the resulting image contains `mfb-repo`; `rustup run 1.96.0 cargo
-metadata --no-deps --format-version 1` reports 3 workspace members.
+Acceptance: MET.
+`rustup run 1.96.0 cargo metadata --no-deps --format-version 1` → **3** workspace
+members (`mfb`, `mfb_repository`, `mfb_wire`).
+`docker build --load -f repository/Dockerfile -t mfb-repo-p126:test .` → exit 0,
+with `Compiling mfb_wire v0.1.0 (/build/wire)` then `Compiling mfb_repository`
+inside the builder stage (so the third member is genuinely compiled, not
+stubbed), and `docker run --entrypoint /usr/local/bin/mfb-repo mfb-repo-p126:test`
+prints the real usage banner. Note a bare `docker build` under a buildx driver
+does **not** load the image into the local store — `--load` is required before
+`docker run` can see it, which is why the first verification attempt reported
+"Unable to find image".
 Commit: —
 
 ### Phase 2 — Move the byte primitives
 
-- [ ] Move `src/binary_repr/util.rs` to `wire/src/bytes.rs` verbatim, changing only
-      `pub(super)` → `pub` and replacing `use super::*;` with explicit imports.
-- [ ] Move `ABI_HASH_LEN` (`src/binary_repr/mod.rs:100`) and `Section`
-      (`src/binary_repr/mod.rs:1133-1136`) into `wire/src/bytes.rs`, since
+- [x] Move `src/binary_repr/util.rs` to `wire/src/bytes.rs` (via `git mv`, so the
+      rename is visible in history), changing only `pub(super)` → `pub` on all 29
+      items and replacing `use super::*;` with an explicit
+      `use sha2::{Digest, Sha256};`. Added a module doc naming the three guard
+      classes that run through the file (`checked_add` per PKG-07,
+      `checked_usize`, `bounded_capacity` per PKG-05) — they were unexplained at
+      the file level and each one is a rejected `.mfp` away from a crash.
+- [x] Move `ABI_HASH_LEN` and `Section` into `wire/src/bytes.rs`, since
       `hash_bytes`, `cursor_hash`, `hex_hash` and `encode_sections` need them.
-- [ ] In `src/binary_repr/mod.rs`, delete `mod util;` / `use util::*;` and add
-      `pub(crate) use mfb_wire::bytes::*;`. Verify the four submodules
-      (`reader.rs:1`, `writer.rs:1`, `sections.rs:1`, `builder.rs:1`) still resolve
-      via their existing `use super::*;` — **no call site should need editing.**
-- [ ] Move the 17 tests from `src/binary_repr/tests/util_tests.rs` (274 lines) into
-      `wire/src/bytes.rs`'s own test module, so the primitives are tested where they
-      live. Delete the now-empty file and its `mod util_tests;` line in
-      `src/binary_repr/tests/mod.rs`.
-- [ ] Check the deletion did not orphan a doc comment onto a neighbouring item in
-      `src/binary_repr/mod.rs` and `tests/mod.rs`.
+      **Also `MFPC_MAJOR_VERSION`**, which `encode_sections` stamps — the plan
+      missed it. See Corrections.
+- [x] In `src/binary_repr/mod.rs`, delete `mod util;` / `use util::*;` and add
+      `pub(crate) use mfb_wire::bytes::*;`. Verified the four submodules still
+      resolve via their existing `use super::*;`.
+- [x] Move the tests from `src/binary_repr/tests/util_tests.rs` into
+      `wire/src/bytes.rs`'s own test module. **14 of the 17 moved, not all 17** —
+      three were misfiled in that file and stayed in the compiler. See
+      Corrections. Deleted the file and its `mod util_tests;` line.
+- [x] Check the deletion did not orphan a doc comment onto a neighbouring item in
+      `src/binary_repr/mod.rs` and `tests/mod.rs`. Each of the three removed
+      definitions was replaced by a `//` note saying where it went, so no doc
+      comment was left dangling above an unrelated item.
 
-Acceptance: `rustup run 1.96.0 cargo test --no-fail-fast` passes with the 17 tests
-now reported under `mfb_wire`; `git diff --stat` shows **zero** changes under
-`src/binary_repr/{reader,writer,sections,builder}.rs` — if any of those four files
-needed an edit, the glob re-export is wrong and should be fixed rather than
-worked around.
+Acceptance: MET, and the stronger half of it exactly.
+`rustup run 1.96.0 cargo test -p mfb_wire --no-fail-fast` → **14 passed**, all
+reported as `bytes::tests::*` under `mfb_wire`.
+`rustup run 1.96.0 cargo test --bin mfb --no-fail-fast binary_repr` →
+**171 passed; 0 failed**.
+`git diff --stat HEAD -- src/binary_repr/{reader,writer,sections,builder}.rs`
+prints **nothing**: zero changes to all four. The glob re-export reached every
+one of the ~200 call sites (`cursor_u32` alone has 128) with no call-site edit.
 Commit: —
 
 ### Phase 3 — Move the MFP framing (largest blast radius)
@@ -334,8 +354,58 @@ Commit: —
 
 ## Corrections
 
-<!-- Fill in during execution. In particular: if the two signature-header rules turn
-     out to disagree (Phase 3, task 2), record the difference and which one won. -->
+- **`MFPC_MAJOR_VERSION` had to move with `Section` and `ABI_HASH_LEN`, and the
+  plan did not list it.** `encode_sections` stamps it into every container it
+  frames (`grep -n "MFPC_MAJOR_VERSION" wire/src/bytes.rs`), so moving
+  `encode_sections` without it does not compile. It sits in `bytes.rs` with a
+  note that plan-126-C relocates it to the `mfpc` module alongside the section
+  ids and the section-table *reader*. This also partly answers B's second Open
+  Decision in the affirmative: `Section` and `encode_sections` will want to
+  follow it into `mfpc.rs` in C.
+
+- **Only 14 of `util_tests.rs`'s 17 tests belonged in `mfb_wire`.** The file's own
+  banner said it covered "util.rs — low-level cursor readers, capacity guards,
+  section framing", but three of its tests —
+  `package_meta_section_round_trips_and_is_omitted_when_empty`,
+  `an_unknown_package_meta_field_id_is_skipped_not_rejected` and
+  `an_over_cap_description_is_rejected_at_read_time` — exercise
+  `encode_package_meta` / `read_package_meta`, the MFPC **section-18** codec that
+  lives in `reader.rs` and is staying in the compiler. Moving them made
+  `mfb_wire` fail to compile (`cannot find function encode_package_meta`,
+  `cannot find manifest in crate` — the third reaches
+  `crate::manifest::MAX_DESCRIPTION_BYTES`), which is how they were caught. They
+  now live in `src/binary_repr/tests/reader_tests.rs` (32 → 35 tests) under a
+  banner recording that they were misfiled. So the split is 14 moved / 3
+  relocated within the compiler, not 17 moved.
+
+- **The `.ai/build-tooling.md` correction is bigger than the plan described.**
+  The plan said to fix the "there is no `[workspace]` table" claim and to
+  restate that `repository/` keeps its own `cargo fmt` pass. The second half is
+  no longer true either: with `repository/` a workspace *member* (bug-347),
+  `cargo fmt --all` reaches it. Measured rather than assumed — appended
+  `pub fn probe_fmt(   )->u8{1}` to both `repository/src/validation.rs` and
+  `wire/src/lib.rs`, ran `cargo fmt --all`, and **both** were reformatted; the
+  probes were then removed and `git diff --stat` confirmed clean. The doc now
+  says the second pass is redundant-but-harmless, and warns that the real
+  present-day trap is the opposite one: `--all` reformats *other sessions'*
+  files in a shared checkout, so `git diff --stat` afterwards is mandatory.
+  AGENTS.md's two-pass command is left alone — it is still correct, just no
+  longer necessary.
+
+- **There are three `.mfp` fixed-prefix decoders, not two.** § Current State
+  tabulates the manifest reader and the registry reader. A third exists:
+  `mfp_binary_repr_payload` (`grep -n "fn mfp_binary_repr_payload"
+  src/binary_repr/reader.rs`), which decodes the same prefix with *no* per-field
+  byte limits, using `read_length_prefixed` / `skip_length_prefixed` — already
+  shared primitives, so Phase 2 covered it for free. It is a third policy, not a
+  third copy, and the bug-340 B8 note's "the two full decoders" wording
+  undercounts. Phase 3 must not fold it in either.
+
+- **Populations re-measured 2026-09-12** (plan figures in parentheses): committed
+  `.mfp` fixtures **160** (159); `util.rs` **29** `pub(super) fn` converted — the
+  plan's 28 counted `^pub(super) fn` and missed the one inside `impl Section`.
+  `abi.rs` is now **1,488 lines / 29 tests** (1,063 / 21), which matters for
+  plan-126-C rather than here.
 
 ## Summary
 
