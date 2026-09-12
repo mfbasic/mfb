@@ -745,20 +745,24 @@ impl Store {
             }
         })?;
         let owner_id = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'auth', ?2, ?3, 'current', ?4, NULL)",
-            params![owner_id, auth_key, auth_fingerprint, now],
-        )
-        .map_err(|err| format!("failed to register auth key: {err}"))?;
-        let auth_key_id = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'ident', ?2, ?3, 'current', ?4, NULL)",
-            params![owner_id, ident_key, ident_fingerprint, now],
-        )
-        .map_err(|err| format!("failed to register ident key: {err}"))?;
-        let ident_key_id = tx.last_insert_rowid();
+        let auth_key_id = insert_key_tx(
+            &tx,
+            owner_id,
+            KEY_ROLE_AUTH,
+            auth_key,
+            &auth_fingerprint,
+            now,
+            "failed to register auth key",
+        )?;
+        let ident_key_id = insert_key_tx(
+            &tx,
+            owner_id,
+            KEY_ROLE_IDENT,
+            ident_key,
+            &ident_fingerprint,
+            now,
+            "failed to register ident key",
+        )?;
         append_log_tx(
             &tx,
             "register",
@@ -1101,13 +1105,15 @@ impl Store {
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start link transaction: {err}"))?;
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'auth', ?2, ?3, 'current', ?4, NULL)",
-            params![owner.id, public_key, fingerprint, now_unix()],
-        )
-        .map_err(|err| format!("failed to register machine auth key: {err}"))?;
-        let key_id = tx.last_insert_rowid();
+        let key_id = insert_key_tx(
+            &tx,
+            owner.id,
+            KEY_ROLE_AUTH,
+            public_key,
+            &fingerprint,
+            now_unix(),
+            "failed to register machine auth key",
+        )?;
         append_log_tx(
             &tx,
             "link",
@@ -1164,13 +1170,15 @@ impl Store {
             params![now, old_key.id],
         )
         .map_err(|err| format!("failed to retire ident key: {err}"))?;
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'ident', ?2, ?3, 'current', ?4, NULL)",
-            params![owner.id, new_public, fingerprint, now],
-        )
-        .map_err(|err| format!("failed to register rotated ident key: {err}"))?;
-        let new_key_id = tx.last_insert_rowid();
+        let new_key_id = insert_key_tx(
+            &tx,
+            owner.id,
+            KEY_ROLE_IDENT,
+            new_public,
+            &fingerprint,
+            now,
+            "failed to register rotated ident key",
+        )?;
         tx.execute(
             "INSERT INTO ident_chain (owner_id, old_key_id, new_key_id, signature, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1223,13 +1231,15 @@ impl Store {
             params![now, old_key.id],
         )
         .map_err(|err| format!("failed to retire ident key: {err}"))?;
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'ident', ?2, ?3, 'current', ?4, NULL)",
-            params![owner.id, new_public, fingerprint, now],
-        )
-        .map_err(|err| format!("failed to register re-anchored ident key: {err}"))?;
-        let key_id = tx.last_insert_rowid();
+        let key_id = insert_key_tx(
+            &tx,
+            owner.id,
+            KEY_ROLE_IDENT,
+            new_public,
+            &fingerprint,
+            now,
+            "failed to register re-anchored ident key",
+        )?;
         append_log_tx(
             &tx,
             "reanchor",
@@ -2373,13 +2383,15 @@ impl Store {
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start token transaction: {err}"))?;
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'auth', ?2, ?3, 'current', ?4, NULL)",
-            params![owner_record.id, token_public, fingerprint, now],
-        )
-        .map_err(|err| format!("failed to register token key: {err}"))?;
-        let key_id = tx.last_insert_rowid();
+        let key_id = insert_key_tx(
+            &tx,
+            owner_record.id,
+            KEY_ROLE_AUTH,
+            token_public,
+            &fingerprint,
+            now,
+            "failed to register token key",
+        )?;
         tx.execute(
             "INSERT INTO publish_tokens (owner_id, key_id, scope, expires_at, revoked_at, created_at)
              VALUES (?1, ?2, ?3, ?4, NULL, ?5)",
@@ -3360,6 +3372,79 @@ pub struct PackageVersionRow {
 
 fn json_value(value: &str) -> String {
     serde_json::to_string(value).expect("JSON string encoding cannot fail")
+}
+
+/// The ONE place a `keys` row is created (bug-580).
+///
+/// Role separation is an account-wide invariant, not a per-endpoint check: an
+/// account's current ident key and every current auth key must be DIFFERENT
+/// keys. Domain-separated proof messages stop a proof being replayed across
+/// roles; they do nothing to stop a client deliberately offering the same
+/// public key for both, and every insertion path verified its proofs and then
+/// inserted without comparing. Theft of a machine auth private key would then
+/// also be theft of the identity-signing key, which is the whole separation the
+/// design exists to provide.
+///
+/// Funnelling every insert through here is deliberate. The bug report named two
+/// paths; there were five, and the two it missed included `issue_publish_token`
+/// — the worst of them, because a publish token is a DELEGATED, exportable
+/// credential, so a token equal to the ident key hands the account identity to
+/// whatever CI holds the token. A per-site check would have been written from
+/// that same incomplete list. `key_insertion_has_exactly_one_writer` keeps it
+/// the only writer, so a sixth path cannot be added without meeting this.
+///
+/// The check runs INSIDE the caller's transaction, so a concurrent rotation
+/// cannot slip a colliding key in between the read and the insert. In
+/// `register_owner` the auth row is written first, so the ident insert's query
+/// sees it and the two-argument case needs no separate comparison.
+///
+/// Existing accounts that already hold a colliding pair are deliberately left
+/// alone: this gates the creation of NEW credentials only, and never revokes
+/// live access (the bug's stated non-goal).
+fn insert_key_tx(
+    tx: &rusqlite::Transaction<'_>,
+    owner_id: i64,
+    role: &str,
+    public_key: &[u8],
+    fingerprint: &str,
+    now: i64,
+    what: &str,
+) -> Result<i64, String> {
+    let opposite = match role {
+        KEY_ROLE_AUTH => KEY_ROLE_IDENT,
+        KEY_ROLE_IDENT => KEY_ROLE_AUTH,
+        other => return Err(format!("unknown key role '{other}'")),
+    };
+    let collision: Option<i64> = tx
+        .query_row(
+            "SELECT id FROM keys
+             WHERE owner_id = ?1 AND role = ?2 AND status = 'current' AND fingerprint = ?3",
+            params![owner_id, opposite, fingerprint],
+            |row| row.get(0),
+        )
+        .optional()
+        // Deliberately the caller's own `what` message, not a message about this
+        // query. `losing_the_key_tables_errors_revocation_and_chain_reads`
+        // (bug-264 / REPO-09) pins that a broken `keys` table degrades to an
+        // error naming the OPERATION — "failed to register token key: …" — and
+        // that contract must not depend on which statement happens to touch the
+        // table first. Adding a read ahead of the insert would otherwise have
+        // silently re-worded five operator-facing failures.
+        .map_err(|err| format!("{what}: {err}"))?;
+    if collision.is_some() {
+        return Err(format!(
+            "key role separation: this public key is already the account's current {opposite} \
+             key. A machine auth key and the account ident key must be different keys, so that \
+             losing one does not lose the other."
+        ));
+    }
+    tx.execute(
+        "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
+         VALUES (?1, ?2, ?3, ?4, 'current', ?5, NULL)",
+        params![owner_id, role, public_key, fingerprint, now],
+    )
+    .map_err(|err| format!("{what}: {err}"))?;
+    Ok(tx.last_insert_rowid())
 }
 
 /// Append one entry to the transparency log inside an existing transaction.
@@ -4544,6 +4629,258 @@ pub(crate) mod tests {
             "a size change must re-read, never serve the previous root"
         );
         let _ = keys;
+    }
+
+    /// bug-580: an account's current ident key and every current auth key must
+    /// be DIFFERENT keys.
+    ///
+    /// **This was never exploitable, and the report's premise was wrong.**
+    /// Measured on the pre-fix store, all five paths already refused a
+    /// role-colliding key — with `UNIQUE constraint failed: keys.fingerprint`.
+    /// `keys.fingerprint` is declared `NOT NULL UNIQUE` *globally*, so no two
+    /// rows anywhere can share a public key and the separation fell out of that.
+    ///
+    /// What this test protects is that the guarantee stops being INCIDENTAL. It
+    /// came from an index whose purpose is not role separation, and bug-580's own
+    /// non-goals ask for that index to be loosened ("do not prohibit two
+    /// different accounts from independently choosing the same public key" — which
+    /// the global UNIQUE currently does prohibit). Whoever loosens it would remove
+    /// the role separation as a side effect, with nothing failing. Now
+    /// `insert_key_tx` enforces the account-scoped invariant directly, so the two
+    /// properties can move independently.
+    ///
+    /// Every path is exercised because the point is that the list is complete.
+    /// The report named two; there are five, and the two it missed include
+    /// `issue_publish_token` — the one that matters most, since a publish token
+    /// is a delegated, exportable credential handed to CI.
+    #[test]
+    fn key_role_separation_is_enforced_at_every_creation_path() {
+        let (_temp, store) = test_store();
+        let (shared_public, shared_private) = crypto::generate_keypair();
+        let proof = |role: &str, owner: &str, public: &[u8], private: &[u8]| {
+            crypto::sign(private, &crypto::registration_message(role, owner, public)).unwrap()
+        };
+
+        // 1. Registration with one key in both roles.
+        let err = store
+            .register_owner(
+                "alice",
+                &shared_public,
+                &proof(crypto::ROLE_AUTH, "alice", &shared_public, &shared_private),
+                &shared_public,
+                &proof(crypto::ROLE_IDENT, "alice", &shared_public, &shared_private),
+            )
+            .unwrap_err();
+        assert!(err.contains("key role separation"), "{err}");
+        // Nothing was persisted: the transaction rolled back whole.
+        assert!(store.owner_with_ident_key("alice").unwrap().is_none());
+
+        // A proper account, to test the remaining paths against.
+        let keys = register_keys(&store, "alice");
+
+        // 2. Linking a machine whose auth key IS the account ident key.
+        let err = store
+            .add_auth_key(
+                "alice",
+                &keys.ident_public,
+                &proof(
+                    crypto::ROLE_AUTH,
+                    "alice",
+                    &keys.ident_public,
+                    &keys.ident_private,
+                ),
+            )
+            .unwrap_err();
+        assert!(err.contains("key role separation"), "{err}");
+
+        // 3. A publish token minted on the ident key. The report missed this
+        //    one, and it is the most dangerous: the token leaves the machine.
+        let err = store
+            .issue_publish_token(
+                "alice",
+                &keys.ident_public,
+                &proof(
+                    crypto::ROLE_AUTH,
+                    "alice",
+                    &keys.ident_public,
+                    &keys.ident_private,
+                ),
+                "publish",
+                3600,
+            )
+            .unwrap_err();
+        assert!(err.contains("key role separation"), "{err}");
+
+        // 4. Rotating the ident ONTO an existing machine auth key.
+        let chain = crypto::sign(
+            &keys.ident_private,
+            &crypto::ident_rotation_message(
+                "alice",
+                &crypto::fingerprint(&keys.ident_public),
+                &keys.auth_public,
+            ),
+        )
+        .unwrap();
+        let err = store
+            .rotate_ident(
+                "alice",
+                &keys.auth_public,
+                &chain,
+                &proof(
+                    crypto::ROLE_IDENT,
+                    "alice",
+                    &keys.auth_public,
+                    &keys.auth_private,
+                ),
+            )
+            .unwrap_err();
+        assert!(err.contains("key role separation"), "{err}");
+
+        // 5. Re-anchoring the ident onto an existing machine auth key.
+        let err = store
+            .reanchor_ident("alice", &keys.auth_public)
+            .unwrap_err();
+        assert!(err.contains("key role separation"), "{err}");
+
+        // The account is intact after five refusals: each rolled back whole.
+        let (_owner, ident) = store.owner_with_ident_key("alice").unwrap().unwrap();
+        assert_eq!(ident.public_key, keys.ident_public);
+    }
+
+    /// POSITIVE (bug-580): distinct keys must keep working everywhere.
+    ///
+    /// Without this, "reject every key" passes the test above. It pins the
+    /// normal shapes the invariant must NOT disturb — several machines, a
+    /// publish token, a rotation, and (the bug's explicit non-goal) two
+    /// different accounts independently choosing the same public key.
+    #[test]
+    fn distinct_keys_still_register_link_tokenize_and_rotate() {
+        let (_temp, store) = test_store();
+        let alice = register_keys(&store, "alice");
+        let proof = |role: &str, owner: &str, public: &[u8], private: &[u8]| {
+            crypto::sign(private, &crypto::registration_message(role, owner, public)).unwrap()
+        };
+
+        // Several distinct machines link to one account.
+        for _ in 0..3 {
+            let (machine_public, machine_private) = crypto::generate_keypair();
+            store
+                .add_auth_key(
+                    "alice",
+                    &machine_public,
+                    &proof(
+                        crypto::ROLE_AUTH,
+                        "alice",
+                        &machine_public,
+                        &machine_private,
+                    ),
+                )
+                .expect("a distinct machine key still links");
+        }
+
+        // A publish token on its own fresh key.
+        let (token_public, token_private) = crypto::generate_keypair();
+        store
+            .issue_publish_token(
+                "alice",
+                &token_public,
+                &proof(crypto::ROLE_AUTH, "alice", &token_public, &token_private),
+                "publish",
+                3600,
+            )
+            .expect("a distinct token key still issues");
+
+        // A rotation onto a fresh ident.
+        let (next_public, next_private) = crypto::generate_keypair();
+        let chain = crypto::sign(
+            &alice.ident_private,
+            &crypto::ident_rotation_message(
+                "alice",
+                &crypto::fingerprint(&alice.ident_public),
+                &next_public,
+            ),
+        )
+        .unwrap();
+        store
+            .rotate_ident(
+                "alice",
+                &next_public,
+                &chain,
+                &proof(crypto::ROLE_IDENT, "alice", &next_public, &next_private),
+            )
+            .expect("a distinct ident still rotates");
+
+        // The new check is per ACCOUNT (`owner_id = ?1`), so it does not itself
+        // stop two accounts choosing one public key — bug-580's non-goals ask
+        // for that to stay permitted.
+        //
+        // It is nonetheless refused today, by the GLOBAL `keys.fingerprint`
+        // UNIQUE index. That is a pre-existing divergence from the stated
+        // non-goal, measured rather than assumed, and it is deliberately left
+        // alone here: allowing one key to authenticate as two accounts is a
+        // policy decision with its own security argument, not something to
+        // change while fixing an unrelated invariant. This asserts the CURRENT
+        // behaviour so the divergence is visible and any future change to it is
+        // a deliberate edit to this line.
+        let (shared_public, shared_private) = crypto::generate_keypair();
+        let (carol_ident, carol_ident_private) = crypto::generate_keypair();
+        store
+            .register_owner(
+                "carol",
+                &shared_public,
+                &proof(crypto::ROLE_AUTH, "carol", &shared_public, &shared_private),
+                &carol_ident,
+                &proof(
+                    crypto::ROLE_IDENT,
+                    "carol",
+                    &carol_ident,
+                    &carol_ident_private,
+                ),
+            )
+            .expect("the first account may use this key");
+        let (dave_ident, dave_ident_private) = crypto::generate_keypair();
+        let err = store
+            .register_owner(
+                "dave",
+                &shared_public,
+                &proof(crypto::ROLE_AUTH, "dave", &shared_public, &shared_private),
+                &dave_ident,
+                &proof(crypto::ROLE_IDENT, "dave", &dave_ident, &dave_ident_private),
+            )
+            .unwrap_err();
+        assert!(
+            err.contains("UNIQUE constraint failed: keys.fingerprint"),
+            "a second account sharing a key is refused by the GLOBAL index, not \
+             by the account-scoped role check: {err}"
+        );
+    }
+
+    /// bug-580: `insert_key_tx` must stay the ONLY writer of a `keys` row.
+    ///
+    /// The role-separation invariant is account-wide, so it has to hold at every
+    /// creation path — and the reason it did not before is that the paths were
+    /// enumerated by hand and the list was wrong (the report named two of five).
+    /// A per-site check would have been written from the same wrong list. This
+    /// asserts the structural property instead: one writer, so a new path cannot
+    /// be added without going through the check.
+    ///
+    /// Same shape as `tests/gate_lock_covers_every_writer.rs` — a recogniser and
+    /// the thing it recognises are two lists, and they drift.
+    #[test]
+    fn key_insertion_has_exactly_one_writer() {
+        let source = include_str!("store.rs");
+        // The needle is the statement's full column list, not the bare table
+        // name: a recogniser that matches its own diagnostic text counts itself
+        // and is wrong by one before it has read a line of production code.
+        let needle = concat!("INSERT INTO keys ", "(owner_id, role, public_key");
+        let writers = source.matches(needle).count();
+        assert_eq!(
+            writers, 1,
+            "every `keys` row must be created by `insert_key_tx`, which enforces \
+             auth/ident role separation (bug-580); found {writers} insertion sites. \
+             Route the new one through `insert_key_tx` rather than adding a second \
+             check that will drift from this one."
+        );
     }
 
     #[test]
