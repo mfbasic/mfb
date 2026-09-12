@@ -1064,6 +1064,33 @@ prints the root private key for the operator to store offline. The
 `repoFingerprint` pin becomes "fingerprint of the server key **delegated by**
 the pinned root".[[repository/src/store.rs:init_registry_root]][[repository/src/main.rs:parse_init_root_args]]
 
+**Root lifecycle.** `init-root` is *one-time*: it refuses to run against a
+registry that already has a root of trust, because overwriting it would swap the
+anchor every pinned client verifies against — from the client's side
+indistinguishable from a takeover. There are two distinct successor ceremonies,
+and both append a transparency-log entry (`root-init`, `root-renew`,
+`root-reanchor`) so a root change is auditable:
+
+- **Renewal** — `mfb-repo renew-root … --root-key-file <path>` re-signs
+  `root.json` with a bumped `version`, a fresh `expires`, and freshly generated
+  online snapshot/timestamp keys, **under the same offline root key**, which the
+  operator supplies from offline storage (a file, never an argument, so it does
+  not enter the process table) and which is still never persisted. Possession of
+  the offline root key *is* the authentication of the transition; the anchor —
+  and therefore the pinned fingerprint — does not change, so an already-pinned
+  client verifies the renewed chain with no out-of-band step. A key that is not
+  the configured root, or a registry id that is not the configured one, is
+  refused without touching any stored
+  field.[[repository/src/store.rs:renew_registry_root]]
+- **Re-anchor** — `mfb-repo reanchor-root …` mints a new offline root key and
+  replaces the anchor. It exists only for a **lost** root key and mirrors the
+  ident `reanchor` ceremony: every client that pinned the old fingerprint fails
+  hard until it re-pins out of band, which is why it is a separate, explicitly
+  selected mode rather than something a repeated `init-root` does silently.
+  Rotating to a new root key **while the old one is still available** is not
+  supported — there is no old-root-signed successor document in this protocol
+  version.[[repository/src/store.rs:reanchor_registry_root]]
+
 `snapshot.json` (snapshot-signed, `mfb-repo-snapshot-v1`): `{type, registryId,
 version, expires, indexHash, checkpoint:{size, rootHash}}`, where `indexHash` is
 a canonical hash of every served `(ident, version, hash, state)` tuple and the

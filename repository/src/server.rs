@@ -7569,6 +7569,100 @@ mod tests {
             .is_some());
     }
 
+    /// bug-584 (positive pin, end to end): a client that pinned the registry
+    /// root BEFORE a renewal still verifies the served chain after it. The
+    /// renewal re-delegates fresh online keys under a bumped root version, and
+    /// the client — anchored solely on the fingerprint it pinned — follows it
+    /// with no out-of-band step, picking up the newly delegated keys.
+    #[tokio::test]
+    async fn a_pinned_client_verifies_the_chain_across_an_authenticated_root_renewal() {
+        let h = harness();
+        let expires = now_unix() + 86_400;
+        let root_private = h.store.init_registry_root("reg-1", expires).unwrap();
+        // What the operator publishes and the client pins out of band.
+        let pinned_fingerprint = root_metadata(State(h.state.clone()))
+            .await
+            .expect("root served")
+            .0
+            .root_fingerprint;
+
+        let verify = |state: AppState| async move {
+            let root = root_metadata(State(state.clone())).await.expect("root").0;
+            let timestamp = timestamp_metadata(State(state.clone()))
+                .await
+                .expect("timestamp")
+                .0;
+            let snapshot = snapshot_metadata(State(state)).await.expect("snapshot").0;
+            (root, timestamp, snapshot)
+        };
+
+        let (root, timestamp, snapshot) = verify(h.state.clone()).await;
+        let before = crate::client::verify_registry_metadata(
+            &root,
+            &timestamp,
+            &snapshot,
+            "reg-1",
+            &pinned_fingerprint,
+            0,
+            now_unix(),
+        )
+        .expect("the first chain verifies under the pinned root");
+
+        // The operator renews with the offline root key they stored at init.
+        let version = h
+            .store
+            .renew_registry_root("reg-1", expires + 86_400, &root_private)
+            .expect("renewal under the offline root key");
+        assert_eq!(version, 2);
+
+        let (root, timestamp, snapshot) = verify(h.state.clone()).await;
+        // The anchor the client pinned is unchanged...
+        assert_eq!(root.root_fingerprint, pinned_fingerprint);
+        let after = crate::client::verify_registry_metadata(
+            &root,
+            &timestamp,
+            &snapshot,
+            "reg-1",
+            &pinned_fingerprint,
+            before.snapshot_version,
+            now_unix(),
+        )
+        .expect("the renewed chain verifies under the SAME pinned root");
+        // ...the delegated attestation key still cross-checks against the
+        // server key the client pinned, and the root document really did move.
+        assert_eq!(after.server_key, h.store.server_public_key().unwrap());
+        let root_doc: serde_json::Value = serde_json::from_str(&root.signed).unwrap();
+        assert_eq!(root_doc["version"], 2);
+        assert_eq!(root_doc["expires"], expires + 86_400);
+        let config = h.store.registry_config().unwrap().unwrap();
+        assert_eq!(
+            root_doc["snapshotKey"],
+            crypto::encode_bytes(&config.snapshot_public)
+        );
+
+        // A re-anchor, by contrast, is exactly the break the client must NOT
+        // follow: the pinned fingerprint no longer matches.
+        h.store
+            .reanchor_registry_root("reg-1", expires + 172_800)
+            .unwrap();
+        let (root, timestamp, snapshot) = verify(h.state.clone()).await;
+        assert_ne!(root.root_fingerprint, pinned_fingerprint);
+        let err = crate::client::verify_registry_metadata(
+            &root,
+            &timestamp,
+            &snapshot,
+            "reg-1",
+            &pinned_fingerprint,
+            after.snapshot_version,
+            now_unix(),
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("does not match the pinned root fingerprint"),
+            "{err}"
+        );
+    }
+
     #[tokio::test]
     async fn signed_metadata_is_absent_until_the_root_ceremony_then_verifies() {
         let h = harness();

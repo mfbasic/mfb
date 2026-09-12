@@ -2634,32 +2634,152 @@ impl Store {
     /// the online snapshot/timestamp keys, sign a `root.json` that delegates
     /// the server (attestation), snapshot, and timestamp keys, and persist
     /// everything **except the root private key**, which is returned for the
-    /// operator to store offline. Re-running bumps the root version and
-    /// re-delegates (root-key renewal / delegated-key rotation). The root
-    /// private key never touches the serving host's database.
+    /// operator to store offline. The root private key never touches the
+    /// serving host's database.
+    ///
+    /// **One-time** (bug-584): this refuses to run against a configured
+    /// registry. It used to mint a fresh offline root key and overwrite the
+    /// sole config row on every run, which silently replaced the anchor a
+    /// pinned client verifies against — a change indistinguishable, from the
+    /// client's side, from registry takeover. Renewing the delegated online
+    /// keys and the root expiry is `renew_registry_root`, authenticated by the
+    /// offline root key and keeping the anchor; deliberately replacing a lost
+    /// anchor is `reanchor_registry_root`.
     pub fn init_registry_root(
         &self,
         registry_id: &str,
         expires_at: i64,
     ) -> Result<Vec<u8>, String> {
+        let (root_public, root_private) = crypto::generate_keypair();
+        self.write_registry_root(
+            registry_id,
+            expires_at,
+            &root_public,
+            &root_private,
+            RootCeremony::Init,
+        )?;
+        Ok(root_private)
+    }
+
+    /// Root renewal (bug-584): re-sign `root.json` with a bumped version, a
+    /// fresh expiry, and freshly generated online snapshot/timestamp keys —
+    /// under the **same** offline root key, which the operator supplies from
+    /// offline storage and which is never persisted here.
+    ///
+    /// This is the authenticated old-to-new transition the pinned anchor
+    /// needs: possession of the offline root key is the authentication, the
+    /// anchor (`root_public`, hence its fingerprint) is unchanged, so a client
+    /// that pinned the registry before the renewal verifies the renewed chain
+    /// with no out-of-band step. A key that is not the configured root — and a
+    /// registry id that is not the configured one — is refused without
+    /// touching any stored field. Returns the new root version.
+    pub fn renew_registry_root(
+        &self,
+        registry_id: &str,
+        expires_at: i64,
+        root_private: &[u8],
+    ) -> Result<i64, String> {
+        let root_public = crypto::public_from_private(root_private)
+            .map_err(|_| "offline root key is malformed".to_string())?;
+        self.write_registry_root(
+            registry_id,
+            expires_at,
+            &root_public,
+            root_private,
+            RootCeremony::Renew,
+        )
+    }
+
+    /// Deliberate root re-anchor (bug-584): mint a **new** offline root key and
+    /// replace the anchor, for the one case renewal cannot cover — the offline
+    /// root key is lost. Mirrors the ident `reanchor` ceremony (plan-23 §3.6):
+    /// every client that pinned the old fingerprint fails hard until it
+    /// re-pins the new one out of band, which is why it is a separate,
+    /// explicitly selected, transparency-logged mode and never something a
+    /// repeated `init-root` does by accident. Returns the new root private key
+    /// for the operator to store offline.
+    pub fn reanchor_registry_root(
+        &self,
+        registry_id: &str,
+        expires_at: i64,
+    ) -> Result<Vec<u8>, String> {
+        let (root_public, root_private) = crypto::generate_keypair();
+        self.write_registry_root(
+            registry_id,
+            expires_at,
+            &root_public,
+            &root_private,
+            RootCeremony::Reanchor,
+        )?;
+        Ok(root_private)
+    }
+
+    /// The one writer of `registry_config`'s root columns. `ceremony` decides
+    /// what it may do to an already-configured root — the whole security
+    /// question of bug-584 — and every mode appends a transparency-log entry so
+    /// a root change is auditable after the fact.
+    fn write_registry_root(
+        &self,
+        registry_id: &str,
+        expires_at: i64,
+        root_public: &[u8],
+        root_private: &[u8],
+        ceremony: RootCeremony,
+    ) -> Result<i64, String> {
         if registry_id.is_empty() || registry_id.len() > 255 {
             return Err("registry id must be 1..=255 bytes".to_string());
         }
         let (server_public, _server_private) = self.server_keypair()?;
-        let (root_public, root_private) = crypto::generate_keypair();
         let (snapshot_public, snapshot_private) = crypto::generate_keypair();
         let (timestamp_public, timestamp_private) = crypto::generate_keypair();
         let now = now_unix();
-        let conn = self.conn();
-        let previous_version: i64 = conn
+        let mut conn = self.conn();
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start root ceremony transaction: {err}"))?;
+        let existing: Option<(i64, String, Vec<u8>)> = tx
             .query_row(
-                "SELECT root_version FROM registry_config WHERE id = 1",
+                "SELECT root_version, registry_id, root_public FROM registry_config WHERE id = 1",
                 [],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
-            .map_err(|err| format!("failed to read registry config: {err}"))?
-            .unwrap_or(0);
+            .map_err(|err| format!("failed to read registry config: {err}"))?;
+        let previous_version = match (ceremony, &existing) {
+            (RootCeremony::Init, Some(_)) => {
+                return Err(
+                    "registry root of trust is already initialized; renew it with `mfb-repo \
+                     renew-root` (same offline root key, pinned clients keep verifying) or, only \
+                     if the offline root key is lost, re-anchor it with `mfb-repo reanchor-root` \
+                     (every pinned client must re-pin out of band)"
+                        .to_string(),
+                )
+            }
+            (RootCeremony::Init, None) => 0,
+            (RootCeremony::Renew | RootCeremony::Reanchor, None) => {
+                return Err(
+                    "registry root of trust is not initialized; run `mfb-repo init-root` first"
+                        .to_string(),
+                )
+            }
+            (RootCeremony::Renew, Some((version, existing_id, existing_public))) => {
+                if existing_public.as_slice() != root_public {
+                    return Err(
+                        "the supplied key is not this registry's offline root key; refusing to \
+                         replace the pinned anchor"
+                            .to_string(),
+                    );
+                }
+                if existing_id != registry_id {
+                    return Err(format!(
+                        "registry id `{registry_id}` does not match the configured registry id \
+                         `{existing_id}`"
+                    ));
+                }
+                *version
+            }
+            (RootCeremony::Reanchor, Some((version, _, _))) => *version,
+        };
         let version = previous_version + 1;
         let root_json = format!(
             "{{\"type\":\"root\",\"registryId\":{},\"version\":{},\"expires\":{},\"serverKey\":{},\"snapshotKey\":{},\"timestampKey\":{}}}",
@@ -2671,10 +2791,10 @@ impl Store {
             json_value(&crypto::encode_bytes(&timestamp_public)),
         );
         let root_signature = crypto::sign(
-            &root_private,
+            root_private,
             &crypto::root_signing_input(root_json.as_bytes()),
         )?;
-        conn.execute(
+        tx.execute(
             "INSERT INTO registry_config
                (id, registry_id, root_version, root_public, root_json, root_signature,
                 snapshot_public, snapshot_private, timestamp_public, timestamp_private, created_at)
@@ -2703,7 +2823,19 @@ impl Store {
             ],
         )
         .map_err(|err| format!("failed to store registry root: {err}"))?;
-        Ok(root_private)
+        append_log_tx(
+            &tx,
+            ceremony.log_kind(),
+            &format!(
+                "{{\"registryId\":{},\"version\":{},\"rootFingerprint\":{}}}",
+                json_value(registry_id),
+                version,
+                json_value(&crypto::fingerprint(root_public)),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit root ceremony: {err}"))?;
+        Ok(version)
     }
 
     /// The signed `root.json` and its delegated online keypairs, if the root
@@ -3097,6 +3229,30 @@ impl Store {
 pub struct LogEntryRef {
     pub index: i64,
     pub leaf_hash: [u8; 32],
+}
+
+/// Which root ceremony `Store::write_registry_root` is performing. The three
+/// differ only in what they may do to an already-configured root, which is
+/// exactly the trust-continuity question bug-584 settles.
+#[derive(Clone, Copy)]
+enum RootCeremony {
+    /// First-time initialization; refuses if a root is already configured.
+    Init,
+    /// Renewal under the same offline root key; the anchor is unchanged.
+    Renew,
+    /// Deliberate replacement of a lost anchor; pinned clients must re-pin.
+    Reanchor,
+}
+
+impl RootCeremony {
+    /// The transparency-log kind recorded for this ceremony.
+    fn log_kind(self) -> &'static str {
+        match self {
+            RootCeremony::Init => "root-init",
+            RootCeremony::Renew => "root-renew",
+            RootCeremony::Reanchor => "root-reanchor",
+        }
+    }
 }
 
 /// The signed-metadata root of trust (plan-10-C2): the root-signed `root.json`
@@ -5287,11 +5443,152 @@ pub(crate) mod tests {
             crypto::public_from_private(&root_private).unwrap(),
             config.root_public
         );
-        // Re-running bumps the root version (delegation renewal).
-        store
+        // Re-running is NOT delegation renewal: it minted a fresh anchor
+        // (bug-584, measured). It is refused; renewal is `renew_registry_root`.
+        assert!(store
             .init_registry_root("reg-1", now_unix() + 7200)
-            .unwrap();
+            .unwrap_err()
+            .contains("already initialized"));
         assert!(store.registry_config().unwrap().is_some());
+    }
+
+    /// bug-584 (positive pin): an honest renewal — the operator supplies the
+    /// offline root key — bumps the version, re-delegates freshly generated
+    /// online keys under a new expiry, and leaves the ANCHOR untouched, so a
+    /// client pinned to the original fingerprint keeps verifying.
+    #[test]
+    fn renew_registry_root_keeps_the_anchor_and_rotates_the_delegated_keys() {
+        let (_temp, store) = test_store();
+        let expires = now_unix() + 3600;
+        let root_private = store.init_registry_root("reg-1", expires).unwrap();
+        let before = store.registry_config().unwrap().unwrap();
+
+        let renewed_expires = expires + 86_400;
+        let version = store
+            .renew_registry_root("reg-1", renewed_expires, &root_private)
+            .expect("a renewal under the configured root key is accepted");
+        assert_eq!(version, 2);
+        let after = store.registry_config().unwrap().unwrap();
+
+        // The anchor — the only thing a client pins — is unchanged.
+        assert_eq!(before.root_public, after.root_public);
+        assert_eq!(
+            crypto::fingerprint(&before.root_public),
+            crypto::fingerprint(&after.root_public),
+        );
+        // The online delegated keys are fresh, and the new root.json verifies
+        // under the same root key with the bumped version and new expiry.
+        assert_ne!(before.snapshot_public, after.snapshot_public);
+        assert_ne!(before.timestamp_public, after.timestamp_public);
+        assert_ne!(before.root_json, after.root_json);
+        crypto::verify(
+            &after.root_public,
+            &crypto::root_signing_input(after.root_json.as_bytes()),
+            &after.root_signature,
+        )
+        .expect("the renewed root.json verifies under the pinned root key");
+        assert!(after
+            .root_json
+            .contains(&format!("\"version\":2,\"expires\":{renewed_expires}")));
+        assert!(after
+            .root_json
+            .contains(&crypto::encode_bytes(&after.snapshot_public)));
+        // ...and the renewal is auditable in the transparency log.
+        assert_eq!(log_kinds(&store), vec!["root-init", "root-renew"]);
+    }
+
+    /// bug-584: renewal is authenticated by possession of the offline root key.
+    /// A stranger's key, a malformed key, and an uninitialized registry are all
+    /// refused without touching a stored field.
+    #[test]
+    fn renew_registry_root_refuses_anything_but_the_configured_root_key() {
+        let (_temp, store) = test_store();
+        let (_stranger_public, stranger_private) = crypto::generate_keypair();
+        assert!(store
+            .renew_registry_root("reg-1", now_unix() + 3600, &stranger_private)
+            .unwrap_err()
+            .contains("not initialized"));
+
+        let root_private = store
+            .init_registry_root("reg-1", now_unix() + 3600)
+            .unwrap();
+        let before = store.registry_config().unwrap().unwrap();
+
+        let err = store
+            .renew_registry_root("reg-1", now_unix() + 7200, &stranger_private)
+            .unwrap_err();
+        assert!(
+            err.contains("not this registry's offline root key"),
+            "{err}"
+        );
+        assert!(store
+            .renew_registry_root("reg-1", now_unix() + 7200, &[0u8; 3])
+            .unwrap_err()
+            .contains("malformed"));
+        // A renewal aimed at a different registry id is refused too: the
+        // registry id is part of what the pinned client checks.
+        let err = store
+            .renew_registry_root("reg-2", now_unix() + 7200, &root_private)
+            .unwrap_err();
+        assert!(err.contains("does not match the configured"), "{err}");
+
+        let after = store.registry_config().unwrap().unwrap();
+        assert_eq!(before.root_public, after.root_public);
+        assert_eq!(before.root_json, after.root_json);
+        assert_eq!(before.snapshot_public, after.snapshot_public);
+        assert_eq!(before.timestamp_public, after.timestamp_public);
+    }
+
+    /// bug-584: replacing the anchor is still possible when the offline root
+    /// key is LOST, but only as its own explicitly selected ceremony, and it is
+    /// transparency-logged as a re-anchor rather than looking like a renewal.
+    #[test]
+    fn reanchor_registry_root_replaces_the_anchor_only_when_explicitly_selected() {
+        let (_temp, store) = test_store();
+        assert!(store
+            .reanchor_registry_root("reg-1", now_unix() + 3600)
+            .unwrap_err()
+            .contains("not initialized"));
+        store
+            .init_registry_root("reg-1", now_unix() + 3600)
+            .unwrap();
+        let before = store.registry_config().unwrap().unwrap();
+
+        let new_private = store
+            .reanchor_registry_root("reg-1", now_unix() + 7200)
+            .unwrap();
+        let after = store.registry_config().unwrap().unwrap();
+        assert_ne!(before.root_public, after.root_public);
+        assert_eq!(
+            crypto::public_from_private(&new_private).unwrap(),
+            after.root_public
+        );
+        assert!(after.root_json.contains("\"version\":2"));
+        assert_eq!(log_kinds(&store), vec!["root-init", "root-reanchor"]);
+    }
+
+    /// bug-584: `init-root` is one-time initialization. A second run used to
+    /// mint a brand-new offline root key and overwrite the sole config row,
+    /// silently replacing the anchor every pinned client verifies against —
+    /// indistinguishable from registry takeover. It must refuse, and must not
+    /// touch any configured field while refusing.
+    #[test]
+    fn init_registry_root_refuses_to_replace_a_configured_root() {
+        let (_temp, store) = test_store();
+        store
+            .init_registry_root("reg-1", now_unix() + 3600)
+            .unwrap();
+        let before = store.registry_config().unwrap().unwrap();
+        let err = store
+            .init_registry_root("reg-1", now_unix() + 7200)
+            .unwrap_err();
+        assert!(err.contains("already initialized"), "{err}");
+        let after = store.registry_config().unwrap().unwrap();
+        assert_eq!(before.root_public, after.root_public);
+        assert_eq!(before.root_json, after.root_json);
+        assert_eq!(before.root_signature, after.root_signature);
+        assert_eq!(before.snapshot_public, after.snapshot_public);
+        assert_eq!(before.timestamp_public, after.timestamp_public);
     }
 
     #[test]
@@ -5840,6 +6137,18 @@ pub(crate) mod tests {
 
     /// Drop tables from a live store. Foreign keys are disabled for the drop so
     /// the child rows do not block it, then re-enabled for the assertions.
+    /// Every transparency-log entry kind, in log order.
+    fn log_kinds(store: &Store) -> Vec<String> {
+        let conn = store.conn();
+        let mut statement = conn
+            .prepare("SELECT kind FROM log_entries ORDER BY idx ASC")
+            .unwrap();
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap();
+        rows.map(|row| row.unwrap()).collect()
+    }
+
     fn drop_tables(store: &Store, tables: &[&str]) {
         let conn = store.conn();
         conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
