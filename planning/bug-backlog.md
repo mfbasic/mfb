@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-12
-Open bugs: **16** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **14** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — repository security intake, worked
 
@@ -12,8 +12,8 @@ it**. The instrument is the `mfb_repository` unit suite and its loopback-HTTP
 stub registry. Say so explicitly in any future repository bug — a green gate
 there proves nothing at all.
 
-**The repository security intake is CLOSED** except one LOW (580), one still in
-flight (584) and 581's recorded decision. Nine bugs, eight landed:
+**The repository security intake is CLOSED.** Nine bugs: eight landed, one
+(581) partial by design. `repository/` is free for other work.
 
 | Bug | Sev | Outcome |
 |---|---|---|
@@ -24,8 +24,8 @@ flight (584) and 581's recorded decision. Nine bugs, eight landed:
 | 585 | MED | **Landed** `c7e7f1fec` — a redirect hostname is resolved before the hop is followed. |
 | 586 | MED | **Landed** `9f1a0879d` — metadata DB + WAL/SHM are service-private. |
 | 579 | MED | **Landed** `460b983dd` — memoised signed tree head, bounded anonymous log routes. |
-| 584 | MED | in flight |
-| 580 | LOW | open |
+| 584 | MED | **Landed** `a869dd247` + `9530d72a8` — one-time init, authenticated renewal, root-version floor. |
+| 580 | LOW | **Closed** `e18cbb6fa` — **premise disproved**; separation made explicit (below). |
 
 Also landed: `7ed3fa226` and `f9569fe70` (see below). Archived as already-fixed
 and verified at HEAD: **549** (`8144872bd`), **551-inline-trap** (`1c83b7dda`).
@@ -87,6 +87,37 @@ untracked-fixture class of defect shows.
   `set_permissions(0o600)` passes every negative test and silently relaxes an
   operator's `0400`. Assert the `0400` survives, or the fix is "set access to
   what I assumed" rather than "remove access".
+
+### bug-580 was NOT a defect — and that is the interesting part
+
+Its premise was false. Measured on the pre-fix store, **all five** role-colliding
+creation paths already refused, with `UNIQUE constraint failed:
+keys.fingerprint`: `keys.fingerprint` is declared `NOT NULL UNIQUE` **globally**
+(`store.rs:464`), so no two rows anywhere may share a public key. The report
+reasoned from `register_owner`'s body — which indeed never compares the two keys
+— without checking the schema the insert lands in.
+
+Two things make it worth the time anyway:
+
+- **A security property can be true by accident, and an accident is not a
+  guarantee.** Separation held because of an index that exists for a different
+  reason. Worse, this bug's *own non-goals* ask for that index to be loosened
+  ("do not prohibit two different accounts from independently choosing the same
+  public key" — which the global UNIQUE currently DOES prohibit, measured).
+  Whoever loosens it would delete role separation as a side effect with nothing
+  failing. The account-scoped check now stands on its own so the two properties
+  can move independently.
+- **The report's blast radius was wrong in the direction that matters.** It named
+  two insertion paths; there are five, and the two it missed include
+  `issue_publish_token` — an `auth`-role key for a DELEGATED, EXPORTABLE
+  credential handed to CI. A per-site fix would have been written from that same
+  wrong list, so every `keys` insert now goes through one writer with a
+  `key_insertion_has_exactly_one_writer` census guarding it.
+
+Still open deliberately: two accounts cannot share a public key, diverging from
+the stated non-goal. Allowing one key to authenticate as two accounts is a policy
+decision, not a drive-by edit; the current behaviour is now asserted so a change
+is deliberate.
 
 ### bug-581 Phase 2 is an OPEN DECISION — do not dispatch it as a bug fix
 
