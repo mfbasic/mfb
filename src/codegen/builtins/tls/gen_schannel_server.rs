@@ -308,6 +308,11 @@ pub(crate) fn lower_tls_listen(
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
+    // bug-575: the host C-string `getaddrinfo` reads is this helper's own scratch.
+    // Declared here, ahead of every branch that can reach `done`, because the
+    // empty-host bind-all path branches to `null_host` and stores a plain 0 in
+    // `HOSTCSTR` without allocating: the release must read a null there.
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT),
@@ -330,7 +335,17 @@ pub(crate) fn lower_tls_listen(
         abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&null_host),
     ]);
-    super::gen_shared::emit_cstring(symbol, "host", HOST, HOSTCSTR, &alloc_fail, &mut ins, &mut rel, &mut vregs);
+    super::gen_shared::emit_cstring(
+        symbol,
+        "host",
+        HOST,
+        HOSTCSTR,
+        &alloc_fail,
+        &host_scratch,
+        &mut ins,
+        &mut rel,
+        &mut vregs,
+    );
     ins.extend([
         abi::branch(&resolved),
         abi::label(&null_host),
@@ -650,7 +665,9 @@ pub(crate) fn lower_tls_listen(
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
 
-    ins.extend([abi::label(&done), abi::return_()]);
+    ins.push(abi::label(&done));
+    emit_helper_scratch_release(symbol, &[host_scratch], &mut vregs, &mut ins, &mut rel);
+    ins.push(abi::return_());
     Ok((ins, rel, FRAME_SIZE))
 }
 

@@ -116,9 +116,10 @@ fn write_cert(root: &Path) -> (PathBuf, PathBuf) {
     (cert, key)
 }
 
-/// Bind port 0, report what the OS chose through `tls::localAddress(listener)`,
-/// then serve exactly one peer so the reported port can be verified.
-fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
+/// Bind `host` on port 0, report what the OS chose through
+/// `tls::localAddress(listener)`, then serve exactly one peer so the reported
+/// port can be verified.
+fn build_project(root: &Path, host: &str, cert: &Path, key: &Path) -> PathBuf {
     fs::create_dir_all(root.join("src")).expect("create src dir");
     fs::write(
         root.join("project.json"),
@@ -128,7 +129,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
     let source = format!(
         "IMPORT io\nIMPORT net\nIMPORT tls\n\n\
          FUNC main AS Integer\n\
-        \x20 RES server = tls::listen(\"127.0.0.1\", 0, \"{cert}\", \"{key}\")\n\
+        \x20 RES server = tls::listen(\"{host}\", 0, \"{cert}\", \"{key}\")\n\
         \x20 LET bound = tls::localAddress(server)\n\
         \x20 io::print(\"bound \" & bound.host & \" \" & toString(bound.port))\n\
         \x20 RES conn = tls::accept(server, {ACCEPT_MS})\n\
@@ -137,6 +138,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 tls::close(server)\n\
         \x20 RETURN 0\n\
          END FUNC\n",
+        host = host,
         cert = cert.display(),
         key = key.display(),
         ACCEPT_MS = ACCEPT_MS,
@@ -206,7 +208,7 @@ fn tls_local_address_reports_the_port_a_listener_bound_to() {
     let root = std::env::temp_dir().join(format!("mfb_bug465_{}", nonce()));
     fs::create_dir_all(&root).expect("create temp root");
     let (cert, key) = write_cert(&root);
-    let exe = build_project(&root, &cert, &key);
+    let exe = build_project(&root, "127.0.0.1", &cert, &key);
 
     let mut server = Command::new(&exe)
         .stdout(Stdio::piped())
@@ -286,6 +288,110 @@ fn tls_local_address_reports_the_port_a_listener_bound_to() {
          s_client exited {:?} and saw {text:?}\ns_client stderr:\n{}",
         out.status.code(),
         String::from_utf8_lossy(&out.stderr),
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// bug-575 POSITIVE pin: `tls::listen("")` — the bind-all form — still binds,
+/// still serves, and does not fault.
+///
+/// The empty host is the one path through `tls::listen` that reaches its `ret`
+/// WITHOUT marshalling a host C-string: it branches to `null_host` and stores a
+/// plain 0 (OpenSSL, Schannel) or the address of the static `"0.0.0.0"` rodata
+/// string (Network.framework) into the `HOSTCSTR` frame slot. bug-575 added a
+/// scratch release at that `ret`, and this is exactly the shape bug-574 got wrong
+/// once already in `net::listen`: a release keyed on the frame slot, or one whose
+/// pointer vreg is initialised at the allocation instead of at the top of the
+/// body, frees a wild pointer here — rodata on macOS.
+///
+/// Nothing about that is visible in a leak measurement, and the codegen-inspection
+/// table can only assert the guard EXISTS, not that it reads a null on this path.
+/// Only running the bind-all form can, so it runs a whole handshake: bind "", read
+/// the port back, dial it with `openssl s_client`, require the payload.
+#[test]
+fn tls_listen_binds_every_interface_when_the_host_is_empty() {
+    if !have_openssl() {
+        eprintln!("skipping: openssl CLI not available");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("mfb_bug575_bindall_{}", nonce()));
+    fs::create_dir_all(&root).expect("create temp root");
+    let (cert, key) = write_cert(&root);
+    let exe = build_project(&root, "", &cert, &key);
+
+    let mut server = Command::new(&exe)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn mfb tls server");
+    let (host, port) = read_bound_line(&mut server);
+    assert_eq!(
+        host, "0.0.0.0",
+        "tls::listen(\"\") must bind every interface (bug-575 positive pin)"
+    );
+    assert_ne!(port, 0, "the bind-all listener reported no bound port");
+
+    let mut client = Command::new("openssl")
+        .args([
+            "s_client",
+            "-connect",
+            &format!("127.0.0.1:{port}"),
+            "-quiet",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn openssl s_client");
+
+    let server_pid = server.id();
+    let client_pid = client.id();
+    let (tx, rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        // See the sibling test: send nothing, close stdin, and let the server's
+        // own close end the client — an unread byte turns the FIN into an RST and
+        // discards the payload.
+        drop(client.stdin.take());
+        let out = client.wait_with_output().expect("wait s_client");
+        let status = server.wait().expect("wait mfb tls server");
+        let _ = tx.send((out, status));
+    });
+
+    let (out, status) = match rx.recv_timeout(DEADLINE) {
+        Ok(pair) => {
+            let _ = worker.join();
+            pair
+        }
+        Err(_) => {
+            for pid in [server_pid, client_pid] {
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+            }
+            let _ = fs::remove_dir_all(&root);
+            panic!(
+                "the bind-all TLS server did not serve port {port} within {}s",
+                DEADLINE.as_secs()
+            );
+        }
+    };
+
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains(PAYLOAD),
+        "tls::listen(\"\") did not serve its peer; s_client exited {:?} and saw \
+         {text:?}\ns_client stderr:\n{}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    // The server must exit cleanly, not on a signal: a scratch release that freed
+    // the rodata `"0.0.0.0"` pointer this path stores in `HOSTCSTR` would land
+    // here as a SIGSEGV/SIGABRT with the payload already delivered.
+    assert!(
+        status.success(),
+        "the bind-all TLS server exited {} after serving its peer — a scratch \
+         release on the `null_host` path freed something it never allocated \
+         (bug-575)",
+        common::exit_description(&status),
     );
 
     let _ = fs::remove_dir_all(&root);

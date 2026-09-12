@@ -4024,6 +4024,106 @@ fn a_helper_that_allocates_only_its_result_stays_flat() {
     assert_flat("b574_arch", SHAPE_574_CONTRAST_ARCH, 20_000, 40_000);
 }
 
+// ---------------------------------------------------------------- bug-575
+//
+// `tls` has its own copy of the marshaller (`builtins/tls/gen_shared.rs`), which
+// bug-574 did not convert: all twelve of its call sites allocated a NUL-terminated
+// arena copy of a host name or a PEM path for the backend call and freed none of
+// them. Same defect, same consequence — every `tls::connect` and `tls::listen`
+// leaked its host name, in proportion to that name's LENGTH.
+//
+// ## Why this case is a length comparison and not `assert_flat`
+//
+// `assert_flat` cannot be used here, and the reason is worth writing down: a
+// failing `tls::connect` leaks something else as well. Measured on this shape at
+// 20 000/40 000 iterations with a SHORT host, on the already-fixed binary, the
+// loop still grows — ~260 B per call on Linux and ~1.9 KB per call on macOS. That
+// residue is neither bug-575 nor specific to `tls`: `tcp::connect` in the same
+// trapped-failure shape, whose marshalling bug-574 already fixed, grows by the
+// same ~260 B per call on the same Linux box. It is the trapped-error path, and it
+// is length-INDEPENDENT — identical at a 1 613-character host and a 6 413-character
+// one.
+//
+// So the assertion is the one the bug is actually about: peak RSS must not scale
+// with the ARGUMENT's length. Two runs at the same iteration count, differing only
+// in how long the host name is, and the difference between them must be noise. The
+// length-independent residue is present in both and cancels; the marshalling leak
+// does not cancel, because it is 4x larger in the long run.
+//
+// ## Calibration (measured, `mfb` built from this tree vs. from its parent)
+//
+// | host chars | 20 000 iterations, peak RSS | before | after |
+// | --- | --- | --- | --- |
+// | 1 613 | macOS aarch64 (Network.framework) | 173.8 MB | 44.8 MB |
+// | 6 413 | macOS aarch64 (Network.framework) | 333.3 MB | 43.5 MB |
+// | 1 613 | Linux x86_64 musl (OpenSSL) | 40.4 MB | 8.4 MB |
+// | 6 413 | Linux x86_64 musl (OpenSSL) | 160.3 MB | 5.5 MB |
+//
+// The difference this test measures is therefore +159.5 MB / +119.9 MB before and
+// NEGATIVE after (the longer run is the cheaper one once the block is released and
+// the arena can reuse it). The threshold is 32 MB: a quarter of the smaller failing
+// reading, and ten times the largest passing spread seen.
+//
+// 20 000 rather than the 200 000 the other cases use, because the leak here is
+// ~6 KB per call rather than tens of bytes — the separation at 20 000 is already
+// 4x the threshold, and 200 000 would allocate 1.2 GB before failing.
+//
+// ## What the host name is
+//
+// A name far past the 253-byte DNS limit, so every resolver rejects it without a
+// query — no network, no DNS timeout, no dependence on what the machine's resolver
+// does with an unknown name. Both backends marshal the host BEFORE resolving it,
+// which is precisely why the leak is reachable through a failing call at all.
+//
+// Windows is excluded with the rest of the RSS half (`ru_maxrss` has no equivalent
+// there), so the Schannel copies of these sites are pinned only by the
+// codegen-inspection table in `tests/codegen/codegen_helper_scratch_release.rs`.
+
+/// A loop of `{N}` failing `tls::connect` calls with a host name of
+/// `host_chars` characters.
+#[cfg(unix)]
+fn tls_connect_probe(host_chars: usize) -> String {
+    let host = format!("b575-{}.invalid", "z".repeat(host_chars.saturating_sub(13)));
+    format!(
+        "IMPORT io\n\
+         IMPORT tls\n\
+         SUB main()\n\
+        \x20 MUT n AS Integer = 0\n\
+        \x20 MUT i AS Integer = 0\n\
+        \x20 WHILE i < {{N}}\n\
+        \x20   RES s AS tls::Socket = tls::connect(\"{host}\", 443, 0) TRAP(e)\n\
+        \x20     n = n + 1\n\
+        \x20     i = i + 1\n\
+        \x20     CONTINUE WHILE\n\
+        \x20   END TRAP\n\
+        \x20   tls::close(s)\n\
+        \x20   i = i + 1\n\
+        \x20 END WHILE\n\
+        \x20 io::print(\"n=\" & toString(n))\n\
+         END SUB\n"
+    )
+}
+
+#[cfg(unix)]
+#[test]
+fn a_tls_connect_host_name_is_not_leaked_in_proportion_to_its_length() {
+    const N: u64 = 20_000;
+    let short = peak_rss("b575_tls_host_short", &tls_connect_probe(1_613), N);
+    let long = peak_rss("b575_tls_host_long", &tls_connect_probe(6_413), N);
+    let grew = long.saturating_sub(short);
+    assert!(
+        grew < 32 * 1024 * 1024,
+        "a {N}-iteration `tls::connect` loop cost {} MB more with a 6 413-character \
+         host name than with a 1 613-character one ({} MB -> {} MB). The host is \
+         copied into an arena C-string for the backend call and that copy is the \
+         helper's own scratch — nothing on the caller side can free it, so every \
+         call leaks the name (bug-575)",
+        grew / (1024 * 1024),
+        short / (1024 * 1024),
+        long / (1024 * 1024),
+    );
+}
+
 /// The VALUE half. A scratch release that reached the block a helper HANDS BACK
 /// is a use-after-free the caller performs, and it surfaces as a wrong value or a
 /// later unrelated allocation failure — never as a failing free. So every member

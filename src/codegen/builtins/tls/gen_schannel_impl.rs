@@ -6,6 +6,11 @@
 /// branches to `fail` on any failure. Uses the portable Winsock getaddrinfo/
 /// socket/connect (imported via ws2_32). Scratch frame slots hints/res/hostcstr
 /// are caller-provided.
+///
+/// bug-575: so is `host_scratch` — the arena C-string copy of the host that
+/// `getaddrinfo` reads. This emitter has no `ret`; its `fail` exit is the
+/// caller's, so the caller declares the scratch (ahead of every branch reaching
+/// its `done`) and releases it there.
 #[allow(clippy::too_many_arguments)]
 fn socket_connect(
     symbol: &str,
@@ -22,6 +27,7 @@ fn socket_connect(
     timeout_off: usize,
     connect_timeout: &str,
     fail: &str,
+    host_scratch: &HelperScratch,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     ins: &mut Vec<CodeInstruction>,
@@ -48,7 +54,17 @@ fn socket_connect(
         abi::move_immediate(&v9, "Integer", super::gen_shared::SOCK_STREAM),
         abi::store_u64(&v9, abi::stack_pointer(), hints_off + 8),
     ]);
-    super::gen_shared::emit_cstring(symbol, "h", host_off, hostcstr_off, fail, ins, rel, vregs);
+    super::gen_shared::emit_cstring(
+        symbol,
+        "h",
+        host_off,
+        hostcstr_off,
+        fail,
+        host_scratch,
+        ins,
+        rel,
+        vregs,
+    );
     // getaddrinfo(host, NULL, &hints, &res)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hostcstr_off),
@@ -293,6 +309,11 @@ pub(crate) fn lower_tls_connect(
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
+    // bug-575: `socket_connect` copies the host into an arena C-string for
+    // `getaddrinfo` and nothing hands it back. Declared here, ahead of every branch
+    // that can reach `done` — the `connect_invalid` negative-timeout rejection
+    // returns before `socket_connect` runs at all — and released at `done`.
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut ins);
     // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName; x4 = allowSelfSigned.
     // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName; x3 = allowSelfSigned.
     ins.extend(super::gen_shared::connect_arg_prologue(
@@ -329,7 +350,7 @@ pub(crate) fn lower_tls_connect(
         ]);
     }
 
-    socket_connect(symbol, HOST, PORT, HINTS, RES, HOSTCSTR, FD, TIMEOUT, &connect_timeout, &net_fail, imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    socket_connect(symbol, HOST, PORT, HINTS, RES, HOSTCSTR, FD, TIMEOUT, &connect_timeout, &net_fail, &host_scratch, imports, platform, &mut ins, &mut rel, &mut vregs)?;
 
     // plan-73-D: bound the TLS handshake recv by SO_RCVTIMEO/SO_SNDTIMEO. The
     // unbounded sentinel => leave it unbounded (omit = block); `0` => the smallest
@@ -752,7 +773,9 @@ pub(crate) fn lower_tls_connect(
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
-    ins.extend([abi::label(&done), abi::return_()]);
+    ins.push(abi::label(&done));
+    emit_helper_scratch_release(symbol, &[host_scratch], &mut vregs, &mut ins, &mut rel);
+    ins.push(abi::return_());
     Ok((ins, rel, FRAME_SIZE))
 }
 
