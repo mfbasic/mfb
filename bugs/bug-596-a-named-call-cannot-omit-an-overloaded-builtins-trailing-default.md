@@ -5,7 +5,7 @@ Effort: small
 Severity: MEDIUM — the documented `tls::connect(host, port, timeoutMs := …, serverName := …)` form is rejected; every named `tls::connect` call that leaves out `allowSelfSigned` fails
 Class: Correctness / regression (bug-477)
 
-Status: Open
+Status: **FIXED** — landed on main in `3b8e0f31c` (fix `1d0fa73b9`, fail-closed rework `ae0c0e867`)
 Regression Test: `src/codegen/builtins/mod.rs` — `a_named_call_may_omit_an_overloaded_builtins_trailing_optionals`, `a_named_call_that_skips_a_middle_parameter_selects_no_overload`
 
 ## How it was found
