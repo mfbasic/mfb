@@ -13,6 +13,10 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::emit_data_address;
+// bug-575: `tls::connect`/`tls::listen` marshal their host name and PEM paths
+// into arena C-strings for OpenSSL; those blocks are helper scratch and are
+// released at the single `ret`.
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::marshal::push_write_payload_view;
 use crate::codegen::os::socket::shared::{emit_accept_call, emit_socket_type_cloexec};
 use crate::target::shared::abi;
@@ -74,6 +78,18 @@ pub(crate) fn lower_tls_connect_openssl(
     let addr_off = platform.addrinfo_addr_offset();
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
+
+    // bug-575: the two C-string copies this body marshals — the host for
+    // `getaddrinfo`, and the SNI/validation name for `SSL_set1_host` — are the
+    // helper's own scratch: handed to OpenSSL and never returned to MFBASIC, so
+    // nothing on the caller side could see them and every `tls::connect` leaked its
+    // host name twice. Declared HERE, ahead of every branch that can reach `done`,
+    // so the release at `done` reads a null on the paths that never marshalled (the
+    // `connect_invalid` timeout rejection, the `alloc_fail` tail itself).
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
+    // `snihost` and `sni` are the two exclusive arms of one choice writing one
+    // slot, so they share one scratch.
+    let sni_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
 
     // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName; x4 = allowSelfSigned.
     // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName; x3 = allowSelfSigned.
@@ -146,6 +162,7 @@ pub(crate) fn lower_tls_connect_openssl(
         HOST_OFFSET,
         HOSTCSTR_OFFSET,
         &alloc_fail,
+        &host_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -408,6 +425,7 @@ pub(crate) fn lower_tls_connect_openssl(
         HOST_OFFSET,
         SNICSTR_OFFSET,
         &alloc_fail,
+        &sni_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -420,6 +438,7 @@ pub(crate) fn lower_tls_connect_openssl(
         SNAME_OFFSET,
         SNICSTR_OFFSET,
         &alloc_fail,
+        &sni_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1088,7 +1107,15 @@ pub(crate) fn lower_tls_connect_openssl(
         &done,
     );
 
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[host_scratch, sni_scratch],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     {
         Ok((instructions, relocations, FRAME_SIZE))
     }
@@ -1140,6 +1167,16 @@ pub(crate) fn lower_tls_listen_openssl(
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
 
+    // bug-575: the host, the certificate path and the key path are all copied into
+    // arena C-strings for `getaddrinfo` / `SSL_CTX_use_*_file`, and none of them is
+    // handed back — `tls::listen` leaked all three. The host scratch in particular
+    // MUST be declared here rather than at its `emit_cstring`: the empty-host
+    // bind-all path branches to `null_host` and jumps straight past the marshalling,
+    // so the release at `done` would otherwise free an undefined vreg.
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
+    let cert_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
+    let key_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
+
     // x0 = host; x1 = port; x2 = certPath; x3 = keyPath; x4 = backlog.
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
@@ -1175,6 +1212,7 @@ pub(crate) fn lower_tls_listen_openssl(
         HOST_OFFSET,
         HOSTCSTR_OFFSET,
         &alloc_fail,
+        &host_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1299,6 +1337,7 @@ pub(crate) fn lower_tls_listen_openssl(
         CERT_OFFSET,
         CERTCSTR_OFFSET,
         &alloc_fail_fd,
+        &cert_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1309,6 +1348,7 @@ pub(crate) fn lower_tls_listen_openssl(
         KEY_OFFSET,
         KEYCSTR_OFFSET,
         &alloc_fail_fd,
+        &key_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1619,7 +1659,15 @@ pub(crate) fn lower_tls_listen_openssl(
         &done,
     );
 
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[host_scratch, cert_scratch, key_scratch],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     {
         Ok((instructions, relocations, FRAME_SIZE))
     }

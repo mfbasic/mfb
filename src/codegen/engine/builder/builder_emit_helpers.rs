@@ -442,7 +442,7 @@ impl CodeBuilder<'_> {
             // thread's arena and handed back the only pointer; the `Result` is
             // built by copying it, after which nothing owned it. The predicate is
             // the `Bind` gate for the same call, asked here.
-            let raw_success = if self.raw_runtime_result_is_caller_owned(target, result_type) {
+            let raw_success = if self.runtime_result_is_caller_owned(target, result_type) {
                 RawSuccessBlock::OwnedByThisFrame
             } else {
                 RawSuccessBlock::OwnedElsewhere
@@ -497,6 +497,19 @@ impl CodeBuilder<'_> {
             self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
             register
         };
+        // bug-576: THE unbound leak site. The helper allocated this block in THIS
+        // thread's arena and handed back the only pointer; a `Bind` of the call
+        // registers a scope-drop `arena_free` for it, but `n = n + len(os::arch())`
+        // binds nothing and a bare `String` needs freshness provenance before
+        // `register_pending_temp` will free it. Mark it here, on the operand this
+        // value returns, so the statement-scope temp list claims it — under the same
+        // gate the `Bind` path applies, which excludes `thread.*` (another arena's
+        // block) and everything `is_freeable_flat_value` refuses.
+        self.mark_runtime_helper_result_fresh(
+            target,
+            result_type,
+            Operand::from(register.render()),
+        );
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
