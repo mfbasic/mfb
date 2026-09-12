@@ -304,7 +304,7 @@ response body while `v1.0.0` does; with the fallback withdrawn too it asserts
 `no active release` is present and `v1.0.0` is gone.
 Also green: `cargo test --test cli_repo_publish --test cli_repo_install --test
 cli_repo_auth --test cli_repo_governance` → 4 / 7 / 9 / 6 passed, 0 failed.
-Commit: —
+Commit: cce8f7b02
 
 ## Validation Plan
 
@@ -312,34 +312,59 @@ Commit: —
   `repository/src/validation.rs`, `repository/src/web/mod.rs`), including the
   negative cases above — `blocked`, `legal-tombstoned`, all-inactive, and no-versions.
 - **Coverage check:** the repository crate is a workspace member
-  (`cargo metadata --no-deps` → 2 members), so its 351 lib tests are in the
-  `cargo test` denominator. `scripts/artifact-gate.sh` covers **none** of this code
+  (`cargo metadata --no-deps` → 2 members, re-measured 2026-09-12), so its lib
+  tests are in the `cargo test` denominator — **381** after this sub-plan, 366
+  before (the plan said 351; see Corrections). `scripts/artifact-gate.sh` covers **none** of this code
   — a 0-diff there is meaningless for this sub-plan and must not be cited as a gate.
-- **Runtime proof:** start a local `mfb-repo`, publish two versions, `mfb pkg
-  release-state <ident> <newest> yanked`, then load `/p/<ident>` and
-  `/search.html?q=<ident>` and confirm both name the older version while the
-  Overview table still lists the yanked one.
+- **Runtime proof:** DONE 2026-09-12 against a live `mfb-repo` on
+  `127.0.0.1:7791` with a real signed package (`alice#toolbox` 0.1.0 and 0.2.0,
+  published through `mfb repo publish`). The command is `mfb repo release-state
+  <state> <version>` run from the package directory — **not** `mfb pkg
+  release-state <ident> <newest> <state>` as written here; `pkg` was retired in
+  favour of `repo` (plan-60-A) and the ident comes from `project.json`, not the
+  argv. Results:
+
+  | State of newest (0.2.0) | `/packages/…` JSON | `/p/…` header | `/search.html?q=` chip | Overview table |
+  |---|---|---|---|---|
+  | `available` | `0.2.0` / `available` | `latest v0.2.0` | `v0.2.0` | both listed |
+  | `yanked` | `0.1.0` / `available` | `latest v0.1.0` + `state--available` | `v0.1.0`, **`0.2.0` absent entirely** | `0.2.0` listed, `state--yanked` |
+  | `deprecated` | `0.2.0` / `deprecated` | `latest v0.2.0` + `state--deprecated` | `v0.2.0` + `state--deprecated` | both listed |
+  | both yanked | `null` / `null` | `no active release` + `every published version is yanked or blocked` | row kept, `result__ver--none">no active release` | both listed, both `state--yanked` |
+
+  `GET /index/alice%23toolbox` was checked in the last state and still returns
+  **every** version with its state (`[(0.1.0, yanked), (0.2.0, yanked)]`),
+  confirming the § Non-goal that the install client's route is untouched.
 - **Client non-regression:** `rustup run 1.96.0 cargo test --no-fail-fast` must keep
   `src/cli/pkg.rs`'s resolution tests green — in particular
   `pkg.rs:2352` and `2774-2785`. This sub-plan must not move them.
 - **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast` (which includes
   `tests/golden.rs` → `scripts/artifact-gate.sh all`), plus
   `tests/cli/cli_repo_publish.rs` and `tests/cli/cli_repo_install.rs`.
-- **Doc sync:** none — no `mfb man` page or `src/docs/spec/**` text describes the
-  registry web UI's latest-version selection. Confirm with
-  `grep -rn "latest version" src/docs/` before ticking.
+- **Doc sync:** none needed, CONFIRMED 2026-09-12.
+  `grep -rn "latest version\|latestVersion\|latestState" src/docs/ .ai/ repository/DEPLOY.md`
+  → no hits. No `mfb man` page, spec text, `.ai/` topic doc or deploy doc
+  describes the registry's latest-version selection.
 - **Format:** `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
 ## Open Decisions
 
-- **Does `deprecated` count as active?** Recommended **yes** — it matches
-  `state_is_floating_eligible` (`src/cli/pkg.rs:1372`), which installs deprecated
-  releases on a floating add. Alternative: treat only `available` as active, which
-  would make the registry stricter than the installer and hide a package whose
-  only maintained line is deprecated. (§1)
-- **No-active-release copy wording.** Recommended "no active release — every
-  published version is yanked or blocked". Needs to read as a statement, not an
-  error. (§Phase 2)
+- **Does `deprecated` count as active?** **RESOLVED: yes.** Taking the
+  recommendation — it matches `state_is_floating_eligible`, which installs
+  deprecated releases on a floating add, and the alternative would make the
+  registry stricter than its own installer. It is *safe* here only because the
+  state travels with the version and is badged: a deprecated headline is
+  visibly deprecated on both surfaces, verified at runtime (§Validation Plan).
+  Without the badge, counting `deprecated` as active would have been the worse
+  choice. (§1)
+- **No-active-release copy wording.** **RESOLVED**, taking the recommendation
+  with one change: the copy is split across two spans rather than joined by an
+  em dash — `no active release` in the chip position (styled with the danger
+  tokens, so it reads as a state and not a missing value) and `every published
+  version is yanked or blocked` as adjacent muted text. On the search page,
+  where there is no room for the second clause, only `no active release`
+  renders. Both read as statements; neither uses error vocabulary. (§Phase 2)
+- **Added decision — does a fully-withdrawn package keep its search result
+  row?** **RESOLVED: yes.** Not listed in the plan; see Corrections. (§Phase 3)
 
 ## Corrections
 
@@ -374,6 +399,15 @@ Commit: —
   positively asserted the broken selection was correct. Comment corrected in
   place; a new handler test covers the newest-yanked shape, including the
   further case where the fallback is withdrawn too and the field goes `null`.
+
+- **The runtime-proof command in § Validation Plan did not exist.** It said
+  `mfb pkg release-state <ident> <newest> yanked`; `mfb pkg release-state` was
+  retired in favour of `mfb repo release-state` (plan-60-A) and the surviving
+  command takes `<state> [version]` with the ident read from `project.json`, not
+  as argv. `mfb pkg publish` has likewise moved to `mfb repo publish <owner>
+  [path]`. Corrected in place, and `mfb init-pkg`'s generated `project.json`
+  carries no `ident` field, so one must be added before `repo release-state`
+  will run.
 
 - **`latest_state` is a new XSS surface, and the first assertion written for it
   was a false positive.** The field reaches a `class=` attribute through
