@@ -946,80 +946,6 @@ pub fn code_function<'a>(
         })
 }
 
-#[cfg(test)]
-mod code_harness_tests {
-    use super::*;
-
-    const HELLO: &str = "\
-FUNC main() AS Integer
-  LET n AS Integer = 40
-  RETURN n + 2
-END FUNC
-";
-
-    /// Every backend lowers the same program, from whichever host runs the test.
-    ///
-    /// This is what lets a test for a platform-specific emitter cover it on CI:
-    /// the coverage job is ubuntu/x86_64 and this machine is macOS/arm64, so a
-    /// macOS emitter reached only "because we are on a Mac" is 0% there and
-    /// nobody notices (`tls/gen_macos/timeout.rs` is exactly that today). Naming
-    /// the target makes the coverage host-independent — and cross-compilation is
-    /// a shipped feature, so lowering all five is a real contract, not a trick.
-    #[test]
-    fn every_backend_lowers_a_program_in_process() {
-        for target in CodeTarget::ALL {
-            let code = code_for_src_on(HELLO, target);
-            assert_eq!(
-                code.target,
-                target.name(),
-                "the code plan must record the backend it was lowered for"
-            );
-            let main = code_function(&code, "main");
-            assert!(
-                !main.instructions.is_empty(),
-                "{}: main must lower to a non-empty instruction stream",
-                target.name()
-            );
-            assert!(
-                code.entry_symbol.is_some(),
-                "{}: a program with an entry point must name its entry symbol",
-                target.name()
-            );
-        }
-    }
-
-    /// `app_mode()` answers for exactly the backends that ship `-app`.
-    ///
-    /// rv64 is console-only and must stay that way here: handing it an app mode
-    /// would make `app_code_cached` lower GTK bodies for an ISA with no GTK
-    /// entry point, which `AppSupport::Unsupported` panics on far from the cause.
-    #[test]
-    fn only_the_app_capable_backends_report_an_app_mode() {
-        assert_eq!(CodeTarget::LinuxRiscv64.app_mode(), None);
-        for target in CodeTarget::ALL {
-            if target != CodeTarget::LinuxRiscv64 {
-                assert!(
-                    target.app_mode().is_some(),
-                    "{} ships -app and must report a build mode",
-                    target.name()
-                );
-            }
-        }
-    }
-
-    /// The cache returns the same lowering rather than recompiling it.
-    #[test]
-    fn the_cache_hands_back_one_lowering_per_key() {
-        use crate::target::NativeBuildMode::Console;
-        let first = code_for_src_cached(HELLO, CodeTarget::LinuxX86_64, Console);
-        let again = code_for_src_cached(HELLO, CodeTarget::LinuxX86_64, Console);
-        assert!(
-            std::ptr::eq(first, again),
-            "a repeated (source, target, mode) must not recompile"
-        );
-    }
-}
-
 // --- lowering a fixture from its PROJECT, not from one source string ---------
 
 /// Everything `cli/build`'s front end produces for one fixture project.
@@ -1233,4 +1159,78 @@ pub fn try_code_for_fixture_project(
     table.entries.sort_by(|a, b| a.logical.cmp(&b.logical));
     ir.native_libraries = table;
     lower_ir_to_code(ir, target, build_mode, &packages)
+}
+
+#[cfg(test)]
+mod code_harness_tests {
+    use super::*;
+
+    const HELLO: &str = "\
+FUNC main() AS Integer
+  LET n AS Integer = 40
+  RETURN n + 2
+END FUNC
+";
+
+    /// Every backend lowers the same program, from whichever host runs the test.
+    ///
+    /// This is what lets a test for a platform-specific emitter cover it on CI:
+    /// the coverage job is ubuntu/x86_64 and this machine is macOS/arm64, so a
+    /// macOS emitter reached only "because we are on a Mac" is 0% there and
+    /// nobody notices (`tls/gen_macos/timeout.rs` is exactly that today). Naming
+    /// the target makes the coverage host-independent — and cross-compilation is
+    /// a shipped feature, so lowering all five is a real contract, not a trick.
+    #[test]
+    fn every_backend_lowers_a_program_in_process() {
+        for target in CodeTarget::ALL {
+            let code = code_for_src_on(HELLO, target);
+            assert_eq!(
+                code.target,
+                target.name(),
+                "the code plan must record the backend it was lowered for"
+            );
+            let main = code_function(&code, "main");
+            assert!(
+                !main.instructions.is_empty(),
+                "{}: main must lower to a non-empty instruction stream",
+                target.name()
+            );
+            assert!(
+                code.entry_symbol.is_some(),
+                "{}: a program with an entry point must name its entry symbol",
+                target.name()
+            );
+        }
+    }
+
+    /// `app_mode()` answers for exactly the backends that ship `-app`.
+    ///
+    /// rv64 is console-only and must stay that way here: handing it an app mode
+    /// would make `app_code_cached` lower GTK bodies for an ISA with no GTK
+    /// entry point, which `AppSupport::Unsupported` panics on far from the cause.
+    #[test]
+    fn only_the_app_capable_backends_report_an_app_mode() {
+        assert_eq!(CodeTarget::LinuxRiscv64.app_mode(), None);
+        for target in CodeTarget::ALL {
+            if target != CodeTarget::LinuxRiscv64 {
+                assert!(
+                    target.app_mode().is_some(),
+                    "{} ships -app and must report a build mode",
+                    target.name()
+                );
+            }
+        }
+    }
+
+    /// The cache returns the same lowering rather than recompiling it.
+    #[test]
+    fn the_cache_hands_back_one_lowering_per_key() {
+        use crate::target::NativeBuildMode::Console;
+        let first = code_for_src_cached(HELLO, CodeTarget::LinuxX86_64, Console);
+        let again = code_for_src_cached(HELLO, CodeTarget::LinuxX86_64, Console);
+        assert!(
+            std::ptr::eq(first, again),
+            "a repeated (source, target, mode) must not recompile"
+        );
+    }
 }

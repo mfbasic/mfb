@@ -1535,6 +1535,20 @@ impl Resolver<'_> {
     }
 }
 
+/// A collection element/value with its `RES` ownership-axis marker peeled off
+/// (§15.6). The marker rides on the element, not the container, and wraps a type
+/// that must still be resolved — `List OF RES fs::File` resolves `fs::File`.
+///
+/// plan-106-D: was `strip_res(&str) -> String`, which round-tripped the element
+/// through `parse` and `name()` to drop one variant. Peeling the variant is the
+/// whole operation.
+fn peel_res(type_: &ParameterType) -> &ParameterType {
+    match type_ {
+        ParameterType::Res(inner) => inner,
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::manifest::validate_project_manifest;
@@ -2406,19 +2420,5 @@ mod tests {
             "EXPORT FUNC scale(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n\n",
             "SUB main()\nEND SUB\n",
         )));
-    }
-}
-
-/// A collection element/value with its `RES` ownership-axis marker peeled off
-/// (§15.6). The marker rides on the element, not the container, and wraps a type
-/// that must still be resolved — `List OF RES fs::File` resolves `fs::File`.
-///
-/// plan-106-D: was `strip_res(&str) -> String`, which round-tripped the element
-/// through `parse` and `name()` to drop one variant. Peeling the variant is the
-/// whole operation.
-fn peel_res(type_: &ParameterType) -> &ParameterType {
-    match type_ {
-        ParameterType::Res(inner) => inner,
-        other => other,
     }
 }
