@@ -1,7 +1,54 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-12
-Open bugs: **13** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **11** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+
+## 2026-09-12 — compiler pass (after the repository intake)
+
+| Bug | Sev | Commit | Outcome |
+|---|---|---|---|
+| 550 | MED | `2203554bb` | a generic builtin parameter now gets an expected type, so `append([], x)` builds |
+| 564 | MED | `d77c3ced0` | `tls::close` drains to `cancelled` — a real use-after-munmap; bug stays OPEN for sighting 2 |
+| 563 | MED | `ceeefcf24` | `collections::get`'s merged error union split per overload |
+| 552 | LOW | `d83714554` | all three Level-2 global rows fire for the first time |
+| 559 | LOW | `3173773c4` | `civil`/`addDays` finally demonstrate a DST transition |
+| 576 | MED | branch ready | an unbound runtime-helper `String` now has an owner |
+| 548 | LOW | archived | both paths settled; deletion independently re-confirmed |
+
+**Filed after reproducing** (see the duplicate-filing lesson below): **590 HIGH**
+(a non-finite `Float` from a builtin call escapes every observation boundary),
+**591 MED** (a multi-overload man page renders only overload 1's parameters),
+**592 MED** (an unbound `collections::getOr` `String` element has no owner).
+
+### Findings worth carrying forward
+
+- **Search for the DEFECT, not the number, before filing.** Three bugs
+  (587/588/589) were filed as "new" out of bug-536's "recorded rather than filed"
+  list. That note was six days stale — the defects had been filed as 560/561/562
+  the next day and all three were fixed. Every number check passed, because they
+  answer *"is this number free?"*. `git grep -il "self.append" bugs/` would have
+  found bug-560 in one command. Withdrawn in `fdad98ccc`. **And when you DO file
+  items recorded elsewhere, go back and edit the originating document** — the
+  un-updated list is what produced the duplicates.
+- **When a bug is already fixed, a RED is impossible — use a NEGATIVE CONTROL.**
+  Re-adding only the `callback_referenced` arm restored `exit 139` on bug-589's
+  verbatim program (5/5 runs) while main gave `c=n0` across 50. That is what
+  distinguishes "fixed" from "never reproduced here".
+- **Ancestry does not prove a binary contains a commit.** A build that STARTS
+  before a peer's commit lands passes `git merge-base --is-ancestor` while
+  emitting the old code — measured at 89 seconds of overlap. It presents as gate
+  diffs that exactly match a recent commit's blast radius and nothing else.
+  **That signature means suspect your binary, not your change**, and never
+  "resolve" it by re-summing: that writes a stale compiler's hashes over goldens
+  belonging to a landed change.
+- **"No committed program reaches it" and "no valid program can reach it" are
+  different claims**, and only the second licenses a deletion (bug-548).
+- **To test a cache, find an input the cache cannot see.** Ed25519 is
+  deterministic, so "the same bytes came back" is equally true of a full
+  recompute — that assertion passed against unfixed code (bug-579).
+- **An example is a `&'static str` the compiler never reads.** bug-559's examples
+  were compiled and RUN before shipping. bug-472 (man examples are never
+  compiled) is still the instrument gap behind every one of them.
 
 ## 2026-09-12 — repository security intake, worked
 
