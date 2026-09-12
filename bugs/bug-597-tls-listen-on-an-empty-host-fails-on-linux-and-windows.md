@@ -5,7 +5,7 @@ Effort: small
 Severity: MEDIUM — a documented bind form fails at runtime on two of three backends, and the page's own example uses it
 Class: Correctness / docs-vs-behaviour
 
-Status: **FIXED on main in `e633cefff`** (fix `260fbff10`) — Linux proven at runtime; **Windows execution proof owed** (box 2230 unstable), so this doc stays open until that run
+Status: **FIXED** — landed on main in `e633cefff` (fix `260fbff10`); proven at runtime on Linux (box 2223) and Windows (box 2230)
 Regression Test: `tests/net/rt_tls_listener_local_address.rs::tls_listen_binds_every_interface_when_the_host_is_empty` (it already exists and runs on Linux; see below)
 
 ## How it was found
@@ -57,9 +57,10 @@ Linux result was never observed before bug-575 merged.
 | main `04c81a605` | `tls_listen_binds_every_interface_when_the_host_is_empty` **FAILED** ("unexpected first line from the TLS server: \"\""), 1 passed / 1 failed, exit 101 |
 | main + this fix | 2 passed / 0 failed, exit 0 |
 
+| box 2230 (Win11 x86_64), probe `tls::listen(<host>, 0, \"cert.pem\", \"key.pem\")` built with main (red) and the fix (green) | red: `\"\"` **raised 77070001**, `0.0.0.0` and `127.0.0.1` bound; green: all three bound, exit 0 |
+
 Emitted-code pins: `listen_bind_all_passes_a_non_null_service`, one each in the OpenSSL
-(`gen_openssl.rs` tests) and Schannel (`gen_schannel_tests.rs`) modules. Windows has
-no execution proof from this host; box 2230 is owed a run.
+(`gen_openssl.rs` tests) and Schannel (`gen_schannel_tests.rs`) modules. Windows execution is proven by the box 2230 row above.
 
 ## Fix
 
