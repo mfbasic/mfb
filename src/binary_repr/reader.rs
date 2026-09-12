@@ -214,7 +214,10 @@ impl SectionKind {
     }
 
     /// Fetch a mandatory section, erroring with the section's label when absent.
-    fn require<'a>(self, sections: &HashMap<u16, &'a [u8]>) -> Result<&'a [u8], String> {
+    ///
+    /// plan-126-C: the map is a `BTreeMap` since the section-table decode moved
+    /// to `mfb_wire::mfpc` — chosen so section iteration order is deterministic.
+    fn require<'a>(self, sections: &BTreeMap<u16, &'a [u8]>) -> Result<&'a [u8], String> {
         sections
             .get(&self.id())
             .copied()
@@ -222,7 +225,7 @@ impl SectionKind {
     }
 
     /// Fetch an optional section; `None` when the package does not carry it.
-    fn optional<'a>(self, sections: &HashMap<u16, &'a [u8]>) -> Option<&'a [u8]> {
+    fn optional<'a>(self, sections: &BTreeMap<u16, &'a [u8]>) -> Option<&'a [u8]> {
         sections.get(&self.id()).copied()
     }
 }
@@ -378,51 +381,17 @@ pub(super) fn validate_container_manifest_identity(
 }
 
 pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr, String> {
-    if bytes.len() < 16 || &bytes[0..4] != b"MFPC" {
-        return Err(
-            "package payload does not have the binary representation container magic".to_string(),
-        );
-    }
-    let major = checked_u16_at(bytes, 4)?;
-    if major != MFPC_MAJOR_VERSION {
-        return Err(format!(
-            "unsupported MFPC major version {major} (expected {MFPC_MAJOR_VERSION}); \
-             this package predates the structured Binary Representation format and must be rebuilt"
-        ));
-    }
-    let section_count = checked_u32_at(bytes, 12)? as usize;
-    let table_end = 16usize
-        .checked_add(
-            section_count
-                .checked_mul(24)
-                .ok_or_else(|| "invalid MFPC section table length".to_string())?,
-        )
-        .ok_or_else(|| "invalid MFPC section table length".to_string())?;
-    if table_end > bytes.len() {
-        return Err("truncated MFPC section table".to_string());
-    }
-
-    let mut sections = HashMap::new();
-    for index in 0..section_count {
-        let entry = 16 + index * 24;
-        let id = checked_u16_at(bytes, entry)?;
-        let offset = checked_usize(checked_u64_at(bytes, entry + 8)?, "MFPC section offset")?;
-        let length = checked_usize(checked_u64_at(bytes, entry + 16)?, "MFPC section length")?;
-        let end = offset
-            .checked_add(length)
-            .ok_or_else(|| "invalid MFPC section length".to_string())?;
-        if end > bytes.len() {
-            return Err("truncated MFPC section".to_string());
-        }
-        // Reject duplicate section ids (PKG-06). A `HashMap::insert` silently
-        // keeps the last copy, letting a crafted package ship two views of a
-        // singleton section (e.g. two BINARY_REPR/ABI_INDEX) — one to satisfy a
-        // cheap inspector, the other to be decoded and lowered. Every MFPC
-        // section is a singleton, so a repeated id is always tampering.
-        if sections.insert(id, &bytes[offset..end]).is_some() {
-            return Err(format!("duplicate MFPC section id {id}"));
-        }
-    }
+    // plan-126-C: the section-table decode was inline here and independently
+    // reimplemented in `repository/src/abi.rs`. It is now
+    // `mfb_wire::mfpc::read_section_table`, enforcing the **union** of what the
+    // two copies had between them — so this side gained the declared-count
+    // ceiling (bug-578) that only the registry's copy had, and the registry
+    // gained the MFPC major-version check and the checked width conversion that
+    // only this one had.
+    //
+    // The map is a `BTreeMap` now rather than a `HashMap`, so section iteration
+    // order is deterministic.
+    let sections = mfb_wire::mfpc::read_section_table(bytes)?;
 
     let strings = StringPool {
         values: read_string_pool(SectionKind::StringPool.require(&sections)?)?,

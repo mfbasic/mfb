@@ -8,33 +8,28 @@
 
 use std::collections::BTreeMap;
 
-const MFPC_MAGIC: &[u8; 4] = b"MFPC";
-const SECTION_MANIFEST: u16 = 1;
-const SECTION_STRING_POOL: u16 = 2;
-const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;
-const SECTION_ABI_INDEX: u16 = 15;
-/// Optional human-facing package metadata (plan-61-D). Restated here for the
-/// same reason as the ids above: this crate does not depend on the compiler.
-const SECTION_PACKAGE_META: u16 = 18;
-const PACKAGE_META_FIELD_DESCRIPTION: u16 = 1;
-/// Mirrors `crate::manifest::MAX_DESCRIPTION_BYTES` in the compiler crate.
-const MAX_DESCRIPTION_BYTES: usize = 4096;
-const ABI_FORMAT_VERSION: u16 = 1;
-const ABI_HASH_LEN: usize = 32;
-
-/// Wire discriminant for a `vendor` native-library locator (plan-46-B §4.1).
-/// A vendor locator carries a 32-byte SHA-256 of the file; a `system` locator
-/// (discriminant 0) names a file the registry never sees and carries no hash.
-const WIRE_LIB_TYPE_VENDOR: u8 = 1;
-const NATIVE_LIBRARY_HASH_LEN: usize = 32;
-
-/// Wire encoding of the `libc` axis (plan-46-B §4.1), mirrored from
-/// `src/binary_repr/mod.rs:353-359`. This crate is a dependency *of* the
-/// compiler crate, not the other way round, so the constants are restated here
-/// rather than imported — as `MFPC_MAGIC` and the section ids above already are.
-const WIRE_LIBC_UNSPECIFIED: u8 = 0;
-const WIRE_LIBC_GLIBC: u8 = 1;
-const WIRE_LIBC_MUSL: u8 = 2;
+// plan-126-C: the MFPC magic, the section ids, the field/format versions, the
+// limits and the `libc`/`lib_type` wire encodings all come from
+// `mfb_wire::mfpc` now. They used to be **restated** here, under a comment
+// explaining that this crate does not depend on the compiler crate and citing
+// `src/binary_repr/mod.rs` as the source of truth — fifteen constants kept in
+// step by hand. `mfb_wire` is the crate both may depend on, so the apology and
+// the copies are both gone.
+//
+// `read_section_table` came from there too, and that one mattered more than the
+// constants: it decodes bytes a package signature covers, and the two
+// hand-synchronized copies had already drifted in **both** directions. This
+// crate's version lacked the MFPC major-version check and used `as usize` where
+// the compiler used `checked_usize`; the compiler's lacked the
+// `MAX_MFPC_SECTIONS` ceiling this one added in bug-578. The shared reader
+// enforces the union, so both sides gained a guard.
+use mfb_wire::bytes::ABI_HASH_LEN;
+use mfb_wire::mfpc::{
+    read_section_table, ABI_FORMAT_VERSION, MAX_DESCRIPTION_BYTES, NATIVE_LIBRARY_HASH_LEN,
+    PACKAGE_META_FIELD_DESCRIPTION, SECTION_ABI_INDEX, SECTION_MANIFEST,
+    SECTION_NATIVE_LIBRARY_TABLE, SECTION_PACKAGE_META, SECTION_STRING_POOL, WIRE_LIBC_GLIBC,
+    WIRE_LIBC_MUSL, WIRE_LIBC_UNSPECIFIED, WIRE_LIB_TYPE_VENDOR,
+};
 
 /// Decode the `libc` wire byte into the token stored in
 /// `package_version_targets.libc`. An unrecognized value is an error, not a
@@ -98,12 +93,10 @@ const MAX_VENDOR_LOCATORS: usize = 4096;
 /// Each ceiling therefore sits three to four orders of magnitude above anything
 /// the compiler emits today. They bound the damage; they are not a schema.
 ///
-/// `MAX_MFPC_SECTIONS`: the writer defines fourteen section ids (1..=8, 10, 11,
-/// 15..=18) and emits at most all fourteen (`src/binary_repr/writer.rs:1095`,
-/// measured above on libsnd and sqlite3). 256 leaves room for every section id
-/// the format is likely ever to define while capping the table walk, which the
-/// body limit otherwise bounded at ~2.7 million 24-byte entries.
-const MAX_MFPC_SECTIONS: usize = 256;
+// `MAX_MFPC_SECTIONS` moved to `mfb_wire::mfpc` with `read_section_table`, the
+// only thing that enforces it (plan-126-C). The measurement table above is the
+// evidence for it and for the four ceilings below, so it stays here; the
+// constant's own rationale travelled with it.
 
 /// `MAX_STRING_POOL_ENTRIES`: 1,147x the largest real pool (jwt, 914 entries).
 /// Caps the `Vec<String>` at ~24 MiB of `String` headers.
@@ -380,42 +373,6 @@ pub fn abi_index_json(payload: &[u8]) -> serde_json::Value {
     }
 }
 
-fn read_section_table(bytes: &[u8]) -> Result<BTreeMap<u16, &[u8]>, String> {
-    if bytes.len() < 16 || &bytes[0..4] != MFPC_MAGIC {
-        return Err("payload is not an MFPC container".to_string());
-    }
-    let section_count = read_u32(bytes, 12)? as usize;
-    // Reject on the declared count before walking or inserting anything
-    // (bug-578). The body limit alone allowed ~2.7 million table entries.
-    if section_count > MAX_MFPC_SECTIONS {
-        return Err(format!(
-            "MFPC container declares {section_count} sections (limit {MAX_MFPC_SECTIONS})"
-        ));
-    }
-    let table_end = 16usize
-        .checked_add(section_count.checked_mul(24).ok_or("bad section table")?)
-        .ok_or("bad section table")?;
-    if table_end > bytes.len() {
-        return Err("truncated MFPC section table".to_string());
-    }
-    let mut sections = BTreeMap::new();
-    for index in 0..section_count {
-        let entry = 16 + index * 24;
-        let id = read_u16(bytes, entry)?;
-        let offset = read_u64(bytes, entry + 8)? as usize;
-        let length = read_u64(bytes, entry + 16)? as usize;
-        let end = offset.checked_add(length).ok_or("bad section length")?;
-        if end > bytes.len() {
-            return Err("truncated MFPC section".to_string());
-        }
-        // A repeated section id is tampering (matches the compiler reader).
-        if sections.insert(id, &bytes[offset..end]).is_some() {
-            return Err(format!("duplicate MFPC section id {id}"));
-        }
-    }
-    Ok(sections)
-}
-
 fn read_string_pool(bytes: &[u8]) -> Result<Vec<String>, String> {
     let mut offset = 0usize;
     let count = read_u32(bytes, offset)? as usize;
@@ -515,12 +472,10 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
-fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
-    let slice = bytes.get(offset..offset + 8).ok_or("truncated u64")?;
-    Ok(u64::from_le_bytes([
-        slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
-    ]))
-}
+// `read_u64` is gone (plan-126-C). Its only production caller was this file's
+// `read_section_table`, which moved to `mfb_wire::mfpc` — where the equivalent
+// is `bytes::checked_u64_at`, with its own tests. Keeping it here would have
+// left a helper used by nothing but a test that tested the helper.
 
 /// A minimal `vendor` locator for tests that care only about the blob hash —
 /// the version→blob edges in `store.rs` and the reachability walk in `gc.rs`,
@@ -543,6 +498,12 @@ pub(crate) fn vendor_ref_for_hash(hash: &str) -> VendorBlobRef {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // plan-126-C: both are now this file's *tests*-only vocabulary — the
+    // production code that used them (`read_section_table`) moved to
+    // `mfb_wire::mfpc`. The tests stay: they assert the registry's
+    // *best-effort posture* around the shared reader, which is this crate's
+    // behaviour and not the reader's.
+    use mfb_wire::mfpc::{MAX_MFPC_SECTIONS, MFPC_MAGIC};
 
     fn put_u16(dst: &mut Vec<u8>, value: u16) {
         dst.extend_from_slice(&value.to_le_bytes());
@@ -600,6 +561,88 @@ mod tests {
             bytes.extend_from_slice(data);
         }
         bytes
+    }
+
+    /// Like [`container`], but with a caller-chosen MFPC major version, so a
+    /// test can build the one thing the registry used to accept and no longer
+    /// does.
+    fn container_with_major(sections: &[(u16, Vec<u8>)], major: u16) -> Vec<u8> {
+        let mut bytes = container(sections);
+        bytes[4..6].copy_from_slice(&major.to_le_bytes());
+        bytes
+    }
+
+    /// **plan-126-C Phase 3 — the guard this crate was missing.**
+    ///
+    /// Before the shared reader, this crate's `read_section_table` never checked
+    /// the MFPC major version: only the compiler's copy did. A v1 or v3
+    /// container's payload layout differs throughout, so decoding one as v2
+    /// mis-reads rather than failing.
+    ///
+    /// The failure mode is **silent**, which is why this asserts the error
+    /// directly instead of watching a publish succeed: `abi_index_json` maps
+    /// *every* parse error to `{}`, so a missing guard does not reject anything
+    /// — it records empty metadata for a package the compiler would refuse to
+    /// load, and nothing announces it.
+    #[test]
+    fn a_wrong_mfpc_major_version_is_now_rejected_by_this_crate_too() {
+        let sections = [
+            (SECTION_STRING_POOL, string_pool(&["greet"])),
+            // string index 0 is "greet" in the pool above.
+            (SECTION_ABI_INDEX, abi_section(&[(0, [0x11; 32])])),
+        ];
+
+        // v2 is what the compiler emits: parses, and yields the real index.
+        let good = container(&sections);
+        let parsed = parse_abi_index(&good).expect("a v2 container parses");
+        assert_eq!(parsed.len(), 1);
+        assert!(abi_index_json(&good).get("greet").is_some());
+
+        // v3 and v1 are both refused, explicitly and by name.
+        for major in [1u16, 3] {
+            let bytes = container_with_major(&sections, major);
+            let err = parse_abi_index(&bytes).unwrap_err();
+            assert!(
+                err.contains(&format!("unsupported MFPC major version {major}")),
+                "major {major}: {err}"
+            );
+
+            // And this is the insidious part, asserted rather than assumed: the
+            // error is swallowed into an empty object, so a publish carrying
+            // this payload would have succeeded with empty `abiIndex` either
+            // way. The guard changes *which* packages land with empty metadata,
+            // not whether they land.
+            assert_eq!(abi_index_json(&bytes), serde_json::json!({}));
+        }
+    }
+
+    /// The registry's **best-effort posture** toward optional sections survives
+    /// the reader swap: a payload that is not an MFPC container at all must
+    /// still mean "no such section", never an error, for the parsers whose
+    /// absence case is normal. A package with no section 10 or 18 is the
+    /// ordinary case, not a finding.
+    #[test]
+    fn a_non_container_payload_still_means_no_such_section_not_an_error() {
+        for payload in [
+            &b""[..],
+            &b"not an MFPC container"[..],
+            // A v3 container: structurally a container, wrong version. The
+            // best-effort parsers must treat it as "nothing here" too.
+            &container_with_major(&[(SECTION_STRING_POOL, string_pool(&["x"]))], 3)[..],
+        ] {
+            assert_eq!(
+                parse_vendor_blobs(payload).expect("vendor blobs are best-effort"),
+                Vec::new(),
+            );
+            assert_eq!(
+                parse_package_description(payload).expect("description is best-effort"),
+                None,
+            );
+            assert_eq!(
+                parse_manifest_metadata(payload).expect("manifest metadata is best-effort"),
+                None,
+            );
+        }
     }
 
     #[test]
@@ -1166,14 +1209,16 @@ mod tests {
             .contains("truncated string pool entry"));
     }
 
+    /// The `read_u64` row is gone with the helper (plan-126-C): its only
+    /// production caller was this file's `read_section_table`, now
+    /// `mfb_wire::mfpc`'s, where `bytes::checked_u64_at` carries its own
+    /// truncation and wrap-offset tests.
     #[test]
     fn read_integer_helpers_report_truncation() {
         assert!(read_u16(&[0u8], 0).is_err());
         assert!(read_u32(&[0u8; 2], 0).is_err());
-        assert!(read_u64(&[0u8; 4], 0).is_err());
         assert_eq!(read_u16(&[2, 0], 0).unwrap(), 2);
         assert_eq!(read_u32(&[2, 0, 0, 0], 0).unwrap(), 2);
-        assert_eq!(read_u64(&[2, 0, 0, 0, 0, 0, 0, 0], 0).unwrap(), 2);
     }
 
     // ---------------------------------------------------------------------

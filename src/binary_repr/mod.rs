@@ -5,7 +5,7 @@ use crate::ir::{IrFunction, IrOp, IrProject, IrType, IrValue};
 // types with no conversion layer between them to get wrong.
 use crate::manifest::libraries::{LibType, Libc};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -53,72 +53,26 @@ pub(crate) use mfb_wire::mfp::validate_signature_header as validate_mfp_signatur
 pub(crate) use mfb_wire::mfp::{FIXED_PREFIX_LEN, MFP_MAGIC};
 use writer::*;
 
-// Section ids are wire format and frozen; the values are declared here in
-// numeric order (the [`SectionKind`] enum in reader.rs is the typed handle that
-// fetches them). Ids 12-14 are reserved by the format for
-// DEBUG_INFO/SOURCE_MAP/AUDIT_INFO, and ids 9, 19 are unassigned gaps.
-const SECTION_MANIFEST: u16 = 1;
-const SECTION_STRING_POOL: u16 = 2;
-const SECTION_TYPE_TABLE: u16 = 3;
-const SECTION_CONST_POOL: u16 = 4;
-const SECTION_IMPORT_TABLE: u16 = 5;
-const SECTION_EXPORT_TABLE: u16 = 6;
-const SECTION_GLOBAL_TABLE: u16 = 7;
-const SECTION_FUNCTION_TABLE: u16 = 8;
-/// Optional native-library locator table (plan-46-B §4.1). Emitted only for a
-/// binding package that declares a `LINK` block; the container's optional flag
-/// bit 0 ("contains native LINK metadata") is set alongside it. This lights up
-/// the id the format reserved for exactly this purpose.
-const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;
-const SECTION_RESOURCE_TABLE: u16 = 11;
-const SECTION_ABI_INDEX: u16 = 15;
-/// Structured Binary Representation payload section. Replaces the old flat code section as
-/// the carrier of function bodies; see `crate::ir::encode_binary_repr`.
-const SECTION_BINARY_REPR: u16 = 16;
-/// Optional documentation section (plan-09-doc.md §5). Self-describing and
-/// length-prefixed; a consumer that does not understand it skips it entirely.
-/// Ids 12-14 are reserved by the format for DEBUG_INFO/SOURCE_MAP/AUDIT_INFO,
-/// so the doc table takes the next free id past the IR section.
-const SECTION_DOC_TABLE: u16 = 17;
-/// Optional human-facing package metadata (plan-61-D).
-///
-/// Named `PACKAGE_META` rather than `DESCRIPTION` so `license`/`keywords` can
-/// join it later without consuming another section id. Self-contained and
-/// length-prefixed like the DOC section: it does **not** intern into the string
-/// pool, so it can be parsed without section 2.
-///
-/// **Never put security-relevant data here.** The format has no
-/// "critical section" marker, so a reader that predates this section accepts a
-/// package carrying it and silently ignores the contents. That is exactly right
-/// for a description — a missing one is cosmetic — and exactly wrong for
-/// anything a consumer must not miss.
-const SECTION_PACKAGE_META: u16 = 18;
-/// Field ids within section 18. Unknown ids are **skipped**, not rejected, so a
-/// later field is additive within the section just as the section itself is
-/// additive within the container.
-const PACKAGE_META_FIELD_DESCRIPTION: u16 = 1;
-
-// `MFPC_MAJOR_VERSION` moved to `mfb_wire::bytes` with `encode_sections`, which
-// stamps it (plan-126-B); it arrives here through the glob re-export above.
+// Section ids, the MFPC magic/major version, the section-table reader and the
+// native-library wire enums all live in `mfb_wire::mfpc` (plan-126-C). They were
+// declared here AND restated in `repository/src/abi.rs`, whose header carried an
+// apology for the duplication; the section-table decode had already drifted
+// between the two copies in both directions. Re-exported by glob so every
+// existing `SECTION_*` path in this crate resolves unchanged.
+//
+// `SectionKind` in reader.rs remains the typed handle that fetches them.
+pub(crate) use mfb_wire::mfpc::*;
 
 // `MFP_MAGIC` moved to `mfb_wire::mfp` (plan-126-B) and is re-exported above,
 // so `crate::binary_repr::MFP_MAGIC` still resolves. The registry's unnamed
-// literal copy went with it.
+// literal copy went with it. `MFPC_MAJOR_VERSION` is now `mfb_wire::mfpc`'s
+// (plan-126-C), beside the reader that checks it.
 
-/// ABI signature-hash input format.
-///
-/// bug-277 moved kind-11 (`STATE`) composites from opaque to structural hashing,
-/// which shifts the `sigHash` of a stateful export — but deliberately did NOT bump
-/// this. The gate in `read_abi_index` guards the section's *wire encoding*, which
-/// that change leaves untouched; bumping it would reject every previously-built
-/// `.mfp` wholesale, including the overwhelming majority that export no `STATE`
-/// type at all. A package that does carry a stale kind-11 hash is already rejected
-/// precisely, per symbol, by `validate_abi_index` recomputing it from the function
-/// table. Bump this only for an actual ABI_INDEX layout change.
-const ABI_FORMAT_VERSION: u16 = 1;
-// `ABI_HASH_LEN` moved to `mfb_wire::bytes` with `hash_bytes`/`cursor_hash`/
-// `hex_hash`, which are typed on it (plan-126-B); it arrives here through the
-// glob re-export above.
+// `ABI_FORMAT_VERSION` moved to `mfb_wire::mfpc` (plan-126-C) — the registry
+// restated it too — and `ABI_HASH_LEN` to `mfb_wire::bytes` with
+// `hash_bytes`/`cursor_hash`/`hex_hash`, which are typed on it (plan-126-B).
+// Both arrive through the glob re-exports above, along with the bug-277
+// rationale for never bumping `ABI_FORMAT_VERSION` casually.
 
 pub(crate) const TYPE_NOTHING: u32 = 1;
 pub(crate) const TYPE_BOOLEAN: u32 = 2;
@@ -450,15 +404,16 @@ pub struct NativeLibraryLocator {
     pub hash: Option<[u8; 32]>,
 }
 
-/// Wire encoding of the `libc` axis (plan-46-B §4.1).
-const WIRE_LIBC_UNSPECIFIED: u8 = 0;
-const WIRE_LIBC_GLIBC: u8 = 1;
-const WIRE_LIBC_MUSL: u8 = 2;
-/// Wire encoding of the `type` axis.
-const WIRE_LIB_TYPE_SYSTEM: u8 = 0;
-const WIRE_LIB_TYPE_VENDOR: u8 = 1;
-/// Byte length of a locator's sha256.
-const NATIVE_LIBRARY_HASH_LEN: usize = 32;
+// The `libc`/`type` wire encodings and the locator sha256 length moved to
+// `mfb_wire::mfpc` (plan-126-C) and arrive through the glob re-export near the
+// top of this file. They were restated in `repository/src/abi.rs` with a comment
+// citing this file as the source of truth — which is exactly the
+// hand-synchronized arrangement the shared crate removes.
+//
+// They were *not* simply deleted here: a local `const` silently shadows a glob
+// import rather than colliding with it, so leaving these in place would have
+// compiled, passed every test, and left two copies of the same wire vocabulary
+// behind a comment claiming there was one.
 
 /// The decoded `doc` section of a compiled package (plan-09-doc.md §5). Empty
 /// when the package was built without any exported `DOC` blocks.

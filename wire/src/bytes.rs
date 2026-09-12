@@ -30,22 +30,12 @@ use sha2::{Digest, Sha256};
 /// Wire format, frozen. Shared with the compiler, which re-exports it.
 pub const ABI_HASH_LEN: usize = 32;
 
-/// MFPC container major version.
-///
-/// Bumped to 2 for the clean break to the structured Binary Representation
-/// payload — the reader rejects the old flat (v1) layout. [`encode_sections`]
-/// stamps it, and the compiler's container reader checks it.
-///
-/// plan-126-C moves this, the section ids and the section-table *reader* into a
-/// dedicated `mfpc` module; it lives here for now because [`encode_sections`]
-/// is its only user in this crate.
-pub const MFPC_MAJOR_VERSION: u16 = 2;
-
-/// One MFPC section: a frozen wire id and its opaque body.
-pub struct Section {
-    pub id: u16,
-    pub data: Vec<u8>,
-}
+// `MFPC_MAJOR_VERSION`, `Section` and `encode_sections` moved to `crate::mfpc`
+// (plan-126-C), beside the section ids and `read_section_table`. They were parked
+// here by plan-126-B only because `encode_sections` needed them; that left this
+// file — whose job is arch-neutral byte primitives — holding what was an MFPC
+// module in all but name, and `MFPC_MAJOR_VERSION` defined twice once `mfpc`
+// existed. One definition each now, in the module that owns the container.
 
 pub fn put_pair_list(bytes: &mut Vec<u8>, pairs: &[(String, String)]) {
     put_u32(bytes, pairs.len() as u32);
@@ -273,39 +263,6 @@ pub fn checked_usize(value: u64, field: &str) -> Result<usize, String> {
         .map_err(|_| format!("invalid {field}: {value} exceeds the address space"))
 }
 
-impl Section {
-    pub fn new(id: u16, data: Vec<u8>) -> Self {
-        Self { id, data }
-    }
-}
-
-pub fn encode_sections(sections: &[Section]) -> Vec<u8> {
-    let section_table_size = sections.len() * 24;
-    let mut offset = 16 + section_table_size;
-    let mut bytes = Vec::new();
-
-    bytes.extend_from_slice(b"MFPC");
-    put_u16(&mut bytes, MFPC_MAJOR_VERSION);
-    put_u16(&mut bytes, 0);
-    put_u32(&mut bytes, 0);
-    put_u32(&mut bytes, sections.len() as u32);
-
-    for section in sections {
-        put_u16(&mut bytes, section.id);
-        put_u16(&mut bytes, 0);
-        put_u32(&mut bytes, 0);
-        put_u64(&mut bytes, offset as u64);
-        put_u64(&mut bytes, section.data.len() as u64);
-        offset += section.data.len();
-    }
-
-    for section in sections {
-        bytes.extend_from_slice(&section.data);
-    }
-
-    bytes
-}
-
 pub fn hex_dump(bytes: &[u8]) -> String {
     let mut output = String::new();
     for chunk in bytes.chunks(16) {
@@ -508,22 +465,6 @@ mod tests {
         assert!(checked_u64_at(&[0; 4], 0).is_err());
         // Overflowing offset.
         assert!(checked_u16_at(&[0; 4], usize::MAX).is_err());
-    }
-
-    #[test]
-    fn encode_sections_frames_header_and_offsets() {
-        let sections = vec![Section::new(1, vec![1, 2, 3]), Section::new(2, vec![9, 9])];
-        let bytes = encode_sections(&sections);
-        assert_eq!(&bytes[0..4], b"MFPC");
-        // major version at offset 4.
-        assert_eq!(checked_u16_at(&bytes, 4).unwrap(), MFPC_MAJOR_VERSION);
-        // section count at offset 12.
-        assert_eq!(checked_u32_at(&bytes, 12).unwrap(), 2);
-        // First section table entry: id 1, offset points past the header+table.
-        assert_eq!(checked_u16_at(&bytes, 16).unwrap(), 1);
-        let first_off = checked_u64_at(&bytes, 16 + 8).unwrap() as usize;
-        assert_eq!(first_off, 16 + 2 * 24);
-        assert_eq!(&bytes[first_off..first_off + 3], &[1, 2, 3]);
     }
 
     #[test]
