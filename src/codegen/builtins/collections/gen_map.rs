@@ -389,6 +389,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&not_found));
             self.raise_error("collections.get", "ErrNotFound")?;
             self.emit(abi::label(&done));
+            self.mark_fresh_element_result(value_type, &result);
             return Ok(ValueResult {
                 origin: None,
                 type_: value_type.clone(),
@@ -461,6 +462,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&not_found));
         self.raise_error("collections.get", "ErrNotFound")?;
         self.emit(abi::label(&done));
+        self.mark_fresh_element_result(value_type, &result);
 
         Ok(ValueResult {
             origin: None,
@@ -526,6 +528,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
             }
             self.emit(abi::label(&done));
+            self.mark_fresh_element_result(value_type, &result);
             return Ok(ValueResult {
                 origin: None,
                 type_: value_type.clone(),
@@ -613,6 +616,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
         }
         self.emit(abi::label(&done));
+        self.mark_fresh_element_result(value_type, &result);
 
         Ok(ValueResult {
             origin: None,
