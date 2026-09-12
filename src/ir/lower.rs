@@ -4002,7 +4002,8 @@ fn normalize_builtin_call_arguments<'a>(
     // A builtin whose overloads place a name at different positions selects the
     // overload first; the type checker has already proven one exists.
     if let Some(overloads) = builtins::call_param_name_overloads(callee) {
-        return normalize_overloaded_builtin_call_arguments(&overloads, arguments);
+        let required = builtins::call_param_name_overload_required(callee).unwrap_or_default();
+        return normalize_overloaded_builtin_call_arguments(&overloads, &required, arguments);
     }
     let Some(param_names) = builtins::call_param_names(callee) else {
         return arguments.iter().map(call_arg_value).collect();
@@ -4044,6 +4045,7 @@ fn normalize_builtin_call_arguments<'a>(
 /// keep its source order so lowering has something well-formed to walk.
 fn normalize_overloaded_builtin_call_arguments<'a>(
     overloads: &[Vec<&str>],
+    required: &[usize],
     arguments: &'a [HirCallArg],
 ) -> Vec<&'a HirExpression> {
     let positionals: Vec<&HirExpression> = arguments
@@ -4061,9 +4063,12 @@ fn normalize_overloaded_builtin_call_arguments<'a>(
         })
         .collect();
     let supplied_names: Vec<&str> = named.iter().map(|(name, _)| *name).collect();
-    let Some(params) =
-        builtins::select_param_name_overload(overloads, positionals.len(), &supplied_names)
-    else {
+    let Some(params) = builtins::select_param_name_overload(
+        overloads,
+        required,
+        positionals.len(),
+        &supplied_names,
+    ) else {
         return arguments.iter().map(call_arg_value).collect();
     };
 
