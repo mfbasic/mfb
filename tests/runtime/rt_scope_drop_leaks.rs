@@ -4448,3 +4448,402 @@ fn every_raised_error_still_reports_its_true_origin() {
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------- bug-576
+
+/// bug-576: an UNBOUND runtime-helper `String` result had no owner at all.
+///
+/// `LET s AS String = os::arch()` has always been flat — the `Bind` path's
+/// `owns_freeable_value` registers a scope-drop `arena_free` for the block the
+/// call yields. The same call written where nothing binds it —
+/// `n = n + len(os::arch())`, `"x" & os::arch()`, an argument to another call —
+/// yields a `ValueResult` no binding claims, and `register_pending_temp` declined
+/// it because a bare `String` needs freshness provenance (bug-536 shape B) that
+/// `emit_runtime_helper_call` never set. Measured on the pre-fix release binary,
+/// 200k -> 400k iterations: 129 B/call for `os::hostName()`, 64 B/call for
+/// `os::arch()`, 260 B/call for `fs::tempDirectory()`; the `LET`-bound spelling of
+/// the same call moved 32 KB in total.
+///
+/// The fix ADDS an `arena_free`, so the hazard it carries is a DOUBLE free, not a
+/// leak: every position that already owned its result is pinned below as a
+/// positive case, and the value probe reads back every shape whose block now has
+/// a statement-scope owner.
+const SHAPE_576_UNBOUND_HOSTNAME: &str = "IMPORT io\n\
+IMPORT os\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    n = n + len(os::hostName())\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// The helper that allocates NOTHING but its result — the row that proves this is
+/// not bug-574's marshalling scratch, which this shape never allocates.
+const SHAPE_576_UNBOUND_ARCH: &str = "IMPORT io\n\
+IMPORT os\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    n = n + len(os::arch())\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// The largest measured row (260 B/call): a longer result block.
+const SHAPE_576_UNBOUND_TEMPDIR: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    n = n + len(fs::tempDirectory())\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// The result consumed by `&` rather than by `len` — a different consumer, the
+/// same ownerless block. The concat's own result is bound, so only the helper's
+/// block is at stake here.
+const SHAPE_576_UNBOUND_IN_CONCAT: &str = "IMPORT io\n\
+IMPORT os\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET joined AS String = \"arch=\" & os::arch()\n\
+    n = n + len(joined)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// The result consumed as ANOTHER call's argument — the third unbound position
+/// named in the report. The outer call copies what it needs; the helper's block is
+/// dead the moment it returns.
+const SHAPE_576_UNBOUND_AS_ARGUMENT: &str = "IMPORT io\n\
+IMPORT os\n\
+IMPORT strings\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET shout AS String = strings::upper(os::arch())\n\
+    n = n + len(shout)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// POSITIVE PIN. `LET s AS String = os::arch()` was flat BEFORE this change and
+/// must stay flat: the bind claims the pending temp, so the block has exactly one
+/// owner. A second free here would be a double free — the shape this cluster
+/// nearly shipped twice.
+const SHAPE_576_CONTRAST_BOUND_ARCH: &str = "IMPORT io\n\
+IMPORT os\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = os::arch()\n\
+    n = n + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// POSITIVE PIN, the report's second flat row.
+const SHAPE_576_CONTRAST_BOUND_CWD: &str = "IMPORT io\n\
+IMPORT fs\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = fs::currentDirectory()\n\
+    n = n + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// `RETURN os::arch()` — measured RED at 12 MB / 200k too, and for the same
+/// reason with one more step. `lower_returned_value` found no pending temp to
+/// claim (there was none to register), so it fell through to the
+/// `current_returns_fresh_string` arm and `copy_flat_block`ed the helper's block
+/// to deliver the promise — leaving the ORIGINAL with no owner. Marking the
+/// result makes it a claimable temp, so the block is MOVED to the caller and the
+/// redundant copy disappears with the leak, exactly as bug-536 shape A's claim
+/// arm does for a fresh constructor.
+///
+/// This is also a double-free pin: if the claim missed while the free was
+/// registered, the caller reads a freed block — so it is read back in the value
+/// probe as well as measured here.
+const SHAPE_576_CONTRAST_RETURNED: &str = "IMPORT io\n\
+IMPORT os\n\
+FUNC whichArch() AS String\n  RETURN os::arch()\nEND FUNC\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET s AS String = whichArch()\n\
+    n = n + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+/// The result passed straight into a collection — measured RED at 24 MB / 200k.
+/// `append` COPIES the element's bytes into the container's data region, so the
+/// helper's own block is dead the moment the call returns and nothing owned it.
+///
+/// It is simultaneously the sharpest double-free pin in the set: if `append` took
+/// the pointer instead of copying, the new statement-scope free would `arena_free`
+/// a block the list still points into, and the element read back on the next line
+/// is what catches that.
+///
+/// The element is read into a BINDING deliberately. An UNBOUND
+/// `collections::getOr(...)` `String` leaks 64 B per call by itself — measured at
+/// exactly that on a list built from a LITERAL, with no runtime helper anywhere in
+/// the program — which is a different producer's missing freshness mark, not this
+/// one's. Binding it keeps this case measuring the helper's block; the unbound
+/// `getOr` is filed separately.
+const SHAPE_576_CONTRAST_INTO_COLLECTION: &str = "IMPORT io\n\
+IMPORT os\n\
+IMPORT collections\n\
+SUB main()\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT names AS List OF String = []\n\
+    names = collections::append(names, os::arch())\n\
+    LET element AS String = collections::getOr(names, 0, \"\")\n\
+    n = n + len(element)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n=\" & toString(n))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_helper_hostname_runs_at_constant_rss() {
+    assert_flat(
+        "b576_unbound_hostname",
+        SHAPE_576_UNBOUND_HOSTNAME,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_helper_result_that_allocates_only_its_result_runs_at_constant_rss() {
+    assert_flat(
+        "b576_unbound_arch",
+        SHAPE_576_UNBOUND_ARCH,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_helper_tempdir_runs_at_constant_rss() {
+    assert_flat(
+        "b576_unbound_tempdir",
+        SHAPE_576_UNBOUND_TEMPDIR,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_helper_result_consumed_by_concat_runs_at_constant_rss() {
+    assert_flat(
+        "b576_unbound_concat",
+        SHAPE_576_UNBOUND_IN_CONCAT,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_helper_result_passed_to_another_call_runs_at_constant_rss() {
+    assert_flat(
+        "b576_unbound_argument",
+        SHAPE_576_UNBOUND_AS_ARGUMENT,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_bound_helper_result_still_runs_at_constant_rss() {
+    assert_flat(
+        "b576_bound_arch",
+        SHAPE_576_CONTRAST_BOUND_ARCH,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_bound_directory_helper_result_still_runs_at_constant_rss() {
+    assert_flat(
+        "b576_bound_cwd",
+        SHAPE_576_CONTRAST_BOUND_CWD,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_returned_helper_result_still_runs_at_constant_rss() {
+    assert_flat(
+        "b576_returned",
+        SHAPE_576_CONTRAST_RETURNED,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_helper_result_moved_into_a_collection_still_runs_at_constant_rss() {
+    assert_flat(
+        "b576_into_collection",
+        SHAPE_576_CONTRAST_INTO_COLLECTION,
+        200_000,
+        400_000,
+    );
+}
+
+/// The VALUE half, and the half that carries the risk. bug-576 ADDS an
+/// `arena_free` on a position that previously had none, so the way it fails is a
+/// block freed while someone still holds it — a wrong value or a later unrelated
+/// allocation failure, never a failing free.
+///
+/// Every claimed position is exercised in one process, after a churn loop that
+/// guarantees the arena has recycled anything freed too early into a later
+/// allocation:
+///
+/// * the unbound positions themselves, read back through `len`, `&` and an outer
+///   call;
+/// * a `LET`-bound result, a reassigned `MUT`, a returned result and a result
+///   moved into a `List OF String` — the four positions that already owned the
+///   block and must not gain a second free;
+/// * `thread::waitFor`, whose result the WORKER's arena allocated: it is
+///   `runtime_call_result_is_foreign_arena`, so it must keep its old exemption.
+///   A cross-arena free is the one failure mode in this family that corrupts
+///   another thread's heap.
+const SHAPE_576_VALUES: &str = "IMPORT io\n\
+IMPORT os\n\
+IMPORT fs\n\
+IMPORT strings\n\
+IMPORT collections\n\
+IMPORT thread\n\
+ISOLATED FUNC worker(w AS ThreadWorker OF String TO String, seed AS String) AS String\n\
+  RETURN seed & \"-done\"\n\
+END FUNC\n\
+FUNC whichArch() AS String\n  RETURN os::arch()\nEND FUNC\n\
+SUB main()\n\
+  MUT churn AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < 2000\n\
+    churn = churn + len(os::arch()) + len(fs::tempDirectory())\n\
+    LET scratch AS String = \"pad-\" & toString(i) & \"-pad\"\n\
+    churn = churn + len(scratch)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"churn=\" & toString(churn > 0))\n\
+  LET arch AS String = os::arch()\n\
+  io::print(\"boundMatchesUnbound=\" & toString(len(arch) = len(os::arch())))\n\
+  io::print(\"concat=arch:\" & os::arch())\n\
+  io::print(\"upper=\" & strings::upper(os::arch()))\n\
+  io::print(\"returned=\" & whichArch())\n\
+  io::print(\"returnedMatches=\" & toString(whichArch() = arch))\n\
+  MUT reassigned AS String = \"seed\"\n\
+  reassigned = os::arch()\n\
+  io::print(\"reassigned=\" & reassigned)\n\
+  MUT names AS List OF String = []\n\
+  names = collections::append(names, os::arch())\n\
+  names = collections::append(names, os::hostName())\n\
+  io::print(\"element=\" & collections::getOr(names, 0, \"MISSING\"))\n\
+  io::print(\"elements=\" & toString(len(names)))\n\
+  io::print(\"host=\" & toString(len(os::hostName()) > 0))\n\
+  io::print(\"tmp=\" & toString(len(fs::tempDirectory()) > 0))\n\
+  io::print(\"cwd=\" & toString(len(fs::currentDirectory()) > 0))\n\
+  LET t AS Thread OF String TO String = thread::start(worker, \"worker\")\n\
+  LET out AS String = thread::waitFor(t) TRAP(e)\n\
+    RECOVER \"thread-failed\"\n\
+  END TRAP\n\
+  io::print(\"thread=\" & out)\n\
+  io::print(\"archAgain=\" & arch)\n\
+END SUB\n";
+
+#[test]
+fn every_unbound_helper_result_position_still_produces_the_right_value() {
+    let project = common::temp_project("b576_values", SHAPE_576_VALUES);
+    let exe = common::build_project(&project);
+    // `os::arch()` is a fixed string for the host, so the expectation is derived
+    // from the one line that reads it back through a shape this change does not
+    // touch (an assignment from a `MUT`) rather than hard-coded per platform.
+    for run in 1..=25 {
+        let output = std::process::Command::new(&exe)
+            .current_dir(&project)
+            .output()
+            .expect("run the unbound-helper-result ownership probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = stdout.trim().lines().collect();
+        let arch = lines
+            .iter()
+            .find_map(|line| line.strip_prefix("reassigned="))
+            .unwrap_or_else(|| panic!("run {run}: no `reassigned` line in:\n{stdout}"))
+            .to_string();
+        assert!(
+            !arch.is_empty(),
+            "run {run}: the architecture read back empty:\n{stdout}"
+        );
+        let expected = [
+            "churn=TRUE".to_string(),
+            "boundMatchesUnbound=TRUE".to_string(),
+            format!("concat=arch:{arch}"),
+            format!("upper={}", arch.to_uppercase()),
+            format!("returned={arch}"),
+            "returnedMatches=TRUE".to_string(),
+            format!("reassigned={arch}"),
+            format!("element={arch}"),
+            "elements=2".to_string(),
+            "host=TRUE".to_string(),
+            "tmp=TRUE".to_string(),
+            "cwd=TRUE".to_string(),
+            "thread=worker-done".to_string(),
+            format!("archAgain={arch}"),
+        ]
+        .join("\n");
+        assert_eq!(
+            stdout.trim(),
+            expected,
+            "run {run}: an unbound runtime-helper result read back wrong. bug-576 \
+             adds a statement-scope `arena_free` to positions that had no owner, \
+             so its failure direction is a block freed while someone still holds \
+             it — a `thread=` mismatch means the free reached the WORKER's arena"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}
