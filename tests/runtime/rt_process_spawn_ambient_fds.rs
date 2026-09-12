@@ -184,6 +184,7 @@ fn run_with_ambient_fds(
             Ok(())
         });
     }
+    common::own_process_group(&mut command);
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -200,8 +201,7 @@ fn run_with_ambient_fds(
             return (status, stdout);
         }
         if start.elapsed() > timeout {
-            let _ = child.kill();
-            let _ = child.wait();
+            common::kill_process_tree(&mut child);
             panic!(
                 "executable {} did not finish within {timeout:?} — {hang_context}",
                 executable.display(),
@@ -439,5 +439,76 @@ END FUNC
     assert!(
         stdout.contains("pipeline-done"),
         "bug-543: the pipeline did not run to completion:\n{stdout}"
+    );
+}
+
+/// bug-600: a run that times out must not leave anything it started behind.
+///
+/// `common::run_bounded` gave up on a hung program by killing only that program.
+/// Whatever it had spawned — here a backgrounded `sleep`, in the real case the
+/// `probe spam | head` pipeline of `spawned_child_dies_on_a_closed_pipe`
+/// on a RED build — was reparented to init and kept running. Two such orphans
+/// spun at ~65% CPU for 5 days.
+///
+/// The child is a shell script that backgrounds a long `sleep`, records its pid,
+/// and waits. The run is given a short timeout, so `run_bounded` panics; the
+/// panic is caught, and the recorded grandchild must be gone. The test reaps that
+/// pid itself either way, so a RED run of THIS test cannot leave an orphan too.
+#[test]
+fn a_timed_out_run_leaves_no_descendant_behind() {
+    let root = scratch("bug600_orphan");
+    let script = root.join("spawn_and_wait.sh");
+    let pid_file = root.join("grandchild.pid");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nsleep 300 &\necho $! > '{}'\nwait\n",
+            pid_file.display()
+        ),
+    )
+    .expect("write the spawning script");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod +x");
+    }
+
+    let outcome = std::panic::catch_unwind(|| {
+        common::run_bounded(
+            &script,
+            Duration::from_secs(2),
+            "bug-600 probe (expected to time out)",
+        )
+    });
+    assert!(
+        outcome.is_err(),
+        "the probe waits on a 300 s sleep, so the bounded run must time out"
+    );
+
+    let grandchild: libc::pid_t = fs::read_to_string(&pid_file)
+        .expect("the script recorded its backgrounded sleep's pid")
+        .trim()
+        .parse()
+        .expect("a numeric pid");
+    // A killed process is gone as soon as init reaps it; allow a moment for that.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut alive = true;
+    while Instant::now() < deadline {
+        // SAFETY: signal 0 only checks for existence and permission.
+        if unsafe { libc::kill(grandchild, 0) } != 0 {
+            alive = false;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if alive {
+        // Never leave the orphan this test is about.
+        unsafe {
+            libc::kill(grandchild, libc::SIGKILL);
+        }
+    }
+    let _ = fs::remove_dir_all(&root);
+    assert!(
+        !alive,
+        "bug-600: the timed-out run left pid {grandchild} (its backgrounded `sleep`) running"
     );
 }

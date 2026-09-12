@@ -352,12 +352,46 @@ pub fn run_bounded_without_inherited_fds(
     run_bounded_command(command, executable, timeout, hang_context)
 }
 
+/// Put `command`'s child in a process group of its own, so a timeout can kill
+/// everything it started (bug-600). Paired with [`kill_process_tree`].
+#[cfg(unix)]
+pub fn own_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+pub fn own_process_group(_command: &mut Command) {}
+
+/// Kill a timed-out child AND everything it spawned (bug-600).
+///
+/// `Child::kill` signals only the direct child. A program under test that ran
+/// `process::shell("probe | head")` leaves that pipeline behind, reparented to
+/// init, when the test gives up on it — and a probe that hangs by design (bug-543's
+/// `spam` writer under an inherited ignored SIGPIPE) then spins on a core forever.
+/// Measured: two such orphans ran for 5 days at ~65% CPU each before anyone
+/// noticed. The child was started as a group leader ([`own_process_group`]), so
+/// `killpg(child pid)` reaches every descendant that did not leave the group.
+pub fn kill_process_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // SAFETY: `killpg` is a plain syscall; the group id is the child's pid
+        // because `own_process_group` made it the group leader.
+        unsafe {
+            libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn run_bounded_command(
     mut command: Command,
     executable: &Path,
     timeout: Duration,
     hang_context: &str,
 ) -> (ExitStatus, String) {
+    own_process_group(&mut command);
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -373,8 +407,7 @@ fn run_bounded_command(
             return (status, stdout);
         }
         if start.elapsed() > timeout {
-            let _ = child.kill();
-            let _ = child.wait();
+            kill_process_tree(&mut child);
             panic!(
                 "executable {} did not finish within {timeout:?} — {hang_context}",
                 executable.display(),
