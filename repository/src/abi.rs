@@ -1348,15 +1348,25 @@ mod tests {
     /// POSITIVE PIN 1 — a real compiler-produced `.mfp` still parses to exactly
     /// the same ABI index, vendor locators and metadata.
     ///
-    /// `packages/libsnd/libsnd.mfp` is the widest shape the compiler emits: all
+    /// `tests/fixtures/libsnd.mfp` is the widest shape the compiler emits: all
     /// 14 sections, a section-10 table with seven real `vendor` locators across
     /// three architectures and both libc flavours, a section-18 description, and
     /// a 12-entry ABI index. If a ceiling ever starts refusing legitimate
     /// packages, this is the test that fails.
+    ///
+    /// It is a COMMITTED copy, deliberately. The pin originally read the build
+    /// output at `packages/libsnd/libsnd.mfp`, which `.gitignore:34`
+    /// (`packages/**/*.mfp`) excludes — so the one test proving the parser
+    /// ceilings do not refuse real packages passed only on a machine that had
+    /// already built libsnd, and failed on every fresh clone and in CI. A pin
+    /// whose subject is untracked is not a pin. Regenerate with
+    /// `mfb build -pkg packages/libsnd` and copy it here if the emitted shape
+    /// ever changes; the assertions below are exact, so a stale copy fails loudly
+    /// rather than silently checking less.
     #[test]
     fn a_real_compiler_produced_package_still_parses() {
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../packages/libsnd/libsnd.mfp");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/libsnd.mfp");
         let bytes = std::fs::read(&path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
         let package = crate::package::parse_mfp_package(&bytes).expect("a real .mfp parses");
