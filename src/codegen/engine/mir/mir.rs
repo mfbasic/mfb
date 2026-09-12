@@ -165,6 +165,9 @@ mir_ops!(
         // `from_code`); listed here only so the `CodeOp`→`MirOp` map stays total.
         RvVop,
         LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32, StrU16, StrU8, LdrD, StrD, Adrp, AddPageOff,
+        // AArch64 load-acquire / store-release (bug-564): emitted only by the
+        // macOS Network.framework trampolines and `tls::write`'s gate loads.
+        StlrU64, LdarU64, LdarU32,
         FMovDFromD, FAddD, FSubD, FMulD, FDivD, FMinnmD, FMaxnmD, FNegD, FAbsD, FSqrtD, FCmpD,
         FCmpZeroD, FMaddD, FMsubD, FNmsubD, FNmaddD,
     }
