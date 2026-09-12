@@ -763,6 +763,32 @@ pub(crate) struct OwnedValueCleanup {
     ///
     /// `None` everywhere else: an ordinary binding's block has no container.
     pub(crate) loop_alias_slot: Option<usize>,
+    /// bug-593: `Some` when this cleanup releases ONLY the `{tag, size, payload}`
+    /// wrapper an inline `TRAP` built for a `Result OF T` whose `T` is not a flat
+    /// value (a resource, or a collection of a pointer-`String` record such as
+    /// `net::Address`), so `is_freeable_flat_value` gave the bind no drop at all.
+    /// The drop frees the one wrapper block by the size word at +8 and never walks
+    /// into its payload; see [`ResultWrapperDrop`] for which paths it covers.
+    ///
+    /// `None` everywhere else.
+    pub(crate) result_wrapper: Option<ResultWrapperDrop>,
+}
+
+/// bug-593: which runtime paths an inline-`TRAP` `Result` wrapper drop releases.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ResultWrapperDrop {
+    /// The payload word at +16 is loaded BY VALUE (`result_payload_is_block` is
+    /// false — a resource handle), so nothing can alias into the wrapper on
+    /// either path: release it whatever its tag.
+    Always,
+    /// The Ok payload is a BLOCK inlined at +16 that `ResultValue` hands out as an
+    /// alias (`wrapper + 16`), and a non-flat `T` is not deep-copied by
+    /// `lower_value_owned` — so on the Ok path the binding still points into the
+    /// wrapper and it must NOT be released. On the error path the wrapper holds
+    /// only the trapped `Error`, which every reader copies out
+    /// (`ResultError` is an aliasing source) exactly as it does for a flat `T`,
+    /// so it is released when the tag is not Ok.
+    ErrorOnly,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free

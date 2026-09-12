@@ -295,6 +295,7 @@ impl CodeBuilder<'_> {
                 closure_captures: Some(capture_types),
                 capacity_slot: None,
                 loop_alias_slot: None,
+                result_wrapper: None,
             })?;
         }
         let Some((slot, parked_result)) = parked else {
@@ -587,6 +588,7 @@ impl CodeBuilder<'_> {
                 closure_captures: None,
                 capacity_slot: None,
                 loop_alias_slot: None,
+                result_wrapper: None,
             })?;
         }
         Ok(())
@@ -696,6 +698,7 @@ impl CodeBuilder<'_> {
                 closure_captures: None,
                 capacity_slot: None,
                 loop_alias_slot: None,
+                result_wrapper: None,
             })?;
             if let Some(kept) = kept {
                 self.emit(abi::label(&kept));

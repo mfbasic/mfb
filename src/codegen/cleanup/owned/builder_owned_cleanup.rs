@@ -334,6 +334,14 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(abi::c_arg(0), "0"));
         self.emit(abi::branch_eq(&skip));
+        // bug-593: an Ok wrapper whose inlined block payload a binding still
+        // aliases is left alone; only the error-tagged wrapper is released.
+        if cleanup.result_wrapper == Some(ResultWrapperDrop::ErrorOnly) {
+            let tag = self.temporary_vreg();
+            self.emit(abi::load_u64(&tag, abi::c_arg(0), 0));
+            self.emit(abi::compare_immediate(&tag, RESULT_OK_TAG));
+            self.emit(abi::branch_eq(&skip));
+        }
         let size_slot = self.allocate_stack_object("owned_value_free_size", 8);
         // The slot already holds the block pointer; size it from the type.
         self.emit_inlined_block_size_from_ptr_slot(
