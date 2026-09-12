@@ -7,7 +7,7 @@ Severity: HIGH — breaks a documented language guarantee, and the observable
 symptom is silently wrong output rather than an error
 Class: Correctness / float observation boundary (plan-17)
 
-Status: Fixed (2026-09-12)
+Status: **FIXED** — landed on main in round 2 (`2f40cf6b4`); branch tip `d57cbfbef`.
 Regression Test: `tests/rt-error/collections/sum_float_overflow_rt` (the filed
 repro) and `tests/rt-error/vector/dot_float_overflow_inline_rt` (a SECOND
 instance found while auditing the blast radius), plus the positive pin
@@ -215,3 +215,17 @@ attributes the raise to the statement's location, not to the call, and the
 `errors` list also drives the inline-`TRAP` fallibility census
 (`native_member_declares_error`), so changing it moves more than a man page.
 Decide it, then it is a one-line edit plus a golden refresh.
+
+## Landed
+
+Landed on main in round 2 (`2f40cf6b4`), integrated with bug-576 and bug-575 so the
+collections/vector goldens this fix moved were regenerated once for the combined tree.
+Verified on the merged tree: artifact gate 1431 tests / 1597 builds / 2009 goldens,
+0 diffs; `rt_scope_drop_leaks` 98 passed, 0 failed; release `mfb` unit suite
+4132 passed, 0 failed. This branch's own full-suite run was deliberately stopped in
+favour of that merged run, which is the one that describes the landed code.
+
+**The `collections::sum` declared-error question above stays OPEN as a design
+decision**, not a defect: whether an error raised at the caller's observation boundary
+belongs in the callee's `errors` list. It is carried into the backlog's open decisions,
+together with bug-563's matching question for `set`.
