@@ -279,29 +279,61 @@ post-format backup. That gate is what stops a malformed doc table from being
 recorded.
 `cargo check --all-targets` → only the three pre-existing `unused axum::Json`
 warnings.
-Commit: —
+Commit: f9e26140a
 
 ### Phase 3 — Backfill (largest blast radius: touches every stored blob)
 
-- [ ] Extend `backfill::run` (`repository/src/backfill.rs:58`) to decode section 17
-      from each re-parsed blob and fill `package_version_docs` where the row is
-      absent, leaving existing rows alone so the sweep stays idempotent.
-- [ ] Obey the module's two stated rules (`:10-22`): a blob whose doc section does
-      not parse is **skipped and counted separately**, never silently treated as
-      absent — an unparseable doc section in a stored, signed blob is a finding an
-      operator must see.
-- [ ] Add the counters to `BackfillReport` (`:29-48`) and to `render_text` (`:153`).
-- [ ] Tests in `repository/src/backfill.rs`, following the shape of the existing 7:
-      the sweep fills docs and is idempotent on a second run; a version whose blob
-      carries no section 17 is quietly left alone (mirroring
-      `backfill_fills_descriptions_and_stays_quiet_about_packages_that_have_none`
-      at `:284`); a blob with a **malformed** section 17 is counted as skipped and
-      its row is not written.
+- [x] Extend `backfill::run` to decode section 17 from each re-parsed blob and fill
+      `package_version_docs` where the row is absent. Existing rows are left alone
+      via `put_version_docs`'s `INSERT OR IGNORE`, which now **returns whether it
+      inserted**, so `docs_filled` counts only real inserts and a second run reports
+      zero. The fill runs **after** `report.updated += 1`, so a mismatched or
+      unparseable blob — which the sweep leaves untouched — never gains a docs row.
+- [x] Obey the module's two stated rules. A section 17 that is present but does
+      not decode is **counted separately** (`docs_unparseable`), logged as a skip
+      line, and not recorded. It is also folded into `skipped()`, so the
+      subcommand exits non-zero (`main.rs` exits 1 on `report.skipped()`). A
+      payload with no section 17, or one that is not a container at all, stays
+      quiet — the same posture the loop already takes for sections 10 and 18.
+- [x] Add the counters to `BackfillReport` (`docs_filled`, `docs_unparseable`) and a
+      separate `render_text` line, `doc sections: N recorded, M undecodable`. It
+      says "undecodable" rather than "unparseable" so it can never be confused with
+      the blob counter above; the existing `"1 mismatched"` assertion is untouched.
+- [x] Tests in `repository/src/backfill.rs`:
+      `backfill_fills_doc_sections_and_is_idempotent` (fills the documented blob,
+      leaves the undocumented one quietly alone, a second run records nothing, and
+      the doc line reads `1 recorded` then `0 recorded`), and
+      `a_malformed_doc_section_is_counted_skipped_and_not_recorded` (counted,
+      `skipped()` true, no row, while the version's other metadata still
+      backfills; its fixture first asserts it genuinely fails to decode).
+- [x] Added task: doc sync. The `backfill-metadata` usage text in
+      `repository/src/main.rs` said it populates "the author, url and
+      native-target columns"; it now names documentation records and the
+      undecodable-doc-section finding. `repository/DEPLOY.md` does not document the
+      backfill output (`grep -n backfill repository/DEPLOY.md` → nothing), so it
+      needed no change.
 
-Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes;
-running `mfb-repo backfill-metadata` twice against a datapath containing one
-documented and one undocumented package reports the same filled count on the first
-run and zero on the second, and its text report names the doc counters.
+Acceptance: MET.
+`rustup run 1.96.0 cargo test -p mfb_repository --lib --no-fail-fast` → **384
+passed; 0 failed** (382 + 2).
+**The idempotency counter is load-bearing, measured:** with `put_version_docs`'s
+`Ok(inserted == 1)` swapped for `Ok(true)` (1 match before, 0 after), exactly
+**one** of the ten doc tests went red —
+`backfill_fills_doc_sections_and_is_idempotent` — and `store.rs` was restored
+`cmp`-identical.
+**Runtime proof, on a genuine upgrade.** The datapath is `/tmp/p126-repoC`, whose
+registry database was created by a server built **before** plan-126-E and held
+`alice#p126pkg@0.1.0` (the undocumented `init-pkg` template) with **no
+`package_version_docs` table at all**. Starting the post-E `mfb-repo` on it ran
+`migrate()`, which created the table (0 rows). Publishing `alice#p126pkg@0.2.0` —
+the same package with a `DOC` block, built by `mfb repo publish` — recorded a
+**112-byte** docs row at publish, proving Phase 2 on a real build. With the server
+stopped, that row was deleted (`rows deleted: 1`) to recreate a pre-Phase-2
+publish. Then `mfb-repo backfill-metadata`:
+  run 1 → `doc sections: 1 recorded, 0 undecodable`, **exit 0**;
+  run 2 → `doc sections: 0 recorded, 0 undecodable`, **exit 0**.
+Final state: 0.2.0's row is back at exactly **112** bytes, byte count matching
+what the server wrote, and 0.1.0 still has none.
 Commit: —
 
 ## Validation Plan

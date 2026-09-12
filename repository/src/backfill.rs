@@ -38,6 +38,13 @@ pub struct BackfillReport {
     /// counted apart from `unparseable`, because the blob parsed fine and the
     /// disagreement is the finding.
     pub mismatched: usize,
+    /// Versions whose doc section (MFPC section 17) was recorded by this run
+    /// (plan-126-E). Counts real inserts only, so a second run reports zero.
+    pub docs_filled: usize,
+    /// Versions whose blob carries a section 17 that does not decode. Counted
+    /// apart, and never silently treated as "no documentation": an undecodable
+    /// doc section in a stored, signed blob is a finding an operator must see.
+    pub docs_unparseable: usize,
     /// One line per skipped version, in sweep order.
     pub skips: Vec<String>,
 }
@@ -46,7 +53,7 @@ impl BackfillReport {
     /// Whether anything was skipped. The caller exits non-zero on this so a
     /// scripted sweep cannot read a partial run as a clean one.
     pub fn skipped(&self) -> bool {
-        self.missing > 0 || self.unparseable > 0 || self.mismatched > 0
+        self.missing > 0 || self.unparseable > 0 || self.mismatched > 0 || self.docs_unparseable > 0
     }
 }
 
@@ -145,6 +152,35 @@ pub async fn run(store: &Store, blob_store: &BlobStore) -> Result<BackfillReport
         };
         store.replace_version_metadata(version_id, &metadata, &vendor_blobs)?;
         report.updated += 1;
+
+        // plan-126-E: fill the version's doc section (MFPC section 17) from the
+        // blob it was published as. This runs only after every check above has
+        // passed, so a mismatched or unparseable blob -- which this sweep leaves
+        // untouched -- never gains a docs row either.
+        //
+        // Three outcomes, kept distinct on purpose. A payload that is not a
+        // container, or one with no section 17, is the normal undocumented case
+        // and stays quiet, exactly as a missing section 10 or 18 does above. A
+        // section 17 that is present but does not decode is a finding: counted,
+        // logged, and not recorded. Only a section that decodes is stored, and
+        // it is stored raw so `mfb_wire::docs` stays the only decoder.
+        if let Ok(sections) = mfb_wire::mfpc::read_section_table(&parsed.payload) {
+            if let Some(section) = sections.get(&mfb_wire::mfpc::SECTION_DOC_TABLE) {
+                match mfb_wire::docs::read_doc_table(section) {
+                    Ok(_) => {
+                        if store.put_version_docs(version_id, section)? {
+                            report.docs_filled += 1;
+                        }
+                    }
+                    Err(err) => {
+                        report.docs_unparseable += 1;
+                        report.skips.push(format!(
+                            "{label}: doc section does not decode ({err}) -- not recorded"
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     Ok(report)
@@ -160,6 +196,12 @@ pub fn render_text(report: &BackfillReport) -> String {
         "backfilled {} version(s); skipped {} missing, {} unparseable, {} mismatched\n",
         report.updated, report.missing, report.unparseable, report.mismatched,
     ));
+    // A separate line, and "undecodable" rather than "unparseable", so the doc
+    // counters can never be confused with the blob counters above.
+    out.push_str(&format!(
+        "doc sections: {} recorded, {} undecodable\n",
+        report.docs_filled, report.docs_unparseable,
+    ));
     out
 }
 
@@ -167,6 +209,167 @@ pub fn render_text(report: &BackfillReport) -> String {
 mod tests {
     use super::*;
     use crate::store::tests::register_keys;
+
+    // === plan-126-E Phase 3: doc sections ===================================
+
+    /// `payload_for`, plus a section 17 carrying `doc_section`.
+    fn payload_with_docs(author: &str, url: &str, doc_section: Vec<u8>) -> Vec<u8> {
+        let strings = string_pool(&["", author, url, "snd", "linux", "x86_64", "libsnd.a"]);
+        let author_id = if author.is_empty() { 0 } else { 1 };
+        let url_id = if url.is_empty() { 0 } else { 2 };
+        container(&[
+            (1, manifest_section(author_id, url_id)),
+            (2, strings),
+            (10, vendor_table(&[0x11; 32])),
+            (17, doc_section),
+        ])
+    }
+
+    /// A well-formed section-17 body from the one shared encoder.
+    fn sample_doc_section() -> Vec<u8> {
+        mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
+            package: None,
+            decls: vec![mfb_wire::docs::DeclDocEntry {
+                kind: "func".to_string(),
+                name: "greet".to_string(),
+                signature: "EXPORT FUNC greet() AS String".to_string(),
+                group: String::new(),
+                desc: vec![(0, "Greets.".to_string())],
+                args: Vec::new(),
+                props: Vec::new(),
+                ret: String::new(),
+                errors: Vec::new(),
+                example: String::new(),
+                internal: false,
+                deprecated: None,
+            }],
+        })
+    }
+
+    /// Store `artifact` as a blob and publish it as `alice#toolbox@version` the
+    /// way a server predating plan-126-E would have: with no docs row.
+    fn publish_stored(
+        store: &Store,
+        dir: &std::path::Path,
+        owner_id: i64,
+        version: &str,
+        artifact: &[u8],
+    ) {
+        let hash = hex::encode(crate::crypto::sha256(artifact));
+        std::fs::write(dir.join(format!("{hash}.mfp")), artifact).unwrap();
+        store
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                version,
+                &hash,
+                &format!("data/{hash}.mfp"),
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
+            .unwrap();
+    }
+
+    /// The sweep records a doc section from a stored blob, leaves an
+    /// undocumented blob quietly alone, and on a second run records nothing --
+    /// the property that lets an operator re-run it safely.
+    #[tokio::test]
+    async fn backfill_fills_doc_sections_and_is_idempotent() {
+        let (_temp, store, blob_store, dir) = harness().await;
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        let section = sample_doc_section();
+        // The documented release is the newest, so the latest-active accessor
+        // reads it back.
+        publish_stored(&store, &dir, alice_id, "1.0.0", &package_bytes("alice", ""));
+        publish_stored(
+            &store,
+            &dir,
+            alice_id,
+            "2.0.0",
+            &serialize("alice", "", payload_with_docs("alice", "", section.clone())),
+        );
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None,
+            "published without docs rows, as a server predating plan-126-E would",
+        );
+
+        let report = run(&store, &blob_store).await.unwrap();
+        assert_eq!(report.updated, 2);
+        assert_eq!(
+            report.docs_filled, 1,
+            "only the documented blob fills a row; the undocumented one is left quietly alone",
+        );
+        assert_eq!(report.docs_unparseable, 0);
+        assert!(!report.skipped(), "{:?}", report.skips);
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("2.0.0".to_string(), section.clone())),
+        );
+        assert!(
+            render_text(&report).contains("doc sections: 1 recorded, 0 undecodable"),
+            "{}",
+            render_text(&report),
+        );
+
+        let again = run(&store, &blob_store).await.unwrap();
+        assert_eq!(again.docs_filled, 0, "a second sweep records nothing new");
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("2.0.0".to_string(), section)),
+        );
+        assert!(render_text(&again).contains("doc sections: 0 recorded, 0 undecodable"));
+    }
+
+    /// A stored blob whose section 17 does not decode is counted separately,
+    /// makes the run report itself as skipped, and writes no row -- but does not
+    /// stop the rest of that version's metadata from being backfilled.
+    #[tokio::test]
+    async fn a_malformed_doc_section_is_counted_skipped_and_not_recorded() {
+        let (_temp, store, blob_store, dir) = harness().await;
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        let mut truncated = sample_doc_section();
+        truncated.truncate(truncated.len() - 3);
+        assert!(
+            mfb_wire::docs::read_doc_table(&truncated).is_err(),
+            "the fixture must genuinely fail to decode, or this test proves nothing",
+        );
+        publish_stored(
+            &store,
+            &dir,
+            alice_id,
+            "1.0.0",
+            &serialize("alice", "", payload_with_docs("alice", "", truncated)),
+        );
+
+        let report = run(&store, &blob_store).await.unwrap();
+        assert_eq!(
+            report.updated, 1,
+            "the doc defect does not block the rest of the metadata"
+        );
+        assert_eq!(report.docs_filled, 0);
+        assert_eq!(report.docs_unparseable, 1);
+        assert!(
+            report.skipped(),
+            "an undecodable doc section in a stored, signed blob is a finding",
+        );
+        assert!(
+            report
+                .skips
+                .iter()
+                .any(|skip| skip.contains("doc section does not decode")),
+            "{:?}",
+            report.skips,
+        );
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+        assert!(render_text(&report).contains("doc sections: 0 recorded, 1 undecodable"));
+    }
 
     /// A sweep over a database whose versions were published before the
     /// metadata columns existed fills them in, and a second run changes

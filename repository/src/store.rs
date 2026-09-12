@@ -1657,15 +1657,24 @@ impl Store {
     /// payload, so an existing row is never rewritten. That is what keeps the
     /// backfill sweep idempotent -- a second pass over the same blob changes
     /// nothing.
-    pub fn put_version_docs(&self, package_version_id: i64, section: &[u8]) -> Result<(), String> {
+    ///
+    /// Returns whether a row was **actually inserted**: `false` when one already
+    /// existed. The backfill sweep counts only real inserts, so a second run
+    /// reports zero rather than re-claiming the rows the first run wrote.
+    pub fn put_version_docs(
+        &self,
+        package_version_id: i64,
+        section: &[u8],
+    ) -> Result<bool, String> {
         let conn = self.conn();
-        conn.execute(
-            "INSERT OR IGNORE INTO package_version_docs (package_version_id, doc_section)
-             VALUES (?1, ?2)",
-            params![package_version_id, section],
-        )
-        .map_err(|err| format!("failed to record version documentation: {err}"))?;
-        Ok(())
+        let inserted = conn
+            .execute(
+                "INSERT OR IGNORE INTO package_version_docs (package_version_id, doc_section)
+                 VALUES (?1, ?2)",
+                params![package_version_id, section],
+            )
+            .map_err(|err| format!("failed to record version documentation: {err}"))?;
+        Ok(inserted == 1)
     }
 
     /// The doc section of a package's **latest active** release (plan-126-E), as
