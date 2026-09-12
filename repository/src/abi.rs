@@ -1365,8 +1365,8 @@ mod tests {
     /// rather than silently checking less.
     #[test]
     fn a_real_compiler_produced_package_still_parses() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/libsnd.mfp");
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/libsnd.mfp");
         let bytes = std::fs::read(&path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
         let package = crate::package::parse_mfp_package(&bytes).expect("a real .mfp parses");
