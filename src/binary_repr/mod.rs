@@ -415,53 +415,17 @@ pub struct NativeLibraryLocator {
 // compiled, passed every test, and left two copies of the same wire vocabulary
 // behind a comment claiming there was one.
 
-/// The decoded `doc` section of a compiled package (plan-09-doc.md §5). Empty
-/// when the package was built without any exported `DOC` blocks.
-#[derive(Clone, Default)]
-pub struct PackageDocs {
-    pub package: Option<PackageDocEntry>,
-    pub decls: Vec<DeclDocEntry>,
-}
-
-impl PackageDocs {
-    pub fn is_empty(&self) -> bool {
-        self.package.is_none() && self.decls.is_empty()
-    }
-}
-
-#[derive(Clone)]
-pub struct PackageDocEntry {
-    pub name: String,
-    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind`.
-    pub desc: Vec<(u8, String)>,
-    pub deprecated: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct DeclDocEntry {
-    /// One of `func`, `sub`, `type`, `union`, `enum`.
-    pub kind: String,
-    pub name: String,
-    pub signature: String,
-    /// `GROUP` name (FUNC/SUB), or empty.
-    pub group: String,
-    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind`.
-    pub desc: Vec<(u8, String)>,
-    pub args: Vec<(String, String)>,
-    pub props: Vec<(String, String)>,
-    pub ret: String,
-    pub errors: Vec<(String, String)>,
-    pub example: String,
-    pub internal: bool,
-    pub deprecated: Option<String>,
-}
-
-const DOC_KIND_FUNC: u16 = 0;
-const DOC_KIND_SUB: u16 = 1;
-const DOC_KIND_TYPE: u16 = 2;
-const DOC_KIND_UNION: u16 = 3;
-const DOC_KIND_ENUM: u16 = 4;
-const DOC_KIND_RESOURCE: u16 = 5;
+// The section-17 doc types -- `PackageDocs`, `PackageDocEntry`, `DeclDocEntry` --
+// the `DOC_KIND_*` ids and the codec moved to `mfb_wire::docs` (plan-126-D) so the
+// registry can decode a published package's documentation. Re-exported by glob so
+// `crate::binary_repr::PackageDocs` (used by `src/doc`) and every `use super::*`
+// consumer in reader.rs/writer.rs resolve unchanged.
+//
+// The local `read_doc_table`, `doc_kind_name`, `encode_doc_table` and `DOC_KIND_*`
+// were DELETED, not left beside this glob: a local item silently shadows a glob
+// import rather than colliding with it, so leaving them would compile with two
+// copies of the wire codec (the trap plan-126-C hit with the section ids).
+pub(crate) use mfb_wire::docs::*;
 
 // ===== Public API: build + read entry points =====
 

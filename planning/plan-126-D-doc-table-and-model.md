@@ -203,35 +203,70 @@ workspace.
 
 ### Phase 1 — The wire layer
 
-- [ ] Create `wire/src/docs.rs` with `DocProseKind` (moved from
-      `src/ast/types.rs:132-165`, keeping `from_keyword` and `code` verbatim),
-      `PackageDocs`, `PackageDocEntry`, `DeclDocEntry` (from
-      `src/binary_repr/mod.rs:443-481`), the six `DOC_KIND_*` codes
-      (`:483-489`), `doc_kind_name` (`src/binary_repr/reader.rs:15-30`),
-      `read_doc_table` (`:88-147`) and `encode_doc_table`
-      (`src/binary_repr/writer.rs:1254-1290`).
-- [ ] Re-export `DocProseKind` from `src/ast/types.rs` so the 48 existing references
-      resolve unchanged, and from `src/binary_repr/mod.rs` for `PackageDocs`.
-- [ ] Leave `docs_from_ir` (`src/binary_repr/writer.rs:1291-1325`) in the compiler;
-      it now constructs the `mfb_wire` types.
-- [ ] Add `mfb_wire::docs::read_package_doc_section(payload: &[u8]) -> Result<PackageDocs, String>`:
-      `mfpc::read_section_table` → section 17 → `read_doc_table`, returning an empty
-      `PackageDocs` when the section is absent. This is the one function plan-126-E calls.
-- [ ] Update the comment at `src/binary_repr/writer.rs:1250-1253` ("Their decoders
-      … stay in reader.rs") — it becomes false the moment this lands.
-- [ ] Tests: move the doc-table round-trip from
-      `src/binary_repr/tests/doc_table_tests.rs` (77 lines) into `wire/src/docs.rs`;
-      add a test pinning all six `DOC_KIND_*` values and all four
-      `DocProseKind::code` values by literal, with a comment that these are frozen
-      wire codes; add a negative test for the trailing-bytes invariant
-      (`src/binary_repr/reader.rs:143-146`, bug-282 B3).
-- [ ] Add a decode test against a **real** package: read `packages/jwt/jwt.mfp`'s
-      section 17 (27,951 B measured) and assert a non-zero decl count.
+- [x] Create `wire/src/docs.rs` with `DocProseKind` — **all four** methods
+      (`from_keyword`, `code`, `from_code`, `label`), not the two the plan named;
+      see Corrections — plus `PackageDocs`, `PackageDocEntry`, `DeclDocEntry`, the
+      six `DOC_KIND_*` codes, `doc_kind_name`, `read_doc_table` and
+      `encode_doc_table`, each moved verbatim. Derives kept exactly
+      (`PackageDocs` is `Clone, Default` and deliberately **not** `Debug`). The
+      module doc records which consumer freezes the numeric codes (the `.mfp`
+      wire) and which freezes the labels (the `-ast` dump).
+- [x] Re-export `DocProseKind` from `src/ast/types.rs` as
+      `pub use mfb_wire::docs::DocProseKind;` — it reaches `crate::ast` through
+      `pub use types::*` in `ast/mod.rs`, so all 48 references resolve unchanged.
+      `src/binary_repr/mod.rs` glob-re-exports `mfb_wire::docs::*` for
+      `PackageDocs` and the codec.
+- [x] Leave `docs_from_ir` in the compiler; it now constructs the `mfb_wire`
+      types (kept; the deletion script asserted it survived).
+- [x] Add `mfb_wire::docs::read_package_doc_section(payload)`: section table →
+      section 17 → `read_doc_table`, `Ok(empty)` when the section is absent.
+      **Refined:** it returns `Err` — not `Ok(empty)` — for a payload that is not
+      a container or a section 17 that is malformed, so plan-126-E's backfill can
+      count a malformed doc section as a finding rather than confusing it with an
+      undocumented package.
+- [x] Update the comment in `writer.rs` that said the decoders "stay in
+      reader.rs". Rewritten to say the codec moved to `mfb_wire::docs` and only
+      `docs_from_ir` stays. The matching section header in `reader.rs` was
+      corrected too.
+- [x] Tests: moved `doc_table_round_trips` **verbatim** from
+      `src/binary_repr/tests/doc_table_tests.rs` into `wire/src/docs.rs` (file
+      deleted, `mod` line removed). Added `the_doc_codes_and_labels_are_frozen`,
+      pinning all six `DOC_KIND_*` ids, all four prose codes **and all four
+      `-ast` labels** by literal, and `trailing_bytes_after_a_doc_table_are_rejected`
+      (bug-282 B3). Also `a_truncated_doc_table_is_rejected` and
+      `read_package_doc_section_separates_absent_from_malformed`.
+- [x] Add a decode test against a **real** package — using the **committed**
+      `repository/tests/fixtures/libsnd.mfp` (real 15,440-byte section 17), not the
+      gitignored `packages/jwt/jwt.mfp`; see Corrections.
+      `a_real_packages_doc_section_round_trips_byte_for_byte` asserts a non-zero
+      decl count **and** that decoding then re-encoding reproduces section 17
+      byte for byte.
+- [x] Added task: delete the compiler's local `read_doc_table`, `doc_kind_name`,
+      `encode_doc_table` and `DOC_KIND_*` rather than leaving them beside the glob,
+      because a local item silently shadows a glob import (the plan-126-C trap).
+      Verified empty by
+      `grep -rnE "fn (read_doc_table|doc_kind_name|encode_doc_table)\b|const DOC_KIND_|pub enum DocProseKind|pub struct (PackageDocs|PackageDocEntry|DeclDocEntry)\b" --include='*.rs' src/`.
 
-Acceptance: `rustup run 1.96.0 cargo test --no-fail-fast` passes; `mfb pkg doc
-packages/jwt/jwt.mfp --out /tmp/a.html` produces a file `cmp`-identical to one
-generated by the pre-change binary; `scripts/artifact-gate.sh target/release/mfb all`
-reports `diffs=0` (proving the `-ast` dumps did not move).
+Acceptance: MET.
+`cargo check --all-targets` clean (only the three pre-existing
+`repository/src/server.rs` `unused axum::Json` warnings).
+`cargo test -p mfb_wire` → **51 passed**, all six `docs::tests::*` included.
+`cargo test --bin mfb binary_repr` → **170 passed** (171 before; the one test that
+moved out). `cargo test --bin mfb ast::` → **225 passed**. `cargo test --bin mfb
+doc::` → **27 passed**, including the 16 `src/doc/html.rs` tests whose module
+imports the doc types from `crate::binary_repr` — green through the glob with
+`html.rs` untouched.
+`scripts/artifact-gate.sh target/release/mfb all` → 1427 tests, 1593 builds,
+**2001 goldens checked, 0 diffs**, `git status tests/` clean — the `-ast` dumps
+did not move.
+`mfb pkg doc` byte-identity, against output from the **pre-change binary** saved
+before plan-126-B (`/tmp/p126-mfb-prechange`), both reading the same pre-change
+`jwt.mfp`: the new render is **`cmp`-identical** (54,788 B, exit 0). The plan's
+literal `packages/jwt/jwt.mfp` path is a gitignored artifact, so the package was
+built first and the comparison run against that saved build.
+A rebuilt `packages/jwt/jwt.mfp` is `cmp`-identical to the pre-change build.
+The whole-workspace `cargo test --no-fail-fast` is the plan-wide final gate in
+follow-plan §5.
 Commit: —
 
 ### Phase 2 — The page model
@@ -296,9 +331,60 @@ Commit: —
 
 ## Corrections
 
-<!-- Fill in during execution. Watch for: any of the nine "shared" helpers turning
-     out to be used by only one caller (then it should not be made pub), and any
-     `src/doc/html.rs` test that does not move cleanly. -->
+- **`-ast` does not print `DocProseKind::code` — it prints `label()`.** The plan's
+  § Verified properties and § Design Overview both say the numeric codes "appear
+  in `-ast` golden output", and use that to argue the move risks `-ast` goldens.
+  Read the serializer: `src/ast/serialize.rs:214` writes
+  `json_string(prose.kind.label())` — the **strings** `"desc"`/`"warn"`/`"info"`/
+  `"sec"`. The numeric `code()` is consumed only by `src/ir/docs.rs:55`
+  (`(prose.kind.code(), prose.text.clone())`), the IR → section-17 path. So two
+  different things are frozen for two different consumers: numeric codes by the
+  `.mfp` wire, labels by the `-ast` goldens. The risk conclusion stands — both
+  must not change — but the plan named the wrong method for `-ast`. The
+  frozen-value test in `wire/src/docs.rs` pins **both**, and the module doc
+  records which consumer freezes which.
+
+- **All four `DocProseKind` methods move, not two.** Phase 1 says to move it
+  "keeping `from_keyword` and `code` verbatim". The impl has four:
+  `from_keyword`, `code`, `from_code` and `label`
+  (`sed -n '/^impl DocProseKind/,/^}/p' src/ast/types.rs`). `from_code` is how
+  `doc::from_package` turns wire codes back into kinds, and `label` is the `-ast`
+  serializer's — leaving either behind would split the enum's vocabulary across
+  two crates. All four moved verbatim.
+
+- **The real-package decode test uses `repository/tests/fixtures/libsnd.mfp`, not
+  `packages/jwt/jwt.mfp`.** `packages/*.mfp` are gitignored build artifacts
+  (plan-126-B § Verified properties: `git ls-files 'packages/*.mfp'` → nothing),
+  so a test reading `jwt.mfp` passes on a machine that happened to build it and
+  fails in CI and every fresh worktree. `libsnd.mfp` is tracked and carries a real
+  15,440-byte section 17 (measured by walking its MFPC section table). The test is
+  also *stronger* than the planned "non-zero decl count": it asserts
+  `encode_doc_table(read_doc_table(section)) == section` **byte for byte**, which a
+  synthetic fixture cannot prove.
+
+- **`read_package_docs` stays in the compiler; `read_package_doc_section` is
+  additive.** They are not the same function at different addresses.
+  `binary_repr::read_package_docs(path)` is
+  `read_package_binary_repr(path)?.project.docs` — a **full** package decode
+  including container identity validation. The new
+  `mfb_wire::docs::read_package_doc_section(payload)` reads only the section
+  table and section 17. Replacing the former with the latter in `mfb pkg doc`
+  would silently drop the identity check for a tampered package. The new
+  function's doc says it is not a substitute. It also deliberately returns
+  `Ok(empty)` for an absent section but `Err` for a malformed one, because
+  plan-126-E's backfill must count the second as a finding.
+
+- **`read_package_docs` has 7 references, not 8.**
+  `grep -rn read_package_docs src --include='*.rs'` → the definition, **one**
+  production caller (`src/cli/pkg.rs`), and five test references.
+
+- **The glob-shadowing trap from plan-126-C applies here in full.**
+  `binary_repr` will glob-re-export `mfb_wire::docs::*` so `src/doc/html.rs`'s
+  test module — which imports `DeclDocEntry, PackageDocEntry, PackageDocs` from
+  `crate::binary_repr` — stays untouched. But a local `pub(super) fn
+  read_doc_table` / `doc_kind_name` / `encode_doc_table` and the local
+  `DOC_KIND_*` consts would each **silently shadow** that glob and compile with
+  two copies. They must be deleted, not re-exported over.
 
 ## Summary
 

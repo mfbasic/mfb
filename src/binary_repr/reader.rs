@@ -8,20 +8,12 @@ use super::*;
 /// *repeated* ids, not a deep acyclic chain, so a separate depth cap is required.
 pub(super) const MAX_TYPE_GRAPH_DEPTH: usize = 256;
 
-// === Doc + package-meta section decoding ===================================
-// Read-side of the self-describing `doc` (17) and `package-meta` (18) sections;
-// their encoders live in writer.rs / reader's adjacent `encode_package_meta`.
-
-pub(super) fn doc_kind_name(kind: u16) -> &'static str {
-    match kind {
-        DOC_KIND_SUB => "sub",
-        DOC_KIND_TYPE => "type",
-        DOC_KIND_UNION => "union",
-        DOC_KIND_ENUM => "enum",
-        DOC_KIND_RESOURCE => "resource",
-        _ => "func",
-    }
-}
+// === Package-meta section decoding =========================================
+// Read-side of the self-describing `package-meta` (18) section; its encoder is
+// the adjacent `encode_package_meta`. The `doc` (17) section's codec --
+// `read_doc_table`, `doc_kind_name` and `encode_doc_table` -- moved to
+// `mfb_wire::docs` (plan-126-D) so the registry can decode published docs; they
+// arrive here through the glob re-export in mod.rs.
 
 /// Encode section 18 (plan-61-D §3), or `None` when there is nothing to encode.
 ///
@@ -83,68 +75,6 @@ pub(super) fn read_package_meta(bytes: &[u8]) -> Result<String, String> {
         // possible without knowing what it was.
     }
     Ok(description)
-}
-
-pub(super) fn read_doc_table(bytes: &[u8]) -> Result<PackageDocs, String> {
-    let mut offset = 0;
-    let has_package = *bytes
-        .get(offset)
-        .ok_or_else(|| "truncated doc table".to_string())?;
-    offset += 1;
-    let package = if has_package == 0 {
-        None
-    } else {
-        let name = cursor_string(bytes, &mut offset)?;
-        let desc = cursor_prose_list(bytes, &mut offset)?;
-        let deprecated = cursor_optional_str(bytes, &mut offset)?;
-        Some(PackageDocEntry {
-            name,
-            desc,
-            deprecated,
-        })
-    };
-    let count = cursor_u32(bytes, &mut offset)? as usize;
-    // A doc declaration occupies ~40+ wire bytes; use that as the min-element size
-    // for the pre-allocation bound (was an understated 2).
-    let mut decls = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 40));
-    for _ in 0..count {
-        let kind = doc_kind_name(cursor_u16(bytes, &mut offset)?).to_string();
-        let name = cursor_string(bytes, &mut offset)?;
-        let signature = cursor_string(bytes, &mut offset)?;
-        let group = cursor_string(bytes, &mut offset)?;
-        let desc = cursor_prose_list(bytes, &mut offset)?;
-        let args = cursor_pair_list(bytes, &mut offset)?;
-        let props = cursor_pair_list(bytes, &mut offset)?;
-        let ret = cursor_string(bytes, &mut offset)?;
-        let errors = cursor_pair_list(bytes, &mut offset)?;
-        let example = cursor_string(bytes, &mut offset)?;
-        let internal = *bytes
-            .get(offset)
-            .ok_or_else(|| "truncated doc entry".to_string())?
-            != 0;
-        offset += 1;
-        let deprecated = cursor_optional_str(bytes, &mut offset)?;
-        decls.push(DeclDocEntry {
-            kind,
-            name,
-            signature,
-            group,
-            desc,
-            args,
-            props,
-            ret,
-            errors,
-            example,
-            internal,
-            deprecated,
-        });
-    }
-    // bug-282 B3: restore the trailing-bytes invariant every other section
-    // enforces (audit-1 PKG-05); the doc table was added afterwards and skipped it.
-    if offset != bytes.len() {
-        return Err("invalid trailing bytes in doc table".to_string());
-    }
-    Ok(PackageDocs { package, decls })
 }
 
 // === Container framing + identity/signature validation =====================
