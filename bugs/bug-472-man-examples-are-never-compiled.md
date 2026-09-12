@@ -1,12 +1,12 @@
 # bug-472: no `mfb man` example is ever compiled, so shipped documentation does not build
 
-Last updated: 2026-08-30
+Last updated: 2026-09-12
 Effort: small-to-medium (generalise an existing test; most of the mechanism is already written)
 Severity: MEDIUM (shipped documentation is wrong; also hides unlocated compiler errors)
 Class: Missing gate / documentation correctness
 
-Status: Open
-Regression Test: — (the gate IS the regression test; see "What a fix must produce")
+Status: **Gate built** — `scripts/man-examples-gate.sh`, CI job `man-examples` (see "2026-09-12: the gate" at the end)
+Regression Test: the gate itself; its own pins are recorded in that section
 
 
 ## USER DECISION (2026-09-06) — build the gate, as its own CI step
@@ -222,3 +222,57 @@ Credit: every example failure listed here was found and measured by a peer
 session (mfb-dc) while writing plan-108; the `encoding::toUtf8Text` instances
 were fixed by another (mfb-a3) as `4416cf4e3`. This document exists because
 plan-108 is barred by the decision above from filing the gap it uncovered.
+
+## 2026-09-12: the gate
+
+**Shape, per the user decision.** `scripts/man-examples-gate.sh` is its own CI job,
+`man-examples`, beside `fmt` and `artifact`. It sweeps every built-in package: the
+`mfb man` index, plus `general`, which renders pages but is left out of the index. For
+each package it runs `scripts/man-run-examples.sh <pkg> --run`, except `testing`, which
+runs through `--test` because `mfb build` drops TESTING blocks. It checks and never
+rewrites. Every example gets `scripts/man-examples-stdin.txt` on stdin, so the `io`
+pages that read input are verified by running them.
+
+`scripts/man-examples-not-run.txt` classifies the examples that cannot run on a CI host,
+one `pkg::fn#N  reason` per line:
+- a listed example is still **built**;
+- an entry naming an example that no longer exists fails the gate;
+- a reason starting `serves:` is not skipped: that server example runs for
+  `SERVE_SECONDS` and passes only if it is still running when killed.
+
+**The gate's own pins** (a wrapper `mfb` that lists only `money`):
+
+| case | result |
+|---|---|
+| a stale not-run entry (`money::noSuchFunction#1`) | exit 1, "stale not-run entry" |
+| every `mfb build` failing | exit 1, all 5 examples listed as build failures |
+| a real not-run entry (`money::round#1`) | exit 0, `ran 4, not run 1` |
+
+Two harness defects were fixed on the way. Both would have made a Linux CI step fail,
+or pass vacuously, for reasons that have nothing to do with the docs:
+- `find -perm +111` is BSD-only; GNU find rejects it ("invalid file mode"). It is now
+  `-perm -u+x`.
+- A Linux `--app` build emits `<name>-glibc.AppImage`, never `*.out` or `.app`. The
+  runner now runs that AppImage with `--appimage-extract-and-run`, and prefers
+  `-glibc.out` over `-musl.out` for console builds.
+
+**First whole-corpus sweep** (box 2223, Linux aarch64 glibc, main `04c81a605`): 995
+examples, 669 s, 35 failures. Every one was classified before anything was listed as
+not-run:
+
+| failures | cause | disposition |
+|---|---|---|
+| `io` ×10 | stdin was `/dev/null` (EOF, `7-702-0003`) | the stdin fixture |
+| `term` ×10 | no controlling terminal (documented `ErrUnsupported`), and `sync#2` reads keys until `q` | not-run |
+| `http` ×4 accept loops, `http` ×3 / `tls` ×4 needing `cert.pem`/`key.pem` | environment | `serves:` / not-run |
+| `http::finish#1` | **stale example**: `STATE PendingState` unqualified since bug-480 Phase 4b | example corrected; the diagnostic it produced is **bug-595** |
+| `tls::connect#2`, `#3` | **compiler regression**: a named call could not omit an overloaded builtin's trailing default (since bug-477) | **bug-596**; `#3` also skipped a middle parameter and is corrected |
+| `tls::accept#1` | **runtime defect**: `tls::listen("")` raises `ErrInvalidAddress` on Linux (and Windows) | **bug-597** |
+
+The sweep also listed the ten guide topics (`errors`, `flow`, …) as packages with zero
+examples. The index parse now stops at the "Guide topics" heading.
+
+Cost, for the CI decision: about 11 minutes on an 8-core aarch64 box, dominated by
+`http` (330 s: its accept loops each took the 60 s timeout before they were classified
+`serves:`) and `canvas` (77 s). Once classified, the `serves:` examples take
+`SERVE_SECONDS` (3 s) each.
