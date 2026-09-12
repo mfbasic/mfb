@@ -28,7 +28,7 @@ See plan-126-A § Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-126-D complete (`mfb_wire` decodes section 17) | `grep -c read_package_doc_section wire/src/docs.rs` → 1 | NOT MET |
+| plan-126-D complete (`mfb_wire` decodes section 17) | `grep -c '^pub fn read_package_doc_section' wire/src/docs.rs` → 1 (corrected from `grep -c read_package_doc_section … → 1`) | MET (measured 2026-09-12: exactly **1** definition; D landed as 1d8a900e7 + 4c34b4f8a). The original command counts **6**, not 1, because the function's name also appears in its doc comment and in tests. The requirement (`mfb_wire` decodes section 17) holds; only the expected count was wrong, so the command now counts definitions. |
 
 If plan-126-D is not complete, this sub-plan cannot start, full stop.
 
@@ -192,21 +192,46 @@ would put publisher-authored HTML into the registry, which the CSP design at
 
 ### Phase 1 — Schema and accessors, no writers
 
-- [ ] Add the `package_version_docs` table to the schema batch in
-      `repository/src/store.rs` (beside the other `CREATE TABLE IF NOT EXISTS`
-      statements at `:431-533`), with a comment explaining why it is a side table
-      and why the bytes are stored raw.
-- [ ] Add `Store::put_version_docs(&self, package_version_id: i64, section: &[u8])`
-      and `Store::latest_active_version_docs(&self, ident: &str) -> Result<Option<(String, Vec<u8>)>, String>`
-      returning `(version, doc_section)` for the latest active version, built on
-      `Store::latest_active_version` from plan-126-A.
-- [ ] Tests in `repository/src/store.rs`: round-trip a section; a version with no
-      docs row yields `None`; **a package whose newest version is yanked returns the
-      older active version's docs**, not the yanked one's, and not `None`.
+- [x] Add the `package_version_docs` table to the schema batch in
+      `repository/src/store.rs` — placed beside its sibling
+      `package_version_blobs`, inside the single `migrate()` `execute_batch`, so
+      `CREATE TABLE IF NOT EXISTS` creates it on fresh and existing databases alike.
+      `package_version_id INTEGER PRIMARY KEY REFERENCES package_versions(id)`,
+      `doc_section BLOB NOT NULL`. The SQL comment explains the side table (a 9–28
+      KB `BLOB` column would bloat every `SELECT` on a hot table; absence is an
+      absent row, not a `NULL`), the raw storage (`mfb_wire::docs` stays the only
+      decoder), and per-version retention (yank fallback by row lookup, not an S3
+      self-fetch).
+- [x] Add `Store::put_version_docs` and `Store::latest_active_version_docs`
+      returning `(version, doc_section)`, **built on
+      `Store::latest_active_version`** — it calls that function, then looks up the
+      row by `(ident, version)`, rather than repeating "latest" as its own SQL
+      predicate. `put_version_docs` uses `INSERT OR IGNORE`, so a version's docs are
+      never rewritten, which is what keeps Phase 3's backfill idempotent.
+      `latest_active_version` is called before this function takes the connection
+      lock: the lock is not re-entrant, and holding it across that call would
+      deadlock.
+- [x] Tests in `repository/src/store.rs` — **five**, the three planned plus two:
+      `version_docs_round_trip_byte_for_byte` (including `0x00` and `0xFF` bytes a
+      text column would mangle); `a_version_with_no_docs_row_yields_none` (plus an
+      unknown ident); `a_yanked_newest_release_falls_back_to_the_older_active_releases_docs`
+      (the planned acceptance test); **added**
+      `an_undocumented_latest_release_never_borrows_an_older_releases_docs`, pinning
+      the contract plan-126-F's Docs tab depends on; **added**
+      `putting_version_docs_twice_keeps_the_first_row`, pinning the `INSERT OR
+      IGNORE` idempotency Phase 3 relies on.
 
-Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes,
-including the yanked-fallback test — which is what proves the accessor is built on
-the plan-126-A selection rather than on `ORDER BY created_at LIMIT 1`.
+Acceptance: MET. `rustup run 1.96.0 cargo test -p mfb_repository --lib
+--no-fail-fast` → **379 passed; 0 failed** (374 + 5).
+The yanked-fallback test is **load-bearing, measured rather than assumed**: with
+`latest_active_version_docs` temporarily swapped for a naive newest-row query
+(`ORDER BY pv.created_at DESC, pv.id DESC LIMIT 1` with a `LEFT JOIN` to the docs
+table and no state predicate), exactly **one** test went red —
+`a_yanked_newest_release_falls_back_to_the_older_active_releases_docs` (`test
+result: FAILED. 4 passed; 1 failed`) — and the other four stayed green. That is
+precisely the test that proves the accessor is built on the plan-126-A selection.
+`store.rs` was then restored from its backup and `filecmp` asserted it
+byte-identical.
 Commit: —
 
 ### Phase 2 — Capture at publish

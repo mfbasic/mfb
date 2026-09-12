@@ -605,6 +605,20 @@ impl Store {
                 PRIMARY KEY (package_version_id, hash)
             );
 
+            -- plan-126-E: each version's MFPC section 17 (the `DOC` table), stored
+            -- RAW so `mfb_wire::docs` stays the only decoder. A side table rather
+            -- than a column on `package_versions`: at 9-28 KB a BLOB column would
+            -- bloat every SELECT on a table the search, detail, index and audit
+            -- paths all read, and "this version has no documentation" is an
+            -- absent row rather than a NULL to interpret. Kept per version, not
+            -- latest-only, so a yanked newest release falls back to the older
+            -- active one's docs by a row lookup rather than a blob fetch -- which
+            -- on S3 would mean the server fetching its own blob over HTTPS.
+            CREATE TABLE IF NOT EXISTS package_version_docs (
+                package_version_id INTEGER PRIMARY KEY REFERENCES package_versions(id),
+                doc_section BLOB NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS release_state_changes (
                 id INTEGER PRIMARY KEY,
                 package_version_id INTEGER NOT NULL REFERENCES package_versions(id),
@@ -1623,6 +1637,69 @@ impl Store {
         )
         .optional()
         .map_err(|err| format!("failed to load latest active version: {err}"))
+    }
+
+    /// Record the raw MFPC section-17 bytes for one version (plan-126-E).
+    ///
+    /// **Raw bytes, not a decoded structure.** `mfb_wire::docs` is the single
+    /// decoder; storing decoded rows would create a second representation that
+    /// must migrate whenever the wire format is extended. A `BLOB` costs one
+    /// decode per page render, on data already in the local database.
+    ///
+    /// `INSERT OR IGNORE`: a version's documentation is fixed by its signed
+    /// payload, so an existing row is never rewritten. That is what keeps the
+    /// backfill sweep idempotent -- a second pass over the same blob changes
+    /// nothing.
+    pub fn put_version_docs(&self, package_version_id: i64, section: &[u8]) -> Result<(), String> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT OR IGNORE INTO package_version_docs (package_version_id, doc_section)
+             VALUES (?1, ?2)",
+            params![package_version_id, section],
+        )
+        .map_err(|err| format!("failed to record version documentation: {err}"))?;
+        Ok(())
+    }
+
+    /// The doc section of a package's **latest active** release (plan-126-E), as
+    /// `(version, raw section-17 bytes)`.
+    ///
+    /// Built on [`Self::latest_active_version`], deliberately -- not on its own
+    /// `ORDER BY created_at LIMIT 1`. That is what makes a yanked newest release
+    /// fall back to the older active one's documentation, and it keeps one
+    /// definition of "latest" in the registry instead of two predicates that can
+    /// drift (plan-126-A).
+    ///
+    /// `None` when the package has no active release, **or** when its latest
+    /// active release carries no documentation. It never falls back to an older
+    /// release's docs: the Docs tab's contract is "the current version's
+    /// documentation", and showing an older version's would contradict it
+    /// (plan-126-F Open Decision).
+    ///
+    /// `latest_active_version` is called before this function takes the
+    /// connection lock. The lock is not re-entrant, so holding it across that
+    /// call would deadlock.
+    pub fn latest_active_version_docs(
+        &self,
+        ident: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, String> {
+        let Some((version, _state)) = self.latest_active_version(ident)? else {
+            return Ok(None);
+        };
+        let conn = self.conn();
+        let section: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT d.doc_section
+                 FROM package_version_docs d
+                 JOIN package_versions pv ON pv.id = d.package_version_id
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1 AND pv.version = ?2",
+                params![ident, version],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load version documentation: {err}"))?;
+        Ok(section.map(|section| (version, section)))
     }
 
     /// Everything `GET /packages/:ident` renders: the package's owner, its
@@ -5869,6 +5946,97 @@ pub(crate) mod tests {
         assert_eq!(store.latest_active_version("alice#toolbox").unwrap(), None);
         assert_eq!(store.latest_active_version("alice#nope").unwrap(), None);
         assert_eq!(store.latest_active_version("not-an-ident").unwrap(), None);
+    }
+
+    // === plan-126-E: per-version documentation storage =====================
+
+    /// The `package_versions.id` of `alice#toolbox@version`.
+    fn version_id(store: &Store, version: &str) -> i64 {
+        store
+            .all_package_versions()
+            .unwrap()
+            .into_iter()
+            .find(|(_, ident, v, _)| ident == "alice#toolbox" && v == version)
+            .map(|(id, ..)| id)
+            .expect("version is published")
+    }
+
+    /// A stored section reads back byte for byte -- including zero bytes and
+    /// values above 0x7F, which a text column would mangle.
+    #[test]
+    fn version_docs_round_trip_byte_for_byte() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available")]);
+        let section = vec![0x01, 0x00, 0xFF, 0x7F, 0x00, 0x42];
+        store
+            .put_version_docs(version_id(&store, "1.0.0"), &section)
+            .unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.0.0".to_string(), section)),
+        );
+    }
+
+    /// No docs row is `None`, and so is an ident no package carries.
+    #[test]
+    fn a_version_with_no_docs_row_yields_none() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available")]);
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+        assert_eq!(
+            store.latest_active_version_docs("alice#nope").unwrap(),
+            None
+        );
+    }
+
+    /// **plan-126-E Phase 1's acceptance test.** The newest release is yanked
+    /// and both releases carry docs. The accessor must return the older active
+    /// release's docs -- not the yanked newest's, and not `None`. An accessor
+    /// written as its own `ORDER BY created_at LIMIT 1` would return 2.0.0's, so
+    /// this is what proves it is built on the plan-126-A selection.
+    #[test]
+    fn a_yanked_newest_release_falls_back_to_the_older_active_releases_docs() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "available"), ("2.0.0", "yanked")]);
+        store
+            .put_version_docs(version_id(&store, "1.5.0"), b"docs-1.5.0")
+            .unwrap();
+        store
+            .put_version_docs(version_id(&store, "2.0.0"), b"docs-2.0.0")
+            .unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), b"docs-1.5.0".to_vec())),
+        );
+    }
+
+    /// The contract plan-126-F's Docs tab relies on: an undocumented *current*
+    /// release reads as undocumented. It never borrows an older release's docs,
+    /// which would describe a version the tab is not showing.
+    #[test]
+    fn an_undocumented_latest_release_never_borrows_an_older_releases_docs() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available"), ("2.0.0", "available")]);
+        store
+            .put_version_docs(version_id(&store, "1.0.0"), b"docs-1.0.0")
+            .unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+    }
+
+    /// `INSERT OR IGNORE`: a second write for the same version keeps the first.
+    /// The backfill sweep relies on this to stay idempotent.
+    #[test]
+    fn putting_version_docs_twice_keeps_the_first_row() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available")]);
+        let id = version_id(&store, "1.0.0");
+        store.put_version_docs(id, b"first").unwrap();
+        store.put_version_docs(id, b"second").unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.0.0".to_string(), b"first".to_vec())),
+        );
     }
 
     #[test]
