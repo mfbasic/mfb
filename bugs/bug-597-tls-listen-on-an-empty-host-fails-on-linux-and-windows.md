@@ -5,7 +5,7 @@ Effort: small
 Severity: MEDIUM — a documented bind form fails at runtime on two of three backends, and the page's own example uses it
 Class: Correctness / docs-vs-behaviour
 
-Status: Open
+Status: **FIXED on main in `e633cefff`** (fix `260fbff10`) — Linux proven at runtime; **Windows execution proof owed** (box 2230 unstable), so this doc stays open until that run
 Regression Test: `tests/net/rt_tls_listener_local_address.rs::tls_listen_binds_every_interface_when_the_host_is_empty` (it already exists and runs on Linux; see below)
 
 ## How it was found
