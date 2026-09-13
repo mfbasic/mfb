@@ -53,11 +53,6 @@ examples/**/*.lock
 *.swp
 .claude/
 
-# scripts/snap-term.py: auto-created venv + its default capture artifacts.
-.venv-term/
-/pty_screenshot.png
-/pty_screenshot.bin
-
 # scripts/snap-macos.py: auto-created venv + its default capture artifact.
 .venv-macos/
 /macos_screenshot.png

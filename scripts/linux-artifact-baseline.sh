@@ -2,12 +2,12 @@
 # Capture (or verify) a byte-exact baseline of every artifact the compiler emits
 # for the three Linux targets, both libc flavors.
 #
-# Why this exists: bug-321 refactors the three Linux backends and its ONLY
-# acceptance criterion is byte-identical output. The repo commits zero Linux
-# artifact goldens (`find tests -path "*/golden/*" -name "*linux*"` -> 0) and
-# `scripts/artifact-gate.sh` derives its target from `uname`, so nothing in the
-# tree can detect a byte-level change to a Linux backend. This substitutes for
-# the gate that does not exist.
+# Why this exists: bug-321 refactored the three Linux backends with byte-identical
+# output as its only acceptance criterion. `scripts/artifact-gate.sh` now compares
+# committed goldens for every target, Linux included, but it only sees fixtures
+# that HAVE a golden, and only the dump kinds those goldens pin. This manifest
+# covers what it cannot: the linked `.out` of every fixture (both libc flavors),
+# and fixtures that commit no golden at all.
 #
 # The compiler cross-compiles, so artifacts are produced here on the host — no
 # Linux box is needed to CAPTURE them. Linux boxes are only needed to RUN the

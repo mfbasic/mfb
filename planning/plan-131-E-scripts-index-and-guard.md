@@ -42,7 +42,8 @@ See plan-131-A. In addition:
 ### Non-goals
 
 - No script behavior changes.
-- Network harnesses stay out of CI unless the user decides otherwise (plan-131-A Open Decisions).
+- ~~Network harnesses stay out of CI unless the user decides otherwise.~~ The user decided to add a
+  CI job (plan-131-A Open Decisions, 2026-09-12); Phase 3 below does it.
 - Subdirectories are not introduced.
 
 ## 2. Current State
@@ -131,6 +132,26 @@ Acceptance:
 
 Commit: —
 
+### Phase 3 — Network harnesses in CI (user decision, 2026-09-12)
+
+- [ ] Read `check-net-harness-selftest.sh` and the four harnesses for their host needs (python3,
+      openssl, `unshare -Urn` / `sandbox-exec`, loopback). Choose the runner where every leg runs
+      rather than SKIPs, and record what each leg needs.
+- [ ] Add a job (or a step in an existing job) to `.github/workflows/` that builds the release
+      binary and runs `bash scripts/check-net-harness-selftest.sh target/release/mfb`, failing the
+      job on non-zero exit.
+- [ ] Update the `coverage.yml` comment near the ICMP-denied note, and the `scripts/README.md`
+      "Run by" fields for the five network files, to name the CI job.
+- [ ] Prove the job locally as far as possible: run the exact step commands on the runner's OS
+      class (Linux box 2227/2228, or locally for macOS) → exit 0; and push nothing without asking.
+
+Acceptance:
+- The workflow YAML parses (`python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))' <file>`).
+- The step's command exits 0 on a host of the runner's OS class, and a sabotaged harness makes it
+  exit non-zero.
+
+Commit: —
+
 ## Validation Plan
 
 - Tests: the two new `tests/gate` tests plus the existing census and lock tests.
@@ -146,6 +167,10 @@ Commit: —
 See plan-131-A (network harnesses in CI).
 
 ## Corrections
+
+- **2026-09-12: the network-harness CI decision reverses a non-goal.** The user chose "add a CI job"
+  over run-by-hand. Added Phase 3 (below) to wire `check-net-harness-selftest.sh` into CI. Plan-131-A
+  Phase 3's `coverage.yml:213` comment is written to match: the check becomes a CI job in E.
 
 ## Summary
 

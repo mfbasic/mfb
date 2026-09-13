@@ -24,7 +24,7 @@ See plan-131-A. In addition:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-131-B complete | `ls planning/plan-131-B-* 2>/dev/null` → no match | NOT MET |
-| Vector-generator Open Decision answered by the user | recorded in plan-131-A Open Decisions | NOT MET |
+| Vector-generator Open Decision answered by the user | recorded in plan-131-A Open Decisions | MET (2026-09-12: move to `tools/vector-gen/`) |
 
 ## 1. Goal
 

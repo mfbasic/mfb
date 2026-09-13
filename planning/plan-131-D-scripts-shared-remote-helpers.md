@@ -28,8 +28,8 @@ See plan-131-A. In addition:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-131-C complete | `ls planning/plan-131-C-* 2>/dev/null` → no match | NOT MET |
-| User chose to run D (plan-131-A Open Decisions) | recorded there | NOT MET |
-| Boxes reachable | `ssh -o BatchMode=yes -o ConnectTimeout=8 -p 2228 test@127.0.0.1 true` (and 2227, 2230) → exit 0 each | UNMEASURED |
+| User chose to run D (plan-131-A Open Decisions) | recorded there | MET (2026-09-12: run D; test on macOS now, boxes brought up later by the user) |
+| Boxes reachable | `ssh -o BatchMode=yes -o ConnectTimeout=8 -p 2228 test@127.0.0.1 true` (and 2227, 2230) → exit 0 each | NOT MET at plan start (2026-09-12: 2227 exit 0; 2228, 2230 exit 255 connection refused). The user will bring the boxes up; the box legs wait for them |
 | macOS window-server session for `test-macapp.sh` | `bash scripts/test-macapp.sh target/release/mfb` → exit 0 at the start of D | UNMEASURED |
 
 ## 1. Goal

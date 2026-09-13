@@ -7,7 +7,8 @@
 //! not those scripts — it is
 //! `tests/<fixture>/<pkg>.{ast,ir,hex,nir,nplan,nobj,ncode,mir}`, "written by
 //! both and deleted by one". Three MORE scripts write and delete those same
-//! paths: `regen-ncodesum.sh`, `regen-outside-ncode.sh` and `bug387-gate.sh`.
+//! paths: `regen-ncodesum.sh`, `regen-outside-ncode.sh` and the since-deleted
+//! bug-387 byte-identity gate.
 //!
 //! Regenerate-then-gate is the normal workflow after an intended codegen change,
 //! so a `regen-*` running beside an `artifact-gate` in one tree is a realistic
@@ -36,7 +37,8 @@ fn repo_root() -> PathBuf {
 /// silently ships the bug. The first missed `regen-rt-goldens.sh`; the second
 /// missed `bench-lowering.sh`, which clears its dumps with `find … -delete`
 /// rather than `rm -f`. And the exemption list written alongside them was wrong
-/// too: `ncode-determinism.sh` looked temp-only because it opens a `mktemp`, but
+/// too: the host-only `ncode-determinism` script (since folded into
+/// `ncode-determinism-alltargets.sh`) looked temp-only because it opens a `mktemp`, but
 /// that file is only its hash accumulator — the build itself writes to
 /// `$REPO/$td`, beside the fixture.
 ///
@@ -65,16 +67,6 @@ const CLASSIFICATION: &[(&str, bool, &str)] = &[
         "regen-rt-goldens.sh",
         true,
         "rm -f \"$td/$pkg\".{nir,nplan,nobj,ncode,mir}",
-    ),
-    (
-        "bug387-gate.sh",
-        true,
-        "rm -f \"$d/$pkg\".ncode, then rebuilds it",
-    ),
-    (
-        "ncode-determinism.sh",
-        true,
-        "builds -ncode into $REPO/$td, N times",
     ),
     (
         "ncode-determinism-alltargets.sh",
@@ -179,9 +171,11 @@ fn every_dump_emitting_script_is_classified_and_matches_its_classification() {
 
     // Guard against the scan going blind: if `emits_a_codegen_dump` stops
     // matching, `unclassified` is trivially empty and this test reports a clean
-    // sweep over nothing. Nine of the twelve classified scripts name a dump flag
-    // directly; the other three are listed in the comment above.
-    const SCAN_FLOOR: usize = 9;
+    // sweep over nothing. Seven of the ten classified scripts name a dump flag
+    // directly; the other three are listed in the comment above. (plan-131-A
+    // deleted two flag-naming scripts, the bug-387 gate and the host-only
+    // ncode-determinism, so the measured count fell from nine to seven.)
+    const SCAN_FLOOR: usize = 7;
     assert!(
         seen.len() >= SCAN_FLOOR,
         "the dump-flag scan found only {} script(s), below the known floor of \

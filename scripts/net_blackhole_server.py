@@ -10,7 +10,7 @@ the handshake; neither exercises the timeout path.
 
 Prints the chosen port on stdout (one line) and then sleeps so a client can
 attempt to connect. Intended to be started in the background by
-check-net-connect-timeout.sh.
+check-tcp-connect-timeout.sh.
 
 Usage: net_blackhole_server.py [hold_seconds]
 """

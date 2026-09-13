@@ -1,7 +1,11 @@
-# Machine-generated stdlib sources (bug-339 A1/A2). Each is produced by a
-# generator under scripts/ and verified byte-for-byte by scripts/check-generated.sh
-# in CI. Do not hand-edit; move any change into the generator instead.
-#   src/builtins/vector_package.mfb  <- scripts/gen_vector_package.py
-#   src/builtins/unicode_gencat.mfb   <- scripts/gen_regex_unicode.py
-src/builtins/vector_package.mfb linguist-generated=true
-src/builtins/unicode_gencat.mfb linguist-generated=true
+# Machine-generated sources (bug-339 A1/A2). Each is produced by a generator under
+# scripts/ and verified byte-for-byte by scripts/check-generated.sh in CI. Do not
+# hand-edit; move any change into the generator instead.
+#   src/codegen/string/unicode/unicode_gencat_ranges.txt   <- scripts/gen_unicode_gencat_table.py
+#   src/codegen/string/unicode/unicode_script_ranges.txt   <- scripts/gen_unicode_script_table.py
+#   src/codegen/string/unicode/unicode_script_names.mfb    <- scripts/gen_regex_scripts.py
+#   src/codegen/builtins/encoding/helper_codepage_table.rs <- scripts/gen_codepage_tables.py
+src/codegen/string/unicode/unicode_gencat_ranges.txt linguist-generated=true
+src/codegen/string/unicode/unicode_script_ranges.txt linguist-generated=true
+src/codegen/string/unicode/unicode_script_names.mfb linguist-generated=true
+src/codegen/builtins/encoding/helper_codepage_table.rs linguist-generated=true

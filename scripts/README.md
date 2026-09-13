@@ -21,22 +21,17 @@ unintentionally) across a refactor.
   about which dump kinds exist. Also owns `artifact_kind_is_level_variant`, which
   says whether a kind is emitted downstream of the `-O` dial (every per-target
   native dump is) and so cannot be compared against a default-level golden.
-- **bug387-gate.sh** — Byte-identity gate for the bug-387 output-preserving
-  refactor: compares the app-mode `-ncode` of the three app fixtures (and
-  optionally the full exe-oracle corpus) across four targets against a
-  pre-fix baseline in `/tmp/bug387`. Usage: `bug387-gate.sh <mfb-exe> [app|full]`.
 - **exe-oracle.sh** — Full-executable byte-identity oracle: cross-builds every
   executable-producing fixture for a target and records/compares the sha256 of
   each linked `.out`, catching changes in the entry stub and runtime-helper
   bodies that the package-object gate can't see. Usage:
   `exe-oracle.sh <mfb-exe> <target> record|compare <manifest>`.
-- **ncode-determinism.sh** — Determinism harness: compiles each in-scope fixture
-  N times in fresh processes (fresh HashMap seeds) for the *host* target and
-  counts distinct `.ncode` hashes, flagging residual nondeterminism or a stale
-  golden. Usage: `ncode-determinism.sh <mfb-binary> [N]`.
-- **ncode-determinism-alltargets.sh** — Same determinism check as above, run
-  across all four goldened targets (including the three `linux-*` cross targets)
-  and compared against each `<target>.ncodesum` golden.
+- **ncode-determinism-alltargets.sh** — Determinism harness: compiles each
+  in-scope fixture N times in fresh processes (fresh HashMap seeds) for every
+  goldened target (the host plus the three `linux-*` cross targets) and counts
+  distinct `.ncode` hashes per target, comparing each against its
+  `<target>.ncodesum` golden, so residual nondeterminism or a stale golden shows.
+  Usage: `ncode-determinism-alltargets.sh <mfb-binary> [N]` (N defaults to 50).
 - **regen-ncodesum.sh** — Regenerates every committed `.ncodesum` manifest after
   an intentional native-code change, then verifies each manifest against the
   corresponding `.ncode` artifact. This originated in plan-88 but is the generic

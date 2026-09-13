@@ -4,7 +4,7 @@
 The files are vendored so the build is network-free and the generated tables are
 auditable by `diff` against upstream. Run this only to refresh them; then `git diff`
 tools/codepage-index/ to review what upstream changed, and re-run
-`scripts/gen-codepage-tables.py`.
+`scripts/gen_codepage_tables.py`.
 
 `ISO-8859-8-I` has no index file of its own (HTTP 404) and shares `ISO-8859-8`'s
 table; it is reported as `shares ISO-8859-8` rather than as a failure.

@@ -52,13 +52,13 @@ IMPORT net
 FUNC probe AS String
   LET r AS net::PingResult = net::ping("127.0.0.1", 1000)
   MATCH r.status
-    CASE PingStatus.Ok
+    CASE net::PingStatus.Ok
       RETURN "status:Ok"
-    CASE PingStatus.Timeout
+    CASE net::PingStatus.Timeout
       RETURN "status:Timeout"
-    CASE PingStatus.Unreachable
+    CASE net::PingStatus.Unreachable
       RETURN "status:Unreachable"
-    CASE PingStatus.TtlExceeded
+    CASE net::PingStatus.TtlExceeded
       RETURN "status:TtlExceeded"
   END MATCH
   RETURN "status:?"

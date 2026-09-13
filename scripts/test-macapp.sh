@@ -196,7 +196,7 @@ JSON
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 FUNC main() AS Integer
-  IF app::getMode() = Mode.Console THEN
+  IF app::getMode() = app::Mode.Console THEN
     RETURN 0
   END IF
   RETURN 1
@@ -225,12 +225,12 @@ JSON
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 FUNC main() AS Integer
-  app::setMode(Mode.None)
-  IF app::getMode() = Mode.Console THEN
+  app::setMode(app::Mode.None)
+  IF app::getMode() = app::Mode.Console THEN
     RETURN 1
   END IF
-  app::setMode(Mode.Console)
-  IF app::getMode() = Mode.None THEN
+  app::setMode(app::Mode.Console)
+  IF app::getMode() = app::Mode.None THEN
     RETURN 2
   END IF
   RETURN 0
@@ -259,8 +259,8 @@ JSON
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 FUNC main() AS Integer
-  IF app::getMode() = Mode.None THEN
-    app::setMode(Mode.Console)
+  IF app::getMode() = app::Mode.None THEN
+    app::setMode(app::Mode.Console)
     RETURN 0
   END IF
   RETURN 1
@@ -295,10 +295,10 @@ IMPORT app
 IMPORT term
 IMPORT errorCode
 FUNC main AS Integer
-  app::setMode(Mode.None)
+  app::setMode(app::Mode.None)
   term::moveTo(1, 1) TRAP(err)
     IF err.code = errorCode::ErrWrongMode THEN
-      app::setMode(Mode.Console)
+      app::setMode(app::Mode.Console)
       term::moveTo(1, 1) TRAP(err2)
         RETURN 61       ' Console must NOT trap
       END TRAP
@@ -333,7 +333,7 @@ IMPORT app
 IMPORT io
 IMPORT errorCode
 FUNC main AS Integer
-  app::setMode(Mode.None)
+  app::setMode(app::Mode.None)
   LET line AS String = io::readLine() TRAP(err)
     IF err.code = errorCode::ErrWrongMode THEN
       RETURN 0
@@ -370,10 +370,10 @@ cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT io
 SUB main()
-  app::setMode(Mode.None)
+  app::setMode(app::Mode.None)
   io::print("RECONCILE_BEFORE")
   io::flush()
-  app::setMode(Mode.Console)
+  app::setMode(app::Mode.Console)
   io::print("RECONCILE_AFTER")
   io::flush()
   WHILE TRUE
@@ -431,16 +431,16 @@ cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT io
 SUB main()
-  app::setMode(Mode.Console)
+  app::setMode(app::Mode.Console)
   io::print("CANVAS_HIDDEN")
   io::flush()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   io::print("CANVAS_ON")
   io::flush()
-  app::setMode(Mode.None)
+  app::setMode(app::Mode.None)
   io::print("CANVAS_OFF")
   io::flush()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   io::print("CANVAS_AGAIN")
   io::flush()
   WHILE TRUE
@@ -494,14 +494,15 @@ JSON
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET size AS Size = canvas::getSize()
+  app::setMode(app::Mode.Canvas)
+  LET size AS canvas::Size = canvas::getSize()
   LET w AS Float = toFloat(size.width)
   LET h AS Float = toFloat(size.height)
-  LET left AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(canvas::rgb(255, 0, 0))]
-  LET right AS DrawItem = Rectangle[x := w / 2.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(canvas::rgb(0, 0, 255))]
+  LET left AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(color::rgb(255, 0, 0))]
+  LET right AS canvas::DrawItem = canvas::Rectangle[x := w / 2.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(color::rgb(0, 0, 255))]
   canvas::present([left, right])
   io::print("BLIT_PRESENTED")
   io::flush()
@@ -576,10 +577,11 @@ JSON
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET mark AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  app::setMode(app::Mode.Canvas)
+  LET mark AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   canvas::present([mark])
   io::print("RESIZE_READY")
   io::flush()
@@ -834,7 +836,7 @@ IMPORT app
 IMPORT io
 IMPORT fs
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   LET name AS String = io::readLine()
   fs::writeText("$proj/got.txt", "got:" & name)
 END SUB
@@ -907,7 +909,7 @@ IMPORT term
 IMPORT fs
 SUB main()
   term::on()
-  LET s AS TermSize = term::terminalSize()
+  LET s AS term::TermSize = term::terminalSize()
   term::off()
   fs::writeText("$proj/size.txt", toString(s.columns) & "x" & toString(s.rows))
 END SUB

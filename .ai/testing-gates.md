@@ -94,7 +94,7 @@ The `-ncode` output is a **textual JSON instruction dump** that contains label n
 
 ### Regenerating the goldens
 - The committed `.ncode`/`.ncodesum` are **RELEASE**-generated. Debug and release `mfb` from the SAME source emit identical `.ncode` (verified), but always run `scripts/artifact-gate.sh target/release/mfb all` for a true 0-diff.
-- **Two regen scripts, and `regen-ncodesum.sh` alone is NOT enough** (plan-99). It sweeps only `tests/byte-identity/*/golden/*.ncodesum`; the `.ncode`/`.ncodesum` goldens that live elsewhere — `rt-behavior/crypto/crypto-ec-valid` (4 targets) and `syntax/app/macos-app-mode-{io,plumbing,term}` (incl. `--app` targets) — stay stale and keep `artifact-gate all` red after a "full" regen. Run `scripts/regen-outside-ncode.sh target/release/mfb` for those (same contract, decodes the `.app` target suffix), then re-run the gate to 0.
+- **Two regen scripts, with different jobs.** `regen-ncodesum.sh` rewrites every committed `tests/**/golden/*.ncodesum` (all of `tests/` since plan-118-C; before that it swept only `tests/byte-identity/`, which is why plan-99 needed a second script). `scripts/regen-outside-ncode.sh target/release/mfb` still owns the raw `.ncode` goldens outside byte-identity (it decodes the `.app` target suffix). Run what the diff needs, then re-run the gate to 0.
 - **Classify before you regenerate.** Run `artifact-gate.sh <exe> all` from a detached main-tip worktree FIRST (`git worktree add --detach /tmp/<x> main`, release build). If that baseline is `0 diff(s)`, every diff on your branch is yours and regenerating is correct; a baseline diff is a pre-existing stale golden and must be classified separately. A one-instruction change in the program entry (e.g. the `entry_error_code_write` staging) churns EVERY fixture on EVERY target — 125 goldens in plan-99 — because the entry stub is in every binary; that is expected, not a red flag.
 - `artifact-gate.sh` has **no accept/write mode**. Regenerate a `.ncodesum` by building the target's dump and writing its sha256: for each target token `t` in `golden/<pkg>.<t>.ncodesum`, `mfb build -q -ncode [-target <t>] [--app if t ends .app] <fixtureDir>` writes `<fixtureDir>/<pkg>.ncode`; then `shasum -a 256 … | cut -d' ' -f1 > golden/<pkg>.<t>.ncodesum`. Host target = `macos-aarch64` (no `-target`). Raw `.ncode` goldens (small backends) are `cp`'d instead of summed.
 
@@ -179,7 +179,7 @@ Note also that a `repository/`-only change CAN turn the main acceptance suite re
 
 `tests/golden/canvas/*.png` are **not** instances of the `tests/byte-identity/`
 codegen drift gate above, and `artifact-gate.sh` does not touch them. They are
-rendered *pictures*, gated by `tests/rt_canvas_golden.rs`, and the rule is the
+rendered *pictures*, gated by `tests/canvas/rt_canvas_golden.rs`, and the rule is the
 opposite of the drift-sentinel rule: a mismatch is a **bug hunt**, not a
 regeneration.
 
@@ -226,7 +226,7 @@ reference was regenerated from it, and the suite was green. With `SYNC` — or w
 it but with an `os::sleep(1500)` after `present`, which is what identifies teardown
 rather than the font path as the mechanism — the same scene gives 840.
 
-`tests/rt_canvas_golden.rs` was the one canvas suite missing the flag, and nothing
+`tests/canvas/rt_canvas_golden.rs` was the one canvas suite missing the flag, and nothing
 caught it for two letters because `smiley.png` and `blendmodes.png` load no font and
 are byte-identical either way. **A scene with no font is not evidence that a harness
 waits.**
@@ -390,7 +390,7 @@ When splitting/moving a file, OR removing/renaming a stdlib symbol, sweep `[[pat
 - `spec_citations_resolve` (src/docs/spec/mod.rs) is **file-level only** — it passes as long as the cited file exists, even if the symbol moved out of it.
 - `man_citations_resolve` (src/docs/man/mod.rs) **was** symbol-level and failed the whole `cargo test`. It is gone with the tree it guarded; `src/docs/man/mod.rs` now only tests topic discovery. Verified 2026-08-31: `grep -rn citations_resolve src/ --include='*.rs'` returns one hit, `src/docs/spec/mod.rs:226`.
 
-So a split that only sweeps spec/ leaves man/ citations broken, and the file-level spec test won't warn you. The tooling `scripts/fix_citations.py` is **broken** (its `SPEC_DIR` resolves to `src/spec`, but the spec lives at `src/docs/spec`), so it finds zero citations — do the repoint by hand.
+So a split that only sweeps spec/ leaves man/ citations broken, and the file-level spec test won't warn you. There is no citation-repoint tool (the old `fix_citations.py` script never worked against `src/docs/spec` and was deleted in `4b693b6fa`, bug-344), so do the repoint by hand.
 
 **How to apply:** after a move, `grep -rn "\[\[.*<oldfile>" src/docs/spec src/docs/man`, map each symbol to its new file (grep the actual definition — a symbol can land in a different file than the doc's suggested name, e.g. crypto `ed25519Sign` ended up in `crypto_ecdsa.mfb`), repoint, rebuild (docs are embedded), run both tests. Citations are stripped at render time so repointing them changes no golden.
 
@@ -442,9 +442,9 @@ Diffing riscv64 output against the empty `.run` once produced ~11 wrongly-report
 
 ## exe-oracle concurrent clobber
 
-`scripts/exe-oracle.sh <exe> <target> record` builds every fixture into the fixture's own `tests/<fixture>/build` dir, which is **NOT namespaced by target**. So running two `record` (or the `bug387-gate` compare, or any sweep) for DIFFERENT targets at the same time makes them build the same fixture into the same `build/` dir simultaneously — they clobber each other's `.out`, and `shasum` then hits "No such file", silently DROPPING entries from the baseline (e.g. 1315 lines instead of 1320, missing 5 glibc variants).
+`scripts/exe-oracle.sh <exe> <target> record` builds every fixture into the fixture's own `tests/<fixture>/build` dir, which is **NOT namespaced by target**. So running two `record` (or any sweep) for DIFFERENT targets at the same time makes them build the same fixture into the same `build/` dir simultaneously — they clobber each other's `.out`, and `shasum` then hits "No such file", silently DROPPING entries from the baseline (e.g. 1315 lines instead of 1320, missing 5 glibc variants).
 
-**Why:** a corrupt baseline makes the very next `bug387-gate.sh full` show a false DIFF (missing/wrong hashes) that looks like a real byte-identity regression but isn't.
+**Why:** a corrupt baseline makes the very next `exe-oracle.sh … compare` show a false DIFF (missing/wrong hashes) that looks like a real byte-identity regression but isn't.
 
 **How to apply:** run every corpus sweep/record/compare **SERIALLY**, one target at a time (a driver script looping `for t in …; do exe-oracle … record …; done`). Also: do NOT `nohup … &` inside a `run_in_background` Bash call — the double-background orphans the real work to PPID 1 and the harness reports premature "completed" for the launcher shell.
 

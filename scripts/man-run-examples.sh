@@ -63,7 +63,7 @@ run_bounded() {
 }
 export LC_ALL=${LC_ALL:-en_US.UTF-8}
 
-pkg=${1:?usage: man-run-examples.sh <pkg> [--run] [fn...]}
+pkg=${1:?usage: man-run-examples.sh <pkg> [--run|--test] [fn...]}
 shift
 run=0
 test_mode=0
