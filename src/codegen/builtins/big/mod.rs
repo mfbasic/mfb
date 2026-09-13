@@ -16,6 +16,8 @@ mod func_abs;
 mod func_add;
 mod func_bit_length;
 mod func_compare;
+mod func_div_mod;
+mod func_divide;
 mod func_equals;
 mod func_from_bytes;
 mod func_from_integer;
@@ -24,6 +26,7 @@ mod func_multiply;
 mod func_negate;
 mod func_parse;
 mod func_product;
+mod func_remainder;
 mod func_shift_left;
 mod func_shift_right;
 mod func_sign;
@@ -48,6 +51,10 @@ pub(crate) const INT_TYPE_ID: &str = "big.Int";
 /// The `Endian` enum's bare member id and its package-qualified identity.
 pub(crate) const ENDIAN_TYPE: &str = "Endian";
 pub(crate) const ENDIAN_TYPE_ID: &str = "big.Endian";
+
+/// The `DivResult` record's bare member id and its package-qualified identity.
+pub(crate) const DIV_RESULT_TYPE: &str = "DivResult";
+pub(crate) const DIV_RESULT_TYPE_ID: &str = "big.DivResult";
 
 const MODULE_INTRO: &str = r#"Signed integers of any size, with arithmetic that never overflows"#;
 const MODULE_DESC: &str = r#"The `big` package provides `big::Int`, a signed integer with no fixed size. Where an
@@ -119,6 +126,27 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    // Field ORDER is contract: `emit_build_div_result` builds this record through the
+    // record marshaller with the quotient in slot 0 and the remainder in slot 1, and
+    // both inline into the one block (plan-127-C §4.3).
+    pkg.add_record(RegistryRecord {
+        name: DIV_RESULT_TYPE,
+        export: true,
+        description: "The quotient and remainder of one `big::divMod`. `quotient` is truncated toward zero and `remainder` takes the sign of the dividend, so the dividend equals divisor times `quotient` plus `remainder`, with `remainder` smaller in absolute value than the divisor.",
+        props: vec![
+            RecordProp {
+                name: "quotient",
+                ty: ParameterType::named(INT_TYPE),
+                description: "The quotient, truncated toward zero.",
+            },
+            RecordProp {
+                name: "remainder",
+                ty: ParameterType::named(INT_TYPE),
+                description: "The remainder: the sign of the dividend, and smaller in absolute value than the divisor.",
+            },
+        ],
+    });
+
     // Conversion seams (plan-127-A Phase 4).
     func_from_integer::register(&mut pkg);
     func_to_integer::register(&mut pkg);
@@ -147,6 +175,10 @@ pub(crate) fn register(r: &mut Registry) {
     func_parse::register(&mut pkg);
     func_to_string::register(&mut pkg);
     func_to_radix_string::register(&mut pkg);
+    // Division (plan-127-C Phase 2).
+    func_divide::register(&mut pkg);
+    func_remainder::register(&mut pkg);
+    func_div_mod::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -231,6 +263,9 @@ mod tests {
         ("big.parse", &["ErrInvalidFormat", "ErrInvalidArgument"]),
         ("big.toString", &[]),
         ("big.toRadixString", &["ErrInvalidArgument"]),
+        ("big.divide", &["ErrInvalidArgument"]),
+        ("big.remainder", &["ErrInvalidArgument"]),
+        ("big.divMod", &["ErrInvalidArgument"]),
     ];
 
     #[test]
@@ -342,6 +377,8 @@ SUB main()
   io::print(toString(big::sign(left)) & toString(big::sign(right)))
   LET parsed AS big::Int = big::parse("-1234", 10)
   io::print(big::toString(prod) & big::toRadixString(left, 16) & big::toString(right) & big::toString(parsed))
+  LET parts AS big::DivResult = big::divMod(p, b)
+  io::print(big::toString(big::divide(p, b)) & big::toString(big::remainder(p, b)) & big::toString(parts.quotient))
 END SUB
 "#;
         for target in crate::testutil::CodeTarget::ALL {

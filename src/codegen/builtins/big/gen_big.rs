@@ -1310,3 +1310,730 @@ pub(crate) fn emit_int_to_string(
         string_slot,
     ));
 }
+
+// ---------------------------------------------------------------------------
+// Division (plan-127-C Phase 1): Knuth, TAOCP Vol. 2 §4.3.1, Algorithm D, over byte
+// limbs (base 256).
+//
+// Two different "normalize"s meet in this section and must not be confused:
+//
+// - Algorithm D's **operand normalization** (step D1) left-shifts the divisor and the
+//   dividend by the same `s` bits so the divisor's top byte has its high bit set. That
+//   is what bounds each quotient-digit estimate to at most two too large; step D8 shifts
+//   the remainder back by `s`. It never touches a record.
+// - `emit_build_int`'s **record normalization** is canonical form — trailing zero bytes
+//   dropped, zero never negative. The caller applies it to the quotient and the
+//   remainder afterwards, exactly as for every other `big` result.
+//
+// Every value a later step needs lives in a frame slot; the only calls are the block
+// allocations and releases, and each loop body is call-free.
+// ---------------------------------------------------------------------------
+
+/// Where [`emit_div_mod_magnitude`] leaves its two results: each a result record plus the
+/// slot holding its written byte count, ready for `emit_build_int`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DivModSlots {
+    pub(crate) quotient: ResultSlots,
+    pub(crate) quotient_count: usize,
+    pub(crate) remainder: ResultSlots,
+    pub(crate) remainder_count: usize,
+}
+
+/// Copy the word in frame slot `from` into frame slot `to`.
+fn emit_move_slot(builder: &mut CodeBuilder, vregs: &mut Vregs, from: usize, to: usize) {
+    let value = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&value, abi::stack_pointer(), from),
+        abi::store_u64(&value, abi::stack_pointer(), to),
+    ]);
+}
+
+/// Record a freshly made result's slots as `target`'s.
+fn emit_adopt_result(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    made: &ResultSlots,
+    target: &ResultSlots,
+) {
+    emit_move_slot(builder, vregs, made.record, target.record);
+    emit_move_slot(builder, vregs, made.data, target.data);
+}
+
+/// `|u| / |v|` and `|u| mod |v|` over two loaded operands. **The caller guarantees `v` is
+/// not zero.** Three paths, each leaving its results in the same [`DivModSlots`]:
+///
+/// - `|u|` has fewer bytes than `|v|`: quotient zero, remainder `|u|`;
+/// - `|v|` is one byte: short division from the high byte down (no normalization needed);
+/// - otherwise Algorithm D, steps D1–D8, with both the estimate correction (D3) and the
+///   add-back (D6) — the two places implementations go wrong.
+///
+/// Branches to `alloc_fail` when a block cannot be made.
+pub(crate) fn emit_div_mod_magnitude(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    u: &IntSlots,
+    v: &IntSlots,
+    tag: &str,
+    alloc_fail: &str,
+) -> DivModSlots {
+    let symbol = builder.current_symbol.clone();
+    let slot = |builder: &mut CodeBuilder, name: &str| {
+        builder.allocate_stack_object(&format!("big_{tag}_{name}"), 8)
+    };
+    let out = DivModSlots {
+        quotient: ResultSlots {
+            record: slot(builder, "q_record"),
+            data: slot(builder, "q_data"),
+        },
+        quotient_count: slot(builder, "q_count"),
+        remainder: ResultSlots {
+            record: slot(builder, "r_record"),
+            data: slot(builder, "r_data"),
+        },
+        remainder_count: slot(builder, "r_count"),
+    };
+    let zero_slot = slot(builder, "zero");
+    let one_slot = slot(builder, "one");
+    let rem_slot = slot(builder, "short_rem");
+    let shift_slot = slot(builder, "shift");
+    let m1_slot = slot(builder, "m1");
+    let vn_slot = slot(builder, "vn");
+    let un_slot = slot(builder, "un");
+    let un_size_slot = slot(builder, "un_size");
+    let j1_slot = slot(builder, "j1");
+    let qhat_slot = slot(builder, "qhat");
+    let borrow_slot = slot(builder, "borrow");
+
+    let smaller = format!("{symbol}_{tag}_smaller");
+    let short = format!("{symbol}_{tag}_short");
+    let general = format!("{symbol}_{tag}_general");
+    let joined = format!("{symbol}_{tag}_joined");
+
+    // --- Dispatch --------------------------------------------------------------------
+    {
+        let (count_u, count_v, one) = (vregs.next(), vregs.next(), vregs.next());
+        builder.instructions.extend([
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), zero_slot),
+            abi::move_immediate(&one, "Integer", "1"),
+            abi::store_u64(&one, abi::stack_pointer(), one_slot),
+            abi::load_u64(&count_u, abi::stack_pointer(), u.count),
+            abi::load_u64(&count_v, abi::stack_pointer(), v.count),
+            abi::compare_registers(&count_u, &count_v),
+            abi::branch_lo(&smaller),
+            abi::compare_immediate(&count_v, "1"),
+            abi::branch_eq(&short),
+            abi::branch(&general),
+        ]);
+    }
+
+    // --- |u| shorter than |v|: quotient 0, remainder |u| ------------------------------
+    builder.instructions.push(abi::label(&smaller));
+    let made = emit_alloc_magnitude(builder, vregs, zero_slot, &format!("{tag}_aq"), alloc_fail);
+    emit_adopt_result(builder, vregs, &made, &out.quotient);
+    emit_move_slot(builder, vregs, zero_slot, out.quotient_count);
+    let made = emit_alloc_magnitude(builder, vregs, u.count, &format!("{tag}_ar"), alloc_fail);
+    emit_adopt_result(builder, vregs, &made, &out.remainder);
+    emit_move_slot(builder, vregs, u.count, out.remainder_count);
+    {
+        let copy = format!("{symbol}_{tag}_a_copy");
+        let copied = format!("{symbol}_{tag}_a_copied");
+        let (src, dst, count, index, at, byte) = (
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+        );
+        builder.instructions.extend([
+            abi::load_u64(&src, abi::stack_pointer(), u.data),
+            abi::load_u64(&dst, abi::stack_pointer(), out.remainder.data),
+            abi::load_u64(&count, abi::stack_pointer(), u.count),
+            abi::move_immediate(&index, "Integer", "0"),
+            abi::label(&copy),
+            abi::compare_registers(&index, &count),
+            abi::branch_eq(&copied),
+            abi::add_registers(&at, &src, &index),
+            abi::load_u8(&byte, &at, 0),
+            abi::add_registers(&at, &dst, &index),
+            abi::store_u8(&byte, &at, 0),
+            abi::add_immediate(&index, &index, 1),
+            abi::branch(&copy),
+            abi::label(&copied),
+            abi::branch(&joined),
+        ]);
+    }
+
+    // --- One-byte divisor: short division ----------------------------------------------
+    builder.instructions.push(abi::label(&short));
+    let made = emit_alloc_magnitude(builder, vregs, u.count, &format!("{tag}_bq"), alloc_fail);
+    emit_adopt_result(builder, vregs, &made, &out.quotient);
+    emit_move_slot(builder, vregs, u.count, out.quotient_count);
+    {
+        let divide = format!("{symbol}_{tag}_b_divide");
+        let divided = format!("{symbol}_{tag}_b_divided");
+        let (src, dst, divisor, position, remainder, dividend, digit, at) = (
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+        );
+        builder.instructions.extend([
+            abi::load_u64(&src, abi::stack_pointer(), u.data),
+            abi::load_u64(&dst, abi::stack_pointer(), out.quotient.data),
+            abi::load_u64(&divisor, abi::stack_pointer(), v.data),
+            abi::load_u8(&divisor, &divisor, 0),
+            abi::load_u64(&position, abi::stack_pointer(), u.count),
+            abi::move_immediate(&remainder, "Integer", "0"),
+            abi::label(&divide),
+            abi::compare_immediate(&position, "0"),
+            abi::branch_eq(&divided),
+            abi::subtract_immediate(&position, &position, 1),
+            abi::add_registers(&at, &src, &position),
+            abi::load_u8(&dividend, &at, 0),
+            abi::shift_left_immediate(&remainder, &remainder, 8),
+            abi::or_registers(&dividend, &dividend, &remainder),
+            abi::unsigned_divide_registers(&digit, &dividend, &divisor),
+            // remainder = dividend - digit * divisor
+            abi::multiply_subtract_registers(&remainder, &digit, &divisor, &dividend),
+            abi::add_registers(&at, &dst, &position),
+            abi::store_u8(&digit, &at, 0),
+            abi::branch(&divide),
+            abi::label(&divided),
+            abi::store_u64(&remainder, abi::stack_pointer(), rem_slot),
+        ]);
+    }
+    let made = emit_alloc_magnitude(builder, vregs, one_slot, &format!("{tag}_br"), alloc_fail);
+    emit_adopt_result(builder, vregs, &made, &out.remainder);
+    emit_move_slot(builder, vregs, one_slot, out.remainder_count);
+    {
+        let (dst, remainder) = (vregs.next(), vregs.next());
+        builder.instructions.extend([
+            abi::load_u64(&dst, abi::stack_pointer(), out.remainder.data),
+            abi::load_u64(&remainder, abi::stack_pointer(), rem_slot),
+            abi::store_u8(&remainder, &dst, 0),
+            abi::branch(&joined),
+        ]);
+    }
+
+    // --- Algorithm D: n = |v| bytes >= 2, m = |u| - n >= 0 ------------------------------
+    builder.instructions.push(abi::label(&general));
+    {
+        // s = clz8(v[n-1]); m + 1; the shifted dividend needs |u| + 1 bytes.
+        let (count_u, count_v, top, zeros, size) = (
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+        );
+        builder.instructions.extend([
+            abi::load_u64(&count_u, abi::stack_pointer(), u.count),
+            abi::load_u64(&count_v, abi::stack_pointer(), v.count),
+            abi::load_u64(&top, abi::stack_pointer(), v.data),
+            abi::add_registers(&top, &top, &count_v),
+            abi::subtract_immediate(&top, &top, 1),
+            abi::load_u8(&top, &top, 0),
+            // A trimmed top byte is non-zero: its 64-bit leading-zero count is 56..63.
+            abi::count_leading_zeros(&zeros, &top),
+            abi::subtract_immediate(&zeros, &zeros, 56),
+            abi::store_u64(&zeros, abi::stack_pointer(), shift_slot),
+            abi::subtract_registers(&size, &count_u, &count_v),
+            abi::add_immediate(&size, &size, 1),
+            abi::store_u64(&size, abi::stack_pointer(), m1_slot),
+            abi::add_immediate(&size, &count_u, 1),
+            abi::store_u64(&size, abi::stack_pointer(), un_size_slot),
+            abi::move_register(abi::return_register(), &count_v),
+            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        ]);
+    }
+    emit_alloc(&symbol, &mut builder.instructions, &mut builder.relocations, alloc_fail);
+    builder.instructions.extend([
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), vn_slot),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), un_size_slot),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(&symbol, &mut builder.instructions, &mut builder.relocations, alloc_fail);
+    builder
+        .instructions
+        .push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), un_slot));
+    let made = emit_alloc_magnitude(builder, vregs, m1_slot, &format!("{tag}_dq"), alloc_fail);
+    emit_adopt_result(builder, vregs, &made, &out.quotient);
+    emit_move_slot(builder, vregs, m1_slot, out.quotient_count);
+    let made = emit_alloc_magnitude(builder, vregs, v.count, &format!("{tag}_dr"), alloc_fail);
+    emit_adopt_result(builder, vregs, &made, &out.remainder);
+    emit_move_slot(builder, vregs, v.count, out.remainder_count);
+
+    // D1: vn = v << s over n bytes (no carry out: the top byte's high bit lands exactly on
+    // bit 7); un = u << s over |u| bytes, with the carry out as byte |u|.
+    for (source, target, count, store_carry, name) in [
+        (v, vn_slot, v.count, false, "v"),
+        (u, un_slot, u.count, true, "u"),
+    ] {
+        let shift = format!("{symbol}_{tag}_d1_{name}");
+        let shifted = format!("{symbol}_{tag}_d1_{name}_done");
+        let (src, dst, n, bits, index, carry, value, at) = (
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+        );
+        builder.instructions.extend([
+            abi::load_u64(&src, abi::stack_pointer(), source.data),
+            abi::load_u64(&dst, abi::stack_pointer(), target),
+            abi::load_u64(&n, abi::stack_pointer(), count),
+            abi::load_u64(&bits, abi::stack_pointer(), shift_slot),
+            abi::move_immediate(&index, "Integer", "0"),
+            abi::move_immediate(&carry, "Integer", "0"),
+            abi::label(&shift),
+            abi::compare_registers(&index, &n),
+            abi::branch_eq(&shifted),
+            abi::add_registers(&at, &src, &index),
+            abi::load_u8(&value, &at, 0),
+            abi::shift_left_variable(&value, &value, &bits),
+            abi::or_registers(&value, &value, &carry),
+            abi::add_registers(&at, &dst, &index),
+            abi::store_u8(&value, &at, 0),
+            abi::shift_right_immediate(&carry, &value, 8),
+            abi::add_immediate(&index, &index, 1),
+            abi::branch(&shift),
+            abi::label(&shifted),
+        ]);
+        if store_carry {
+            builder.instructions.extend([
+                abi::add_registers(&at, &dst, &index),
+                abi::store_u8(&carry, &at, 0),
+            ]);
+        }
+    }
+
+    // D2: j runs from m down to 0; `j1_slot` holds j + 1 so the loop test never goes
+    // below zero.
+    let digit_loop = format!("{symbol}_{tag}_d2");
+    let digit_next = format!("{symbol}_{tag}_d2_next");
+    let digits_done = format!("{symbol}_{tag}_d2_done");
+    emit_move_slot(builder, vregs, m1_slot, j1_slot);
+    builder.instructions.push(abi::label(&digit_loop));
+
+    // D3: estimate qhat from the top two bytes of the running remainder over the divisor's
+    // top byte, then correct it downward while it is too large.
+    {
+        let test = format!("{symbol}_{tag}_d3_test");
+        let correct = format!("{symbol}_{tag}_d3_correct");
+        let estimated = format!("{symbol}_{tag}_d3_estimated");
+        let (j1, base, n, at, number, low, vtop, vnext, qhat, rhat, lhs, rhs, limit) = (
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+        );
+        builder.instructions.extend([
+            abi::load_u64(&j1, abi::stack_pointer(), j1_slot),
+            abi::compare_immediate(&j1, "0"),
+            abi::branch_eq(&digits_done),
+            abi::load_u64(&n, abi::stack_pointer(), v.count),
+            // base = &un[j]
+            abi::load_u64(&base, abi::stack_pointer(), un_slot),
+            abi::add_registers(&base, &base, &j1),
+            abi::subtract_immediate(&base, &base, 1),
+            // number = un[j + n] * 256 + un[j + n - 1]
+            abi::add_registers(&at, &base, &n),
+            abi::load_u8(&number, &at, 0),
+            abi::shift_left_immediate(&number, &number, 8),
+            abi::subtract_immediate(&at, &at, 1),
+            abi::load_u8(&low, &at, 0),
+            abi::or_registers(&number, &number, &low),
+            // vtop = vn[n - 1], vnext = vn[n - 2]
+            abi::load_u64(&at, abi::stack_pointer(), vn_slot),
+            abi::add_registers(&at, &at, &n),
+            abi::subtract_immediate(&at, &at, 1),
+            abi::load_u8(&vtop, &at, 0),
+            abi::subtract_immediate(&at, &at, 1),
+            abi::load_u8(&vnext, &at, 0),
+            abi::unsigned_divide_registers(&qhat, &number, &vtop),
+            abi::multiply_subtract_registers(&rhat, &qhat, &vtop, &number),
+            abi::move_immediate(&limit, "Integer", "256"),
+            abi::label(&test),
+            // qhat >= 256 is too large.
+            abi::compare_registers(&qhat, &limit),
+            abi::branch_ge(&correct),
+            // qhat * vn[n-2] > rhat * 256 + un[j + n - 2] is too large.
+            abi::multiply_registers(&lhs, &qhat, &vnext),
+            abi::shift_left_immediate(&rhs, &rhat, 8),
+            abi::add_registers(&at, &base, &n),
+            abi::subtract_immediate(&at, &at, 2),
+            abi::load_u8(&low, &at, 0),
+            abi::add_registers(&rhs, &rhs, &low),
+            abi::compare_registers(&lhs, &rhs),
+            abi::branch_hi(&correct),
+            abi::branch(&estimated),
+            abi::label(&correct),
+            abi::subtract_immediate(&qhat, &qhat, 1),
+            abi::add_registers(&rhat, &rhat, &vtop),
+            // Once rhat reaches 256 the second test can no longer fire.
+            abi::compare_registers(&rhat, &limit),
+            abi::branch_lo(&test),
+            abi::label(&estimated),
+            abi::store_u64(&qhat, abi::stack_pointer(), qhat_slot),
+        ]);
+    }
+
+    // D4: un[j .. j + n] -= qhat * vn, byte by byte, tracking a multiply carry and a
+    // subtract borrow separately. D5: q[j] = qhat.
+    {
+        let multiply = format!("{symbol}_{tag}_d4");
+        let multiplied = format!("{symbol}_{tag}_d4_done");
+        let no_borrow = format!("{symbol}_{tag}_d4_no_borrow");
+        let top_no_borrow = format!("{symbol}_{tag}_d4_top_no_borrow");
+        let (j1, base, vn, n, qhat, index, carry, borrow, product, work, mask) = (
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+        );
+        builder.instructions.extend([
+            abi::load_u64(&j1, abi::stack_pointer(), j1_slot),
+            abi::load_u64(&base, abi::stack_pointer(), un_slot),
+            abi::add_registers(&base, &base, &j1),
+            abi::subtract_immediate(&base, &base, 1),
+            abi::load_u64(&vn, abi::stack_pointer(), vn_slot),
+            abi::load_u64(&n, abi::stack_pointer(), v.count),
+            abi::load_u64(&qhat, abi::stack_pointer(), qhat_slot),
+            abi::move_immediate(&mask, "Integer", "255"),
+            abi::move_immediate(&index, "Integer", "0"),
+            abi::move_immediate(&carry, "Integer", "0"),
+            abi::move_immediate(&borrow, "Integer", "0"),
+            abi::label(&multiply),
+            abi::compare_registers(&index, &n),
+            abi::branch_eq(&multiplied),
+            // product = qhat * vn[i] + carry; carry = product >> 8
+            abi::add_registers(&work, &vn, &index),
+            abi::load_u8(&product, &work, 0),
+            abi::multiply_registers(&product, &product, &qhat),
+            abi::add_registers(&product, &product, &carry),
+            abi::shift_right_immediate(&carry, &product, 8),
+            abi::and_registers(&product, &product, &mask),
+            // work = un[j + i] - (product & 255) - borrow
+            abi::add_registers(&work, &base, &index),
+            abi::load_u8(&work, &work, 0),
+            abi::subtract_registers(&work, &work, &product),
+            abi::subtract_registers(&work, &work, &borrow),
+            abi::move_immediate(&borrow, "Integer", "0"),
+            abi::compare_immediate(&work, "0"),
+            abi::branch_ge(&no_borrow),
+            abi::add_immediate(&work, &work, 256),
+            abi::move_immediate(&borrow, "Integer", "1"),
+            abi::label(&no_borrow),
+            abi::add_registers(&product, &base, &index),
+            abi::store_u8(&work, &product, 0),
+            abi::add_immediate(&index, &index, 1),
+            abi::branch(&multiply),
+            abi::label(&multiplied),
+            // The top position: un[j + n] -= carry + borrow.
+            abi::add_registers(&product, &base, &n),
+            abi::load_u8(&work, &product, 0),
+            abi::subtract_registers(&work, &work, &carry),
+            abi::subtract_registers(&work, &work, &borrow),
+            abi::move_immediate(&borrow, "Integer", "0"),
+            abi::compare_immediate(&work, "0"),
+            abi::branch_ge(&top_no_borrow),
+            abi::add_immediate(&work, &work, 256),
+            abi::move_immediate(&borrow, "Integer", "1"),
+            abi::label(&top_no_borrow),
+            abi::store_u8(&work, &product, 0),
+            abi::store_u64(&borrow, abi::stack_pointer(), borrow_slot),
+            // D5: q[j] = qhat.
+            abi::load_u64(&product, abi::stack_pointer(), out.quotient.data),
+            abi::add_registers(&product, &product, &j1),
+            abi::subtract_immediate(&product, &product, 1),
+            abi::store_u8(&qhat, &product, 0),
+            abi::compare_immediate(&borrow, "0"),
+            abi::branch_eq(&digit_next),
+        ]);
+    }
+
+    // D6: the subtraction went negative, so qhat was one too large: q[j] -= 1 and add the
+    // divisor back into un[j .. j + n].
+    {
+        let add_back = format!("{symbol}_{tag}_d6");
+        let added = format!("{symbol}_{tag}_d6_done");
+        let (j1, base, vn, n, index, carry, sum, at, qhat) = (
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+        );
+        builder.instructions.extend([
+            abi::load_u64(&j1, abi::stack_pointer(), j1_slot),
+            abi::load_u64(&at, abi::stack_pointer(), out.quotient.data),
+            abi::add_registers(&at, &at, &j1),
+            abi::subtract_immediate(&at, &at, 1),
+            abi::load_u64(&qhat, abi::stack_pointer(), qhat_slot),
+            abi::subtract_immediate(&qhat, &qhat, 1),
+            abi::store_u8(&qhat, &at, 0),
+            abi::load_u64(&base, abi::stack_pointer(), un_slot),
+            abi::add_registers(&base, &base, &j1),
+            abi::subtract_immediate(&base, &base, 1),
+            abi::load_u64(&vn, abi::stack_pointer(), vn_slot),
+            abi::load_u64(&n, abi::stack_pointer(), v.count),
+            abi::move_immediate(&index, "Integer", "0"),
+            abi::move_immediate(&carry, "Integer", "0"),
+            abi::label(&add_back),
+            abi::compare_registers(&index, &n),
+            abi::branch_eq(&added),
+            abi::add_registers(&at, &vn, &index),
+            abi::load_u8(&sum, &at, 0),
+            abi::add_registers(&sum, &sum, &carry),
+            abi::add_registers(&at, &base, &index),
+            abi::load_u8(&carry, &at, 0),
+            abi::add_registers(&sum, &sum, &carry),
+            abi::store_u8(&sum, &at, 0),
+            abi::shift_right_immediate(&carry, &sum, 8),
+            abi::add_immediate(&index, &index, 1),
+            abi::branch(&add_back),
+            abi::label(&added),
+            // The carry out cancels the borrow the subtraction left in un[j + n].
+            abi::add_registers(&at, &base, &n),
+            abi::load_u8(&sum, &at, 0),
+            abi::add_registers(&sum, &sum, &carry),
+            abi::store_u8(&sum, &at, 0),
+        ]);
+    }
+
+    // Next digit.
+    {
+        let j1 = vregs.next();
+        builder.instructions.extend([
+            abi::label(&digit_next),
+            abi::load_u64(&j1, abi::stack_pointer(), j1_slot),
+            abi::subtract_immediate(&j1, &j1, 1),
+            abi::store_u64(&j1, abi::stack_pointer(), j1_slot),
+            abi::branch(&digit_loop),
+            abi::label(&digits_done),
+        ]);
+    }
+
+    // D8: the remainder is un[0 .. n] shifted back right by s.
+    {
+        let unshift = format!("{symbol}_{tag}_d8");
+        let unshifted = format!("{symbol}_{tag}_d8_done");
+        let (un, dst, n, bits, back, index, low, high, at) = (
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+            vregs.next(),
+        );
+        builder.instructions.extend([
+            abi::load_u64(&un, abi::stack_pointer(), un_slot),
+            abi::load_u64(&dst, abi::stack_pointer(), out.remainder.data),
+            abi::load_u64(&n, abi::stack_pointer(), v.count),
+            abi::load_u64(&bits, abi::stack_pointer(), shift_slot),
+            abi::move_immediate(&back, "Integer", "8"),
+            abi::subtract_registers(&back, &back, &bits),
+            abi::move_immediate(&index, "Integer", "0"),
+            abi::label(&unshift),
+            abi::compare_registers(&index, &n),
+            abi::branch_eq(&unshifted),
+            // r[i] = un[i] >> s | un[i + 1] << (8 - s); un[n] exists (|u| + 1 bytes).
+            abi::add_registers(&at, &un, &index),
+            abi::load_u8(&low, &at, 0),
+            abi::load_u8(&high, &at, 1),
+            abi::shift_right_variable(&low, &low, &bits),
+            abi::shift_left_variable(&high, &high, &back),
+            abi::or_registers(&low, &low, &high),
+            abi::add_registers(&at, &dst, &index),
+            abi::store_u8(&low, &at, 0),
+            abi::add_immediate(&index, &index, 1),
+            abi::branch(&unshift),
+            abi::label(&unshifted),
+        ]);
+    }
+
+    // Release the two scratch buffers at the sizes they were made with.
+    for (pointer, size) in [(vn_slot, v.count), (un_slot, un_size_slot)] {
+        builder.instructions.extend([
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), pointer),
+            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size),
+        ]);
+        emit_arena_free(&symbol, &mut builder.instructions, &mut builder.relocations);
+    }
+
+    builder.instructions.push(abi::label(&joined));
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Signed division and `DivResult` (plan-127-C Phase 2).
+// ---------------------------------------------------------------------------
+
+use crate::codegen::memory::marshal::{
+    emit_build_inlined_record_sized, MarshalRegs, RecordBuildScratch,
+};
+use crate::types::ParameterType;
+
+/// `a / b` and `a mod b` as signed numbers, each normalized, their record addresses left
+/// in `quotient_slot` and `remainder_slot`.
+///
+/// The quotient truncates toward zero and the remainder takes the sign of the dividend —
+/// MFBASIC's own `/` and `MOD` (measured: `-7 / 2 = -3`, `-7 MOD 2 = -1`,
+/// `7 MOD -2 = 1`) — so `a = b * quotient + remainder` with `|remainder| < |b|`. Branches
+/// to `zero_divisor` when `b` is zero and to `alloc_fail` when a block cannot be made.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_div_mod_int(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    a: &IntSlots,
+    b: &IntSlots,
+    quotient_slot: usize,
+    remainder_slot: usize,
+    tag: &str,
+    zero_divisor: &str,
+    alloc_fail: &str,
+) {
+    let quotient_sign = builder.allocate_stack_object(&format!("big_{tag}_quotient_sign"), 8);
+    let (count, flag_a, flag_b) = (vregs.next(), vregs.next(), vregs.next());
+    builder.instructions.extend([
+        abi::load_u64(&count, abi::stack_pointer(), b.count),
+        abi::compare_immediate(&count, "0"),
+        abi::branch_eq(zero_divisor),
+        abi::load_u64(&flag_a, abi::stack_pointer(), a.negative),
+        abi::load_u64(&flag_b, abi::stack_pointer(), b.negative),
+        abi::exclusive_or_registers(&flag_a, &flag_a, &flag_b),
+        abi::store_u64(&flag_a, abi::stack_pointer(), quotient_sign),
+    ]);
+    let parts = emit_div_mod_magnitude(builder, vregs, a, b, tag, alloc_fail);
+    emit_build_int(
+        builder,
+        vregs,
+        &parts.quotient,
+        parts.quotient_count,
+        quotient_sign,
+        &format!("{tag}_q"),
+    );
+    builder.instructions.push(abi::store_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        quotient_slot,
+    ));
+    emit_build_int(
+        builder,
+        vregs,
+        &parts.remainder,
+        parts.remainder_count,
+        a.negative,
+        &format!("{tag}_r"),
+    );
+    builder.instructions.push(abi::store_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        remainder_slot,
+    ));
+}
+
+/// Release the `big::Int` record whose address is in `record_slot` — a helper's own
+/// intermediate that the caller never sees — at the size it was made with
+/// (`INT_DATA_OFFSET + dataCapacity`).
+pub(crate) fn emit_release_int(builder: &mut CodeBuilder, vregs: &mut Vregs, record_slot: usize) {
+    let symbol = builder.current_symbol.clone();
+    let (record, size) = (vregs.next(), vregs.next());
+    builder.instructions.extend([
+        abi::load_u64(&record, abi::stack_pointer(), record_slot),
+        abi::add_immediate(&size, &record, INT_MAGNITUDE_BLOCK),
+        abi::load_u64(&size, &size, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate(&size, &size, INT_DATA_OFFSET),
+        abi::move_register(abi::c_arg(0), &record),
+        abi::move_register(abi::c_arg(1), &size),
+    ]);
+    emit_arena_free(&symbol, &mut builder.instructions, &mut builder.relocations);
+}
+
+/// A `big::DivResult` holding the two records whose addresses are in `quotient_slot` and
+/// `remainder_slot`, left in `RESULT_VALUE_REGISTER`; the two source records are released
+/// afterwards. Both fields are flat `big::Int` records, so the record marshaller inlines
+/// each into the one block, sized by the caller as `INT_DATA_OFFSET + dataCapacity`.
+/// Branches to `alloc_fail` when the block cannot be made.
+pub(crate) fn emit_build_div_result(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    quotient_slot: usize,
+    remainder_slot: usize,
+    tag: &str,
+    alloc_fail: &str,
+) -> Result<(), String> {
+    let symbol = builder.current_symbol.clone();
+    let quotient_size = builder.allocate_stack_object(&format!("big_{tag}_quotient_size"), 8);
+    let remainder_size = builder.allocate_stack_object(&format!("big_{tag}_remainder_size"), 8);
+    for (record_slot, size_slot) in [(quotient_slot, quotient_size), (remainder_slot, remainder_size)] {
+        let (record, size) = (vregs.next(), vregs.next());
+        builder.instructions.extend([
+            abi::load_u64(&record, abi::stack_pointer(), record_slot),
+            abi::add_immediate(&size, &record, INT_MAGNITUDE_BLOCK),
+            abi::load_u64(&size, &size, COLLECTION_OFFSET_DATA_CAPACITY),
+            abi::add_immediate(&size, &size, INT_DATA_OFFSET),
+            abi::store_u64(&size, abi::stack_pointer(), size_slot),
+        ]);
+    }
+    let scratch = RecordBuildScratch {
+        size: builder.allocate_stack_object(&format!("big_{tag}_record_size"), 8),
+        result: builder.allocate_stack_object(&format!("big_{tag}_record"), 8),
+        cursor: builder.allocate_stack_object(&format!("big_{tag}_record_cursor"), 8),
+        block_size: builder.allocate_stack_object(&format!("big_{tag}_record_block"), 8),
+    };
+    let regs = MarshalRegs::fresh(vregs);
+    emit_build_inlined_record_sized(
+        &symbol,
+        tag,
+        &ParameterType::named(super::DIV_RESULT_TYPE_ID),
+        TypeModel::builtin_records(),
+        &[quotient_slot, remainder_slot],
+        &[Some(quotient_size), Some(remainder_size)],
+        &scratch,
+        &regs,
+        abi::mfb_return(1),
+        alloc_fail,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    emit_release_int(builder, vregs, quotient_slot);
+    emit_release_int(builder, vregs, remainder_slot);
+    builder.instructions.push(abi::load_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        scratch.result,
+    ));
+    Ok(())
+}

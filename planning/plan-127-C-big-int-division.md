@@ -220,20 +220,30 @@ utility and a footgun that looks like a crypto primitive. The same advisory appl
 
 The highest-risk work, gated on a property test before anything depends on it.
 
-- [ ] Measure MFBASIC's `MOD` sign convention: run a program printing `-7 MOD 2`,
+- [x] Measure MFBASIC's `MOD` sign convention: run a program printing `-7 MOD 2`,
       `7 MOD -2`, `-7 MOD -2`, and the matching `/` quotients. Record the results and
-      the command in Corrections, and reconcile §4.2 against them.
-- [ ] `gen_big.rs`: `emit_div_mod_magnitude` per §4.1, with all three parts and a
+      the command in Corrections, and reconcile §4.2 against them. (C-C1: truncating;
+      §4.2 unchanged.)
+- [x] `gen_big.rs`: `emit_div_mod_magnitude` per §4.1, with all three parts and a
       comment distinguishing Algorithm D's operand normalization from
-      `emit_build_int`'s record normalization.
-- [ ] Property test: for 10,000 random `(a, b)` pairs with `b ≠ 0`, spanning 1 to 512
+      `emit_build_int`'s record normalization. (`grep -n 'fn emit_div_mod_magnitude'` → line
+      1371; the section comment "Two different "normalize"s meet in this section" names D1
+      operand normalization and `emit_build_int` record normalization; `cargo build --release
+      -p mfb --all-targets` → no warnings or errors.)
+- [x] Property test: for 10,000 random `(a, b)` pairs with `b ≠ 0`, spanning 1 to 512
       bytes of magnitude and all four sign quadrants, assert
       `a = b × quotient + remainder` and `|remainder| < |b|`. Seed fixed and recorded so
-      a failure reproduces.
-- [ ] Targeted tests for the cases the correction step exists for: divisor high byte
+      a failure reproduces. (`division_property_over_ten_thousand_seeded_pairs`,
+      `math::seed(127)`, also checks both signs; asserts `pairs 10000`, every quadrant >1000,
+      shorter divisors in 1000..9000, `identity 0`, `bound 0`, `sign 0` → ok. C-C3.)
+- [x] Targeted tests for the cases the correction step exists for: divisor high byte
       just below and just above 128 (normalization boundary); a dividend whose leading
       bytes force the estimate one too large; divisor longer than dividend (quotient 0,
-      remainder = dividend); divisor equal to dividend.
+      remainder = dividend); divisor equal to dividend. (`division_targeted_cases` → D3
+      correction `53884 27863`, D6 add-back `349 8454523`, top byte 127 `8590196744 7`, top
+      byte 128 `8589934591 32767`, longer divisor `0 -12345`, equal `1 0`, negation `-1 0`,
+      one-byte divisor `40210710958665 0` — all Python `divmod`; C-C4.) `cargo test --release
+      --test rt_big_int division` → `3 passed; 0 failed`.
 
 Acceptance: the 10,000-pair property test passes with a recorded seed, **and** each
 targeted case passes. A failure here is root-caused in Algorithm D, not worked around
@@ -242,13 +252,21 @@ Commit: —
 
 ### Phase 2 — the division members
 
-- [ ] `mod.rs`: `add_record` for `DivResult` with the field-order comment.
-- [ ] `func_divide.rs`, `func_remainder.rs`, `func_div_mod.rs` — all three declare
-      `ErrInvalidArgument` for a zero divisor and nothing else.
-- [ ] Tests: each of the three raises `ErrInvalidArgument` on `b = 0`; `divide` and
+- [x] `mod.rs`: `add_record` for `DivResult` with the field-order comment. ("Field ORDER is
+      contract: `emit_build_div_result` builds this record…", `mod.rs` `DIV_RESULT_TYPE`.)
+- [x] `func_divide.rs`, `func_remainder.rs`, `func_div_mod.rs` — all three declare
+      `ErrInvalidArgument` for a zero divisor and nothing else. (Each `errors:
+      vec!["ErrInvalidArgument"]`; `cargo test --release -p mfb --bin mfb
+      codegen::builtins::big` → `8 passed; 0 failed`, including the exact-errors table and
+      every-backend lowering with a `divMod` call.)
+- [x] Tests: each of the three raises `ErrInvalidArgument` on `b = 0`; `divide` and
       `remainder` agree with the matching `divMod` field across the Phase 1 spread; the
       §4.2 sign convention holds on the four `(±7, ±2)` cases.
-- [ ] Admit the three division members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`division_members_agree_and_raise` → `agreement: 0 of 1000` over 500 seeded
+      (`math::seed(128)`) pairs of 1–64 bytes in random sign quadrants, `3 1 | -3 -1 | -3 1 |
+      3 -1`, `raised 77050002 | raised 77050002 | raised 77050002` → ok. C-C6.)
+- [x] Admit the three division members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `25` in each backend list.)
 
 Acceptance: all three declare exactly `["ErrInvalidArgument"]` in their registry `errors`
 vector (plan-127-A Corrections C1); the agreement and sign tests pass.
@@ -299,6 +317,8 @@ Commit: —
    long division as a recorded fallback if Phase 1's property test cannot be made to
    pass. The fallback is a decision to write into Corrections with its measured
    slowdown, never a silent substitution.
+   **RESOLVED (Phase 1): Algorithm D.** The 10,000-pair property and every targeted case
+   (including the D3 correction and D6 add-back pairs) pass; the fallback was not needed.
 2. **`gcd(0, 0)`.** **Recommend: return `0`** — the standard convention and the one that
    keeps `gcd` total. Alternative: raise `ErrInvalidArgument`, which makes `gcd`
    fallible for an input that has a defined answer.
@@ -307,6 +327,35 @@ Commit: —
 
 <!-- Filled in DURING execution. The `MOD` measurement from Phase 1 goes here, along
      with any consequent change to §4.2. -->
+
+- **C-C1 — `MOD` measured; §4.2 needs no change.** Phase 1 task 1: `/tmp/p127-rt-c/modprobe`
+  (operands in `MUT` locals so nothing folds), built with the worktree release `mfb` @
+  ad50d1c42, printed `-7 MOD 2 = -1   -7 / 2 = -3`, `7 MOD -2 = 1   7 / -2 = -3`,
+  `-7 MOD -2 = -1   -7 / -2 = 3`, `7 MOD 2 = 1   7 / 2 = 3`. Truncated division: quotient toward
+  zero, remainder with the dividend's sign — exactly §4.2's intended rule.
+- **C-C2 — Phases 1 and 2 share one commit.** Carried from plan-127-A C6: `emit_div_mod_magnitude`
+  has no caller until the division members exist, and the `mfb` binary crate warns on an unused
+  `pub(crate)` item. Both `Commit:` lines carry the shared hash.
+- **C-C3 — the property test runs as a program, not as an in-crate unit test.** The Validation
+  Plan places it "with the emitter tests inside `src/codegen/builtins/big/`"; plan-127-A C3
+  showed no in-crate test can run an emitter. The 10,000-pair property is
+  `division_property_over_ten_thousand_seeded_pairs` in `tests/runtime/rt_big_int.rs`
+  (`math::seed(127)`); the in-crate every-backend lowering test covers Algorithm D in process.
+  Quotient and remainder are unique under `a = b*q + r`, `|r| < |b|`, the remainder's sign and
+  truncation, so the property is a complete check without a second oracle.
+- **C-C4 — the D3 and D6 targeted cases were found, not guessed.** An instrumented base-256
+  Algorithm D (`/tmp/p127-draft-c/find_d_cases.py`, every result cross-checked against Python
+  `divmod`, agreeing with it on 20,000 random pairs) reports `u = [15, 137, 103, 105], v = [50,
+  128]` (D3 correction runs; q = 53884, r = 27863) and `u = [38, 17, 133, 176], v = [167, 28,
+  129]` (D6 add-back runs; q = 349, r = 8454523). Pinned in `division_targeted_cases`.
+- **C-C6 — Phase 2's agreement spread is its own seeded set.** "The Phase 1 spread" is 10,000
+  pairs up to 512 bytes; `division_members_agree_and_raise` checks agreement over 500 pairs of
+  1–64 bytes (`math::seed(128)`) in all sign combinations. `divide`, `remainder` and `divMod`
+  share one lowering (`emit_div_mod_int`), so agreement is a routing check, not an arithmetic
+  one; the arithmetic is the Phase 1 property.
+- **Test scope.** Per the user's instruction, each phase runs only its new tests by name
+  (`cargo test --release --test rt_big_int division`) and the `big` registry/lowering unit
+  tests; earlier phases' runtime tests are not re-run until the single end-of-plan full suite.
 
 ## Summary
 

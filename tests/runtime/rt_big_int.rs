@@ -774,3 +774,238 @@ END SUB
         ]
     );
 }
+
+/// plan-127-C Phase 1: Algorithm D's quiet branches on pinned operands — a pair whose D3
+/// estimate correction runs and a pair whose D6 add-back runs, both found by an
+/// instrumented simulation and checked against Python's `divmod` — plus the normalization
+/// boundary (divisor top byte 127 and 128), a divisor longer than the dividend, a divisor
+/// equal to the dividend and to its negation, and a one-byte divisor.
+#[test]
+fn division_targeted_cases() {
+    let lines = run(
+        "big_c_division_cases",
+        r#"IMPORT io
+IMPORT big
+
+FUNC show(parts AS big::DivResult) AS String
+  RETURN big::toString(parts.quotient) & " " & big::toString(parts.remainder)
+END FUNC
+
+SUB main()
+  LET correctU AS List OF Byte = [15, 137, 103, 105]
+  LET correctV AS List OF Byte = [50, 128]
+  io::print(show(big::divMod(big::fromBytes(correctU, FALSE), big::fromBytes(correctV, FALSE))))
+  LET addBackU AS List OF Byte = [38, 17, 133, 176]
+  LET addBackV AS List OF Byte = [167, 28, 129]
+  io::print(show(big::divMod(big::fromBytes(addBackU, FALSE), big::fromBytes(addBackV, FALSE))))
+  LET dividend AS List OF Byte = [255, 255, 255, 255, 255, 255]
+  LET below AS List OF Byte = [255, 127]
+  LET at AS List OF Byte = [0, 128]
+  io::print(show(big::divMod(big::fromBytes(dividend, FALSE), big::fromBytes(below, FALSE))))
+  io::print(show(big::divMod(big::fromBytes(dividend, FALSE), big::fromBytes(at, FALSE))))
+  io::print(show(big::divMod(big::fromInteger(-12345), big::fromBytes(dividend, FALSE))))
+  LET wide AS big::Int = big::fromBytes(dividend, TRUE)
+  io::print(show(big::divMod(wide, wide)))
+  io::print(show(big::divMod(wide, big::negate(wide))))
+  io::print(show(big::divMod(big::fromBytes(dividend, FALSE), big::fromInteger(7))))
+END SUB
+"#,
+    );
+    // Expected values computed by Python `divmod` (non-negative operands) and by the
+    // measured truncating rule for the signed ones — never by this code.
+    assert_eq!(
+        lines,
+        vec![
+            "53884 27863",
+            "349 8454523",
+            "8590196744 7",
+            "8589934591 32767",
+            "0 -12345",
+            "1 0",
+            "-1 0",
+            "40210710958665 0",
+        ]
+    );
+}
+
+/// plan-127-C Phase 1: the defining property over 10,000 seeded random pairs spanning 1 to
+/// 512 bytes of magnitude and all four sign quadrants — `a = b * q + r`, `|r| < |b|`, the
+/// remainder takes the dividend's sign and the quotient truncates toward zero. Quotient and
+/// remainder are unique under those rules, so the property is a complete check; the seed
+/// is fixed so a failure reproduces.
+#[test]
+fn division_property_over_ten_thousand_seeded_pairs() {
+    let project = common::temp_project(
+        "big_c_division_property",
+        r#"IMPORT io
+IMPORT big
+IMPORT collections
+IMPORT math
+
+FUNC randomMagnitude(length AS Integer) AS List OF Byte
+  MUT bytes AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < length
+    bytes = collections::append(bytes, toByte(math::rand(0, 255)))
+    i = i + 1
+  END WHILE
+  RETURN bytes
+END FUNC
+
+SUB main()
+  math::seed(127)
+  MUT identityFailures AS Integer = 0
+  MUT boundFailures AS Integer = 0
+  MUT signFailures AS Integer = 0
+  MUT quadrants AS List OF Integer = [0, 0, 0, 0]
+  MUT shorterDivisors AS Integer = 0
+  MUT pair AS Integer = 0
+  WHILE pair < 10000
+    MUT a AS big::Int = big::fromBytes(randomMagnitude(math::rand(1, 512)), FALSE)
+    MUT b AS big::Int = big::fromBytes(randomMagnitude(math::rand(1, 512)), FALSE)
+    IF big::isZero(b) THEN
+      b = big::fromInteger(1)
+    END IF
+    LET quadrant AS Integer = math::rand(0, 3)
+    IF quadrant = 1 OR quadrant = 3 THEN
+      a = big::negate(a)
+    END IF
+    IF quadrant = 2 OR quadrant = 3 THEN
+      b = big::negate(b)
+    END IF
+    quadrants = collections::set(quadrants, quadrant, collections::get(quadrants, quadrant) + 1)
+    IF len(b.magnitude) < len(a.magnitude) THEN
+      shorterDivisors = shorterDivisors + 1
+    END IF
+    LET parts AS big::DivResult = big::divMod(a, b)
+    IF NOT big::equals(big::add(big::multiply(b, parts.quotient), parts.remainder), a) THEN
+      identityFailures = identityFailures + 1
+    END IF
+    IF big::compare(big::abs(parts.remainder), big::abs(b)) >= 0 THEN
+      boundFailures = boundFailures + 1
+    END IF
+    IF NOT big::isZero(parts.remainder) AND big::sign(parts.remainder) <> big::sign(a) THEN
+      signFailures = signFailures + 1
+    END IF
+    IF NOT big::isZero(parts.quotient) AND big::sign(parts.quotient) <> big::sign(a) * big::sign(b) THEN
+      signFailures = signFailures + 1
+    END IF
+    pair = pair + 1
+  END WHILE
+  io::print("pairs " & toString(pair))
+  io::print("shorter " & toString(shorterDivisors))
+  io::print("quadrants " & toString(collections::get(quadrants, 0)) & " " & toString(collections::get(quadrants, 1)) & " " & toString(collections::get(quadrants, 2)) & " " & toString(collections::get(quadrants, 3)))
+  io::print("identity " & toString(identityFailures))
+  io::print("bound " & toString(boundFailures))
+  io::print("sign " & toString(signFailures))
+END SUB
+"#,
+    );
+    let binary = common::build_project(&project);
+    let (status, stdout) = common::run_bounded(
+        &binary,
+        Duration::from_secs(600),
+        "the 10,000-pair division property did not finish",
+    );
+    assert!(
+        status.success(),
+        "program {}:\n{stdout}",
+        common::exit_description(&status)
+    );
+    let _ = std::fs::remove_dir_all(&project);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines[0], "pairs 10000", "{stdout}");
+    // Both shapes of divisor were exercised, and every quadrant was drawn.
+    let shorter: usize = lines[1].trim_start_matches("shorter ").parse().expect("shorter count");
+    assert!(shorter > 1000 && shorter < 9000, "{stdout}");
+    let quadrants: Vec<usize> = lines[2]
+        .trim_start_matches("quadrants ")
+        .split(' ')
+        .map(|q| q.parse().expect("quadrant count"))
+        .collect();
+    assert!(quadrants.iter().all(|&q| q > 1000), "{stdout}");
+    assert_eq!(&lines[3..], &["identity 0", "bound 0", "sign 0"], "{stdout}");
+}
+
+/// plan-127-C Phase 2: `divide`/`remainder` agree with the matching `divMod` field across a
+/// seeded spread in every sign quadrant; the §4.2 truncating convention on `(±7, ±2)`, which
+/// matches the measured `MOD` (`-7 MOD 2 = -1`, `7 MOD -2 = 1`); each division member raises
+/// `ErrInvalidArgument` on a zero divisor.
+#[test]
+fn division_members_agree_and_raise() {
+    let lines = run(
+        "big_c_division_members",
+        r#"IMPORT io
+IMPORT big
+IMPORT collections
+IMPORT math
+
+FUNC randomMagnitude(length AS Integer) AS List OF Byte
+  MUT bytes AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < length
+    bytes = collections::append(bytes, toByte(math::rand(0, 255)))
+    i = i + 1
+  END WHILE
+  RETURN bytes
+END FUNC
+
+FUNC tryDivide(a AS big::Int, b AS big::Int) AS String
+  RETURN big::toString(big::divide(a, b))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC tryRemainder(a AS big::Int, b AS big::Int) AS String
+  RETURN big::toString(big::remainder(a, b))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC tryDivMod(a AS big::Int, b AS big::Int) AS String
+  LET parts AS big::DivResult = big::divMod(a, b)
+  RETURN big::toString(parts.quotient) & " " & big::toString(parts.remainder)
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+SUB main()
+  math::seed(128)
+  MUT disagreements AS Integer = 0
+  MUT pair AS Integer = 0
+  WHILE pair < 500
+    MUT a AS big::Int = big::fromBytes(randomMagnitude(math::rand(1, 64)), math::rand(0, 1) = 1)
+    MUT b AS big::Int = big::fromBytes(randomMagnitude(math::rand(1, 64)), math::rand(0, 1) = 1)
+    IF big::isZero(b) THEN
+      b = big::fromInteger(3)
+    END IF
+    LET parts AS big::DivResult = big::divMod(a, b)
+    IF NOT big::equals(big::divide(a, b), parts.quotient) THEN
+      disagreements = disagreements + 1
+    END IF
+    IF NOT big::equals(big::remainder(a, b), parts.remainder) THEN
+      disagreements = disagreements + 1
+    END IF
+    pair = pair + 1
+  END WHILE
+  io::print("agreement: " & toString(disagreements) & " of " & toString(pair * 2))
+  LET seven AS big::Int = big::fromInteger(7)
+  LET two AS big::Int = big::fromInteger(2)
+  io::print(tryDivMod(seven, two) & " | " & tryDivMod(big::negate(seven), two) & " | " & tryDivMod(seven, big::negate(two)) & " | " & tryDivMod(big::negate(seven), big::negate(two)))
+  LET zero AS big::Int = big::fromInteger(0)
+  io::print(tryDivide(seven, zero) & " | " & tryRemainder(seven, zero) & " | " & tryDivMod(seven, zero))
+END SUB
+"#,
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "agreement: 0 of 1000",
+            "3 1 | -3 -1 | -3 1 | 3 -1",
+            "raised 77050002 | raised 77050002 | raised 77050002"
+        ]
+    );
+}
