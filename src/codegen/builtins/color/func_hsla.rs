@@ -59,8 +59,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                fraction("hue", "The hue in degrees. Wraps by whole turns, so any value \
-                                        is valid."),
+                fraction(
+                    "hue",
+                    "The hue in degrees. Wraps by whole turns, so any value is valid.",
+                ),
                 fraction(
                     "saturation",
                     "How colourful, clamped to `0.0` (grey) .. `1.0` (full).",
