@@ -21,34 +21,27 @@ unintentionally) across a refactor.
   about which dump kinds exist. Also owns `artifact_kind_is_level_variant`, which
   says whether a kind is emitted downstream of the `-O` dial (every per-target
   native dump is) and so cannot be compared against a default-level golden.
-- **exe-oracle.sh** — Full-executable byte-identity oracle: cross-builds every
-  executable-producing fixture for a target and records/compares the sha256 of
-  each linked `.out`, catching changes in the entry stub and runtime-helper
-  bodies that the package-object gate can't see. Usage:
-  `exe-oracle.sh <mfb-exe> <target> record|compare <manifest>`.
 - **ncode-determinism-alltargets.sh** — Determinism harness: compiles each
   in-scope fixture N times in fresh processes (fresh HashMap seeds) for every
   goldened target (the host plus the three `linux-*` cross targets) and counts
   distinct `.ncode` hashes per target, comparing each against its
   `<target>.ncodesum` golden, so residual nondeterminism or a stale golden shows.
   Usage: `ncode-determinism-alltargets.sh <mfb-binary> [N]` (N defaults to 50).
-- **regen-ncodesum.sh** — Regenerates every committed `.ncodesum` manifest after
-  an intentional native-code change, then verifies each manifest against the
-  corresponding `.ncode` artifact. This originated in plan-88 but is the generic
-  regeneration path for future codegen changes.
-- **regen-rt-goldens.sh** — Regenerates the runtime golden artifacts selected by
-  fixture path while preserving the committed golden set. This originated in
-  plan-88 and remains the targeted alternative to a full golden sync.
-- **linux-artifact-baseline.sh** — Captures or verifies a SHA-256 manifest of
-  every artifact the compiler emits for the three Linux targets (both libc
-  flavors), substituting for the Linux byte-identity gate the tree otherwise
-  lacks. Cross-compiles on the host; no Linux box needed. Usage:
-  `linux-artifact-baseline.sh <mfb-exe> capture|verify <manifest>`.
-
-## Acceptance / runtime harness
-
-Build fixture programs, run them, and diff their behavior against goldens.
-
+- **regen-native-goldens.sh** — Rewrites every existing per-target native golden
+  (`<pkg>.<target>[.app].<nir|nplan|nobj|ncode|mir>[sum]`) after an intended
+  codegen change: rebuilds the target (and app mode) named in each filename,
+  copies the dump or writes its sha256. The enumeration is `artifact-gate.sh`'s,
+  so it rewrites exactly what the gate checks. Never creates a golden, never
+  writes one whose build failed; takes the gate lock; host from `uname`. Usage:
+  `regen-native-goldens.sh <mfb-exe> [fixture-dir...]` (no dirs = all of `tests/`).
+- **artifact-baseline.sh** — Captures or verifies a SHA-256 manifest of every
+  codegen dump and every linked `.out` the compiler emits for a set of targets,
+  building each fixture in a scratch copy (never in-tree, so no gate lock). Covers
+  what `artifact-gate.sh` cannot: linked executables and fixtures with no golden.
+  Default targets are the three Linux ones; `--targets macos-aarch64` is the
+  host full-executable oracle. Usage:
+  `artifact-baseline.sh <mfb-exe> capture|verify <manifest> [--targets t1,t2]`
+  (`FILTER=`, `JOBS=`; use a release `mfb` and `JOBS=10`).
 - **test-accept.sh** — The full acceptance harness: builds and runs every
   fixture under `tests/`, comparing produced artifacts and program output against
   committed goldens. Refuses to run concurrently with another copy. Usage:

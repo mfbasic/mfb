@@ -15,7 +15,7 @@
 # `golden/build.log` — the same bytes `test-accept.sh` compares locally.
 #
 # This is the behavioral half of bug-321's proof. The artifact half
-# (`scripts/linux-artifact-baseline.sh`) shows the emitted bytes did not change;
+# (`scripts/artifact-baseline.sh`) shows the emitted bytes did not change;
 # this shows those bytes still execute correctly on aarch64, x86-64, and riscv64.
 #
 # Usage:

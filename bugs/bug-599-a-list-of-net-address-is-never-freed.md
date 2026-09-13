@@ -210,7 +210,8 @@ pair to keep in lockstep. Not started: it is an ABI change across `net`/`tcp`/`u
    reload), `udp::receive`'s nested `from`, and bug-593's two error shapes (trapped code; a
    propagated code with its origin line). The same program's full stdout was identical on the
    base and fixed compilers (`diff` empty, `/tmp/b599/proj/pin_positive_500_{pin,pinfix}`).
-4. **Golden deltas:** `bash scripts/regen-ncodesum.sh target/release/mfb` refreshed 144
+4. **Golden deltas:** the `.ncodesum` regen script (since merged into
+   `scripts/regen-native-goldens.sh`, plan-131-B) refreshed 144
    sums, of which 25 changed: `byte-identity/{net,tcp,udp,tls,http}` × the five targets.
    Every one emits the changed builder — `http_codegen_cover_rt` calls `_inet_ntop` through
    `tcp::localAddress`; `audio` (the third pointer-string record, a different builder) did not

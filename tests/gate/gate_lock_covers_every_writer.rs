@@ -6,9 +6,9 @@
 //! plus `sync-goldens.sh`. But the contended resource named in the bug doc is
 //! not those scripts — it is
 //! `tests/<fixture>/<pkg>.{ast,ir,hex,nir,nplan,nobj,ncode,mir}`, "written by
-//! both and deleted by one". Three MORE scripts write and delete those same
-//! paths: `regen-ncodesum.sh`, `regen-outside-ncode.sh` and the since-deleted
-//! bug-387 byte-identity gate.
+//! both and deleted by one". Three MORE scripts wrote and deleted those same
+//! paths: two golden-regeneration scripts (merged by plan-131-B into
+//! `regen-native-goldens.sh`) and the since-deleted bug-387 byte-identity gate.
 //!
 //! Regenerate-then-gate is the normal workflow after an intended codegen change,
 //! so a `regen-*` running beside an `artifact-gate` in one tree is a realistic
@@ -34,7 +34,8 @@ fn repo_root() -> PathBuf {
 /// A CLASSIFICATION, not a recogniser. The first two attempts at this test used
 /// a heuristic ("does it `rm -f` a dump beside a fixture?") and both were wrong
 /// in the same direction — they under-reported, which is the direction that
-/// silently ships the bug. The first missed `regen-rt-goldens.sh`; the second
+/// silently ships the bug. The first missed the raw-golden regeneration script
+/// (since merged into `regen-native-goldens.sh`); the second
 /// missed `bench-lowering.sh`, which clears its dumps with `find … -delete`
 /// rather than `rm -f`. And the exemption list written alongside them was wrong
 /// too: the host-only `ncode-determinism` script (since folded into
@@ -54,19 +55,9 @@ const CLASSIFICATION: &[(&str, bool, &str)] = &[
         "spawns test-accept.sh, then copies goldens; holds across both",
     ),
     (
-        "regen-ncodesum.sh",
+        "regen-native-goldens.sh",
         true,
-        "rebuilds `$fixturedir/$name.ncode`",
-    ),
-    (
-        "regen-outside-ncode.sh",
-        true,
-        "rebuilds `$fixturedir/$name.ncode`",
-    ),
-    (
-        "regen-rt-goldens.sh",
-        true,
-        "rm -f \"$td/$pkg\".{nir,nplan,nobj,ncode,mir}",
+        "rm -f \"$td/$pkg\".{nir,nplan,nobj,ncode,mir}, then rebuilds them beside the fixture",
     ),
     (
         "ncode-determinism-alltargets.sh",
@@ -84,7 +75,7 @@ const CLASSIFICATION: &[(&str, bool, &str)] = &[
         "replays each golden's own `mfb build` against the fixture dir",
     ),
     (
-        "linux-artifact-baseline.sh",
+        "artifact-baseline.sh",
         false,
         "copies each fixture to $WORKDIR/w$slot and builds THERE, never in-tree",
     ),
@@ -151,8 +142,8 @@ fn every_dump_emitting_script_is_classified_and_matches_its_classification() {
 
     // Every classified script is checked, INCLUDING the ones the flag scan
     // cannot see. Three contend without naming a dump flag themselves:
-    // `sync-goldens.sh` spawns `test-accept.sh`, `regen-rt-goldens.sh` takes its
-    // kinds from `artifact-kinds.sh`, and `diag-set-diff.sh` replays the argv
+    // `sync-goldens.sh` spawns `test-accept.sh`, `regen-native-goldens.sh` builds
+    // `-$ext` from `artifact-kinds.sh`, and `diag-set-diff.sh` replays the argv
     // recorded in each golden's own `$ mfb build …` line. A scan-only test would
     // silently skip all three.
     for (name, should_lock, why) in CLASSIFICATION {
@@ -171,11 +162,14 @@ fn every_dump_emitting_script_is_classified_and_matches_its_classification() {
 
     // Guard against the scan going blind: if `emits_a_codegen_dump` stops
     // matching, `unclassified` is trivially empty and this test reports a clean
-    // sweep over nothing. Seven of the ten classified scripts name a dump flag
+    // sweep over nothing. Five of the eight classified scripts name a dump flag
     // directly; the other three are listed in the comment above. (plan-131-A
     // deleted two flag-naming scripts, the bug-387 gate and the host-only
-    // ncode-determinism, so the measured count fell from nine to seven.)
-    const SCAN_FLOOR: usize = 7;
+    // ncode-determinism, so the measured count fell from nine to seven;
+    // plan-131-B merged the two flag-naming `.ncode` regeneration scripts into
+    // `regen-native-goldens.sh`, which builds `-$ext` and so names none, and the
+    // measured count fell to 5.)
+    const SCAN_FLOOR: usize = 5;
     assert!(
         seen.len() >= SCAN_FLOOR,
         "the dump-flag scan found only {} script(s), below the known floor of \

@@ -470,7 +470,8 @@ Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [x] `scripts/regen-outside-ncode.sh`. **Exactly one golden moved** —
+- [x] Regenerated the goldens outside `tests/byte-identity/` (with the script since merged into
+      `scripts/regen-native-goldens.sh`, plan-131-B). **Exactly one golden moved** —
       `macos-app-mode-term`'s `windows-x86_64.app.ncodesum`. The other five app
       sums are byte-identical, including `macos-app-mode-io` and
       `macos-app-mode-plumbing` on the SAME target, which is what says the change

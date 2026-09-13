@@ -8,7 +8,7 @@
 !tests/**/golden/*.ir
 
 # `mfb build -ncode` writes its dump next to the fixture it built, so a golden
-# refresh (`scripts/regen-ncodesum.sh`) litters `tests/byte-identity/<pkg>/` with
+# refresh (`scripts/regen-native-goldens.sh`) litters the fixture directory with
 # scratch dumps. Only the copies under a `golden/` directory are goldens.
 *.ncode
 !tests/**/golden/*.ncode
@@ -57,7 +57,7 @@ examples/**/*.lock
 .venv-macos/
 /macos_screenshot.png
 
-# Native code-plan dumps. The regen scripts (sync-goldens.sh / regen-ncodesum.sh)
+# Native code-plan dumps. The regen scripts (sync-goldens.sh / regen-native-goldens.sh)
 # leave a scratch <fixture>.ncode next to every fixture; a codegen_cover one is
 # hundreds of MB (one pretty-printed JSON line per machine instruction), and a
 # blanket 'git add -A tests/' has swept them into a branch twice, blowing
