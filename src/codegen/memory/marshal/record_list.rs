@@ -191,8 +191,22 @@ pub(crate) fn emit_build_record_list(
         abi::add_registers(r0, r0, r4),
         abi::store_u64(r0, abi::stack_pointer(), scratch.cursor),
     ]);
-    emit_pair_field(abi::c_arg(1), pairs_slot, scratch.index, 8, regs, instructions);
-    emit_pair_field(abi::c_arg(0), pairs_slot, scratch.index, 0, regs, instructions);
+    emit_pair_field(
+        abi::c_arg(1),
+        pairs_slot,
+        scratch.index,
+        8,
+        regs,
+        instructions,
+    );
+    emit_pair_field(
+        abi::c_arg(0),
+        pairs_slot,
+        scratch.index,
+        0,
+        regs,
+        instructions,
+    );
     emit_arena_free(symbol, instructions, relocations);
     instructions.extend([
         abi::load_u64(r0, abi::stack_pointer(), scratch.index),
@@ -299,7 +313,10 @@ mod tests {
                     && pair[1].get("offset").as_deref() == Some(offset.to_string().as_str())
             })
         };
-        assert!(byte_store_after(COLLECTION_OFFSET_KIND, COLLECTION_KIND_LIST));
+        assert!(byte_store_after(
+            COLLECTION_OFFSET_KIND,
+            COLLECTION_KIND_LIST
+        ));
         assert!(byte_store_after(
             COLLECTION_OFFSET_VALUE_TYPE,
             COLLECTION_TYPE_OBJECT

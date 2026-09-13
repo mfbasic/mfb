@@ -178,8 +178,7 @@ impl CodeBuilder<'_> {
             else {
                 return Ok(false);
             };
-            if self.record_field_is_inlined(field_type)
-                || self.record_field_is_pointer(field_type)
+            if self.record_field_is_inlined(field_type) || self.record_field_is_pointer(field_type)
             {
                 return Ok(false);
             }

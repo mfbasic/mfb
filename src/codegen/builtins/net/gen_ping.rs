@@ -126,7 +126,13 @@ fn emit_ping_result(
         "ping_result",
         &ParameterType::declared(super::PING_RESULT_TYPE_ID),
         TypeModel::builtin_records(),
-        &[slots.status, slots.address, slots.rtt, slots.ttl, slots.size],
+        &[
+            slots.status,
+            slots.address,
+            slots.rtt,
+            slots.ttl,
+            slots.size,
+        ],
         &[None, Some(slots.address_size), None, None, None],
         &RecordBuildScratch {
             size: slots.result_size,
@@ -1967,10 +1973,7 @@ mod tests {
         assert_eq!(names, ["status", "address", "rttMs", "ttl", "size"]);
         let model = crate::codegen::engine::builder::TypeModel::builtin_records();
         let result = crate::types::ParameterType::declared(super::super::PING_RESULT_TYPE_ID);
-        let fields = model
-            .record_fields
-            .get(&result)
-            .expect("PingResult layout");
+        let fields = model.record_fields.get(&result).expect("PingResult layout");
         let inlined: Vec<bool> = fields
             .iter()
             .map(|(_, ty)| crate::codegen::collection::layout::record_field_is_inlined(model, ty))

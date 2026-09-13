@@ -16,10 +16,10 @@ use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::marshal::{
     emit_build_inlined_record_sized, push_write_payload_view, MarshalRegs, RecordBuildScratch,
 };
-use crate::types::ParameterType;
 use crate::codegen::os::socket::shared::*;
 use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 
 /// Winsock `WSAETIMEDOUT`: a blocking socket op that hits SO_RCVTIMEO/SO_SNDTIMEO

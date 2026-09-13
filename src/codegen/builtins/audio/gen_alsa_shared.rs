@@ -395,7 +395,7 @@ pub(crate) fn emit_device_cstring(
         abi::load_u64(&v10, &v9, DEVICE_FIELD_ID),
         abi::add_registers(&v9, &v9, &v10), // id String ptr
         abi::load_u64(&v10, &v9, 0),        // len
-        abi::add_immediate(&v11, &v9, 8),         // src bytes
+        abi::add_immediate(&v11, &v9, 8),   // src bytes
         // Clamp the copy count to NAME_BUF's 128 bytes minus the NUL terminator;
         // an oversized device id would otherwise overrun the fixed buffer.
         abi::move_immediate(&v9, "Integer", "127"),

@@ -122,7 +122,11 @@ fn widen_device_id_reads_the_id_inlined_in_the_device_record() {
     let mut vregs = Vregs::new();
     emit_widen_device_id(&mut ins, &mut vregs);
 
-    assert_eq!(ins[0].op, CodeOp::LdrU64, "the widen starts by loading the record");
+    assert_eq!(
+        ins[0].op,
+        CodeOp::LdrU64,
+        "the widen starts by loading the record"
+    );
     assert_eq!(ins[0].get("base").as_deref(), Some(abi::stack_pointer()));
     assert_eq!(
         ins[0].get("offset").as_deref(),
@@ -131,7 +135,11 @@ fn widen_device_id_reads_the_id_inlined_in_the_device_record() {
     let record = ins[0].get("dst");
     assert!(record.is_some());
 
-    assert_eq!(ins[1].op, CodeOp::LdrU64, "then the id's block-relative offset");
+    assert_eq!(
+        ins[1].op,
+        CodeOp::LdrU64,
+        "then the id's block-relative offset"
+    );
     assert_eq!(ins[1].get("base").as_deref(), record.as_deref());
     assert_eq!(
         ins[1].get("offset").as_deref(),
@@ -139,7 +147,11 @@ fn widen_device_id_reads_the_id_inlined_in_the_device_record() {
     );
     let offset = ins[1].get("dst");
 
-    assert_eq!(ins[2].op, CodeOp::Add, "then record + offset is the id String");
+    assert_eq!(
+        ins[2].op,
+        CodeOp::Add,
+        "then record + offset is the id String"
+    );
     assert_eq!(ins[2].get("lhs").as_deref(), record.as_deref());
     assert_eq!(ins[2].get("rhs").as_deref(), offset.as_deref());
 }

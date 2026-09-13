@@ -146,7 +146,7 @@ const DEADLINE_OFF: usize = 176; // read timeout: absolute deadline (ms tick)
 const FINAL_LIST_OFF: usize = 184; // read timeout: right-sized result
 const GOTBYTES_OFF: usize = 192;
 const CSTR_OFF: usize = 200; // wstr->string scratch (source pointer save)
-// devices(): building each `AudioDevice` and the list (plan-132).
+                             // devices(): building each `AudioDevice` and the list (plan-132).
 const DEV_ONE_OFF: usize = 208; // the Boolean TRUE word canInput/canOutput take
 const DEV_ZERO_OFF: usize = 216; // the Boolean FALSE word the defaults take
 const DEVREC_SIZE_OFF: usize = 224; // record marshaller scratch

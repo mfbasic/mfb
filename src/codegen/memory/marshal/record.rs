@@ -170,9 +170,7 @@ pub(crate) fn emit_build_inlined_record_sized(
         ));
     }
     for (index, (name, field_type)) in fields.iter().enumerate() {
-        if known_sizes[index].is_some()
-            && !record_field_is_inlined(type_model, field_type)
-        {
+        if known_sizes[index].is_some() && !record_field_is_inlined(type_model, field_type) {
             return Err(format!(
                 "native record '{record_type}' field '{name}' ({field_type}) is not inlined, \
                  so it takes no known size"
@@ -521,7 +519,10 @@ mod tests {
     fn a_nested_record_field_without_its_size_is_refused() {
         let (result, _) = build(&[None, None, None], &MarshalRegs::fixed());
         let error = result.expect_err("a nested record field needs its size");
-        assert!(error.contains("cannot inline a nested record field"), "{error}");
+        assert!(
+            error.contains("cannot inline a nested record field"),
+            "{error}"
+        );
     }
 
     /// With the caller's size, the record builds, and that size slot is what both
