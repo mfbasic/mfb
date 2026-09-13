@@ -5,9 +5,12 @@ Effort: needs a decision (see "Options") — the code change for either option i
 Severity: HIGH — a 17-line program SIGSEGVs, and a 10-line one silently computes a wrong value
 Class: Memory-safety / Correctness (value semantics)
 
-Status: Open — reproduced and attributed; NOT fixed. Both fixes carry a product cost
-(a performance cliff in `json::parse`, or the bug-536 shape-C design pass), so the choice
-is the lead's.
+Status: Open — **DECIDED 2026-09-12 for the pointer-`String` records: flatten.** The owner chose
+to move `net::Address`, `udp::Datagram` and `audio::AudioDevice` onto the ordinary inline-`String`
+layout (bug-599's candidate 2), which makes them `memcpy`-copyable, so `MUT ys = xs` gets a real
+copy. Planned as **plan-132** (not started). Recursive types (for example `List OF json::Json`) are a separate class that
+flattening does not touch; whether they alias this way still needs its own probe. `Error` and
+`ErrorLoc` are split out as bug-602.
 Regression Test: none yet — the repros below are the RED cases a fix must flip.
 
 ## How it was found

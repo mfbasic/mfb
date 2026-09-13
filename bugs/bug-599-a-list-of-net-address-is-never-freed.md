@@ -7,7 +7,11 @@ Severity: MEDIUM — unbounded growth in any loop that resolves a host or asks a
 address, successful or not
 Class: Memory
 
-Status: **Open — reproduced, attributed, partially fixed, and BLOCKED on a decision.**
+Status: **Open — DECIDED 2026-09-12: flatten** (candidate 2 below). The owner chose to
+move `net::Address`, `udp::Datagram` and `audio::AudioDevice` onto the ordinary inline-`String`
+record layout and delete the pointer-`String` record exception. The migration is planned as
+**plan-132** (not started).
+Previously: reproduced, attributed, partially fixed, and blocked on that decision.
 The branch lands the two leaks that were only ever missing frees (the address builder's
 `inet_ntop` buffer and `net::lookup`'s temporary record): −38% growth per `net::lookup`,
 −57% per `tcp::localAddress`. What remains is the list, record and host `String` themselves,
