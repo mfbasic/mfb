@@ -222,20 +222,64 @@ Acceptance: the shape-C repros are flat and no value or churn test changes.
   | `rt_recursive_value_drop_symmetry` | 6 / 6 |
   | `rt_recursive_value_copy_depth` | 3 / 3 |
   | `rt_error_value_copies` | 1 / 1 |
-Commit: —
+Commit: 9dcb16fd4
 
 ### Phase 3 — measurements and goldens
 
-- [ ] `tools/recursive-value-bench/run.sh target/release/mfb c_union_rss c_record_rss` → flat;
-      record in plan-134-A §2.1's "after" column.
-- [ ] Artifact gate; expected diffs: modules with a recursive type (new drop calls at scope
-      exits, temps, assignments). Regenerate.
-- [ ] Run the copy and leak tests' programs cross-built on box 2223 (Linux) and, via a `.cmd`
-      wrapper, on box 2230 (Windows has no harness: `.ai/remote_systems.md`).
+- [x] `tools/recursive-value-bench/run.sh target/release/mfb c_union_rss c_record_rss` → flat;
+      record in plan-134-A §2.1's "after" column. — `c_union_rss` 1 081 344 B at 400k and
+      1 081 344 B at 800k; `c_record_rss` 1 032 192 B at both (exit 0; the baselines were
+      52.7 → 104.3 MB and 105.1 → 209.1 MB). Recorded in plan-134-A's new "After" table below
+      §2.1, which has no "after" column.
+- [x] Artifact gate; expected diffs: modules with a recursive type (new drop calls at scope
+      exits, temps, assignments). Regenerate. — `bash scripts/artifact-gate.sh
+      target/release/mfb all` → `2013 golden(s) checked, 10 diff(s)`, all
+      `json_codegen_cover_rt` / `regex_codegen_cover_rt` `.ncode` on the five targets.
+      Localized with `mfb build -ncode` and `/tmp/p134-ncode-diff.py`:
+      - **json**, against letter F's dump: `added: []`, `removed: []`, 12 functions changed —
+        `main`, `#json_get`, `#json_getOr`, `#json_parse`, `#json_parseArray`,
+        `#json_parseArrayItems`, `#json_parseNumber`, `#json_parseObject`,
+        `#json_parseObjectItems`, `#json_parseRevive`, `#json_parseValue`, `#json_revive`.
+        11 of them now call `_mfb_rt_graph_drop`; `#json_parse` changed through a temp
+        claim/move only.
+      - **regex**: 10 functions now call it — `#regex_run`, `#regex_parseAlt`,
+        `#regex_parseAtom`, `#regex_parseClass`, `#regex_parseConcat`,
+        `#regex_parseEscapeAtom`, `#regex_parseNamedGroup`, `#regex_parseParen`,
+        `#regex_parseQuantSuffix`, `#regex_requiredFirstCp`.
+
+      Every changed function owns or stores a recursive value. Regenerated:
+      `scripts/regen-native-goldens.sh target/release/mfb tests/byte-identity/json
+      tests/byte-identity/regex` → `10 golden(s) rewritten, 0 failure(s)`. Re-gated → json and
+      regex `7 golden(s) checked, 0 diff(s)` each.
+- [x] Run the copy and leak tests' programs cross-built on box 2223 (Linux) and, via a `.cmd`
+      wrapper, on box 2230 (Windows has no harness: `.ai/remote_systems.md`). —
+      `bash /tmp/p134-g-boxes.sh` extracts the programs from `rt_recursive_value_copies.rs`
+      (copies, moves, store-shape churn) and `rt_scope_drop_leaks.rs` (the seven shape-C
+      programs at 800 000 iterations). It cross-builds each for `linux-aarch64` and
+      `windows-x86_64` and runs them on 2223 and 2230; a plain `.exe` needs no `.cmd` wrapper
+      over ssh. **20 / 20 ok, `status=0`**:
+      - copies, moves and churn print exactly the macOS assertions: `acc=1340000`, the seven
+        copy lines, and `tree=99[…]|moved=1[7,]`;
+      - every shape-C loop exits 0 with the same value line on both boxes.
+
+      Correction: the first run lost the Linux outputs, because the Windows build replaced the
+      project's `build/` directory before they were copied. The script now copies each output
+      right after its own build.
+- [x] Added (Validation Plan doc sync):
+      - `src/docs/spec/memory/04_arenas.md` "Scope-Drop Frees": recursive values are freed by
+        `_mfb_rt_graph_drop`; moves zero the source; byte-copying stores free only the copied
+        block. `mfb spec memory arenas` renders both paragraphs.
+      - `.ai/codegen-invariants.md`: the recursive-types sentence is history, keeping the rule.
+      - bug-536's status gains the shape-C progress line.
+      - plan-134-A gains an "After" table with this letter's two rows.
 
 Acceptance: repros flat on macOS; the programs print the same output on Linux and Windows;
 diffs confined.
   Check: bench (est. 2 min); gate (est. 15 min); box runs (est. 10 min).
+  Result:
+  - macOS bench flat: 1.08 / 1.08 MB and 1.03 / 1.03 MB.
+  - Linux and Windows 20 / 20 identical.
+  - Gate diffs confined to json/regex, explained per function, regenerated, re-gated clean.
 Commit: —
 
 ## Validation Plan

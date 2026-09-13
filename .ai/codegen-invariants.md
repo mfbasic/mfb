@@ -108,7 +108,7 @@ Every record inlines — there is no pointer-string exception any more. plan-132
 
 A **native reader** of a record argument must rebase: a `String` or flat-composite field is `base + [base + 8*i]`, never `[base + 8*i]`. A helper that classifies a builtin record must use `TypeModel::builtin_records()` — a program that never imports the declaring package still holds its values (`tcp::localAddress` in a `tcp`-only file), and a nominal the model does not know is classified as a plain 8-byte scalar (plan-132 C3).
 
-A value that is not `type_is_memcpy_copyable` gets **no owning copy at a bind and no drop anywhere**. The pointer-string records were that class until plan-132 — every such value leaked (bug-599), and a `MUT` copy of a list shared its source so an in-place arm emptied or freed it (bug-601). Recursive types are still in it (bug-536 shape C). Do not add a drop for such a class on its own: it double-frees the shared block.
+A value that is not `type_is_memcpy_copyable` gets **no owning copy at a bind and no drop anywhere**. The pointer-string records were that class until plan-132 — every such value leaked (bug-599), and a `MUT` copy of a list shared its source so an in-place arm emptied or freed it (bug-601). Recursive types were in it until plan-134 (bug-536 shape C): they now get an independent graph at every store (plan-134-D/E, `needs_graph_copy`) and a graph drop at every owner's end (plan-134-G, `owns_graph`). A recursive element discarded in place from a collection is still plan-134-H. Do not add a drop for such a class on its own: it double-frees the shared block — plan-134-G's own first cut freed a caller's tree through a borrowed `MATCH` view.
 
 ## A recursive value's deep copy must never recurse on the native stack
 

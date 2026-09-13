@@ -6,6 +6,12 @@ Severity: HIGH
 Class: Memory-safety / Security (denial of service — unbounded memory growth on ordinary programs; the real amplifier behind audit-3 DEC-03)
 
 Status: **shapes A, B, B-2 FIXED** (B-2: 2026-09-06, `b845db0de`). **Shape C remains, and is NOT a bug fix** — see the ruling below.
+Shape C progress (2026-09-13, plan-134): a recursive value bound, reassigned, stored in a global,
+captured, fetched with `get` or left as an unbound temp is now freed at its owner's end
+(plan-134-G). The `c_union_rss`/`c_record_rss` repros are flat: 1.08 MB and 1.03 MB at both 400k
+and 800k iterations, down from 52.7 → 104.3 MB and 105.1 → 209.1 MB. Remaining for plan-134-H:
+element graphs discarded from a collection in place, and the list-heavy decoders
+(`json::parse` still leaves 34 blocks, 2 912 B per call).
 **Shape B's NATIVE half FIXED** (2026-09-05, `cd8699103`).
 **Shape B-2 (the callee half) FIXED** (2026-09-06, branch `bug-536-shape-b2`) —
 a `String` returned by a user / `.mfb`-bodied function may now be freed by its

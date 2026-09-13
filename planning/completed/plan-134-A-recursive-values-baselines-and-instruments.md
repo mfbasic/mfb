@@ -140,6 +140,14 @@ are in §2.2; this letter moves them into `tools/recursive-value-bench/`.
 | `json::parse` of one 480 KB document, K = 1 / 2 / 4 times | 204.3 / 402.4 / 798.7 MB; 0.25 / 0.18 / 0.37 s | `json_repeat` |
 | `regex::findAll` over a 100 000-char subject, K = 1 / 2 / 4 | 345.4 / 673.1 / 1328.6 MB; 0.25 / 0.19 / 0.39 s | `regex_repeat` |
 | `_mfb_thread_copy_*` calls from `main` for a `Node` stored four ways (bind, list literal, `append`, `LET c = a`) | 0 (6 `arena_alloc`, 1 `arena_free`, 2 copy functions emitted) | `node_copies`, `mfb build --ncode`, count relocations `from _mfb_fn_main` |
+
+**After** (filled in by the letters that move a row; plan-134-H records the rest). The table above
+has no "after" column, so the later numbers are recorded here against the same instruments.
+
+| Row | After | Letter, command |
+|---|---|---|
+| Shape C union repro, peak RSS at 400k / 800k | 1.08 MB / 1.08 MB (1 081 344 / 1 081 344 B) | plan-134-G, `tools/recursive-value-bench/run.sh target/release/mfb c_union_rss c_record_rss` |
+| Shape C record repro, peak RSS at 400k / 800k | 1.03 MB / 1.03 MB (1 032 192 / 1 032 192 B) | plan-134-G, same run |
 | bug-601 recursive row: `MUT ys = xs` over `List OF Tree`, 5 in-place appends | `ys=6 xs=112` at `cc1012bdc` (a read of freed storage, so the wrong number is not stable — `xs=240` when this row was first written; correct: `xs=1`) | `tree_alias` |
 | Depth at which today's runtime deep copy crashes | 50 000 exits 0; **70 000, 100 000, 1 000 000 exit 139** | `deep_chain` (copy forced by `collections::get`) |
 | Control: building and holding the same chain without a copy | 1 000 000 exits 0 | `deep_build_only` |
