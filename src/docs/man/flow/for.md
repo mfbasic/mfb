@@ -20,7 +20,10 @@ operands are a compile error (`TYPE_FOR_REQUIRES_NUMERIC`).
 
 `STEP` is optional and defaults to 1. A positive `STEP` continues while the loop
 variable is `<= end`; a negative `STEP` continues while it is `>= end`. A
-constant `STEP` of zero is a compile error (`TYPE_FOR_STEP_ZERO`).
+constant `STEP` of zero is a compile error (`TYPE_FOR_STEP_ZERO`). A `STEP` that
+is not a constant is not checked: if it is zero when the loop starts and the loop
+runs at all, the loop variable never advances, and the loop repeats until
+something inside it leaves with `EXIT FOR`.
 
 `EXIT FOR` leaves the innermost enclosing `FOR` loop and `CONTINUE FOR` skips to
 its next iteration.

@@ -1,0 +1,8 @@
+### 1. UDP failure modes are absent from the rendered error contract
+UNIT:      man-pkg:udp  
+PAGE:      package-wide  
+CATEGORY:  coverage  
+CLAIM:     The package never presents the full set of errors its operations can raise; `udp::bind` has no Errors section despite raising `ErrNetworkFailed`, `ErrAddressInvalid`, and `ErrOutOfMemory`. `receive`, `send`, `poll`, and timeout setters have the same omission.  
+VERDICT:   missing  
+EVIDENCE:  `/Users/justinzaun/Development/mfb/.claude/worktrees/P-125/target/release/mfb man udp bind` printed `Returns udp::Socket.` followed directly by `Description`, with no Errors section; `mfb man udp receive` and `mfb man udp send` likewise printed no Errors section. `src/codegen/builtins/udp/func_bind.rs:61`, `func_receive.rs:80`, `func_send.rs:85`, `func_poll.rs:110`, `func_set_read_timeout.rs:63`, and `func_set_write_timeout.rs:62` register `errors: vec![]`. Their implementations do raise errors: `src/codegen/builtins/udp/gen_io.rs:234-252` emits `ErrNetworkFailed`, `ErrAddressInvalid`, and `ErrOutOfMemory` for bind; `gen_io.rs:546-606` emits receive failures including `ErrTimeout`, `ErrMessageTooLarge`, `ErrInvalidArgument`, and `ErrResourceClosed`; `gen_io.rs:821-874` emits send failures.  
+SUGGESTED: Add each operation’s implementation-backed error set to its registry descriptor so the rendered Errors sections expose the conditions developers must trap. At minimum, document bind’s address/network/allocation failures, receive/send’s timeout, closed-handle, invalid-argument, network, and oversized-message failures, poll’s empty-list/timeout/closed-handle failures, and timeout setters’ invalid-argument/closed-handle failures.

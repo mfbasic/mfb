@@ -1,0 +1,107 @@
+You are reviewing MFBASIC's complete compiler specification as an independent
+second opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+LENS: {{TARGET}}
+
+## Who this documentation is for
+
+`mfb spec` is written for **the compiler contributor**, and for the developer
+who wants the internal detail. Internals are the point here.
+
+Read the standard before you start:
+
+    cat .ai/spec-content.md
+
+## The artifact
+
+Generate the whole spec — all 12 packages, in `PACKAGE_ORDER`:
+
+    for p in architecture language memory linker threading package \
+             diagnostics tooling package-manager unicode app stdlib; do
+      echo "===== $p ====="
+      {{MFB}} spec $p --all
+    done > {{SCRATCH}}/spec.txt
+
+(Note `mfb spec --all` with no package renders 0 lines; only the per-package
+form works. That is why the loop is spelled out.)
+
+It is about 27,000 lines. **You cannot read it end to end with useful
+attention, and you are not being asked to.** You have been given exactly ONE
+question. Answer that one question across the whole artifact, and ignore
+everything else — five other runs are asking the other five questions.
+
+## Your lens
+
+**{{TARGET}}** — the question you are answering:
+
+- **contract-completeness** — Is every externally observable contract the
+  compiler has covered by some topic? Work from the compiler outward, not from
+  the spec inward: enumerate the surfaces (CLI flags, manifest keys, `.mfp`
+  fields, error codes, ABI registers, IR ops, target backends) and ask which
+  have no topic. An uncovered contract is invisible if you only read the spec.
+
+- **single-source-of-truth** — Duplicated or contradicting bodies across
+  topics. Two topics stating one fact is a defect even when they agree,
+  because they will not agree forever. Report each duplicated fact with all
+  the places it lives and which topic should own it.
+
+- **citation-integrity** — Run `./scripts/spec-census.sh --citations` and
+  confirm 0 `MISS-*`. Then do the thing the script cannot: sample claims that
+  have a *resolving* citation and check the cited code actually says what the
+  sentence claims. A green link over a wrong claim is invisible to every
+  instrument. Also report non-obvious claims that carry no citation at all.
+
+- **accuracy-at-head** — Spot-verify claims against the code, weighted to the
+  areas that have changed most since each topic was last touched (use
+  `git log --since` over `src/` versus over `src/docs/spec/`). The spec
+  describes the compiler AS IT IS — flag anything aspirational.
+
+- **reading-order** — `PACKAGE_ORDER`, each package's reading-order prose,
+  every `## See Also`, and every `mfb spec` / `mfb man` link. Run
+  `./scripts/spec-census.sh --links` and then judge the order a human would
+  actually need: does a contributor reading in this order ever meet a term
+  before it is defined?
+
+- **man-spec-agreement** — The two surfaces must not contradict each other.
+  Your checklist is `planning/plan-125-belongs-in-spec.md`: every row there is
+  a sentence cut from a man page for being too internal, and every row must be
+  resolved to COVERED (name the topic), FILLED, or REJECTED (with disproving
+  evidence). Then, separately, look for places where `mfb man` and `mfb spec`
+  state the same thing incompatibly — the overlap is the memory model,
+  resources, and stdlib semantics. Render both and compare.
+
+## Verification duty
+
+- Evidence is a command and its output. A `grep -c` over the artifact, a
+  `file:symbol` you read, or a probe under {{SCRATCH}} run with {{MFB}}.
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+- If you believe the CODE is wrong rather than the spec, say so explicitly and
+  loudly.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    LENS:      {{TARGET}}
+    SCOPE:     <the topics or packages involved>
+    CLAIM:     <the gap or contradiction, with quotes from each side>
+    VERDICT:   <what is authoritative, and why>
+    EVIDENCE:  <the command you ran and what it printed>
+    SUGGESTED: <the text to add or change, with its citation>
+
+Order your findings by how many topics each affects, most first.
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph naming the commands you ran across the artifact.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.

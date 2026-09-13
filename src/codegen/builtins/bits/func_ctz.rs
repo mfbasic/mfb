@@ -30,7 +30,7 @@ behind alignment and power-of-two work. For a positive power of two,
 `bits::ctz(value)` is exactly its base-2 exponent, so it inverts
 `bits::sl(1, n)`. A value is `2^k`-aligned exactly when
 `bits::ctz(value) >= k`, which is how to test alignment without a modulo. And `ctz`
-composes with the lowest-set-bit idiom `value AND -value`, which clears every
+composes with the lowest-set-bit idiom `bits::band(value, -value)`, which clears every
 bit but the lowest one: iterating "extract lowest bit, `ctz` it, clear it" walks
 a bitmask's set indices in ascending order, one iteration per set bit rather than
 one per word bit.

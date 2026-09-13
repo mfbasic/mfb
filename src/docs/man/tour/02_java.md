@@ -12,15 +12,14 @@ Recent Java has been moving this way — records, sealed interfaces, pattern
 matching in `switch` — and MFBASIC reads like that subset made the whole
 language.
 
-The other shift is that values are values, not references. There is no shared
-heap of objects: every value has exactly one owner and is reclaimed
-deterministically when its scope exits. That one property replaces the GC,
+The other shift is that values are values, not references. There is no shared pool of objects: every value belongs to one name and goes
+away deterministically when that name's scope ends. That one property replaces the GC,
 the Java Memory Model, `try`-with-resources, and defensive copying — which is
 what the five examples below walk through.
 
-## Ownership and threading
+## Values and threading
 
-Java threads share the heap, so every mutable object two threads can reach
+Java threads share one pool of objects, so every mutable object two threads can reach
 drags in `synchronized`, `volatile`, `java.util.concurrent`, and the memory
 model. Even with virtual threads, the sharing — and the locking — remains.
 
@@ -31,7 +30,7 @@ synchronized (lock) {          // forget this once and it still compiles
 ```
 
 MFBASIC threads are isolated: no shared statics, no shared collections, no
-shared anything. A worker is an `ISOLATED FUNC` exported from a package, and
+shared anything. A worker is a top-level `ISOLATED FUNC`, and
 the only way in or out is a bounded, typed message queue.
 
 ```
@@ -60,8 +59,8 @@ thread::send(t, "done")
 LET words = thread::waitFor(t)      ' 9 — the worker's result, or its Error
 ```
 
-Sending moves the value into the queue; the receiver gets its own value, never
-a reference into your heap. Think `BlockingQueue` plus `Future.get()`, minus
+Sending hands the value to the queue; the receiver gets its own value, never
+a reference to one of yours. Think `BlockingQueue` plus `Future.get()`, minus
 the part where both sides can still touch the same object: `waitFor` delivers
 the worker's typed result, or fails with the worker's `Error` — no
 `ExecutionException` unwrapping. Since no state is shared, there is nothing
@@ -177,13 +176,13 @@ union that `INCLUDES` this one, in your own package, with your own functions.
 `try`-with-resources works — when everyone remembers the `try` block, and
 nothing leaks past the GC's schedule. In MFBASIC, cleanup is not a statement
 you opt into; it is what scopes do. A resource is bound with `RES`, and the
-close is attached to the binding's lexical lifetime:
+close is attached to the binding's scope:
 
 ```
 IMPORT fs
 
 FUNC copyHeader(src AS String, dst AS String) AS Integer
-  RES input  = fs::openFile(src)            ' owned by this scope
+  RES input  = fs::openFile(src)            ' closed when this scope ends
   RES output = fs::open(dst, "write")
   MUT copied = 0
   WHILE copied < 10 AND NOT fs::eof(input)
@@ -237,4 +236,5 @@ produce the exact value or fail.
 
 - `mfb man tour` — the one-page language tour.
 - `mfb man errors`, `mfb man thread`, `mfb man types` — the models above in full.
-- `mfb spec language memory-semantics` — the ownership model, precisely.
+- `mfb man variable` — values, copies and handles; `mfb spec language memory-semantics`
+  has the exact contract.

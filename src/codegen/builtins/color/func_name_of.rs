@@ -12,17 +12,19 @@ name of `base`, or raises `ErrNotFound` (`77050004`) if the colour is not in the
 table.
 
 **The match is exact, not nearest.** A colour one step off a named one has no
-name, and asking for it is an error rather than an approximation. "Closest named
-colour" is a different function, with a contestable metric and a much higher cost;
-it is deliberately not this one.
+name, and asking for it is an error rather than an approximation. `color` has no
+"closest named colour" lookup at all: choosing the closest needs a colour-distance
+measure that people reasonably disagree about, so `nameOf` does not guess.
 
 `base` must be **fully opaque**. Every entry in the table has alpha `255`, so a
 translucent colour has no name even when its red, green and blue match one
 exactly — `nameOf` raises rather than quietly dropping the alpha.
 
-Six colours have two CSS spellings, and `nameOf` returns the **alphabetically
-first** of them — so `nameOf(fromName("grey"))` is `"gray"`, not `"grey"`. That
-rule gives `gray`, `darkgray`, `lightgray`, `slategray`, `aqua` and `fuchsia`.
+Nine colours have two CSS spellings — seven gray/grey pairs, plus `aqua`/`cyan`
+and `fuchsia`/`magenta` — and `nameOf` returns the **alphabetically first** of
+them, so `nameOf(fromName("grey"))` is `"gray"`, not `"grey"`. That rule gives
+`gray`, `darkgray`, `darkslategray`, `dimgray`, `lightgray`, `lightslategray`,
+`slategray`, `aqua` and `fuchsia`.
 Both spellings still resolve through `color::fromName`; only the reverse
 direction has to choose, and choosing by name rather than by table order means the
 answer cannot change if the table is ever reordered.

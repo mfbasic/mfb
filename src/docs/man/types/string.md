@@ -18,9 +18,8 @@ MFBASIC has two text primitives. `String` is an immutable UTF-8 sequence;
   Strings are value types: assignment and passing copy the value, and no
   operation mutates a string in place. Written with double quotes (`"…"`).
 - **`Scalar`** — a single 32-bit Unicode scalar value: a code point in
-  `U+0000..U+D7FF` or `U+E000..U+10FFFF` (surrogates excluded). It is
-  register-carried like `Byte`, never heap-allocated. Written with a backtick
-  literal (`` `x` ``). The name is `Scalar`, not `Char`, because it is exactly
+  `U+0000..U+D7FF` or `U+E000..U+10FFFF` (surrogates excluded). Written as a single scalar between backticks — see
+  Literals below. The name is `Scalar`, not `Char`, because it is exactly
   one Unicode scalar — not a grapheme cluster (a user-perceived character such as
   `é` or a flag emoji may span several scalars; use `strings::graphemes` for
   those).
@@ -36,12 +35,17 @@ introduces an escape: `\"`, `\\`, `\n`, `\t`, `\r`, `\0`, and `\u{HEX}` (1–6 h
 digits naming a Unicode scalar). See `mfb spec language lexical-structure`.
 
 A scalar literal is delimited by backticks and holds exactly one scalar — a raw
-scalar or an escape reusing the string machinery: `` `A` ``, `` `中` ``,
-`` `\n` ``, `` `\\` ``, the backtick escape `` `\`` ``, and `` `\u{1F600}` ``.
-An empty (`` `` ``) or multi-scalar (`` `ab` ``) literal, an unterminated
-literal, or an invalid escape is a compile-time `TYPE_SCALAR_LITERAL_*` error.
-The backtick is otherwise unused, so `'` line comments are unaffected and
-`` `'` `` is the apostrophe scalar.
+scalar, or an escape reusing the string machinery. These are all valid scalar
+literals; the fifth is the backtick escape, and the last is the apostrophe:
+
+```
+`A`    `中`    `\n`    `\\`    `\``    `\u{1F600}`    `'`
+```
+
+An empty literal (two backticks with nothing between them), a literal holding
+more than one scalar, an unterminated literal, or an invalid escape is a
+compile-time `TYPE_SCALAR_LITERAL_*` error. The backtick is otherwise unused, so
+`'` line comments are unaffected.
 
 ```
 LET s = "héllo中"       ' String
@@ -71,13 +75,10 @@ a numeric type; a mixed comparison is a compile-time type error.
 - `strings::isLetter`, `isDigit`, `isWhitespace`, `isUpper`, `isLower` — classify
   a `Scalar` by its Unicode general category.
 
-## Defaults and storage
+## Defaults
 
-`String` defaults to `""`; `Scalar` defaults to `` `\u{0}` `` (U+0000). Both are
-defaultable, so a `List OF Scalar` and a `Map ... TO Scalar` are defaultable. A
-`String` is heap-allocated (a length-prefixed UTF-8 buffer); a `Scalar` is a
-4-byte register value (see `mfb spec memory scalar-storage`). A `Scalar`
-collection element occupies a 4-byte, 4-aligned inline payload.
+`String` defaults to `""`; `Scalar` defaults to U+0000. Both are
+defaultable, so a `List OF Scalar` and a `Map ... TO Scalar` are defaultable. How each is stored is `mfb spec memory scalar-storage`.
 
 ## See also
 

@@ -13,9 +13,10 @@ straight away.
 **It is a request, not a kill.** Nothing is interrupted, no code is unwound, and
 the thread keeps running normally until its own function chooses to stop. The
 worker sees the request by calling `thread::isCancelled` and decides what to do
-— usually return early. A worker that never calls `isCancelled` runs to
-completion exactly as if you had never cancelled it, so a long loop with no
-check in it cannot be stopped this way.
+— usually return early. A worker that never calls `isCancelled` runs its
+code to completion, so a long loop with no check in it cannot be stopped this
+way — except that a worker blocked in `thread::receive` or `thread::accept` wakes
+and fails with `ErrInterrupted`.
 
 Because it is cooperative, cancellation is safe: a cancelled thread still closes
 its own resources and still produces an outcome on the way out, whatever it

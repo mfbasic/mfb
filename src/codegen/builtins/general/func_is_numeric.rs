@@ -19,7 +19,9 @@ The **empty string is not numeric**, which is the case worth remembering: an
 empty input field answers `FALSE` here rather than converting to `0`.
 
 Both integers and decimals count, so `isNumeric("12")` and `isNumeric("1.5")`
-are both `TRUE`.
+are both `TRUE`. That makes it a guard for the decimal conversions `toFloat`,
+`toFixed`, and `toMoney`, but **not** for `toInt`: `toInt("1.5")` still raises
+`ErrInvalidFormat`, so trap `toInt` instead (see `mfb man general toInt`).
 
 `isNumeric` never fails and changes nothing. It answers about base-10 text — it
 does not know about the `base` argument you can pass `toInt`, so a hexadecimal
@@ -48,7 +50,7 @@ FALSE
 FALSE
 ```
 
-Use it to guard a conversion:
+Use it to guard a decimal conversion:
 
 ```
 IMPORT io
@@ -56,7 +58,7 @@ IMPORT io
 SUB main()
   LET field AS String = ""
   IF isNumeric(field) THEN
-    io::print("got " & toString(toInt(field)))
+    io::print("got " & toString(toFloat(field)))
   ELSE
     io::print("please enter a number")
   END IF

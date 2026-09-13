@@ -25,8 +25,8 @@ The returned mode governs `Money` **arithmetic** rounding only. It does not
 describe how `toString(Money)` renders a value — presentation rounding is a fixed
 half-away-from-zero rule that ignores the mode entirely.
 
-The `money::Rounding` enum is referenced bare, like every other builtin type: write
-`money::Rounding.Banker`, not `money::Rounding.Banker`."#;
+Name the enum package-qualified, as in `money::Rounding.Banker`; a bare
+`Rounding` is not a known type."#;
 const EX: &str = r#"Branch on the mode currently in effect:
 
 ```

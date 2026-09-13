@@ -1,0 +1,4 @@
+man-consistency:vocabulary
+man-consistency:overview-shape
+man-consistency:guide-package
+man-consistency:handles

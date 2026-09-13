@@ -1,0 +1,5 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-consistency:vocabulary	0	112	6	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-consistency:overview-shape	0	135	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-consistency:handles	0	209	22	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-consistency:guide-package	0	212	14	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

@@ -30,7 +30,7 @@ pub(crate) fn lower_fs_write_all(
 const INTRO: &str = r#"Write all of a `String` to an open `File` as UTF-8 text"#;
 const DESC: &str = r#"`fs::writeAll` writes the complete contents of `value` to `file` as UTF-8 text,
 starting at the file's current write position, and returns nothing. The bytes are
-taken directly from the `String`'s packed byte data; because a `String` already
+the `String`'s own UTF-8 bytes; because a `String` already
 holds well-formed UTF-8, no re-encoding, decoding, or newline translation is
 performed. An empty `String` writes no bytes and leaves the file unchanged.
 

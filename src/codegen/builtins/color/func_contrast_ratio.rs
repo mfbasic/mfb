@@ -11,8 +11,9 @@ const DESC: &str = r#"`contrastRatio` returns `(lighter + 0.05) / (darker + 0.05
 the colour's `color::luminance`. It is the WCAG 2.2 definition, and it answers the
 question "can text in one of these be read against the other?".
 
-The range is `1.0` (the two colours are equally bright — the text is invisible) to
-`21.0` (black on white, or white on black). The `0.05` on both sides models
+The range is `1.0` (the two colours have the same luminance, so there is no
+difference in brightness to read by, whatever their hues) to `21.0` (black on
+white, or white on black). The `0.05` on both sides models
 ambient screen glare, and it is what stops the ratio running to infinity against
 pure black.
 
@@ -24,8 +25,10 @@ text and for user-interface components. A ratio is a floor, not a target — a
 ratio that only just clears 4.5 is still hard to read for many people.
 
 `alpha` is ignored on both sides, because `luminance` ignores it. A contrast
-ratio involving a transparent colour is not meaningful until it has been
-composited over something; do that first, with `color::mix`."#;
+ratio involving a transparent colour is not meaningful until you know what it is
+drawn over, so measure the colour that actually ends up on screen. `color::mix`
+does not produce that: it blends two colours *and their alpha*, rather than laying
+one over the other."#;
 
 const EX: &str = r##"The two values the definition fixes: identical colours give `1.0`, and
 black against white gives `21.0`:

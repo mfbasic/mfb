@@ -14,7 +14,7 @@ name, with no `IMPORT` and no package prefix.
 the numbers into three non-overlapping cases, so "not positive" and "negative"
 are different tests and disagree exactly at zero.
 
-It accepts any of the numeric types, not just `Integer`.
+It accepts `Integer`, `Float`, or `Fixed`.
 
 `isNegative` never fails and changes nothing. To turn a negative into its
 magnitude, use `math::abs`."#;

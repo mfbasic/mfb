@@ -48,8 +48,8 @@ See plan-125-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-125-B complete | `grep -c '^- \[ \]' planning/plan-125-B-man-iter1-packages.md` → `0` | — |
-| B's terminology table exists and is final | read plan-125-B Phase 4 | — |
+| plan-125-B complete | `grep -c '^- \[ \]' planning/completed/plan-125-B-man-iter1-packages.md` → `0` | MET 2026-09-13: `0` open and `0` `[~]`; all four Commit lines filled (last `1bcd9d803`) |
+| B's terminology table exists and is final | read plan-125-B Phase 4 | MET: 17 rows, the last seven added by Phase 4's consistency review (`1bcd9d803`) |
 
 ## 1. Goal
 
@@ -142,8 +142,47 @@ that is new to review last, with pace known).
 
 ### Phase 1 — math (22 units)
 
-- [ ] All 21 function pages + the overview, one review unit each.
-- [ ] Every example compiled and run; precision claims probe-verified.
+- [~] All 21 function pages + the overview, one review unit each.
+      Unit list `planning/plan-125-units/C-phase1.txt` (22 units: overview + 21;
+      `math` has no types page, and its constants have no pages of their own).
+      **Remaining: the 22 Codex reviews.** The 2026-09-13 dispatch hit the Codex
+      usage limit on its first units ("try again at 11:13 AM",
+      `planning/plan-125-findings/C-phase1/man-page-math-abs.log`) and was
+      stopped; re-dispatch after the reset.
+- [~] Every example compiled and run; precision claims probe-verified.
+      Examples: `math` 21/21 built and ran at `7f4ff371b`. My probes so far
+      (`/tmp/p125-ex/mathconst`, `/tmp/p125-ex/mathclaims`):
+      - **Wrong, applied:** the overview said every constant "comes in a `Float`
+        form and a `Fixed` form with the same value". No pair is equal
+        (`toFloat(x) = f` is `FALSE` for all 7); `math::piFixed` prints
+        `3.141592653701081`. The overview now says the table shows the `Float`
+        forms, and a `Fixed` form is the nearest value `Fixed` can hold, agreeing
+        to at least nine significant digits. Measured per pair: `ln10` differs in
+        the ninth decimal place, so "ninth decimal" would have been wrong.
+      - **Wrong, applied:** `asin`, `acos`, `log` and `log10` said the scalar
+        form raises `ErrFloatDomain` and the list form `ErrInvalidArgument`. The
+        split is by element type, not by list:
+        - `/tmp/p125-ex/mathclaims` and `/tmp/p125-ex/mathlist`:
+          `asin`/`acos`/`log`/`log10` on a `Float` or `List OF Float` raise
+          `77050012` (`ErrFloatDomain`);
+        - `log`/`log10` on a `Fixed` or `List OF Fixed`, and `asin` on a
+          `Fixed`, raise `77050002` (`ErrInvalidArgument`);
+        - `/tmp/p125-ex/acosfixed`: `acos` on a `Fixed` raises `77050002`.
+
+        All four pages now state the element-type split.
+      - Confirmed as documented:
+        - `sqrt(-1.0)` raises `ErrFloatDomain`; `sqrt` of a negative `Fixed`
+          raises `ErrInvalidArgument`.
+        - `abs` of the most negative `Integer` raises `ErrOverflow`.
+        - `clamp` with low > high, `rand` with min > max, and `min` with
+          mismatched list lengths raise `ErrInvalidArgument`.
+        - `ceil(-1.5)` is `-1` and `floor(-1.5)` is `-2`; `round(2.5)` is `3`,
+          `round(-2.5)` is `-3`, and `round(0.5)` is `1`.
+        - `floor(1.0e30)` raises `ErrOverflow`.
+        - `exp(1000.0)` raises `ErrFloatInf`.
+        - `pow(-8.0, 0.5)` raises `ErrFloatNaN`. Its page says only "outside the
+          domain", which is not wrong, but it names no error; decide when applying.
+      - Not yet probed: the trig and `atan2` claims.
 - [ ] Ledger + example ledger recorded here.
 
 Acceptance: 22 units `exit 0` in the manifest; `--reconcile` clean for the

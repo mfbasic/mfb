@@ -1,0 +1,3 @@
+NO FINDINGS for man-page:color/isLight
+
+I compiled and ran `/tmp/plan-125-scratch/A-iter2/man-page-color-isLight`: the page example printed `FALSE` then `TRUE`; added transparent-white and opaque-black probes printed `TRUE` and `FALSE`. `func_is_light.rs:BODY` delegates to `NOT color::isDark(base)`, and `func_is_dark.rs:BODY` tests `color::luminance(base) < 0.5`, confirming the documented threshold, complement behavior, and ignored alpha.

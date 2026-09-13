@@ -137,17 +137,19 @@ Imports are not transitive and a package cannot re-export another's types (see
 `mfb spec language modules-and-packages`), so `net::Address` is only nameable in a
 file that imports the package declaring it. Passing the whole value on still
 works without it — `tcp::connect(bound)` compiles — but `bound.host` and
-`bound.port` are refused there. Only the address-valued members are affected:
-`tcp::connect`, `tcp::listen`, `tcp::read`, and `tcp::write` need nothing but
-`IMPORT tcp`.
+`bound.port` are refused there. Only reading an address's fields needs it:
+passing an address to `tcp::connect` or `tcp::listen`, and calling `tcp::read` or
+`tcp::write`, need nothing but `IMPORT tcp`.
 
 `Socket` and `Listener` are opaque handles that close themselves when their
 binding goes out of scope. `tcp::close` closes one earlier — to release a
 listening port for reuse, to let a peer observe the end of the stream promptly,
-or to bound how many connections a long-running program holds open at once.
+or to bound how many connections a long-running program holds open at once. Calling `tcp::close` again on a handle it already closed raises
+`ErrResourceClosed`, as does any other use of a closed handle, and a `Socket`
+may be handed to another thread with `thread::transfer`.
 
 `tcp::read` returns bytes and never text: a stream read stops wherever the
-network divided it, which need not be a character boundary, so decoding belongs
+network divided it, which need not be a Unicode-scalar boundary, so decoding belongs
 to `encoding` once a whole message has been assembled. `tcp::write` does accept a
 `String` directly as a second overload and sends its UTF-8 bytes.
 

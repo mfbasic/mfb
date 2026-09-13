@@ -100,7 +100,8 @@ const DESTROY_FONT: &str = "canvas.destroyFont";
 const MODULE_INTRO: &str =
     r#"2D drawing for `app::Mode.Canvas` — a retained scene of `canvas::DrawItem`s"#;
 const MODULE_DESC: &str = r#"The `canvas` package draws 2D graphics on the surface `app::setMode(app::Mode.Canvas)`
-presents. Like `app`, it is importable **only** in `--app` builds, and every call
+presents. Import it with `IMPORT canvas`; like `app`, it is importable **only** in
+`--app` builds, and every call
 that touches the surface requires `app::Mode.Canvas` — outside it they raise the
 trappable `ErrWrongMode`. The `canvas::Paint` constructors `canvas::fill`,
 `canvas::stroke` and `canvas::fillStroke` are exempt: they build a value and touch
@@ -133,7 +134,7 @@ state — there is no "current colour" to set. Build one with `canvas::fill`,
 `canvas::stroke` or `canvas::fillStroke`, and refine it with `WITH`:
 
 ```
-LET glow AS Paint = WITH canvas::fill(color::rgb(255, 64, 0)) { blend := BlendMode.Add }
+LET glow AS canvas::Paint = WITH canvas::fill(color::rgb(255, 64, 0)) { blend := canvas::BlendMode.Add }
 ```
 
 `canvas::Paint` is designed so that **each field's zero value is that field's no-op** —
@@ -155,12 +156,15 @@ item draw nothing, rather than failing the frame.
 RES logo AS canvas::Image = canvas::createImage(w, h, pixels)
 ```
 
-The value types — `canvas::DrawItem`, `canvas::Paint` and the rest — are referenced bare.
+The value types — `canvas::DrawItem`, `canvas::Paint` and the rest — are
+package-qualified too; a bare `DrawItem` is not a known type.
 The one colour type a canvas program names, `color::Color`, belongs to `color` and
 needs its own `IMPORT color`.
 An image closes itself when its binding goes out of scope, or earlier with
 `canvas::destroyImage`; destroying one that a presented scene still draws is
-safe, because the scene holds only its id."#;
+safe. Calling `canvas::destroyImage` again on an image it already closed does
+nothing; any other use of a closed image raises `ErrResourceClosed`. An image
+stays on the drawing surface's thread."#;
 
 /// Register the `canvas` package on the clean-room registry.
 ///

@@ -37,7 +37,7 @@ contents of `value` as UTF-8 text, flushes the file to disk, closes it, and
 returns nothing. Any previous contents of an existing file are discarded; to add
 to a file instead of replacing it, use `fs::appendText`.
 
-The text payload is written directly from the `String`'s packed byte data. A
+The text is written as the `String`'s UTF-8 bytes. A
 `String` already holds well-formed UTF-8, so the bytes are written exactly as
 held, with no re-encoding, decoding, or newline translation. The write is
 retried until every byte has been written or the host reports an output failure,

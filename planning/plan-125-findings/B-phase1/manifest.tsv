@@ -1,0 +1,11 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-topic:tour	0	69	18	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:canvas	0	103	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-topic:types	0	119	18	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-topic:errors	0	126	25	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-topic:link	0	83	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-topic:flow	0	179	25	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-topic:tooling	0	60	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-topic:optimizations	0	83	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-topic:unicode	0	83	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-topic:lambda	0	217	25	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

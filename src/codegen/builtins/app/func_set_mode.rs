@@ -61,9 +61,10 @@ pub(crate) fn lower_set_mode(
 }
 
 const INTRO: &str = r#"Change the presentation mode of this `--app` program"#;
-const DESC: &str = r#"`app::setMode` sets the program's presentation mode. `mode` is one of the two
-`app::Mode` enum members: `app::Mode.Console` (the terminal-in-a-window surface) or
-`app::Mode.None` (windowless). The call returns nothing.
+const DESC: &str = r#"`app::setMode` sets the program's presentation mode. `mode` is one of the three
+`app::Mode` enum members: `app::Mode.Console` (the terminal-in-a-window surface),
+`app::Mode.Canvas` (the 2D graphics surface the `canvas` package draws on; see
+`mfb man canvas`), or `app::Mode.None` (windowless). The call returns nothing.
 
 Switching mode reconciles the window surface to match: entering `app::Mode.None` tears
 the window down and routes `io::print` to standard output; entering `app::Mode.Console`
@@ -74,8 +75,8 @@ Referencing `app::setMode` anywhere in a program also changes that program's
 windowless and brings a window up deliberately, rather than flashing the default
 terminal window first.
 
-The `app::Mode` enum is referenced bare, like every other builtin type: write
-`app::Mode.None`, not `app::Mode.None`."#;
+Name the enum package-qualified, as in `app::Mode.None`; a bare `Mode` is not a
+known type."#;
 const EX: &str = r#"Start windowless (the mere reference to `setMode` makes `None` the initial mode),
 then bring the console surface up:
 
@@ -100,8 +101,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "mode",
-                desc: "The presentation mode to switch to: `app::Mode.Console` or `app::Mode.None`. Any \
-                       other type is rejected at compile time.",
+                desc: "The presentation mode to switch to: `app::Mode.Console`, `app::Mode.Canvas`, or \
+                       `app::Mode.None`. Any other type is rejected at compile time.",
                 aliases: &[],
                 ty: ParameterType::named("Mode"),
                 default: DefaultValue::None,

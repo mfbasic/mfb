@@ -30,9 +30,9 @@ division, no square root, and no trigonometry anywhere in any overload. As a
 result `cross` performs **no rounding** on any element type: the `Integer`
 overloads are exact integer arithmetic and the `Fixed` overloads are exact within
 the Q32.32 grid, in contrast to `normalize`, `project`, and the interpolation
-functions, which all round on `Integer`. `cross` is also the only geometry
-function here that never raises `ErrInvalidArgument`: it has no degenerate input
-to reject, and the cross product of parallel operands is simply the zero vector.
+functions, which all round on `Integer`. `cross` never raises
+`ErrInvalidArgument` (nor do `length`, `dot`, `distance`, or `scale`): it has no
+degenerate input to reject, and the cross product of parallel operands is simply the zero vector.
 
 The unary 2D form gives the same result as `vector::perpendicular`. Use whichever
 name reads better where you are: `cross` when the surrounding code is doing

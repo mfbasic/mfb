@@ -635,12 +635,25 @@ const DESC: &str =
 program without an `IMPORT`: `error`, `len`, `typeName`, the numeric conversions \
 (`toString`/`toInt`/`toFloat`/`toFixed`/`toByte`/`toMoney`/`toScalar`), and the \
 predicates (`isNumeric`/`isEven`/…/`isNotEmpty`). They are written as bare names and \
-have no `general::` spelling.";
+have no `general::` spelling.
+
+Each conversion accepts several source types, and its page lists every form. \
+`toString` takes `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Scalar`, \
+or `List OF Byte` (`Float` and `Fixed` also take an optional `Byte` second argument). \
+`toInt` takes `String` (with an optional `Integer` base), `Byte`, `Float`, `Fixed`, \
+`Money`, or `Scalar`. `toFloat` takes `String`, `Integer`, `Fixed`, or `Money`; \
+`toFixed` takes `String`, `Integer`, `Float`, or `Money`. `toByte` takes `Integer`, \
+`Money`, or `Scalar`. `toMoney` takes `String`, `Integer`, `Float`, `Fixed`, or \
+`Byte`. `toScalar` takes `Integer`, `String`, or `Byte`.";
 
 /// Register the `general` package on the clean-room registry. See the module docs for
 /// why it is a real-named-but-unqualified-global package and why `error` is irregular.
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("general", INTRO, DESC);
+    // `general` is the globals holder for the language: its members are called bare
+    // (`len(s)`) and a program never needs `general::`. Its man pages still group them
+    // under `general::` — that is intended (bug-607, closed NOT A BUG). See
+    // `RegistryPackage::unqualified_global`.
     pkg.mark_unqualified_global();
 
     func_error::register(&mut pkg);

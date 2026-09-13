@@ -5,18 +5,30 @@ Effort: x-large (1d–3d) — three independent shapes; the recursive-drop one i
 Severity: HIGH
 Class: Memory-safety / Security (denial of service — unbounded memory growth on ordinary programs; the real amplifier behind audit-3 DEC-03)
 
-Status: **shapes A, B, B-2 FIXED** (B-2: 2026-09-06, `b845db0de`). **Shape C remains, and is NOT a bug fix** — see the ruling below.
-**CLOSED 2026-09-13 — shape C fixed by plan-134 (letters A–H).**
-- **Owner drops (plan-134-G):** a recursive value bound, reassigned, stored in a global,
-  captured, fetched with `get` or left as an unbound temp is freed at its owner's end.
-- **In-place discards (plan-134-H):** the elements a collection discards in place (`set`,
-  `removeAt`, `removeKey`) are freed too. So are values of types that only reach a cycle,
-  intermediate and grown-over collection blocks, and a graph moved out by `RETURN`.
-- **Measured:**
-  - The `c_union_rss`/`c_record_rss` repros are flat: 1.08 MB and 1.03 MB at both 400k and
-    800k iterations, down from 52.7 → 104.3 MB and 105.1 → 209.1 MB.
-  - `json::parse` bound in a loop: 55 003 allocs / 55 003 frees, `live_bytes 0`.
-  - `rt_scope_drop_leaks` 128/128 and `rt_recursive_value_collection_drops` 9/9.
+Status: **CLOSED 2026-09-13.** Shapes A, B and B-2 are fixed; shape C was plan work (plan-134), and plan-134 has fixed it.
+
+## STATUS: FIXED — shapes A (`f9be6e128`), B native (`cd8699103`), B-2 (`b845db0de`); shape C by plan-134
+
+- **Shape A** — `RETURN <record/union constructor>` no longer abandons its block: `f9be6e128`.
+- **Shape B, native half** — an unbound native `String` temp is freed when its producer proves it fresh: `cd8699103`.
+- **Shape B-2, callee half** — a `.mfb` callee's `String` is freed by its caller: `b845db0de`.
+- **Shape C** — a value of a recursive type was never freed. By the user's ruling
+  (2026-09-06, below) it was not a bug fix. It was designed and delivered as **plan-134**
+  (A–H, `planning/completed/plan-134-*`: recursive values copied and freed):
+  - **Owner drops (plan-134-G):** a recursive value bound, reassigned, stored in a global,
+    captured, fetched with `get` or left as an unbound temp is freed at its owner's end.
+  - **In-place discards (plan-134-H):** the elements a collection discards in place (`set`,
+    `removeAt`, `removeKey`) are freed too. So are values of types that only reach a cycle,
+    intermediate and grown-over collection blocks, and a graph moved out by `RETURN`.
+  - **Measured:**
+    - The `c_union_rss`/`c_record_rss` repros are flat: 1.08 MB and 1.03 MB at both 400k and
+      800k iterations, down from 52.7 → 104.3 MB and 105.1 → 209.1 MB.
+    - `json::parse` bound in a loop: 55 003 allocs / 55 003 frees, `live_bytes 0`.
+    - `rt_scope_drop_leaks` 128/128 and `rt_recursive_value_collection_drops` 9/9.
+
+The history below is kept as it was written.
+
+Superseded status line: shapes A, B, B-2 FIXED (B-2: 2026-09-06, `b845db0de`); shape C remains, and is NOT a bug fix — see the ruling below.
 **Shape B's NATIVE half FIXED** (2026-09-05, `cd8699103`).
 **Shape B-2 (the callee half) FIXED** (2026-09-06, branch `bug-536-shape-b2`) —
 a `String` returned by a user / `.mfb`-bodied function may now be freed by its

@@ -211,7 +211,7 @@ does not raise `ErrInvalidContext`.
 Two cases to know about:
 
 - **End of input counts as ready.** `io::pollInput` returns `TRUE` and the
-  following read raises `ErrEof`.
+  following read raises `ErrEndOfFile`.
 - **A partial character still waits.** `io::readChar` returns a whole Unicode
   scalar, so if only the first byte of a multi-byte sequence has arrived, the
   read blocks for the rest even though `io::pollInput` said `TRUE`.

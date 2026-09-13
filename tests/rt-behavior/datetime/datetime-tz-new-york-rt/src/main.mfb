@@ -1,0 +1,76 @@
+' bug-520 S1/S6/S10: this fixture runs with `TZ=America/New_York` (its
+' `run.env`), so `datetime::local()` is a zone with real DST and LMT history.
+' Before it, no fixture set `TZ`, and the host-zone fixtures could assert only
+' properties true in every zone -- none of the gap/overlap resolution below was
+' pinned. Values were checked against Python `zoneinfo`.
+'
+' - S1: New York's LMT offset is -04:56:02. `toIso` dropped the seconds, so
+'   `parseIso(toIso(dt))` named an instant 2 s away.
+' - S6: `addDays(dt, 0)` on the SECOND 01:30 of the 2026-11-01 fall-back
+'   re-resolved the wall clock and took the earlier offset, moving the instant
+'   -3600 s. The page promises zero days returns `dt`; the offset is now kept
+'   when it is still valid for the resulting wall clock.
+IMPORT io
+IMPORT datetime
+
+FUNC line(label AS String, dt AS datetime::DateTime) AS Integer
+  io::print(label & "=" & datetime::toIso(dt) & " @" & toString(datetime::resolve(dt).seconds))
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET z AS datetime::Zone = datetime::local()
+
+  ' S10: offsets either side of both 2026 transitions.
+  io::print("off.winter=" & toString(datetime::localOffset(1767225600)))
+  io::print("off.summer=" & toString(datetime::localOffset(1782864000)))
+  io::print("off.beforeSpring=" & toString(datetime::localOffset(1772953199)))
+  io::print("off.afterSpring=" & toString(datetime::localOffset(1772953200)))
+  io::print("off.beforeFall=" & toString(datetime::localOffset(1793512799)))
+  io::print("off.afterFall=" & toString(datetime::localOffset(1793512800)))
+
+  ' S10: civil in the gap shifts forward; in the overlap takes the earlier offset.
+  line("civil.gap", datetime::civil(datetime::date(2026, 3, 8), datetime::time(2, 30), z))
+  line("civil.overlap", datetime::civil(datetime::date(2026, 11, 1), datetime::time(1, 30), z))
+  line("civil.plain", datetime::civil(datetime::date(2026, 7, 15), datetime::time(9, 0), z))
+
+  ' S10: addDays across both transitions keeps the wall clock, not the duration.
+  LET sat AS datetime::DateTime = datetime::civil(datetime::date(2026, 3, 7), datetime::time(9, 0), z)
+  LET sun AS datetime::DateTime = datetime::addDays(sat, 1)
+  line("spring.sat", sat)
+  line("spring.sun", sun)
+  io::print("spring.daySeconds=" & toString(datetime::resolve(sun).seconds - datetime::resolve(sat).seconds))
+  LET fsat AS datetime::DateTime = datetime::civil(datetime::date(2026, 10, 31), datetime::time(9, 0), z)
+  LET fsun AS datetime::DateTime = datetime::addDays(fsat, 1)
+  line("fall.sat", fsat)
+  line("fall.sun", fsun)
+  io::print("fall.daySeconds=" & toString(datetime::resolve(fsun).seconds - datetime::resolve(fsat).seconds))
+  line("addDays.intoGap", datetime::addDays(datetime::civil(datetime::date(2026, 3, 7), datetime::time(2, 30), z), 1))
+  line("addMonths.intoGap", datetime::addMonths(datetime::civil(datetime::date(2026, 2, 8), datetime::time(2, 30), z), 1))
+
+  ' S10: startOfDay on the spring-forward date.
+  line("startOfDay.spring", datetime::startOfDay(sun))
+
+  ' S6: zero-day and zero-month shifts return `dt` on both sides of the overlap.
+  LET first AS datetime::DateTime = datetime::toLocal(datetime::instant(1793511000, 0))
+  LET second AS datetime::DateTime = datetime::toLocal(datetime::instant(1793514600, 0))
+  line("overlap.first", first)
+  line("overlap.second", second)
+  line("addDays0.first", datetime::addDays(first, 0))
+  line("addDays0.second", datetime::addDays(second, 0))
+  line("addMonths0.second", datetime::addMonths(second, 0))
+  ' A day later the -05:00 offset is still valid at 01:30, so it is kept.
+  line("addDays1.second", datetime::addDays(second, 1))
+  ' Into an overlap from outside it: the offset carried (-04:00, from October)
+  ' is one of the overlap's two, so it is kept -- the first 01:30.
+  line("addDays.intoOverlapFromEdt", datetime::addDays(datetime::civil(datetime::date(2026, 10, 31), datetime::time(1, 30), z), 1))
+  ' From December (-05:00) back into the overlap: the SECOND 01:30.
+  line("addMonths.intoOverlapFromEst", datetime::addMonths(datetime::civil(datetime::date(2026, 12, 1), datetime::time(1, 30), z), -1))
+
+  ' S1: LMT has a seconds offset; the text must name the same instant.
+  LET old AS datetime::DateTime = datetime::toLocal(datetime::instant(-3771144000, 0))
+  line("lmt", old)
+  io::print("lmt.offset=" & toString(old.offset))
+  io::print("lmt.roundTrip=" & toString(datetime::resolve(datetime::parseIso(datetime::toIso(old))).seconds))
+  RETURN 0
+END FUNC

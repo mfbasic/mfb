@@ -1,0 +1,4 @@
+.venv/
+jobs/
+probe/build/
+probe/packages/

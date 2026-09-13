@@ -1,0 +1,111 @@
+{
+  "project": "datetime-parse-strict-rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 15 },
+    { "module": "datetime", "line": 16 },
+    { "module": "errorCode", "line": 17 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "iso",
+      "line": 19,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 19 },
+      { "name": "value", "type": "String", "default": null, "line": 19 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parseIso", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=ACCEPTED " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "identifier", "value": "dt" }] }, "member": "seconds" }] } }, "right": { "kind": "string", "value": " off=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dt" }, "member": "offset" }] } }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 22 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 23,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "right": { "kind": "string", "value": " format=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } }] } }] }, "line": 24 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 25 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pat",
+      "line": 29,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 29 },
+      { "name": "value", "type": "String", "default": null, "line": 29 },
+      { "name": "pattern", "type": "String", "default": null, "line": 29 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "pattern" }, { "kind": "call", "callee": "datetime.utc", "arguments": [] }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=ACCEPTED " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "identifier", "value": "dt" }] }, "member": "seconds" }] } }, "right": { "kind": "string", "value": " off=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dt" }, "member": "offset" }] } }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 32 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 33,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "right": { "kind": "string", "value": " format=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } }] } }] }, "line": 34 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 35 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 39,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoTrailZ" }, { "kind": "string", "value": "2026-01-01T00:00:00Zgarbage" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoTrailOffset" }, { "kind": "string", "value": "2026-01-01T00:00:00+05:30x" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoTrailSpace" }, { "kind": "string", "value": "2026-01-01T00:00:00Z " }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pat", "arguments": [{ "kind": "string", "value": "patTrail" }, { "kind": "string", "value": "2026-01-01 junk" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pat", "arguments": [{ "kind": "string", "value": "patTrailOffset" }, { "kind": "string", "value": "2026-01-01 00:00 +05:30!" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm Z" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pat", "arguments": [{ "kind": "string", "value": "patTrailDigit" }, { "kind": "string", "value": "2026-01-015" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoMin75" }, { "kind": "string", "value": "2026-01-01T00:00:00+05:75" }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoMin60" }, { "kind": "string", "value": "2026-01-01T00:00:00+05:60" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoSec60" }, { "kind": "string", "value": "2026-01-01T00:00:00+05:30:60" }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoHour1" }, { "kind": "string", "value": "2026-01-01T00:00:00+5:30" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoMin1" }, { "kind": "string", "value": "2026-01-01T00:00:00+05:3" }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoSec1" }, { "kind": "string", "value": "2026-01-01T00:00:00+05:30:1" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoHourOnly" }, { "kind": "string", "value": "2026-01-01T00:00:00+05" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoColonNoSec" }, { "kind": "string", "value": "2026-01-01T00:00:00+05:30:" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pat", "arguments": [{ "kind": "string", "value": "patMin75" }, { "kind": "string", "value": "2026-01-01 00:00 +05:75" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm Z" }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pat", "arguments": [{ "kind": "string", "value": "patHour1" }, { "kind": "string", "value": "2026-01-01 00:00 +5:30" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm Z" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoPlus24" }, { "kind": "string", "value": "2026-01-01T00:00:00+24:00" }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoMinus24" }, { "kind": "string", "value": "2026-01-01T00:00:00-24:00" }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "isoPlus99" }, { "kind": "string", "value": "2026-01-01T00:00:00+99:00" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pat", "arguments": [{ "kind": "string", "value": "patPlus24" }, { "kind": "string", "value": "2026-01-01 00:00 +24:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm Z" }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "okZ" }, { "kind": "string", "value": "2026-01-01T00:00:00Z" }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "okLowerZ" }, { "kind": "string", "value": "2026-01-01T00:00:00z" }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "okMax" }, { "kind": "string", "value": "2026-01-01T00:00:00+23:59:59" }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "okMin" }, { "kind": "string", "value": "2026-01-01T00:00:00-23:59:59" }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "okCompactMax" }, { "kind": "string", "value": "2026-01-01T00:00:00-235959" }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "okMinute59" }, { "kind": "string", "value": "2026-01-01T00:00:00+05:59" }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "okZero" }, { "kind": "string", "value": "2026-01-01T00:00:00-00:00" }] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "iso", "arguments": [{ "kind": "string", "value": "okFraction" }, { "kind": "string", "value": "2026-01-01T00:00:00.123456789012+01:00" }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pat", "arguments": [{ "kind": "string", "value": "okPatNoOffset" }, { "kind": "string", "value": "2026-01-01" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pat", "arguments": [{ "kind": "string", "value": "okPatLiteralTail" }, { "kind": "string", "value": "2026-01-01 at noon" }, { "kind": "string", "value": "yyyy-MM-dd 'at noon'" }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pat", "arguments": [{ "kind": "string", "value": "okPatOffset" }, { "kind": "string", "value": "2026-01-01 00:00 -0800" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm Z" }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pat", "arguments": [{ "kind": "string", "value": "okPatSecondsOffset" }, { "kind": "string", "value": "2026-01-01 00:00 +01:00:30" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm Z" }] }, "line": 78 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 79 }
+      ]
+    }
+    ]
+  }
+  ]
+}

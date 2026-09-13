@@ -1,0 +1,4 @@
+unit	exit	seconds	findings_lines	dirty	banner
+spec-file:unicode/spec.md	0	73	6	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+spec-file:unicode/01_tables-and-algorithms.md	0	171	62	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+spec-file:unicode/02_strings-model.md	0	182	46	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

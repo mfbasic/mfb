@@ -10,7 +10,7 @@ Pair OF A, B
 
 ## Description
 
-`Pair OF A, B` is a compiler-owned, always-in-scope generic record that holds two
+`Pair OF A, B` is a built-in, always-in-scope generic record that holds two
 values of possibly different types:
 
 ```

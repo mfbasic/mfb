@@ -3,27 +3,71 @@
 MFBASIC's `strings::` package performs Unicode-correct grapheme segmentation,
 normalization, and case mapping at runtime, in the compiled native binary, with
 no external library dependency. To do this the compiler embeds a set of
-read-only Unicode property and mapping tables into every program that calls a
-Unicode-aware `strings::` builtin, and emits hand-written AArch64 routines that
-walk those tables. This topic specifies the embedded tables (layout, source,
-emission) and the runtime algorithms that consume them.
+read-only Unicode property and mapping tables into a program whose generated code
+performs a Unicode-aware `strings::` or `regex::` operation at run time (a call
+whose argument is statically known is folded instead, and carries no table), and
+emits routines that walk those tables as
+architecture-neutral `abi::` operations, which each native backend lowers. This
+topic specifies the embedded tables (layout, source, emission) and the runtime
+algorithms that consume them.
 
 There are two distinct table consumers, which must not be confused:
 
-- **Compile-time folding.** When a Unicode-aware call has a statically known
+- **Compile-time folding.** When a Unicode-aware call (`strings::upper`,
+  `lower`, `caseFold`, `normalizeNfc`, `graphemes`) has a statically known
   string argument, the compiler evaluates it in-process using the Rust crates
   `unicode_segmentation`, `unicode_normalization`, and `unicode_casefold`, and
   the result is baked in as a literal. No table lookup happens at runtime.
-  [[src/codegen/builtins/strings/gen_strings_support.rs:static_strings_package_string]]
+  [[src/target/shared/nir/constfold.rs:native_strings_package_static_string_value]]
+  [[src/codegen/engine/types/type_utils.rs:strings_package_static_string_value]]
   [[src/unicode/backend.rs:graphemes]]
+  [[src/codegen/builtins/strings/func_graphemes.rs:lower]]
 - **Runtime tables.** When the argument is dynamic, the compiler emits code that
   performs a two-stage property lookup and the algorithms below against the
-  embedded tables. The tables are derived from utf8proc, not from those Rust
-  crates. [[src/codegen/string/unicode_props.rs:emit_unicode_property_lookup]]
+  embedded tables. The property trie and the composition tables are derived from
+utf8proc; the NFD and case-mapping tables are generated through those Rust crates
+(see Provenance); general category and Script come from separate pinned tables
+(next section). [[src/codegen/string/unicode_props.rs:emit_unicode_property_lookup]]
 
 The string memory model these routines operate on (UTF-8 length-prefixed heap
-values) is `./mfb spec unicode strings-model`. Per-function `strings::` API
-contracts are owned by `mfb man`.
+values) is `./mfb spec unicode strings-model`. `mfb man strings` owns how each
+`strings::` function is called (arguments, return type, error codes); this package
+owns the runtime model and the semantic contracts a faithful reimplementation must
+reproduce.
+
+## Pinned general-category and Script tables
+
+General category and Script do **not** come from the utf8proc property trie. They
+are answered from two separate range tables generated from **Unicode 16.0.0** and
+emitted as their own read-only data. [[src/unicode/range_tables.rs:gencat]]
+[[src/unicode/range_tables.rs:script]]
+
+Their consumers are `strings::isLetter`, `isDigit`, `isWhitespace`, `isUpper` and
+`isLower` (through the internal `strings::genCat`), and `regex`'s Unicode property
+classes, `\p{Script}` tests, shorthand classes and word test (through the internal
+`regex::genCat` and `regex::scriptOf`).
+[[src/codegen/builtins/strings/func_gen_cat.rs:lower]]
+[[src/codegen/builtins/regex/func_gen_cat.rs:lower]]
+[[src/codegen/builtins/regex/func_script_of.rs:lower]]
+[[src/codegen/builtins/regex/helper_prop_test.rs:__regex_propTest]]
+[[src/codegen/builtins/regex/helper_script_test.rs:__regex_scriptTest]]
+[[src/codegen/builtins/regex/helper_shorthand_match.rs:__regex_shorthandMatch]]
+[[src/codegen/builtins/regex/helper_is_word.rs:__regex_isWord]]
+
+**The split is a contract, and it means two Unicode versions coexist.** The
+vendored utf8proc carries a newer UCD than 16.0.0: its categories differ on
+**4,804 scalars** (4,803 unassigned in 16.0.0 but assigned in utf8proc, plus
+U+0295, `Ll` in 16.0.0 and `Lo` in utf8proc). Its property records are also
+deduplicated on utf8proc's own field set, so 19 of its 8,385 records are shared
+by scalars whose Unicode 16.0.0 categories differ — a category field packed into
+that record could not represent them even in principle. So three data sources
+coexist, each with its own Unicode version: grapheme segmentation and display
+width read utf8proc's properties; NFD/NFC normalization and upper/lower/case-fold
+mapping read tables generated through the Rust normalization and case crates and
+Rust's own `char` case mapping (see Provenance below); and category and Script
+follow Unicode 16.0.0. They can disagree about a scalar assigned after 16.0.0. A
+utf8proc or crate upgrade must not move category or Script answers.
+[[src/unicode/runtime_tables.rs:build_mapping_tables]] [[src/unicode/range_tables.rs:gencat]]
 
 ## Provenance: utf8proc
 
@@ -38,10 +82,11 @@ corresponding Unicode release.
 The compiler does **not** link or call utf8proc. `parse_tables` scrapes the C
 array initializers textually — `array_body` finds `static const <name>[] = {`
 and slices to the matching `};` — then reparses each comma-separated element.
-Symbolic constants (`UTF8PROC_CATEGORY_*`, `UTF8PROC_BOUNDCLASS_*`,
-`UTF8PROC_DECOMP_TYPE_*`, `UTF8PROC_INDIC_CONJUNCT_BREAK_*`, `UINT16_MAX`,
-`true`/`false`) are mapped to integers by hand-written match tables; bidi-class
-references collapse to `0` (unused). The NFD, uppercase, lowercase, and casefold
+Symbolic constants (`UTF8PROC_BOUNDCLASS_*`, `UTF8PROC_INDIC_CONJUNCT_BREAK_*`,
+`UINT16_MAX`, `true`/`false`) are mapped to integers by hand-written match tables;
+bidi-class references collapse to `0` (unused). The general-category and
+decomposition-type columns are never consumed, so their constants are not mapped.
+[[src/unicode/runtime_tables.rs:parse_value]] The NFD, uppercase, lowercase, and casefold
 mapping tables are **not** taken from utf8proc — they are generated by iterating
 every codepoint `0..=0x10FFFF` through the Rust normalization/case crates
 (`build_mapping_tables`). [[src/unicode/runtime_tables.rs:parse_tables]]
@@ -65,7 +110,8 @@ cp ──▶ stage1[cp >> 8] ─────────────▶ base
 ```
 
 Both stage tables are `Vec<u16>`. The runtime emitter `emit_unicode_property_lookup`
-reproduces this exactly in AArch64: shift `cp` right 8, scale by 2 (u16 stride),
+reproduces this exactly as architecture-neutral `abi::` operations that each
+native backend lowers: shift `cp` right 8, scale by 2 (u16 stride),
 load the stage-1 entry, add `cp & 0xFF`, scale by 2, load the stage-2 entry,
 multiply by the 12-byte record size, and add to the base of the properties
 table. The result register holds a pointer to the live `PackedProperty` record;
@@ -93,7 +139,7 @@ On emission each record is serialized little-endian, in field order, producing a
 | 8   | `boundclass`           | 19                          | `UNICODE_PROPERTY_OFFSET_BOUNDCLASS` = 8        |
 | 10  | `indic_conjunct_break` | 20                          | `UNICODE_PROPERTY_OFFSET_INDIC_CONJUNCT_BREAK`=10|
 
-The record was repacked (plan-77 U1): the five never-read utf8proc columns —
+The record was repacked: the five never-read utf8proc columns —
 `decomp_type` and the `decomp`/`casefold`/`uppercase`/`lowercase` *seqindexes* —
 were dropped, since the runtime case and decomposition algorithms read the
 separate flattened u32 mapping tables (below), never these fields. Removing them
@@ -104,7 +150,7 @@ must stay in sync with how `PackedProperty` is encoded.
 [[src/codegen/string/unicode_props.rs:UNICODE_PROPERTY_SIZE]]
 
 `flags` is a bitfield packed from four utf8proc booleans plus the display-width
-fields (plan-70-A):
+fields:
 
 | Bit  | Flag                              | utf8proc field |
 |------|-----------------------------------|----------------|
@@ -116,9 +162,10 @@ fields (plan-70-A):
 | 6    | `AMBIGUOUS` (East Asian ambiguous)| 17             |
 
 The runtime reads the display width as `(flags >> 4) & 0b11` (`CHARWIDTH_SHIFT`=4,
-`CHARWIDTH_MASK`); a value of 2 is East-Asian-Wide (two terminal columns), 0/1 are
-one column (a lone zero-width scalar still occupies a cell — the EGC pool folds
-combining marks into their base). The `AMBIGUOUS` bit marks East Asian Ambiguous
+`CHARWIDTH_MASK`); a value of 2 is East-Asian-Wide (two terminal columns), 1 is
+one column, and 0 is zero-width. How per-scalar widths combine into a grapheme's
+width — including a grapheme made only of zero-width scalars, which is `0` — is
+owned by `./mfb spec unicode strings-model`. The `AMBIGUOUS` bit marks East Asian Ambiguous
 width; `strings::displayWidth` and the `term::` backends treat ambiguous as width 1.
 
 [[src/unicode/runtime_tables.rs:COMB_IS_SECOND]]
@@ -177,9 +224,14 @@ entries/sequences symbols and the entry count differ.
 
 ## Embedding: data objects and symbols
 
-A compiler pass emits the thirteen tables as raw, read-only `CodeDataObject`s.
-Emission is **per-table**, driven by the relocations the generated code actually
-carries (plan-77 U5): a table is emitted iff some function relocates against its
+A compiler pass emits up to seventeen raw, read-only `CodeDataObject`s: the
+thirteen utf8proc and mapping tables below, plus the four pinned general-category
+and Script range and name tables.
+Which tables a given program carries is an **implementation detail, not a
+language or binary-format guarantee**: the selection below can change without
+changing any Unicode result. Today emission is **per-table**, driven by the
+relocations the generated code actually carries: a table is emitted iff some
+function relocates against its
 `_mfb_unicode_*` symbol. So a program that reaches only part of the Unicode
 surface carries only the tables it reads — `strings::graphemes`/`displayWidth`
 pull just the base trie (`stage1`/`stage2`/`properties`); `strings::caseFold`
@@ -189,8 +241,8 @@ property trie); `strings::normalizeNfc` pulls the base trie plus the
 coarse NIR usage heuristic remains only as a fallback that emits the full set
 should unicode use be detected with no table relocation named (practically
 unreachable). Each table's bytes come from a hex serializer; sizes and
-alignments are fixed per table (u16 tables align 2, u32 / record tables align
-4). [[src/codegen/memory/data/data_objects.rs:unicode_runtime_data_objects]]
+alignments are fixed per table (u16 tables and the 12-byte `properties` records
+align 2; u32 tables and the 16-byte mapping-entry records align 4). [[src/codegen/memory/data/data_objects.rs:unicode_runtime_data_objects]]
 [[src/codegen/engine/analysis/module_analysis.rs:module_uses_unicode_runtime_tables]]
 
 | Symbol (`_mfb_unicode_*`)        | Element / record       | Align |
@@ -267,7 +319,9 @@ scalar buffer. NFD on its own is the first three passes.
 
 1. **Count + allocate.** Decode each scalar, look it up in the NFD mapping table,
    and sum the decomposed lengths (or 1 for scalars with no entry) to size a
-   temporary u64-per-scalar buffer.
+   temporary u64-per-scalar buffer. The size arithmetic is checked: an overflow,
+   or a failed arena allocation, raises `ErrOutOfMemory`.
+   [[src/codegen/builtins/strings/func_normalize_nfc.rs:lower]]
 2. **Decompose (fill).** Decode again, expanding each scalar into the temp
    buffer: its NFD sequence if present, else the scalar itself.
 3. **Canonical ordering.** A bubble-sort over the temp buffer that swaps adjacent
@@ -302,7 +356,7 @@ the mapped sequence or the original scalar. A zero-length lookup result means
 [[src/codegen/builtins/strings/gen_strings_support.rs:UnicodeCaseMap]]
 
 All three maps are full (sequence-valued), so multi-scalar expansions like
-`ß → ss` (uppercase) and Turkish-dotted-I lowering are handled by the flattened
+`ß → SS` (uppercase) and Turkish-dotted-I lowering are handled by the flattened
 sequences, exactly as the compile-time crate path would produce; the
 case-mapping behavior is not locale-tailored. [[src/unicode/runtime_tables.rs:parse_tables]]
 

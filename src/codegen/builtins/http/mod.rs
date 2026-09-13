@@ -186,12 +186,14 @@ const MODULE_INTRO: &str =
 const MODULE_DESC: &str = r#"The `http` package is a blocking and non-blocking HTTP/1.1 client and a small
 HTTP/1.1 server, built entirely on the native `tcp`, `tls`, and `net` packages.
 `http::read` and `http::write` perform a complete blocking request/response
-exchange and return a `http::Response`; the five-call non-blocking client
-(`startRead`/`ready`/`pump`/`done`/`finish`) drives an exchange without blocking
+exchange and return a `http::Response`; in the five-call client
+(`startRead`/`ready`/`pump`/`done`/`finish`), `startRead` connects and sends the
+whole request before it returns (waiting up to its 30-second connect deadline),
+and `ready`/`pump`/`done`/`finish` then receive the response without blocking
 the calling thread. On the server side, `http::server`/`http::serverSSL` bind a
 listener, `http::route` and `http::handleRequest` dispatch requests to handlers,
-and the response constructors (`ok`/`status`/`json`/`withHeader`/`respondFile`/
-`respondPath`) build a `http::Response`. `IMPORT http` needs no manifest dependency."#;
+and the response constructors (`responseDefault`/`ok`/`status`/`json`/`withHeader`/
+`respondFile`/`respondPath`) build a `http::Response`. `IMPORT http` needs no manifest dependency."#;
 
 /// Register the `http` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {

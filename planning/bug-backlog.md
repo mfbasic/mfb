@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-13
-Open bugs: **6** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **11** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — integration rounds and what they taught
 
@@ -40,7 +40,8 @@ Round 4 (594) was verified the same way: artifact gate 0 diffs; merged release u
 **In flight:** nothing. No agents are running. Every bug worked this stretch has landed;
 the ones that stay open (540, 564, 601) are blocked only on the owner decisions below
 (599 was fixed by plan-132; 602 was tested and closed as not a defect). The remaining
-open docs (484, 520, 536) are large planned work, not quick fixes.
+open docs (484, 536) are large planned work, not quick fixes. 520 was re-scoped on
+2026-09-13 — see **datetime** below.
 
 **Filed this stretch:** 601 (HIGH — a `MUT` copy of a non-flat list aliases its source and
 an in-place `append` then segfaults; found while fixing 599), 600 (a timed-out test run
@@ -291,6 +292,16 @@ when `snapshot.json` carries no per-package commitment?** Fail closed breaks
 every deployed registry; fail open means the fix does nothing. Full analysis in
 the bug doc.
 
+## 2026-09-12 — plan-125 documentation-review intake
+
+Filed, not fixed: plan-125 is documentation-only by user instruction.
+
+- ~~**603 LOW**~~ — **LANDED `333b23197`** (2026-09-13; archived to
+  `bugs/completed/`). `color::hsl`/`hsla`/`rotateHue` raised `ErrOverflow` for a finite
+  hue past ~3.3e21 degrees: `__color_wrapHue` took the fractional turn through
+  `Integer`-returning `math::floor`. Now `hue MOD 360.0`; 40 `.ir` goldens and 9
+  `.ncodesum`s regenerated, each proven to be only the helper.
+
 ## 2026-09-11 — repository security review intake
 
 - ~~**578 HIGH**~~ — **LANDED `f2368455b`.** A bounded repository upload could
@@ -431,10 +442,10 @@ being true when 601 was filed.)*
 - ~~**581**~~ — **CLOSED 2026-09-12.** Phase 1 landed (`ed87c111a`); Phase 2 won't be done
   (the registry is trusted by design).
 
-bug-536 is **CLOSED** (2026-09-13): shapes A, B and B-2 were fixed (B-2 landed
-`b845db0de`, 2026-09-06), and shape C was delivered as the design plan it needed,
-plan-134 (letters A–H). Recursive values are now copied at every store and freed by
-every owner, including the elements a collection discards in place. The doc is in
+~~**536**~~ — **CLOSED 2026-09-13.** Shapes A (`f9be6e128`), B (`cd8699103`) and B-2
+(`b845db0de`) are fixed. Shape C was not a bug fix but the design plan it needed, and
+plan-134 (letters A–H) delivered it: recursive values are now copied at every store and
+freed by every owner, including the elements a collection discards in place. Archived to
 `bugs/completed/`.
 
 ### A correction, because this section was wrong twice in one day
@@ -598,8 +609,23 @@ two fields; this script covered one of two halves of itself. None FAILED. Each
 passed while checking less. When a rename lands, grep `scripts/` for the old
 spelling — nothing else will tell you.
 
-**datetime**: 520 (no named zones — huge; carries interaction notes from the
-three landed siblings). 518, 519 and 521 are landed.
+**datetime**: 520 — **re-scoped 2026-09-13** by owner ruling: `datetime` must be correct on
+its own, without a zone database. A standalone audit found host-zone resolution correct
+(macOS + box 2223 vs Python `zoneinfo`) but ten defects remain, so 520 stays open (large):
+S1 the offset writer drops seconds (`-04:56:02` → `-04:56`, reachable from `toLocal`);
+S2–S5 `parseIso`/`parse` accept an offset's `:SS`, trailing text, `+05:75`, and raise the
+wrong code for `+24:00`; S6 `addDays(dt, 0)` moves a repeated hour; S7–S9 page claims
+("pure", missing error lists, the `fixedOffset` formula); S10 no fixture sets `TZ`.
+Owner decisions: S1 **write seconds**; S6 **keep the offset** when it is still valid.
+The file is now `bugs/bug-520-datetime-is-not-correct-standalone.md`. A datetime
+**bug-603** was filed the same day for S1–S3 and merged into 520, with no file of its own.
+That number was already taken: the colour hue-wrap `bugs/completed/bug-603-color-hue-wrap-overflows.md`
+(plan-125 intake above) is a different bug.
+**Named zones moved out of 520** and are **delivered by plan-135-A–D**: `packages/timezones`,
+a source package over vendored IANA tzdb 2026d, never the host's zone data, with zone
+names matching ignoring case. It provides `offsetAt`, `toZone`, `civil` (compatible
+disambiguation), and RFC 9557 `toIso`/`parseIso`, checked against Python `zoneinfo` and
+Temporal (`packages/timezones/oracle`). 518, 519 and 521 are landed.
 
 **crypto**: the cluster is **complete**. **515 is landed (`b399e3363`)**, as are
 **511 (`e24914d5d`)** and **517 (`5c2024f71`)**.
@@ -650,7 +676,7 @@ so adding a curve fails until it is covered.
 - 488: CLOSED after its clean period (`e5f705c13`)
 
 **Still open:** only 484 (`picture::drawItem` never renders — x-large, sequenced AFTER
-plan-116-I) and 520 (named zones, huge).
+plan-116-I) and 520 (named zones, huge — re-scoped 2026-09-13, see **datetime**).
 
 **Filed that day, all found while fixing something else — none is a regression — and
 all since landed:** 550 (55 `debug_assert!`s that never run, because CI builds release;

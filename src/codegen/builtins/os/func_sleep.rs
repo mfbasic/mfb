@@ -81,8 +81,8 @@ FUNC main AS Integer
 END FUNC
 ```
 
-The worker's own side, in a companion package (a thread entry point must be an
-exported `ISOLATED FUNC`):
+The worker's own side, in a companion package (an entry point imported from
+another package must be an `EXPORT ISOLATED FUNC`):
 
 ```
 EXPORT ISOLATED FUNC tick(w AS ThreadWorker OF Nothing TO String, seed AS Integer) AS String

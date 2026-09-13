@@ -1,0 +1,3 @@
+man-pkg:term
+man-pkg:astrings
+man-pkg:crypto

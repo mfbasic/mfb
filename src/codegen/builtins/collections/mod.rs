@@ -86,17 +86,19 @@ pub(crate) const SOURCE_PATH: &str = "builtins/collections.mfb";
 // deferred until that infrastructure lands; see plan-01-functions.md §6.4.
 
 /// One-line package intro (was `BuiltinModule::doc_intro`).
-const INTRO: &str = "Sequence and map helper functions";
+const INTRO: &str = "List, Map, and Set helper functions";
 
 /// Package-overview description, from `src/docs/man/builtins/collections/package.md`
 /// (its Description section, citation markers stripped).
-const COLLECTIONS_DESC: &str = r#"The `collections` package provides package-qualified helpers for `List` and `Map`
-values: element access and mutation (`get`, `set`, `append`, `prepend`, `insert`,
+const COLLECTIONS_DESC: &str = r#"The `collections` package provides package-qualified helpers for `List`, `Map`,
+and `Set` values: element access and mutation (`get`, `set`, `append`, `prepend`, `insert`,
 `removeAt`, `removeKey`), higher-order transforms (`transform`, `filter`,
 `reduce`, `reduceRight`, `forEach`, `mapValues`), queries (`find`, `findIndex`,
 `findLastIndex`, `contains`, `any`, `all`, `hasKey`, `keys`, `values`), reshaping
 (`sort`, `sortBy`, `distinct`, `flatten`, `zip`, `chunks`, `window`, `partition`,
-`groupBy`, `merge`), and numeric folding (`sum`). `collections` is a built-in
+`groupBy`, `merge`), set conversion and algebra (`toSet`, `toList`, `add`,
+`remove`, `union`, `intersection`, `difference`, `symmetricDifference`,
+`isSubset`, `isSuperset`, `isDisjoint`), and numeric folding (`sum`). `collections` is a built-in
 package: `IMPORT collections` needs no manifest dependency.
 
 These helpers do not mutate their arguments. A function that changes a collection

@@ -40,8 +40,8 @@ after them; to replace a file's contents instead of extending them, use
 `fs::writeBytes`.
 
 The file is opened with the append flag set, so every write is positioned at the
-current end of the file. The byte payload is written directly from the byte
-list's packed data region. The write is retried until every byte has been written
+current end of the file. The bytes are written exactly
+as the list holds them. The write is retried until every byte has been written
 or the host reports an output failure, so a short host write that transfers only
 part of the buffer is resumed rather than treated as complete, and an interrupted
 interruption never loses or duplicates bytes. An

@@ -160,9 +160,9 @@ nothing. The change is visible to every later `os::getEnv`, `os::getEnvOr`,
 `os::hasEnv`, and `os::environ` in the same process, and is inherited by child
 processes spawned afterward. It maps to the host `setenv(name, value, 1)`.
 
-`os::setEnv` mutates process-global state and is **not** synchronized against a
-concurrent read in another `thread::` worker; avoid setting a variable while
-another thread reads the environment. A `name` that is empty or contains `=` is
+`os::setEnv` changes process-global state. It takes turns with the other `os`
+environment calls, so a read in another `thread::` worker sees the variable
+either before or after the change. A `name` that is empty or contains `=` is
 rejected with `ErrInvalidArgument`, since the host uses `=` to separate a name
 from its value."#;
 const EX: &str = r#"Set a variable and read it back:

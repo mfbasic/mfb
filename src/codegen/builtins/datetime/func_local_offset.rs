@@ -226,7 +226,11 @@ operate on `datetime::Instant` and `datetime::Zone` values rather than a raw epo
 
 `localOffset` is **not pure**: it reads the host's time-zone configuration, so
 its result depends on host state. It has no side effects and reads no other
-state."#;
+state.
+
+An instant outside the range the host can convert (roughly beyond `±10^16`
+seconds on macOS and glibc, and outside the `FILETIME` range on Windows) raises
+`ErrInvalidArgument`."#;
 const EX: &str = r#"The host's local offset for the current instant:
 
 ```
@@ -265,7 +269,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 default: super::DefaultValue::None,
             }],
             return_type: super::ParameterType::Integer,
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument"],
             body: super::Body::abi_function(lower_local_offset),
         }],
     });

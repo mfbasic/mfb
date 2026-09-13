@@ -13,8 +13,8 @@ colour inverted twice is itself.
 
 `alpha` is deliberately **not** inverted. Inverting a colour is a statement about
 its hue, not about how much of it shows; flipping transparency at the same time
-would make `invert` unusable for the thing it is for — finding a contrasting
-colour for the same mark.
+would change how much of the mark shows along with its colour, and an opaque
+colour would come back invisible.
 
 Inversion is a channel-value operation, not a perceptual one, so the inverse of a
 mid-grey is another mid-grey and is *not* a readable contrast against it. When

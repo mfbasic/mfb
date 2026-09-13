@@ -114,7 +114,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: super::ParameterType::named("Date"),
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument"],
             body: super::Body::mfb(BODY, "__datetime_date"),
         }],
     });

@@ -1,0 +1,9 @@
+{
+  "name": "timezones-oracle",
+  "private": true,
+  "description": "The Temporal syntax cross-check for packages/timezones ixdtf mode. No dependencies: Temporal is built into Node 24 behind --harmony-temporal.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  }
+}

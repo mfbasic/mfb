@@ -7,8 +7,8 @@ use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Arccosine (inverse cosine), returning radians."#;
 const DESC: &str = r#"`acos` returns the arccosine of `value` in radians, echoing the operand type
 (`Float` or `Fixed`), plus the `List OF Float` vectorized form. `value` must be in
-`[-1, 1]`; outside that domain it raises `ErrFloatDomain` (scalar) or
-`ErrInvalidArgument` (array)."#;
+`[-1, 1]`; outside that domain a `Float` or `List OF Float` argument raises
+`ErrFloatDomain`, and a `Fixed` argument raises `ErrInvalidArgument`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io

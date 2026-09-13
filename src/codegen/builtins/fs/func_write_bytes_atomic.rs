@@ -50,7 +50,7 @@ markers to make the name unique. Creating the temporary in the same directory as
 `path` keeps both files on the same filesystem so the final rename is a
 same-filesystem move rather than a copy.
 
-The byte payload is written directly from the byte list's packed data region.
+The bytes are written exactly as the list holds them.
 The write is retried until every byte has been written or the host reports an
 output failure, so a short host write that transfers only part of the buffer is
 resumed rather than treated as complete, and an interruption never loses or

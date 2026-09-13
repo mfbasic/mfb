@@ -1,0 +1,178 @@
+' ---------------------------------------------------------------------------
+' timezones/iso.mfb — RFC 9557 zoned timestamps: `<RFC 3339>[<zone>]`.
+'
+' Writing is a checked wrapper over datetime::toIso: a DateTime whose offset is
+' not the zone's offset at its instant would produce a string that contradicts
+' itself, so it is refused instead of written.
+'
+' Reading scans the bracketed suffix, hands the RFC 3339 part to
+' datetime::parseIso, then checks the offset against the zone. RFC 9557 section
+' 3.4 lets a recipient ignore an inconsistent offset when the zone annotation is
+' elective. This package never does: a zoned string whose offset disagrees with
+' its zone is corrupt data, critical flag or not.
+'
+' Accepted suffix grammar (RFC 9557 section 4.1), in order:
+'   one time-zone annotation   [zone] or [!zone], a tzdb-shaped name
+'   then any suffix tags       [key=value] or [!key=value]
+'     u-ca=iso8601 is accepted; any other calendar is refused even when
+'     elective, because a calendar changes what the date means. Only the first
+'     u-ca counts. An unknown key is ignored when elective, refused when critical.
+' ---------------------------------------------------------------------------
+
+IMPORT datetime
+IMPORT strings
+
+' The `[zone]` annotation toIso appends, after checking that `dt`'s offset is
+' the zone's offset at `dt`'s instant.
+FUNC zoneAnnotation(dt AS datetime::DateTime, name AS String) AS String
+  LET at AS datetime::Instant = datetime::resolve(dt)
+  LET expected AS Integer = localTypeAt(name, at.seconds).utoff
+  IF dt.offset <> expected THEN FAIL error(77050002, "timezones: the DateTime's offset " & toString(dt.offset) & " is not " & canonicalName(name) & "'s offset " & toString(expected) & " at that instant")
+  RETURN "[" & canonicalName(name) & "]"
+END FUNC
+
+FUNC zonedParseIso(text AS String) AS ZonedDateTime
+  MUT i AS Integer = 0
+  WHILE i < len(text)
+    IF textAt(text, i) = "[" THEN EXIT WHILE
+    i = i + 1
+  END WHILE
+  IF i >= len(text) THEN FAIL badText(text, "it has no [zone] annotation; datetime::parseIso reads a timestamp without one")
+  LET base AS String = strings::mid(text, 0, i)
+
+  MUT zoneName AS String = ""
+  MUT count AS Integer = 0
+  MUT calendarSeen AS Boolean = FALSE
+  WHILE i < len(text)
+    IF textAt(text, i) <> "[" THEN FAIL badText(text, "text follows the last annotation")
+    MUT j AS Integer = i + 1
+    LET critical AS Boolean = textAt(text, j) = "!"
+    IF critical THEN j = j + 1
+    LET start AS Integer = j
+    WHILE isAnnotationChar(textAt(text, j))
+      j = j + 1
+    END WHILE
+    IF textAt(text, j) <> "]" THEN FAIL badText(text, "an annotation is missing its closing ]")
+    LET content AS String = strings::mid(text, start, j - start)
+    LET isTag AS Boolean = strings::contains(content, "=")
+    IF count = 0 AND isTag THEN FAIL badText(text, "the first annotation must be a time-zone name")
+    IF count > 0 AND isTag = FALSE THEN FAIL badText(text, "it has more than one time-zone annotation")
+    IF isTag = FALSE THEN zoneName = checkedZoneName(text, content)
+    IF isTag THEN calendarSeen = checkedTag(text, content, critical, calendarSeen)
+    count = count + 1
+    i = j + 1
+  END WHILE
+
+  IF zoneData(zoneName) = "" THEN FAIL unknownZone(zoneName)
+  LET parsed AS datetime::DateTime = datetime::parseIso(base)
+  LET resolved AS datetime::Instant = datetime::resolve(parsed)
+  LET last AS String = textAt(base, len(base) - 1)
+  MUT instant AS datetime::Instant = resolved
+  ' `Z` names the instant without saying what the local offset was, so there
+  ' is nothing to be inconsistent with.
+  IF last <> "Z" AND last <> "z" THEN instant = consistentInstant(text, parsed, resolved, zoneName)
+  LET t AS LocalType = localTypeAt(zoneName, instant.seconds)
+  RETURN ZonedDateTime[datetime::inZone(instant, datetime::Zone[t.utoff, 1, t.abbreviation]), canonicalName(zoneName)]
+END FUNC
+
+' The instant a zoned reading names, once its offset is known to agree with the
+' zone. A zone offset that is not a whole minute (local mean time) may have been
+' written rounded to the minute by an RFC 3339 writer that cannot express
+' seconds. That spelling is accepted and read back to the exact instant.
+PRIVATE FUNC consistentInstant(text AS String, parsed AS datetime::DateTime, resolved AS datetime::Instant, name AS String) AS datetime::Instant
+  LET zoneOffset AS Integer = localTypeAt(name, resolved.seconds).utoff
+  IF parsed.offset = zoneOffset THEN RETURN resolved
+  IF zoneOffset MOD 60 <> 0 AND parsed.offset = roundToMinute(zoneOffset) THEN
+    LET wall AS Integer = resolved.seconds + parsed.offset
+    LET exact AS datetime::Instant = datetime::instant(wall - zoneOffset, resolved.nanos)
+    IF localTypeAt(name, exact.seconds).utoff = zoneOffset THEN RETURN exact
+  END IF
+  FAIL badText(text, "its offset " & toString(parsed.offset) & " is not " & canonicalName(name) & "'s offset " & toString(zoneOffset) & " at that instant")
+END FUNC
+
+' Round to the nearest minute, halves away from zero.
+PRIVATE FUNC roundToMinute(seconds AS Integer) AS Integer
+  IF seconds < 0 THEN RETURN 0 - ((0 - seconds + 30) / 60) * 60
+  RETURN ((seconds + 30) / 60) * 60
+END FUNC
+
+PRIVATE FUNC checkedZoneName(text AS String, content AS String) AS String
+  LET head AS String = textAt(content, 0)
+  IF head = "+" OR head = "-" THEN FAIL badText(text, "a numeric offset annotation is not a zone name; datetime::parseIso reads numeric offsets")
+  IF content = "" THEN FAIL badText(text, "an annotation is empty")
+  FOR EACH part IN strings::split(content, "/")
+    IF isZonePart(part) = FALSE THEN FAIL badText(text, "`" & content & "` is not a time-zone name")
+  NEXT
+  RETURN content
+END FUNC
+
+' time-zone-part = (ALPHA / "." / "_") *(ALPHA / "." / "_" / DIGIT / "-" / "+"),
+' and not "." or "..".
+PRIVATE FUNC isZonePart(part AS String) AS Boolean
+  IF part = "" OR part = "." OR part = ".." THEN RETURN FALSE
+  IF strings::contains(letters() & "._", textAt(part, 0)) = FALSE THEN RETURN FALSE
+  MUT k AS Integer = 1
+  WHILE k < len(part)
+    IF strings::contains(letters() & "._0123456789-+", textAt(part, k)) = FALSE THEN RETURN FALSE
+    k = k + 1
+  END WHILE
+  RETURN TRUE
+END FUNC
+
+' Checks one `key=value` tag and returns whether a u-ca tag has now been seen.
+PRIVATE FUNC checkedTag(text AS String, content AS String, critical AS Boolean, calendarSeen AS Boolean) AS Boolean
+  LET equals AS Integer = strings::find(content, "=")
+  LET key AS String = strings::mid(content, 0, equals)
+  LET value AS String = strings::mid(content, equals + 1, len(content) - equals - 1)
+  IF isSuffixKey(key) = FALSE OR isSuffixValue(value) = FALSE THEN FAIL badText(text, "[" & content & "] is not a valid suffix tag")
+  IF key = "u-ca" AND calendarSeen = FALSE AND value <> "iso8601" THEN FAIL badText(text, "only the iso8601 calendar is supported, not " & value)
+  IF key = "u-ca" THEN RETURN TRUE
+  IF critical THEN FAIL badText(text, "the critical tag [!" & content & "] is not one this package understands")
+  RETURN calendarSeen
+END FUNC
+
+' suffix-key = (lcalpha / "_") *(lcalpha / "_" / DIGIT / "-")
+PRIVATE FUNC isSuffixKey(key AS String) AS Boolean
+  IF key = "" THEN RETURN FALSE
+  IF strings::contains("abcdefghijklmnopqrstuvwxyz_", textAt(key, 0)) = FALSE THEN RETURN FALSE
+  MUT k AS Integer = 1
+  WHILE k < len(key)
+    IF strings::contains("abcdefghijklmnopqrstuvwxyz_0123456789-", textAt(key, k)) = FALSE THEN RETURN FALSE
+    k = k + 1
+  END WHILE
+  RETURN TRUE
+END FUNC
+
+' suffix-values = 1*alphanum *("-" 1*alphanum)
+PRIVATE FUNC isSuffixValue(value AS String) AS Boolean
+  IF value = "" THEN RETURN FALSE
+  FOR EACH piece IN strings::split(value, "-")
+    IF piece = "" THEN RETURN FALSE
+    MUT k AS Integer = 0
+    WHILE k < len(piece)
+      IF strings::contains(letters() & "0123456789", textAt(piece, k)) = FALSE THEN RETURN FALSE
+      k = k + 1
+    END WHILE
+  NEXT
+  RETURN TRUE
+END FUNC
+
+PRIVATE FUNC isAnnotationChar(c AS String) AS Boolean
+  IF c = "" OR c = "]" OR c = "[" THEN RETURN FALSE
+  RETURN TRUE
+END FUNC
+
+PRIVATE FUNC letters() AS String
+  RETURN "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+END FUNC
+
+PRIVATE FUNC badText(text AS String, why AS String) AS Error
+  RETURN error(77050003, "timezones: cannot read \"" & text & "\": " & why)
+END FUNC
+
+' The one-scalar string at `at`, or "" outside the text.
+PRIVATE FUNC textAt(text AS String, at AS Integer) AS String
+  IF at < 0 THEN RETURN ""
+  IF at >= len(text) THEN RETURN ""
+  RETURN strings::mid(text, at, 1)
+END FUNC

@@ -33,9 +33,8 @@ argument type matches the element type.
 
 An empty `value` calls `predicate` zero times and yields an empty list.
 
-`filter` raises no domain error of its own. It is classified fallible solely
-because a failing `predicate` propagates: when the callback returns a non-`Ok`
-result, the loop stops immediately at that element, later elements are never
+`filter` raises no domain error of its own. It can fail only
+because a failing `predicate` propagates: when the callback fails, the loop stops immediately at that element, later elements are never
 visited, no result list is produced, and the callback's own error is passed
 through unchanged. The partially built output is discarded on that path before the
 error leaves.

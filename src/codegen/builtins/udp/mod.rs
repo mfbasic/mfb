@@ -110,7 +110,7 @@ A zero-length datagram is ordinary and is received as `bytes` of length 0. It do
 not mean end-of-stream: UDP has no such concept, and reading one is not an error.
 
 `receive` always returns bytes. Unlike a stream read there is no risk of splitting
-a character in half — a datagram arrives whole or not at all — but the network
+a Unicode scalar in half — a datagram arrives whole or not at all — but the network
 still says nothing about the payload's encoding, so decoding is the caller's
 decision: use `encoding::utf8Decode` when the payload is known to be text.
 `udp::send` does accept a `String` directly, because the sender always knows what
@@ -122,7 +122,9 @@ those addresses must `IMPORT net` as well as `udp`**: imports are not transitive
 and a package cannot re-export another's types.
 
 The `Socket` handle is an opaque handle that closes itself when its binding goes
-out of scope; `udp::close` closes it earlier. For connection-oriented byte
+out of scope; `udp::close` closes it earlier. A second `udp::close`, or any other
+use of a closed socket, raises `ErrResourceClosed`, and a socket may be handed to
+another thread with `thread::transfer`. For connection-oriented byte
 streams use `tcp`."#;
 
 /// Build a native `udp.*` member's body plus any code-form `os_aliases`

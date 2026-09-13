@@ -30,7 +30,12 @@ the Unix epoch (negative `seconds`) projects correctly.
 with the UTC zone and the host local zone, respectively. `inZone` is pure for UTC
 and fixed-offset zones; for a local zone it reads the host's time-zone
 configuration through the `datetime::localOffset` OS intrinsic to resolve the
-offset."#;
+offset.
+
+For a local zone, an instant outside the range the host can convert raises
+`ErrInvalidArgument`, as `datetime::localOffset` does. An instant so close to the
+`Integer` limits that adding the zone's offset to its seconds does not fit raises
+`ErrOverflow`."#;
 const EX: &str = r#"Project the current instant into UTC:
 
 ```
@@ -100,7 +105,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: super::ParameterType::named("DateTime"),
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument", "ErrOverflow"],
             body: super::Body::mfb(BODY, "__datetime_inZone"),
         }],
     });

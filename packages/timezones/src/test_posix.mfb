@@ -1,0 +1,117 @@
+' ---------------------------------------------------------------------------
+' Tests: the footer evaluator (posix.mfb), alone.
+'
+' Every expected value comes from Python zoneinfo, never from this package.
+' The oracle venv holds tzdata==2026.4 (IANA 2026d), with the host search path
+' disabled. Each case's comment gives the zone whose footer it feeds, and the
+' one-liner's answers:
+'
+'   packages/timezones/oracle/.venv/bin/python -c 'import zoneinfo; zoneinfo.reset_tzpath([]);
+'     from zoneinfo import ZoneInfo; from datetime import datetime, timezone, timedelta;
+'     at = lambda n, s: (lambda d: (int(d.utcoffset().total_seconds()), d.tzname()))(
+'       (datetime(1970,1,1,tzinfo=timezone.utc) + timedelta(seconds=s)).astimezone(ZoneInfo(n)));
+'     print(at(NAME, S))'
+'
+' A footer only matches its zone's real answers on and after the zone's last
+' stored transition, and every instant below is in that range.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC shows(t AS LocalType) AS String
+  MUT kind AS String = "std"
+  IF t.isDst THEN kind = "dst"
+  RETURN toString(t.utoff) & " " & kind & " " & t.abbreviation
+END FUNC
+
+TESTING
+  TGROUP "posix"
+    ' America/New_York footer. at(NAME, 1772953199) -> (-18000, 'EST');
+    ' 1772953200 -> (-14400, 'EDT'); 1793512799 -> (-14400, 'EDT');
+    ' 1793512800 -> (-18000, 'EST').
+    TCASE "EST5EDT either side of both 2026 changes"
+      LET f AS String = "EST5EDT,M3.2.0,M11.1.0"
+      expectString(shows(footerType(f, 1772953199)), "-18000 std EST")
+      expectString(shows(footerType(f, 1772953200)), "-14400 dst EDT")
+      expectString(shows(footerType(f, 1793512799)), "-14400 dst EDT")
+      expectString(shows(footerType(f, 1793512800)), "-18000 std EST")
+    END TCASE
+
+    ' Australia/Lord_Howe footer: DST spans New Year. at(NAME, 1775314799) ->
+    ' (39600, '+11'); 1775314800 -> (37800, '+1030'); 1791041399 ->
+    ' (37800, '+1030'); 1791041400 -> (39600, '+11').
+    TCASE "a southern-hemisphere rule either side of both 2026 changes"
+      LET f AS String = "<+1030>-10:30<+11>-11,M10.1.0,M4.1.0"
+      expectString(shows(footerType(f, 1775314799)), "39600 dst +11")
+      expectString(shows(footerType(f, 1775314800)), "37800 std +1030")
+      expectString(shows(footerType(f, 1791041399)), "37800 std +1030")
+      expectString(shows(footerType(f, 1791041400)), "39600 dst +11")
+    END TCASE
+
+    ' Asia/Jerusalem footer, start time 26:00 (RFC 8536 section 3.3.1).
+    ' at(NAME, 1900972799) -> (7200, 'IST'); 1900972800 -> (10800, 'IDT');
+    ' 1919285999 -> (10800, 'IDT'); 1919286000 -> (7200, 'IST').
+    TCASE "a rule time past 24 hours, either side of each 2030 change"
+      LET f AS String = "IST-2IDT,M3.4.4/26,M10.5.0"
+      expectString(shows(footerType(f, 1900972799)), "7200 std IST")
+      expectString(shows(footerType(f, 1900972800)), "10800 dst IDT")
+      expectString(shows(footerType(f, 1919285999)), "10800 dst IDT")
+      expectString(shows(footerType(f, 1919286000)), "7200 std IST")
+    END TCASE
+
+    ' America/Nuuk footer, start time -1:00 (RFC 8536 section 3.3.1).
+    ' at(NAME, 1901149199) -> (-7200, '-02'); 1901149200 -> (-3600, '-01');
+    ' 1919293199 -> (-3600, '-01'); 1919293200 -> (-7200, '-02').
+    TCASE "a negative rule time, either side of each 2030 change"
+      LET f AS String = "<-02>2<-01>,M3.5.0/-1,M10.5.0/0"
+      expectString(shows(footerType(f, 1901149199)), "-7200 std -02")
+      expectString(shows(footerType(f, 1901149200)), "-3600 dst -01")
+      expectString(shows(footerType(f, 1919293199)), "-3600 dst -01")
+      expectString(shows(footerType(f, 1919293200)), "-7200 std -02")
+    END TCASE
+
+    ' America/Lima footer. at(NAME, 1780000000) -> (-18000, '-05').
+    TCASE "a footer with no DST"
+      expectString(shows(footerType("<-05>5", 1780000000)), "-18000 std -05")
+      expectString(shows(footerType("<-05>5", -1099511627776)), "-18000 std -05")
+    END TCASE
+
+    ' Europe/London footer. October 2026 has four Sundays (4, 11, 18, 25), so
+    ' week 5 does not exist and M10.5.0 is the 25th; March 2026 has five.
+    ' at(NAME, 1774745999) -> (0, 'GMT'); 1774746000 -> (3600, 'BST');
+    ' 1792889999 -> (3600, 'BST'); 1792890000 -> (0, 'GMT').
+    TCASE "the last-week rule in a month without a fifth week"
+      LET f AS String = "GMT0BST,M3.5.0/1,M10.5.0"
+      expectInteger(ruleDayOfMonth(2026, 10, 5, 0), 25)
+      expectInteger(ruleDayOfMonth(2026, 3, 5, 0), 29)
+      expectString(shows(footerType(f, 1774745999)), "0 std GMT")
+      expectString(shows(footerType(f, 1774746000)), "3600 dst BST")
+      expectString(shows(footerType(f, 1792889999)), "3600 dst BST")
+      expectString(shows(footerType(f, 1792890000)), "0 std GMT")
+    END TCASE
+
+    ' Australia/Lord_Howe, 2026-01-01T00:00 local is 1767186000.
+    ' at(NAME, 1767185999) -> (39600, '+11'); 1767186000 -> (39600, '+11').
+    TCASE "year boundary under a southern rule"
+      LET f AS String = "<+1030>-10:30<+11>-11,M10.1.0,M4.1.0"
+      expectString(shows(footerType(f, 1767185999)), "39600 dst +11")
+      expectString(shows(footerType(f, 1767186000)), "39600 dst +11")
+    END TCASE
+
+    ' datetime.date(2026,3,1).strftime('%A') -> 'Sunday';
+    ' datetime.date(2026,10,1).strftime('%A') -> 'Thursday'.
+    TCASE "weekday mapping: 0 is Sunday"
+      expectInteger(weekdayOfFirst(2026, 3), 0)
+      expectInteger(weekdayOfFirst(2026, 10), 4)
+      expectInteger(ruleDayOfMonth(2026, 3, 1, 0), 1)
+      expectInteger(weekdayOfFirst(1970, 1), 4)
+      expectInteger(weekdayOfFirst(1969, 12), 1)
+    END TCASE
+
+    TCASE "a malformed footer traps ErrInvalidFormat"
+      expectTrap(footerType("EST5EDT,J60,M11.1.0", 0), 77050003)
+      expectTrap(footerType("5EST", 0), 77050003)
+      expectTrap(footerType("EST5EDT", 0), 77050003)
+      expectTrap(footerType("EST5EDT,M13.1.0,M11.1.0", 0), 77050003)
+      expectTrap(footerType("<>5", 0), 77050003)
+    END TCASE
+  END TGROUP
+END TESTING

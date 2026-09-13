@@ -177,12 +177,41 @@ a `cargo test` target, another script, or a person.
 
 - **man-run-examples.sh** — Compiles (and with `--run` runs, or with `--test` runs
   `mfb test` on) every Examples block lifted from one package's rendered `mfb man`
-  pages. Usage: `bash scripts/man-run-examples.sh <pkg> [--run|--test] [fn...]`.
+  pages. With `--topic` it takes a narrative guide topic instead, compiling each
+  standalone program in its prose (a ```basic fence, or an untagged fence that
+  starts with `IMPORT` and defines `main`) and counting the rest as fragments.
+  Usage: `bash scripts/man-run-examples.sh <pkg|topic> [--topic] [--run|--test] [fn...]`.
   Run by: `man-examples-gate.sh`; by hand while writing a page.
 - **man-census.sh** — Measures `mfb man` prose coverage from rendered output: per-package
-  fill, per-function stragglers, and the memory-vocabulary scope check.
-  Usage: `bash scripts/man-census.sh [--fill|--functions|--memory-scope|--banned-list] [pkg...]`.
+  fill, per-function stragglers, the memory-vocabulary scope check, the
+  compiler-internals scope check, and guide-topic coverage.
+  Usage: `bash scripts/man-census.sh [--fill|--functions|--memory-scope|--scope|--topics|--banned-list] [pkg...]`.
   Run by: by hand.
+- **man-manual.sh** — Emits the complete `mfb man` manual as one deterministic
+  artifact, including the unqualified-global `general` and `testing` pages that
+  `mfb man --all` omits. `--count` prints the page-count reconciliation.
+  `--condensed` emits only the package overviews, `types` pages and guide-topic
+  overviews, for cross-package consistency review.
+  Usage: `bash scripts/man-manual.sh [--count|--condensed]`. Run by: plan-125
+  reviewer runs; by hand.
+- **spec-census.sh** — Measures the embedded `mfb spec` surface: prose fill,
+  `[[path:Symbol]]` citation rot (moved, deleted, or comment-only), `mfb man`/`mfb
+  spec` link resolution, rendered-markup leaks, and fenced-example shape.
+  Usage: `bash scripts/spec-census.sh --fill|--citations|--links|--render|--fences [pkg...]`.
+  Run by: plan-125 spec letters; by hand.
+- **doc-review-fanout.sh** — Runs one `codex exec` documentation review per unit
+  line (`man-pkg:`, `man-page:`, `man-topic:`, `man-consistency:`, `spec-pkg:`,
+  `spec-file:`) from a prompt template, each in its own worktree, with a wall-clock
+  watchdog. It records every unit's exit, duration, findings size and dirtiness in
+  `planning/plan-125-findings/<letter>/manifest.tsv`. `--reconcile` proves every
+  listed unit ran; `--cleanup` removes the letter's worktrees.
+  Usage: `bash scripts/doc-review-fanout.sh --letter <L> --units <file> --prompt <file> [--jobs N] [--timeout S] [--dry-run]`,
+  `--reconcile --letter <L> --units <file>`, `--cleanup --letter <L>`.
+  Run by: plan-125, by hand.
+- **plan-125-prompts-sync.sh** — Keeps plan-125-A §5 byte-identical to the reviewer
+  prompt files in `planning/plan-125-prompts/`: `--check` diffs them, `--write`
+  regenerates §5. Usage: `bash scripts/plan-125-prompts-sync.sh [--check|--write]`.
+  Run by: by hand after a prompt edit.
 - **man-examples-not-run.txt** — The examples that build but cannot run under the gate,
   one `pkg::fn#N  reason` per line; an entry for an example that no longer exists fails
   the gate. Run by: data for `man-examples-gate.sh`.

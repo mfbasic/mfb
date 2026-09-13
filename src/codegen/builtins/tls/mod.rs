@@ -101,7 +101,8 @@ handshake, returning a socket that is byte-for-byte interchangeable with a clien
 socket. `tls::read` receives decrypted data as bytes; `tls::write` sends data,
 accepting either bytes or a `String`; and `tls::close` tears down a socket or a
 listener.
-For plain unencrypted TCP use `tcp`; for datagrams use `udp`.
+For plain unencrypted TCP use `tcp`; for datagrams use `udp`. Import it with
+`IMPORT tls`; it needs no manifest dependency.
 
 
 The package defines two built-in types. `Socket` is a connected TLS stream —
@@ -109,9 +110,8 @@ either an outbound client connection from `tls::connect` or an accepted server
 connection from `tls::accept`. `Listener` is a bound, listening server
 endpoint from `tls::listen` that holds the loaded server TLS settings; `tls::accept` draws connections from it. Both are opaque handles.
 Each is closed automatically when its binding goes out of scope, so
-`tls::close` is needed only to release a handle earlier; unlike `tcp::close`,
-`tls::close` closes the handle and treats an already-closed handle as success
-rather than an error. Either handle may be handed to another thread on a thread's
+`tls::close` is needed only to release a handle earlier. As with `tcp::close`,
+calling it again on a handle it already closed raises `ErrResourceClosed`. Either handle may be handed to another thread on a thread's
 resource plane, so a server can accept on one thread and give each connection to
 a worker. The thread that receives a handle is the one that closes it, and the
 sending thread can no longer use it. Neither can be
@@ -132,8 +132,8 @@ version.
 `tls::read` returns a `List OF Byte`; `tls::write` accepts either a
 `List OF Byte` or a `String`, whose UTF-8 bytes it sends directly. The asymmetry
 is deliberate: a read stops wherever the network happened to divide the data,
-which need not be a character boundary, so decoding at that point can split a
-multi-byte character in half. Assemble the whole message first and decode it
+which need not be a Unicode-scalar boundary, so decoding at that point can split a
+multi-byte Unicode scalar in half. Assemble the whole message first and decode it
 with `encoding::utf8Decode`. Sending is not subject to that hazard, which is why
 `write` does take a `String`.
 

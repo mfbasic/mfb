@@ -13,13 +13,13 @@ from — MFBASIC compiles to a native executable, and the type system's claims
 (exhaustiveness, no null, no `any`-shaped escape hatch) hold in the compiled
 program, not just in the editor.
 
-Three things to recalibrate. There is no garbage collector: every value has
-one owner and is reclaimed deterministically at scope exit. There is no
+Three things to recalibrate. There is no garbage collector: every value belongs to
+one name and goes away deterministically when that name's scope ends. There is no
 exception channel: errors are typed values with automatic propagation, not
 `throw`/`catch (e: unknown)`. And there is no `number`: MFBASIC has a real
 64-bit `Integer`, a real IEEE `Float`, and checked conversions between them.
 
-## Ownership and threading
+## Values and threading
 
 TypeScript's answer to shared-state concurrency is not to have it: one event
 loop, and Web Workers that communicate by `postMessage`. MFBASIC agrees with
@@ -30,7 +30,7 @@ worker.postMessage(line);                    // structured clone, untyped
 worker.onmessage = (e) => { /* any */ };     // hope both sides agree
 ```
 
-An MFBASIC worker is an `ISOLATED FUNC` exported from a package. It shares
+An MFBASIC worker is a top-level `ISOLATED FUNC`. It shares
 nothing with its parent, and both directions of the conversation are typed in
 the thread handle itself.
 
@@ -62,8 +62,7 @@ LET words = thread::waitFor(t)      ' 9 — the worker's result, or its Error
 
 `Thread OF String TO Integer` is the `postMessage` contract you wish
 `Worker` had: messages in are `String`, the result out is `Integer`, and the
-compiler holds both sides to it. Sending moves the value (the structured
-clone without the cloning cost or the "is a `Date` cloneable?" rules), and
+compiler holds both sides to it. Sending hands over the value (the structured clone without the cloning cost or the "is a `Date` cloneable?" rules), and
 these are real OS threads doing parallel work — not slices of one event loop.
 `waitFor` is `await`-shaped: it blocks for the result and delivers the
 worker's value or its `Error`, with no unhandled-rejection limbo.
@@ -138,8 +137,7 @@ END FUNC
 ```
 
 `WITH inv { paid := TRUE }` is `{ ...inv, paid: true }` — except the original
-is *guaranteed* untouched, because these are owned values, not references
-into a shared heap; `Readonly<T>` is the default physics, not an annotation.
+is *guaranteed* untouched, because these are values, not references to shared objects; `Readonly<T>` is the default physics, not an annotation.
 Unions will feel like home, minus the ceremony:
 
 ```
@@ -183,7 +181,7 @@ binding's lexical scope:
 IMPORT fs
 
 FUNC copyHeader(src AS String, dst AS String) AS Integer
-  RES input  = fs::openFile(src)            ' owned by this scope
+  RES input  = fs::openFile(src)            ' closed when this scope ends
   RES output = fs::open(dst, "write")
   MUT copied = 0
   WHILE copied < 10 AND NOT fs::eof(input)
@@ -238,4 +236,5 @@ never a partial parse.
 
 - `mfb man tour` — the one-page language tour.
 - `mfb man errors`, `mfb man thread`, `mfb man types` — the models above in full.
+- `mfb man variable` — values, copies and handles; `mfb spec language memory-semantics`
 - `mfb spec language type-inference` — how far inference goes without annotations.

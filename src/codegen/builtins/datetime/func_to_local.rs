@@ -29,7 +29,10 @@ instant before the Unix epoch (negative `seconds`) projects correctly.
 Unlike `datetime::toUtc`, `datetime::toLocal` is not pure: it reads the host's
 time-zone configuration to resolve the offset, so the same instant can produce a
 different civil `datetime::DateTime` on a host configured for a different zone or under a
-different DST rule."#;
+different DST rule.
+
+An instant outside the range the host can convert raises `ErrInvalidArgument`, as
+`datetime::localOffset` does."#;
 const EX: &str = r#"Project the current instant into the host's local zone:
 
 ```
@@ -75,7 +78,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 default: super::DefaultValue::None,
             }],
             return_type: super::ParameterType::named("DateTime"),
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument"],
             body: super::Body::mfb(BODY, "__datetime_toLocal"),
         }],
     });

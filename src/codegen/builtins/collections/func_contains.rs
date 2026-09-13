@@ -15,32 +15,31 @@ const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given 
 const DESC_CONTAINS: &str = r#"`collections::contains` scans `value` from index `0` upward and returns `TRUE`
 as soon as an element matches `item`, or `FALSE` after every element has been
 examined without a match. The list is neither copied nor mutated, and no element
-element is copied out — the scan just compares.
+is copied out — the scan just compares.
 
 `contains` also has a **`Set OF T`** overload. Both forms take
 `(collection, element) AS Boolean` and answer the same membership question; the
 compiler picks the overload from the static type of the first argument. On a
-`List` the scan is linear (below); on a `Set` membership is an O(1)-average hash
-probe for a probe-eligible element type and a linear scan otherwise. It does not
+`List` the scan is linear (below); on a `Set` membership is an O(1)-average
+lookup for `Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, and `String`
+elements and a linear scan for any other element type. It does not
 accept a `Map`, and it is not the substring test: the `String` form of
 `contains` lives in the `strings::` package, not here.
 
-Equality is payload comparison, resolved by the element type:
+Equality depends on the element type:
 
-- `Boolean` and `Byte` compare one stored byte; `Scalar` compares four; and
-  `Integer`, `Float`, `Fixed`, and `Money` compare their stored 64-bit value.
+- `Boolean`, `Byte`, `Scalar`, `Integer`, `Fixed`, and `Money` compare with `=`;
+  `Float` compares by exact bit pattern (see below).
 - `String` compares length first, then bytes, so the match is exact and
   byte-oriented — no case folding, trimming, or Unicode normalization is applied.
 - A record element is compared field by field.
-- A resource handle, or a nested collection that is not stored flat, is compared
-  by its stored handle rather than by its contents.
+- A resource handle, or a nested collection that holds one, is compared by
+  identity — whether it is the same handle — rather than by its contents.
 
-Because numeric comparison is bitwise, a `Float` search for `NaN` is always
-`FALSE` even if the list contains `NaN`, and searching for `-0.0` does not match
-a stored `0.0`.
+Because `Float` compares by bit pattern, searching for `-0.0` does not match a
+stored `0.0`, even though `0.0 = -0.0` is `TRUE`.
 
-An empty list always yields `FALSE`, since the loop exits on the first bounds
-check. `collections::contains` raises no trappable domain error, so an inline
+An empty list always yields `FALSE`. `collections::contains` raises no trappable domain error, so an inline
 `TRAP` on a `contains` call has a dead handler.
 
 `contains` answers only whether a match exists. Use `collections::find` when the

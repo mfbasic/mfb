@@ -69,7 +69,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                component("hue", "The hue in degrees. Wraps, so any value is valid."),
+                component(
+                    "hue",
+                    "The hue in degrees. Wraps by whole turns, so any value is valid.",
+                ),
                 component(
                     "saturation",
                     "How colourful, clamped to `0.0` (grey) .. `1.0` (full).",

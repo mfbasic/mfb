@@ -22,7 +22,8 @@ connection.
 immediately instead of waiting.
 
 Use `tcp::poll` instead when the question is "is there data?" rather than "read,
-but not forever": poll answers with a `Boolean` and raises nothing."#;
+but not forever": its single-socket form answers with a `Boolean`, while its list
+form returns a ready socket or raises `ErrTimeout` (see `tcp::poll`)."#;
 
 const EX: &str = r#"Do not let a silent peer stall a read forever:
 

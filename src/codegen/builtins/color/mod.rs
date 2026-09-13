@@ -111,12 +111,14 @@ A `color::Color` carries four `Byte` channels — `red`, `green`, `blue` and
 would any record of your own. Most programs use `color::rgb` and `color::rgba`
 instead, because those clamp.
 
-**Components clamp rather than fail.** `color::rgba(300, -20, 128, 255)` is the
-same colour as `color::rgba(255, 0, 128, 255)`. Colours get computed — a base plus
-a delta, a channel scaled by a fraction — and a value one past an end is a
-rounding artefact, not a mistake worth stopping the program for. The component
-parameters are `Integer` rather than `Byte` precisely so an out-of-range value can
-reach that clamp.
+**The rgb and rgba constructors clamp rather than fail.**
+`color::rgba(300, -20, 128, 255)` is the same colour as
+`color::rgba(255, 0, 128, 255)`. Colours get computed — a base plus a delta, a
+channel scaled by a fraction — and a value one past an end is a rounding artefact,
+not a mistake worth stopping the program for. Their component parameters are
+`Integer` rather than `Byte` precisely so an out-of-range value can reach that
+clamp. A `color::Color[...]` literal does not clamp: its fields are `Byte`, so an
+out-of-range value is rejected rather than pulled into range.
 
 **Alpha is straight, not premultiplied.** `0` is fully transparent and `255`
 fully opaque, and a colour's `red`/`green`/`blue` are unaffected by it. The
@@ -127,7 +129,21 @@ all-zero colour is therefore fully transparent.
 a colour travels through an API that carries one number.
 
 Text forms use `color::fromHex` and `color::toHex`/`color::toHexAlpha`.
-`toString` on a colour renders the lossless `#rrggbbaa` form."#;
+`toString` on a colour renders the lossless `#rrggbbaa` form.
+
+**Sixteen basic colours are ready to use by name**, each fully opaque, written
+`color::<name>` with no call parentheses:
+
+`black`, `white`, `red`, `green`, `blue`, `yellow`, `cyan`, `magenta`, `gray`,
+`silver`, `maroon`, `olive`, `navy`, `teal`, `purple`, `orange`.
+
+Each takes the value of the CSS named colour of the same name, so `color::green`
+is `#008000` — **a dark green**. The vivid green most people picture is CSS `lime`, reached with
+`color::fromName("lime")`. The constant follows CSS because
+`color::fromName("green")` has to agree with it.
+
+`color::gray` reads two ways and both are correct: on its own it is the constant
+`#808080`, and `color::gray(level)` is the function that builds any neutral grey."#;
 
 /// Register the `color` package on the clean-room registry.
 ///
@@ -197,7 +213,8 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "hue",
                 ty: ParameterType::Float,
-                description: "The hue in degrees around the colour wheel, `0.0`..`360.0`. \
+                description: "The hue in degrees around the colour wheel, from `0.0` up to \
+                              but not including `360.0`. \
                               Reported as `0.0` for a colour with no saturation.",
             },
             RecordProp {

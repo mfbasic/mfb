@@ -30,9 +30,10 @@ ligatures or complex shaping (see `canvas::loadFont`), so the width is exact for
 it will actually draw — measuring and drawing use the same glyph walk, which is the
 property that matters more than absolute typographic fidelity.
 
-A font with no `head` table, or one that has since been closed, measures as all
-zeroes rather than failing: a program that lays out text before its font is ready
-should get an empty box, not an error in the middle of a frame."#;
+A font with no `head` table measures as all zeroes rather than failing. A closed
+font is different: measuring it raises `ErrResourceClosed`. Text already in a
+presented scene still draws (as nothing) after its font is closed; only
+measurement needs the font open."#;
 
 const EX: &str = r#"```
 IMPORT app

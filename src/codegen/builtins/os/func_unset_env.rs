@@ -112,8 +112,9 @@ not set is a no-op, not an error, so the call is idempotent. After it returns,
 `os::hasEnv(name)` reports `FALSE` and `os::getEnv(name)` raises `ErrNotFound`.
 It maps to the host `unsetenv(name)`.
 
-`os::unsetEnv` mutates process-global state and is **not** synchronized against a
-concurrent read in another `thread::` worker."#;
+`os::unsetEnv` changes process-global state. It takes turns with the other `os`
+environment calls, so a read in another `thread::` worker sees the variable
+either before or after the change."#;
 const EX: &str = r#"Remove a variable and confirm it is gone:
 
 ```

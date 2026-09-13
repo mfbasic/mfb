@@ -21,7 +21,9 @@ a deliberate asymmetry with `color::brighten`/`color::darken`.
 **A grey does not stay grey.** A colour with no saturation has no *meaningful*
 hue, but `color::toHsl` reports its hue as `0.0`, and `0.0` degrees is red — so
 `saturate(color::gray(128), 1.0)` is very nearly pure red, not a grey. This is
-the HSL model's own answer and it is what CSS and Sass `saturate()` do.
+the HSL model's own answer, and it is what Sass's `saturate()` does. CSS's
+`saturate()` filter is a different operation: it mixes red, green and blue with a
+fixed matrix rather than working in HSL.
 
 It is deliberately **not** special-cased to return the grey. Doing so would make
 the function discontinuous: a colour with saturation `0.001` would come back

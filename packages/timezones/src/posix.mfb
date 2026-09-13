@@ -1,0 +1,276 @@
+' ---------------------------------------------------------------------------
+' timezones/posix.mfb — the RFC 8536 footer evaluator.
+'
+' data.mfb is compiled with `zic -b slim`, so a zone's stored transitions stop
+' where its footer rule can take over. For New York, every current-date answer
+' comes from this file, not from the table. That is why it is a pure function
+' of (footer, instant) with its own tests.
+'
+' The accepted grammar is RFC 8536 section 3.3 over POSIX TZ, limited to what
+' tools/tzdb/gen_timezones_data.py lets through (it fails closed on the rest):
+'
+'   footer  = std offset [ dst [ offset ] "," rule "," rule ]
+'   std/dst = "<" 1*(ALPHA / DIGIT / "+" / "-") ">" / 3*ALPHA
+'   offset  = [ "+" / "-" ] hh [ ":" mm [ ":" ss ] ]        ; hh 0..24
+'   rule    = "M" month "." week "." day [ "/" time ]        ; Mm.w.d only
+'   time    = [ "+" / "-" ] hhh [ ":" mm [ ":" ss ] ]       ; -167..167 h
+'
+' A POSIX offset is positive WEST of Greenwich, so utoff is its negation.
+'
+' Choosing the type at an instant T never special-cases the hemisphere. It
+' builds the start and end instants for the standard-time year of T and the
+' years either side, and takes the latest event at or before T. Three years
+' cover year boundaries, southern rules whose DST spans New Year, and rule
+' times outside 0..24 h.
+' ---------------------------------------------------------------------------
+
+IMPORT strings
+IMPORT datetime
+
+' The local time type in force at an instant: RFC 8536's ttinfo, with the
+' designation as text.
+TYPE LocalType
+  utoff AS Integer
+  isDst AS Boolean
+  abbreviation AS String
+END TYPE
+
+' One `Mm.w.d[/time]` transition rule. `seconds` is the local time of day,
+' which may fall outside 0..24 h (RFC 8536 section 3.3.1).
+PRIVATE TYPE Rule
+  month AS Integer
+  week AS Integer
+  weekday AS Integer
+  seconds AS Integer
+END TYPE
+
+PRIVATE TYPE Footer
+  stdName AS String
+  stdUtoff AS Integer
+  hasDst AS Boolean
+  dstName AS String
+  dstUtoff AS Integer
+  startRule AS Rule
+  endRule AS Rule
+END TYPE
+
+' A scanner result: what was read (a number or a name) and the index after it.
+PRIVATE TYPE Scan
+  number AS Integer
+  text AS String
+  after AS Integer
+END TYPE
+
+PRIVATE TYPE RuleScan
+  rule AS Rule
+  after AS Integer
+END TYPE
+
+' The type a footer rule gives at `seconds` since the Unix epoch.
+FUNC footerType(footer AS String, seconds AS Integer) AS LocalType
+  LET f AS Footer = parseFooter(footer)
+  IF f.hasDst = FALSE THEN RETURN LocalType[f.stdUtoff, FALSE, f.stdName]
+
+  LET year AS Integer = datetime::inZone(datetime::instant(seconds, 0), datetime::fixedOffset(f.stdUtoff)).date.year
+  MUT haveBest AS Boolean = FALSE
+  MUT bestAt AS Integer = 0
+  MUT bestDst AS Boolean = FALSE
+  MUT earliestAt AS Integer = 0
+  MUT earliestDst AS Boolean = FALSE
+  FOR k = year - 1 TO year + 1
+    ' The start is given in standard local time, the end in daylight local time.
+    LET startAt AS Integer = localMidnight(k, f.startRule) + f.startRule.seconds - f.stdUtoff
+    LET endAt AS Integer = localMidnight(k, f.endRule) + f.endRule.seconds - f.dstUtoff
+    IF k = year - 1 THEN
+      earliestAt = startAt
+      earliestDst = TRUE
+    END IF
+    IF startAt < earliestAt THEN
+      earliestAt = startAt
+      earliestDst = TRUE
+    END IF
+    IF endAt < earliestAt THEN
+      earliestAt = endAt
+      earliestDst = FALSE
+    END IF
+    IF startAt <= seconds THEN
+      IF haveBest = FALSE OR startAt > bestAt THEN
+        haveBest = TRUE
+        bestAt = startAt
+        bestDst = TRUE
+      END IF
+    END IF
+    IF endAt <= seconds THEN
+      IF haveBest = FALSE OR endAt > bestAt THEN
+        haveBest = TRUE
+        bestAt = endAt
+        bestDst = FALSE
+      END IF
+    END IF
+  NEXT
+
+  MUT dst AS Boolean = bestDst
+  ' No event at or before T: the kind before the earliest event is its opposite.
+  IF haveBest = FALSE THEN dst = earliestDst = FALSE
+  IF dst THEN RETURN LocalType[f.dstUtoff, TRUE, f.dstName]
+  RETURN LocalType[f.stdUtoff, FALSE, f.stdName]
+END FUNC
+
+' The day of the month an `Mm.w.d` rule names in `year`: day `weekday`
+' (0 = Sunday) of week `week`, where week 5 means the last such day.
+FUNC ruleDayOfMonth(year AS Integer, month AS Integer, week AS Integer, weekday AS Integer) AS Integer
+  LET first AS Integer = weekdayOfFirst(year, month)
+  MUT day AS Integer = 1 + (weekday - first + 7) MOD 7 + 7 * (week - 1)
+  LET last AS Integer = datetime::daysInMonth(year, month)
+  WHILE day > last
+    day = day - 7
+  END WHILE
+  RETURN day
+END FUNC
+
+' The weekday of the 1st of a month, 0 = Sunday. 1970-01-01 was a Thursday.
+FUNC weekdayOfFirst(year AS Integer, month AS Integer) AS Integer
+  LET days AS Integer = floorDiv(utcMidnight(year, month, 1), 86400)
+  RETURN floorMod(days + 4, 7)
+END FUNC
+
+PRIVATE FUNC localMidnight(year AS Integer, rule AS Rule) AS Integer
+  RETURN utcMidnight(year, rule.month, ruleDayOfMonth(year, rule.month, rule.week, rule.weekday))
+END FUNC
+
+' Seconds since the epoch of 00:00 on a date, read as UTC.
+PRIVATE FUNC utcMidnight(year AS Integer, month AS Integer, day AS Integer) AS Integer
+  RETURN datetime::resolve(datetime::civil(datetime::date(year, month, day), datetime::time(0, 0, 0, 0), datetime::utc())).seconds
+END FUNC
+
+PRIVATE FUNC floorDiv(a AS Integer, b AS Integer) AS Integer
+  LET q AS Integer = a / b
+  IF a MOD b <> 0 AND a < 0 THEN RETURN q - 1
+  RETURN q
+END FUNC
+
+PRIVATE FUNC floorMod(a AS Integer, b AS Integer) AS Integer
+  RETURN a - b * floorDiv(a, b)
+END FUNC
+
+' --- parsing ----------------------------------------------------------------
+
+PRIVATE FUNC corruptFooter(footer AS String, why AS String) AS Error
+  RETURN error(77050003, "timezones: corrupt footer rule \"" & footer & "\": " & why)
+END FUNC
+
+PRIVATE FUNC parseFooter(footer AS String) AS Footer
+  LET noRule AS Rule = Rule[0, 0, 0, 0]
+  LET std AS Scan = scanName(footer, 0)
+  LET stdOffset AS Scan = scanClock(footer, std.after, 24)
+  LET stdUtoff AS Integer = 0 - stdOffset.number
+  IF stdOffset.after = len(footer) THEN RETURN Footer[std.text, stdUtoff, FALSE, "", 0, noRule, noRule]
+
+  LET dst AS Scan = scanName(footer, stdOffset.after)
+  MUT at AS Integer = dst.after
+  MUT dstUtoff AS Integer = stdUtoff + 3600
+  IF charAt(footer, at) <> "," THEN
+    LET dstOffset AS Scan = scanClock(footer, at, 24)
+    dstUtoff = 0 - dstOffset.number
+    at = dstOffset.after
+  END IF
+  IF charAt(footer, at) <> "," THEN FAIL corruptFooter(footer, "a DST designation needs a ,start,end rule")
+  LET startScan AS RuleScan = scanRule(footer, at + 1)
+  IF charAt(footer, startScan.after) <> "," THEN FAIL corruptFooter(footer, "expected `,` after the start rule")
+  LET endScan AS RuleScan = scanRule(footer, startScan.after + 1)
+  IF endScan.after <> len(footer) THEN FAIL corruptFooter(footer, "unexpected text after the end rule")
+  RETURN Footer[std.text, stdUtoff, TRUE, dst.text, dstUtoff, startScan.rule, endScan.rule]
+END FUNC
+
+' A designation: `<...>` quoted, or three or more letters.
+PRIVATE FUNC scanName(footer AS String, at AS Integer) AS Scan
+  IF charAt(footer, at) = "<" THEN
+    MUT j AS Integer = at + 1
+    WHILE isNameChar(charAt(footer, j))
+      j = j + 1
+    END WHILE
+    IF charAt(footer, j) <> ">" OR j = at + 1 THEN FAIL corruptFooter(footer, "malformed quoted designation")
+    RETURN Scan[0, strings::mid(footer, at + 1, j - at - 1), j + 1]
+  END IF
+  MUT j AS Integer = at
+  WHILE isLetter(charAt(footer, j))
+    j = j + 1
+  END WHILE
+  IF j - at < 3 THEN FAIL corruptFooter(footer, "a designation needs three or more letters")
+  RETURN Scan[0, strings::mid(footer, at, j - at), j]
+END FUNC
+
+' `[+-]h[h[h]][:mm[:ss]]` as signed seconds, with at most `maxHours` hours.
+PRIVATE FUNC scanClock(footer AS String, at AS Integer, maxHours AS Integer) AS Scan
+  MUT j AS Integer = at
+  MUT sign AS Integer = 1
+  IF charAt(footer, j) = "-" THEN sign = -1
+  IF charAt(footer, j) = "+" OR charAt(footer, j) = "-" THEN j = j + 1
+  LET hours AS Scan = scanDigits(footer, j, 1, 3)
+  IF hours.number > maxHours THEN FAIL corruptFooter(footer, "hours out of range")
+  MUT total AS Integer = hours.number * 3600
+  j = hours.after
+  IF charAt(footer, j) = ":" THEN
+    LET minutes AS Scan = scanDigits(footer, j + 1, 2, 2)
+    IF minutes.number > 59 THEN FAIL corruptFooter(footer, "minutes out of range")
+    total = total + minutes.number * 60
+    j = minutes.after
+    IF charAt(footer, j) = ":" THEN
+      LET secs AS Scan = scanDigits(footer, j + 1, 2, 2)
+      IF secs.number > 59 THEN FAIL corruptFooter(footer, "seconds out of range")
+      total = total + secs.number
+      j = secs.after
+    END IF
+  END IF
+  RETURN Scan[sign * total, "", j]
+END FUNC
+
+PRIVATE FUNC scanDigits(footer AS String, at AS Integer, least AS Integer, most AS Integer) AS Scan
+  MUT j AS Integer = at
+  WHILE j - at < most AND isDigitChar(charAt(footer, j))
+    j = j + 1
+  END WHILE
+  IF j - at < least THEN FAIL corruptFooter(footer, "expected a number")
+  RETURN Scan[toInt(strings::mid(footer, at, j - at)), "", j]
+END FUNC
+
+PRIVATE FUNC scanRule(footer AS String, at AS Integer) AS RuleScan
+  IF charAt(footer, at) <> "M" THEN FAIL corruptFooter(footer, "only Mm.w.d rules are supported")
+  LET month AS Scan = scanDigits(footer, at + 1, 1, 2)
+  IF charAt(footer, month.after) <> "." THEN FAIL corruptFooter(footer, "expected `.` after the month")
+  LET week AS Scan = scanDigits(footer, month.after + 1, 1, 1)
+  IF charAt(footer, week.after) <> "." THEN FAIL corruptFooter(footer, "expected `.` after the week")
+  LET weekday AS Scan = scanDigits(footer, week.after + 1, 1, 1)
+  IF month.number < 1 OR month.number > 12 OR week.number < 1 OR week.number > 5 OR weekday.number > 6 THEN FAIL corruptFooter(footer, "rule date out of range")
+  MUT seconds AS Integer = 7200
+  MUT after AS Integer = weekday.after
+  IF charAt(footer, after) = "/" THEN
+    LET clock AS Scan = scanClock(footer, after + 1, 167)
+    seconds = clock.number
+    after = clock.after
+  END IF
+  RETURN RuleScan[Rule[month.number, week.number, weekday.number, seconds], after]
+END FUNC
+
+' The one-scalar string at `at`, or "" past the end. Every read goes through
+' here, so no scan can index outside the footer.
+PRIVATE FUNC charAt(text AS String, at AS Integer) AS String
+  IF at < 0 THEN RETURN ""
+  IF at >= len(text) THEN RETURN ""
+  RETURN strings::mid(text, at, 1)
+END FUNC
+
+PRIVATE FUNC isDigitChar(c AS String) AS Boolean
+  IF c = "" THEN RETURN FALSE
+  RETURN strings::contains("0123456789", c)
+END FUNC
+
+PRIVATE FUNC isLetter(c AS String) AS Boolean
+  IF c = "" THEN RETURN FALSE
+  RETURN strings::contains("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", c)
+END FUNC
+
+PRIVATE FUNC isNameChar(c AS String) AS Boolean
+  IF c = "" THEN RETURN FALSE
+  RETURN strings::contains("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-", c)
+END FUNC

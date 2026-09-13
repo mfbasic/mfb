@@ -40,13 +40,13 @@ before the program blocks. Any bytes already sitting in that buffer are drained
 first, keeping the prompt in order with earlier output. An empty prompt writes
 nothing at all and therefore cannot fail; `io::input()` with no argument is
 exactly `io::input("")`. A genuine failure while writing the prompt raises
-`ErrOutput` before any input is read.
+`ErrWriteFailed` before any input is read.
 
 Bytes are decoded as UTF-8 as they arrive, with the full validity check; an
 ill-formed sequence fails rather than yielding a replacement character. End of
 input is an error rather than an empty result, but only when it arrives before any
 byte of the line: if input ends after some bytes were read, those bytes are
-returned as the final unterminated line and the following call raises `ErrEof`.
+returned as the final unterminated line and the following call raises `ErrEndOfFile`.
 Standard input is a per-thread broadcast log; a thread other than the main thread
 must subscribe with `thread::openStdIn` before reading, or the call raises
 `ErrInvalidContext`. In app mode the prompt goes to the application transcript and

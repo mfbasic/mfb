@@ -16,11 +16,11 @@ the paperwork — `LET name = "world"` needs no annotation, and the checker
 runs before the program does, so the `TypeError` you'd meet in production is
 a build failure instead. There is no interpreter and no venv: `mfb build`
 produces one native executable. There is no GIL, so threads actually run in
-parallel. And there is no garbage collector — every value has one owner and
-is reclaimed deterministically at scope exit, which is why the `with`
+parallel. And there is no garbage collector — every value belongs to one name and
+goes away deterministically when that name's scope ends, which is why the `with`
 statement's guarantees apply to everything, everywhere.
 
-## Ownership and threading
+## Values and threading
 
 Python threads share every object but can't run bytecode in parallel (the
 GIL), so real parallelism means `multiprocessing` — separate interpreters,
@@ -64,7 +64,7 @@ LET words = thread::waitFor(t)      ' 9 — the worker's result, or its Error
 `Thread OF String TO Integer` declares both directions of the contract:
 messages in are `String`, the result is `Integer`, checked at compile time
 rather than discovered as an `AttributeError` inside the worker. A sent value
-is *moved* — the receiver owns it, nothing is shared, and there is no
+is *handed over* — the receiver has it, nothing is shared, and there is no
 "is it picklable?" category of bug. `waitFor` is `p.join()` plus collecting
 the result in one step: the worker's return value, or — if the worker failed
 — its `Error`, delivered into your error handling like any local failure.
@@ -143,7 +143,7 @@ END FUNC
 ```
 
 `WITH inv { paid := TRUE }` is `dataclasses.replace(inv, paid=True)` — and
-because values are owned, not referenced, there is no aliasing to defend
+because values are copied, not referenced, there is nothing shared to defend
 against: no `copy.deepcopy`, no mutable-default-argument trap, no caller
 mutating the list you stored. Where Python 3.10's `match` narrows
 `isinstance`-style over an open world, MFBASIC matches over closed unions
@@ -190,7 +190,7 @@ every binding behaves. A resource is bound with `RES`:
 IMPORT fs
 
 FUNC copyHeader(src AS String, dst AS String) AS Integer
-  RES input  = fs::openFile(src)            ' owned by this scope
+  RES input  = fs::openFile(src)            ' closed when this scope ends
   RES output = fs::open(dst, "write")
   MUT copied = 0
   WHILE copied < 10 AND NOT fs::eof(input)
@@ -247,4 +247,5 @@ Python doesn't need but 64-bit values do.
 
 - `mfb man tour` — the one-page language tour.
 - `mfb man errors`, `mfb man thread`, `mfb man collections` — the models above in full.
+- `mfb man variable` — values, copies and handles; `mfb spec language memory-semantics`
 - `mfb spec language type-inference` — how far inference goes without annotations.

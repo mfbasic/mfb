@@ -31,8 +31,8 @@ dividing a `Money` by a scalar, scaling a `Money` by a `Float` or `Fixed`, and t
 change how `toString(Money)` renders a value (presentation rounding is a fixed
 half-away-from-zero rule, deliberately independent of the mode).
 
-The `money::Rounding` enum is referenced bare, like every other builtin type: write
-`money::Rounding.Banker`, not `money::Rounding.Banker`."#;
+Name the enum package-qualified, as in `money::Rounding.Banker`; a bare
+`Rounding` is not a known type."#;
 const EX: &str = r#"Accumulate under banker's rounding, then restore the default:
 
 ```

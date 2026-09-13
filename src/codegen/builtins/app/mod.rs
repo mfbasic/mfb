@@ -59,8 +59,8 @@ reading the current mode cannot fail. The mode model is designed to grow: a new
 presentation surface is a new `app::Mode` variant entered through `app::setMode`, with
 no change to this surface — which is exactly how `Canvas` was added.
 
-The `app::Mode` enum is referenced bare, like every other builtin type: write
-`app::Mode.None`, not `app::Mode.None`."#;
+Name the enum package-qualified, as in `app::Mode.None`; a bare `Mode` is not a
+known type."#;
 
 /// Register the `app` package on the clean-room registry.
 ///

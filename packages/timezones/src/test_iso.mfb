@@ -1,0 +1,111 @@
+' ---------------------------------------------------------------------------
+' Tests: toIso and parseIso, RFC 9557 zoned timestamps.
+'
+' The instants and offsets below were pinned against zoneinfo in test_offsets
+' and test_civil: New York is -18000 at 1768485600, -14400 at 1784120400, and
+' -17762 (LMT) at -3771144000, which reads 1850-07-01T07:03:58 locally.
+' ---------------------------------------------------------------------------
+
+IMPORT datetime
+
+PRIVATE FUNC newYork(y AS Integer, mo AS Integer, d AS Integer, h AS Integer) AS datetime::DateTime
+  RETURN civil(datetime::date(y, mo, d), datetime::time(h, 0, 0, 0), "America/New_York")
+END FUNC
+
+' seconds, nanos, offset and name of a parsed value, on one line.
+PRIVATE FUNC read(text AS String) AS String
+  LET z AS ZonedDateTime = parseIso(text)
+  LET at AS datetime::Instant = datetime::resolve(z.dateTime)
+  RETURN toString(at.seconds) & " " & toString(at.nanos) & " " & toString(z.dateTime.offset) & " " & z.name
+END FUNC
+
+TESTING
+  TGROUP "iso"
+    TCASE "New York writes in January and July"
+      expectString(toIso(newYork(2026, 1, 15, 9), "America/New_York"), "2026-01-15T09:00:00.000-05:00[America/New_York]")
+      expectString(toIso(newYork(2026, 7, 15, 9), "America/New_York"), "2026-07-15T09:00:00.000-04:00[America/New_York]")
+      expectString(read("2026-07-15T09:00:00.000-04:00[America/New_York]"), "1784120400 0 -14400 America/New_York")
+    END TCASE
+
+    TCASE "1850 local mean time round-trips to the second"
+      LET at AS datetime::Instant = datetime::instant(-3771144000, 0)
+      LET lmt AS datetime::DateTime = datetime::inZone(at, toZone("America/New_York", at))
+      LET written AS String = toIso(lmt, "America/New_York")
+      expectString(written, "1850-07-01T07:03:58.000-04:56:02[America/New_York]")
+      expectString(read(written), "-3771144000 0 -17762 America/New_York")
+      expectString(parseIso(written).dateTime.zone.label, "LMT")
+    END TCASE
+
+    TCASE "a minute-rounded LMT offset reads back to the exact instant"
+      expectString(read("1850-07-01T07:03:58.000-04:56[America/New_York]"), "-3771144000 0 -17762 America/New_York")
+    END TCASE
+
+    TCASE "Z names the instant and takes the zone's offset"
+      expectString(read("2026-07-15T13:00:00.000Z[America/New_York]"), "1784120400 0 -14400 America/New_York")
+      expectString(datetime::toIso(parseIso("2026-07-15T13:00:00.000Z[America/New_York]").dateTime), "2026-07-15T09:00:00.000-04:00")
+    END TCASE
+
+    TCASE "an offset the zone does not have is refused"
+      expectTrap(parseIso("2026-07-15T13:00:00.000+00:00[America/New_York]"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-05:00[America/New_York]"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-05:00[!America/New_York]"), 77050003)
+    END TCASE
+
+    TCASE "a critical zone annotation is accepted"
+      expectString(read("2026-07-15T09:00:00.000-04:00[!America/New_York]"), "1784120400 0 -14400 America/New_York")
+    END TCASE
+
+    TCASE "only the iso8601 calendar"
+      expectString(read("2026-07-15T09:00:00.000-04:00[America/New_York][u-ca=iso8601]"), "1784120400 0 -14400 America/New_York")
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[America/New_York][u-ca=gregory]"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[America/New_York][u-ca=gregory][u-ca=iso8601]"), 77050003)
+      expectString(read("2026-07-15T09:00:00.000-04:00[America/New_York][u-ca=iso8601][u-ca=gregory]"), "1784120400 0 -14400 America/New_York")
+    END TCASE
+
+    TCASE "an unknown tag is ignored when elective and refused when critical"
+      expectString(read("2026-07-15T09:00:00.000-04:00[America/New_York][foo=bar]"), "1784120400 0 -14400 America/New_York")
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[America/New_York][!foo=bar]"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[America/New_York][Foo=bar]"), 77050003)
+    END TCASE
+
+    TCASE "malformed suffixes are refused"
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[+05:30]"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[America/New_York][Europe/London]"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[America/New_York]x"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[America/New_York"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[]"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[u-ca=iso8601][America/New_York]"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[America/../New_York]"), 77050003)
+      expectTrap(parseIso("not a timestamp[America/New_York]"), 77050003)
+    END TCASE
+
+    TCASE "an unknown zone raises ErrNotFound"
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[Nowhere/Bogus]"), 77050004)
+    END TCASE
+
+    TCASE "names match ignoring case and come back in tzdb spelling"
+      expectString(read("2026-07-15T09:00:00.000-04:00[america/new_york]"), "1784120400 0 -14400 America/New_York")
+      expectString(read("2026-07-15T09:00:00.000-04:00[us/eastern]"), "1784120400 0 -14400 US/Eastern")
+      expectString(toIso(newYork(2026, 7, 15, 9), "america/new_york"), "2026-07-15T09:00:00.000-04:00[America/New_York]")
+    END TCASE
+
+    TCASE "toIso refuses a DateTime whose offset is not the zone's"
+      LET wrong AS datetime::DateTime = datetime::civil(datetime::date(2026, 1, 15), datetime::time(9, 0, 0, 0), datetime::fixedOffset(-14400))
+      expectTrap(toIso(wrong, "America/New_York"), 77050002)
+      expectTrap(toIso(newYork(2026, 7, 15, 9), "Nowhere/Bogus"), 77050004)
+    END TCASE
+
+    TCASE "toIso checks digits as datetime::toIso does"
+      expectTrap(toIso(newYork(2026, 7, 15, 9), 5, "America/New_York"), 77050002)
+      expectString(toIso(newYork(2026, 7, 15, 9), 0, "America/New_York"), "2026-07-15T09:00:00-04:00[America/New_York]")
+    END TCASE
+
+    TCASE "nanoseconds survive at digits = 9"
+      LET dt AS datetime::DateTime = civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 123456789), "America/New_York")
+      LET written AS String = toIso(dt, 9, "America/New_York")
+      expectString(written, "2026-07-15T09:00:00.123456789-04:00[America/New_York]")
+      expectString(read(written), "1784120400 123456789 -14400 America/New_York")
+    END TCASE
+  END TGROUP
+END TESTING

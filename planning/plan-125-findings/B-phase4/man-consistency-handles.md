@@ -1,0 +1,23 @@
+### 1. Canvas has a real second-close exception, despite calling it universal
+DIMENSION: handles
+SCOPE:     canvas; audio, fs, tcp, udp, tls
+CLAIM:     `canvas::destroyImage` says, “Closing twice is the defined no-op,” then calls `ErrResourceClosed` “the same contract every resource has.” The five other rendered close pages instead say a second close raises/refuses `ErrResourceClosed`; e.g. audio: “a second close raises ErrResourceClosed,” and tcp: “An already-closed handle is an error rather than a no-op.”
+VERDICT:   Canvas’s no-op is the implemented behavior, so its “same contract every resource has” claim is false. The shared contract is not actually universal; canvas needs an explicit exception rather than documentation that implies identical behavior.
+EVIDENCE:  Rendering `mfb man audio close`, `canvas destroyImage`, `tcp close`, and `udp close`, then `rg -n -i 'second|already.closed|ErrResourceClosed'`, printed two “second close raises ErrResourceClosed” rows, two “already-closed handle is an error rather than a no-op” rows, and canvas’s “Closing twice is the defined no-op.” `rg -n 'Double-close must be a no-op' src/codegen/builtins/canvas` printed the deliberate canvas implementation comment.
+SUGGESTED: Add to canvas’s overview/types: “`destroyImage` and `destroyFont` are the exception: calling either again does nothing; other use of the closed handle raises `ErrResourceClosed`.” Remove “the same contract every resource has.”
+
+### 2. Six handle-package overviews omit one or more of the five lifecycle answers
+DIMENSION: handles
+SCOPE:     audio, canvas, fs, tcp, udp, process; tls as the complete comparison
+CLAIM:     Only tls’s overview gives scope close, early close, second-close result, post-close error, and transfer rule together: “calling it again … raises ErrResourceClosed” and “Either handle may be handed to another thread.” Audio says only “closes itself … or explicitly”; canvas says “or earlier with canvas::destroyImage”; fs says “Using a File after it is closed fails”; tcp and udp only say their close “earlier”; process says “There is no call that closes a handle early.” Their types pages supply some transfer facts, but the condensed overview never establishes the complete lifecycle in one predictable shape.
+VERDICT:   tls’s question order should be the overview standard. Process should answer the same questions with its intentional answers: scope exit stops the child, `detach` ends the parent handle, later calls raise `ErrResourceClosed`, and it stays on its originating thread.
+EVIDENCE:  `grep -c 'calling it again on a handle it already closed' condensed.txt` printed `1`; `grep -c 'closes itself when its binding goes out of scope' condensed.txt` printed `3`; and `grep -c 'May be handed to another thread' condensed.txt` printed `6` (per-resource rows, not a common overview contract). The rendered tls overview contains all five statements; the quoted audio/canvas/fs/tcp/udp/process passages are from the condensed artifact.
+SUGGESTED: Standardize every resource-package overview on one lifecycle paragraph: automatic scope close; explicit-close operation and effect; second-close outcome; `ErrResourceClosed` for later use; then transferability or “stays on its opening thread.” Link `mfb man variable` for the general model.
+
+### 3. fs uses vague “fails” where the guide and its close page name the error
+DIMENSION: handles
+SCOPE:     fs; variable guide; tls comparison
+CLAIM:     The fs overview says, “Using a File after it is closed fails.” The variable guide instead says, “Using a closed handle is refused at compile time where the compiler can see it, and reported as ErrResourceClosed where it cannot.” tls says a second close “raises ErrResourceClosed.” These establish different precision for the same closed-handle outcome.
+VERDICT:   The variable guide’s form should win. `mfb man fs close` confirms that a second close is an error and its Errors table names `ErrResourceClosed`; “fails” leaves developers unable to distinguish the runtime error from a compile-time use-after-close rejection.
+EVIDENCE:  `grep -c 'Using a File after it is closed fails' condensed.txt` printed `1`; `grep -c 'reported as ErrResourceClosed' condensed.txt` printed `1`; `grep -c 'raises ErrResourceClosed' condensed.txt` printed `3`. Rendering `mfb man fs close` printed “a second fs::close raises” and an `ErrResourceClosed` Errors row.
+SUGGESTED: Replace the fs sentence with: “A File closed explicitly or when its binding ends cannot be used again: a statically visible use is rejected, and a runtime use raises `ErrResourceClosed`.”

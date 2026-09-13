@@ -124,7 +124,19 @@ text is never reached by an implicit coercion — only through `toString` or an
 explicit overload.
 
 `astrings::fromString(text)` constructs an `AttributedString` whose visible text
-is `text` and whose attribute overlay is empty."#;
+is `text` and whose attribute overlay is empty.
+
+Many `strings::` functions also accept an `AttributedString`. The ones that only
+read the text — `byteLen`, `contains`, `count`, `displayWidth`, `startsWith`,
+`endsWith`, `find`, `graphemes`, `split`, and similar — answer exactly as they
+would for its visible `String`. The ones that change the text — `left`, `right`,
+`mid`, the `trim` family, `stripPrefix`/`stripSuffix`, `padLeft`/`padRight`,
+`repeat`, and `replace` — return an `AttributedString` whose styling follows the
+text it was attached to. `upper`, `lower`, `caseFold`, and `normalizeNfc` change the
+text but drop the styling. `a & b` joins two `AttributedString` values, text and
+styling together; there is no mixing with a plain `String`. See `mfb man strings`.
+
+Import the package with `IMPORT astrings`; it needs no manifest dependency."#;
 
 /// Register the `astrings` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {

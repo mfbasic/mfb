@@ -12,8 +12,8 @@ values rather than the encoded sRGB bytes. `amount` is a fraction: `0.0` returns
 the colour unchanged, `1.0` returns black, `0.5` removes half the light.
 
 It is the mirror of `color::brighten`, and works in linear light for the same
-reason: equal `amount` steps should look like equal steps, which scaling the
-encoded bytes does not give.
+reason: the encoded bytes are not proportional to light, so only in linear light
+is `amount` a fraction of the actual light.
 
 `amount` is **clamped** to `0.0`..`1.0` rather than rejected.
 
@@ -25,7 +25,8 @@ with `c`'s alpha.
 
 `darken` and `brighten` are **not** inverses. `darken(brighten(c, 0.5), 0.5)` does
 not return `c`: each works on a fraction of the *current* value, so the round trip
-lands lower. To go back, keep the original."#;
+lands somewhere else — `#3366cc` comes back as `#8b91aa`, lighter in red and green
+and darker in blue. To go back, keep the original."#;
 
 const EX: &str = r##"The endpoints, and a step between them:
 

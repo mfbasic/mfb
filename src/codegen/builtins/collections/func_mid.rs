@@ -29,15 +29,8 @@ Empty results are legal at the boundaries, since `start` may equal the length of
 returns an empty list.
 
 The result is a new, independent list of the same type as
-`value`; `value` itself is neither modified nor closed, and element payloads
-are copied into the new list rather than shared with `value`.
-
-`mid` copies the selected run using a fast contiguous path when the source
-entries covering the slice are stored in order and packed tightly, and falls
-back to a per-entry copy otherwise. A list whose entry records have been
-permuted without moving the underlying data — the result of a sorted directory
-listing, for instance — takes the fallback. Either way the returned elements are
-the same."#;
+`value`; `value` itself is neither modified nor closed, and its elements
+are copied into the new list rather than shared with `value`."#;
 
 const EX_MID: &str = r#"Take two elements from the middle:
 

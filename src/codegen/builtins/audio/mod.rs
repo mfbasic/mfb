@@ -126,8 +126,9 @@ const MODULE_INTRO: &str = r#"Raw interleaved `s16le` PCM capture and playback"#
 const MODULE_DESC: &str = r#"The `audio` package moves raw interleaved signed 16-bit little-endian PCM
 (`s16le`) through the operating system's audio hardware. It enumerates devices,
 opens a capture or playback stream, moves whole frames of PCM through it, and
-closes it. There is no audio file, container, codec, mixing, resampling, or
-channel-conversion API at any layer — the only format is `s16le`, and one frame
+closes it. There is no audio file, container, codec, raw-PCM mixing,
+resampling, or channel-conversion API at any layer (`audio::play` mixes its own
+MML tracks internally) — the only format is `s16le`, and one frame
 is `channels * 2` bytes.
 
 
@@ -142,7 +143,9 @@ opening one stream of each direction and driving both from a single loop with
 
 Both stream types are move-only, non-sendable resource handles: neither can
 cross a thread boundary. Each closes itself when its
-binding goes out of scope, or explicitly with `audio::close`. `audio::AudioDevice` is a
+binding goes out of scope, or earlier with `audio::close`. A second `audio::close`
+on a stream it already closed raises `ErrResourceClosed`, as does any other use of
+a closed stream. A stream stays on the thread that opened it. `audio::AudioDevice` is a
 plain read-only record obtained only from `audio::devices()`. The `render` and
 `play` members are pure synthesis: `render` turns one `audio::AudioNote` into `s16le`
 PCM, and `play` parses MML music text and writes it to an open `AudioOutput`.
@@ -151,7 +154,8 @@ PCM, and `play` parses MML music text and writes it to an open `AudioOutput`.
 macOS drives Core Audio's `AudioQueue`; Linux drives ALSA's blocking PCM API
 through a `libasound.so.2` resolved at runtime with `dlopen` — so a binary that
 imports `audio` still starts on a Linux host without alsa-lib, and every
-`audio::` call there raises `ErrAudioUnavailable`. A program that does not
+`audio::` call that needs the device raises `ErrAudioUnavailable` there
+(`audio::render` needs no device, and `audio::xruns` still reports its count). A program that does not
 `IMPORT audio` gains no audio symbol and no dynamic-library dependency."#;
 
 /// A required parameter with optional keyword aliases.

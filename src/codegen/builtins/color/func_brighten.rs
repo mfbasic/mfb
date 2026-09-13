@@ -12,11 +12,11 @@ brightness, working on the **linear-light** values rather than the encoded sRGB
 bytes. `amount` is a fraction: `0.0` returns the colour unchanged, `1.0` returns
 white, `0.5` closes half the remaining distance.
 
-Doing this in linear light is the whole point. Scaling the sRGB bytes instead —
-`red * 1.5` — is not perceptually uniform: the same multiplier lifts a dark colour
-far more than a light one, and a ramp built that way looks lumpy. `brighten`
-converts through `color::toLinear`, moves, and converts back, so equal `amount`
-steps look like equal steps.
+Doing this in linear light is the whole point. The sRGB bytes are not proportional
+to light, so scaling them instead — `red * 1.5` — adds a very different amount of
+real light depending on where the channel started. `brighten` converts through
+`color::toLinear`, moves, and converts back, so `amount` is always a fraction of
+the real remaining distance to white.
 
 `amount` is **clamped** to `0.0`..`1.0` rather than rejected, matching the
 clamping rule the constructors follow.

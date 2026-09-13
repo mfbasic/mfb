@@ -1,0 +1,8 @@
+### 1. Four package overviews omit their own import instruction
+
+DIMENSION: overview-shape  
+SCOPE:     `astrings`, `canvas`, `process`, `tls`  
+CLAIM:     23 of 30 package overviews state their package’s import spelling, e.g. `bits`: “`IMPORT bits` needs no manifest dependency.” `astrings`, `process`, and `tls` contain no import instruction at all. `canvas` says only “it is importable only in --app builds,” while its concrete instruction is for a different package: “through `IMPORT color`.”  
+VERDICT:   The direct `IMPORT <package>` form should win: importing is a first-use question and these four pages leave it implicit while the majority answer it explicitly. `general` is correctly exceptional (“no IMPORT required”); `term` and `udp` mention their own imports indirectly and are not included.  
+EVIDENCE:  `rg -qi "IMPORT[[:space:]]+$p([^[:alnum:]_]|$)" /tmp/plan-125-scratch/B-phase4/man-consistency-overview-shape/<pkg>.txt` printed `own-IMPORT form (23): app audio bits collections color crypto csv datetime encoding fs http io json math money net os regex strings tcp testing thread vector` and `no own-IMPORT text (7): astrings canvas general process term tls udp`. A focused `rg -n -i 'importable|IMPORT|imports are not transitive|needs its own'` printed `(no import instruction)` for `astrings`, `process`, and `tls`; for `canvas` it printed “Like app, it is importable only in --app builds” and only `IMPORT color`.  
+SUGGESTED: Add one early sentence to each: “Import it with `IMPORT <package>`.” For `canvas`, combine it with the existing gate: “Import it with `IMPORT canvas`; it is available only in `--app` builds.”

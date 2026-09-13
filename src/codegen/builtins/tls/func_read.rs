@@ -25,8 +25,8 @@ a stream exactly the same way, so a protocol written against one transport reads
 the same on the other.
 
 **There is no `readText`.** A stream read stops wherever the network happened to
-divide the data, which need not be a character boundary, so a decode at that
-point can split a multi-byte character in half. Assemble the whole message first,
+divide the data, which need not be a Unicode-scalar boundary, so a decode at that
+point can split a multi-byte Unicode scalar in half. Assemble the whole message first,
 then decode it with `encoding::utf8Decode`. `tls::write` does accept a `String`
 directly, because sending is not subject to the same hazard."#;
 const EX: &str = r#"Read up to 4096 bytes from a connected TLS socket:
@@ -73,7 +73,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "sock",
-                    desc: "A connected TLS socket to receive from, as returned by `tls::connect`. It must still be open; reading from a closed socket is an error.",
+                    desc: "A connected TLS socket to receive from, as returned by `tls::connect` or `tls::accept`. It must still be open; reading from a closed socket is an error.",
                     aliases: &[],
                     ty: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                     default: DefaultValue::None,

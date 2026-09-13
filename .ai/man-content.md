@@ -1,13 +1,32 @@
 # The `mfb man` content standard
 
-What a builtin man page must contain, what it must never contain, and the
-memory vocabulary it is allowed to use. Authored by plan-108-A; applied by
-plan-108-B–E; certified by plan-108-F.
+> **Audience: the MFBASIC developer at the terminal — someone using and
+> learning the language, who should never need a compiler mental model to read
+> this page.** The mirror standard for the other surface is
+> [`.ai/spec-content.md`](spec-content.md), whose audience is the compiler
+> contributor; a sentence cut from a man page for being too internal is a
+> candidate *spec* obligation, not deleted knowledge. See §9.
 
-**Read this before editing any prose field on a registry descriptor.** The
-compiler never reads these fields — they are `&'static str` — so no build,
+What a man page or guide topic must contain, what it must never contain, and
+the memory vocabulary it is allowed to use. Authored by plan-108-A; applied by
+plan-108-B–E; certified by plan-108-F; extended to the narrative guide topics
+by plan-125-A.
+
+**Read this before editing any prose field on a registry descriptor, or any
+markdown under `src/docs/man/**`.** The compiler never reads either — the
+fields are `&'static str` and the topics are embedded markdown — so no build,
 test, or golden can catch a mistake in them. Rendering the page is the only
 verification there is.
+
+**This standard governs two kinds of page**, and every rule below applies to
+both unless it says otherwise:
+
+| Kind | Source | Count | Verified by |
+|---|---|---|---|
+| builtin package / function / types page | registry descriptors in `src/codegen/builtins/**` | 596 | `mfb man <pkg> [<fn>\|types\|--all]` |
+| narrative guide topic page | markdown under `src/docs/man/**` | 32 | `mfb man <topic> [--all]` |
+
+628 pages in total. §9 is the section specific to the guide topics.
 
 ## 0. Where the content lives
 
@@ -29,7 +48,8 @@ The editable prose fields, and nothing else:
 | `Parameter.desc` | `func_*.rs` | the Description column of the Parameters table |
 | `RegistryRecord` / prop / union-variant / enum-variant / `RegistryResource` `description` | `mod.rs` | the `mfb man <pkg> types` page |
 
-Everything else on a page — Declaration, Parameters types, Errors, See also —
+Everything else on a page — Declaration, Parameters types, Errors, Constants
+(a package's registered constants, with type, value and any message), See also —
 is **derived from the descriptors the compiler actually executes** and is
 correct by construction. Do not try to "fix" a derived table by editing prose;
 if a derived table is wrong, the descriptor is wrong, and that is a code bug.
@@ -227,17 +247,26 @@ row below preserves the developer-visible fact.
 | "Consumed by the call — the handle is moved and unusable afterward." | "Closed by this call; the handle cannot be used again." |
 | "The value is consumed by the call." | "This call closes the handle." |
 
-### 4.4 The two carve-outs
+### 4.4 The three carve-outs
 
 1. **Arithmetic borrow.** `datetime` normalization legitimately borrows a
    second ("a negative nanos value borrows a second") — 15 rendered lines, and
    every `borrow` in `datetime` is this sense. Not a memory claim; keep it.
    `--memory-scope` classifies these automatically and reports them separately;
    they are never counted as unclassified hits.
-2. **`mfb spec` and `.ai/**` are untouched.** The spec's §14 memory model is
+2. **Derived runtime error messages.** An Errors-table row, and a row of the
+   `errorCode` overview's Constants table, print the `errorCode` constant's
+   `message` — the string a program prints when that error is raised.
+   `ErrOutOfMemory`'s is "Allocation failed.", so the banned word appears in a
+   cell no page author can edit; changing it changes program output. This is
+   carve-out 2 in `--memory-scope`, reported separately.
+3. **`mfb spec` and `.ai/**` are untouched.** The spec's §14 memory model is
    the precise language contract and needs its precise words. The ban covers
    the `mfb man` surface only. **If a man page needs that much precision, that
    is the signal it is saying too much** — cut it and link `mfb man variable`.
+   The cut sentence is not lost: it is a **candidate spec obligation**. Append
+   it to `planning/plan-125-belongs-in-spec.md` and see
+   [`.ai/spec-content.md`](spec-content.md) §8 for the seam.
 
 ### 4.5 Link, do not re-explain
 
@@ -347,9 +376,161 @@ mfb man <pkg>                      # overview
 mfb man <pkg> <func>               # one page
 mfb man <pkg> --all                # every page in the package
 mfb man <pkg> types                # records / unions / enums / resources
+mfb man <topic>                    # a guide topic's overview
+mfb man <topic> --all              # a guide topic and every subtopic
+./scripts/man-manual.sh            # the COMPLETE manual, all 628 pages
+./scripts/man-manual.sh --count    # its page-count reconciliation
 ./scripts/man-census.sh [pkg...]           # fill state
 ./scripts/man-census.sh --functions [pkg]  # per-page rows
+./scripts/man-census.sh --topics [topic]   # guide-topic inventory
 ./scripts/man-census.sh --memory-scope [pkg]
+./scripts/man-census.sh --scope [pkg]
 ```
 
 Plus the release binary itself, for every probe program and every example.
+
+**`mfb man --all` is not quite the whole manual.** It renders every importable
+package and every guide topic, but it deliberately omits `testing` and
+`general` — `unqualified_global` packages with no writable `IMPORT` spelling,
+which `src/cli/man.rs:render_all_markdown` filters so the manual never
+advertises a spelling a developer cannot type. Those 30 pages are real
+surface reached by bare name. **`scripts/man-manual.sh` is the complete
+artifact**; use it, not raw `--all`, for any whole-surface sweep.
+
+## 9. The narrative guide topics
+
+The 10 topics under `src/docs/man/**` — `errors`, `flow`, `lambda`, `link`,
+`optimizations`, `tooling`, `tour`, `types`, `unicode`, `variable` — are
+plain markdown embedded at build time (`src/docs/man/mod.rs`) and reached by
+`mfb man <topic>` when no package claims the name (`src/cli/man.rs`, the
+`[name]` arm). A topic is one `package.md` overview plus zero or more
+subtopic files; `mfb man <topic> --all` renders all of them.
+
+They were outside plan-108 entirely. That is not a small gap: it meant the
+man surface's "0 banned memory words, 0 internals words" certification was
+measured over 31 of 41 units and 596 of 628 pages, while `tour` opened with
+"built around value **ownership**: every value has a single **owner**" and
+`lambda` taught an explicit **borrow** model. **Everything in §1–§6 applies to
+a guide topic exactly as it applies to a function page.** In particular:
+
+- **§1's audience test is the same**, and it bites harder here. A guide topic
+  is where a developer goes to learn a *concept*, so the temptation to explain
+  the implementation is strongest. `mfb man types` saying a value is
+  "monomorphized before code is generated" is the canonical failure: true,
+  and no help whatsoever to someone deciding what to write.
+- **§3's internals ban is the same.** No IR, no NIR, no regalloc, no lowering,
+  no Rust item names, no plan or bug numbers.
+- **§4's memory-vocabulary ban is the same, with no topic-level exemption.**
+  A topic explaining the value model explains it in the four permitted words.
+  `mfb man variable` is the one page that explains the model end to end
+  (§4.5); every other topic links it rather than restating it — and `variable`
+  itself is held to the ban, because the whole point of §4 is that the model
+  can be, and must be, explained without C/Rust vocabulary.
+- **§5's accuracy rule is the same**: every behavioral claim is verified by
+  running a program against the release binary. A topic's claims are broader
+  than a function page's and therefore easier to leave stale, not harder.
+- **Every code block is compiled and run**, exactly as §2 requires of a
+  function page's example. A guide topic carries far more code than a function
+  page — `tour` alone has 46 fenced blocks of 135 across the topics
+  (`./scripts/man-census.sh --topics`) — and a broken snippet in the topic a
+  beginner reads first is worse than a broken example on a leaf page. Where a
+  block is a deliberate fragment rather than a whole program, it must be
+  introduced as one in the surrounding prose; an unrunnable block that reads
+  like a program is a defect.
+
+### 9.1 What a guide topic MUST additionally do
+
+- **Own one concept.** A topic that repeats another topic's body has taken
+  ownership of a fact it does not own; summarize and link
+  (`mfb man <topic>` / `mfb man <pkg> <fn>`) instead.
+- **Resolve every cross-reference it makes.** `mfb man <target>` must render.
+- **Agree with the package pages.** A topic and a function page describing the
+  same behavior two ways is the defect iteration 3 of plan-125 exists to find;
+  the package page is authoritative for a package's own semantics, the topic
+  for the language concept.
+
+### 9.2 The one carve-out: the generated optimizer catalog
+
+`mfb man optimizations` contains a `{{optimizer-catalog}}` marker that
+`src/cli/man.rs:render_topic_overview` substitutes with
+`optimizer::catalog::render_markdown_table()` at display time, precisely so the
+page and the compiler can never disagree about which passes exist. Its Stage
+column is literally `NIR` / `MIR` / `regalloc` / `codegen`, so every row trips
+§3's internals sweep, and **no page author can edit any of it**.
+
+This is carve-out 3 in `scripts/man-census.sh --scope` **and `--memory-scope`**
+(the catalog rows say "lifetimes", "frees" and "allocation" as well as `NIR`),
+counted and printed separately, never dropped — the same treatment as the
+derived `Errors` rows in §4.4. It carves only the generated table rows: the
+authored sentences in the same section stay hits, because those are prose a
+reviewer can rewrite. The region is bounded by the rendered `Passes` heading and
+the `Always-on … (Level 0)` heading after it; renaming either heading silently
+disarms the carve-out, so the census accepts both spellings the page has used.
+
+### 9.2a The second carve-out: C-ABI type rows in `mfb man link`
+
+`mfb man link` documents writing a binding package, and part of that is writing
+a C-facing `ABI` signature in C types. `CPtr` **is** a native pointer and
+`CString` **is** a pointer to null-terminated bytes; describing either without
+the word would make the row false, not just awkward.
+
+This is carve-out 4 in `scripts/man-census.sh --memory-scope`, and it is
+deliberately narrow: **only the ABI-types table rows whose first cell is
+`CString` or `CPtr`.** Every MFBASIC-facing sentence on the page is held to the
+full ban — the resource, close, `FREE` and loading prose was all rewritten
+(plan-125-B) — because a binding author's *users* see those resources as
+ordinary `RES` handles.
+
+There is **no** carve-out for the `tour` comparison pages, even though they
+describe other languages' memory models. Every one of their hits was rephrased
+in that language's own terms (`malloc`/`free`, "a global error code", "a
+captured variable", "one pool of objects"), which kept the contrast and dropped
+the banned word; a carve-out keyed on "this line is about another language"
+could not be made precise enough to stop it hiding a sentence about MFBASIC.
+
+### 9.2b Citation markers in topic sources
+
+`[[path:Symbol]]` markers are banned on a man page (§3), and the renderer strips
+them, so **no rendered sweep can see one.** Check the source:
+
+```
+grep -rn '\[\[\(src\|build\.rs\|repository\)' src/docs/man --include='*.md'
+```
+
+plan-125-B removed 38 from `types`, `link` and `lambda`; the command must print
+nothing.
+
+### 9.2c Never use a double-backtick code span
+
+The renderer does not support CommonMark's double-backtick form (`` `` x `` ``),
+and it does not leak the markup either: it **drops the span, content and all.**
+That is how `mfb man types string` came to render the entire `Scalar` literal
+syntax as "`A , 中 , \n , \\ , the backtick escape \ , and u{1F600} . An empty ( )
+or multi-scalar ( ab ) literal`" — every backtick that *was* the syntax deleted,
+and no rendered sweep able to notice, because nothing leaked.
+
+To show text that contains a backtick, put it in a fenced code block (rendered
+verbatim) or describe it in words. Check the source:
+
+```
+grep -rn '`` ' src/docs/man --include='*.md' | grep -vE ':[0-9]+:```'
+```
+
+It must print nothing.
+
+### 9.3 Verifying a topic
+
+```
+mfb man <topic> --all                        # what the reader sees
+./scripts/man-census.sh --topics <topic>     # pages, files, lines, fences
+./scripts/man-census.sh --memory-scope       # whole-surface: topics included
+./scripts/man-census.sh --scope              # whole-surface: topics included
+```
+
+A run of `--memory-scope` / `--scope` **scoped to named packages does not
+sweep the topics** — only a whole-surface run (no arguments) does. If you are
+certifying a topic, run it with no arguments and read the topic's rows.
+
+`--topics` also cross-checks each topic's **rendered** page count against its
+markdown file count and fails if they disagree, because a markdown file the
+topic index does not list renders nowhere and is not part of the surface.

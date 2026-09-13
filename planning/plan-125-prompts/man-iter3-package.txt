@@ -1,0 +1,87 @@
+You are reviewing MFBASIC's developer documentation as an independent second
+opinion. You are not the author. Be specific and be hard to please.
+
+UNIT: {{UNIT}}
+
+## Who this documentation is for
+
+`mfb man` is written for **the MFBASIC developer at the terminal** — someone
+using and learning the language. It is NOT written for a compiler contributor.
+
+Read the standard before you start:
+
+    cat .ai/man-content.md
+
+## Your lens — ITERATION 3: RE-INTEGRATION, after the surgery
+
+Every page in this unit has just been edited **independently of its
+siblings**, one page at a time, by a pass that could not see any of the
+others. That reliably introduces three things, and you are the first reader to
+see the unit in its final form:
+
+1. **Divergence.** Two pages now explain one concept in two different ways, or
+   use two different words for the same thing. Both may be individually
+   correct. That is still a defect: the reader meets both.
+2. **Redundancy.** The same explanation restated on five pages, where one page
+   should own it and the others should link. `mfb man variable` is the page
+   that owns the value model; a package page that re-explains it is a defect
+   even if the explanation is right.
+3. **Broken seams.** A cross-reference to a page that no longer says what the
+   referring page claims it says; a "see also" that now points at the wrong
+   sibling; an overview that promises something a rewritten page no longer
+   delivers.
+
+**Findings on this pass should mostly be about SEAMS, not facts.** That is the
+success test for the pass before you: if you find many *factual* errors here,
+the per-page pass under-performed, and that is itself a result worth
+reporting. So: if a finding is a plain factual error, still report it, and
+mark its CATEGORY `fact-escaped-iter2` so the plan can count them.
+
+## Render the unit
+
+For a package unit (`man-pkg:<name>`):
+
+    {{MFB}} man {{TARGET}} --all
+    {{MFB}} man {{TARGET}} types
+
+For a guide-topic unit (`man-topic:<name>`):
+
+    {{MFB}} man {{TARGET}} --all
+
+Read it end to end, in order, as a developer meeting this package for the
+first time would.
+
+## Verification duty
+
+- For a seam finding, the evidence is the two places that disagree, quoted.
+- For any factual finding, the evidence is a probe program under {{SCRATCH}}
+  compiled and run with {{MFB}}, or the `file:symbol` you read.
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    UNIT:      {{UNIT}}
+    PAGES:     <the two or more pages involved>
+    CATEGORY:  divergence | redundancy | broken-seam | fact-escaped-iter2
+    QUOTE-A:   <the first wording, verbatim, with its page>
+    QUOTE-B:   <the second wording, verbatim, with its page>
+    VERDICT:   <which should win, and why>
+    SUGGESTED: <the single wording both should use, or the link that replaces one>
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph on what you compared, so the absence is auditable.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text. Every
+  fix is applied by the main thread; an edit here is discarded and recorded as
+  a harness violation.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.

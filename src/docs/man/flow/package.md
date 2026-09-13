@@ -32,7 +32,7 @@ jumps.
 
 - `if` — conditional execution with `THEN`, `ELSEIF`, `ELSE`, and `END IF`.
 - `for` — counted loops with `TO`, optional `STEP`, and `NEXT`.
-- `forEach` — collection iteration over `List` and `Map` values.
+- `forEach` — collection iteration over `List`, `Set`, and `Map` values.
 - `while` — pre-test loops with `WHILE` and `END WHILE`.
 - `do` — pre-test and post-test `DO` loop forms.
 - `match` — value-based branching over unions, enums, and literals.

@@ -17,9 +17,8 @@ result has the same length and the same ordering as `value`, differing only at
 the indices where `old` occurred. When `old` does not occur, the result is a copy
 of `value`. When `value` is empty, the result is empty.
 
-Matching compares each element's stored payload against `old` using the same
-element-equality test the rest of the collections layer uses, so the element type
-must be one for which that comparison is defined; `old` and `new` must both have
+Matching compares each element against `old` with the same equality
+`collections::contains` uses, so the element type must be comparable; `old` and `new` must both have
 exactly the element type `T`. `new` may itself be equal to `old`, in which case
 the result is equal to `value`.
 

@@ -7,7 +7,14 @@
 # while the page was written; A's census measured ZERO prior example
 # verification across the whole surface. This is the instrument for that.
 #
-#   man-run-examples.sh <pkg> [--run|--test] [fn...]
+#   man-run-examples.sh <pkg>   [--run|--test] [fn...]
+#   man-run-examples.sh <topic> --topic [--run]
+#
+# --topic treats the argument as a narrative guide topic (`variable`, `tour`, …)
+# rather than a registry package. A topic has no Functions table and no
+# `Examples` section — its code blocks sit inline throughout the prose — so
+# without this the script reports "examples: 0" for it, which reads as "nothing
+# to check" rather than "this instrument cannot see 135 code blocks".
 #
 # Without --run each block is only compiled (use for tty / device / live-endpoint
 # members). With --run a successful build is executed and its stdout shown, so
@@ -20,6 +27,15 @@
 # Blocks are lifted from RENDERED output, so what is checked is exactly what a
 # developer reading the page would type. A block starts at an `IMPORT` line and
 # runs to the end of the indented region.
+#
+# A TOPIC is the one exception, and for a reason, not for convenience: a topic
+# alternates a ```basic program with a bare ``` block holding the output it
+# prints, and rendered, both are just indented two spaces with a blank line
+# between. Nothing in the rendering tells them apart, so a rendered-text
+# extractor glues each program to its own expected output and every block fails
+# to compile (measured: 10 of 10 on `variable`). The language tag is the
+# discriminator and it exists only in the source, so topic mode reads the
+# markdown under src/docs/man/<topic>/.
 #
 # Env: MFB (default ./target/release/mfb), SCRATCH (default /tmp/man-examples),
 #      STDIN_FILE (a file piped to each example's stdin; unset = inherit),
@@ -63,10 +79,22 @@ run_bounded() {
 }
 export LC_ALL=${LC_ALL:-en_US.UTF-8}
 
-pkg=${1:?usage: man-run-examples.sh <pkg> [--run|--test] [fn...]}
+pkg=${1:?usage: man-run-examples.sh <pkg|topic> [--topic] [--run|--test] [fn...]}
 shift
 run=0
 test_mode=0
+# A narrative guide topic is not a registry package: it has no Functions table to
+# scrape and no `Examples` section — its code blocks sit inline throughout the
+# prose. `.ai/man-content.md` §9 holds a topic's blocks to the same
+# compile-and-run rule as a function page's example, and 135 of them exist
+# (`man-census.sh --topics`), so they need an instrument too.
+topic_mode=0
+case "${1:-}" in
+--topic)
+	topic_mode=1
+	shift
+	;;
+esac
 case "${1:-}" in
 --run)
 	run=1
@@ -84,6 +112,12 @@ if [ ! -x "$MFB" ]; then
 fi
 
 functions() {
+	# A topic is one unit: its overview and every subtopic are swept together,
+	# so there is a single pseudo-page.
+	if [ "$topic_mode" = 1 ]; then
+		printf '%s\n' 'guide'
+		return
+	fi
 	if [ "$#" -gt 0 ]; then
 		printf '%s\n' "$@"
 	else
@@ -255,6 +289,163 @@ if "$MFB" man "$pkg" --all 2>/dev/null | grep -q '^  IMPORT workers'; then
 	build_workers_package || true
 fi
 
+# One extracted code block: stage it, build it, optionally run it, and update
+# the counters. Called from both paths — the registry-package path, which lifts
+# blocks from a rendered `Examples` section, and the guide-topic path, which
+# lifts ```basic fences from the topic's markdown. Factored out so those two
+# extractors cannot drift in how they JUDGE a block, only in how they find one.
+#
+# Deliberately not run in a subshell: it updates `total`/`built`/`ran`/`failed`
+# and `failed_list` in the caller's shell, and a `$( )` would silently discard
+# every count.
+#
+# $1 = source text, $2 = index within this page/topic
+run_one_block() {
+	local src=$1 i=$2
+
+	prepare_project || { echo "SETUP-FAIL $pkg::$fn #$i"; return 0; }
+	printf '%s\n' "$src" > "$SCRATCH/src/main.mfb"
+
+	if [ "$test_mode" = 1 ]; then
+		# `mfb test` exits non-zero iff a case failed, which is exactly the
+		# signal we want: the example's own assertions are the check.
+		if result=$("$MFB" test "$SCRATCH" 2>&1); then
+			built=$((built + 1))
+			ran=$((ran + 1))
+			echo "=== $pkg::$fn example $i — mfb test passed ==="
+			printf '%s\n' "$result" | tail -20
+		else
+			failed=$((failed + 1))
+			failed_list="$failed_list $pkg::$fn#$i(test)"
+			echo "=== $pkg::$fn example $i — mfb test FAILED ==="
+			printf '%s\n' "$result" | tail -20
+		fi
+		return 0
+	fi
+
+	build_flags=""
+	case $pkg in app|canvas) build_flags="--app" ;; esac
+	if out=$("$MFB" build "$SCRATCH" $build_flags 2>&1); then
+		built=$((built + 1))
+		# NOT_RUN_FILE lists examples that cannot run on this host, one
+		# `pkg::fn#N  reason` per line. A listed example must still BUILD;
+		# only the run is skipped, and it is reported with its reason so a
+		# skip is never silent.
+		not_run_reason=""
+		if [ "$run" = 1 ] && [ -n "${NOT_RUN_FILE:-}" ]; then
+			not_run_reason=$(awk -v id="$pkg::$fn#$i" \
+				'$1 == id { $1 = ""; sub(/^ +/, ""); print; exit }' "$NOT_RUN_FILE")
+		fi
+		# A reason starting `serves:` marks a server example whose accept loop
+		# never returns by design. It is not skipped: it runs for SERVE_SECONDS
+		# and passes only if it is STILL RUNNING when killed, so a server that
+		# fails to bind or dies on start is still caught.
+		serves=0
+		case $not_run_reason in serves:*) serves=1 ;; esac
+		if [ -n "$not_run_reason" ] && [ "$serves" = 0 ]; then
+			not_run=$((not_run + 1))
+			echo "=== $pkg::$fn example $i — compiled; not run: $not_run_reason ==="
+		elif [ "$serves" = 1 ]; then
+			bin=$(find "$SCRATCH/build" -name '*-glibc.out' -type f 2>/dev/null | head -1)
+			[ -z "$bin" ] && bin=$(find "$SCRATCH/build" -name '*.out' -type f 2>/dev/null | head -1)
+			rc=1
+			result="<no console binary>"
+			if [ -n "$bin" ]; then
+				result=$(cd "$SCRATCH" && RUN_TIMEOUT=${SERVE_SECONDS:-3} run_bounded "$bin" </dev/null 2>&1) && rc=0 || rc=$?
+			fi
+			if [ "$rc" = 124 ]; then
+				ran=$((ran + 1))
+				echo "=== $pkg::$fn example $i — serves (still running after ${SERVE_SECONDS:-3}s): ${not_run_reason#serves:} ==="
+			else
+				failed=$((failed + 1))
+				failed_list="$failed_list $pkg::$fn#$i(serve)"
+				echo "=== $pkg::$fn example $i — SERVE FAILED (exited $rc before ${SERVE_SECONDS:-3}s) ==="
+				printf '%s\n' "${result:-<no output>}"
+			fi
+		elif [ "$run" = 1 ]; then
+			# A Linux console build emits BOTH `<name>-glibc.out` and
+			# `<name>-musl.out`; run the glibc one so every Linux run is
+			# the same libc world rather than whichever `find` lists first.
+			run_args=""
+			bin=$(find "$SCRATCH/build" -name '*-glibc.out' -type f 2>/dev/null | head -1)
+			[ -z "$bin" ] && bin=$(find "$SCRATCH/build" -name '*.out' -type f 2>/dev/null | head -1)
+			if [ -z "$bin" ]; then
+				# `-perm -u+x`, not `-perm +111`: GNU find rejects the `+`
+				# form outright ("invalid file mode"), BSD find takes both.
+				bin=$(find "$SCRATCH/build" -path '*.app/Contents/MacOS/*' \
+					-type f -perm -u+x 2>/dev/null | head -1)
+				# A Linux `--app` build seals `<name>-glibc.AppImage` (plus a
+				# musl one). A CI runner has no FUSE, so extract-and-run it.
+				if [ -z "$bin" ]; then
+					bin=$(find "$SCRATCH/build" -name '*-glibc.AppImage' -type f 2>/dev/null | head -1)
+					[ -n "$bin" ] && run_args="--appimage-extract-and-run"
+				fi
+				# An app-mode program has no stdout: io::print goes to the
+				# application transcript. Running still proves it starts.
+				export MFB_MACAPP_HEADLESS=1 MFB_GTKAPP_HEADLESS=1
+			fi
+			# STDIN_FILE feeds real input to examples that read stdin, so an
+			# io/term page is verified by running rather than written off as
+			# compile-only.
+			# Run with the scratch PROJECT as cwd. Running from the
+			# repository root instead makes a relative path like
+			# "target/output.txt" resolve against cargo's own target/,
+			# so an example that would fail for a reader passes here.
+			if [ -z "$bin" ]; then
+				rc=1
+			elif [ -n "$STDIN_FILE" ]; then
+				result=$(cd "$SCRATCH" && run_bounded "$bin" ${run_args:+"$run_args"} <"$STDIN_FILE" 2>&1) && rc=0 || rc=$?
+			else
+				result=$(cd "$SCRATCH" && run_bounded "$bin" ${run_args:+"$run_args"} 2>&1) && rc=0 || rc=$?
+			fi
+			if [ "$rc" = 124 ]; then
+				result="TIMED OUT after ${RUN_TIMEOUT}s — an example must terminate.
+$result"
+			fi
+			# An example may document its own failure — `groupBy`'s third
+			# shows a propagating error and the page says "prints, and exits
+			# non-zero: failed: 77050002". A non-zero exit is only a real
+			# failure when the page does NOT show what the program printed,
+			# so this checks the output against the rendered page instead of
+			# trusting the exit status alone.
+			documented=0
+			if [ -n "$bin" ] && [ "$rc" != 0 ] && [ -n "$result" ]; then
+				documented=1
+				while IFS= read -r out_line; do
+					[ -z "$out_line" ] && continue
+					case $page in
+					*"$out_line"*) ;;
+					*) documented=0 ;;
+					esac
+				done <<-EOF
+				$result
+				EOF
+			fi
+			if [ -n "$bin" ] && { [ "$rc" = 0 ] || [ "$documented" = 1 ]; }; then
+				ran=$((ran + 1))
+				if [ "$documented" = 1 ]; then
+					echo "=== $pkg::$fn example $i — ran (documented non-zero exit) ==="
+				else
+					echo "=== $pkg::$fn example $i — ran ==="
+				fi
+				printf '%s\n' "$result"
+			else
+				failed=$((failed + 1))
+				failed_list="$failed_list $pkg::$fn#$i(run)"
+				echo "=== $pkg::$fn example $i — RUN FAILED ==="
+				printf '%s\n' "${result:-<no output>}"
+			fi
+		else
+			echo "=== $pkg::$fn example $i — compiled ==="
+		fi
+	else
+		failed=$((failed + 1))
+		failed_list="$failed_list $pkg::$fn#$i(build)"
+		echo "=== $pkg::$fn example $i — BUILD FAILED ==="
+		printf '%s\n' "$out" | tail -12
+	fi
+}
+
 total=0
 built=0
 ran=0
@@ -263,17 +454,96 @@ failed_list=""
 not_run=0
 
 for fn in $(functions "$@"); do
+	# A guide topic is read from its MARKDOWN, not from the rendering, and this
+	# is the one place that is the honest choice rather than a shortcut.
+	#
+	# A topic alternates a ```basic program with a bare ``` block holding the
+	# output it prints. Rendered, both are simply indented by two spaces with a
+	# blank line between, and NOTHING in the rendering distinguishes them — an
+	# extractor working from rendered text glues each program to its own
+	# expected output and every block fails to compile with the output text
+	# parsed as source. (Measured: 10 of 10 on `variable`.) A function page has
+	# no such pairs, which is why the registry path can and does read rendered
+	# output. Here the language tag is the discriminator, and it only exists in
+	# the source.
+	if [ "$topic_mode" = 1 ]; then
+		# `page` feeds the documented-non-zero-exit check further down: an
+		# example is allowed to fail if the page shows what it printed. The
+		# rendered topic is that reference text.
+		page=$("$MFB" man "$pkg" --all 2>/dev/null)
+		blocks=$(find "${MANDOCS:-src/docs/man}/$pkg" -name '*.md' | sort | while IFS= read -r f; do
+			awk '
+				# A fence is a standalone PROGRAM when it is tagged `basic`, or when it is
+				# untagged, its first non-blank line is an IMPORT, and it defines `main`.
+				# Guide topics also carry top-level fragments and companion package files
+				# (`EXPORT ISOLATED FUNC ...`) that begin with IMPORT but cannot build on
+				# their own; those are counted as fragments, never compiled. A fence tagged
+				# with another language (`tour` quotes Go, C, Java, Python, TypeScript) is
+				# skipped. The block is buffered and judged at its closing fence.
+				/^```/ {
+					if (inb) {
+						inb = 0
+						if (tag == "basic" || (tag == "" && first ~ /^IMPORT / && buf ~ /(^|\n)[ \t]*(SUB|FUNC)[ \t]+main[ \t]*(\(|AS|$)/)) {
+							n++; print "###BLOCK" n; printf "%s", buf
+						} else if (tag == "" && first ~ /^IMPORT /) {
+							print "###FRAGMENT"
+						}
+						next
+					}
+					tag = substr($0, 4); gsub(/[ \t\r]/, "", tag)
+					inb = 1; buf = ""; first = ""
+					next
+				}
+				inb {
+					buf = buf $0 "\n"
+					if (first == "" && $0 !~ /^[ \t]*$/) first = $0
+				}
+			' "$f"
+		done | awk '
+			# Renumber across files so the ###BLOCK indices stay unique and
+			# monotonic; each file restarts its own count at 1.
+			/^###BLOCK/ { n++; print "###BLOCK" n; next }
+			{ print }
+		')
+		# Report the split every time, so a topic whose fences are all output
+		# blocks or fragments reads as a measurement, never as a clean zero.
+		fences=$(( $(find "${MANDOCS:-src/docs/man}/$pkg" -name '*.md' -exec cat {} + | grep -c '^```') / 2 ))
+		programs=$(printf '%s\n' "$blocks" | grep -c "^###BLOCK")
+		fragments=$(printf '%s\n' "$blocks" | grep -c "^###FRAGMENT")
+		blocks=$(printf '%s\n' "$blocks" | grep -v "^###FRAGMENT")
+		echo "=== topic $pkg: $fences code fences, $programs standalone programs, $fragments IMPORT-led fragments or companion files (not compiled); the rest are output blocks or other languages ==="
+		[ -z "$blocks" ] && continue
+		count=$programs
+		i=0
+		while [ "$i" -lt "$count" ]; do
+			i=$((i + 1))
+			total=$((total + 1))
+			src=$(printf '%s\n' "$blocks" |
+				awk -v want="$i" '
+					/^###BLOCK/ { cur = substr($0, 9) + 0; next }
+					cur == want { print }
+				')
+			run_one_block "$src" "$i" || true
+		done
+		continue
+	fi
+
 	page=$("$MFB" man "$pkg" "$fn" 2>/dev/null)
 
 	# Split the Examples section into blocks. A block starts at an `IMPORT`
 	# line and continues while lines stay indented (blank lines included); the
 	# first non-indented, non-blank line is the prose introducing the NEXT
 	# block, and ends this one.
-	blocks=$(printf '%s\n' "$page" | awk '
+	blocks=$(printf '%s\n' "$page" | awk -v anywhere="$topic_mode" '
+		# A guide topic has no `Examples` section — its blocks are inline in the
+		# prose — so topic mode opens the gate at line 1 and never closes it on a
+		# heading. Nothing is lost: a heading is non-indented and non-blank, so
+		# the `inblock` rule below already ends the block it follows.
+		BEGIN { if (anywhere) inex = 1 }
 		/^Examples$/ { inex = 1; next }
 		!inex { next }
 		# A bare capitalised word on its own line is the next section heading.
-		/^[A-Za-z][A-Za-z ]*$/ { inex = 0; inblock = 0; next }
+		!anywhere && /^[A-Za-z][A-Za-z ]*$/ { inex = 0; inblock = 0; next }
 		{
 			# Only the FIRST IMPORT opens a block — examples routinely start
 			# with several (`IMPORT bits` then `IMPORT io`).
@@ -294,148 +564,7 @@ for fn in $(functions "$@"); do
 				/^###BLOCK/ { cur = substr($0, 9) + 0; next }
 				cur == want { print }
 			')
-
-		prepare_project || { echo "SETUP-FAIL $pkg::$fn #$i"; continue; }
-		printf '%s\n' "$src" > "$SCRATCH/src/main.mfb"
-
-		if [ "$test_mode" = 1 ]; then
-			# `mfb test` exits non-zero iff a case failed, which is exactly the
-			# signal we want: the example's own assertions are the check.
-			if result=$("$MFB" test "$SCRATCH" 2>&1); then
-				built=$((built + 1))
-				ran=$((ran + 1))
-				echo "=== $pkg::$fn example $i — mfb test passed ==="
-				printf '%s\n' "$result" | tail -20
-			else
-				failed=$((failed + 1))
-				failed_list="$failed_list $pkg::$fn#$i(test)"
-				echo "=== $pkg::$fn example $i — mfb test FAILED ==="
-				printf '%s\n' "$result" | tail -20
-			fi
-			continue
-		fi
-
-		build_flags=""
-		case $pkg in app|canvas) build_flags="--app" ;; esac
-		if out=$("$MFB" build "$SCRATCH" $build_flags 2>&1); then
-			built=$((built + 1))
-			# NOT_RUN_FILE lists examples that cannot run on this host, one
-			# `pkg::fn#N  reason` per line. A listed example must still BUILD;
-			# only the run is skipped, and it is reported with its reason so a
-			# skip is never silent.
-			not_run_reason=""
-			if [ "$run" = 1 ] && [ -n "${NOT_RUN_FILE:-}" ]; then
-				not_run_reason=$(awk -v id="$pkg::$fn#$i" \
-					'$1 == id { $1 = ""; sub(/^ +/, ""); print; exit }' "$NOT_RUN_FILE")
-			fi
-			# A reason starting `serves:` marks a server example whose accept loop
-			# never returns by design. It is not skipped: it runs for SERVE_SECONDS
-			# and passes only if it is STILL RUNNING when killed, so a server that
-			# fails to bind or dies on start is still caught.
-			serves=0
-			case $not_run_reason in serves:*) serves=1 ;; esac
-			if [ -n "$not_run_reason" ] && [ "$serves" = 0 ]; then
-				not_run=$((not_run + 1))
-				echo "=== $pkg::$fn example $i — compiled; not run: $not_run_reason ==="
-			elif [ "$serves" = 1 ]; then
-				bin=$(find "$SCRATCH/build" -name '*-glibc.out' -type f 2>/dev/null | head -1)
-				[ -z "$bin" ] && bin=$(find "$SCRATCH/build" -name '*.out' -type f 2>/dev/null | head -1)
-				rc=1
-				result="<no console binary>"
-				if [ -n "$bin" ]; then
-					result=$(cd "$SCRATCH" && RUN_TIMEOUT=${SERVE_SECONDS:-3} run_bounded "$bin" </dev/null 2>&1) && rc=0 || rc=$?
-				fi
-				if [ "$rc" = 124 ]; then
-					ran=$((ran + 1))
-					echo "=== $pkg::$fn example $i — serves (still running after ${SERVE_SECONDS:-3}s): ${not_run_reason#serves:} ==="
-				else
-					failed=$((failed + 1))
-					failed_list="$failed_list $pkg::$fn#$i(serve)"
-					echo "=== $pkg::$fn example $i — SERVE FAILED (exited $rc before ${SERVE_SECONDS:-3}s) ==="
-					printf '%s\n' "${result:-<no output>}"
-				fi
-			elif [ "$run" = 1 ]; then
-				# A Linux console build emits BOTH `<name>-glibc.out` and
-				# `<name>-musl.out`; run the glibc one so every Linux run is
-				# the same libc world rather than whichever `find` lists first.
-				run_args=""
-				bin=$(find "$SCRATCH/build" -name '*-glibc.out' -type f 2>/dev/null | head -1)
-				[ -z "$bin" ] && bin=$(find "$SCRATCH/build" -name '*.out' -type f 2>/dev/null | head -1)
-				if [ -z "$bin" ]; then
-					# `-perm -u+x`, not `-perm +111`: GNU find rejects the `+`
-					# form outright ("invalid file mode"), BSD find takes both.
-					bin=$(find "$SCRATCH/build" -path '*.app/Contents/MacOS/*' \
-						-type f -perm -u+x 2>/dev/null | head -1)
-					# A Linux `--app` build seals `<name>-glibc.AppImage` (plus a
-					# musl one). A CI runner has no FUSE, so extract-and-run it.
-					if [ -z "$bin" ]; then
-						bin=$(find "$SCRATCH/build" -name '*-glibc.AppImage' -type f 2>/dev/null | head -1)
-						[ -n "$bin" ] && run_args="--appimage-extract-and-run"
-					fi
-					# An app-mode program has no stdout: io::print goes to the
-					# application transcript. Running still proves it starts.
-					export MFB_MACAPP_HEADLESS=1 MFB_GTKAPP_HEADLESS=1
-				fi
-				# STDIN_FILE feeds real input to examples that read stdin, so an
-				# io/term page is verified by running rather than written off as
-				# compile-only.
-				# Run with the scratch PROJECT as cwd. Running from the
-				# repository root instead makes a relative path like
-				# "target/output.txt" resolve against cargo's own target/,
-				# so an example that would fail for a reader passes here.
-				if [ -z "$bin" ]; then
-					rc=1
-				elif [ -n "$STDIN_FILE" ]; then
-					result=$(cd "$SCRATCH" && run_bounded "$bin" ${run_args:+"$run_args"} <"$STDIN_FILE" 2>&1) && rc=0 || rc=$?
-				else
-					result=$(cd "$SCRATCH" && run_bounded "$bin" ${run_args:+"$run_args"} 2>&1) && rc=0 || rc=$?
-				fi
-				if [ "$rc" = 124 ]; then
-					result="TIMED OUT after ${RUN_TIMEOUT}s — an example must terminate.
-$result"
-				fi
-				# An example may document its own failure — `groupBy`'s third
-				# shows a propagating error and the page says "prints, and exits
-				# non-zero: failed: 77050002". A non-zero exit is only a real
-				# failure when the page does NOT show what the program printed,
-				# so this checks the output against the rendered page instead of
-				# trusting the exit status alone.
-				documented=0
-				if [ -n "$bin" ] && [ "$rc" != 0 ] && [ -n "$result" ]; then
-					documented=1
-					while IFS= read -r out_line; do
-						[ -z "$out_line" ] && continue
-						case $page in
-						*"$out_line"*) ;;
-						*) documented=0 ;;
-						esac
-					done <<-EOF
-					$result
-					EOF
-				fi
-				if [ -n "$bin" ] && { [ "$rc" = 0 ] || [ "$documented" = 1 ]; }; then
-					ran=$((ran + 1))
-					if [ "$documented" = 1 ]; then
-						echo "=== $pkg::$fn example $i — ran (documented non-zero exit) ==="
-					else
-						echo "=== $pkg::$fn example $i — ran ==="
-					fi
-					printf '%s\n' "$result"
-				else
-					failed=$((failed + 1))
-					failed_list="$failed_list $pkg::$fn#$i(run)"
-					echo "=== $pkg::$fn example $i — RUN FAILED ==="
-					printf '%s\n' "${result:-<no output>}"
-				fi
-			else
-				echo "=== $pkg::$fn example $i — compiled ==="
-			fi
-		else
-			failed=$((failed + 1))
-			failed_list="$failed_list $pkg::$fn#$i(build)"
-			echo "=== $pkg::$fn example $i — BUILD FAILED ==="
-			printf '%s\n' "$out" | tail -12
-		fi
+		run_one_block "$src" "$i" || true
 	done
 done
 

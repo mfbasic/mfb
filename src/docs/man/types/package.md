@@ -11,17 +11,17 @@ mfb man types [topic]
 ## Imports
 
 `types` is a documentation topic, not an importable package. The primitive,
-record, error, container, and concurrency types described here are compiler-owned
+record, error, container, and concurrency types described here are built in
 and always understood by the language, so no `IMPORT` is needed. A few package
 types (such as `TermSize`) become available when their package is imported.
 
 ## Description
 
-MFBASIC has a small set of compiler-owned types that the language always
-understands. Primitive types name scalar values. Compiler-owned templates such
-as `List`, `Map`, `Set`, `MapEntry`, `Pair`, `Partition`, `Thread`, and
-`ThreadWorker` are monomorphized before code is generated, so each concrete use
-has a fully known type.
+MFBASIC has a small set of built-in types that the language always understands.
+Primitive types name scalar values. Built-in templates such as `List`, `Map`,
+`Set`, `MapEntry`, `Pair`, `Partition`, `Thread`, and `ThreadWorker` always take
+their element types, so every concrete use — a `List OF Integer`, a
+`Map OF String TO Float` — has a fully known type when the program is compiled.
 
 User-defined `TYPE`, `UNION`, `ENUM`, and package-scope `RESOURCE … CLOSE BY`
 declarations (native `LINK` resources) create additional program types, but they
@@ -50,16 +50,14 @@ The eight core primitives are scalar value types:
   another `Money`, scales by a plain number, and compares only against another
   `Money`, so `amount = 5` is a compile error and `amount = toMoney(5)` is the
   way to write it. See `mfb man types numeric` and `mfb man money`.
-  [[src/numeric.rs:MONEY_SCALE]]
 - **`String`** — an immutable UTF-8 string. Length, search, and substring
   operations use zero-based Unicode scalar indexes, not byte offsets or
   grapheme-cluster indexes.
 - **`Scalar`** — a single 32-bit Unicode scalar value: a code point in
-  `U+0000..U+D7FF` or `U+E000..U+10FFFF` (surrogates excluded), written as a
-  backtick literal (`` `A` ``, `` `中` ``, `` `\u{1F600}` ``). It is one scalar,
+  `U+0000..U+D7FF` or `U+E000..U+10FFFF` (surrogates excluded), written as a single scalar between backticks. It is one scalar,
   not a grapheme cluster. `Scalar` is non-numeric — the arithmetic operators
   reject it — so code-point math goes through `toInt` and `toScalar`. See
-  `mfb man types string`. [[src/lexer.rs:lex_scalar]]
+  `mfb man types string`.
 
 `Nothing` is the unit type; its only value is `NOTHING`. A `SUB` has success type
 `Nothing`.
@@ -88,21 +86,22 @@ user code. See `mfb man errors`.
 
 ## Containers
 
-- **`List OF T`** — an owned ordered sequence of values of type `T` with
+- **`List OF T`** — an ordered sequence of values of type `T` with
   zero-based indexes. `LET` list values are immutable snapshots; `MUT` list
   bindings may be updated locally. See `mfb man types list`.
-- **`Map OF K TO V`** — an owned key/value mapping. `K` must be comparable. Map
+- **`Map OF K TO V`** — a key/value mapping. `K` must be comparable. Map
   iteration order is implementation-defined but stable for a given unchanged map
   value during one program run. See `mfb man types map`.
-- **`Set OF T`** — an owned, unordered, deduplicated collection: each distinct
+- **`Set OF T`** — an unordered, deduplicated collection: each distinct
   element appears at most once, and adding a present element is a no-op. `T`
   must be comparable, exactly as a `Map` key must be. See `mfb man types set`.
-- **`MapEntry OF K TO V`** — the compiler-owned record produced by `FOR EACH`
-  over a map, with public read-only `key AS K` and `value AS V` fields.
-- **`Pair OF A, B`** — a compiler-owned two-value product used by
+- **`MapEntry OF K TO V`** — the built-in record produced by `FOR EACH`
+  over a map, with public read-only `key AS K` and `value AS V` fields. See
+  `mfb man flow forEach`.
+- **`Pair OF A, B`** — a built-in two-value record used by
   `collections::zip`, with fields `first AS A` and `second AS B` and no
   comparability constraint on `A` or `B`. See `mfb man types pair`.
-- **`Partition OF T`** — a compiler-owned record returned by
+- **`Partition OF T`** — a built-in record returned by
   `collections::partition`, with fields `matched AS List OF T` and
   `unmatched AS List OF T`. See `mfb man types partition`.
 
@@ -120,15 +119,72 @@ user code. See `mfb man errors`.
 - **`color::Color`** — the colour type every package speaks, returned by
   `term::getForeground`/`term::getBackground` and taken by
   `term::setForeground`/`term::setBackground`. Unlike the other entries here it is
-  an **ordinary value record**, not a compiler-owned read-only one: a program may
+  an **ordinary value record**, not a built-in read-only one: a program may
   build one and `WITH`-update it. A terminal has no alpha channel, so the getters
   always report `alpha` `255` and the setters ignore it.
-  [[src/codegen/builtins/color/mod.rs:COLOR_TYPE_ID]]
 - **`TermSize`** — the `term` record returned by `term::terminalSize`, with
   `columns` and `rows` (`Integer`) fields for terminal width and height in
-  character cells. [[src/codegen/builtins/term/mod.rs:TERM_SIZE_TYPE]]
+  character cells.
 
-## Comparability and ownership
+## Defining types
+
+A program adds its own types with declarations. `TYPE` declares a record of named
+fields, built with square brackets; `UNION` groups existing record types into one
+closed choice, taken apart with `MATCH`; `ENUM` names a fixed set of members,
+written `Color.Green`:
+
+```
+IMPORT io
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+TYPE Circle
+  center AS Point
+  radius AS Integer
+END TYPE
+
+TYPE Square
+  corner AS Point
+  side   AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Square
+END UNION
+
+ENUM Color
+  Red, Green, Blue
+END ENUM
+
+SUB main()
+  LET origin = Point[x := 0, y := 0]
+  LET s AS Shape = Square[corner := origin, side := 3]
+  LET c = Color.Green
+  MATCH s
+    CASE Circle(ci)
+      io::print("circle " & toString(ci.radius))
+    CASE Square(sq)
+      io::print("square " & toString(sq.side))
+  END MATCH
+  IF c = Color.Green THEN io::print("green")
+END SUB
+```
+
+Output:
+
+```
+square 3
+green
+```
+
+`WITH` builds a changed copy of a record (`mfb man variable`). `RESOURCE … CLOSE BY`
+declares a handle type for a native library binding (`mfb man link`).
+
+## Comparability and copying
 
 Comparable types (`=`, `<>`) are `Integer`, `Float`, `Fixed`, `Money`,
 `Boolean`, `String`, `Byte`, `Scalar`, `Nothing`, enum types, the built-in
@@ -144,7 +200,10 @@ requires orderable ones. See `mfb man types comparisons`.
 Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and
 unions whose active payload is copyable are copyable. `List`, `Map`, and `Set`
 are copyable only when their element, key, and value types are copyable; copying
-a collection copies its contents. Thread and resource handles are not copyable.
+a collection copies its contents. Thread and resource handles are not copyable. A
+record with a `RES` field can still be assigned: its other fields are copied, and
+the field stays an alias of the same open handle, so closing it through either
+record closes it for both (see `mfb man variable`).
 
 ## Errors
 
@@ -161,6 +220,10 @@ No errors.
 - `mfb man types partition`
 - `mfb man types set`
 - `mfb man types string`
+- `mfb man flow forEach`
+- `mfb man flow match`
+- `mfb man variable`
+- `mfb man link`
 - `mfb man errors`
 - `mfb man general`
 - `mfb man thread`

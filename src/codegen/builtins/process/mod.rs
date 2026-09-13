@@ -94,7 +94,11 @@ const MODULE_DESC: &str = r#"The `process` package runs and controls child proce
 is not copied — a second name for one is an alias — and it may be a field of a
 record or an element of a collection (a `List OF RES process::Process` is how you
 supervise several children). It closes itself when its binding goes out of
-scope.
+scope, and closing a live child that way force-kills and reaps it (below). There
+is no early close: `process::detach` ends the handle instead, and every later
+`process::` call on a detached handle raises `ErrResourceClosed`. A `Process`
+stays on the thread that started it. Import the package with `IMPORT process`;
+it needs no manifest dependency.
 
 
 A child is created two ways. `process::spawn` runs a program directly from an
@@ -142,7 +146,9 @@ child died with `process::didSignal`:
 | `process::Signal.Error` | `SIGABRT` | `TerminateProcess` | `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS` |
 
 Windows has no signals, so every delivered signal is the same forced
-termination there and `didSignal` reports `process::Signal.None` for every child. On
+termination there, and `didSignal` can report only `process::Signal.Error` (for a
+child that ended with an error-severity exit status, such as an access violation)
+or `process::Signal.None` (every other outcome). On
 Unix the buckets are lossy in the read direction: several signals map to one
 bucket, so `didSignal` tells you the *kind* of death, not which signal caused
 it.

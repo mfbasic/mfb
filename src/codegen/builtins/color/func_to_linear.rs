@@ -10,9 +10,12 @@ const INTRO: &str = r#"Convert one sRGB channel to its linear-light value, `0`..
 const DESC: &str = r#"`toLinear` maps an sRGB channel byte to the amount of light it represents, on a
 scale of `0` (black) to `65535` (full). `color::fromLinear` is the inverse.
 
-This pair is the seam every perceptual operation in `color` is built on, and it is
-the same seam the canvas software rasteriser blends through, so a colour computed
-here and a pixel drawn there cannot disagree.
+This pair is what the linear-light operations — `color::brighten`,
+`color::darken`, `color::mix`, `color::grayscale` and `color::luminance` — are
+built on, and `canvas` blends through the same conversion, so a colour computed
+here and a pixel drawn there agree. The HSL operations (`color::saturate`,
+`color::rotateHue` and the rest) are not built on it: HSL describes the encoded
+sRGB colour.
 
 **Why the conversion is not a multiplication.** An sRGB channel is *encoded*, not
 proportional to light: `128` is not half as much light as `255`, it is about 22%.

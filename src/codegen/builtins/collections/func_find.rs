@@ -37,11 +37,10 @@ never returns a sentinel such as `-1`; a search that may legitimately come up
 empty needs a `TRAP`, or `collections::contains` if only the yes/no answer is
 wanted.
 
-Element equality is decided on the stored payload. `String` elements compare by
-length and then byte for byte; `Integer`, `Float`, `Fixed`, and `Money` elements
-compare as their stored 64-bit pattern, so `Float` matching is bit-exact and a
-`NaN` never matches itself; `Boolean`, `Byte`, and `Scalar` compare as their
-narrower stored value; record elements compare field by field. An element type that cannot be compared — a nested
+Element equality depends on the element type. `String` elements compare byte for
+byte; `Integer`, `Fixed`, `Money`, `Boolean`, `Byte`, and `Scalar` elements
+compare with `=`; `Float` elements compare by exact bit pattern, so `-0.0` does
+not match `0.0`; record elements compare field by field. An element type that cannot be compared — a nested
 `List`, `Map` or `Set` — is rejected at compile time
 (`TYPE_REQUIRES_COMPARABLE`) rather than matching by identity.
 

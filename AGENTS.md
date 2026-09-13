@@ -104,6 +104,14 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   * `.ai/testing-gates.md` — artifact-gate, byte-identity, acceptance golden harness,
     perf-golden and concurrency hazards, citation sweeps.
   * `.ai/build-tooling.md` — rustfmt/clippy policy, cross-compile + vendor rebuild mechanics.
+* **Two documentation surfaces, two audiences — pick by reader, not by topic.**
+  `mfb man` is for **the MFBASIC developer** using and learning the language;
+  compiler internals are banned there. `mfb spec` is for **the compiler
+  contributor** (and the developer who wants the internal detail); internals are
+  required there, and cited. The standards are mirror images:
+  `.ai/man-content.md` and `.ai/spec-content.md`. A sentence cut from a man page
+  for being too internal is a candidate **spec** obligation, not deleted
+  knowledge — see `.ai/spec-content.md` §8.
 * Creating or updating `mfb man` content. Two separate sources — pick by page kind:
   * **Built-in package / function / type pages are rendered from the clean-room
     registry descriptors**, not from any Markdown file (`src/cli/man.rs:1-15`,
@@ -120,9 +128,14 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
     embedded at build time (`src/docs/man/mod.rs`). Only reached when the first
     positional is not a known package.
   * **`.ai/man-content.md` is the content standard — read it before writing a
-    page.** It defines who the page is for, what it must and must not contain,
-    the four-step authoring workflow, and the verification instruments
-    (`scripts/man-census.sh`, `scripts/man-run-examples.sh`). The retired
+    page.** It defines who the page is for (the MFBASIC developer), what it must
+    and must not contain, the four-step authoring workflow, and the verification
+    instruments (`scripts/man-census.sh`, `scripts/man-run-examples.sh`,
+    `scripts/man-manual.sh`). **§9 governs the narrative guide topics**, which
+    are held to the same bans as a function page — they were outside plan-108
+    entirely, so the surface's "0 banned words" certification covered 596 of 628
+    pages. Note `mfb man --all` omits `testing` and `general` by design;
+    `scripts/man-manual.sh` is the complete 628-page artifact. The retired
     `.ai/man_*template*.md` files are deleted; nothing in them survived the
     registry migration (the renderer derives Synopsis/Parameters/Return/Errors/
     See-also itself, so a page author writes only intro, description and
@@ -141,7 +154,21 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
     `scripts/man-census.sh --fill <pkg>` for coverage,
     `scripts/man-run-examples.sh <pkg> --run` to compile and run every example
     on the page.
-* The embedded spec (`mfb spec`, `src/docs/spec/**`) → `.ai/specifications.md` (keep it
-  current with every compiler change).
+* The embedded spec (`mfb spec`, `src/docs/spec/**`) → two files, and read both:
+  * `.ai/specifications.md` — the **mechanical** rules: single source of truth,
+    `[[path:Symbol]]` provenance, `PACKAGE_ORDER`, and the one file that is build
+    input (`diagnostics/02_error-codes.md` generates the `errorCode::` constants).
+    Keep the spec current with every compiler change — that is part of the Hard
+    Completion Gate, not optional cleanup.
+  * `.ai/spec-content.md` — the **review** standard, for the compiler-contributor
+    audience: what a topic must contain, what it must not (tutorial prose,
+    marketing, duplicated bodies, unverifiable or aspirational claims), the
+    as-is-at-HEAD accuracy rule, how to triage a spec/code disagreement, and the
+    two citation-rot classes. A **stale-by-deletion** citation (the symbol exists
+    nowhere in `src/`) makes the CLAIM suspect, not just the link — re-pointing
+    paths alone silently ratifies a sentence about a compiler that no longer
+    exists. Measure with `scripts/spec-census.sh --citations` / `--links`; gate
+    with `cargo build`, `cargo test --bin mfb spec`, plus `cargo test errorcode`
+    only when the error-code table changed.
 * Remote test machines → `.ai/remote_systems.md`.
 * Starting an agent or sub-agent  → `.ai/sub-agents.md`.

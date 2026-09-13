@@ -1,0 +1,10 @@
+man-pkg:canvas
+man-topic:tour
+man-topic:types
+man-topic:flow
+man-topic:errors
+man-topic:lambda
+man-topic:link
+man-topic:optimizations
+man-topic:tooling
+man-topic:unicode
