@@ -171,14 +171,41 @@ is usually a class, not an instance.*
 The never-reviewed material, and the material that sets vocabulary for
 everything after it.
 
-- [ ] `canvas` (19 function pages + overview + a 106-description types page).
-- [ ] `tour`, `types`, `flow`, `errors`, `lambda`, `link`, `optimizations`,
+- [~] `canvas` (19 function pages + overview + a 106-description types page).
+      **My pass done:** `--memory-scope canvas` 0 unclassified, `--scope canvas`
+      0, 22/22 examples compile (compile-only: app-mode programs take over the
+      desktop). **Remaining: its Codex iteration-1 review, triage and apply.**
+- [~] `tour`, `types`, `flow`, `errors`, `lambda`, `link`, `optimizations`,
       `tooling`, `unicode` — each as a whole topic including its subtopic
-      pages.
-- [ ] Record every terminology decision made here in a running table in this
-      file; later phases conform to it rather than re-deciding.
-- [ ] Append every "belongs in spec" cut to
-      `planning/plan-125-belongs-in-spec.md`.
+      pages. **My pass done** (C-2, C-3, C-4): whole-surface `--memory-scope`
+      109 unclassified → 0, `--scope` 9 → 0; 38 citation markers removed; every
+      standalone topic program builds and runs; one broken example fixed
+      (`flow pipeline`) and one renderer-dropped syntax block fixed
+      (`types string`). **Remaining: the nine Codex iteration-1 reviews, triage
+      and apply.**
+- [~] Record every terminology decision made here in a running table in this
+      file; later phases conform to it rather than re-deciding. **Table below,
+      from my pass; the Codex reviews may add rows.**
+- [~] Append every "belongs in spec" cut to
+      `planning/plan-125-belongs-in-spec.md`. **Rows 4–19 from my pass**
+      (`types` storage layout ×10, `types` monomorphization, `lambda` ×2,
+      `optimizations` stage legend, `link` resolver and loader). **Remaining:
+      any cut the Codex reviews produce.**
+
+#### Terminology table (conform to this; do not re-decide)
+
+| Concept | Write | Not | Decided from |
+|---|---|---|---|
+| a type the language provides | **built-in** | "compiler-owned" | `types`, `errors`, `lambda`, `pair`, `partition` |
+| a value ceasing to exist at scope end | **goes away when its scope ends** | "dropped", "reclaimed", "lexical drop" | `tour`, `errors`, `types` |
+| a `RES` handle closing at scope end | **closed when its scope ends** | "closed by lexical drop", "owned by this scope" | `tour` ×6, `errors` |
+| a second name for one open handle | **alias** (for `RES` only) | "owner", "the same owner" | `.ai/man-content.md` §4.1 |
+| what `thread::send` does to a value | **hands over** (the receiver has its own copy) | "moves", "owns its copy" | `tour` ×5 |
+| what a collection value contains | **holds** its items | "owns its contents", "owned block" | `types list`/`map`/`set` |
+| a `MUT` collection updated efficiently | **the change can be made in place** | "uniquely-owned … live buffer" | `types list`/`map`/`set` |
+| a close function's parameter | **takes … and closes it** | "consumes" | `link` |
+| a closure's captured `LET` | **gets its own copy** | "by value", "deep-copies" | `lambda` |
+| a `forEach` lambda changing an outer `MUT` | **changes the outer binding itself** | "borrow", "loaned" | `lambda` |
 
 Acceptance: 11 units in the manifest with `exit 0`, no `FAILED`, no `DIRTY`;
 each has a ledger in this file with a verdict per finding and a disproving
@@ -253,6 +280,88 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+### C-1 — every count in §2 drifted, and Phase 1 is 10 units, not 11
+
+Measured 2026-09-12 on `worktree-P-125` after merging main (`ecb35180d`):
+
+- **function pages behind this letter's units: 516, not 510.**
+  `./scripts/man-census.sh --fill` → `TOTAL 544 …`, minus `color`'s 28. The
+  plan wrote "538 minus `color` 28".
+- **Phase 1 is 10 units, not 11.** `canvas` plus "the nine guide topics" is 10;
+  `planning/plan-125-units/B-phase1.txt` lists exactly those 10.
+- **Guide pages behind this letter's units: 31** — unchanged
+  (`./scripts/man-census.sh --topics` → 32, minus `variable`).
+- **The unit total stays 39** (30 packages + 9 topics). Only the page count
+  behind them moved.
+
+### C-2 — the example instrument could not see nine of the ten topics' programs
+
+plan-125-A added `--topic` to `scripts/man-run-examples.sh` and proved it on
+`variable` (10/10). Run over this letter's nine topics it reported
+**`examples: 0` for every one of them**. Measured cause:
+`grep -h '^```' src/docs/man/*/*.md | sort | uniq -c` → **258 untagged fences
+and 10 ```basic**, and all ten ```basic fences are in `variable`. The extractor
+accepted only ```basic, so it silently skipped every program in `tour`,
+`types`, `flow`, `errors`, `lambda`, `link`, `optimizations`, `tooling` and
+`unicode` — the exact "0 reads as nothing to check" failure `--topic` exists to
+prevent.
+
+Fixed before this letter's pass counts, in two steps, both measured:
+
+1. **IMPORT-led untagged fences.** Accepting ```basic **or** an untagged fence
+   whose first line is `IMPORT` found 33 blocks — and **18 failed to build**
+   (`tour` 12 of 13, `types` 1 of 2, `flow` 1 of 10, `errors` 1 of 1).
+2. **…that also define `main`.** Reading every failure: `tour` #1/3/5/7/9 and
+   `errors` #1 were top-level fragments (`MFB_PARSE_UNEXPECTED_STATEMENT`, no
+   `SUB main`); `tour` #2/4/6/8/10 and `types` #2 were companion **package**
+   files (`EXPORT ISOLATED FUNC …`, `PROJECT_ENTRY_INVALID`); `tour` #12/13 were
+   fragments. None was a broken page. A block is now a standalone program only
+   if it also defines `main`; IMPORT-led blocks without one are **counted as
+   fragments and reported, never compiled**.
+
+One of the 18 was real: **`flow` #9** (`mfb man flow pipeline`, "A simple
+two-stage pipeline") declares its helper `FUNCTION isEven … END FUNCTION`.
+MFBASIC spells it `FUNC … END FUNC`; the example did not compile. Fixed in
+`src/docs/man/flow/pipeline.md`.
+
+Final run, every topic: `variable` 10/10, `flow` 10/10, `tour` 1/1, `types`
+1/1, `lambda` 1/1 standalone programs build and run; fragments counted —
+`tour` 12, `types` 1, `errors` 1; `link`, `optimizations`, `tooling`, `unicode`
+have no standalone program. Each run prints its fence / program / fragment
+split.
+
+### C-3 — carve-out 4, and why the `tour` pages get none
+
+The whole-surface memory sweep had 109 unclassified hits, all in this letter's
+guide topics. Every sentence describing **MFBASIC** was rewritten to keep its
+fact. Two groups needed a classification decision rather than a substitution:
+
+- **`link`'s C-ABI type rows** (`CPtr`: "Opaque native pointer", `CString`:
+  "Null-terminated UTF-8 pointer"). A binding author writes C types, and those
+  rows would be false without the word. Carve-out 4, narrowed to exactly those
+  two table rows, and recorded in `.ai/man-content.md` §9.2a. Every other hit on
+  `link` — "ownership rules", "consumes", the `FREE` and loader prose — was
+  rewritten.
+- **The `tour` comparison pages** name other languages' memory models to
+  contrast with them. **No carve-out**: each hit was rephrased in that
+  language's own terms. A rule keyed on "this line is about another language"
+  cannot be made precise enough to stop it hiding a sentence about MFBASIC.
+
+Carve-out 3 was also found **silently disarmed**: its end anchor was the
+rendered heading "Always-on lowering (Level 0)", which this letter's own
+`optimizations` rewrite renamed to "Always-on rewrites". The census now accepts
+both spellings, and carve-out 3 applies to `--memory-scope` as well (the catalog
+rows say "lifetimes", "frees" and "allocation").
+
+### C-4 — 38 invisible citation markers
+
+`.ai/man-content.md` §3 bans `[[path:Symbol]]` markers on a man page, and the
+renderer strips them, so **no rendered sweep has ever seen one.**
+`grep -rn '\[\[\(src\|build\.rs\|repository\)' src/docs/man --include='*.md'`
+found them in `link` (13), `types` subpages (20: `numeric` 14, `set` 4, `list`
+1, `map` 1), `types` overview (4) and `lambda` (1). All removed; the check is
+now recorded in `.ai/man-content.md` §9.2b.
 
 ## Summary
 

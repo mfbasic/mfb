@@ -11,7 +11,7 @@ mfb man errors
 ## Imports
 
 `errors` is a documentation topic, not an importable package. `Error` and
-`ErrorLoc` are compiler-owned read-only records that are always in scope, the
+`ErrorLoc` are built-in read-only records that are always in scope, the
 `error` constructor is always available like `toString`, and `FAIL`, `TRAP`,
 `PROPAGATE`, and `RECOVER` are language keywords — no `IMPORT` is needed.
 
@@ -66,7 +66,7 @@ of the current expression is skipped and the `Error` routes to the nearest
 `TRAP` or propagates out of the function. Function arguments are evaluated left
 to right, so if an earlier argument fails, later arguments are not evaluated.
 When an error path leaves a scope, any live resource bindings in that scope are
-closed by lexical drop before the error reaches the enclosing `TRAP` or caller.
+closed as the scope ends, before the error reaches the enclosing `TRAP` or caller.
 
 ## FAIL
 

@@ -473,9 +473,31 @@ for fn in $(functions "$@"); do
 		page=$("$MFB" man "$pkg" --all 2>/dev/null)
 		blocks=$(find "${MANDOCS:-src/docs/man}/$pkg" -name '*.md' | sort | while IFS= read -r f; do
 			awk '
-				/^```basic$/ { inb = 1; n++; print "###BLOCK" n; next }
-				/^```/       { inb = 0; next }
-				inb          { print }
+				# A fence is a standalone PROGRAM when it is tagged `basic`, or when it is
+				# untagged, its first non-blank line is an IMPORT, and it defines `main`.
+				# Guide topics also carry top-level fragments and companion package files
+				# (`EXPORT ISOLATED FUNC ...`) that begin with IMPORT but cannot build on
+				# their own; those are counted as fragments, never compiled. A fence tagged
+				# with another language (`tour` quotes Go, C, Java, Python, TypeScript) is
+				# skipped. The block is buffered and judged at its closing fence.
+				/^```/ {
+					if (inb) {
+						inb = 0
+						if (tag == "basic" || (tag == "" && first ~ /^IMPORT / && buf ~ /(^|\n)[ \t]*(SUB|FUNC)[ \t]+main[ \t]*(\(|AS|$)/)) {
+							n++; print "###BLOCK" n; printf "%s", buf
+						} else if (tag == "" && first ~ /^IMPORT /) {
+							print "###FRAGMENT"
+						}
+						next
+					}
+					tag = substr($0, 4); gsub(/[ \t\r]/, "", tag)
+					inb = 1; buf = ""; first = ""
+					next
+				}
+				inb {
+					buf = buf $0 "\n"
+					if (first == "" && $0 !~ /^[ \t]*$/) first = $0
+				}
 			' "$f"
 		done | awk '
 			# Renumber across files so the ###BLOCK indices stay unique and
@@ -483,8 +505,15 @@ for fn in $(functions "$@"); do
 			/^###BLOCK/ { n++; print "###BLOCK" n; next }
 			{ print }
 		')
+		# Report the split every time, so a topic whose fences are all output
+		# blocks or fragments reads as a measurement, never as a clean zero.
+		fences=$(( $(find "${MANDOCS:-src/docs/man}/$pkg" -name '*.md' -exec cat {} + | grep -c '^```') / 2 ))
+		programs=$(printf '%s\n' "$blocks" | grep -c "^###BLOCK")
+		fragments=$(printf '%s\n' "$blocks" | grep -c "^###FRAGMENT")
+		blocks=$(printf '%s\n' "$blocks" | grep -v "^###FRAGMENT")
+		echo "=== topic $pkg: $fences code fences, $programs standalone programs, $fragments IMPORT-led fragments or companion files (not compiled); the rest are output blocks or other languages ==="
 		[ -z "$blocks" ] && continue
-		count=$(printf '%s\n' "$blocks" | grep -c "^###BLOCK")
+		count=$programs
 		i=0
 		while [ "$i" -lt "$count" ]; do
 			i=$((i + 1))

@@ -10,7 +10,7 @@ Partition OF T
 
 ## Description
 
-`Partition OF T` is a compiler-owned, always-in-scope generic record returned by
+`Partition OF T` is a built-in, always-in-scope generic record returned by
 `collections::partition`. It splits a list into the items a predicate matched and
 the items it did not:
 

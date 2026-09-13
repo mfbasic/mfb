@@ -20,8 +20,8 @@ A `LINK` block declares the native surface of a reusable binding package. It
 names one host dynamic library, gives that library a package-local alias, and
 declares typed MFBASIC wrapper functions for native symbols in that library.
 Application packages do not repeat the `LINK` block. They import the compiled
-binding package, call its exported wrappers, and use any exported resource types
-through ordinary MFBASIC ownership rules.
+binding package, call its exported wrappers, and use any exported resource types like any other `RES` handle (see
+`mfb man variable`).
 
 ```
 EXPORT RESOURCE Db CLOSE BY sqlite::close
@@ -45,12 +45,10 @@ EXPORT FUNC close AS sqlite::close
 
 `LINK "sqlite3" AS sqlite` creates the package-local namespace `sqlite`.
 Members are referenced as `sqlite::open` and `sqlite::close` inside the binding
-package. The resolver collects `LINK` aliases before ordinary top-level symbols
-so resource `CLOSE BY` declarations and transparent re-export aliases can
-forward-reference native functions. A `LINK` alias is distinct from an imported
+package. `LINK` aliases are
+visible before other top-level names, so a resource's `CLOSE BY` and a transparent
+re-export alias can refer to a native function declared later in the file. A `LINK` alias is distinct from an imported
 package and wins before import lookup for that root name.
-[[src/resolver/mod.rs:collect_top_level_symbols]]
-[[src/resolver/resolution.rs:resolve_package_qualified_name]]
 
 ## Binding packages
 
@@ -62,11 +60,10 @@ ordinary package functions and resource types.
 
 Native resources are declared at package scope with
 `RESOURCE Name CLOSE BY alias::func`, not inside the `LINK` block. The close
-function must be a native `LINK` function that consumes exactly one `RES`
-parameter of that resource type. A transparent function alias,
-`EXPORT FUNC close AS alias::func`, is the way to expose that same consuming
-close operation to importers. [[src/resolver/resolution.rs:resolve_resource_decl]]
-[[src/resolver/resolution.rs:resolve_func_alias]]
+function must be a native `LINK` function that takes exactly one `RES`
+parameter of that resource type and closes it. A transparent function alias,
+`EXPORT FUNC close AS alias::func`, is the way to expose that same close
+operation to importers.
 
 ## Native functions
 
@@ -87,8 +84,7 @@ Use `return` as the result slot name for the native return value or for the
 single supported `OUT return` slot. A value-returning wrapper must expose exactly
 one result with `return` or a `RESULT` expression. The current compiler does not
 support multiple `OUT` slots or `RETURN_OUT`; any `OUT` slot other than
-`return` is rejected as an unbound ABI slot. [[src/ast/link_items.rs:parse_link_function]]
-[[src/ir/verify/link.rs]]
+`return` is rejected as an unbound ABI slot.
 
 ## Result gates
 
@@ -105,19 +101,14 @@ When the gate says the call failed, the wrapper fails with
 `ErrNativeBindingCallFailed` and ordinary MFBASIC error propagation applies. A
 `RESULT` expression may map ABI slots into the MFBASIC success result. `CONST`
 pins provide fixed ABI slot values without exposing them as wrapper parameters.
-`FREE return` runs a declared native deallocator after a successful copy from a
-caller-owned native pointer into an owned MFBASIC value.
-[[src/ir/lower_link.rs:lower_link_expr]] [[src/ir/lower_link.rs:eval_link_const]]
+`FREE return` runs a declared native deallocator once the native result has been
+copied into an MFBASIC value.
 
 ## Loading and calls
 
-Native libraries are resolved before `main`. The backend emits
-`_mfb_linker_init`, which opens each distinct declared library and resolves each
-declared `SYMBOL` and `FREE` deallocator into a global pointer slot. Calls to
-native wrappers go through generated marshaling thunks named from the `LINK`
-alias and function name. [[src/target/shared/code/link_thunk.rs]]
-[[src/target/shared/nir/mod.rs:LINK_INIT_SYMBOL]]
-[[src/target/shared/nir/mod.rs:link_thunk_symbol]]
+Native libraries are resolved before `main` runs: the program opens each
+distinct declared library and resolves each declared `SYMBOL` and `FREE`
+deallocator.
 
 The executable does not satisfy `LINK` symbols through the OS link editor as
 ordinary unresolved externals. The MFBASIC initializer loads them at runtime and
@@ -125,7 +116,7 @@ fails before `main` if a required library or symbol is unavailable.
 
 ## ABI types
 
-The ABI type names below are the names the marshaling backend acts on:
+The ABI type names below are the C-facing types an `ABI` signature may use:
 
 | Type | Meaning |
 | --- | --- |
@@ -140,7 +131,7 @@ The ABI type names below are the names the marshaling backend acts on:
 
 Raw C ABI types may not appear in a wrapper's MFBASIC-facing signature. Exposing
 `CPtr`, `CString`, or fixed C integer types as ordinary source API is rejected;
-wrap native handles in `RESOURCE` types instead. [[src/resolver/mod.rs:is_c_abi_type]]
+wrap native handles in `RESOURCE` types instead.
 
 ## Diagnostics
 
@@ -150,7 +141,7 @@ wrap native handles in `RESOURCE` types instead. [[src/resolver/mod.rs:is_c_abi_
 | `1-102-0009` | `MFB_PARSE_MISSING_NATIVE_ABI` | a native `FUNC` omits `ABI` |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | a resource `CLOSE BY` target is not a native `LINK` function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | a resource names a missing function in a known `LINK` alias |
-| `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | a close op does not consume exactly one `RES` parameter of the resource type |
+| `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | a close op does not take exactly one `RES` parameter of the resource type |
 | `2-203-0092` | `NATIVE_CPTR_ESCAPE` | a raw C ABI type appears outside an ABI slot |
 | `2-203-0093` | `NATIVE_ABI_RESULT_MARKER` | a result marker is malformed or ambiguous |
 | `2-203-0094` | `NATIVE_ABI_UNBOUND_SLOT` | an ABI slot is not bound to a parameter, result marker, or `CONST` pin |
@@ -160,7 +151,7 @@ wrap native handles in `RESOURCE` types instead. [[src/resolver/mod.rs:is_c_abi_
 | `2-203-0097` | `NATIVE_CONST_OUT` | a `CONST`-pinned ABI slot is also `OUT` |
 | `2-203-0098` | `NATIVE_CONST_UNKNOWN_SLOT` | a `CONST` pin names an unknown ABI slot |
 | `2-203-0099` | `NATIVE_FREE_INVALID` | a `FREE` block is malformed — it must release the produced `return` `CPtr` through a deallocator taking one `CPtr` and returning `CVoid` |
-| `2-203-0123` | `NATIVE_ABI_UNKNOWN_CTYPE` | an ABI slot or return names a C type the marshaling backend does not implement |
+| `2-203-0123` | `NATIVE_ABI_UNKNOWN_CTYPE` | an ABI slot or return names a C type the compiler does not support |
 | `2-203-0124` | `NATIVE_CSTRUCT_INVALID` | a `CSTRUCT` declaration is not a layout the compiler can compute faithfully |
 | `2-203-0125` | `NATIVE_CSTRUCT_TOO_LARGE` | a `CSTRUCT` lays out larger than the maximum native struct size |
 | `2-203-0126` | `NATIVE_CSTRUCT_ESCAPE` | a `CSTRUCT` name is used outside its `LINK` block, where only its mapped record type is nameable |
@@ -181,8 +172,8 @@ wrap native handles in `RESOURCE` types instead. [[src/resolver/mod.rs:is_c_abi_
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | a native wrapper is called with a closed resource handle [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
-| `77030007` | `ErrNativeBindingUnavailable` | `_mfb_linker_init` cannot load a required native library or resolve a required symbol |
+| `77030004` | `ErrResourceClosed` | a native wrapper is called with a closed resource handle |
+| `77030007` | `ErrNativeBindingUnavailable` | the program cannot load a required native library or resolve a required symbol at startup |
 | `77030008` | `ErrNativeBindingCallFailed` | a native call fails its `SUCCESS_ON` or `ERROR_ON` gate |
 
 ## See also

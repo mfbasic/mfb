@@ -451,10 +451,65 @@ page and the compiler can never disagree about which passes exist. Its Stage
 column is literally `NIR` / `MIR` / `regalloc` / `codegen`, so every row trips
 §3's internals sweep, and **no page author can edit any of it**.
 
-This is carve-out 3 in `scripts/man-census.sh --scope`, counted and printed
-separately, never dropped — the same treatment as the derived `Errors` rows in
-§4.4. It carves only the generated table rows: the authored sentences in the
-same section stay hits, because those are prose a reviewer can rewrite.
+This is carve-out 3 in `scripts/man-census.sh --scope` **and `--memory-scope`**
+(the catalog rows say "lifetimes", "frees" and "allocation" as well as `NIR`),
+counted and printed separately, never dropped — the same treatment as the
+derived `Errors` rows in §4.4. It carves only the generated table rows: the
+authored sentences in the same section stay hits, because those are prose a
+reviewer can rewrite. The region is bounded by the rendered `Passes` heading and
+the `Always-on … (Level 0)` heading after it; renaming either heading silently
+disarms the carve-out, so the census accepts both spellings the page has used.
+
+### 9.2a The second carve-out: C-ABI type rows in `mfb man link`
+
+`mfb man link` documents writing a binding package, and part of that is writing
+a C-facing `ABI` signature in C types. `CPtr` **is** a native pointer and
+`CString` **is** a pointer to null-terminated bytes; describing either without
+the word would make the row false, not just awkward.
+
+This is carve-out 4 in `scripts/man-census.sh --memory-scope`, and it is
+deliberately narrow: **only the ABI-types table rows whose first cell is
+`CString` or `CPtr`.** Every MFBASIC-facing sentence on the page is held to the
+full ban — the resource, close, `FREE` and loading prose was all rewritten
+(plan-125-B) — because a binding author's *users* see those resources as
+ordinary `RES` handles.
+
+There is **no** carve-out for the `tour` comparison pages, even though they
+describe other languages' memory models. Every one of their hits was rephrased
+in that language's own terms (`malloc`/`free`, "a global error code", "a
+captured variable", "one pool of objects"), which kept the contrast and dropped
+the banned word; a carve-out keyed on "this line is about another language"
+could not be made precise enough to stop it hiding a sentence about MFBASIC.
+
+### 9.2b Citation markers in topic sources
+
+`[[path:Symbol]]` markers are banned on a man page (§3), and the renderer strips
+them, so **no rendered sweep can see one.** Check the source:
+
+```
+grep -rn '\[\[\(src\|build\.rs\|repository\)' src/docs/man --include='*.md'
+```
+
+plan-125-B removed 38 from `types`, `link` and `lambda`; the command must print
+nothing.
+
+### 9.2c Never use a double-backtick code span
+
+The renderer does not support CommonMark's double-backtick form (`` `` x `` ``),
+and it does not leak the markup either: it **drops the span, content and all.**
+That is how `mfb man types string` came to render the entire `Scalar` literal
+syntax as "`A , 中 , \n , \\ , the backtick escape \ , and u{1F600} . An empty ( )
+or multi-scalar ( ab ) literal`" — every backtick that *was* the syntax deleted,
+and no rendered sweep able to notice, because nothing leaked.
+
+To show text that contains a backtick, put it in a fenced code block (rendered
+verbatim) or describe it in words. Check the source:
+
+```
+grep -rn '`` ' src/docs/man --include='*.md' | grep -vE ':[0-9]+:```'
+```
+
+It must print nothing.
 
 ### 9.3 Verifying a topic
 

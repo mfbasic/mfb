@@ -60,9 +60,9 @@ SUB main()
   io::print(toString(total))
 END SUB
 
-FUNCTION isEven(n AS Integer) AS Boolean
+FUNC isEven(n AS Integer) AS Boolean
   RETURN n MOD 2 = 0
-END FUNCTION
+END FUNC
 ```
 
 Placeholder in a non-first argument position:

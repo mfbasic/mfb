@@ -83,7 +83,7 @@ Integer arithmetic is checked and never wraps. Overflow in `+`, `-`, `*`, unary
 `ErrOverflow`. Byte arithmetic that returns `Byte` is checked too: a result above
 255 fails with `ErrOverflow` and a result below 0 fails with `ErrUnderflow`.
 Runtime conversion to `Byte` uses `toByte` and fails with `ErrOverflow` outside 0
-through 255. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]]
+through 255.
 
 ## Division, DIV, and MOD
 
@@ -97,7 +97,7 @@ observation boundary (`ErrFloatOverflow` / `ErrFloatNaN`).
 `MOD` uses the promoted result type and is defined for every numeric pairing.
 `a MOD b` with `b = 0` fails with `ErrFloatDomain` for a `Float` result and
 `ErrInvalidArgument` otherwise. Otherwise the remainder has the same sign as `a`
-and `a = truncTowardZero(a / b) * b + (a MOD b)`. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]]
+and `a = truncTowardZero(a / b) * b + (a MOD b)`.
 
 ## Exponentiation
 
@@ -121,7 +121,7 @@ Built-in math functions with a genuine domain error (a negative `sqrt`, a
 non-positive `log`/`log10`, an out-of-range `asin`/`acos`) fail with
 `ErrFloatDomain` at the call, and a math kernel that produces an infinity (such
 as `exp` overflow) fails with `ErrFloatInf`. An imported native `Float` that is
-already NaN or infinite is rejected at the boundary with `ErrInvalidFormat`. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatNaN]]
+already NaN or infinite is rejected at the boundary with `ErrInvalidFormat`.
 
 ## Fixed rules
 
@@ -133,9 +133,9 @@ already NaN or infinite is rejected at the boundary with `ErrInvalidFormat`. [[s
 
 `Money` is an exact base-10 `i64` scaled by 10^5 (five decimal places): one unit
 is 0.00001, and every decimal amount in the range -92233720368547.75808 through
-92233720368547.75807 is represented exactly. [[src/numeric.rs:MONEY_SCALE]] It is
+92233720368547.75807 is represented exactly. It is
 a **dimensioned** numeric with a restricted algebra, enforced at compile time as
-`TYPE_MONEY_OPERATION_INVALID`: [[src/ir/verify/values.rs:check_money_operands]]
+`TYPE_MONEY_OPERATION_INVALID`:
 
 - Add or subtract two `Money` amounts (`M + M`, `M - M`), and take a `Money`
   remainder (`M MOD M`) — both operands must be `Money`.
@@ -184,20 +184,20 @@ the program's responsibility.
 Converting a `Float` or `Fixed` to `Integer` or `Byte` fails with `ErrOverflow`
 when the value is outside the destination range. Converting text to a numeric
 type fails with `ErrInvalidFormat` when the text is malformed or names a
-non-finite value such as `NaN` or `Infinity`. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]]
+non-finite value such as `NaN` or `Infinity`.
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | non-`Float` division or `MOD` by zero; a negative `Integer` exponent; a `Fixed` divide-by-zero or invalid domain; a zero divisor in `Money` scaling [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
-| `77050003` | `ErrInvalidFormat` | converting text to a numeric type when it is malformed or names a non-finite value, or an imported native `Float` that is already NaN or infinite [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |
-| `77050010` | `ErrOverflow` | checked `Integer`, `Byte`, `Fixed`, or `Money` overflow, or a `Float`/`Fixed`→`Integer`/`Byte` conversion outside the destination range [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
-| `77050011` | `ErrUnderflow` | a `Byte`-returning operation whose result is below 0 [[src/codegen/builtins/errorcode/mod.rs:ErrUnderflow]] |
-| `77050012` | `ErrFloatDomain` | `Float`-result `MOD` by zero, a non-whole or negative `Float` exponent, or a math-function domain error (negative `sqrt`, non-positive `log`, out-of-range `asin`/`acos`) [[src/codegen/builtins/errorcode/mod.rs:ErrFloatDomain]] |
-| `77050013` | `ErrFloatNaN` | a NaN result reaching an observation boundary (such as `0.0 / 0.0`) [[src/codegen/builtins/errorcode/mod.rs:ErrFloatNaN]] |
-| `77050014` | `ErrFloatInf` | a math kernel producing an infinity, such as `exp` overflow [[src/codegen/builtins/errorcode/mod.rs:ErrFloatInf]] |
-| `77050015` | `ErrFloatOverflow` | arithmetic overflow to infinity reaching an observation boundary (such as `x / 0.0`) [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
+| `77050002` | `ErrInvalidArgument` | non-`Float` division or `MOD` by zero; a negative `Integer` exponent; a `Fixed` divide-by-zero or invalid domain; a zero divisor in `Money` scaling |
+| `77050003` | `ErrInvalidFormat` | converting text to a numeric type when it is malformed or names a non-finite value, or an imported native `Float` that is already NaN or infinite |
+| `77050010` | `ErrOverflow` | checked `Integer`, `Byte`, `Fixed`, or `Money` overflow, or a `Float`/`Fixed`→`Integer`/`Byte` conversion outside the destination range |
+| `77050011` | `ErrUnderflow` | a `Byte`-returning operation whose result is below 0 |
+| `77050012` | `ErrFloatDomain` | `Float`-result `MOD` by zero, a non-whole or negative `Float` exponent, or a math-function domain error (negative `sqrt`, non-positive `log`, out-of-range `asin`/`acos`) |
+| `77050013` | `ErrFloatNaN` | a NaN result reaching an observation boundary (such as `0.0 / 0.0`) |
+| `77050014` | `ErrFloatInf` | a math kernel producing an infinity, such as `exp` overflow |
+| `77050015` | `ErrFloatOverflow` | arithmetic overflow to infinity reaching an observation boundary (such as `x / 0.0`) |
 
 ## See also
 

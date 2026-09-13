@@ -2,17 +2,17 @@
 
 A one-page tour of the MFBASIC language
 
-MFBASIC is a modern, functional dialect of BASIC built around value
-ownership: every value has a single owner and is reclaimed deterministically
-when its scope exits — no garbage collector, no reference counting, no
-user-visible free. Bindings are immutable by default, there are no objects,
+MFBASIC is a modern, functional dialect of BASIC built around values: every
+value belongs to exactly one name and goes away deterministically when that
+name's scope ends — no garbage collector, no reference counting, nothing to
+release by hand. Bindings are immutable by default, there are no objects,
 and errors propagate automatically. This page walks the whole language once;
 every heading ends with where to read more.
 
 ## MFBASIC at a glance
 
 - Immutable by default
-- Value ownership with deterministic cleanup
+- Values with deterministic cleanup
 - Checked arithmetic — overflow fails, never wraps
 - Pattern matching over closed unions
 - Automatic error propagation, built in
@@ -38,7 +38,7 @@ END SUB
 ## Bindings
 
 Three binding forms on two axes: `LET` and `MUT` choose mutability, `RES`
-chooses ownership (files, sockets, and other unique handles). Types are
+marks a handle (a file, a socket, or another open thing). Types are
 inferred from the initializer; annotate with `AS` when there is none. There is
 no implicit declaration and no shadowing, and bindings die at scope exit.
 
@@ -46,7 +46,7 @@ no implicit declaration and no shadowing, and bindings die at scope exit.
 LET name = "world"                  ' immutable, inferred String
 MUT total AS Float = 0.0            ' reassignable
 total = total + 1.0
-RES f = fs::openFile("data.csv")    ' owned resource, closed by scope exit
+RES f = fs::openFile("data.csv")    ' a handle, closed when its scope ends
 ```
 
 More: `mfb man types`.
@@ -193,11 +193,11 @@ More: `mfb man errors`.
 
 ## Resources and cleanup
 
-A resource is bound with `RES` and has exactly one live owner. It is closed
-automatically by lexical drop on every exit path — normal scope exit,
-`RETURN`, `FAIL`, propagated errors, and `TRAP` routing. Plain values follow
-the same ownership model, so cleanup is deterministic everywhere: when a scope
-exits, its bindings are dropped in reverse declaration order.
+A resource is bound with `RES`; a second name for it is an alias of the same open
+thing, not a copy. It is closed automatically when its scope ends, on every exit
+path — normal scope exit, `RETURN`, `FAIL`, propagated errors, and `TRAP`
+routing. Plain values go away the same way, so cleanup is deterministic
+everywhere: when a scope exits, its bindings go away in reverse declaration order.
 
 ```
 FUNC firstLine(path AS String) AS String
@@ -206,7 +206,7 @@ FUNC firstLine(path AS String) AS String
 END FUNC
 ```
 
-More: `mfb man fs`.
+More: `mfb man variable`, `mfb man fs`.
 
 ## Threads
 

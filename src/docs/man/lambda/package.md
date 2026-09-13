@@ -11,7 +11,7 @@ LAMBDA(param AS Type, ...) -> expression
 ## Imports
 
 `lambda` is a documentation topic, not an importable package. `LAMBDA` is a
-language keyword and function types are compiler-owned, so no `IMPORT` is needed.
+language keyword and function types are built in, so no `IMPORT` is needed.
 
 ## Description
 
@@ -51,12 +51,11 @@ A function with no parameters or no result is written `FUNC() AS T` and
 ## Capture rules
 
 A lambda may reference bindings from the enclosing scope; these are its captures.
-An ordinary closure captures a copyable `LET` binding **by value**: the closure
-deep-copies the captured binding into an independent copy that outlives the
-capturing scope, so it observes a frozen snapshot, never the original binding's
-later mutations.
+An ordinary closure captures a copyable `LET` binding **as a copy**: the closure
+keeps its own copy, which stays usable after the capturing scope ends, so it sees
+a frozen snapshot, never the original binding's later changes.
 
-- Copyable `LET` bindings may be captured by value.
+- Copyable `LET` bindings may be captured; the closure gets its own copy.
 - Capturing a `MUT` binding is a compile error
   (`TYPE_LAMBDA_CAPTURE_UNSUPPORTED`) in any ordinary closure, because the
   closure would observe a frozen copy rather than the live cell. This is distinct
@@ -69,11 +68,10 @@ later mutations.
 
 The one exception the compiler allows is a lambda passed **directly** into a
 compiler-proven non-escaping callback position — today only the `action`
-argument of `collections::forEach`. [[src/codegen/builtins/mod.rs:is_nonescaping_callback_arg]]
-Such a lambda may borrow an outer `MUT` binding and mutate it: the binding is
-loaned to the callback for the duration of the synchronous call — a borrow of the
-live binding, not a copy — and is the outer binding's again once the call
-returns. Use an assignment as the body (its result type is `Nothing`, matching
+argument of `collections::forEach`.
+Such a lambda may mutate an outer `MUT` binding directly: while the call runs, the
+lambda changes the outer binding itself, not a copy of it, and every change is
+there once the call returns. Use an assignment as the body (its result type is `Nothing`, matching
 `FUNC(T) AS Nothing`):
 
 ```
@@ -83,11 +81,9 @@ forEach(items, LAMBDA(x AS Integer) -> total = total + x)
 ```
 
 Mutating a captured `MUT List` or `MUT Map` works the same way, and the update is
-reflected in the outer binding after the call. Capturing a resource through such
-a callback is still rejected. This is an internal call-bound borrow, not a
-general source-level capability: non-escaping closures are not part of the v1
-source language, so there are no `NONESCAPING`, `BORROW`, or lifetime
-annotations.
+reflected in the outer binding after the call. Capturing a resource through such a callback is still rejected. This is a special
+case of `collections::forEach`, not a general feature: you cannot mark a parameter
+of your own function this way, and there is no annotation for it.
 
 ## What is not possible
 
@@ -95,8 +91,8 @@ annotations.
   a `LET`, returning it, storing it in a record or collection, sending it to a
   thread, or passing it to an unknown function. Only the proven non-escaping
   callback position above is exempt.
-- Observing a captured value's later mutations through a by-value capture: the
-  closure holds an independent copy.
+- Observing a captured value's later changes through the closure: the closure
+  holds its own copy.
 - Capturing resources or other non-copyable values.
 
 ## Errors
@@ -126,8 +122,9 @@ FUNC makeCounter() AS FUNC() AS Integer
 END FUNC
 ```
 
-The returned closure would outlive `total`, so the capture cannot be a call-bound
-loan and is rejected as `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`.
+The returned closure would be called after `total`'s scope has ended, so it could
+not change the live binding, and the capture is rejected as
+`TYPE_LAMBDA_CAPTURE_UNSUPPORTED`.
 
 ## See also
 

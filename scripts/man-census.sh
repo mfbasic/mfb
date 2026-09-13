@@ -401,7 +401,17 @@ mode_topics() {
 # Both are classified and counted separately, never silently dropped.
 mode_memory_scope() {
 	local pkgs=("$@")
-	local pkg fn hits carve=0 carve2=0 unclassified=0
+	local pkg fn hits carve=0 carve2=0 carve3=0 carve4=0 unclassified=0
+
+	# Carve-out 3 applies here too: the generated optimizer-catalog rows trip the
+	# memory ban ("lifetimes", "frees", "allocation") exactly as they trip the
+	# internals ban, and they are just as uneditable. Same region, same rule.
+	local cat_lo=0 cat_hi=0
+	if [ -z "${SWEEP_TOPICS:-}" ] || printf '%s' "${SWEEP_TOPICS:-}" | grep -q optimizations; then
+		cat_lo=$("$MFB" man optimizations --all 2>/dev/null | grep -nx 'Passes' | head -1 | cut -d: -f1)
+		cat_hi=$("$MFB" man optimizations --all 2>/dev/null | grep -nxE 'Always-on (lowering|rewrites) \(Level 0\)' | head -1 | cut -d: -f1)
+		: "${cat_lo:=0}" "${cat_hi:=0}"
+	fi
 
 	scan_page() { # $1 = label, $2 = rendered text
 		local label=$1 text=$2 line
@@ -414,6 +424,20 @@ mode_memory_scope() {
 			elif printf '%s' "$body" | grep -qE '^.?.?.?.?[[:space:]]*[0-9]{8}[[:space:]]*.?.?.?.?[[:space:]]*Err[A-Za-z]'; then
 				carve2=$((carve2 + 1))
 				printf 'CARVE-2  %-28s %5s  %s\n' "$label" "$n" "$body"
+			elif [ "$label" = 'optimizations (guide)' ] && [ "$cat_hi" -gt 0 ] &&
+				[ "$n" -gt "$cat_lo" ] && [ "$n" -lt "$cat_hi" ] &&
+				printf '%s' "$body" | grep -q '^│'; then
+				carve3=$((carve3 + 1))
+				printf 'CARVE-3  %-28s %5s  %s\n' "$label" "$n" "$body"
+			# Carve-out 4 (plan-125-B): the `link` guide's C-ABI type rows. A binding
+			# author writes C types in an ABI signature, and `CPtr` IS a native
+			# pointer; renaming it would make the row false. Only the table rows
+			# that define `CString`/`CPtr` are carved — every MFBASIC-facing sentence
+			# on the page is held to the ban.
+			elif [ "$label" = 'link (guide)' ] &&
+				printf '%s' "$body" | grep -qE '^│ *(CString|CPtr) *│'; then
+				carve4=$((carve4 + 1))
+				printf 'CARVE-4  %-28s %5s  %s\n' "$label" "$n" "$body"
 			else
 				unclassified=$((unclassified + 1))
 				printf 'HIT      %-28s %5s  %s\n' "$label" "$n" "$body"
@@ -443,6 +467,8 @@ mode_memory_scope() {
 	printf 'unclassified memory-vocabulary hits: %d\n' "$unclassified"
 	printf 'carve-out 1 (datetime arithmetic borrow): %d\n' "$carve"
 	printf 'carve-out 2 (derived Errors-table row): %d\n' "$carve2"
+	printf 'carve-out 3 (generated optimizer-catalog row): %d\n' "$carve3"
+	printf 'carve-out 4 (link C-ABI type row): %d\n' "$carve4"
 	[ "$unclassified" -eq 0 ]
 }
 
@@ -471,7 +497,7 @@ mode_scope() {
 	local cat_lo=0 cat_hi=0
 	if [ -z "${SWEEP_TOPICS:-}" ] || printf '%s' "${SWEEP_TOPICS:-}" | grep -q optimizations; then
 		cat_lo=$("$MFB" man optimizations --all 2>/dev/null | grep -nx 'Passes' | head -1 | cut -d: -f1)
-		cat_hi=$("$MFB" man optimizations --all 2>/dev/null | grep -nx 'Always-on lowering (Level 0)' | head -1 | cut -d: -f1)
+		cat_hi=$("$MFB" man optimizations --all 2>/dev/null | grep -nxE 'Always-on (lowering|rewrites) \(Level 0\)' | head -1 | cut -d: -f1)
 		: "${cat_lo:=0}" "${cat_hi:=0}"
 	fi
 
