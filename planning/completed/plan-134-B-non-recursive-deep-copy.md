@@ -166,7 +166,7 @@ box 2223 prints `top=1000000`, exit 0.
   only instrument that sees every target's emitted copy functions); box 2223 run (est. 3 min).
   Result: met — the 10 diffs are the two recursive-type fixtures × 5 targets, each explained by
   the added walker and the per-type shims; box 2223 printed `top=1000000`, exit 0.
-Commit: —
+Commit: 54f542ec2
 
 ## Validation Plan
 
