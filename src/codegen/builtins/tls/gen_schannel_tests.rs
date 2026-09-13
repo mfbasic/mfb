@@ -9,9 +9,9 @@
 // regress. Runtime proof of the Schannel path is Windows-only (box 2230).
 // --- codegen tier imports (migration) ---
 use super::*;
+use crate::arch::ops::CodeOp;
 use crate::codegen::engine::mir;
 use crate::codegen::engine::tests::TestPlatform;
-use crate::arch::ops::CodeOp;
 use std::collections::HashMap;
 /// The Schannel read helper emits an `ErrInvalidArgument` failure exit, produced
 /// only by `emit_fail(ERR_INVALID_ARGUMENT_*)` — which relocates the error

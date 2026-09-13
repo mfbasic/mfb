@@ -3,11 +3,14 @@
 # ~13k lines of network-facing Rust sat outside every gate. Naming it a member
 # puts it back in the test and coverage denominators.
 [workspace]
-members = [".", "repository"]
+members = [".", "repository", "wire"]
 # With a package at the workspace root, a bare `cargo test` would select only
-# that root package. Naming both keeps `cargo test` (no flags) equivalent to
-# `cargo test --workspace`, which is what bug-347 requires.
-default-members = [".", "repository"]
+# that root package. Naming every member keeps `cargo test` (no flags)
+# equivalent to `cargo test --workspace`, which is what bug-347 requires — and
+# is why `wire` (plan-126-B) is listed here as well as above: a member absent
+# from `default-members` has its tests outside a bare `cargo test`, exactly the
+# hole bug-347 closed for `repository`.
+default-members = [".", "repository", "wire"]
 
 [package]
 name = "mfb"
@@ -17,6 +20,9 @@ license = "MIT"
 
 [dependencies]
 mfb_repository = { path = "repository" }
+# plan-126-B: the one home for the byte primitives and `.mfp`/MFPC framing this
+# crate and `mfb_repository` both need. It depends on neither of them.
+mfb_wire = { path = "wire" }
 sha2 = "0.10"
 tinyjson = "2.5"
 unicode-casefold = "0.2"

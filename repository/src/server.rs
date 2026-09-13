@@ -550,8 +550,17 @@ pub struct PackageDetailResponse {
     /// `null` until plan-61-E populates it. Present in the shape from day one
     /// so E adds no field and breaks no consumer.
     pub description: Option<String>,
+    /// The newest **active** release (plan-126-A) — `null` when every published
+    /// version is yanked, blocked or legal-tombstoned, which is a statement
+    /// about the package rather than missing data. `null` was already a possible
+    /// value here (a package with no versions), so no consumer gains a new shape.
     #[serde(rename = "latestVersion")]
     pub latest_version: Option<String>,
+    /// The release state of `latestVersion`, so a `deprecated` headline is
+    /// visibly deprecated rather than reading as current. `null` exactly when
+    /// `latestVersion` is (plan-126-A).
+    #[serde(rename = "latestState")]
+    pub latest_state: Option<String>,
     /// **Every** version, newest first, including yanked and superseded — see
     /// `PackageDetailVersionResponse::state`.
     pub versions: Vec<PackageDetailVersionResponse>,
@@ -901,6 +910,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/search.html", get(search_html))
         .route("/p/:ident", get(package_page_html))
         .route("/p/:ident/audit", get(package_audit_html))
+        .route("/p/:ident/docs", get(package_docs_html))
         .route("/search", get(search))
         .route("/index/:ident", get(package_index))
         // plan-61-B: anonymous read surface. These read no credential of any
@@ -909,6 +919,7 @@ pub fn build_router(state: AppState) -> Router {
         // below; matchit resolves static before param.
         .route("/packages/:ident", get(package_detail))
         .route("/packages/:ident/audit", get(package_audit))
+        .route("/packages/:ident/docs", get(package_docs))
         .route(
             "/blob/:hash",
             get(package_blob).head(head_blob).put(put_blob),
@@ -1101,8 +1112,16 @@ pub struct SearchResponse {
 pub struct SearchResult {
     pub ident: String,
     pub owner: String,
+    /// The newest **active** release (plan-126-A) — `null` for a package with no
+    /// published version, and for one whose every version is yanked, blocked or
+    /// legal-tombstoned.
     #[serde(rename = "latestVersion")]
     pub latest_version: Option<String>,
+    /// The release state of `latestVersion`, so a consumer can tell a
+    /// `deprecated` headline from a current one. `null` exactly when
+    /// `latestVersion` is (plan-126-A).
+    #[serde(rename = "latestState")]
+    pub latest_state: Option<String>,
     /// `null` until plan-61-E.
     pub description: Option<String>,
     #[serde(rename = "publishedAt")]
@@ -1144,6 +1163,7 @@ async fn search(
             ident: row.ident,
             owner: row.owner,
             latest_version: row.latest_version,
+            latest_state: row.latest_state,
             description: description_preview(row.description),
             published_at: row.published_at,
         })
@@ -1247,6 +1267,7 @@ async fn search_html(
             ident: row.ident,
             owner: row.owner,
             latest_version: row.latest_version,
+            latest_state: row.latest_state,
             description: description_preview(row.description),
             published_at: row.published_at,
         })
@@ -1259,6 +1280,235 @@ async fn search_html(
         StatusCode::OK,
         crate::web::search_page(&registry_id, &text, &rows),
     )
+}
+
+/// `GET /p/:ident/docs` — the Docs tab (plan-126-F).
+///
+/// Resolves the package through `package_detail` first, so an unknown ident gets
+/// the identical not-found page and status the Overview and Audit tabs give. It
+/// then reads the documentation of the **latest active** release
+/// (`Store::latest_active_version_docs`, built on plan-126-A's selection) — the
+/// same release `detail.latest_version` names, so the version shown is the
+/// version documented.
+///
+/// The stored bytes were decode-validated when they were recorded, so a decode
+/// failure here means the database no longer matches what was written. That is
+/// reported as an explicit error page, never a panic, and never rendered as
+/// "no documentation", which would hide it.
+async fn package_docs_html(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Response {
+    let (registry_id, _fingerprint) = registry_identity(&state);
+    let view = match lookup_package_docs(&state, ident).await {
+        Ok(view) => view,
+        Err(DocsLookupError::Package((status, Json(error)))) => {
+            return crate::web::html_response(
+                status,
+                crate::web::message_page(&registry_id, "Package not found", &error.error),
+            )
+        }
+        Err(DocsLookupError::Unavailable(message)) => {
+            return crate::web::html_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                crate::web::message_page(&registry_id, "Documentation unavailable", message),
+            )
+        }
+    };
+    crate::web::html_response(StatusCode::OK, crate::web::docs_page(&registry_id, &view))
+}
+
+/// Why the Docs tab's lookup produced no view.
+enum DocsLookupError {
+    /// `package_detail` refused the ident (malformed, or no such package) —
+    /// passed through unchanged so every surface reports it identically.
+    Package((StatusCode, Json<ErrorResponse>)),
+    /// The package exists but its stored documentation could not be read.
+    Unavailable(&'static str),
+}
+
+/// The one lookup behind both `GET /p/:ident/docs` and `GET /packages/:ident/docs`,
+/// so the HTML page and its JSON mirror cannot disagree about which release is
+/// documented or what its documentation says.
+///
+/// Resolves the package through `package_detail` (same 400/404 as the other
+/// package routes), then reads the **latest active** release's stored section
+/// 17 (`Store::latest_active_version_docs`, plan-126-A's selection) — the release
+/// `detail.latest_version` names, so the version reported is the one documented.
+async fn lookup_package_docs(
+    state: &AppState,
+    ident: String,
+) -> Result<crate::web::DocsView, DocsLookupError> {
+    let Json(detail) = package_detail(State(state.clone()), axum::extract::Path(ident))
+        .await
+        .map_err(DocsLookupError::Package)?;
+
+    let fallback_name = detail
+        .ident
+        .split_once('#')
+        .map(|(_, package)| package.to_string())
+        .unwrap_or_else(|| detail.ident.clone());
+    let page = match state.store.latest_active_version_docs(&detail.ident) {
+        Ok(Some((_version, section))) => match mfb_wire::docs::read_doc_table(&section) {
+            Ok(docs) => Some(mfb_wire::docpage::from_package(docs, &fallback_name)),
+            Err(_) => {
+                return Err(DocsLookupError::Unavailable(
+                    "The stored documentation for this release could not be decoded.",
+                ))
+            }
+        },
+        Ok(None) => None,
+        Err(_) => {
+            return Err(DocsLookupError::Unavailable(
+                "The registry could not load this package's documentation.",
+            ))
+        }
+    };
+
+    Ok(crate::web::DocsView {
+        ident: detail.ident,
+        version: detail.latest_version,
+        page,
+    })
+}
+
+/// `GET /packages/:ident/docs` — the Docs tab as JSON (plan-126-F Phase 3).
+///
+/// Anonymous and read-only, like `GET /packages/:ident`. Serializes the same
+/// `DocPage` model the HTML tab renders — not the raw wire structures — so the
+/// two surfaces agree on grouping, order and anchors by construction.
+/// `documentation` is `null` exactly when the HTML tab shows the
+/// no-documentation statement.
+async fn package_docs(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Result<Json<PackageDocsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    match lookup_package_docs(&state, ident).await {
+        Ok(view) => Ok(Json(PackageDocsResponse::from_view(view))),
+        Err(DocsLookupError::Package(error)) => Err(error),
+        Err(DocsLookupError::Unavailable(message)) => Err(internal(message.to_string())),
+    }
+}
+
+/// `GET /packages/:ident/docs` (plan-126-F Phase 3).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PackageDocsResponse {
+    pub ident: String,
+    /// The latest active release — the same value `GET /packages/:ident` reports
+    /// as `latestVersion`, and the release whose documentation this is. `null`
+    /// when no release is active.
+    pub version: Option<String>,
+    /// `null` when that release carries no documentation.
+    pub documentation: Option<DocPageResponse>,
+}
+
+/// A `DocPage` as JSON. Carries only the **public** groups: declarations the
+/// author marked `INTERNAL` are omitted here exactly as on the HTML tab
+/// (`crate::web::docs_page`).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocPageResponse {
+    #[serde(rename = "packageName")]
+    pub package_name: String,
+    pub subtitle: String,
+    pub intro: Vec<DocProseResponse>,
+    pub deprecated: Option<String>,
+    pub groups: Vec<DocGroupResponse>,
+}
+
+/// One prose block; `kind` is `desc`, `warn`, `info` or `sec`.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocProseResponse {
+    pub kind: String,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocGroupResponse {
+    pub title: String,
+    pub declarations: Vec<DocDeclResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocDeclResponse {
+    /// The HTML tab's element id for this declaration
+    /// (`crate::web::doc_element_id`), so a client can link to
+    /// `/p/<ident>/docs#<anchor>`.
+    pub anchor: String,
+    pub kind: String,
+    pub name: String,
+    pub signature: String,
+    pub description: Vec<DocProseResponse>,
+    pub parameters: Vec<DocEntryResponse>,
+    /// `Fields` / `Variants` / `Members` for a type-like declaration, else `null`.
+    #[serde(rename = "memberLabel")]
+    pub member_label: Option<String>,
+    pub members: Vec<DocEntryResponse>,
+    pub returns: String,
+    /// `name` is the error code.
+    pub errors: Vec<DocEntryResponse>,
+    pub example: String,
+    pub deprecated: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocEntryResponse {
+    pub name: String,
+    pub description: String,
+}
+
+impl PackageDocsResponse {
+    fn from_view(view: crate::web::DocsView) -> Self {
+        fn prose(blocks: Vec<mfb_wire::docpage::Prose>) -> Vec<DocProseResponse> {
+            blocks
+                .into_iter()
+                .map(|block| DocProseResponse {
+                    kind: block.kind.label().to_string(),
+                    text: block.text,
+                })
+                .collect()
+        }
+        fn entries(rows: Vec<(String, String)>) -> Vec<DocEntryResponse> {
+            rows.into_iter()
+                .map(|(name, description)| DocEntryResponse { name, description })
+                .collect()
+        }
+        let documentation = view.page.map(|page| DocPageResponse {
+            package_name: page.package_name,
+            subtitle: page.subtitle,
+            intro: prose(page.intro),
+            deprecated: page.package_deprecated,
+            groups: page
+                .public
+                .into_iter()
+                .map(|group| DocGroupResponse {
+                    title: group.title,
+                    declarations: group
+                        .decls
+                        .into_iter()
+                        .map(|decl| DocDeclResponse {
+                            anchor: crate::web::doc_element_id(&decl.anchor),
+                            kind: decl.kind_label.to_string(),
+                            name: decl.name,
+                            signature: decl.signature,
+                            description: prose(decl.desc),
+                            parameters: entries(decl.args),
+                            member_label: decl.member_label.map(str::to_string),
+                            members: entries(decl.props),
+                            returns: decl.ret,
+                            errors: entries(decl.errors),
+                            example: decl.example,
+                            deprecated: decl.deprecated,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        });
+        PackageDocsResponse {
+            ident: view.ident,
+            version: view.version,
+            documentation,
+        }
+    }
 }
 
 /// `GET /p/:ident` — the rendered package page (plan-61-C Phase 3).
@@ -1292,6 +1542,7 @@ async fn package_page_html(
         url: detail.url,
         description: detail.description,
         latest_version: detail.latest_version,
+        latest_state: detail.latest_state,
         versions: detail
             .versions
             .into_iter()
@@ -1473,8 +1724,22 @@ async fn package_detail(
     }
 
     let (server_public, _server_private) = state.store.server_keypair().map_err(internal)?;
+    // plan-126-A: the headline version is the newest **active** release, not
+    // simply the newest row. `versions.first()` had no state predicate, so a
+    // package whose newest release was yanked advertised that release here — and
+    // API consumers read this field as "the version to use". `versions` itself
+    // stays complete and unfiltered above; only this selection narrows.
+    let latest = state
+        .store
+        .latest_active_version(&ident)
+        .map_err(internal)?;
+    let (latest_version, latest_state) = match latest {
+        Some((version, release_state)) => (Some(version), Some(release_state)),
+        None => (None, None),
+    };
     Ok(Json(PackageDetailResponse {
-        latest_version: versions.first().map(|version| version.version.clone()),
+        latest_version,
+        latest_state,
         ident,
         owner: owner_record.owner_display,
         ident_key: format!("ed25519:{}", crypto::encode_bytes(&ident_key.public_key)),
@@ -2995,14 +3260,33 @@ async fn publish_package(
         .and_then(|package| crate::abi::parse_package_description(&package.payload).ok())
         .flatten()
         .filter(|value| !value.is_empty());
+    // plan-126-E: capture MFPC section 17 (the `DOC` table) from the payload this
+    // handler already holds, best-effort. The RAW section bytes are what gets
+    // stored -- `mfb_wire::docs` stays the only decoder -- but only once they
+    // decode, so a malformed doc table is never recorded. It is never a reason to
+    // refuse the publish either: documentation "does not affect execution or the
+    // ABI" (src/binary_repr/writer.rs), and turning a doc-table defect into a
+    // rejected signed package would be a new failure mode on a trust path. Same
+    // posture as `parse_package_description` directly above.
+    let docs = parsed.as_ref().and_then(|package| {
+        let sections = mfb_wire::mfpc::read_section_table(&package.payload).ok()?;
+        let section = sections.get(&mfb_wire::mfpc::SECTION_DOC_TABLE)?;
+        mfb_wire::docs::read_doc_table(section).ok()?;
+        Some(section.to_vec())
+    });
     let publish_metadata = match manifest_metadata {
         Some(meta) => crate::store::PublishMetadata {
             author: Some(meta.author).filter(|value| !value.is_empty()),
             url: Some(meta.url).filter(|value| !value.is_empty()),
             description,
+            docs,
         },
+        // `docs` is set explicitly here too. Left to `..Default::default()` it
+        // would silently become `None` for every package without a MANIFEST
+        // section, dropping documentation the publisher did sign.
         None => crate::store::PublishMetadata {
             description,
+            docs,
             ..Default::default()
         },
     };
@@ -5426,6 +5710,7 @@ mod tests {
                         author: Some("alice".to_string()),
                         url: Some("https://example.invalid".to_string()),
                         description: None,
+                        docs: None,
                     },
                 )
                 .unwrap();
@@ -5447,8 +5732,12 @@ mod tests {
         assert_eq!(detail.ident, "alice#toolbox");
         assert_eq!(detail.owner, "alice");
         assert_eq!(detail.versions.len(), 2, "the yanked version is still here");
-        // Newest first, so `latestVersion` is the un-yanked 2.0.0.
+        // The yanked release here is the *older* one, so the newest-active
+        // selection (plan-126-A) and a bare newest-row pick agree: 2.0.0.
+        // The case where they disagree is covered by
+        // `package_detail_names_the_newest_active_release_not_a_yanked_newest`.
         assert_eq!(detail.latest_version.as_deref(), Some("2.0.0"));
+        assert_eq!(detail.latest_state.as_deref(), Some("available"));
         let yanked = detail
             .versions
             .iter()
@@ -5473,6 +5762,74 @@ mod tests {
         // `description` is in the shape from day one, null until plan-61-E, so
         // that sub-plan adds no field and breaks no consumer.
         assert_eq!(detail.description, None);
+    }
+
+    /// plan-126-A — the handler seam, which the `web::package_page` tests cannot
+    /// reach: `package_detail` must read its headline version from
+    /// `Store::latest_active_version`, not from `versions.first()`.
+    ///
+    /// The newest release is yanked here, which is precisely the shape
+    /// `package_detail_lists_every_version_including_yanked_ones` does *not*
+    /// cover — that test yanks the older version, so both selections agree and
+    /// it stayed green throughout the bug's lifetime.
+    #[tokio::test]
+    async fn package_detail_names_the_newest_active_release_not_a_yanked_newest() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        for version in ["1.5.0", "2.0.0"] {
+            h.store
+                .publish_package_version(
+                    alice_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("hash-{version}"),
+                    &format!("data/{version}.mfp"),
+                    "{}",
+                    &[],
+                    &crate::store::PublishMetadata::default(),
+                )
+                .unwrap();
+        }
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "yanked")
+            .unwrap();
+
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+
+        assert_eq!(
+            detail.latest_version.as_deref(),
+            Some("1.5.0"),
+            "a yanked newest release must not be advertised as the latest",
+        );
+        assert_eq!(detail.latest_state.as_deref(), Some("available"));
+        // And the listing is still complete: the selection narrowed, the
+        // transparency view did not.
+        assert_eq!(detail.versions.len(), 2);
+        assert_eq!(detail.versions[0].version, "2.0.0");
+        assert_eq!(detail.versions[0].state, "yanked");
+
+        // Withdraw the fallback too: now there is no active release, and the
+        // field is null rather than naming an ineligible version.
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "1.5.0", "yanked")
+            .unwrap();
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+        assert_eq!(detail.latest_version, None);
+        assert_eq!(detail.latest_state, None);
+        assert_eq!(detail.versions.len(), 2, "still listed, still auditable");
     }
 
     /// An unknown package 404s with the standard error shape, and an unknown
@@ -5740,6 +6097,10 @@ mod tests {
         assert_eq!(response.query, "sql");
         assert_eq!(response.total, 3);
         assert_eq!(response.results[0].latest_version.as_deref(), Some("1.0.0"));
+        assert_eq!(
+            response.results[0].latest_state.as_deref(),
+            Some("available")
+        );
         // `description` is in the shape from day one and null until plan-61-E.
         assert_eq!(response.results[0].description, None);
 
@@ -5747,6 +6108,135 @@ mod tests {
         let response = search_for(&h, "http://x/search?q=bob").await;
         assert_eq!(response.results.len(), 1);
         assert_eq!(response.results[0].ident, "bob#tool");
+    }
+
+    /// plan-126-A Phase 3 — the search path had its **own** unfiltered
+    /// newest-version statement, and `SearchResultRow` carried no state field at
+    /// all, so a yanked release appeared here as a package's current version
+    /// with no marker of any kind. This is the surface where the missing filter
+    /// was not merely cosmetic.
+    #[tokio::test]
+    async fn search_names_the_newest_active_release_and_carries_its_state() {
+        let h = harness();
+        seed_packages(&h, &["alice#toolbox"]);
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        // seed_packages published 1.0.0; add a newer 2.0.0 and yank it.
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "2.0.0",
+                "hash-2",
+                "data/2.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata::default(),
+            )
+            .unwrap();
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "yanked")
+            .unwrap();
+
+        let response = search_for(&h, "http://x/search?q=toolbox").await;
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(
+            response.results[0].latest_version.as_deref(),
+            Some("1.0.0"),
+            "a yanked newest release must not be the search headline",
+        );
+        assert_eq!(
+            response.results[0].latest_state.as_deref(),
+            Some("available")
+        );
+
+        // A `deprecated` newest release IS active — the install client installs
+        // it on a floating add — and its state travels so the page can badge it.
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "deprecated")
+            .unwrap();
+        let response = search_for(&h, "http://x/search?q=toolbox").await;
+        assert_eq!(response.results[0].latest_version.as_deref(), Some("2.0.0"));
+        assert_eq!(
+            response.results[0].latest_state.as_deref(),
+            Some("deprecated"),
+        );
+
+        // Withdraw everything: the package keeps its result row — it exists and
+        // the query found it — but names no version.
+        for version in ["1.0.0", "2.0.0"] {
+            h.store
+                .set_release_state(alice_id, "alice#toolbox", version, "blocked")
+                .unwrap();
+        }
+        let response = search_for(&h, "http://x/search?q=toolbox").await;
+        assert_eq!(
+            response.results.len(),
+            1,
+            "a fully-withdrawn package is still a match, not a hidden row",
+        );
+        assert_eq!(response.results[0].latest_version, None);
+        assert_eq!(response.results[0].latest_state, None);
+    }
+
+    /// The rendered-HTML half of the phase: the yanked version **string** must
+    /// not reach the search result chip. A JSON assertion cannot see a renderer
+    /// that fell back to some other field.
+    #[tokio::test]
+    async fn the_search_page_never_shows_a_yanked_version_in_the_result_chip() {
+        let h = harness();
+        seed_packages(&h, &["alice#toolbox"]);
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "9.9.9",
+                "hash-9",
+                "data/9.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata::default(),
+            )
+            .unwrap();
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "9.9.9", "yanked")
+            .unwrap();
+
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("alice#toolbox"), "{body}");
+        assert!(body.contains("v1.0.0"), "{body}");
+        assert!(
+            !body.contains("9.9.9"),
+            "the yanked version must not appear anywhere in the result: {body}",
+        );
+
+        // And with nothing active, the page states it rather than showing a chip.
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "yanked")
+            .unwrap();
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("alice#toolbox"), "{body}");
+        assert!(body.contains("no active release"), "{body}");
+        assert!(!body.contains("v1.0.0"), "{body}");
+    }
+
+    /// A `deprecated` search headline renders its badge, which is the thing the
+    /// bare version chip could never express.
+    #[tokio::test]
+    async fn the_search_page_badges_a_deprecated_headline_release() {
+        let h = harness();
+        seed_packages(&h, &["alice#toolbox"]);
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "deprecated")
+            .unwrap();
+
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("v1.0.0"), "{body}");
+        assert!(body.contains("state--deprecated"), "{body}");
     }
 
     /// An empty or whitespace-only query returns nothing — never the whole
@@ -6068,6 +6558,10 @@ mod tests {
             ident: "alice#<script>alert(1)</script>".to_string(),
             owner: "<img src=x onerror=alert(1)>".to_string(),
             latest_version: Some("1.0.0\"><script>".to_string()),
+            // plan-126-A added this field, so it joins the hostile-value set:
+            // it reaches a `class=` attribute via `state_modifier`, and a value
+            // outside the vocabulary must not be able to break out of it.
+            latest_state: Some("\" onmouseover=\"alert(1)".to_string()),
             description: Some("<b>bold</b>".to_string()),
             published_at: Some(1_700_000_000),
         }];
@@ -6087,6 +6581,25 @@ mod tests {
         );
         // The echoed query is publisher-independent but still user-controlled.
         assert!(rendered.contains("query-echo"));
+
+        // plan-126-A: `latest_state` reaches a `class=` attribute through
+        // `state_modifier`, a total map onto a fixed vocabulary — an
+        // out-of-vocabulary value becomes `state--other`, so the hostile string
+        // never reaches the attribute at all.
+        assert!(rendered.contains("state--other"), "{rendered}");
+        // The raw value does still render as visible text, so — per this test's
+        // own rule — assert on the absence of an attribute *break*, not on the
+        // scary substring: an escaped `&quot; onmouseover=&quot;` legitimately
+        // contains the text `onmouseover=`. The quote is what would end the
+        // attribute, and it is escaped.
+        assert!(
+            !rendered.contains(r#"" onmouseover=""#),
+            "the state value must not break out of its attribute: {rendered}",
+        );
+        assert!(
+            rendered.contains("&quot; onmouseover=&quot;alert(1)"),
+            "{rendered}"
+        );
     }
 
     /// **The XSS regression test** (plan-61-C Phase 3) — the single most
@@ -6131,6 +6644,7 @@ mod tests {
                     url: Some("javascript:alert(1)".to_string()),
                     // plan-61-E extends this fixture to the description too.
                     description: Some("<img src=x onerror=alert('desc')>".to_string()),
+                    docs: None,
                 },
             )
             .unwrap();
@@ -6314,6 +6828,294 @@ mod tests {
         // The copy frames this as evidence, not assurance.
         assert!(body.contains("evidence for you to check"));
         assert!(!body.contains("<script"));
+    }
+
+    // === plan-126-F: the Docs tab through the real router ==================
+
+    /// Publish `alice#toolbox@1.0.0` with optional documentation.
+    fn seed_toolbox(h: &Harness, docs: Option<Vec<u8>>) {
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash-1.0.0",
+                "data/1.0.0.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata {
+                    docs,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+
+    fn toolbox_doc_section() -> Vec<u8> {
+        mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
+            package: Some(mfb_wire::docs::PackageDocEntry {
+                name: "toolbox".to_string(),
+                desc: vec![
+                    (0, "Toolbox subtitle.".to_string()),
+                    (2, "An informational note.".to_string()),
+                ],
+                deprecated: None,
+            }),
+            decls: Vec::new(),
+        })
+    }
+
+    /// **plan-126-F Phase 1's acceptance test.** Each of the three package pages,
+    /// rendered through the real router, carries exactly one
+    /// `aria-current="page"`, on its own tab.
+    #[tokio::test]
+    async fn every_package_tab_page_marks_exactly_one_current_tab() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        for (uri, label) in [
+            ("/p/alice%23toolbox", "Overview"),
+            ("/p/alice%23toolbox/docs", "Docs"),
+            ("/p/alice%23toolbox/audit", "Audit"),
+        ] {
+            let (status, _headers, body) = get_page(&h.state, uri).await;
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert_eq!(
+                body.matches("aria-current=\"page\"").count(),
+                1,
+                "{uri} must mark exactly one tab: {body}"
+            );
+            assert!(
+                body.contains(&format!("aria-current=\"page\">{label}</a>")),
+                "{uri} must mark {label}: {body}"
+            );
+        }
+    }
+
+    /// A release with no stored documentation gets the tab, HTTP 200, and an
+    /// explicit statement — not a 404 and not a hidden tab.
+    #[tokio::test]
+    async fn the_docs_tab_states_when_a_release_has_no_documentation() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (status, headers, body) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_SECURITY_POLICY).unwrap(),
+            crate::web::CONTENT_SECURITY_POLICY,
+        );
+        assert!(body.contains("did not include documentation"), "{body}");
+        assert!(body.contains("v1.0.0"), "{body}");
+    }
+
+    /// Stored documentation renders under the unchanged site CSP, with no inline
+    /// style and no script — the two things the compiler's own renderer would
+    /// have needed.
+    #[tokio::test]
+    async fn the_docs_tab_renders_stored_documentation_under_the_site_csp() {
+        let h = harness();
+        seed_toolbox(&h, Some(toolbox_doc_section()));
+        let (status, headers, body) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_SECURITY_POLICY).unwrap(),
+            crate::web::CONTENT_SECURITY_POLICY,
+        );
+        assert!(body.contains("Toolbox subtitle."), "{body}");
+        assert!(body.contains("An informational note."), "{body}");
+        assert!(body.contains("callout--info"), "{body}");
+        assert!(!body.contains("did not include documentation"), "{body}");
+        assert!(!body.contains("<style"), "no inline style: {body}");
+        assert!(!body.contains("<script"), "no script: {body}");
+    }
+
+    /// An unknown ident's Docs tab 404s exactly like the other tabs, with the
+    /// same not-found page, because it resolves through `package_detail`.
+    #[tokio::test]
+    async fn an_unknown_packages_docs_tab_404s_like_the_other_tabs() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (overview_status, _h1, overview_body) = get_page(&h.state, "/p/alice%23nope").await;
+        let (docs_status, _h2, docs_body) = get_page(&h.state, "/p/alice%23nope/docs").await;
+        assert_eq!(docs_status, StatusCode::NOT_FOUND);
+        assert_eq!(docs_status, overview_status);
+        assert!(docs_body.contains("Package not found"), "{docs_body}");
+        assert!(
+            overview_body.contains("Package not found"),
+            "{overview_body}"
+        );
+    }
+
+    /// A doc section whose subtitle names the release, with one public
+    /// declaration (in group `Math`) and one the author marked `INTERNAL`.
+    fn release_doc_section(release_tag: &str) -> Vec<u8> {
+        let decl = |name: &str, internal: bool| mfb_wire::docs::DeclDocEntry {
+            kind: "func".to_string(),
+            name: name.to_string(),
+            signature: format!("EXPORT FUNC {name}() AS Integer"),
+            group: "Math".to_string(),
+            desc: vec![(0, format!("{name} of {release_tag}."))],
+            args: vec![("a".to_string(), "An argument.".to_string())],
+            props: Vec::new(),
+            ret: "A number.".to_string(),
+            errors: Vec::new(),
+            example: format!("PRINT toolbox::{name}()"),
+            internal,
+            deprecated: None,
+        };
+        mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
+            package: Some(mfb_wire::docs::PackageDocEntry {
+                name: "toolbox".to_string(),
+                desc: vec![(0, format!("Toolbox {release_tag}."))],
+                deprecated: None,
+            }),
+            decls: vec![decl("addUp", false), decl("secretHelper", true)],
+        })
+    }
+
+    fn publish_toolbox_release(h: &Harness, version: &str, docs: Option<Vec<u8>>) {
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                version,
+                &format!("hash-{version}"),
+                &format!("data/{version}.mfp"),
+                "{}",
+                &[],
+                &crate::store::PublishMetadata {
+                    docs,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+
+    fn docs_json(body: &str) -> PackageDocsResponse {
+        serde_json::from_str(body).unwrap_or_else(|err| panic!("{err}: {body}"))
+    }
+
+    /// **plan-126-F Validation Plan: the JSON/HTML parity test.** Both routes
+    /// report the same release, the same groups and the same declaration
+    /// anchors, and both omit the internal declaration.
+    #[tokio::test]
+    async fn the_docs_json_route_mirrors_the_docs_tab() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        publish_toolbox_release(&h, "1.0.0", Some(release_doc_section("r1")));
+
+        let (json_status, json_headers, json_body) =
+            get_page(&h.state, "/packages/alice%23toolbox/docs").await;
+        let (html_status, _headers, html_body) =
+            get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(json_status, StatusCode::OK, "{json_body}");
+        assert_eq!(html_status, StatusCode::OK, "{html_body}");
+        assert!(json_headers
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("application/json"));
+
+        let docs = docs_json(&json_body);
+        assert_eq!(docs.ident, "alice#toolbox");
+        assert_eq!(docs.version.as_deref(), Some("1.0.0"));
+        assert!(html_body.contains("v1.0.0"), "{html_body}");
+        // The HTML tab links its JSON mirror.
+        assert!(
+            html_body.contains("/packages/alice%23toolbox/docs"),
+            "{html_body}"
+        );
+
+        let documentation = docs.documentation.expect("documented release");
+        assert_eq!(documentation.subtitle, "Toolbox r1.");
+        assert!(html_body.contains("Toolbox r1."), "{html_body}");
+        assert_eq!(documentation.groups.len(), 1);
+        let group = &documentation.groups[0];
+        assert_eq!(group.title, "Math");
+        assert!(html_body.contains(">Math</h2>"), "{html_body}");
+        let anchors: Vec<&str> = group
+            .declarations
+            .iter()
+            .map(|decl| decl.anchor.as_str())
+            .collect();
+        assert_eq!(anchors, ["doc-addup"]);
+        for anchor in anchors {
+            assert!(
+                html_body.contains(&format!("id=\"{anchor}\"")),
+                "the JSON anchor {anchor} must be an element id on the tab: {html_body}"
+            );
+        }
+        let add = &group.declarations[0];
+        assert_eq!(add.signature, "EXPORT FUNC addUp() AS Integer");
+        assert_eq!(add.parameters[0].name, "a");
+        assert_eq!(add.returns, "A number.");
+        assert_eq!(add.example, "PRINT toolbox::addUp()");
+        assert!(!json_body.contains("secretHelper"), "{json_body}");
+        assert!(!html_body.contains("secretHelper"), "{html_body}");
+    }
+
+    /// An undocumented release is `documentation: null` on the JSON route —
+    /// the state the HTML tab states in words.
+    #[tokio::test]
+    async fn the_docs_json_route_reports_null_for_an_undocumented_release() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (status, _headers, body) = get_page(&h.state, "/packages/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let docs = docs_json(&body);
+        assert_eq!(docs.version.as_deref(), Some("1.0.0"));
+        assert!(docs.documentation.is_none(), "{body}");
+        assert!(body.contains("\"documentation\":null"), "{body}");
+    }
+
+    /// The JSON route refuses an unknown package with the same status as
+    /// `GET /packages/:ident`.
+    #[tokio::test]
+    async fn the_docs_json_route_404s_like_the_package_route() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (detail_status, _h1, _b1) = get_page(&h.state, "/packages/alice%23nope").await;
+        let (docs_status, _h2, docs_body) = get_page(&h.state, "/packages/alice%23nope/docs").await;
+        assert_eq!(detail_status, StatusCode::NOT_FOUND);
+        assert_eq!(docs_status, detail_status);
+        assert!(docs_body.contains("unknown package"), "{docs_body}");
+    }
+
+    /// **plan-126-F Validation Plan: the cross-surface check.** When the newest
+    /// release is yanked, both the tab and its JSON mirror serve the older
+    /// active release's documentation and name that release — plan-126-A's
+    /// selection end to end, not merely the newest row.
+    #[tokio::test]
+    async fn the_docs_tab_documents_the_older_active_release_when_the_newest_is_yanked() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        publish_toolbox_release(&h, "1.0.0", Some(release_doc_section("r1")));
+        publish_toolbox_release(&h, "2.0.0", Some(release_doc_section("r2")));
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        let (_status, _headers, before) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert!(before.contains("Toolbox r2."), "{before}");
+        assert!(before.contains("v2.0.0"), "{before}");
+
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "yanked")
+            .unwrap();
+
+        let (status, _headers, html_body) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html_body.contains("Toolbox r1."), "{html_body}");
+        assert!(html_body.contains("v1.0.0"), "{html_body}");
+        assert!(!html_body.contains("Toolbox r2."), "{html_body}");
+        assert!(!html_body.contains("v2.0.0"), "{html_body}");
+
+        let (_status, _headers, json_body) =
+            get_page(&h.state, "/packages/alice%23toolbox/docs").await;
+        let docs = docs_json(&json_body);
+        assert_eq!(docs.version.as_deref(), Some("1.0.0"));
+        assert_eq!(docs.documentation.unwrap().subtitle, "Toolbox r1.");
     }
 
     /// An unknown package renders a 404 **page**, not a bare status — and that
@@ -6555,7 +7357,7 @@ mod tests {
     async fn anonymous_log_routes_are_rate_limited_per_ip() {
         let h = harness();
         for _ in 0..LOG_PER_IP_MAX {
-            log_checkpoint(State(h.state.clone()), peer("10.0.0.2"))
+            let _ = log_checkpoint(State(h.state.clone()), peer("10.0.0.2"))
                 .await
                 .expect("within budget");
         }
@@ -6575,7 +7377,7 @@ mod tests {
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 
         // It is PER IP: one abusive peer must not deny the rest of the world.
-        log_checkpoint(State(h.state.clone()), peer("10.0.0.3"))
+        let _ = log_checkpoint(State(h.state.clone()), peer("10.0.0.3"))
             .await
             .expect("a different peer has its own budget");
     }
@@ -6603,7 +7405,7 @@ mod tests {
              requests from one IP; LOG_PER_IP_MAX is {LOG_PER_IP_MAX}"
         );
         for _ in 0..burst {
-            log_checkpoint(State(h.state.clone()), peer("10.0.0.4"))
+            let _ = log_checkpoint(State(h.state.clone()), peer("10.0.0.4"))
                 .await
                 .expect("an ordinary install burst must not be throttled");
         }
@@ -9581,6 +10383,108 @@ mod tests {
         assert_eq!(*libc, None, "the fixture locator declares no libc");
         assert_eq!(lib_type, "vendor");
         assert_eq!(source, "libsnd.a");
+    }
+
+    // === plan-126-E Phase 2: section 17 captured at publish ================
+
+    /// A publishable payload with an optional section 17 (`doc`). Same shape
+    /// `validate_writes_no_target_rows_but_publish_does` publishes -- a string
+    /// pool and an ABI index -- minus the section-10 vendor table, which would
+    /// need an uploaded blob.
+    fn payload_with_doc_section(doc_section: Option<Vec<u8>>) -> Vec<u8> {
+        let mut sections = vec![
+            (2, mfpc_string_pool(&["greet"])),
+            (15, mfpc_abi_section(&[(0, [0xab; 32])])),
+        ];
+        if let Some(section) = doc_section {
+            sections.push((17, section));
+        }
+        mfpc_container(&sections)
+    }
+
+    /// A well-formed section-17 body, produced by the one shared encoder.
+    fn sample_doc_section() -> Vec<u8> {
+        mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
+            package: Some(mfb_wire::docs::PackageDocEntry {
+                name: "toolbox".to_string(),
+                desc: vec![(0, "A toolbox.".to_string())],
+                deprecated: None,
+            }),
+            decls: vec![mfb_wire::docs::DeclDocEntry {
+                kind: "func".to_string(),
+                name: "greet".to_string(),
+                signature: "EXPORT FUNC greet() AS String".to_string(),
+                group: String::new(),
+                desc: vec![(0, "Greets.".to_string())],
+                args: Vec::new(),
+                props: Vec::new(),
+                ret: "a greeting".to_string(),
+                errors: Vec::new(),
+                example: String::new(),
+                internal: false,
+                deprecated: None,
+            }],
+        })
+    }
+
+    /// Publish `payload` as `alice#toolbox@1.0.0` through the real handler.
+    async fn publish_payload(payload: Vec<u8>) -> Harness {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let (_artifact, request) = signed_request(&h.state, &keys, &token, "1.0.0", payload).await;
+        let _ = publish_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("publish succeeds");
+        h
+    }
+
+    /// A documented package's section 17 is stored, and reads back byte for
+    /// byte -- the raw bytes, not a re-encoding.
+    #[tokio::test]
+    async fn publishing_a_documented_package_stores_its_doc_section_byte_for_byte() {
+        let section = sample_doc_section();
+        let h = publish_payload(payload_with_doc_section(Some(section.clone()))).await;
+        assert_eq!(
+            h.store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.0.0".to_string(), section)),
+        );
+    }
+
+    /// No section 17 is the normal undocumented case: publish succeeds, no row.
+    #[tokio::test]
+    async fn publishing_an_undocumented_package_succeeds_and_stores_no_doc_row() {
+        let h = publish_payload(payload_with_doc_section(None)).await;
+        assert_eq!(
+            h.store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+    }
+
+    /// **plan-126-E Phase 2's important negative.** A truncated section 17 must
+    /// not reject a signed package -- documentation "does not affect execution
+    /// or the ABI" -- and must not be recorded either.
+    #[tokio::test]
+    async fn a_truncated_doc_section_still_publishes_and_records_nothing() {
+        let mut truncated = sample_doc_section();
+        truncated.truncate(truncated.len() - 3);
+        assert!(
+            mfb_wire::docs::read_doc_table(&truncated).is_err(),
+            "the fixture must genuinely fail to decode, or this test proves nothing"
+        );
+        let h = publish_payload(payload_with_doc_section(Some(truncated))).await;
+        assert_eq!(
+            h.store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+        // The version itself landed: a doc-table defect did not block the publish.
+        assert_eq!(
+            h.store
+                .latest_active_version("alice#toolbox")
+                .unwrap()
+                .map(|(version, _)| version),
+            Some("1.0.0".to_string()),
+        );
     }
 
     #[tokio::test]

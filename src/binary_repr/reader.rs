@@ -8,20 +8,12 @@ use super::*;
 /// *repeated* ids, not a deep acyclic chain, so a separate depth cap is required.
 pub(super) const MAX_TYPE_GRAPH_DEPTH: usize = 256;
 
-// === Doc + package-meta section decoding ===================================
-// Read-side of the self-describing `doc` (17) and `package-meta` (18) sections;
-// their encoders live in writer.rs / reader's adjacent `encode_package_meta`.
-
-pub(super) fn doc_kind_name(kind: u16) -> &'static str {
-    match kind {
-        DOC_KIND_SUB => "sub",
-        DOC_KIND_TYPE => "type",
-        DOC_KIND_UNION => "union",
-        DOC_KIND_ENUM => "enum",
-        DOC_KIND_RESOURCE => "resource",
-        _ => "func",
-    }
-}
+// === Package-meta section decoding =========================================
+// Read-side of the self-describing `package-meta` (18) section; its encoder is
+// the adjacent `encode_package_meta`. The `doc` (17) section's codec --
+// `read_doc_table`, `doc_kind_name` and `encode_doc_table` -- moved to
+// `mfb_wire::docs` (plan-126-D) so the registry can decode published docs; they
+// arrive here through the glob re-export in mod.rs.
 
 /// Encode section 18 (plan-61-D §3), or `None` when there is nothing to encode.
 ///
@@ -83,68 +75,6 @@ pub(super) fn read_package_meta(bytes: &[u8]) -> Result<String, String> {
         // possible without knowing what it was.
     }
     Ok(description)
-}
-
-pub(super) fn read_doc_table(bytes: &[u8]) -> Result<PackageDocs, String> {
-    let mut offset = 0;
-    let has_package = *bytes
-        .get(offset)
-        .ok_or_else(|| "truncated doc table".to_string())?;
-    offset += 1;
-    let package = if has_package == 0 {
-        None
-    } else {
-        let name = cursor_string(bytes, &mut offset)?;
-        let desc = cursor_prose_list(bytes, &mut offset)?;
-        let deprecated = cursor_optional_str(bytes, &mut offset)?;
-        Some(PackageDocEntry {
-            name,
-            desc,
-            deprecated,
-        })
-    };
-    let count = cursor_u32(bytes, &mut offset)? as usize;
-    // A doc declaration occupies ~40+ wire bytes; use that as the min-element size
-    // for the pre-allocation bound (was an understated 2).
-    let mut decls = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 40));
-    for _ in 0..count {
-        let kind = doc_kind_name(cursor_u16(bytes, &mut offset)?).to_string();
-        let name = cursor_string(bytes, &mut offset)?;
-        let signature = cursor_string(bytes, &mut offset)?;
-        let group = cursor_string(bytes, &mut offset)?;
-        let desc = cursor_prose_list(bytes, &mut offset)?;
-        let args = cursor_pair_list(bytes, &mut offset)?;
-        let props = cursor_pair_list(bytes, &mut offset)?;
-        let ret = cursor_string(bytes, &mut offset)?;
-        let errors = cursor_pair_list(bytes, &mut offset)?;
-        let example = cursor_string(bytes, &mut offset)?;
-        let internal = *bytes
-            .get(offset)
-            .ok_or_else(|| "truncated doc entry".to_string())?
-            != 0;
-        offset += 1;
-        let deprecated = cursor_optional_str(bytes, &mut offset)?;
-        decls.push(DeclDocEntry {
-            kind,
-            name,
-            signature,
-            group,
-            desc,
-            args,
-            props,
-            ret,
-            errors,
-            example,
-            internal,
-            deprecated,
-        });
-    }
-    // bug-282 B3: restore the trailing-bytes invariant every other section
-    // enforces (audit-1 PKG-05); the doc table was added afterwards and skipped it.
-    if offset != bytes.len() {
-        return Err("invalid trailing bytes in doc table".to_string());
-    }
-    Ok(PackageDocs { package, decls })
 }
 
 // === Container framing + identity/signature validation =====================
@@ -214,7 +144,10 @@ impl SectionKind {
     }
 
     /// Fetch a mandatory section, erroring with the section's label when absent.
-    fn require<'a>(self, sections: &HashMap<u16, &'a [u8]>) -> Result<&'a [u8], String> {
+    ///
+    /// plan-126-C: the map is a `BTreeMap` since the section-table decode moved
+    /// to `mfb_wire::mfpc` — chosen so section iteration order is deterministic.
+    fn require<'a>(self, sections: &BTreeMap<u16, &'a [u8]>) -> Result<&'a [u8], String> {
         sections
             .get(&self.id())
             .copied()
@@ -222,7 +155,7 @@ impl SectionKind {
     }
 
     /// Fetch an optional section; `None` when the package does not carry it.
-    fn optional<'a>(self, sections: &HashMap<u16, &'a [u8]>) -> Option<&'a [u8]> {
+    fn optional<'a>(self, sections: &BTreeMap<u16, &'a [u8]>) -> Option<&'a [u8]> {
         sections.get(&self.id()).copied()
     }
 }
@@ -264,8 +197,13 @@ pub(super) fn read_package_binary_repr(path: &Path) -> Result<PackageBinaryRepr,
 }
 
 pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
-    use super::MFP_MAGIC;
-    if bytes.len() < 20 {
+    // The third `.mfp` fixed-prefix decoder (see the table in
+    // `mfb_wire::mfp`'s module doc). Its policy is the laxest of the three: no
+    // per-field byte caps, because it only needs the identity fields to
+    // cross-check against the payload's own manifest, and the payload is
+    // already covered by `packageBinaryHash`. It shares the primitives and
+    // keeps that policy.
+    if bytes.len() < FIXED_PREFIX_LEN {
         return Err("package is too small to be a valid .mfp package".to_string());
     }
     if bytes[0..8] != MFP_MAGIC {
@@ -280,7 +218,7 @@ pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, 
         ));
     }
 
-    let mut offset = 20usize;
+    let mut offset = FIXED_PREFIX_LEN;
     let name = read_length_prefixed(bytes, &mut offset, "name")?;
     let ident = read_length_prefixed(bytes, &mut offset, "ident")?;
     let version = read_length_prefixed(bytes, &mut offset, "version")?;
@@ -334,17 +272,9 @@ pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, 
     })
 }
 
-pub(crate) fn validate_mfp_signature_header(
-    signature_type: u16,
-    signature_length: usize,
-) -> Result<(), String> {
-    match (signature_type, signature_length) {
-        (0, 0) | (1, 64) => Ok(()),
-        (0, _) => Err("unsigned .mfp package must have zero signature length".to_string()),
-        (1, _) => Err("Ed25519 .mfp package must have a 64 byte signature".to_string()),
-        _ => Err(format!("unsupported .mfp signature type {signature_type}")),
-    }
-}
+// `validate_mfp_signature_header` moved to `mfb_wire::mfp` as
+// `validate_signature_header` (plan-126-B). The registry had a byte-identical
+// copy; they were diffed before merging, so neither was chosen over the other.
 
 pub(super) fn validate_container_manifest_identity(
     identity: &MfpIdentity,
@@ -381,51 +311,17 @@ pub(super) fn validate_container_manifest_identity(
 }
 
 pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr, String> {
-    if bytes.len() < 16 || &bytes[0..4] != b"MFPC" {
-        return Err(
-            "package payload does not have the binary representation container magic".to_string(),
-        );
-    }
-    let major = checked_u16_at(bytes, 4)?;
-    if major != MFPC_MAJOR_VERSION {
-        return Err(format!(
-            "unsupported MFPC major version {major} (expected {MFPC_MAJOR_VERSION}); \
-             this package predates the structured Binary Representation format and must be rebuilt"
-        ));
-    }
-    let section_count = checked_u32_at(bytes, 12)? as usize;
-    let table_end = 16usize
-        .checked_add(
-            section_count
-                .checked_mul(24)
-                .ok_or_else(|| "invalid MFPC section table length".to_string())?,
-        )
-        .ok_or_else(|| "invalid MFPC section table length".to_string())?;
-    if table_end > bytes.len() {
-        return Err("truncated MFPC section table".to_string());
-    }
-
-    let mut sections = HashMap::new();
-    for index in 0..section_count {
-        let entry = 16 + index * 24;
-        let id = checked_u16_at(bytes, entry)?;
-        let offset = checked_usize(checked_u64_at(bytes, entry + 8)?, "MFPC section offset")?;
-        let length = checked_usize(checked_u64_at(bytes, entry + 16)?, "MFPC section length")?;
-        let end = offset
-            .checked_add(length)
-            .ok_or_else(|| "invalid MFPC section length".to_string())?;
-        if end > bytes.len() {
-            return Err("truncated MFPC section".to_string());
-        }
-        // Reject duplicate section ids (PKG-06). A `HashMap::insert` silently
-        // keeps the last copy, letting a crafted package ship two views of a
-        // singleton section (e.g. two BINARY_REPR/ABI_INDEX) — one to satisfy a
-        // cheap inspector, the other to be decoded and lowered. Every MFPC
-        // section is a singleton, so a repeated id is always tampering.
-        if sections.insert(id, &bytes[offset..end]).is_some() {
-            return Err(format!("duplicate MFPC section id {id}"));
-        }
-    }
+    // plan-126-C: the section-table decode was inline here and independently
+    // reimplemented in `repository/src/abi.rs`. It is now
+    // `mfb_wire::mfpc::read_section_table`, enforcing the **union** of what the
+    // two copies had between them — so this side gained the declared-count
+    // ceiling (bug-578) that only the registry's copy had, and the registry
+    // gained the MFPC major-version check and the checked width conversion that
+    // only this one had.
+    //
+    // The map is a `BTreeMap` now rather than a `HashMap`, so section iteration
+    // order is deterministic.
+    let sections = mfb_wire::mfpc::read_section_table(bytes)?;
 
     let strings = StringPool {
         values: read_string_pool(SectionKind::StringPool.require(&sections)?)?,

@@ -12,7 +12,16 @@ pub(crate) use crate::manifest::json_edit::{
 };
 pub(crate) use crate::manifest::url::package_file_url_path;
 
-use crate::binary_repr::MFP_MAGIC;
+// plan-126-B: the container magic, the fixed-prefix field readers and the
+// signature-header rule live in `mfb_wire::mfp`, the one crate the compiler and
+// the registry may both depend on. This reader keeps its own *policy* — every
+// `limit`, the `required` flag on each field, and `validate_package_name` below
+// are stated at the call sites in `read_mfp_header` and are what bug-340 B8
+// protects; only the byte-level reading is shared.
+use mfb_wire::mfp::{
+    read_mfp_bytes, read_mfp_string, read_u16, read_u32, read_u64, validate_signature_header,
+    MFP_MAGIC,
+};
 
 /// Parsed container v1.0 `.mfp` header (plan-23 §4). The reader is hard
 /// v1.0: `containerMajor.containerMinor` must be exactly `1.0`.
@@ -51,23 +60,18 @@ pub(crate) struct ProjectPackageDependency {
 
 /// Rejects a package name that cannot be used as a single path component.
 ///
-/// A `.mfp` header name and an `mfb.lock` name are untrusted: both are turned
-/// into `packages/<name>.mfp`. Without this guard a name of `../../x` escapes the
-/// project, and a name beginning with `.` hides the file. Legitimate names are
-/// identifier-like, so the charset is deliberately narrow.
-pub(crate) fn validate_package_name(name: &str) -> Result<(), String> {
-    let mut chars = name.chars();
-    let leading_ok = chars
-        .next()
-        .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_');
-    let rest_ok = chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'));
-    if !leading_ok || !rest_ok {
-        return Err(format!(
-            "package name `{name}` is not a valid path component (expected [A-Za-z0-9_][A-Za-z0-9_.-]*)"
-        ));
-    }
-    Ok(())
-}
+/// The implementation lives in `mfb_wire::validation` as
+/// `validate_path_component_name` (plan-126-C), beside the registry's sibling
+/// policy, so the two can be read together and neither can drift unnoticed.
+/// Re-exported under the local name so the 16 call sites in this crate are
+/// unchanged.
+///
+/// **This is the path-component policy, not the registry's.** It has no length
+/// cap; the registry's adds `PACKAGE_LIMIT`. That difference is the whole of the
+/// divergence, and `mfb_wire::validation`'s
+/// `the_two_package_name_policies_differ_only_by_a_length_cap` states it
+/// executably.
+pub(crate) use mfb_wire::validation::validate_path_component_name as validate_package_name;
 
 pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
     let bytes =
@@ -132,9 +136,10 @@ pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
 
     let signature_type = read_u16(&bytes, offset)?;
     let signature_length = read_u32(&bytes, offset + 2)? as usize;
-    // The signature-type/length rule is the wire format's, owned by `binary_repr`
-    // (bug-340 B8); this reader shares it rather than re-inlining the same match.
-    crate::binary_repr::validate_mfp_signature_header(signature_type, signature_length)?;
+    // The signature-type/length rule is the wire format's, owned by `mfb_wire`
+    // (bug-340 B8, plan-126-B); this reader shares it rather than re-inlining the
+    // same match.
+    validate_signature_header(signature_type, signature_length)?;
     offset = offset
         .checked_add(6)
         .and_then(|offset| offset.checked_add(signature_length))
@@ -164,71 +169,6 @@ pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
         signature_length,
         binary_repr_length,
     })
-}
-
-fn read_mfp_string(
-    bytes: &[u8],
-    offset: &mut usize,
-    field: &str,
-    limit: usize,
-    required: bool,
-) -> Result<String, String> {
-    let raw = read_mfp_bytes(bytes, offset, field, limit)?;
-    let value = String::from_utf8(raw).map_err(|_| format!(".mfp {field} is not valid UTF-8"))?;
-    if required && value.is_empty() {
-        return Err(format!(".mfp {field} must not be empty"));
-    }
-    Ok(value)
-}
-
-fn read_mfp_bytes(
-    bytes: &[u8],
-    offset: &mut usize,
-    field: &str,
-    limit: usize,
-) -> Result<Vec<u8>, String> {
-    let length = read_u32(bytes, *offset)? as usize;
-    *offset = offset
-        .checked_add(4)
-        .ok_or_else(|| format!("invalid .mfp {field} length"))?;
-
-    if length > limit {
-        return Err(format!(".mfp {field} exceeds the {limit} byte limit"));
-    }
-
-    let end = offset
-        .checked_add(length)
-        .ok_or_else(|| format!("invalid .mfp {field} length"))?;
-    if end > bytes.len() {
-        return Err(format!("truncated .mfp {field}"));
-    }
-
-    let value = bytes[*offset..end].to_vec();
-    *offset = end;
-    Ok(value)
-}
-
-fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
-    let value = bytes
-        .get(offset..offset + 2)
-        .ok_or_else(|| "truncated .mfp header".to_string())?;
-    Ok(u16::from_le_bytes([value[0], value[1]]))
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
-    let value = bytes
-        .get(offset..offset + 4)
-        .ok_or_else(|| "truncated .mfp header".to_string())?;
-    Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
-}
-
-fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
-    let value = bytes
-        .get(offset..offset + 8)
-        .ok_or_else(|| "truncated .mfp header".to_string())?;
-    Ok(u64::from_le_bytes([
-        value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],
-    ]))
 }
 
 /// Where a build keeps the compiled interface of every dependency declared by
@@ -972,6 +912,112 @@ mod tests {
 
         assert!(resource_closers_from_files(std::slice::from_ref(&path)).is_empty());
         assert!(verify_foreign_type_abi_consistency(&[path]).is_err());
+    }
+
+    /// A structurally-valid unsigned v1.0 `.mfp` that **both** decoders will
+    /// consider well-formed apart from the one field under test.
+    ///
+    /// This cannot reuse [`build_mfp`]: that helper writes `proofSig` and
+    /// `attestationSig` as 64 zero bytes, and the registry additionally enforces
+    /// that an unsigned package carries *none* of the trust chain ("unsigned
+    /// .mfp package must not carry proofSig"). A fixture rejected for that
+    /// reason would make the divergence tests below pass for the wrong reason.
+    /// Here every chain field is genuinely empty.
+    fn build_mfp_for_both_decoders(name: &str, ident: &str) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&MFP_MAGIC);
+        buf.extend_from_slice(&1u16.to_le_bytes()); // container major
+        buf.extend_from_slice(&0u16.to_le_bytes()); // container minor
+        buf.extend_from_slice(&1u16.to_le_bytes()); // binary_repr major
+        buf.extend_from_slice(&0u16.to_le_bytes()); // binary_repr minor
+        buf.extend_from_slice(&0u32.to_le_bytes()); // flags
+        push_field(&mut buf, name.as_bytes());
+        push_field(&mut buf, ident.as_bytes());
+        push_field(&mut buf, b"1.2.3");
+        push_field(&mut buf, b""); // author
+        push_field(&mut buf, b""); // url
+        push_field(&mut buf, b""); // identKey
+        push_field(&mut buf, b""); // signingKey
+        push_field(&mut buf, b""); // proof
+        push_field(&mut buf, b""); // proofSig — empty, per the unsigned rule
+        push_field(&mut buf, b""); // attestation
+        push_field(&mut buf, b""); // attestationSig — empty, likewise
+        buf.extend_from_slice(&[0u8; 32]); // packageBinaryHash
+        buf.extend_from_slice(&0u64.to_le_bytes()); // binary_repr length = 0
+        buf.extend_from_slice(&0u16.to_le_bytes()); // signature type = unsigned
+        buf.extend_from_slice(&0u32.to_le_bytes()); // signature length = 0
+        buf
+    }
+
+    /// **plan-126-B Phase 3 — the test that proves bug-340 B8 was honored
+    /// rather than silently undone.**
+    ///
+    /// The `.mfp` fixed-prefix field readers are now shared
+    /// (`mfb_wire::mfp::read_mfp_string`), so the danger is that sharing the
+    /// *primitives* quietly merged the *policies* too. It did not, and this is
+    /// the one place both policies are reachable from: the compiler crate can
+    /// call `mfb_repository::package::parse_mfp_package`, the registry crate
+    /// cannot call `read_mfp_header`.
+    ///
+    /// The fixture carries an **empty `ident`**, which is the exact field the
+    /// two decoders disagree about. Hand the *same bytes* to both:
+    ///
+    /// * `read_mfp_header` accepts it — a locally-built package has no ident.
+    /// * `parse_mfp_package` rejects it — an unidentified package cannot be
+    ///   published.
+    ///
+    /// If someone later "simplifies" the two decoders into one, one of these
+    /// two assertions fails no matter which policy they pick.
+    #[test]
+    fn the_two_mfp_decoders_still_disagree_about_an_empty_ident_by_design() {
+        let bytes = build_mfp_for_both_decoders("mypkg", "");
+        let (_dir, path) = write_temp(&bytes);
+
+        // The manifest reader's policy: `ident` is optional.
+        let header = read_mfp_header(&path).expect("the manifest reader accepts an absent ident");
+        assert_eq!(header.ident, "");
+        assert_eq!(header.name, "mypkg");
+
+        // The registry's policy, on the very same bytes: `ident` is required.
+        let err = mfb_repository::package::parse_mfp_package(&bytes)
+            .expect_err("the registry must refuse a package with no ident");
+        assert_eq!(err, ".mfp ident must not be empty");
+
+        // And the guard is specifically about `ident`, not the shared reader
+        // refusing this fixture generally: fill the ident in and the registry
+        // accepts what it just refused, while the manifest reader still does.
+        let with_ident = build_mfp_for_both_decoders("mypkg", "alice#mypkg");
+        let parsed = mfb_repository::package::parse_mfp_package(&with_ident)
+            .expect("the same fixture with an ident present parses cleanly");
+        assert_eq!(parsed.ident, "alice#mypkg");
+        let (_dir2, path2) = write_temp(&with_ident);
+        assert_eq!(
+            read_mfp_header(&path2).expect("still valid here too").ident,
+            "alice#mypkg",
+        );
+    }
+
+    /// The name charset guard is the manifest reader's *other* policy, and the
+    /// registry deliberately does not apply it: a header name becomes
+    /// `packages/<name>.mfp` on the client, so `..` there escapes the project,
+    /// while the registry never turns a header name into a local path.
+    #[test]
+    fn only_the_manifest_reader_applies_the_name_charset_guard() {
+        // A path-traversing name, with an ident present so the registry's own
+        // required-ident guard cannot be what rejects it.
+        let bytes = build_mfp_for_both_decoders("../../escape", "alice#mypkg");
+
+        let (_dir, path) = write_temp(&bytes);
+        let err = header_err(&path);
+        assert!(
+            err.contains("not a valid path component"),
+            "the manifest reader must refuse a traversing name: {err}"
+        );
+
+        // The registry accepts it: the name reaches no filesystem there.
+        let parsed = mfb_repository::package::parse_mfp_package(&bytes)
+            .expect("the registry applies no name charset guard");
+        assert_eq!(parsed.name, "../../escape");
     }
 
     #[test]

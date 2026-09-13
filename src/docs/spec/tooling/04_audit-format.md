@@ -34,7 +34,7 @@ semantically active bidi/format code points (`U+061C`, `U+200B..200F`,
 `U+202A..202E`, `U+2060..2064`, `U+2066..2069`, `U+FEFF`). Controls alone would
 not be enough: a crafted package name carrying `U+202E` (RIGHT-TO-LEFT OVERRIDE)
 reverses the rendering of everything after it without emitting a single control
-byte. [[src/terminal_safe.rs:is_terminal_unsafe]]
+byte. [[wire/src/terminal_safe.rs:is_terminal_unsafe]]
 
 The two differ only in spelling. The text renderer writes `\u{XXXX}` in a
 manifest- or `.mfp`-derived value (names, versions, paths, messages), so a

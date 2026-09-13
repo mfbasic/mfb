@@ -32,8 +32,8 @@ Sub-plans B–F point here rather than restating them.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Workspace builds and tests clean at HEAD | `rustup run 1.96.0 cargo test --no-fail-fast` → 0 failures | UNVERIFIED — run before starting |
-| `repository` is a workspace member (so its tests are in the denominator) | `rustup run 1.96.0 cargo metadata --no-deps --format-version 1` → `workspace_members` length 2 | MET (measured 2026-09-06) |
+| Workspace builds and tests clean at HEAD | `rustup run 1.96.0 cargo test --no-fail-fast` → 0 failures | MET (measured 2026-09-12: 161 suites, 5317 passed, 0 failed, exit 0) |
+| `repository` is a workspace member (so its tests are in the denominator) | `rustup run 1.96.0 cargo metadata --no-deps --format-version 1` → `workspace_members` length 2 | MET (re-measured 2026-09-12: 2 members) |
 
 Everything below is written against the world where these hold.
 
@@ -178,7 +178,8 @@ registry from `select_index_version`.
   **value** for packages whose newest release is not active. The field's type and
   name are unchanged; `null` was already a possible value (a package with no
   versions), so no consumer gains a new shape.
-- `SearchResponse` gains a `latestState` field. Additive; existing consumers ignore it.
+- `SearchResponse` **and `PackageDetailResponse`** each gain a `latestState`
+  field (corrected — see Corrections). Additive; existing consumers ignore it.
 - `GET /index/:ident`, the publish path, the DB schema, and every signed payload are
   untouched.
 
@@ -194,77 +195,116 @@ registry from `select_index_version`.
 Adds the predicate and query in isolation so the semantics are pinned before
 anything reads them.
 
-- [ ] Add `pub fn state_is_active(state: &str) -> bool` to
+- [x] Add `pub fn state_is_active(state: &str) -> bool` to
       `repository/src/validation.rs`, `matches!(state, "available" | "deprecated")`,
-      with a doc comment citing `src/cli/pkg.rs:1371` as the definition it mirrors
-      and naming all five states so the allowlist rationale is on the page.
-- [ ] Add `Store::latest_active_version(&self, ident: &str) -> Result<Option<(String, String)>, String>`
+      with a doc comment citing `state_is_floating_eligible` as the definition it
+      mirrors and naming all five states so the allowlist rationale is on the page.
+- [x] Add `Store::latest_active_version(&self, ident: &str) -> Result<Option<(String, String)>, String>`
       to `repository/src/store.rs` beside `package_detail`: same `ORDER BY
       pv.created_at DESC, pv.id DESC`, `WHERE p.ident = ?1 AND pv.state IN
       ('available','deprecated')`, `LIMIT 1`, returning `(version, state)`.
-- [ ] Tests in `repository/src/store.rs`'s test module: newest is yanked → returns
+- [x] Tests in `repository/src/store.rs`'s test module: newest is yanked → returns
       the older active one; newest is `blocked` → same; newest is
       `legal-tombstoned` → same; all versions inactive → `None`; no versions →
       `None`; newest is `deprecated` → returns it *with* state `deprecated`.
-- [ ] Test in `repository/src/validation.rs` asserting `state_is_active` agrees
-      with `state_is_floating_eligible` across all five states, with a comment
-      naming `src/cli/pkg.rs:2310` as the sibling table.
+      Six tests plus a `store_with_versions` helper; the yanked and all-inactive
+      tests additionally assert `list_package_versions` still returns both rows,
+      so the selection filter cannot be mistaken for a listing filter.
+- [x] Test in `repository/src/validation.rs` asserting `state_is_active` agrees
+      with `state_is_floating_eligible` across all five states
+      (`active_states_are_an_allowlist_matching_the_install_client`), citing the
+      sibling table by symbol + grep rather than by line number.
 
-Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes
-with the six new store tests, and a test that constructs a package whose newest
-version is `blocked` proves the selection skips it (a denylist implementation of
-the same function fails that test).
-Commit: —
+Acceptance: MET. `rustup run 1.96.0 cargo test -p mfb_repository --lib
+--no-fail-fast` → `373 passed; 0 failed` (was 366; +6 store, +1 validation).
+The denylist proof was run, not assumed: rewriting the predicate as
+`pv.state != 'yanked'` turns **three** tests red —
+`latest_active_version_skips_a_blocked_newest_release`,
+`..._skips_a_legal_tombstoned_newest_release` and
+`..._is_none_when_every_version_is_inactive` (`test result: FAILED. 3 passed;
+3 failed`) — and the allowlist was restored.
+Commit: 1285d1f96
 
 ### Phase 2 — Route `package_detail` and the Overview through it
 
-- [ ] Replace `versions.first()` at `repository/src/server.rs:1433` with a call to
-      `Store::latest_active_version`, keeping the full unfiltered `versions` vector
-      in the response exactly as it is today.
-- [ ] Add `latest_state: Option<String>` to `crate::web::PackageView`
-      (`repository/src/web/mod.rs:436` region) and populate it in
-      `package_page_html` (`repository/src/server.rs:1249-1289`).
-- [ ] Render the state badge beside the header's `latest v<N>` chip
-      (`repository/src/web/mod.rs:455-457`) using the existing
-      `state state--<modifier>` classes and `state_modifier`.
-- [ ] When `latest_version` is `None` **and** the package has versions, render
-      explicit copy in the header — e.g. "no active release" — rather than omitting
-      the chip silently.
-- [ ] Tests in `repository/src/web/mod.rs`: a `PackageView` whose newest listed
-      version is yanked renders the older active version in the header; a view with
-      versions but `latest_version: None` renders the no-active-release copy; the
-      versions table still contains every version in both cases.
+- [x] Replace `versions.first()` in `package_detail`
+      (`grep -n "fn package_detail" repository/src/server.rs`) with a call to
+      `Store::latest_active_version`, keeping the full unfiltered `versions`
+      vector in the response exactly as it is today.
+- [x] Add `latest_state: Option<String>` to `crate::web::PackageView` and
+      populate it in `package_page_html`. **Also** added `latestState` to
+      `PackageDetailResponse` — see Corrections; without it the HTML page would
+      have had to run its own second selection, breaking the handler's stated
+      "the two surfaces cannot disagree" property.
+- [x] Render the state badge beside the header's `latest v<N>` chip using the
+      existing `state state--<modifier>` classes and `state_modifier`.
+- [x] When `latest_version` is `None` **and** the package has versions, render
+      explicit copy in the header — "no active release" plus "every published
+      version is yanked or blocked" — rather than omitting the chip silently.
+      A package with **no** versions takes neither branch: there is nothing to
+      state the absence of. New `.pkg-latest--none` CSS rule reuses the existing
+      danger tokens.
+- [x] Tests in `repository/src/web/mod.rs`: four —
+      `the_header_names_the_newest_active_release_while_the_table_keeps_the_yanked_one`,
+      `a_deprecated_headline_release_carries_its_state_badge`,
+      `no_active_release_is_stated_not_omitted`, and
+      `a_package_with_no_versions_renders_no_release_copy_at_all`.
+- [x] Added task: a **handler-seam** test the web tests cannot reach —
+      `package_detail_names_the_newest_active_release_not_a_yanked_newest`
+      (`repository/src/server.rs`). See Corrections: the pre-existing
+      `package_detail_lists_every_version_including_yanked_ones` yanks the
+      *older* version, so both selections agree there and it stayed green
+      throughout the bug's lifetime. Its misleading "Newest first, so
+      `latestVersion` is the un-yanked 2.0.0" comment was corrected in place.
 
-Acceptance: a repository test renders `package_page` for a fixture whose newest
-version is yanked and asserts the header names the older active version **while the
-table still contains the yanked one** — the second half is what proves the
-transparency listing was not filtered.
-Commit: —
+Acceptance: MET. `the_header_names_the_newest_active_release_while_the_table_keeps_the_yanked_one`
+renders `package_page` for a view whose newest version is yanked and asserts the
+header names `latest v1.5.0`, does **not** contain `latest v2.0.0`, and the table
+still carries the yanked row (`state--yanked` present). `cargo test -p
+mfb_repository --lib --no-fail-fast` → `378 passed; 0 failed`.
+Commit: 90150eff1
 
 ### Phase 3 — Search results carry state (the actual bug)
 
 Largest user-visible change, landed last.
 
-- [ ] Apply the `state_is_active` allowlist to the per-package latest-version
-      statement at `repository/src/store.rs:1706-1713` and select `pv.state`
-      alongside `pv.version`.
-- [ ] Add `latest_state: Option<String>` to `SearchResultRow`
-      (`repository/src/store.rs:2965` region) and to `SearchRow`
-      (`repository/src/web/mod.rs:281-287`).
-- [ ] Add the field to the search JSON response type in
+- [x] Apply the `state_is_active` allowlist to the per-package latest-version
+      statement in `Store::search_packages`
+      (`grep -n "failed to prepare latest-version query" repository/src/store.rs`)
+      and select `pv.state` alongside `pv.version`.
+- [x] Add `latest_state: Option<String>` to `SearchResultRow`
+      (`grep -n "pub struct SearchResultRow" repository/src/store.rs`) and to
+      `SearchRow` (`grep -n "pub struct SearchRow" repository/src/web/mod.rs`).
+- [x] Add the field to the search JSON response type `SearchResult` in
       `repository/src/server.rs` as `latestState` and populate it.
-- [ ] Render the badge next to `span."result__ver"` at
-      `repository/src/web/mod.rs:340-342`; add `.result__state` rules to
-      `repository/src/web/style.css` reusing the existing `state--*` modifiers.
-- [ ] Tests: a search whose only match has a yanked newest release shows the older
-      active version with no yanked badge; a match whose newest active release is
-      `deprecated` shows the deprecated badge; a match with **no** active release
-      shows the no-active-release copy and no version chip.
+- [x] Render the badge next to `span."result__ver"` in `search_page`, reusing the
+      existing `state state--<modifier>` classes rather than adding a parallel
+      `.result__state` rule set — the badge is the *same* badge the Overview
+      version table uses, and a second rule set for one would drift. The one new
+      rule is `.result__ver--none` for the no-active-release statement.
+- [x] Tests: three new —
+      `search_names_the_newest_active_release_and_carries_its_state` (JSON: yanked
+      newest → older active; deprecated newest → returned *with* its state; all
+      withdrawn → row kept, version `null`),
+      `the_search_page_never_shows_a_yanked_version_in_the_result_chip` (HTML),
+      and `the_search_page_badges_a_deprecated_headline_release` (HTML).
+      `search_ranks_exact_then_prefix_then_substring` gained a `latest_state`
+      assertion.
+- [x] Added task: extend the pre-existing
+      `search_results_escape_html_metacharacters_in_publisher_values` to cover
+      the new field. `latest_state` reaches a `class=` attribute via
+      `state_modifier`, so a hostile value is a new XSS surface — see
+      Corrections for the false-positive assertion this first produced.
 
-Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes,
-and a rendered-HTML test asserts the yanked version string does **not** appear in
-the search result chip for a package whose newest release is yanked.
-Commit: —
+Acceptance: MET. `rustup run 1.96.0 cargo test -p mfb_repository --lib
+--no-fail-fast` → `381 passed; 0 failed`.
+`the_search_page_never_shows_a_yanked_version_in_the_result_chip` drives the real
+`/search.html?q=` route and asserts the yanked `9.9.9` appears **nowhere** in the
+response body while `v1.0.0` does; with the fallback withdrawn too it asserts
+`no active release` is present and `v1.0.0` is gone.
+Also green: `cargo test --test cli_repo_publish --test cli_repo_install --test
+cli_repo_auth --test cli_repo_governance` → 4 / 7 / 9 / 6 passed, 0 failed.
+Commit: cce8f7b02
 
 ## Validation Plan
 
@@ -272,36 +312,127 @@ Commit: —
   `repository/src/validation.rs`, `repository/src/web/mod.rs`), including the
   negative cases above — `blocked`, `legal-tombstoned`, all-inactive, and no-versions.
 - **Coverage check:** the repository crate is a workspace member
-  (`cargo metadata --no-deps` → 2 members), so its 351 lib tests are in the
-  `cargo test` denominator. `scripts/artifact-gate.sh` covers **none** of this code
+  (`cargo metadata --no-deps` → 2 members, re-measured 2026-09-12), so its lib
+  tests are in the `cargo test` denominator — **381** after this sub-plan, 366
+  before (the plan said 351; see Corrections). `scripts/artifact-gate.sh` covers **none** of this code
   — a 0-diff there is meaningless for this sub-plan and must not be cited as a gate.
-- **Runtime proof:** start a local `mfb-repo`, publish two versions, `mfb pkg
-  release-state <ident> <newest> yanked`, then load `/p/<ident>` and
-  `/search.html?q=<ident>` and confirm both name the older version while the
-  Overview table still lists the yanked one.
+- **Runtime proof:** DONE 2026-09-12 against a live `mfb-repo` on
+  `127.0.0.1:7791` with a real signed package (`alice#toolbox` 0.1.0 and 0.2.0,
+  published through `mfb repo publish`). The command is `mfb repo release-state
+  <state> <version>` run from the package directory — **not** `mfb pkg
+  release-state <ident> <newest> <state>` as written here; `pkg` was retired in
+  favour of `repo` (plan-60-A) and the ident comes from `project.json`, not the
+  argv. Results:
+
+  | State of newest (0.2.0) | `/packages/…` JSON | `/p/…` header | `/search.html?q=` chip | Overview table |
+  |---|---|---|---|---|
+  | `available` | `0.2.0` / `available` | `latest v0.2.0` | `v0.2.0` | both listed |
+  | `yanked` | `0.1.0` / `available` | `latest v0.1.0` + `state--available` | `v0.1.0`, **`0.2.0` absent entirely** | `0.2.0` listed, `state--yanked` |
+  | `deprecated` | `0.2.0` / `deprecated` | `latest v0.2.0` + `state--deprecated` | `v0.2.0` + `state--deprecated` | both listed |
+  | both yanked | `null` / `null` | `no active release` + `every published version is yanked or blocked` | row kept, `result__ver--none">no active release` | both listed, both `state--yanked` |
+
+  `GET /index/alice%23toolbox` was checked in the last state and still returns
+  **every** version with its state (`[(0.1.0, yanked), (0.2.0, yanked)]`),
+  confirming the § Non-goal that the install client's route is untouched.
 - **Client non-regression:** `rustup run 1.96.0 cargo test --no-fail-fast` must keep
   `src/cli/pkg.rs`'s resolution tests green — in particular
   `pkg.rs:2352` and `2774-2785`. This sub-plan must not move them.
 - **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast` (which includes
   `tests/golden.rs` → `scripts/artifact-gate.sh all`), plus
   `tests/cli/cli_repo_publish.rs` and `tests/cli/cli_repo_install.rs`.
-- **Doc sync:** none — no `mfb man` page or `src/docs/spec/**` text describes the
-  registry web UI's latest-version selection. Confirm with
-  `grep -rn "latest version" src/docs/` before ticking.
+- **Doc sync:** none needed, CONFIRMED 2026-09-12.
+  `grep -rn "latest version\|latestVersion\|latestState" src/docs/ .ai/ repository/DEPLOY.md`
+  → no hits. No `mfb man` page, spec text, `.ai/` topic doc or deploy doc
+  describes the registry's latest-version selection.
 - **Format:** `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
 ## Open Decisions
 
-- **Does `deprecated` count as active?** Recommended **yes** — it matches
-  `state_is_floating_eligible` (`src/cli/pkg.rs:1372`), which installs deprecated
-  releases on a floating add. Alternative: treat only `available` as active, which
-  would make the registry stricter than the installer and hide a package whose
-  only maintained line is deprecated. (§1)
-- **No-active-release copy wording.** Recommended "no active release — every
-  published version is yanked or blocked". Needs to read as a statement, not an
-  error. (§Phase 2)
+- **Does `deprecated` count as active?** **RESOLVED: yes.** Taking the
+  recommendation — it matches `state_is_floating_eligible`, which installs
+  deprecated releases on a floating add, and the alternative would make the
+  registry stricter than its own installer. It is *safe* here only because the
+  state travels with the version and is badged: a deprecated headline is
+  visibly deprecated on both surfaces, verified at runtime (§Validation Plan).
+  Without the badge, counting `deprecated` as active would have been the worse
+  choice. (§1)
+- **No-active-release copy wording.** **RESOLVED**, taking the recommendation
+  with one change: the copy is split across two spans rather than joined by an
+  em dash — `no active release` in the chip position (styled with the danger
+  tokens, so it reads as a state and not a missing value) and `every published
+  version is yanked or blocked` as adjacent muted text. On the search page,
+  where there is no room for the second clause, only `no active release`
+  renders. Both read as statements; neither uses error vocabulary. (§Phase 2)
+- **Added decision — does a fully-withdrawn package keep its search result
+  row?** **RESOLVED: yes.** Not listed in the plan; see Corrections. (§Phase 3)
 
 ## Corrections
+
+- **Every line citation in this sub-plan had drifted.** The plan was written
+  2026-09-06 against line numbers that no longer resolve. Measured 2026-09-12:
+  `latest_version: versions.first()…` is at `repository/src/server.rs:1477`, not
+  `:1433`; `Store::package_detail` at `store.rs:1592`, not `:1456`; the search
+  latest-version statement at `store.rs:1858-1867`, not `:1706-1713`;
+  `SearchResultRow` at `store.rs:3286`, not `:2965`; `state_is_floating_eligible`
+  at `src/cli/pkg.rs:1374`, not `:1369`. Everything below cites symbol + grep
+  instead, per the project's citation rule.
+
+- **`PackageDetailResponse` needed a `latestState` field, which
+  § Compatibility did not list.** The plan called for `latest_state` on
+  `web::PackageView` populated in `package_page_html`, but that handler builds
+  its view *entirely* from `package_detail`'s response and its doc comment makes
+  the "renders the same output the JSON route serves, so the two surfaces cannot
+  disagree" property normative. Threading the state any other way (a second
+  `latest_active_version` call in the HTML handler, or re-deriving it by scanning
+  `versions` for the matching row) would add a second path to the same fact.
+  Added `latestState` to the JSON response instead — additive, `null` exactly
+  when `latestVersion` is, and symmetric with the `latestState` the plan already
+  specified for `SearchResponse`. § Compatibility should have said "both
+  responses gain `latestState`".
+
+- **The pre-existing yanked test never covered the bug.**
+  `package_detail_lists_every_version_including_yanked_ones`
+  (`repository/src/server.rs`) yanks **1.0.0** and leaves **2.0.0** available —
+  the *older* release. Under that fixture `versions.first()` and
+  newest-active agree, so the test was green for the entire life of the defect,
+  and its comment ("Newest first, so `latestVersion` is the un-yanked 2.0.0")
+  positively asserted the broken selection was correct. Comment corrected in
+  place; a new handler test covers the newest-yanked shape, including the
+  further case where the fallback is withdrawn too and the field goes `null`.
+
+- **The runtime-proof command in § Validation Plan did not exist.** It said
+  `mfb pkg release-state <ident> <newest> yanked`; `mfb pkg release-state` was
+  retired in favour of `mfb repo release-state` (plan-60-A) and the surviving
+  command takes `<state> [version]` with the ident read from `project.json`, not
+  as argv. `mfb pkg publish` has likewise moved to `mfb repo publish <owner>
+  [path]`. Corrected in place, and `mfb init-pkg`'s generated `project.json`
+  carries no `ident` field, so one must be added before `repo release-state`
+  will run.
+
+- **`latest_state` is a new XSS surface, and the first assertion written for it
+  was a false positive.** The field reaches a `class=` attribute through
+  `state_modifier`, so it joined the hostile-value set in
+  `search_results_escape_html_metacharacters_in_publisher_values`. The first
+  assertion — `!rendered.contains("onmouseover=")` — went **red**, and the cause
+  was the test's own documented trap: maud escapes the value to
+  `&quot; onmouseover=&quot;alert(1)`, which legitimately still contains the text
+  `onmouseover=`. Corrected to assert the absence of an attribute *break*
+  (`" onmouseover="`) plus the presence of the escaped form, and that
+  `state_modifier`'s total map sends the out-of-vocabulary value to
+  `state--other` so it never reaches the attribute at all.
+
+- **A fully-withdrawn package keeps its search result row.** The plan did not say
+  which way this should go. Dropping the row was rejected: the query found the
+  package, it exists, and silently hiding it is the same truncation the
+  Overview's complete version table exists to prevent. The row renders with a
+  `no active release` statement in place of the version chip.
+
+- **Populations re-measured 2026-09-12** (plan figures in parentheses):
+  repository crate lib tests **366** at HEAD (351);
+  `CREATE TABLE IF NOT EXISTS` statements in `store.rs` **22** (21);
+  `repository/src/abi.rs` **1,488 lines / 29 tests** (1,063 / 21 — it grew with
+  bug-578); committed `.mfp` fixtures **160** (159). None of these re-scope any
+  phase; they are recorded so the next reader does not trust a stale number.
 
 - **Semver ordering is not a defect.** During research this was raised as a third
   consequence ("a 1.9.1 published after 2.0.0 reads as latest"). Reading

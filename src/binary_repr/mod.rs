@@ -5,7 +5,7 @@ use crate::ir::{IrFunction, IrOp, IrProject, IrType, IrValue};
 // types with no conversion layer between them to get wrong.
 use crate::manifest::libraries::{LibType, Libc};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -14,90 +14,65 @@ mod reader;
 mod sections;
 #[cfg(test)]
 mod tests;
-mod util;
 mod writer;
 
 use builder::*;
 use reader::*;
 use sections::*;
-use util::*;
+// plan-126-B: the byte primitives that were `util.rs` now live in `mfb_wire`,
+// the one crate both this one and `mfb_repository` may depend on. Re-exported
+// by glob here rather than imported at each call site: `reader.rs`,
+// `writer.rs`, `sections.rs` and `builder.rs` all open with `use super::*;`,
+// so this single line reaches all ~200 call sites and none of them changed.
+pub(crate) use mfb_wire::bytes::*;
 
-// bug-340 B8: the `.mfp` container is the wire format `binary_repr` owns. The
-// manifest-layer header reader (`manifest::package::read_mfp_header`) shares its
-// magic and signature-header rule from here rather than re-implementing them.
-// (The two full decoders are deliberately NOT merged — the manifest reader
-// additionally enforces per-field byte limits, UTF-8, required-non-empty, and
-// `validate_package_name`, and returns fields this identity/payload decoder omits;
-// folding them would drop those trust-boundary guards. See the bug-340 B8 note.)
-pub(crate) use reader::validate_mfp_signature_header;
+// bug-340 B8, as amended by plan-126-B: the `.mfp` container framing — the
+// magic, the fixed-prefix field readers and the signature-header rule — now has
+// one home in `mfb_wire::mfp`, the crate both this one and `mfb_repository` may
+// depend on. Read that module's doc before touching any of it.
+//
+// **The decoders are still deliberately NOT merged; only their primitives are
+// shared.** There are THREE of them, not two (the original note undercounted):
+//
+//   * `manifest::package::read_mfp_header` — per-field byte limits, UTF-8,
+//     `ident` optional, and `validate_package_name` on the name, because that
+//     name becomes `packages/<name>.mfp` and `../../x` would escape the project.
+//   * `reader::mfp_binary_repr_payload` (below) — no per-field caps; it needs
+//     only the identity fields to cross-check the payload's own manifest, and
+//     the payload is covered by `packageBinaryHash` regardless.
+//   * `mfb_repository::package::parse_mfp_package` — per-field caps, `ident`
+//     REQUIRED, no name charset guard.
+//
+// Those differences are policy and they are load-bearing; folding the decoders
+// into one would have to drop one side's guards or impose them on another. The
+// guards stay call-site arguments (`limit`, `required`) precisely so one reader
+// can serve all three without any of them losing a check.
+pub(crate) use mfb_wire::mfp::validate_signature_header as validate_mfp_signature_header;
+// `MFP_MAGIC` and `FIXED_PREFIX_LEN` come from the same module; re-exported so
+// this crate's existing `crate::binary_repr::MFP_MAGIC` paths still resolve.
+pub(crate) use mfb_wire::mfp::{FIXED_PREFIX_LEN, MFP_MAGIC};
 use writer::*;
 
-// Section ids are wire format and frozen; the values are declared here in
-// numeric order (the [`SectionKind`] enum in reader.rs is the typed handle that
-// fetches them). Ids 12-14 are reserved by the format for
-// DEBUG_INFO/SOURCE_MAP/AUDIT_INFO, and ids 9, 19 are unassigned gaps.
-const SECTION_MANIFEST: u16 = 1;
-const SECTION_STRING_POOL: u16 = 2;
-const SECTION_TYPE_TABLE: u16 = 3;
-const SECTION_CONST_POOL: u16 = 4;
-const SECTION_IMPORT_TABLE: u16 = 5;
-const SECTION_EXPORT_TABLE: u16 = 6;
-const SECTION_GLOBAL_TABLE: u16 = 7;
-const SECTION_FUNCTION_TABLE: u16 = 8;
-/// Optional native-library locator table (plan-46-B §4.1). Emitted only for a
-/// binding package that declares a `LINK` block; the container's optional flag
-/// bit 0 ("contains native LINK metadata") is set alongside it. This lights up
-/// the id the format reserved for exactly this purpose.
-const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;
-const SECTION_RESOURCE_TABLE: u16 = 11;
-const SECTION_ABI_INDEX: u16 = 15;
-/// Structured Binary Representation payload section. Replaces the old flat code section as
-/// the carrier of function bodies; see `crate::ir::encode_binary_repr`.
-const SECTION_BINARY_REPR: u16 = 16;
-/// Optional documentation section (plan-09-doc.md §5). Self-describing and
-/// length-prefixed; a consumer that does not understand it skips it entirely.
-/// Ids 12-14 are reserved by the format for DEBUG_INFO/SOURCE_MAP/AUDIT_INFO,
-/// so the doc table takes the next free id past the IR section.
-const SECTION_DOC_TABLE: u16 = 17;
-/// Optional human-facing package metadata (plan-61-D).
-///
-/// Named `PACKAGE_META` rather than `DESCRIPTION` so `license`/`keywords` can
-/// join it later without consuming another section id. Self-contained and
-/// length-prefixed like the DOC section: it does **not** intern into the string
-/// pool, so it can be parsed without section 2.
-///
-/// **Never put security-relevant data here.** The format has no
-/// "critical section" marker, so a reader that predates this section accepts a
-/// package carrying it and silently ignores the contents. That is exactly right
-/// for a description — a missing one is cosmetic — and exactly wrong for
-/// anything a consumer must not miss.
-const SECTION_PACKAGE_META: u16 = 18;
-/// Field ids within section 18. Unknown ids are **skipped**, not rejected, so a
-/// later field is additive within the section just as the section itself is
-/// additive within the container.
-const PACKAGE_META_FIELD_DESCRIPTION: u16 = 1;
+// Section ids, the MFPC magic/major version, the section-table reader and the
+// native-library wire enums all live in `mfb_wire::mfpc` (plan-126-C). They were
+// declared here AND restated in `repository/src/abi.rs`, whose header carried an
+// apology for the duplication; the section-table decode had already drifted
+// between the two copies in both directions. Re-exported by glob so every
+// existing `SECTION_*` path in this crate resolves unchanged.
+//
+// `SectionKind` in reader.rs remains the typed handle that fetches them.
+pub(crate) use mfb_wire::mfpc::*;
 
-/// MFPC container major version. Bumped to 2 for the clean break to the
-/// structured Binary Representation payload — the reader rejects the old flat (v1) layout.
-const MFPC_MAJOR_VERSION: u16 = 2;
+// `MFP_MAGIC` moved to `mfb_wire::mfp` (plan-126-B) and is re-exported above,
+// so `crate::binary_repr::MFP_MAGIC` still resolves. The registry's unnamed
+// literal copy went with it. `MFPC_MAJOR_VERSION` is now `mfb_wire::mfpc`'s
+// (plan-126-C), beside the reader that checks it.
 
-/// The 8-byte `.mfp` container magic (plan-23 §4). The single home shared by this
-/// crate's `mfp_binary_repr_payload` and the manifest layer's `read_mfp_header`,
-/// which previously each defined their own copy (bug-340 B8).
-pub(crate) const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
-
-/// ABI signature-hash input format.
-///
-/// bug-277 moved kind-11 (`STATE`) composites from opaque to structural hashing,
-/// which shifts the `sigHash` of a stateful export — but deliberately did NOT bump
-/// this. The gate in `read_abi_index` guards the section's *wire encoding*, which
-/// that change leaves untouched; bumping it would reject every previously-built
-/// `.mfp` wholesale, including the overwhelming majority that export no `STATE`
-/// type at all. A package that does carry a stale kind-11 hash is already rejected
-/// precisely, per symbol, by `validate_abi_index` recomputing it from the function
-/// table. Bump this only for an actual ABI_INDEX layout change.
-const ABI_FORMAT_VERSION: u16 = 1;
-const ABI_HASH_LEN: usize = 32;
+// `ABI_FORMAT_VERSION` moved to `mfb_wire::mfpc` (plan-126-C) — the registry
+// restated it too — and `ABI_HASH_LEN` to `mfb_wire::bytes` with
+// `hash_bytes`/`cursor_hash`/`hex_hash`, which are typed on it (plan-126-B).
+// Both arrive through the glob re-exports above, along with the bug-277
+// rationale for never bumping `ABI_FORMAT_VERSION` casually.
 
 pub(crate) const TYPE_NOTHING: u32 = 1;
 pub(crate) const TYPE_BOOLEAN: u32 = 2;
@@ -429,63 +404,28 @@ pub struct NativeLibraryLocator {
     pub hash: Option<[u8; 32]>,
 }
 
-/// Wire encoding of the `libc` axis (plan-46-B §4.1).
-const WIRE_LIBC_UNSPECIFIED: u8 = 0;
-const WIRE_LIBC_GLIBC: u8 = 1;
-const WIRE_LIBC_MUSL: u8 = 2;
-/// Wire encoding of the `type` axis.
-const WIRE_LIB_TYPE_SYSTEM: u8 = 0;
-const WIRE_LIB_TYPE_VENDOR: u8 = 1;
-/// Byte length of a locator's sha256.
-const NATIVE_LIBRARY_HASH_LEN: usize = 32;
+// The `libc`/`type` wire encodings and the locator sha256 length moved to
+// `mfb_wire::mfpc` (plan-126-C) and arrive through the glob re-export near the
+// top of this file. They were restated in `repository/src/abi.rs` with a comment
+// citing this file as the source of truth — which is exactly the
+// hand-synchronized arrangement the shared crate removes.
+//
+// They were *not* simply deleted here: a local `const` silently shadows a glob
+// import rather than colliding with it, so leaving these in place would have
+// compiled, passed every test, and left two copies of the same wire vocabulary
+// behind a comment claiming there was one.
 
-/// The decoded `doc` section of a compiled package (plan-09-doc.md §5). Empty
-/// when the package was built without any exported `DOC` blocks.
-#[derive(Clone, Default)]
-pub struct PackageDocs {
-    pub package: Option<PackageDocEntry>,
-    pub decls: Vec<DeclDocEntry>,
-}
-
-impl PackageDocs {
-    pub fn is_empty(&self) -> bool {
-        self.package.is_none() && self.decls.is_empty()
-    }
-}
-
-#[derive(Clone)]
-pub struct PackageDocEntry {
-    pub name: String,
-    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind`.
-    pub desc: Vec<(u8, String)>,
-    pub deprecated: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct DeclDocEntry {
-    /// One of `func`, `sub`, `type`, `union`, `enum`.
-    pub kind: String,
-    pub name: String,
-    pub signature: String,
-    /// `GROUP` name (FUNC/SUB), or empty.
-    pub group: String,
-    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind`.
-    pub desc: Vec<(u8, String)>,
-    pub args: Vec<(String, String)>,
-    pub props: Vec<(String, String)>,
-    pub ret: String,
-    pub errors: Vec<(String, String)>,
-    pub example: String,
-    pub internal: bool,
-    pub deprecated: Option<String>,
-}
-
-const DOC_KIND_FUNC: u16 = 0;
-const DOC_KIND_SUB: u16 = 1;
-const DOC_KIND_TYPE: u16 = 2;
-const DOC_KIND_UNION: u16 = 3;
-const DOC_KIND_ENUM: u16 = 4;
-const DOC_KIND_RESOURCE: u16 = 5;
+// The section-17 doc types -- `PackageDocs`, `PackageDocEntry`, `DeclDocEntry` --
+// the `DOC_KIND_*` ids and the codec moved to `mfb_wire::docs` (plan-126-D) so the
+// registry can decode a published package's documentation. Re-exported by glob so
+// `crate::binary_repr::PackageDocs` (used by `src/doc`) and every `use super::*`
+// consumer in reader.rs/writer.rs resolve unchanged.
+//
+// The local `read_doc_table`, `doc_kind_name`, `encode_doc_table` and `DOC_KIND_*`
+// were DELETED, not left beside this glob: a local item silently shadows a glob
+// import rather than colliding with it, so leaving them would compile with two
+// copies of the wire codec (the trap plan-126-C hit with the section ids).
+pub(crate) use mfb_wire::docs::*;
 
 // ===== Public API: build + read entry points =====
 
@@ -1130,7 +1070,5 @@ struct Cleanup {
     flags: u32,
 }
 
-struct Section {
-    id: u16,
-    data: Vec<u8>,
-}
+// `Section` moved to `mfb_wire::bytes` with `encode_sections`, its only
+// consumer (plan-126-B); it arrives here through the glob re-export in mod.rs.

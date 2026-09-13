@@ -18,7 +18,11 @@ Revert fmt churn with `git restore .` only inside an isolated worktree, never th
 
 ## rustfmt recurses the module tree
 
-There is **no `[workspace]` table** in the root `Cargo.toml` — `mfb_repository` is a plain path dependency — so root `cargo fmt` does NOT reach it. `repository/` **needs its own pass**: `cargo fmt && (cd repository && cargo fmt)`.
+The root `Cargo.toml` **does** have a `[workspace]` table (added by bug-347; this section previously claimed it did not, and the second-pass advice below it was written against that claim). Members and `default-members` are both `[".", "repository", "wire"]` — three of them since plan-126-B added `mfb_wire`. Count them rather than trusting this line: `rustup run 1.96.0 cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["workspace_members"]))'`.
+
+**`cargo fmt --all` therefore reaches all three members, `repository/` included.** Measured 2026-09-12 by appending a deliberately-misformatted `pub fn probe_fmt(   )->u8{1}` to `repository/src/validation.rs` and to `wire/src/lib.rs`, running `rustup run 1.96.0 cargo fmt --all`, and observing that **both** were reformatted. So the separate `(cd repository && cargo fmt)` pass that AGENTS.md and several plan docs prescribe is now **redundant** — it is harmless and still correct to run, but a green `cargo fmt --all` alone no longer leaves `repository/` unformatted. Do not conclude from the old wording that a root-only `fmt` has skipped it.
+
+The trap the second pass was guarding against has not gone away, it has moved: `cargo fmt --all` formats **every** member, so in a shared checkout it reformats files belonging to other sessions. Run `git diff --stat` afterwards and undo anything that is not yours, by hand and by explicit path.
 
 **`cargo fmt -- <files>` does NOT scope formatting to those files** — it formats the entire workspace (the `--` args are rustfmt options). For targeted formatting use `rustfmt --edition 2021 <files>` directly. To prove a diff is fmt-only: `diff <(git show HEAD:$f | rustfmt --edition 2021) $f`.
 

@@ -56,6 +56,13 @@ pub struct PublishMetadata {
     /// published before plan-61-D, which simply carries no section 18 — that is
     /// a normal outcome, not a failure.
     pub description: Option<String>,
+    /// The raw MFPC section-17 bytes (the `DOC` table) to record in
+    /// `package_version_docs` (plan-126-E). `None` for an undocumented package,
+    /// **and** for one whose section 17 failed to decode: documentation "does not
+    /// affect execution or the ABI", so a malformed doc table must never reject a
+    /// signed package -- it is simply not recorded. Written inside the same
+    /// transaction as the version row.
+    pub docs: Option<Vec<u8>>,
 }
 
 /// One `package_version_targets` row as `Store::target_rows_for_test` yields it:
@@ -603,6 +610,20 @@ impl Store {
                 package_version_id INTEGER NOT NULL REFERENCES package_versions(id),
                 hash TEXT NOT NULL REFERENCES package_blobs(hash),
                 PRIMARY KEY (package_version_id, hash)
+            );
+
+            -- plan-126-E: each version's MFPC section 17 (the `DOC` table), stored
+            -- RAW so `mfb_wire::docs` stays the only decoder. A side table rather
+            -- than a column on `package_versions`: at 9-28 KB a BLOB column would
+            -- bloat every SELECT on a table the search, detail, index and audit
+            -- paths all read, and "this version has no documentation" is an
+            -- absent row rather than a NULL to interpret. Kept per version, not
+            -- latest-only, so a yanked newest release falls back to the older
+            -- active one's docs by a row lookup rather than a blob fetch -- which
+            -- on S3 would mean the server fetching its own blob over HTTPS.
+            CREATE TABLE IF NOT EXISTS package_version_docs (
+                package_version_id INTEGER PRIMARY KEY REFERENCES package_versions(id),
+                doc_section BLOB NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS release_state_changes (
@@ -1578,6 +1599,125 @@ impl Store {
         Ok(versions)
     }
 
+    /// The package's headline "latest" release: newest by `published_at` among
+    /// the versions whose state is **active** (plan-126-A).
+    ///
+    /// Returns `(version, state)`, or `None` when the package has no active
+    /// release at all — every published version yanked, blocked or
+    /// legal-tombstoned — which is a statement to render, not missing data.
+    ///
+    /// This is the **only** server-side "latest version" selection. Before it
+    /// existed, both the package page and the search results took
+    /// `ORDER BY created_at DESC LIMIT 1` with no state predicate, so a package
+    /// whose newest release was yanked advertised that release as its headline
+    /// version — on the search page with no state badge at all.
+    ///
+    /// Two properties are load-bearing:
+    ///
+    /// * **The predicate is an allowlist**, `state IN ('available','deprecated')`,
+    ///   matching [`crate::validation::state_is_active`] and through it the
+    ///   install client's `state_is_floating_eligible`. Written as
+    ///   `state != 'yanked'` it would admit `blocked` and `legal-tombstoned`.
+    /// * **Ordering is by publish time**, not semver — `max_by_key(published_at)`
+    ///   is how the install client selects, and diverging here would put the two
+    ///   surfaces in disagreement about the same package.
+    ///
+    /// This filters the *selection* only. [`Self::package_detail`] still returns
+    /// every version unfiltered; the transparency listing is never narrowed.
+    pub fn latest_active_version(&self, ident: &str) -> Result<Option<(String, String)>, String> {
+        let conn = self.conn();
+        conn.query_row(
+            // The two state literals are the SQL spelling of
+            // `validation::state_is_active`. Keep them in step: a state added to
+            // the active set there must be added here, and the
+            // `active_states_are_an_allowlist_matching_the_install_client` test
+            // plus this module's yanked/blocked/tombstoned tests are what catch
+            // a one-sided edit.
+            "SELECT pv.version, pv.state
+             FROM package_versions pv
+             JOIN packages p ON p.id = pv.package_id
+             WHERE p.ident = ?1 AND pv.state IN ('available', 'deprecated')
+             ORDER BY pv.created_at DESC, pv.id DESC
+             LIMIT 1",
+            params![ident],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|err| format!("failed to load latest active version: {err}"))
+    }
+
+    /// Record the raw MFPC section-17 bytes for one version (plan-126-E).
+    ///
+    /// **Raw bytes, not a decoded structure.** `mfb_wire::docs` is the single
+    /// decoder; storing decoded rows would create a second representation that
+    /// must migrate whenever the wire format is extended. A `BLOB` costs one
+    /// decode per page render, on data already in the local database.
+    ///
+    /// `INSERT OR IGNORE`: a version's documentation is fixed by its signed
+    /// payload, so an existing row is never rewritten. That is what keeps the
+    /// backfill sweep idempotent -- a second pass over the same blob changes
+    /// nothing.
+    ///
+    /// Returns whether a row was **actually inserted**: `false` when one already
+    /// existed. The backfill sweep counts only real inserts, so a second run
+    /// reports zero rather than re-claiming the rows the first run wrote.
+    pub fn put_version_docs(
+        &self,
+        package_version_id: i64,
+        section: &[u8],
+    ) -> Result<bool, String> {
+        let conn = self.conn();
+        let inserted = conn
+            .execute(
+                "INSERT OR IGNORE INTO package_version_docs (package_version_id, doc_section)
+                 VALUES (?1, ?2)",
+                params![package_version_id, section],
+            )
+            .map_err(|err| format!("failed to record version documentation: {err}"))?;
+        Ok(inserted == 1)
+    }
+
+    /// The doc section of a package's **latest active** release (plan-126-E), as
+    /// `(version, raw section-17 bytes)`.
+    ///
+    /// Built on [`Self::latest_active_version`], deliberately -- not on its own
+    /// `ORDER BY created_at LIMIT 1`. That is what makes a yanked newest release
+    /// fall back to the older active one's documentation, and it keeps one
+    /// definition of "latest" in the registry instead of two predicates that can
+    /// drift (plan-126-A).
+    ///
+    /// `None` when the package has no active release, **or** when its latest
+    /// active release carries no documentation. It never falls back to an older
+    /// release's docs: the Docs tab's contract is "the current version's
+    /// documentation", and showing an older version's would contradict it
+    /// (plan-126-F Open Decision).
+    ///
+    /// `latest_active_version` is called before this function takes the
+    /// connection lock. The lock is not re-entrant, so holding it across that
+    /// call would deadlock.
+    pub fn latest_active_version_docs(
+        &self,
+        ident: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, String> {
+        let Some((version, _state)) = self.latest_active_version(ident)? else {
+            return Ok(None);
+        };
+        let conn = self.conn();
+        let section: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT d.doc_section
+                 FROM package_version_docs d
+                 JOIN package_versions pv ON pv.id = d.package_version_id
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1 AND pv.version = ?2",
+                params![ident, version],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load version documentation: {err}"))?;
+        Ok(section.map(|section| (version, section)))
+    }
+
     /// Everything `GET /packages/:ident` renders: the package's owner, its
     /// recorded metadata, and **every** version with its native target rows
     /// (plan-61-B §3).
@@ -1852,15 +1992,23 @@ impl Store {
             idents = fuzzy;
         }
 
-        // Attach each package's newest version. Done per package rather than in
-        // the ranking query so the rank expression stays readable; the page is
-        // already capped by `limit`.
+        // Attach each package's newest **active** release. Done per package
+        // rather than in the ranking query so the rank expression stays
+        // readable; the page is already capped by `limit`.
+        //
+        // plan-126-A: the state predicate is the same allowlist
+        // `Store::latest_active_version` applies, and `pv.state` is selected
+        // alongside so the result chip can be badged. Before this, the search
+        // page showed a yanked release as a package's current version with no
+        // state marker of any kind — `SearchResultRow` carried no state field,
+        // so there was nothing a renderer could have marked it with. That made
+        // this the one surface where the missing filter was not merely cosmetic.
         let mut latest_statement = conn
             .prepare(
-                "SELECT pv.version, pv.created_at, pv.description
+                "SELECT pv.version, pv.created_at, pv.description, pv.state
                  FROM package_versions pv
                  JOIN packages p ON p.id = pv.package_id
-                 WHERE p.ident = ?1
+                 WHERE p.ident = ?1 AND pv.state IN ('available', 'deprecated')
                  ORDER BY pv.created_at DESC, pv.id DESC
                  LIMIT 1",
             )
@@ -1873,18 +2021,27 @@ impl Store {
                         row.get::<_, String>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
                     ))
                 })
                 .optional()
                 .map_err(|err| format!("failed to read latest version: {err}"))?;
-            let (latest_version, published_at, description) = match latest {
-                Some((version, at, description)) => (Some(version), Some(at), description),
-                None => (None, None, None),
+            // A match with no active release stays a match: the package exists
+            // and the query found it. Only its headline version is absent, and
+            // the page states that rather than dropping the row — a search that
+            // silently hid a fully-yanked package would be the same truncation
+            // the Overview's complete version table exists to prevent.
+            let (latest_version, published_at, description, latest_state) = match latest {
+                Some((version, at, description, release_state)) => {
+                    (Some(version), Some(at), description, Some(release_state))
+                }
+                None => (None, None, None, None),
             };
             results.push(SearchResultRow {
                 ident,
                 owner,
                 latest_version,
+                latest_state,
                 published_at,
                 description,
             });
@@ -1994,6 +2151,18 @@ impl Store {
         // uploaded via PUT /blob and their `package_blobs` rows exist; nothing
         // reads these edges in this plan.
         let package_version_id = tx.last_insert_rowid();
+        // plan-126-E: the doc row is written in the SAME transaction as the version
+        // row. A crash between two separate writes would leave a version whose docs
+        // never appear -- and no backfill run could tell that apart from a package
+        // that was simply never documented.
+        if let Some(section) = &metadata.docs {
+            tx.execute(
+                "INSERT OR IGNORE INTO package_version_docs (package_version_id, doc_section)
+                 VALUES (?1, ?2)",
+                params![package_version_id, section],
+            )
+            .map_err(|err| format!("failed to record version documentation: {err}"))?;
+        }
         for vendor in vendor_blobs {
             tx.execute(
                 "INSERT OR IGNORE INTO package_version_blobs (package_version_id, hash)
@@ -3286,8 +3455,14 @@ pub struct RegistryConfig {
 pub struct SearchResultRow {
     pub ident: String,
     pub owner: String,
-    /// `None` for a package identity with no published version yet.
+    /// The newest **active** release (plan-126-A). `None` for a package
+    /// identity with no published version yet — and also for one whose every
+    /// published version is yanked, blocked or legal-tombstoned.
     pub latest_version: Option<String>,
+    /// The release state of `latest_version`, so a `deprecated` headline is
+    /// badged rather than reading as current. `None` exactly when
+    /// `latest_version` is.
+    pub latest_state: Option<String>,
     pub published_at: Option<i64>,
     /// NULL until plan-61-E.
     pub description: Option<String>,
@@ -5692,6 +5867,204 @@ pub(crate) mod tests {
         );
         assert!(store.package_owner("alice#missing").unwrap().is_none());
         let _ = alice;
+    }
+
+    // === plan-126-A: latest-active-version selection ======================
+    //
+    // Publish two versions and move the newer one's state, then assert which
+    // version the selection names. `publish_package_version` stamps both rows
+    // with the same `created_at` second, so the tie resolves on `pv.id DESC` —
+    // the later-inserted row wins, which is what makes "newest" meaningful in a
+    // test that runs in milliseconds.
+
+    /// Publish `versions` in order under `alice#toolbox` and return the store.
+    fn store_with_versions(versions: &[(&str, &str)]) -> (tempfile::TempDir, Store) {
+        let (temp, store) = test_store();
+        register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        for (version, state) in versions {
+            store
+                .publish_package_version(
+                    owner_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("hash-{version}"),
+                    &format!("path-{version}"),
+                    "{}",
+                    &[],
+                    &PublishMetadata::default(),
+                )
+                .unwrap();
+            if *state != "available" {
+                store
+                    .set_release_state(owner_id, "alice#toolbox", version, state)
+                    .unwrap();
+            }
+        }
+        (temp, store)
+    }
+
+    /// The bug plan-126-A fixes: the newest release is yanked, so the headline
+    /// version must be the older active one — not the yanked newest.
+    #[test]
+    fn latest_active_version_skips_a_yanked_newest_release() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "available"), ("2.0.0", "yanked")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), "available".to_string())),
+        );
+        // The transparency listing is untouched: both versions are still there.
+        let versions = store.list_package_versions("alice#toolbox").unwrap();
+        assert_eq!(versions.len(), 2);
+    }
+
+    /// `blocked` is operator-set and never reaches the maintainer route, so a
+    /// denylist written as `state != 'yanked'` would pass the test above and
+    /// fail this one. That is the whole reason the predicate is an allowlist.
+    #[test]
+    fn latest_active_version_skips_a_blocked_newest_release() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "available"), ("2.0.0", "blocked")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), "available".to_string())),
+        );
+    }
+
+    /// The second operator-only state, for the same reason.
+    #[test]
+    fn latest_active_version_skips_a_legal_tombstoned_newest_release() {
+        let (_temp, store) =
+            store_with_versions(&[("1.5.0", "available"), ("2.0.0", "legal-tombstoned")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), "available".to_string())),
+        );
+    }
+
+    /// `deprecated` **is** active — the install client installs it on a floating
+    /// add — and the state travels with the version so the page can badge it.
+    #[test]
+    fn latest_active_version_returns_a_deprecated_release_with_its_state() {
+        let (_temp, store) =
+            store_with_versions(&[("1.5.0", "available"), ("2.0.0", "deprecated")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("2.0.0".to_string(), "deprecated".to_string())),
+        );
+    }
+
+    /// Every published version inactive: `None` means "no active release", a
+    /// statement the page renders — not "this package does not exist".
+    #[test]
+    fn latest_active_version_is_none_when_every_version_is_inactive() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "yanked"), ("2.0.0", "blocked")]);
+        assert_eq!(store.latest_active_version("alice#toolbox").unwrap(), None);
+        // The versions themselves are still listed.
+        assert_eq!(
+            store.list_package_versions("alice#toolbox").unwrap().len(),
+            2
+        );
+    }
+
+    /// No versions at all, and an ident no package carries: both `None`, and
+    /// neither is an error.
+    #[test]
+    fn latest_active_version_is_none_for_no_versions_and_unknown_idents() {
+        let (_temp, store) = store_with_versions(&[]);
+        assert_eq!(store.latest_active_version("alice#toolbox").unwrap(), None);
+        assert_eq!(store.latest_active_version("alice#nope").unwrap(), None);
+        assert_eq!(store.latest_active_version("not-an-ident").unwrap(), None);
+    }
+
+    // === plan-126-E: per-version documentation storage =====================
+
+    /// The `package_versions.id` of `alice#toolbox@version`.
+    fn version_id(store: &Store, version: &str) -> i64 {
+        store
+            .all_package_versions()
+            .unwrap()
+            .into_iter()
+            .find(|(_, ident, v, _)| ident == "alice#toolbox" && v == version)
+            .map(|(id, ..)| id)
+            .expect("version is published")
+    }
+
+    /// A stored section reads back byte for byte -- including zero bytes and
+    /// values above 0x7F, which a text column would mangle.
+    #[test]
+    fn version_docs_round_trip_byte_for_byte() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available")]);
+        let section = vec![0x01, 0x00, 0xFF, 0x7F, 0x00, 0x42];
+        store
+            .put_version_docs(version_id(&store, "1.0.0"), &section)
+            .unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.0.0".to_string(), section)),
+        );
+    }
+
+    /// No docs row is `None`, and so is an ident no package carries.
+    #[test]
+    fn a_version_with_no_docs_row_yields_none() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available")]);
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+        assert_eq!(
+            store.latest_active_version_docs("alice#nope").unwrap(),
+            None
+        );
+    }
+
+    /// **plan-126-E Phase 1's acceptance test.** The newest release is yanked
+    /// and both releases carry docs. The accessor must return the older active
+    /// release's docs -- not the yanked newest's, and not `None`. An accessor
+    /// written as its own `ORDER BY created_at LIMIT 1` would return 2.0.0's, so
+    /// this is what proves it is built on the plan-126-A selection.
+    #[test]
+    fn a_yanked_newest_release_falls_back_to_the_older_active_releases_docs() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "available"), ("2.0.0", "yanked")]);
+        store
+            .put_version_docs(version_id(&store, "1.5.0"), b"docs-1.5.0")
+            .unwrap();
+        store
+            .put_version_docs(version_id(&store, "2.0.0"), b"docs-2.0.0")
+            .unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), b"docs-1.5.0".to_vec())),
+        );
+    }
+
+    /// The contract plan-126-F's Docs tab relies on: an undocumented *current*
+    /// release reads as undocumented. It never borrows an older release's docs,
+    /// which would describe a version the tab is not showing.
+    #[test]
+    fn an_undocumented_latest_release_never_borrows_an_older_releases_docs() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available"), ("2.0.0", "available")]);
+        store
+            .put_version_docs(version_id(&store, "1.0.0"), b"docs-1.0.0")
+            .unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+    }
+
+    /// `INSERT OR IGNORE`: a second write for the same version keeps the first.
+    /// The backfill sweep relies on this to stay idempotent.
+    #[test]
+    fn putting_version_docs_twice_keeps_the_first_row() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available")]);
+        let id = version_id(&store, "1.0.0");
+        store.put_version_docs(id, b"first").unwrap();
+        store.put_version_docs(id, b"second").unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.0.0".to_string(), b"first".to_vec())),
+        );
     }
 
     #[test]

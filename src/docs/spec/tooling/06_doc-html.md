@@ -23,7 +23,7 @@ mfb pkg doc  → write_package_doc     → doc::from_package(PackageDocs) ┘
 The two builders produce the same `DocPage` shape; the differences are entirely
 in the input and the public/internal partition (below).
 
-[[src/doc/mod.rs:from_source]] [[src/doc/mod.rs:from_package]] [[src/cli/doc.rs:build_source_doc_page]] [[src/cli/pkg.rs:write_package_doc]]
+[[src/doc/mod.rs:from_source]] [[wire/src/docpage.rs:from_package]] [[src/cli/doc.rs:build_source_doc_page]] [[src/cli/pkg.rs:write_package_doc]]
 
 | Aspect | `from_source` (source DOC blocks) | `from_package` (compiled `.mfp`) |
 |---|---|---|
@@ -59,7 +59,7 @@ DocGroup { title: String, decls: Vec<DocDecl> }
 Prose    { kind: DocProseKind, text: String }
 ```
 
-[[src/doc/mod.rs:DocPage]] [[src/doc/mod.rs:DocGroup]]
+[[wire/src/docpage.rs:DocPage]] [[wire/src/docpage.rs:DocGroup]]
 
 A `DocDecl` carries everything needed to render one declaration card:
 
@@ -80,7 +80,7 @@ DocDecl
   deprecated    : Option<String>
 ```
 
-[[src/doc/mod.rs:DocDecl]]
+[[wire/src/docpage.rs:DocDecl]]
 
 ### Kind-derived labels and the Types group
 
@@ -99,7 +99,7 @@ group by their first `GROUP` line (falling back to `Functions` when absent);
 all type-like kinds collapse into a single `Types` group **regardless** of any
 `GROUP` line.
 
-[[src/doc/mod.rs:kind_label]] [[src/doc/mod.rs:group_title]] [[src/doc/mod.rs:member_label]]
+[[wire/src/docpage.rs:kind_label]] [[wire/src/docpage.rs:group_title]] [[wire/src/docpage.rs:member_label]]
 
 ## Grouping and the Public/Internal Partition
 
@@ -109,7 +109,7 @@ groups. Within each partition, groups appear in **first-appearance order** (the
 order their first member is encountered) and decls keep source order within a
 group. Two decls with the same group title are merged into one `DocGroup`.
 
-[[src/doc/mod.rs:assemble_groups]]
+[[wire/src/docpage.rs:assemble_groups]]
 
 A declaration is **internal** when either:
 
@@ -131,7 +131,7 @@ block is a plain `DESC` paragraph, it is removed and becomes `subtitle`; all
 remaining blocks become `intro`. If the first block is a callout (WARN/INFO/SEC),
 `subtitle` is empty and every block stays in `intro`.
 
-[[src/doc/mod.rs:split_subtitle]]
+[[wire/src/docpage.rs:split_subtitle]]
 
 ## Anchor Slugging
 
@@ -147,7 +147,7 @@ The dedup counter starts at `2`, so the first duplicate of slug `foo` becomes
 build), so a `Types` member and a function with the same slug still get distinct
 anchors.
 
-[[src/doc/mod.rs:anchor]]
+[[wire/src/docpage.rs:anchor]]
 
 ## Inline Markup
 
@@ -257,7 +257,7 @@ name and otherwise empty fields and renders it — producing the standard chrome
 with the `No documentation is available.` body. This path is unique to
 `pkg doc`; `mfb doc` always has at least the parsed source to work from.
 
-[[src/doc/html.rs:render_empty_html]] [[src/binary_repr/mod.rs:PackageDocs]]
+[[src/doc/html.rs:render_empty_html]] [[wire/src/docs.rs:PackageDocs]]
 
 ## Command Resolution and Exit Codes
 

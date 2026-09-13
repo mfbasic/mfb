@@ -53,13 +53,14 @@ the commit. It is a DRY RUN unless `--delete` is given, and it never touches a
 blob younger than the grace period (default 24h, `--grace-hours`) or one any
 live version references, including a yanked one.
 
-`backfill-metadata` populates the author, url and native-target columns for
-versions published before the server recorded them, by re-parsing each stored
-package blob. No republish and no publisher action is needed. It is idempotent,
-skips (rather than aborts on) a blob it cannot parse, and reports a version
-whose header and signed manifest disagree under its own count — that is a
-transparency finding, not a parse failure, and it is left untouched. It exits
-non-zero if anything was skipped.";
+`backfill-metadata` populates the author, url, native-target and documentation
+records for versions published before the server recorded them, by re-parsing
+each stored package blob. No republish and no publisher action is needed. It is
+idempotent, skips (rather than aborts on) a blob it cannot parse, and reports a
+version whose header and signed manifest disagree under its own count — that
+is a transparency finding, not a parse failure, and it is left untouched. A doc
+section that is present but does not decode is likewise counted on its own line
+and not recorded. It exits non-zero if anything was skipped.";
 
 // coverage:off — the async entrypoint binds a listener / spawns the server and
 // calls process::exit on every error branch; it cannot run under a unit test.

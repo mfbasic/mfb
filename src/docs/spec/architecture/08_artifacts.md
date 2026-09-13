@@ -90,7 +90,7 @@ agreement, single-bottom-`TRAP`, and native-link-manifest validity. Verification
 failure rejects the package with a toolchain diagnostic; it is not recoverable by
 program `TRAP` code because no package code has started running. The complete
 invariant catalogue and which invariants are re-checked at import time are owned by
-`./mfb spec package verifier-rules`. [[src/manifest/package.rs:read_mfp_header]] [[src/binary_repr/mod.rs:MFPC_MAJOR_VERSION]] [[src/ir/binary.rs:verify_package]]
+`./mfb spec package verifier-rules`. [[src/manifest/package.rs:read_mfp_header]] [[wire/src/mfpc.rs:MFPC_MAJOR_VERSION]] [[src/ir/binary.rs:verify_package]]
 
 A future VM is not foreclosed: it would either interpret the structured, typed
 Binary Representation directly or lower it through the same `IR -> NIR -> native`

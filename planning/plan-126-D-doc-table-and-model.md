@@ -30,7 +30,7 @@ See plan-126-A § Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-126-C complete (`wire/src/mfpc.rs` owns the section ids and table reader) | `grep -c SECTION_DOC_TABLE wire/src/mfpc.rs` → 1 | NOT MET |
+| plan-126-C complete (`wire/src/mfpc.rs` owns the section ids and table reader) | `grep -c SECTION_DOC_TABLE wire/src/mfpc.rs` → **≥ 1** (corrected from "→ 1") | MET (measured 2026-09-12: **2**; C landed as 8af4a40eb, 3fd644f54, 427af4b4f). The count is 2, not 1, because `the_section_ids_are_frozen_wire_values` asserts the constant by name as well as defining it — the intent (mfpc.rs owns the id) holds, the expected count was miscalibrated. |
 
 If plan-126-C is not complete, this sub-plan cannot start, full stop.
 
@@ -203,84 +203,176 @@ workspace.
 
 ### Phase 1 — The wire layer
 
-- [ ] Create `wire/src/docs.rs` with `DocProseKind` (moved from
-      `src/ast/types.rs:132-165`, keeping `from_keyword` and `code` verbatim),
-      `PackageDocs`, `PackageDocEntry`, `DeclDocEntry` (from
-      `src/binary_repr/mod.rs:443-481`), the six `DOC_KIND_*` codes
-      (`:483-489`), `doc_kind_name` (`src/binary_repr/reader.rs:15-30`),
-      `read_doc_table` (`:88-147`) and `encode_doc_table`
-      (`src/binary_repr/writer.rs:1254-1290`).
-- [ ] Re-export `DocProseKind` from `src/ast/types.rs` so the 48 existing references
-      resolve unchanged, and from `src/binary_repr/mod.rs` for `PackageDocs`.
-- [ ] Leave `docs_from_ir` (`src/binary_repr/writer.rs:1291-1325`) in the compiler;
-      it now constructs the `mfb_wire` types.
-- [ ] Add `mfb_wire::docs::read_package_doc_section(payload: &[u8]) -> Result<PackageDocs, String>`:
-      `mfpc::read_section_table` → section 17 → `read_doc_table`, returning an empty
-      `PackageDocs` when the section is absent. This is the one function plan-126-E calls.
-- [ ] Update the comment at `src/binary_repr/writer.rs:1250-1253` ("Their decoders
-      … stay in reader.rs") — it becomes false the moment this lands.
-- [ ] Tests: move the doc-table round-trip from
-      `src/binary_repr/tests/doc_table_tests.rs` (77 lines) into `wire/src/docs.rs`;
-      add a test pinning all six `DOC_KIND_*` values and all four
-      `DocProseKind::code` values by literal, with a comment that these are frozen
-      wire codes; add a negative test for the trailing-bytes invariant
-      (`src/binary_repr/reader.rs:143-146`, bug-282 B3).
-- [ ] Add a decode test against a **real** package: read `packages/jwt/jwt.mfp`'s
-      section 17 (27,951 B measured) and assert a non-zero decl count.
+- [x] Create `wire/src/docs.rs` with `DocProseKind` — **all four** methods
+      (`from_keyword`, `code`, `from_code`, `label`), not the two the plan named;
+      see Corrections — plus `PackageDocs`, `PackageDocEntry`, `DeclDocEntry`, the
+      six `DOC_KIND_*` codes, `doc_kind_name`, `read_doc_table` and
+      `encode_doc_table`, each moved verbatim. Derives kept exactly
+      (`PackageDocs` is `Clone, Default` and deliberately **not** `Debug`). The
+      module doc records which consumer freezes the numeric codes (the `.mfp`
+      wire) and which freezes the labels (the `-ast` dump).
+- [x] Re-export `DocProseKind` from `src/ast/types.rs` as
+      `pub use mfb_wire::docs::DocProseKind;` — it reaches `crate::ast` through
+      `pub use types::*` in `ast/mod.rs`, so all 48 references resolve unchanged.
+      `src/binary_repr/mod.rs` glob-re-exports `mfb_wire::docs::*` for
+      `PackageDocs` and the codec.
+- [x] Leave `docs_from_ir` in the compiler; it now constructs the `mfb_wire`
+      types (kept; the deletion script asserted it survived).
+- [x] Add `mfb_wire::docs::read_package_doc_section(payload)`: section table →
+      section 17 → `read_doc_table`, `Ok(empty)` when the section is absent.
+      **Refined:** it returns `Err` — not `Ok(empty)` — for a payload that is not
+      a container or a section 17 that is malformed, so plan-126-E's backfill can
+      count a malformed doc section as a finding rather than confusing it with an
+      undocumented package.
+- [x] Update the comment in `writer.rs` that said the decoders "stay in
+      reader.rs". Rewritten to say the codec moved to `mfb_wire::docs` and only
+      `docs_from_ir` stays. The matching section header in `reader.rs` was
+      corrected too.
+- [x] Tests: moved `doc_table_round_trips` **verbatim** from
+      `src/binary_repr/tests/doc_table_tests.rs` into `wire/src/docs.rs` (file
+      deleted, `mod` line removed). Added `the_doc_codes_and_labels_are_frozen`,
+      pinning all six `DOC_KIND_*` ids, all four prose codes **and all four
+      `-ast` labels** by literal, and `trailing_bytes_after_a_doc_table_are_rejected`
+      (bug-282 B3). Also `a_truncated_doc_table_is_rejected` and
+      `read_package_doc_section_separates_absent_from_malformed`.
+- [x] Add a decode test against a **real** package — using the **committed**
+      `repository/tests/fixtures/libsnd.mfp` (real 15,440-byte section 17), not the
+      gitignored `packages/jwt/jwt.mfp`; see Corrections.
+      `a_real_packages_doc_section_round_trips_byte_for_byte` asserts a non-zero
+      decl count **and** that decoding then re-encoding reproduces section 17
+      byte for byte.
+- [x] Added task: delete the compiler's local `read_doc_table`, `doc_kind_name`,
+      `encode_doc_table` and `DOC_KIND_*` rather than leaving them beside the glob,
+      because a local item silently shadows a glob import (the plan-126-C trap).
+      Verified empty by
+      `grep -rnE "fn (read_doc_table|doc_kind_name|encode_doc_table)\b|const DOC_KIND_|pub enum DocProseKind|pub struct (PackageDocs|PackageDocEntry|DeclDocEntry)\b" --include='*.rs' src/`.
 
-Acceptance: `rustup run 1.96.0 cargo test --no-fail-fast` passes; `mfb pkg doc
-packages/jwt/jwt.mfp --out /tmp/a.html` produces a file `cmp`-identical to one
-generated by the pre-change binary; `scripts/artifact-gate.sh target/release/mfb all`
-reports `diffs=0` (proving the `-ast` dumps did not move).
-Commit: —
+Acceptance: MET.
+`cargo check --all-targets` clean (only the three pre-existing
+`repository/src/server.rs` `unused axum::Json` warnings).
+`cargo test -p mfb_wire` → **51 passed**, all six `docs::tests::*` included.
+`cargo test --bin mfb binary_repr` → **170 passed** (171 before; the one test that
+moved out). `cargo test --bin mfb ast::` → **225 passed**. `cargo test --bin mfb
+doc::` → **27 passed**, including the 16 `src/doc/html.rs` tests whose module
+imports the doc types from `crate::binary_repr` — green through the glob with
+`html.rs` untouched.
+`scripts/artifact-gate.sh target/release/mfb all` → 1427 tests, 1593 builds,
+**2001 goldens checked, 0 diffs**, `git status tests/` clean — the `-ast` dumps
+did not move.
+`mfb pkg doc` byte-identity, against output from the **pre-change binary** saved
+before plan-126-B (`/tmp/p126-mfb-prechange`), both reading the same pre-change
+`jwt.mfp`: the new render is **`cmp`-identical** (54,788 B, exit 0). The plan's
+literal `packages/jwt/jwt.mfp` path is a gitignored artifact, so the package was
+built first and the comparison run against that saved build.
+A rebuilt `packages/jwt/jwt.mfp` is `cmp`-identical to the pre-change build.
+The whole-workspace `cargo test --no-fail-fast` is the plan-wide final gate in
+follow-plan §5.
+Commit: 1d8a900e7
 
 ### Phase 2 — The page model
 
-- [ ] Create `wire/src/docpage.rs` with `DocPage`, `DocGroup`, `DocDecl`, `Prose`
-      (`src/doc/mod.rs:13-52`), the nine shared helpers (`:54-162` and `:391-398`)
-      made `pub`, and `from_package` (`:166-211`).
-- [ ] Reduce `src/doc/mod.rs` to `from_source` (`:215-348`) and `source_decl_meta`
-      (`:352-388`), importing the model and helpers from `mfb_wire` and re-exporting
-      the model so `src/doc/html.rs` and `src/cli/doc.rs` are unchanged.
-- [ ] Verify `src/doc/html.rs` (734 lines, 16 tests) and `src/html.rs` are untouched;
-      if either needed an edit, the re-export is incomplete.
-- [ ] Confirm neither extraction orphaned a doc comment onto a neighbouring item in
-      `src/doc/mod.rs`, `src/ast/types.rs`, `src/binary_repr/mod.rs` or `reader.rs`.
-- [ ] Tests: move any `from_package` coverage out of `src/doc/html.rs`'s 16 tests
-      into `wire/src/docpage.rs` (`from_package_no_package_uses_fallback_and_empty_render`
-      at `src/doc/html.rs:402` and `from_package_full_page_renders_every_element` at
-      `:414` both exercise it); add a test that `from_source` and `from_package`
-      produce the same anchors for the same symbol names, pinning the shared helper.
+- [x] Create `wire/src/docpage.rs` with `DocPage`, `DocGroup`, `DocDecl`, `Prose`,
+      the shared helpers made `pub`, and `from_package`, all moved verbatim. **Eight**
+      helpers are `pub`, not nine: `prose_from_codes` has a single caller
+      (`from_package`) and stays private (Corrections). **`PAGE_INTRO_ANCHOR` is also
+      `pub`**, because `src/doc/html.rs`'s production renderer uses it (Corrections).
+- [x] Reduce `src/doc/mod.rs` to `from_source` and `source_decl_meta`, glob-re-
+      exporting `mfb_wire::docpage::*` so `src/doc/html.rs` (via `use super::*`) and
+      `src/cli` (`crate::doc::{DocPage, from_package}`) resolve unchanged. Kept the
+      `DocProseKind` and `HashMap` imports `html.rs` reaches through the glob.
+      `HashSet` is now `#[cfg(test)]` (Corrections). `src/cli/doc.rs` was not edited:
+      `cargo fmt --all`'s `git diff --stat` listed only `src/doc/mod.rs` and
+      `wire/src/lib.rs`.
+- [x] Verify `src/doc/html.rs` and `src/html.rs` are untouched:
+      `git diff --stat HEAD -- src/doc/html.rs src/html.rs` → **empty**. `html.rs` is
+      still **734 lines, 16 tests** (`wc -l`, `grep -c '#\[test\]'`), exactly the
+      plan's figures. No edit was needed, so the re-export is complete.
+- [x] Confirm neither extraction orphaned a doc comment onto a neighbouring item.
+      By construction, each deletion span in `src/doc/mod.rs`, `src/ast/types.rs`,
+      `src/binary_repr/mod.rs` and `reader.rs` began at the removed item's own first
+      `///` line (or at a `//` section comment that was rewritten) and ended at its
+      closing brace, so no preceding or following item lost or gained a comment.
+      `cargo check --all-targets` reports no `unused doc comment`. **One
+      pre-existing orphan was found and fixed:** the "Slugify a declaration name
+      into a unique anchor id." line was sitting above `PAGE_INTRO_ANCHOR` instead of
+      `fn anchor` (Corrections).
+- [x] Tests: `from_package` coverage **kept** in `src/doc/html.rs` rather than moved,
+      because those tests assert on rendered HTML and the plan also requires
+      `html.rs` untouched (Corrections resolves the contradiction). Added **three**
+      model-level `from_package` tests in `wire/src/docpage.rs`. Added the anchor-
+      parity test `from_source_and_from_package_assign_identical_anchors` in the
+      **compiler** (`src/doc/mod.rs`), the only crate where both entry points are
+      reachable (Corrections).
 
-Acceptance: `rustup run 1.96.0 cargo test --no-fail-fast` passes with the 16
-`src/doc/html.rs` tests still green; `mfb doc <a source project> --out /tmp/b.html`
-and `mfb pkg doc packages/jwt/jwt.mfp --out /tmp/c.html` both produce files
-`cmp`-identical to pre-change output. The `from_source`/`from_package` anchor-parity
-test is what proves the helpers were shared rather than duplicated.
-Commit: —
+Acceptance: MET.
+`cargo check --all-targets` → `mfb` **warning-free** (only the three pre-existing
+`repository/src/server.rs` warnings remain).
+`cargo test --bin mfb doc::` → **28 passed**: the 16 `src/doc/html.rs` tests (still
+green, file untouched) plus `from_source_and_from_package_assign_identical_anchors`.
+`cargo test -p mfb_wire` → **54 passed**, including the three `docpage::tests::*`.
+`mfb doc packages/jwt --out …` (from **source**) is **`cmp`-identical** to the
+pre-change binary's output (exit 0; the pre-change reference was rendered from the
+same committed `packages/jwt` source by the binary saved before plan-126-B).
+`mfb pkg doc` on the pre-change `jwt.mfp` is **`cmp`-identical** to pre-change (exit
+0). The undocumented package's empty-docs page is **`cmp`-identical**, exit 0 on
+both binaries.
+`scripts/artifact-gate.sh target/release/mfb all` → 1427 tests, 1593 builds,
+**2001 goldens checked, 0 diffs**, `git status tests/` clean.
+The anchor-parity test is what proves the helpers were shared rather than duplicated.
+The whole-workspace `cargo test --no-fail-fast` is the plan-wide final gate in
+follow-plan §5.
+Commit: 4c34b4f8a
 
 ## Validation Plan
 
-- **Tests:** `wire/src/docs.rs` (moved round-trip + frozen-code pins + trailing-bytes
-  negative + real-package decode), `wire/src/docpage.rs` (moved `from_package` tests
-  + anchor parity), and the 16 existing `src/doc/html.rs` tests unchanged.
-- **Coverage check:** `src/binary_repr/tests/doc_table_tests.rs` holds exactly 1 test
-  for a 97-line codec — the pre-existing coverage here is thin, so a green run is
-  weak evidence. The real-package decode test added in Phase 1 is what makes it
-  meaningful. Confirm the moved tests actually run under `mfb_wire`
-  (`cargo test --no-fail-fast 2>&1 | grep 'Running.*mfb_wire'`).
-- **Runtime proof:** `mfb pkg doc` on all six documented packages
-  (`packages/{jwt,json_schema,libsnd,mustache,sqlite3,yaml}`) and on one undocumented
-  one (`examples/browser/dom/dom.mfp`, section 17 absent) — the latter must still
-  take the `render_empty_html` path at `src/cli/pkg.rs:1823-1827` and exit 0.
-- **Byte-identity:** `scripts/artifact-gate.sh target/release/mfb all` → `diffs=0`,
-  with `scripts/gate-lock.sh` acquired first. Additionally `cmp` a rebuilt
-  `packages/jwt/jwt.mfp` against the pre-change build — the `mfp` dump kind is
-  deliberately outside the artifact gate (`.ai/testing-gates.md`), so the gate cannot
-  see a doc-encoding regression.
-- **Doc sync:** `src/binary_repr/writer.rs:1250-1253` (the "decoders stay in
-  reader.rs" comment). Check `grep -rn "doc section\|DOC block" .ai/ src/docs/spec/`
-  for anything describing where the codec lives.
+- **Tests:** DONE. `wire/src/docs.rs` — 6 tests: the moved round-trip, frozen codes
+  **and** `-ast` labels, trailing bytes, truncation, absent-vs-malformed, and the
+  real-package byte-exact round-trip. `wire/src/docpage.rs` — 3 **new** model-level
+  `from_package` tests. The anchor-parity test lives in `src/doc/mod.rs`, not
+  `docpage.rs`, because `mfb_wire` has no parser (Corrections). The 16
+  `src/doc/html.rs` tests are unchanged and green.
+- **Coverage check:** DONE. The moved tests run under `mfb_wire`: its
+  `Running unittests src/lib.rs (target/debug/deps/mfb_wire-…)` block reported 51
+  passed after Phase 1 and 54 after Phase 2, every `docs::tests::*` and
+  `docpage::tests::*` name included. The thin pre-existing coverage (one test for
+  the codec) is no longer the only evidence: the real-package test asserts
+  decode-then-encode reproduces `libsnd`'s committed section 17 **byte for byte**.
+- **Runtime proof:** DONE, stronger than planned — identity against the
+  **pre-change binary**, not just success. All six documented packages
+  (`jwt`, `json_schema`, `libsnd`, `mustache`, `sqlite3`, `yaml`) were built with
+  both the binary saved before plan-126-B and the post-D binary. Each rebuilt
+  `.mfp` is `cmp`-identical, `mfb pkg doc` exits 0 on both binaries, and the two
+  HTML pages are `cmp`-identical. The planned undocumented fixture,
+  `examples/browser/dom/dom.mfp`, **is not committed**
+  (`git ls-files 'examples/browser/*/*.mfp'` → nothing — a build artifact, like
+  `jwt.mfp`). Substituted `/tmp/p126-bytecheck/pkg/pkg.mfp`, built by the
+  pre-change binary, whose MFPC section table was walked and carries sections
+  1–8, 15, 16, 18 — **no 17**. `mfb pkg doc` on it exits 0 on both binaries, and
+  the empty-docs page is `cmp`-identical.
+- **Byte-identity:** DONE. `scripts/artifact-gate.sh target/release/mfb all` → 1427
+  tests, 1593 builds, **2001 goldens checked, 0 diffs**, `git status tests/` clean
+  — after Phase 1 *and* again after Phase 2. The script was run directly; every run
+  exited 0, never with the exit-98 lock refusal, so no rival gate held this tree's
+  lock. Rebuilt `packages/jwt/jwt.mfp` is `cmp`-identical to the pre-change build,
+  as are the other five packages' `.mfp` files above.
+- **Doc sync:** DONE, and **much larger than planned**. The `writer.rs` comment
+  ("decoders stay in reader.rs") and the matching `reader.rs` section header are
+  both rewritten. The planned `grep -rn "doc section\|DOC block"` found only
+  descriptive prose, which is still true. The real breakage was in
+  `[[path:Symbol]]` provenance citations, which that grep cannot find and the
+  file-level `spec_citations_resolve` cannot flag. A mechanical sweep checking
+  every citation for a *definition* in its cited file, diffed against fork commit
+  `e66e594a4`, found **22** broken by plan-126:
+  - 12 by this sub-plan — `06_doc-html.md` ×11, `11_doc-section.md` ×1.
+  - 8 by plan-126-C and 2 by plan-126-B, each recorded in that sub-plan's
+    Corrections.
+
+  All 22 are re-pointed into `wire/src/`. **Verified:** the sweep now reports 349
+  flags against 353 at the fork commit, and zero of them point into `wire/`. The
+  only other set differences are an artifact of extracting only `src/` and
+  `repository/` for the baseline (the root `build.rs` and `tests/` were absent),
+  plus one pre-existing break that plan-126-C repaired.
+  `cargo test --bin mfb citations_resolve` → ok. `.ai/` needs no change.
 - **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast`.
 - **Format:** `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
@@ -296,9 +388,140 @@ Commit: —
 
 ## Corrections
 
-<!-- Fill in during execution. Watch for: any of the nine "shared" helpers turning
-     out to be used by only one caller (then it should not be made pub), and any
-     `src/doc/html.rs` test that does not move cleanly. -->
+- **`-ast` does not print `DocProseKind::code` — it prints `label()`.** The plan's
+  § Verified properties and § Design Overview both say the numeric codes "appear
+  in `-ast` golden output", and use that to argue the move risks `-ast` goldens.
+  Read the serializer: `src/ast/serialize.rs:214` writes
+  `json_string(prose.kind.label())` — the **strings** `"desc"`/`"warn"`/`"info"`/
+  `"sec"`. The numeric `code()` is consumed only by `src/ir/docs.rs:55`
+  (`(prose.kind.code(), prose.text.clone())`), the IR → section-17 path. So two
+  different things are frozen for two different consumers: numeric codes by the
+  `.mfp` wire, labels by the `-ast` goldens. The risk conclusion stands — both
+  must not change — but the plan named the wrong method for `-ast`. The
+  frozen-value test in `wire/src/docs.rs` pins **both**, and the module doc
+  records which consumer freezes which.
+
+- **All four `DocProseKind` methods move, not two.** Phase 1 says to move it
+  "keeping `from_keyword` and `code` verbatim". The impl has four:
+  `from_keyword`, `code`, `from_code` and `label`
+  (`sed -n '/^impl DocProseKind/,/^}/p' src/ast/types.rs`). `from_code` is how
+  `doc::from_package` turns wire codes back into kinds, and `label` is the `-ast`
+  serializer's — leaving either behind would split the enum's vocabulary across
+  two crates. All four moved verbatim.
+
+- **The real-package decode test uses `repository/tests/fixtures/libsnd.mfp`, not
+  `packages/jwt/jwt.mfp`.** `packages/*.mfp` are gitignored build artifacts
+  (plan-126-B § Verified properties: `git ls-files 'packages/*.mfp'` → nothing),
+  so a test reading `jwt.mfp` passes on a machine that happened to build it and
+  fails in CI and every fresh worktree. `libsnd.mfp` is tracked and carries a real
+  15,440-byte section 17 (measured by walking its MFPC section table). The test is
+  also *stronger* than the planned "non-zero decl count": it asserts
+  `encode_doc_table(read_doc_table(section)) == section` **byte for byte**, which a
+  synthetic fixture cannot prove.
+
+- **`read_package_docs` stays in the compiler; `read_package_doc_section` is
+  additive.** They are not the same function at different addresses.
+  `binary_repr::read_package_docs(path)` is
+  `read_package_binary_repr(path)?.project.docs` — a **full** package decode
+  including container identity validation. The new
+  `mfb_wire::docs::read_package_doc_section(payload)` reads only the section
+  table and section 17. Replacing the former with the latter in `mfb pkg doc`
+  would silently drop the identity check for a tampered package. The new
+  function's doc says it is not a substitute. It also deliberately returns
+  `Ok(empty)` for an absent section but `Err` for a malformed one, because
+  plan-126-E's backfill must count the second as a finding.
+
+- **`read_package_docs` has 7 references, not 8.**
+  `grep -rn read_package_docs src --include='*.rs'` → the definition, **one**
+  production caller (`src/cli/pkg.rs`), and five test references.
+
+- **The glob-shadowing trap from plan-126-C applies here in full.**
+  `binary_repr` will glob-re-export `mfb_wire::docs::*` so `src/doc/html.rs`'s
+  test module — which imports `DeclDocEntry, PackageDocEntry, PackageDocs` from
+  `crate::binary_repr` — stays untouched. But a local `pub(super) fn
+  read_doc_table` / `doc_kind_name` / `encode_doc_table` and the local
+  `DOC_KIND_*` consts would each **silently shadow** that glob and compile with
+  two copies. They must be deleted, not re-exported over.
+
+- **Eight of the "nine shared helpers" are shared; `prose_from_codes` is not.**
+  § Verified properties says `from_source` calls all nine. Measured by locating
+  every call site against the function spans in `src/doc/mod.rs`
+  (`from_package` at lines 166–211, `from_source` at 215–348): `kind_label`,
+  `badge_class`, `member_label`, `group_title`, `assemble_groups`,
+  `reserved_anchors`, `anchor` and `split_subtitle` each have one call in each
+  entry point, but **both** `prose_from_codes` calls (lines 170 and 190) are inside
+  `from_package`. `from_source` builds `Prose` straight from AST kinds and never
+  reads wire codes. This is exactly the case the plan's own Corrections
+  placeholder said to watch for, so `prose_from_codes` moved as a **private**
+  helper of `from_package` in `wire/src/docpage.rs`, and only the eight are `pub`.
+
+- **The plan contradicts itself about `src/doc/html.rs`; resolved in favour of
+  "untouched", with coverage added rather than moved.** Phase 2 task 5 says to
+  move `from_package` coverage *out of* `html.rs`. Task 3 and the acceptance say
+  `html.rs` must be **untouched**, and that needing to edit it means the
+  re-export is incomplete. Both cannot hold. Those tests are also not pure model
+  tests: `from_package_no_package_uses_fallback_and_empty_render` and
+  `from_package_full_page_renders_every_element` assert on the **rendered HTML**,
+  and the renderer stays in the compiler, so they cannot move to `mfb_wire`
+  whole. They stay where they are, now exercising the shared model through the
+  glob re-export. `wire/src/docpage.rs` gains **new** model-level tests covering
+  the same behaviour without rendering: the fallback name, subtitle/intro split,
+  callout decoding, first-appearance group order, the public/internal split, and
+  anchor reservation. Coverage went up; no assertion was removed.
+
+- **A third `from_package` caller in `html.rs`.** The plan names the tests at
+  `:402` and `:414`. `grep -n from_package src/doc/html.rs` also finds line 490,
+  inside `subtitle_without_intro_still_emits_intro_anchor`. That test stays too,
+  for the same reason.
+
+- **The anchor-parity test cannot live in `wire/src/docpage.rs`.** Phase 2 task 5
+  places it there, but `from_source` needs the compiler's AST and parser, and
+  `mfb_wire` depends on neither. As with plan-126-B's cross-crate divergence
+  test, it goes in the one place both entry points are reachable: a new
+  `#[cfg(test)] mod tests` at the end of `src/doc/mod.rs`
+  (`from_source_and_from_package_assign_identical_anchors`). It hands both entry
+  points the same names in the same order, one of them `intro` so the bug-299 D3
+  reservation is exercised. It asserts the anchor lists are equal **and** equal
+  the literal `["intro-2", "add-up"]`, so a regression that shifts both paths
+  identically still fails.
+
+- **A pre-existing orphaned doc comment, fixed in the move.** In the original
+  `src/doc/mod.rs`, the line "Slugify a declaration name into a unique anchor
+  id." sat above `const PAGE_INTRO_ANCHOR`, documenting the constant instead of
+  `fn anchor` two items below. That is the classic result of inserting an item
+  between a doc comment and its target. In `wire/src/docpage.rs` the line is back
+  on `anchor`, with a note recording where it had been.
+
+- **`PAGE_INTRO_ANCHOR` had to become `pub`, and not only for tests.** The plan
+  lists nine helpers to widen and does not mention the constant.
+  `grep -n PAGE_INTRO_ANCHOR src/doc/html.rs` shows the **production renderer**
+  using it at lines 183, 211 and 216 (the sidebar link and the intro
+  `<section id>`), reached through `use super::*`. Left private in
+  `mfb_wire::docpage`, the compiler's HTML renderer would stop compiling.
+
+- **`HashSet` in `src/doc/mod.rs` is now test-only, so its import is gated.**
+  After the move, `cargo check --all-targets` warned `unused import: HashSet`
+  for the non-test binary. It could not simply be deleted: `html.rs`'s *test*
+  module calls `HashSet::new()` (line 349) through `use super::*`, so removal
+  would have broken those tests and forced an `html.rs` edit. It is now
+  `#[cfg(test)] use std::collections::HashSet;` with a comment saying why — a
+  targeted gate, not a blanket suppression.
+
+- **The planned doc-sync check could not find the documentation that actually
+  broke.** § Validation Plan prescribed
+  `grep -rn "doc section\|DOC block" .ai/ src/docs/spec/`. That finds *prose*
+  mentions, and every one it matched is still true. The real breakage was in
+  `[[path:Symbol]]` provenance citations naming symbols that left their files.
+  That grep cannot see them, and `spec_citations_resolve` only checks that the
+  cited *file* exists — a file that now merely re-exports the symbol still passes.
+  Replaced with a mechanical sweep that checks every citation for a
+  *definition* of its symbol in the cited file, diffed against fork commit
+  `e66e594a4` so plan-126's breakage is separated from the 353 flags that already
+  existed there. It found **22** citations broken across this whole feature — 12
+  by this sub-plan, 8 by plan-126-C, 2 by plan-126-B — which B's and C's own
+  doc-sync checks had missed. All 22 are fixed and the sweep is re-run clean
+  (§ Validation Plan). **Any future symbol move in this tree needs the definition
+  sweep, not a name grep.**
 
 ## Summary
 

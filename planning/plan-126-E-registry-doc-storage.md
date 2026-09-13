@@ -28,7 +28,7 @@ See plan-126-A § Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-126-D complete (`mfb_wire` decodes section 17) | `grep -c read_package_doc_section wire/src/docs.rs` → 1 | NOT MET |
+| plan-126-D complete (`mfb_wire` decodes section 17) | `grep -c '^pub fn read_package_doc_section' wire/src/docs.rs` → 1 (corrected from `grep -c read_package_doc_section … → 1`) | MET (measured 2026-09-12: exactly **1** definition; D landed as 1d8a900e7 + 4c34b4f8a). The original command counts **6**, not 1, because the function's name also appears in its doc comment and in tests. The requirement (`mfb_wire` decodes section 17) holds; only the expected count was wrong, so the command now counts definitions. |
 
 If plan-126-D is not complete, this sub-plan cannot start, full stop.
 
@@ -192,107 +192,248 @@ would put publisher-authored HTML into the registry, which the CSP design at
 
 ### Phase 1 — Schema and accessors, no writers
 
-- [ ] Add the `package_version_docs` table to the schema batch in
-      `repository/src/store.rs` (beside the other `CREATE TABLE IF NOT EXISTS`
-      statements at `:431-533`), with a comment explaining why it is a side table
-      and why the bytes are stored raw.
-- [ ] Add `Store::put_version_docs(&self, package_version_id: i64, section: &[u8])`
-      and `Store::latest_active_version_docs(&self, ident: &str) -> Result<Option<(String, Vec<u8>)>, String>`
-      returning `(version, doc_section)` for the latest active version, built on
-      `Store::latest_active_version` from plan-126-A.
-- [ ] Tests in `repository/src/store.rs`: round-trip a section; a version with no
-      docs row yields `None`; **a package whose newest version is yanked returns the
-      older active version's docs**, not the yanked one's, and not `None`.
+- [x] Add the `package_version_docs` table to the schema batch in
+      `repository/src/store.rs` — placed beside its sibling
+      `package_version_blobs`, inside the single `migrate()` `execute_batch`, so
+      `CREATE TABLE IF NOT EXISTS` creates it on fresh and existing databases alike.
+      `package_version_id INTEGER PRIMARY KEY REFERENCES package_versions(id)`,
+      `doc_section BLOB NOT NULL`. The SQL comment explains the side table (a 9–28
+      KB `BLOB` column would bloat every `SELECT` on a hot table; absence is an
+      absent row, not a `NULL`), the raw storage (`mfb_wire::docs` stays the only
+      decoder), and per-version retention (yank fallback by row lookup, not an S3
+      self-fetch).
+- [x] Add `Store::put_version_docs` and `Store::latest_active_version_docs`
+      returning `(version, doc_section)`, **built on
+      `Store::latest_active_version`** — it calls that function, then looks up the
+      row by `(ident, version)`, rather than repeating "latest" as its own SQL
+      predicate. `put_version_docs` uses `INSERT OR IGNORE`, so a version's docs are
+      never rewritten, which is what keeps Phase 3's backfill idempotent.
+      `latest_active_version` is called before this function takes the connection
+      lock: the lock is not re-entrant, and holding it across that call would
+      deadlock.
+- [x] Tests in `repository/src/store.rs` — **five**, the three planned plus two:
+      `version_docs_round_trip_byte_for_byte` (including `0x00` and `0xFF` bytes a
+      text column would mangle); `a_version_with_no_docs_row_yields_none` (plus an
+      unknown ident); `a_yanked_newest_release_falls_back_to_the_older_active_releases_docs`
+      (the planned acceptance test); **added**
+      `an_undocumented_latest_release_never_borrows_an_older_releases_docs`, pinning
+      the contract plan-126-F's Docs tab depends on; **added**
+      `putting_version_docs_twice_keeps_the_first_row`, pinning the `INSERT OR
+      IGNORE` idempotency Phase 3 relies on.
 
-Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes,
-including the yanked-fallback test — which is what proves the accessor is built on
-the plan-126-A selection rather than on `ORDER BY created_at LIMIT 1`.
-Commit: —
+Acceptance: MET. `rustup run 1.96.0 cargo test -p mfb_repository --lib
+--no-fail-fast` → **379 passed; 0 failed** (374 + 5).
+The yanked-fallback test is **load-bearing, measured rather than assumed**: with
+`latest_active_version_docs` temporarily swapped for a naive newest-row query
+(`ORDER BY pv.created_at DESC, pv.id DESC LIMIT 1` with a `LEFT JOIN` to the docs
+table and no state predicate), exactly **one** test went red —
+`a_yanked_newest_release_falls_back_to_the_older_active_releases_docs` (`test
+result: FAILED. 4 passed; 1 failed`) — and the other four stayed green. That is
+precisely the test that proves the accessor is built on the plan-126-A selection.
+`store.rs` was then restored from its backup and `filecmp` asserted it
+byte-identical.
+Commit: acdbe0648 (recorded late, in plan-126-F Phase 3's commit; the line was missed when Phase 2 landed)
 
 ### Phase 2 — Capture at publish
 
-- [ ] In the publish handler, call
-      `mfb_wire::docs::read_package_doc_section(&package.payload)` alongside the
-      existing four parses (`repository/src/server.rs:2861-2903`, `:3163-3198`),
-      keeping the best-effort posture: a parse error means "no documentation", never
-      a rejected publish.
-- [ ] Write the row inside the same transaction as the version INSERT
-      (`repository/src/store.rs:1818-1828`), not as a separate call afterwards.
-- [ ] Tests in `repository/src/server.rs`: publishing a payload with a valid section
-      17 stores it and it reads back byte-identical; publishing a payload **without**
-      section 17 stores no row and still succeeds; publishing a payload whose section
-      17 is truncated still succeeds with no row stored (the negative that proves
-      documentation cannot break a publish).
+- [x] In the publish handler, capture section 17 alongside the existing parses,
+      keeping the best-effort posture: a parse error means "no documentation",
+      never a rejected publish. **Refined from the plan:** the handler calls
+      `mfb_wire::mfpc::read_section_table` → section 17 → `read_doc_table`, rather
+      than `read_package_doc_section`. That function returns *decoded*
+      `PackageDocs`, but Phase 1 stores the **raw** section bytes. So the handler
+      keeps the raw slice and uses the decode only as a gate: bytes that fail to
+      decode are not stored, and are never a rejection. Both `PublishMetadata`
+      match arms carry `docs` explicitly — left to `..Default::default()`, the
+      no-MANIFEST arm would silently drop documentation the publisher signed.
+- [x] Write the row inside the same transaction as the version INSERT, not as a
+      separate call afterwards. Implemented by adding `docs: Option<Vec<u8>>` to
+      `PublishMetadata` and writing `package_version_docs` right after
+      `tx.last_insert_rowid()` inside `publish_package_version`'s transaction.
+      **Chosen by measurement over a new positional argument:** that would have
+      touched **57** `publish_package_version(` call sites; the field touched
+      **3** struct literals (`cargo check` reported exactly three
+      missing-field errors — `backfill.rs:135`, `server.rs:5478`, `server.rs:6410`)
+      plus the insert. The struct already carries section-derived publisher
+      metadata (section 18's `description`), so section 17 fits its purpose.
+- [x] Tests in `repository/src/server.rs`, driving the real `publish_package`
+      handler with a signed artifact:
+      `publishing_a_documented_package_stores_its_doc_section_byte_for_byte`,
+      `publishing_an_undocumented_package_succeeds_and_stores_no_doc_row`, and
+      `a_truncated_doc_section_still_publishes_and_records_nothing`. The last
+      first asserts its fixture genuinely fails to decode, so it cannot pass
+      vacuously, and also asserts the version itself landed.
 
-Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes and
-`tests/cli/cli_repo_publish.rs` is green. The truncated-section test is the important
-one: it proves a malformed doc table cannot reject a signed package.
-Commit: —
+Acceptance: MET.
+`rustup run 1.96.0 cargo test -p mfb_repository --lib --no-fail-fast` → **382
+passed; 0 failed** (379 + 3).
+`cargo test --test cli_repo_publish --test cli_repo_install --test cli_repo_auth
+--test cli_repo_governance` against a freshly rebuilt release `mfb-repo` → **4 / 7 /
+9 / 6 passed, 0 failed**.
+**The truncated-section test is load-bearing, measured:** deleting the handler's
+single decode-gate line (`mfb_wire::docs::read_doc_table(section).ok()?;` — 1
+match before, 0 after) turned exactly that test red (`test result: FAILED. 2
+passed; 1 failed`), while the documented and undocumented tests stayed green.
+`server.rs` was then restored and `cmp` confirmed it byte-identical to the
+post-format backup. That gate is what stops a malformed doc table from being
+recorded.
+`cargo check --all-targets` → only the three pre-existing `unused axum::Json`
+warnings.
+Commit: f9e26140a
 
 ### Phase 3 — Backfill (largest blast radius: touches every stored blob)
 
-- [ ] Extend `backfill::run` (`repository/src/backfill.rs:58`) to decode section 17
-      from each re-parsed blob and fill `package_version_docs` where the row is
-      absent, leaving existing rows alone so the sweep stays idempotent.
-- [ ] Obey the module's two stated rules (`:10-22`): a blob whose doc section does
-      not parse is **skipped and counted separately**, never silently treated as
-      absent — an unparseable doc section in a stored, signed blob is a finding an
-      operator must see.
-- [ ] Add the counters to `BackfillReport` (`:29-48`) and to `render_text` (`:153`).
-- [ ] Tests in `repository/src/backfill.rs`, following the shape of the existing 7:
-      the sweep fills docs and is idempotent on a second run; a version whose blob
-      carries no section 17 is quietly left alone (mirroring
-      `backfill_fills_descriptions_and_stays_quiet_about_packages_that_have_none`
-      at `:284`); a blob with a **malformed** section 17 is counted as skipped and
-      its row is not written.
+- [x] Extend `backfill::run` to decode section 17 from each re-parsed blob and fill
+      `package_version_docs` where the row is absent. Existing rows are left alone
+      via `put_version_docs`'s `INSERT OR IGNORE`, which now **returns whether it
+      inserted**, so `docs_filled` counts only real inserts and a second run reports
+      zero. The fill runs **after** `report.updated += 1`, so a mismatched or
+      unparseable blob — which the sweep leaves untouched — never gains a docs row.
+- [x] Obey the module's two stated rules. A section 17 that is present but does
+      not decode is **counted separately** (`docs_unparseable`), logged as a skip
+      line, and not recorded. It is also folded into `skipped()`, so the
+      subcommand exits non-zero (`main.rs` exits 1 on `report.skipped()`). A
+      payload with no section 17, or one that is not a container at all, stays
+      quiet — the same posture the loop already takes for sections 10 and 18.
+- [x] Add the counters to `BackfillReport` (`docs_filled`, `docs_unparseable`) and a
+      separate `render_text` line, `doc sections: N recorded, M undecodable`. It
+      says "undecodable" rather than "unparseable" so it can never be confused with
+      the blob counter above; the existing `"1 mismatched"` assertion is untouched.
+- [x] Tests in `repository/src/backfill.rs`:
+      `backfill_fills_doc_sections_and_is_idempotent` (fills the documented blob,
+      leaves the undocumented one quietly alone, a second run records nothing, and
+      the doc line reads `1 recorded` then `0 recorded`), and
+      `a_malformed_doc_section_is_counted_skipped_and_not_recorded` (counted,
+      `skipped()` true, no row, while the version's other metadata still
+      backfills; its fixture first asserts it genuinely fails to decode).
+- [x] Added task: doc sync. The `backfill-metadata` usage text in
+      `repository/src/main.rs` said it populates "the author, url and
+      native-target columns"; it now names documentation records and the
+      undecodable-doc-section finding. `repository/DEPLOY.md` does not document the
+      backfill output (`grep -n backfill repository/DEPLOY.md` → nothing), so it
+      needed no change.
 
-Acceptance: `rustup run 1.96.0 cargo test -p mfb_repository --no-fail-fast` passes;
-running `mfb-repo backfill-metadata` twice against a datapath containing one
-documented and one undocumented package reports the same filled count on the first
-run and zero on the second, and its text report names the doc counters.
-Commit: —
+Acceptance: MET.
+`rustup run 1.96.0 cargo test -p mfb_repository --lib --no-fail-fast` → **384
+passed; 0 failed** (382 + 2).
+**The idempotency counter is load-bearing, measured:** with `put_version_docs`'s
+`Ok(inserted == 1)` swapped for `Ok(true)` (1 match before, 0 after), exactly
+**one** of the ten doc tests went red —
+`backfill_fills_doc_sections_and_is_idempotent` — and `store.rs` was restored
+`cmp`-identical.
+**Runtime proof, on a genuine upgrade.** The datapath is `/tmp/p126-repoC`, whose
+registry database was created by a server built **before** plan-126-E and held
+`alice#p126pkg@0.1.0` (the undocumented `init-pkg` template) with **no
+`package_version_docs` table at all**. Starting the post-E `mfb-repo` on it ran
+`migrate()`, which created the table (0 rows). Publishing `alice#p126pkg@0.2.0` —
+the same package with a `DOC` block, built by `mfb repo publish` — recorded a
+**112-byte** docs row at publish, proving Phase 2 on a real build. With the server
+stopped, that row was deleted (`rows deleted: 1`) to recreate a pre-Phase-2
+publish. Then `mfb-repo backfill-metadata`:
+  run 1 → `doc sections: 1 recorded, 0 undecodable`, **exit 0**;
+  run 2 → `doc sections: 0 recorded, 0 undecodable`, **exit 0**.
+Final state: 0.2.0's row is back at exactly **112** bytes, byte count matching
+what the server wrote, and 0.1.0 still has none.
+Commit: 1940b4dd4
 
 ## Validation Plan
 
-- **Tests:** `repository/src/store.rs` (round-trip, absent, yanked-fallback),
-  `repository/src/server.rs` (present / absent / malformed at publish),
-  `repository/src/backfill.rs` (fill, idempotent, quiet-when-absent, skip-malformed).
-- **Coverage check:** the repository crate is a workspace member, so its 351 lib
-  tests are in the `cargo test` denominator. `scripts/artifact-gate.sh` covers none
-  of this — do not cite a 0-diff as evidence for this sub-plan.
-- **Runtime proof:** against a local `mfb-repo` — publish `packages/jwt/jwt.mfp`
-  (27,951 B section measured) and confirm `sqlite3 <datapath>/registry.db 'SELECT
-  length(doc_section) FROM package_version_docs'` reports 27951 exactly. Then publish
-  `examples/browser/dom/dom.mfp` (no section 17) and confirm no second row appears.
-- **Storage sanity:** confirm the aggregate 4.9% figure holds on the test datapath by
-  comparing `SUM(length(doc_section))` against the total blob bytes — if it is
-  wildly higher, the per-version decision should be revisited in Corrections.
-- **Doc sync:** `repository/DEPLOY.md` if it documents the backfill command's output;
-  check with `grep -n backfill repository/DEPLOY.md`.
-- **Acceptance:** `rustup run 1.96.0 cargo test --no-fail-fast`;
-  `tests/cli/cli_repo_publish.rs`; `docker build -f repository/Dockerfile .`.
+- **Tests:** DONE — **10**, not the planned 9. `repository/src/store.rs` has 5
+  (round-trip, absent, yanked-fallback, plus never-borrow-older-docs and
+  first-write-wins); `repository/src/server.rs` 3 (present / absent / truncated at
+  publish); `repository/src/backfill.rs` 2 (fill + quiet-when-absent + idempotent
+  in one, malformed-is-counted in the other). Three of them were shown
+  load-bearing by mutation: the yanked-fallback selection, the publish decode gate,
+  and the backfill's inserted-count.
+- **Coverage check:** DONE. The repository crate is a workspace member, so its lib
+  tests are in the `cargo test` denominator — **384** after this sub-plan (374
+  before; the plan said 351). `scripts/artifact-gate.sh` covers none of this code
+  and no 0-diff from it is cited as evidence here.
+- **Runtime proof:** DONE, against a live `mfb-repo` whose database predates
+  plan-126-E. The real `jwt` package, published from a `/tmp` copy of the committed
+  `packages/jwt` source, stored a doc section of **27,951 B**. That is exactly the
+  plan's measured figure, and **byte-identical** to section 17 extracted from the
+  published blob itself (compared as bytes, not just lengths). The database file is
+  `meta.db`, not `registry.db` (Corrections). The undocumented case was proven by
+  `alice#p126pkg@0.1.0`, which has no row, because `dom.mfp` is not committed
+  (Corrections). The backfill half is in Phase 3's acceptance: `1 recorded`, then
+  `0 recorded`, both exit 0.
+- **Storage sanity:** DONE. On that datapath: 28,063 doc bytes of 707,247 blob
+  bytes = **4.0%**, and jwt alone 4.0% — not "wildly higher" than the plan's 4.9%
+  aggregate, so the per-version decision stands (Open Decisions).
+- **Doc sync:** DONE. `grep -n backfill repository/DEPLOY.md` → nothing; DEPLOY.md
+  does not document the backfill output. The `backfill-metadata` usage text in
+  `repository/src/main.rs` was the stale description and is updated (Phase 3).
+- **Acceptance:** DONE, apart from the plan-wide final gate.
+  `cargo test --test cli_repo_publish --test cli_repo_install --test cli_repo_auth
+  --test cli_repo_governance` → 4 / 7 / 9 / 6 passed (Phase 2).
+  `docker build --load -f repository/Dockerfile -t mfb-repo-p126:e .` → **exit 0**,
+  compiling `mfb_wire v0.1.0 (/build/wire)` then `mfb_repository`.
+  The whole-workspace `rustup run 1.96.0 cargo test --no-fail-fast` is follow-plan
+  §5's final gate, run once for all letters.
 - **Format:** `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
 ## Open Decisions
 
-- **Per-version storage, or latest-active only?** Recommended **per version**, for
-  the yank-fallback correctness reason in §3; the measured cost is 4.9% of aggregate
-  `.mfp` bytes on data the registry already keeps forever. The alternative — keep
-  only the latest active version's section and delete on each publish — halves an
-  already-small number and reintroduces a blob fetch on the yank path. Note the
-  measured counter-case: for the smallest package (`libsnd`, 38 KB) the doc section
-  is 40% of the file, so the ratio is size-dependent and worth re-measuring on real
-  registry data before treating 4.9% as general. (§3)
-- **Should `GET /packages/:ident` gain a docs presence flag?** Recommended **no** here
-  — it is plan-126-F's call, alongside the JSON parity route. Deciding it in this
-  sub-plan would add a response field with no consumer. (§1)
+- **Per-version storage, or latest-active only?** **RESOLVED: per version**, taking
+  the recommendation. It was re-measured on real registry data rather than assumed
+  from the tree census. On the runtime-proof datapath, the real `jwt` package's
+  stored doc section is 27,951 B of a 703,235 B blob = **4.0%** (the plan's own jwt
+  figure, exactly), and the whole datapath is 28,063 doc bytes of 707,247 blob
+  bytes = **4.0%**. That is not "wildly higher", so the per-version decision stands.
+  The counter-case caveat still applies: the share is size-dependent (the plan
+  measured `libsnd` at 40%), so a registry dominated by tiny packages would show a
+  larger ratio of a smaller absolute number. (§3)
+- **Should `GET /packages/:ident` gain a docs presence flag?** **RESOLVED: no, not
+  here**, taking the recommendation — it is plan-126-F's call, alongside its JSON
+  parity route. No response field was added by this sub-plan. (§1)
 
 ## Corrections
 
-<!-- Fill in during execution. Watch for: the real doc-section share on a populated
-     datapath (the 4.9% is six packages in this tree, not a registry census), and
-     whether the publish INSERT can genuinely carry a second table write in the same
-     transaction without restructuring `store.rs:1818-1828`. -->
+- **The publish INSERT carried the second table write without restructuring —
+  answering this section's own watch item.** The doc row is written inside
+  `publish_package_version`'s existing transaction, right after
+  `tx.last_insert_rowid()`. The only structural choice was how the bytes reach it:
+  a new positional argument would have touched **57** call sites
+  (`grep -rn "publish_package_version(" --include='*.rs' repository/src src tests`),
+  a `docs` field on `PublishMetadata` touched the **3** literals `cargo check`
+  reported. The field won.
+
+- **The real doc-section share, measured on a populated datapath** — the other
+  watch item: **4.0%** (see Open Decisions), consistent with the plan, so no
+  revision.
+
+- **The runtime-proof command queries a file that does not exist.** § Validation
+  Plan says `sqlite3 <datapath>/registry.db`. `mfb-repo` takes its database path
+  from `--dbpath`, and the registry here used `meta.db` (the name its own tests and
+  the plan-126-A/C runtime proofs use). There is no `registry.db`. Queried
+  `meta.db`.
+
+- **Neither runtime-proof fixture is committed, so both were substituted.**
+  - `packages/jwt/jwt.mfp` is a gitignored build artifact (plan-126-B § Verified
+    properties). jwt was published from a `/tmp` copy of the **committed**
+    `packages/jwt` source with `"ident": "alice#jwt"` added, since `mfb repo publish`
+    requires an ident. The committed source was not modified.
+  - `examples/browser/dom/dom.mfp` is not committed either
+    (`git ls-files 'examples/browser/*/*.mfp'` → nothing). The property it was to
+    prove — a package with no section 17 gets no row — was proven instead by
+    `alice#p126pkg@0.1.0`, the `init-pkg` template (no `DOC` blocks), which has no
+    row after both publish and backfill.
+
+- **Phase 2 captures section 17 without calling `read_package_doc_section`.** That
+  function returns *decoded* `PackageDocs`, but Phase 1 stores the **raw** bytes. So
+  the handler calls `mfpc::read_section_table` → section 17 and keeps the raw
+  slice, using `read_doc_table` only as a gate: bytes that fail to decode are not
+  stored. `read_package_doc_section` remains the one-call path the plan's §1
+  describes, for a decoded view.
+
+- **Phase 3 changed Phase 1's `put_version_docs` API** from `Result<(), String>` to
+  `Result<bool, String>`. The backfill needs to know whether a row was actually
+  inserted, so a second run reports zero instead of re-claiming rows. The five
+  Phase 1 tests only `.unwrap()` it and needed no edit.
+
+- **Populations re-measured 2026-09-12** (plan figures in parentheses): repository
+  crate lib tests at the start of this sub-plan **374** (351); after it **384**.
 
 ## Summary
 

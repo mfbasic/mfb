@@ -86,8 +86,7 @@ pub(crate) fn simplify(module: &mut NirModule) {
     // would have made the global non-`untouched` and kept it alive, so there is
     // no live write to lose here.
     if !removed.is_empty() {
-        let initializer =
-            crate::target::shared::nir::global_initializer_name(&module.project);
+        let initializer = crate::target::shared::nir::global_initializer_name(&module.project);
         for function in &mut module.functions {
             if function.name != initializer {
                 continue;

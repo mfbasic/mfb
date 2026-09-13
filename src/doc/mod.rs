@@ -1,214 +1,35 @@
-//! Documentation model and HTML renderer shared by `mfb doc` (from source) and
-//! `mfb pkg doc` (from a compiled `.mfp` doc section). See plan-09-doc.md §7.
+//! Documentation from source, and the HTML renderer, for `mfb doc` and
+//! `mfb pkg doc`. See plan-09-doc.md §7.
+//!
+//! The page *model* and the compiled-package entry point `from_package` live in
+//! `mfb_wire::docpage` (plan-126-D) and are re-exported here; `from_source`
+//! stays because it needs the AST, and `html` stays because its inline `<style>`
+//! is incompatible with the registry's CSP.
 //!
 //! Declarations are organized into groups (`GROUP` lines for callables, plus a
 //! kind-derived "Types" group), rendered as a sidebar-navigated, card-per-symbol
 //! page with info/warning/security callouts.
 
 use crate::ast::{AstProject, DocBlock, DocHeaderKind, DocProseKind, Function, Item, Visibility};
-use crate::binary_repr::PackageDocs;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+// `HashSet` is referenced only by `src/doc/html.rs`'s *test* module, which reaches
+// it through `use super::*`. The helpers that used it in production moved to
+// `mfb_wire::docpage` (plan-126-D), so an unconditional import is unused in the
+// non-test build. Gated rather than removed so `html.rs` stays untouched.
+#[cfg(test)]
+use std::collections::HashSet;
 
-/// A renderable documentation page.
-pub struct DocPage {
-    pub package_name: String,
-    /// First package description paragraph, shown as the page subtitle.
-    pub subtitle: String,
-    /// Remaining package prose (paragraphs/callouts).
-    pub intro: Vec<Prose>,
-    pub package_deprecated: Option<String>,
-    pub public: Vec<DocGroup>,
-    pub internal: Vec<DocGroup>,
-}
-
-/// A named group of declarations (a sidebar section and a content heading).
-pub struct DocGroup {
-    pub title: String,
-    pub decls: Vec<DocDecl>,
-}
-
-/// One prose block: an ordinary paragraph or a callout.
-pub struct Prose {
-    pub kind: DocProseKind,
-    pub text: String,
-}
-
-/// One documented declaration (plan-09-doc.md §7.2).
-pub struct DocDecl {
-    pub anchor: String,
-    pub kind_label: &'static str,
-    pub badge_class: &'static str,
-    /// Heading for the members table (`Fields`/`Variants`/`Members`), or `None`.
-    pub member_label: Option<&'static str>,
-    pub name: String,
-    pub signature: String,
-    pub desc: Vec<Prose>,
-    pub args: Vec<(String, String)>,
-    pub props: Vec<(String, String)>,
-    pub ret: String,
-    pub errors: Vec<(String, String)>,
-    pub example: String,
-    pub deprecated: Option<String>,
-}
-
-fn kind_label(kind: &str) -> &'static str {
-    match kind {
-        "sub" => "Subroutine",
-        "type" => "Type",
-        "union" => "Union",
-        "enum" => "Enum",
-        "resource" => "Resource",
-        _ => "Function",
-    }
-}
-
-fn badge_class(kind: &str) -> &'static str {
-    match kind {
-        "sub" => "function",
-        "type" => "type",
-        "union" => "union",
-        "enum" => "enum",
-        "resource" => "resource",
-        _ => "function",
-    }
-}
-
-fn member_label(kind: &str) -> Option<&'static str> {
-    match kind {
-        "type" => Some("Fields"),
-        "union" => Some("Variants"),
-        "enum" => Some("Members"),
-        _ => None,
-    }
-}
-
-/// The content group a declaration belongs to: callables use their `GROUP`
-/// (falling back to "Functions"); type-like kinds collect under "Types".
-fn group_title(kind: &str, group: &str) -> String {
-    match kind {
-        "type" | "union" | "enum" | "resource" => "Types".to_string(),
-        _ if !group.is_empty() => group.to_string(),
-        _ => "Functions".to_string(),
-    }
-}
-
-fn prose_from_codes(codes: &[(u8, String)]) -> Vec<Prose> {
-    codes
-        .iter()
-        .map(|(code, text)| Prose {
-            kind: DocProseKind::from_code(*code),
-            text: text.clone(),
-        })
-        .collect()
-}
-
-/// Assemble grouped public/internal sections from a flat, source-ordered list of
-/// `(decl, group_title, internal)`. Group order follows first appearance.
-fn assemble_groups(items: Vec<(DocDecl, String, bool)>) -> (Vec<DocGroup>, Vec<DocGroup>) {
-    let mut public: Vec<DocGroup> = Vec::new();
-    let mut internal: Vec<DocGroup> = Vec::new();
-    for (decl, title, is_internal) in items {
-        let groups = if is_internal {
-            &mut internal
-        } else {
-            &mut public
-        };
-        match groups.iter_mut().find(|g| g.title == title) {
-            Some(group) => group.decls.push(decl),
-            None => groups.push(DocGroup {
-                title,
-                decls: vec![decl],
-            }),
-        }
-    }
-    (public, internal)
-}
-
-/// Slugify a declaration name into a unique anchor id.
-/// The page-level introduction section's HTML id. It is emitted directly by the
-/// renderer rather than assigned by [`anchor`], so it must be reserved before any
-/// declaration anchor is handed out (bug-299 D3) -- otherwise a declaration
-/// literally named `intro` slugifies to the same id, and its sidebar link scrolls
-/// to the page introduction instead of the declaration. Same collision class as
-/// bug-93.1, and the same fix: seed the used-set.
-const PAGE_INTRO_ANCHOR: &str = "intro";
-
-/// A fresh anchor set with every renderer-owned id already reserved.
-fn reserved_anchors() -> HashSet<String> {
-    let mut used = HashSet::new();
-    used.insert(PAGE_INTRO_ANCHOR.to_string());
-    used
-}
-
-fn anchor(name: &str, used: &mut HashSet<String>) -> String {
-    let base: String = name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let mut candidate = base.clone();
-    let mut n = 2;
-    while used.contains(&candidate) {
-        candidate = format!("{base}-{n}");
-        n += 1;
-    }
-    used.insert(candidate.clone());
-    candidate
-}
-
-/// Build a page from a compiled package's doc section (exported declarations
-/// only, plan-09-doc.md §3).
-pub fn from_package(docs: PackageDocs, fallback_name: &str) -> DocPage {
-    let (package_name, mut pkg_prose, package_deprecated) = match docs.package {
-        Some(package) => (
-            package.name,
-            prose_from_codes(&package.desc),
-            package.deprecated,
-        ),
-        None => (fallback_name.to_string(), Vec::new(), None),
-    };
-    let (subtitle, intro) = split_subtitle(&mut pkg_prose);
-
-    let mut used = reserved_anchors();
-    let items = docs
-        .decls
-        .into_iter()
-        .map(|decl| {
-            let title = group_title(&decl.kind, &decl.group);
-            let entry = DocDecl {
-                anchor: anchor(&decl.name, &mut used),
-                kind_label: kind_label(&decl.kind),
-                badge_class: badge_class(&decl.kind),
-                member_label: member_label(&decl.kind),
-                name: decl.name,
-                signature: decl.signature,
-                desc: prose_from_codes(&decl.desc),
-                args: decl.args,
-                props: decl.props,
-                ret: decl.ret,
-                errors: decl.errors,
-                example: decl.example,
-                deprecated: decl.deprecated,
-            };
-            (entry, title, decl.internal)
-        })
-        .collect();
-    let (public, internal) = assemble_groups(items);
-
-    DocPage {
-        package_name,
-        subtitle,
-        intro,
-        package_deprecated,
-        public,
-        internal,
-    }
-}
+// plan-126-D Phase 2: the page model -- `DocPage`, `DocGroup`, `DocDecl`,
+// `Prose` -- the shared naming/grouping/anchor helpers, and `from_package` moved
+// to `mfb_wire::docpage`, so the registry's Docs tab (plan-126-F) renders the
+// same model this crate's `mfb doc` HTML does. Re-exported by glob so
+// `crate::doc::{DocPage, from_package}` (used by `src/cli`) and everything
+// `src/doc/html.rs` reaches through `use super::*` resolve unchanged -- that file
+// is untouched by the move.
+//
+// The moved items were DELETED here, not left beside this glob: a local item
+// silently shadows a glob import rather than colliding with it.
+pub use mfb_wire::docpage::*;
 
 /// Build a page directly from parsed source. Includes non-exported declarations
 /// (implicitly internal, plan-09-doc.md §2.9).
@@ -387,16 +208,90 @@ fn source_decl_meta(
     }
 }
 
-/// Split the first description paragraph off as the page subtitle.
-fn split_subtitle(prose: &mut Vec<Prose>) -> (String, Vec<Prose>) {
-    if prose.first().is_some_and(|p| p.kind == DocProseKind::Desc) {
-        let first = prose.remove(0);
-        (first.text, std::mem::take(prose))
-    } else {
-        (String::new(), std::mem::take(prose))
-    }
-}
-
 mod html;
 
 pub use html::{render_empty_html, render_html};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::binary_repr::{DeclDocEntry, PackageDocs};
+
+    /// **plan-126-D Phase 2 — proves the anchor helpers are shared, not
+    /// duplicated.**
+    ///
+    /// `from_source` stays in this crate (it needs the AST) and `from_package`
+    /// moved to `mfb_wire::docpage`, so this is the one place both are reachable
+    /// — the test cannot live in `mfb_wire`, which has no parser. Hand the same
+    /// declaration names, in the same order, to both entry points and require
+    /// the same anchors.
+    ///
+    /// `intro` is deliberate: it collides with the renderer-owned page-intro id
+    /// (bug-299 D3), so it exercises `reserved_anchors` *and* `anchor`'s
+    /// de-duplication. The literal expectation is asserted as well as the
+    /// equality, so a regression that changed both paths identically still
+    /// fails.
+    #[test]
+    fn from_source_and_from_package_assign_identical_anchors() {
+        let src = "\
+DOC
+  FUNC intro
+  DESC First.
+END DOC
+EXPORT FUNC intro() AS Integer
+  RETURN 1
+END FUNC
+DOC
+  FUNC add_up
+  DESC Second.
+END DOC
+EXPORT FUNC add_up() AS Integer
+  RETURN 2
+END FUNC
+";
+        let path = std::path::Path::new("anchor_parity.mfb");
+        let file = crate::ast::parse_source(path, "anchor_parity.mfb", src).expect("parse source");
+        let ast = AstProject {
+            name: "parity".to_string(),
+            files: vec![file],
+        };
+        let from_src = from_source(&ast);
+
+        let decl = |name: &str| DeclDocEntry {
+            kind: "func".to_string(),
+            name: name.to_string(),
+            signature: String::new(),
+            group: String::new(),
+            desc: Vec::new(),
+            args: Vec::new(),
+            props: Vec::new(),
+            ret: String::new(),
+            errors: Vec::new(),
+            example: String::new(),
+            internal: false,
+            deprecated: None,
+        };
+        let from_pkg = from_package(
+            PackageDocs {
+                package: None,
+                decls: vec![decl("intro"), decl("add_up")],
+            },
+            "parity",
+        );
+
+        let anchors = |page: &DocPage| -> Vec<String> {
+            page.public
+                .iter()
+                .flat_map(|group| group.decls.iter().map(|d| d.anchor.clone()))
+                .collect()
+        };
+        let source_anchors = anchors(&from_src);
+        let package_anchors = anchors(&from_pkg);
+
+        assert_eq!(
+            source_anchors, package_anchors,
+            "the two entry points must share one anchor implementation"
+        );
+        assert_eq!(package_anchors, ["intro-2", "add-up"]);
+    }
+}
