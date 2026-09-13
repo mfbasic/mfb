@@ -18,7 +18,8 @@ References: plan-134-A (§2, §3, Open Decisions: the speed budget); `bugs/bug-6
 mirrors: `!is_freeable_flat_value && type_reaches_cycle && !type_contains_resource` →
 `copy_value_to_current_arena`).
 
-Prerequisites: see plan-134-A; plan-134-C complete (`ls planning/completed/plan-134-C-*`).
+Prerequisites: see plan-134-A; plan-134-C complete (`ls planning/completed/plan-134-C-*`) — MET
+2026-09-13 (`planning/completed/plan-134-C-last-use-move-analysis.md`).
 
 ## 1. Goal
 
@@ -76,19 +77,28 @@ G. plan-134-C's tests carry that; D adds runtime probes of each move shape.
 
 ### Phase 1 — RED
 
-- [ ] `tests/runtime/rt_recursive_value_copies.rs` (register in `Cargo.toml`), mirroring
+- [x] `tests/runtime/rt_recursive_value_copies.rs` (register in `Cargo.toml`), mirroring
       `tests/runtime/rt_error_value_copies.rs`: one program over `TYPE Node (kids AS List OF
       Node)` and a recursive `UNION Tree`, one line per store — `LET c = a` then a `MUT` copy
       rebuilt; `MUT ys = xs` + `removeAt` (declined by G24, rebuild path) and + in-place
       `append`; a global assigned from a local then the local's list appended; `RETURN` of a
       field (`RETURN h.kids`) mutated by the caller; a closure capturing a list then the list
       rebuilt. Each line reads the source after the copy changed. Confirm it fails today
-      (at least the `append` line: `xs=240`).
-- [ ] Add `tree_alias` as a case asserting `ys=6 xs=1`.
+      (at least the `append` line: `xs=240`). — `a_recursive_value_copy_is_independent_of_its_source`
+      (one line per store: field → `MUT`, `MUT` + `removeAt`, `MUT` + `append`, global from a local,
+      `RETURN h.kids`, an escaping closure's capture); fails today with `append xs=160` (the
+      garbage value differs from the plan's 240 — a read of freed memory).
+- [x] Add `tree_alias` as a case asserting `ys=6 xs=1`. — the `tree` line; fails today with
+      `tree ys=6 xs=112`.
 
 Acceptance: the new test fails on main for the documented reason.
   Check: `cargo test --release --test rt_recursive_value_copies` → failed, showing `xs=240`
   (est. 2 min).
+  Result: met — `cargo test --release --no-fail-fast --test rt_recursive_value_copies` →
+  `0 passed; 1 failed`; `left: "field a=96 ak=2\nremoveAt xs=2 ys=1\nappend xs=160 zs=3\n
+  global g=96 local=2\nreturn h=96 got=2\nclosure f=96 cap=2\ntree ys=6 xs=112"` — identical
+  to the pre-plan compiler's output (Corrections), so the failure is the documented aliasing and
+  not a harness or build error.
 Commit: —
 
 ### Phase 2 — copy-insertion
@@ -138,7 +148,31 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **The speed budget's baseline is a median of 5, measured the same way as the after-numbers.**
+  §2.1's `json_repeat`/`regex_repeat` K=1 times are single runs that include the first launch of
+  a freshly built binary. Re-measured on the pre-plan compiler (the main checkout's
+  `target/release/mfb`, which reproduces the committed json/regex goldens byte-for-byte), five
+  passes of `bash tools/recursive-value-bench/run.sh <mfb> json_repeat regex_repeat` (each pass
+  rebuilds, so every run carries the same launch cost): `json_repeat` K=1 0.27 / 0.25 / 0.24 /
+  0.26 / 0.23 s → **median 0.25 s**; `regex_repeat` K=1 0.27 / 0.26 / 0.28 / 0.28 / 0.26 s →
+  **median 0.27 s**. Budget (+25 %): json ≤ 0.31 s, regex ≤ 0.34 s.
+- **The RED program's pre-plan output** (pre-plan compiler, `/tmp` build of the same source the
+  test embeds): `field a=96 ak=2`, `removeAt xs=2 ys=1`, `append xs=160 zs=3`, `global g=96
+  local=2`, `return h=96 got=2`, `closure f=96 cap=2`, `tree ys=6 xs=112`. Five of seven lines
+  are wrong; `removeAt` is right only because `G24` declines its in-place arm.
+- **How a store asks plan-134-C's analysis.** `MoveSites` is keyed by the op's address
+  (plan-134-C Corrections). `lower_ops_inner` records the address of the op it is lowering
+  (saved and restored around nested bodies), and `lower_value_owned` / `lower_returned_value`
+  ask `is_last_use` about that op. `MoveSites` is computed at the NIR-function entry
+  (`lower_function`, which also lowers lambdas — they are `NirFunction`s); the synthesized
+  builders (runtime helpers, per-type copy shims) carry none, so every store there copies.
+- **A field site skips the copy and does nothing else in this letter.** plan-134-C reports
+  `(op, x.f)` sites (`LET item = parsed.value`). Nulling `x.f` in the source record is what makes
+  a field move safe once frees exist, but before letter E a construction store (`Wrap[n := x]`)
+  can still alias `x`'s block, and nulling the field would be visible through that alias. So D
+  returns the loaded pointer uncopied — exactly today's behaviour for that store — and the
+  null-out belongs to plan-134-G's move deactivation, after E has removed construction aliasing.
+  A D move therefore never creates an alias that did not exist before D.
 
 ## Summary
 

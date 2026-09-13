@@ -171,10 +171,27 @@ are in §2.2; this letter moves them into `tools/recursive-value-bench/`.
   holds a 1 000 000-deep chain; `deep_chain` dies at 70 000 only when the `get` copy runs
   (both measured). The copy functions recurse per edge (read: `emit_thread_copy_real` →
   `copy_record_fields_into_existing` → `copy_value_to_current_arena` → the per-type call).
-- **Runtime values cannot form cycles.** §14.5 says the compiler rejects value cycles; values
-  are immutable and built from existing values, so a graph is at worst a DAG with shared
-  sub-graphs today, and a tree once letters D–E copy at every store. UNVERIFIED that no
-  in-place arm can create a cycle — letter D's first task verifies it.
+- **Runtime values cannot form cycles — FALSE on main; letter E makes it true.** §14.5 says the
+  compiler rejects value cycles, and under value semantics none can exist. The codegen breaks it
+  (plan-134-D's in-place-arm audit, 2026-09-13): a constructor argument is lowered with
+  `lower_value` (`builder_values.rs`, `NirValue::Constructor` → `emit_build_inlined_record` stores
+  a non-inlined field's pointer verbatim), and the in-place list arms lower their item with
+  `lower_value` too (`builder_inplace_assign.rs`: `try_inplace_append_assign`,
+  `try_inplace_bulk_append_assign`, `try_inplace_prepend_assign`, `try_inplace_insert_assign`,
+  `try_inplace_set_assign` for List and Map, `try_inplace_set_add_assign`) and write it with
+  `emit_copy_payload_to_collection`'s byte copy. No gate asks whether the item reaches the
+  destination (`InPlaceGate::admits_with` checks by-ref, live `FOR EACH` and layout only; G12
+  catches only `args[1] == Local(name)`; the bug-496 operand snapshot covers globals/by-ref/STATE
+  and only flat types). So `xs = collections::append(xs, Node[kids := xs, tag := 1])` stores a
+  payload whose `kids` word is `xs`'s own block: with spare capacity a self-cycle, on a growing
+  append a pointer to the freed pre-grow block. Repro (`/tmp/p134cycle`: two such appends, then
+  `collections::get` of each element; correct output `len xs=2`, `first.kids=0`,
+  `second.kids=1`): the pre-plan compiler and the plan-134-B walker both print `len xs=2` then
+  exit 139 at the first `get`. The record-field and STATE in-place arms cannot fire for a
+  recursive element (`record_collection_last_inlined`, gate G17, needs a memcpy-copyable field,
+  and `flatness_walk` answers false on a type cycle); removal arms store nothing. The fix is
+  plan-134-E's copy at construction stores plus owning-store lowering of these arms' item
+  operands (added to plan-134-E Phase 1/2), pinned by this repro.
 - **Worker and main stacks are both 8 MiB** on every target, so a depth bound measured on
   macOS main applies to workers (read, cited above). Windows main commits 1 MiB and grows by
   guard page, which `finalize_frame`'s probes support.

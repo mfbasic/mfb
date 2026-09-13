@@ -73,11 +73,22 @@ The E test checks independence; the `--debug` alloc counts check no double copy.
 - [ ] Measure the construct lowerings: `grep -rn "fn lower_.*construct\|NirValue::Constructor\|NirValue::ListLiteral\|NirValue::MapLiteral" src/codegen --include='*.rs'`
       and every caller of the writers in §2; record each operand path (file::symbol, `lower_value`
       or `lower_value_owned`) in §2 with the count.
+- [ ] Add to the census the in-place arms' ITEM operands, which the §2 table does not list
+      (found by plan-134-D's audit, recorded in plan-134-A "Verified properties"): 
+      `try_inplace_append_assign`, `try_inplace_bulk_append_assign`, `try_inplace_prepend_assign`,
+      `try_inplace_insert_assign`, `try_inplace_set_assign` (List and Map) and
+      `try_inplace_set_add_assign` (`collection/assign/builder_inplace_assign.rs`) lower the item
+      with `lower_value` and byte-copy it into the destination, so a constructor argument that
+      aliases the destination builds a self-cycle or a dangling pointer. Record each with its
+      lowering call in §2.
 - [ ] `tests/runtime/rt_recursive_value_construction_copies.rs` (register in `Cargo.toml`):
       one program, one line per store in §2 — a node read after being put into a record field,
       a union variant, a list literal, `append`, `insert`, `set`, `prepend`, a `Map` value, a
       `WITH` replacement, a `STATE` field — then the source's list is rebuilt and each holder
-      re-read. Confirm it fails today.
+      re-read. Also the self-referencing construction: `MUT xs AS List OF Node = []`, then
+      `xs = collections::append(xs, Node[kids := xs, tag := 1])` twice, then `collections::get`
+      each element — must print `len xs=2`, `first.kids=0`, `second.kids=1` (today: SIGSEGV at
+      the first `get`, pre-plan compiler and plan-134-B walker alike). Confirm it fails today.
 
 Acceptance: §2 has no UNMEASURED row; the test fails on main.
   Check: `cargo test --release --test rt_recursive_value_construction_copies` → failed (est. 2 min).
@@ -85,7 +96,8 @@ Commit: —
 
 ### Phase 2 — copy at each store
 
-- [ ] Switch each operand path found in Phase 1 to `lower_value_owned`.
+- [ ] Switch each operand path found in Phase 1 to `lower_value_owned`, including the in-place
+      arms' item operands.
 - [ ] Inline payload edge copy after the byte copy (`emit_copy_payload_to_collection`,
       `emit_wrap_record_in_union`), reusing the walker's edge enumeration.
 - [ ] `StateAssign` → `lower_value_owned`.
