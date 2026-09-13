@@ -252,7 +252,7 @@ Acceptance: 11 units in the manifest with `exit 0`, no `FAILED`, no `DIRTY`;
 each has a ledger in this file with a verdict per finding and a disproving
 command per rejection; `--memory-scope`/`--scope` clean for `canvas`;
 `mfb man <topic>` renders for all nine.
-Commit: —
+Commit: 425093122 (my pass), 83e4199d2 (Codex reviews applied)
 
 ### Phase 2 — the eight most-changed packages (8 units)
 
