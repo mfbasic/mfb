@@ -22,7 +22,8 @@ tracking); `src/codegen/engine/function/function_lowering.rs` (the `collect_*` p
 mirrors); `src/codegen/engine/control/builder_exits.rs::plan_returned_move` (the one existing
 move).
 
-Prerequisites: see plan-134-A; plan-134-B complete (`ls planning/completed/plan-134-B-*`).
+Prerequisites: see plan-134-A; plan-134-B complete (`ls planning/completed/plan-134-B-*`) — MET
+2026-09-13.
 
 ## 1. Goal
 
@@ -78,21 +79,32 @@ for the store decision).
 
 ### Phase 1 — the pass and its table
 
-- [ ] `src/codegen/engine/function/function_lowering.rs`: `MoveSites` type and
-      `collect_last_use_moves`, exhaustive over `NirOp`.
-- [ ] Unit tests (same file's test module), each a small NIR function with the expected set:
+- [x] `src/codegen/engine/function/function_lowering.rs`: `MoveSites` type and
+      `collect_last_use_moves`, exhaustive over `NirOp`. — in
+      `src/codegen/engine/analysis/last_use.rs` (see Corrections: home, field-sensitive places,
+      address-keyed sites); both the liveness transfer and the site/handler walks match every
+      `NirOp` variant with no wildcard.
+- [x] Unit tests (same file's test module), each a small NIR function with the expected set:
       a bind whose source is never read again (move); read again after (copy); read on the next
       loop iteration (copy); rebound each iteration then appended (move — the json shape);
       read in a `TRAP` handler after the store (copy); captured by a later lambda (copy);
       `FOR EACH` over it live (copy); parameter source (copy); `by_ref` (copy); resource-bearing
-      type (copy); `RETURN` of a local (move, agreeing with `plan_returned_move`).
-- [ ] A table test over the real decoder bodies: the NIR of `json`'s array-items helper and
+      type (copy); `RETURN` of a local (move, agreeing with `plan_returned_move`). —
+      `collect_last_use_moves_follows_the_hand_derived_table` (the ten source-lowered shapes plus
+      a field row: `LET k = h.kids` then only `h.tag` read → move),
+      `collect_last_use_moves_never_moves_a_by_ref_capture` and
+      `…_never_moves_a_resource_bearing_value` (hand-built, each with a positive control).
+- [x] A table test over the real decoder bodies: the NIR of `json`'s array-items helper and
       `regex`'s concat/alt helpers yields a move at each of the 5 append sites
-      (plan-134-A §2.1).
+      (plan-134-A §2.1). — `collect_last_use_moves_finds_the_five_decoder_append_sites`:
+      `#json_parseArrayItems` (`item`, and `parsed.value` at its bind), `#json_revive`
+      (`revivedItem`), `#regex_parseAlt` (`nextc.node`), `#regex_parseConcat` (`q.node` ×2).
 
 Acceptance: the analysis gives the hand-derived answer for every shape, including the 5
 decoder sites.
   Check: `cargo test --release --bin mfb -- collect_last_use_moves` → all passed (est. 3 min).
+  Result: met — `4 passed; 0 failed` (first run: 2 failed on test setup only — helper names are
+  `#json_…` once lowered, and the builtin resource table is keyed `fs.File`; no analysis change).
 Commit: —
 
 ### Phase 2 — prove it changes nothing
@@ -119,7 +131,45 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Prerequisite re-run** (2026-09-13): `ls planning/completed/plan-134-B-*` →
+  `planning/completed/plan-134-B-non-recursive-deep-copy.md` — MET.
+- **Places, not locals: the analysis is field-sensitive.** The design's move rule ("its source
+  operand is exactly `NirValue::Local(x)`") cannot meet this letter's own acceptance ("a move at
+  each of the 5 append sites"). Read in the helper bodies: three of the five append a FIELD —
+  `opts = collections::append(opts, nextc.node)` (`regex/helper_parse_alt.rs`) and
+  `parts = collections::append(parts, q.node)` twice (`regex/helper_parse_concat.rs`), each
+  followed by reads of `q.nxt`/`q.groups`/`q.names`, so `q` is live and a whole-local analysis
+  moves nothing — and json's element is itself bound from a field, `LET item AS Json =
+  parsed.value`, with `parsed.index` read on the next line. So a place is a local `x` or one field
+  `x.f`: reading `x` reads every `x.f`, reading `x.f` reads only that field, binding/assigning `x`
+  kills both. The consumer (letters D/E) decides what a site licenses: a `Local` store moves; a
+  field store takes the edge (reads it and nulls the field word in the dead-for-that-field record,
+  so a later drop of the record skips it — the F walker skips null edges).
+- **Sites are keyed by the op's address, not an op index.** The lowering walks the same
+  `function.body` the analysis reads, so `op as *const NirOp` identifies the op exactly; a counted
+  index would have to reproduce the lowering's visit order. A desugar that lowers a synthesized op
+  finds no site and copies (fail closed).
+- **Home and signature.** `collect_last_use_moves(function, model) -> MoveSites` lives in
+  `src/codegen/engine/analysis/last_use.rs` (the analysis directory the plan's own §2 names as
+  having no liveness; `function_lowering.rs` holds the prescans it calls). It takes the
+  `TypeModel` because the resource exclusion needs `type_contains_resource`. The query is
+  `MoveSites::is_last_use(op, &Place)`. Test names keep the `collect_last_use_moves` filter.
+- **Only simple statements produce sites.** `Bind`, `Assign`, `StoreGlobal`, `StateAssign`,
+  `Eval`, `Return`, `Fail`, `ExitProgram`; a store inside an `IF`/loop/`MATCH` header is copied.
+- **More fail-closed exclusions than §3 lists, each an alias the plan's list would miss:** a local
+  bound from `UnionExtract` or `Capture` (an alias into another value / the closure env), a local
+  read inside a `UnionExtract` or inside a borrow-`get` initializer (an alias of it may be live),
+  a `FOR`/`FOR EACH` variable, a `TRAP` error name, a `STATE` resource, and any name the function
+  never binds.
+- **by-ref and resource rows are hand-built NIR.** No small program reliably lowers to a
+  `Bind r = Capture { by_ref: true }` in a function a test can name, and a resource needs no
+  program to classify; each hand-built test carries a positive control (the same shape with an
+  ordinary value IS a move) so it cannot pass vacuously. Every other row is lowered from MFB source
+  with `testutil::nir_for_src`.
+- **No callers until letter D, by this letter's design** — so a non-test build warns that
+  `collect_last_use_moves`/`MoveSites` are unused between this letter's commit and D's. No
+  `#[allow]` is added; letter D wires the analysis in and must show the warning gone
+  (`cargo check --release --all-targets`).
 
 ## Summary
 
