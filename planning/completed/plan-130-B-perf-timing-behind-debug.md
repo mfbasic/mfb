@@ -149,7 +149,7 @@ Commit: fedd21989
       `cargo test --release --no-fail-fast --test rt_debug_report` -> 7 passed.
 
 Acceptance: `cargo test --release --test rt_debug_report` green.
-Commit: —
+Commit: 5d9463bee
 
 ### Phase 3 — docs
 
@@ -169,7 +169,7 @@ Commit: —
 
 Acceptance: `git grep -nE "cfg perf|cfg\(perf\)" -- . ':!planning'` → no matches; the
 three suites green.
-Commit: —
+Commit: 5d9463bee
 
 ## Validation Plan
 

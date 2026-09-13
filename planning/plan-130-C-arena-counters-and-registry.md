@@ -26,7 +26,7 @@ See plan-130-A § Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-130-B complete | `ls planning/completed/plan-130-B-*` → one match | NOT MET |
+| plan-130-B complete | `ls planning/completed/plan-130-B-*` → one match | MET (2026-09-12: plan-130-B archived after Phases 1–3, `fedd21989` + `5d9463bee`; its full-suite gate moved to plan-130-E Phase 3 per the user) |
 
 ## 1. Goal
 
