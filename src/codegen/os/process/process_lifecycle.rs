@@ -20,6 +20,8 @@ pub(crate) fn lower_shutdown(
     stop_graphics: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    // plan-130-A: a `--debug` build calls `_mfb_debug_shutdown` as the last act.
+    debug_report: bool,
 ) -> Result<CodeFunction, String> {
     // Vreg-allocated (plan-00-G Phase 2). The allocator builds the frame and saves
     // the link register (there are `bl`s). `x19` (arena_base) is reserved from
@@ -83,8 +85,22 @@ pub(crate) fn lower_shutdown(
         instructions.push(abi::branch_link(ARENA_DESTROY_SYMBOL));
         relocations.push(internal_branch(SHUTDOWN_SYMBOL, ARENA_DESTROY_SYMBOL));
     }
+    instructions.push(abi::label(done));
+    // plan-130-A: the debug report is the last thing shutdown does. It sits after
+    // `done` so the already-shut-down early return (a signal during normal
+    // cleanup) reaches it too; its own once-guard keeps that second arrival
+    // silent. It reads only its own globals, so `x19` and the exit code parked in
+    // the entry frame survive for the restore below and the entry's reload.
+    if debug_report {
+        instructions.push(abi::branch_link(
+            crate::codegen::debug::DEBUG_SHUTDOWN_SYMBOL,
+        ));
+        relocations.push(internal_branch(
+            SHUTDOWN_SYMBOL,
+            crate::codegen::debug::DEBUG_SHUTDOWN_SYMBOL,
+        ));
+    }
     instructions.extend([
-        abi::label(done),
         abi::move_register(ARENA_STATE_REGISTER, &saved_arena),
         abi::return_(),
     ]);

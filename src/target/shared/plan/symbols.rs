@@ -86,6 +86,22 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
             }
         }
     }
+    // plan-130: a `--debug` report section that branches to a spec-dispatched
+    // runtime helper does so from code, invisible to the NIR scan above, so its
+    // helper symbols are forced in here. `_mfb_debug_shutdown` itself is NOT a
+    // runtime-helper symbol: the code layer pushes it directly, the way it pushes
+    // `_mfb_shutdown`, and a symbol with no spec here would fail
+    // `lower_runtime_helper`.
+    for feature in crate::codegen::debug::active_features(module) {
+        for call in feature.runtime_calls() {
+            if let Some(spec) = runtime::spec_for_call(call) {
+                push_unique(
+                    &mut symbols,
+                    runtime::symbol_for_call(spec.helper, spec.call),
+                );
+            }
+        }
+    }
     symbols
 }
 
@@ -202,6 +218,16 @@ pub(super) fn platform_imports(
     {
         for import in platform_imports_for_runtime_call(platform, "perf.start") {
             push_platform_import(&mut imports, import);
+        }
+    }
+    // plan-130: imports a `--debug` report section's code needs. The report's own
+    // stderr writes need none: every entry module already imports its platform's
+    // write seam (`entry_error_imports`).
+    for feature in crate::codegen::debug::active_features(module) {
+        for call in feature.import_calls() {
+            for import in platform_imports_for_runtime_call(platform, call) {
+                push_platform_import(&mut imports, import);
+            }
         }
     }
     // The `os::` env/pwd helpers serialize their libc-global access behind a

@@ -649,6 +649,10 @@ name = "rt_package_calls_software_curve_builtin"
 path = "tests/runtime/rt_package_calls_software_curve_builtin.rs"
 
 [[test]]
+name = "rt_debug_report"
+path = "tests/runtime/rt_debug_report.rs"
+
+[[test]]
 name = "rt_process_detach_preserves_exit_code"
 path = "tests/runtime/rt_process_detach_preserves_exit_code.rs"
 

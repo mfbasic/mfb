@@ -1082,6 +1082,10 @@ pub(crate) fn lower_module_for_platform(
             value: "0000000000000000".to_string(),
         });
     }
+    // plan-130-A: the `--debug` report's data (once-guard, key and line strings)
+    // and each registered section's. Empty unless the report is on, so every
+    // normal build keeps its exact data-object set.
+    data_objects.extend(crate::codegen::debug::data_objects(module));
     // plan-32-A: the RVV runtime-detection flag byte (padded to 8), a writable
     // zeroed global the startup auxv scan sets to 1 on a V-capable chip and the
     // dual-path v128 lowering (plan-32-C) branches on. Emitted only for a
@@ -1895,6 +1899,13 @@ pub(crate) fn lower_module_for_platform(
             skip_entry_arena_destroy,
             uses_stdout_buffer,
             module_uses_call(module, "canvas.startGraphics"),
+            &platform_imports,
+            platform,
+            crate::codegen::debug::report_enabled(module),
+        )?);
+        // plan-130-A: `_mfb_debug_shutdown` and every report section it calls.
+        code_functions.extend(crate::codegen::debug::code_functions(
+            module,
             &platform_imports,
             platform,
         )?);

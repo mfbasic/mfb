@@ -315,30 +315,50 @@ Safe alone: the value reaches `NirModule`; its only reader is the `.nir` dump li
 Acceptance: `cargo test --bin mfb parse_` green with the new tests;
 `scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)`;
 `target/release/mfb build --debug examples/hello_world` succeeds.
-Commit: —
+Commit: 13cab251d
 
 ### Phase 2 — registry and `_mfb_debug_shutdown` on macOS
 
-- [ ] `src/codegen/debug/mod.rs`: `DebugFeature`, `DEBUG_FEATURES = [&CoreSection]`,
-      `DebugEmitCtx`.
-- [ ] `src/codegen/debug/write.rs`: `emit_debug_key_value`, `emit_debug_key_token` on
-      `platform.emit_write` (fd 2), no arena symbol referenced.
-- [ ] `src/codegen/debug/shutdown.rs`: `lower_debug_shutdown` + its data objects.
-- [ ] `lower_module_for_platform`: when `module.debug.enabled && module.entry.is_some()`
+- [x] `src/codegen/debug/mod.rs`: `DebugFeature`, `DEBUG_FEATURES = [&CoreSection]`
+      (trait methods: `name`, `applies`, `data_objects`, `code_functions`,
+      `runtime_calls`, `import_calls`, `report_symbol` — see Corrections).
+- [x] ~~`DebugEmitCtx` + `emit_entry_start`~~ — moved, not dropped: to plan-130-B Phase 1,
+      beside `PerfFeature`, its first consumer. Evidence: `CoreSection` has no entry work,
+      and an entry hook whose context nothing reads fails the warning-free
+      `cargo check --all-targets` (`.ai/build-tooling.md`).
+- [x] `src/codegen/debug/write.rs`: `emit_debug_key_value` and `emit_debug_constant_line`
+      (the plan's `emit_debug_key_token`, see Corrections) on `platform.emit_write` (fd 2),
+      no arena symbol referenced.
+- [x] `src/codegen/debug/shutdown.rs`: `lower_debug_shutdown` + its data objects.
+- [x] `lower_module_for_platform`: when `module.debug.enabled && module.entry.is_some()`
       push the helper, each feature's `code_functions`/`data_objects`; pass
       `debug_report` to `lower_shutdown`.
-- [ ] `process_lifecycle.rs::lower_shutdown`: `bl _mfb_debug_shutdown` right after
+- [x] `process_lifecycle.rs::lower_shutdown`: `bl _mfb_debug_shutdown` right after
       `abi::label(done)` when `debug_report`.
-- [ ] `target/shared/plan/symbols.rs`: force `_mfb_debug_shutdown` and each feature's
-      `runtime_symbols()` into the set, and add feature imports, only when enabled.
-- [ ] Unit test `src/codegen/debug/tests.rs`: `debug_helpers_reference_no_arena_symbol`
+- [x] `target/shared/plan/symbols.rs`: each active feature's `runtime_calls()` forced into
+      the runtime-symbol set and its `import_calls()` into the imports, only when enabled.
+- [x] ~~`symbols.rs`: force `_mfb_debug_shutdown` into the runtime-symbol set~~ — moot: every
+      symbol in that set is lowered by `lower_runtime_helper`, which returns
+      `native code plan does not emit runtime helper '<sym>'` when `runtime::spec_for_symbol`
+      has no spec (`git grep -n "does not emit runtime helper" -- src/codegen/engine/builder`),
+      so forcing it would break the build; the builder pushes it directly, as it pushes
+      `_mfb_shutdown` (absent from the set: `git grep -n "_mfb_shutdown" -- src/target/shared/plan`
+      → no matches). Proven by the runtime test linking without it.
+- [x] Unit test `src/codegen/debug/tests.rs`: `debug_helpers_reference_no_arena_symbol`
       (mirrors `perf.rs`'s `no_perf_body_calls_an_arena_helper`) and
-      `shutdown_calls_debug_report_after_the_done_label`.
-- [ ] Runtime test `tests/runtime/rt_debug_report.rs` (macOS host): builds a program
+      `shutdown_calls_debug_report_after_the_done_label`; plus (added)
+      `a_normal_module_gets_no_debug_code_or_data` and
+      `a_debug_module_gets_the_report_helper_and_each_section`
+      (`cargo test --bin mfb codegen::debug` → 4 passed).
+- [x] Runtime test `tests/runtime/rt_debug_report.rs` (macOS host): builds a program
       with `--debug`; asserts stdout equals the normal build's, exit code equal, stderr's
       last lines are exactly the §4.4 block with `target macos-aarch64`, for four
       programs — plain return, `EXIT PROGRAM 3`, untrapped error, and SIGTERM sent
-      mid-sleep — and that a normal build's stderr contains no `mfb.debug.`.
+      mid-sleep — and that a normal build's stderr contains no `mfb.debug.`
+      (`cargo test --release --no-fail-fast --test rt_debug_report` → 4 passed; registered
+      in `Cargo.toml`). Manual run of a `RETURN 3` program: stdout `hi`, exit 3, stderr
+      exactly `mfb.debug.begin 1` / `mfb.debug.target macos-aarch64` /
+      `mfb.debug.build console` / `mfb.debug.end 1`.
 
 Acceptance: `cargo test --release --test rt_debug_report` green on macOS; artifact
 gate `0 diff(s)`.
@@ -423,6 +443,24 @@ Commit: —
   writers, and `nir::lower_module`. Also unlisted: 5 hand-built `NirModule` test fixtures and
   the `cross_executables.rs` dump `Writer` fn type (found by `cargo check --all-targets`).
   Added as ticked tasks under Phase 1.
+- **§4.3 — the trait takes runtime CALLS, not symbols, and needs no plan platform.**
+  `runtime_symbols()`/`imports(module, platform)` became `runtime_calls()`/`import_calls()`:
+  the only existing forcing mechanism (`symbols.rs`, the perf block) resolves a
+  `family.member` call through `runtime::spec_for_call` / `platform_imports_for_runtime_call`,
+  and the plan layer's platform is a `NativePlanPlatform`, not the `CodegenPlatform` §4.3
+  named. `applies` takes only the module (a target restriction reads `module.target`).
+- **§4.3 — `DebugEmitCtx` / `emit_entry_start` moved to plan-130-B Phase 1** (task added
+  there): `CoreSection` has no entry work, and a context struct nothing reads fails the
+  warning-free tree. The hook lands with `PerfFeature`, its first consumer.
+- **§4.5 — `emit_debug_key_token(key_symbol, token_symbol)` is `emit_debug_constant_line`.**
+  A token line's key and value are both compile-time constants, so the line is ONE prebuilt
+  string object written by ONE `write`; two writes (key, then token) could be split by a
+  still-running worker's stderr output. `emit_debug_key_value` likewise assembles the whole
+  line in a 128-byte stack window before its single `write`.
+- **§4.4 — the report needs no new import on any target.** Measured: every entry module
+  already imports its write seam (`entry_error_imports`: macOS `_write`, Linux libc `write`
+  unless `raw_write`, Windows `GetStdHandle`+`WriteFile`), so `CoreSection::import_calls` is
+  empty and Phase 3's "new import" risk is limited to what later sections add.
 
 ## Summary
 

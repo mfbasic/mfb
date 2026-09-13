@@ -104,6 +104,12 @@ and CI never builds it); porting timings to all targets now (user decision).
 ### Phase 1 — perf as a DebugFeature, gated by `--debug`
 
 - [ ] `src/codegen/debug/perf.rs`: `PerfFeature`; append to `DEBUG_FEATURES`.
+- [ ] (moved here from plan-130-A Phase 2) `DebugEmitCtx` and a
+      `DebugFeature::emit_entry_start(&self, ctx: &mut DebugEmitCtx)` hook, called by
+      `lower_program_entry` for each active feature after the main arena global is stored
+      (the site of today's perf init/start); `PerfFeature` implements it with the
+      init/start calls. Landed here because `CoreSection` has no entry work and an
+      unread context fails the warning-free tree.
 - [ ] Replace the 6 `perf_injection_enabled()` sites with registry queries; delete
       `perf_injection_enabled`; delete the `check-cfg` lines in `Cargo.toml`.
 - [ ] Move perf end/done from the `entry.rs` exit tail into `_mfb_debug_report_perf`.
