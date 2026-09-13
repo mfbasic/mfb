@@ -131,6 +131,9 @@ abandon the move.
       NOT RUN: box 2232 refused connections at every probe on 2026-09-12
       (`ssh -o ConnectTimeout=6 -p 2232 test@127.0.0.1 true` → exit 255). Remaining: that one
       command once 2232 is up. Syntax: `bash -n` on both moved rvv scripts → ok.
+      Re-probed at plan landing: still refused; its UTM VM is not running (`pgrep -fl qemu-riscv64`
+      lists only 2229), and this session cannot start it — `utmctl list` → `OSStatus error -1743`
+      (no Automation permission). Starting 2232 needs the user.
 - [x] `git mv scripts/yaml_oracle_diff.py packages/yaml/oracle/pyyaml_diff.py` and fix `ROOT`
       depth. Before the move, run `python3 scripts/yaml_oracle_diff.py corpus > /tmp/y-old`; after,
       run the new path `> /tmp/y-new`; `diff` → empty. (Needs `pyyaml` and `examples/yaml-json`
