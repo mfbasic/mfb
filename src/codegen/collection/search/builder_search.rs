@@ -711,13 +711,15 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 count_slot,
             ));
-            return self.lower_list_mid(
+            let result = self.lower_list_mid(
                 value_slot,
                 start_slot,
                 count_slot,
                 &value.type_,
                 &element_type,
-            );
+            )?;
+            // plan-134-E: the sub-list owns its elements' graphs.
+            return self.own_collection_payload_edges(result);
         }
         if value.type_ != ParameterType::String {
             return Err(format!(

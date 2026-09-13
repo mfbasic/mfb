@@ -1538,6 +1538,41 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// plan-134-E: a native collection builtin (a rebuilding `append`/`insert`/`set`/`removeAt`,
+    /// `transform`, `filter`, a map projection, `mid`, `replace`, a slice) builds its result by
+    /// byte-copying element payloads out of its inputs, so each copied payload's recursive
+    /// edges still point at the source's children. Deep-copy them in place on the new block —
+    /// the thread-transfer payload fix with the result as both source and destination: each
+    /// edge is read before its copy is written back — so the result owns an independent graph.
+    /// Any other result (a flat collection, a non-collection, a resource-bearing element) is
+    /// returned untouched.
+    pub(crate) fn own_collection_payload_edges(
+        &mut self,
+        result: ValueResult,
+    ) -> Result<ValueResult, String> {
+        if !typed_is_collection_type(&result.type_)
+            || !self.needs_graph_copy(&result.type_)
+            || !self.collection_needs_transfer_fix(&result.type_)?
+        {
+            return Ok(result);
+        }
+        let slot = self.allocate_stack_object("collection_edge_copy", 8);
+        self.emit(abi::store_u64(
+            &result.location,
+            abi::stack_pointer(),
+            slot,
+        ));
+        self.fix_collection_transfer_payloads(&result.type_, slot, slot)?;
+        let register = self.allocate_register();
+        self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
+        Ok(ValueResult {
+            origin: result.origin,
+            type_: result.type_,
+            location: Operand::from(register.render()),
+            text: result.text,
+        })
+    }
+
     fn collection_payload_needs_transfer_fix(&self, type_: &ParameterType) -> bool {
         if self.type_model.record_fields.contains_key(type_) {
             // A record payload was byte-copied whole (inlined fields came along);

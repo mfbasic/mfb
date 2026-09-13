@@ -705,7 +705,8 @@ impl CodeBuilder<'_> {
                     update.field
                 ));
             };
-            let value = self.lower_value(&update.value)?;
+            // plan-134-E: the updated value is stored into the rebuilt record.
+            let value = self.lower_value_stored(&update.value)?;
             // Observation boundary: a `Float` field updated via WITH must be
             // finite (plan-17).
             self.observe_float(&update.value, &value)?;

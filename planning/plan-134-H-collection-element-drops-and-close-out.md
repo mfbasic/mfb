@@ -105,7 +105,11 @@ Commit: —
       plan-134-A §2.1 (every row), including speed against the budget.
 - [ ] Re-measure the plan-134-D speed budget the owner deferred here (2026-09-13): medians of 5
       `json_repeat` / `regex_repeat` K=1 against the pre-plan 0.25 s / 0.27 s (budget +25 %), with
-      RSS, and report them to the owner before merging — at D they were 0.24 s / 0.43 s.
+      RSS, and report them to the owner before merging — at D they were 0.24 s / 0.43 s; at E
+      0.25 s / 0.89 s (RSS 212 MB / 2.39 GB). Include plan-134-E's cause: `#regex_run` stores
+      `root` and the current repeat as placeholder fields in every `__regex_Choice` /
+      `__regex_ContRep`, which value semantics now copies — the remedy is a regex helper rewrite
+      (plan-134-E Corrections), which the owner deferred.
 - [ ] Add a `json::get` / `json::getOr` path-walk probe to `tools/recursive-value-bench/` and
       measure it before and after plan-134 (median of 5): since plan-134-D the path walk copies the
       subtree at each step (`current = value`, `nextValue = current`, `current = nextValue` in

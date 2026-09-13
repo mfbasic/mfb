@@ -1255,7 +1255,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let mut slots = Vec::new();
         for value_node in values {
-            let value = self.lower_value(value_node)?;
+            let value = self.lower_value_stored(value_node)?;
             // Observation boundary: a `Float` list element must be finite
             // (plan-17).
             self.observe_float(value_node, &value)?;
@@ -1305,7 +1305,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&true_reg, "Boolean", "true"));
         self.emit(abi::store_u64(&true_reg, abi::stack_pointer(), true_slot));
         for value_node in values {
-            let item = self.lower_value(value_node)?;
+            let item = self.lower_value_stored(value_node)?;
             // Observation boundary: a `Float` element must be finite (plan-17).
             self.observe_float(value_node, &item)?;
             // A `d`-native float element is materialized into a GPR before the
@@ -1361,7 +1361,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 key_slot,
             ));
-            let value = self.lower_value(value_node)?;
+            let value = self.lower_value_stored(value_node)?;
             self.observe_float(value_node, &value)?;
             let value = self.materialize_value(value)?;
             let value_slot = self.allocate_stack_object("collection_value", 8);

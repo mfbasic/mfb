@@ -51,7 +51,7 @@ impl CodeBuilder<'_> {
             Some(item_type) if item_type == element_type => {}
             _ => return Ok(false),
         }
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         // Observation boundary: an in-place appended `Float` must be finite
         // (plan-17).
         self.observe_float(&target.args[1], &item)?;
@@ -134,7 +134,7 @@ impl CodeBuilder<'_> {
         }
 
         // Evaluate the appended value and spill it for the grow helper.
-        let rhs = self.lower_value(&target.args[1])?;
+        let rhs = self.lower_value_stored(&target.args[1])?;
         self.observe_float(&target.args[1], &rhs)?;
         let rhs = self.materialize_value(rhs)?;
         let rhs_slot = self.allocate_stack_object("inplace_recfield_rhs", 8);
@@ -235,7 +235,7 @@ impl CodeBuilder<'_> {
             Some(item_type) if item_type == element_type => {}
             _ => return Ok(false),
         }
-        let item = self.lower_value(&args[1])?;
+        let item = self.lower_value_stored(&args[1])?;
         // Observation boundary: an in-place added `Float` must be finite (plan-17).
         self.observe_float(&args[1], &item)?;
         let item = self.materialize_value(item)?;
@@ -512,7 +512,7 @@ impl CodeBuilder<'_> {
             field_index: target.field_index,
             write_back: None,
         };
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_recfield_set_remove", 8);
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
@@ -579,7 +579,7 @@ impl CodeBuilder<'_> {
             field_index: target.field_index,
             write_back: None,
         };
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         self.observe_float(&target.args[1], &item)?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_recfield_add_item", 8);
@@ -682,7 +682,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 index_slot,
             ));
-            let item = self.lower_value(&target.args[2])?;
+            let item = self.lower_value_stored(&target.args[2])?;
             // Observation boundary: an in-place replacement `Float` element must be
             // finite (plan-17).
             self.observe_float(&target.args[2], &item)?;
@@ -736,7 +736,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             key_slot,
         ));
-        let val = self.lower_value(&target.args[2])?;
+        let val = self.lower_value_stored(&target.args[2])?;
         // Observation boundary: an in-place `Float` map value must be finite (plan-17).
         self.observe_float(&target.args[2], &val)?;
         if val.type_ != value_type {
@@ -902,7 +902,7 @@ impl CodeBuilder<'_> {
 
         let dest = self.open_inplace_state_dest(resource, target.field_index)?;
         let block_slot = Self::inplace_dest_block_slot(&dest)?;
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         self.observe_float(&target.args[1], &item)?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_state_add_item", 8);
@@ -987,7 +987,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 index_slot,
             ));
-            let item = self.lower_value(&target.args[2])?;
+            let item = self.lower_value_stored(&target.args[2])?;
             // Observation boundary: an in-place replacement `Float` element must
             // be finite (plan-17).
             self.observe_float(&target.args[2], &item)?;
@@ -1044,7 +1044,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             key_slot,
         ));
-        let val = self.lower_value(&target.args[2])?;
+        let val = self.lower_value_stored(&target.args[2])?;
         // Observation boundary: an in-place `Float` map value must be finite (plan-17).
         self.observe_float(&target.args[2], &val)?;
         if val.type_ != value_type {
@@ -1171,7 +1171,7 @@ impl CodeBuilder<'_> {
         }
 
         let dest = self.open_inplace_state_dest(resource, target.field_index)?;
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_state_set_remove", 8);
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
@@ -1247,7 +1247,7 @@ impl CodeBuilder<'_> {
         } else {
             crate::codegen::collection::list::list_mutate::SpliceAt::Front
         };
-        let item = self.lower_value(&target.args[rhs_index])?;
+        let item = self.lower_value_stored(&target.args[rhs_index])?;
         self.observe_float(&target.args[rhs_index], &item)?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_state_splice_item", 8);
@@ -1363,7 +1363,7 @@ impl CodeBuilder<'_> {
         } else {
             crate::codegen::collection::list::list_mutate::SpliceAt::Front
         };
-        let item = self.lower_value(&target.args[rhs_index])?;
+        let item = self.lower_value_stored(&target.args[rhs_index])?;
         self.observe_float(&target.args[rhs_index], &item)?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_recfield_splice_item", 8);
@@ -1466,7 +1466,7 @@ impl CodeBuilder<'_> {
             Some(item_type) if item_type == list_type => {}
             _ => return Ok(false),
         }
-        let rhs = self.lower_value(&args[1])?;
+        let rhs = self.lower_value_stored(&args[1])?;
         if rhs.type_ != list_type {
             return Err(format!(
                 "native bulk append sublist must be {list_type}, got {}",
@@ -1556,7 +1556,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 index_slot,
             ));
-            let item = self.lower_value(&args[2])?;
+            let item = self.lower_value_stored(&args[2])?;
             // Observation boundary: an in-place replacement `Float` element must
             // be finite (plan-17).
             self.observe_float(&args[2], &item)?;
@@ -1606,7 +1606,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 key_slot,
             ));
-            let val = self.lower_value(&args[2])?;
+            let val = self.lower_value_stored(&args[2])?;
             // Observation boundary: an in-place `Float` map value must be finite
             // (plan-17).
             self.observe_float(&args[2], &val)?;
@@ -1690,7 +1690,7 @@ impl CodeBuilder<'_> {
         // `prepend` always takes a single element of the list element type
         // (a bulk form is rejected in `lower_collection_prepend`), so no static
         // gate is needed; the post-lowering check catches any mismatch.
-        let item = self.lower_value(&args[1])?;
+        let item = self.lower_value_stored(&args[1])?;
         // Observation boundary: an in-place prepended `Float` must be finite
         // (plan-17).
         self.observe_float(&args[1], &item)?;
@@ -2074,7 +2074,7 @@ impl CodeBuilder<'_> {
             Some(t) if t == element_type => {}
             _ => return Ok(false),
         }
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_set_remove_item", 8);
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
@@ -2140,7 +2140,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             index_slot,
         ));
-        let item = self.lower_value(&target.args[2])?;
+        let item = self.lower_value_stored(&target.args[2])?;
         // Observation boundary: an in-place spliced `Float` must be finite
         // (plan-17).
         self.observe_float(&target.args[2], &item)?;

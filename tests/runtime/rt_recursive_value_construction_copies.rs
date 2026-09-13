@@ -163,6 +163,144 @@ fn a_recursive_value_built_into_another_is_independent_of_its_source() {
     );
 }
 
+/// One `Node` stored five ways. Three stores need a copy because `a` is read afterwards —
+/// `LET c = a` (plan-134-D), `a` as a list-literal element inside `b`, and `a` as the
+/// in-place `append` item (plan-134-E). The fresh constructor appended to `ys` needs none:
+/// it is a new graph, so copying it would be a wasted second copy.
+const COPY_COUNT_SOURCE: &str = r#"IMPORT io
+IMPORT collections
+
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+
+SUB main()
+  LET a AS Node = Node[kids := [], tag := 1]
+  LET b AS Node = Node[kids := [a], tag := 2]
+  MUT xs AS List OF Node = []
+  xs = collections::append(xs, a)
+  LET c AS Node = a
+  MUT ys AS List OF Node = []
+  ys = collections::append(ys, Node[kids := [], tag := 9])
+  io::print("b=" & toString(len(b.kids)) & " xs=" & toString(len(xs)) & " c=" & toString(c.tag) & " ys=" & toString(len(ys)) & " a=" & toString(a.tag))
+END SUB
+"#;
+
+/// Every relocation object in an `-ncode` dump whose `from`, `to` prefix and `kind` match.
+fn count_calls(value: &serde_json::Value, from: &str, to_prefix: &str, kind: &str) -> usize {
+    match value {
+        serde_json::Value::Object(map) => {
+            let here = map.get("from").and_then(|v| v.as_str()) == Some(from)
+                && map
+                    .get("to")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|to| to.starts_with(to_prefix))
+                && map.get("kind").and_then(|v| v.as_str()) == Some(kind);
+            usize::from(here)
+                + map
+                    .values()
+                    .map(|child| count_calls(child, from, to_prefix, kind))
+                    .sum::<usize>()
+        }
+        serde_json::Value::Array(items) => items
+            .iter()
+            .map(|child| count_calls(child, from, to_prefix, kind))
+            .sum(),
+        _ => 0,
+    }
+}
+
+#[test]
+fn a_construction_store_copies_an_aliased_source_once_and_a_fresh_value_never() {
+    let project = common::temp_project("p134e_copy_count", COPY_COUNT_SOURCE);
+    let exe = common::build_project(&project);
+    let output = Command::new(&exe).output().expect("run the copy-count probe");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "b=1 xs=1 c=1 ys=1 a=1",
+        "the copy-count probe's values"
+    );
+    let ncode = common::build_ncode(&project, "macos-aarch64", "p134e_copy_count");
+    let copies = count_calls(&ncode, "_mfb_fn_main", "_mfb_thread_copy_", "branch26");
+    assert_eq!(
+        copies, 3,
+        "plan-134-E: `main` copies `a` at its three reads-after stores and never copies the fresh \
+         constructor appended to `ys`"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// Native collection builtins that build a new collection by byte-copying element payloads out
+/// of their input: a rebuilding `append` (the source is not a `MUT` local), `removeAt`,
+/// `filter`, and a map's `values`. Each copied `Node` payload's `kids` pointer used to be the
+/// source element's own list block. Sharing between two collections cannot be observed through
+/// values until something frees one of them (no in-place path reaches a collection nested in an
+/// element — `get` copies, `FOR EACH` borrows), so this pins it structurally: each function must
+/// now copy its result's element edges. Measured on the plan-134-E build before this fix: zero
+/// copy calls in all four functions.
+const BUILTIN_COPIES_SOURCE: &str = r#"IMPORT io
+IMPORT collections
+
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+
+FUNC keep(n AS Node) AS Boolean
+  RETURN n.tag > 0
+END FUNC
+
+FUNC viaAppend(xs AS List OF Node, h AS Node) AS Integer
+  LET ys AS List OF Node = collections::append(xs, h)
+  RETURN len(ys)
+END FUNC
+
+FUNC viaRemoveAt(xs AS List OF Node) AS Integer
+  LET ys AS List OF Node = collections::removeAt(xs, 0)
+  RETURN len(ys)
+END FUNC
+
+FUNC viaFilter(xs AS List OF Node) AS Integer
+  LET ys AS List OF Node = collections::filter(xs, keep)
+  RETURN len(ys)
+END FUNC
+
+FUNC viaValues(m AS Map OF String TO Node) AS Integer
+  LET ys AS List OF Node = collections::values(m)
+  RETURN len(ys)
+END FUNC
+
+SUB main()
+  LET a AS Node = Node[kids := [], tag := 1]
+  LET xs AS List OF Node = [a, a]
+  LET m AS Map OF String TO Node = Map OF String TO Node { "k" := a }
+  io::print(toString(viaAppend(xs, a)) & " " & toString(viaRemoveAt(xs)) & " " & toString(viaFilter(xs)) & " " & toString(viaValues(m)))
+END SUB
+"#;
+
+#[test]
+fn a_native_collection_builtin_copies_its_result_elements_graphs() {
+    let project = common::temp_project("p134e_builtin_copies", BUILTIN_COPIES_SOURCE);
+    let exe = common::build_project(&project);
+    let output = Command::new(&exe).output().expect("run the builtin-copy probe");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "3 1 2 1",
+        "the builtin-copy probe's values"
+    );
+    let ncode = common::build_ncode(&project, "macos-aarch64", "p134e_builtin_copies");
+    for function in ["_mfb_fn_viaAppend", "_mfb_fn_viaRemoveAt", "_mfb_fn_viaFilter", "_mfb_fn_viaValues"] {
+        let copies = count_calls(&ncode, function, "_mfb_thread_copy_", "branch26");
+        assert!(
+            copies >= 1,
+            "plan-134-E: `{function}` builds a List OF Node from another collection's payloads and \
+             must copy their recursive edges (found {copies} copy calls)"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}
+
 #[test]
 fn a_value_built_from_the_list_it_is_appended_to_holds_the_old_list() {
     let (status, stdout, stderr) = run("p134e_self_reference", SELF_REFERENCE_SOURCE);

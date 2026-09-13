@@ -63,6 +63,28 @@ arms, closure capture and `FAIL`). Paths (relative to `src/codegen/`):
 | `[a, b]` / `{k: v}` / set literal | `collection/layout/builder_collection_layout.rs::lower_list_literal` / `lower_map_literal` / `lower_set_literal` | `self.lower_value(value_node)?` (lines ~1258, ~1364) → `lower_collection_values` → `emit_copy_payload_to_collection` (1687/1763) |
 | rebuilding `append`/`prepend`/`insert`/`set`/`add` (in-place arm declined) | `builtins/collections/gen_mutate.rs::lower_collection_end_insert`, `func_insert.rs`, `func_set.rs`, `func_add.rs` | args pre-lowered by `lower_abi_inline_args` (`self.lower_value(arg)?`, ~2750) → singleton `lower_collection_values` + `lower_list_insert_collection` / `lower_map_concat` |
 
+**Collection-to-collection copies (measured 2026-09-13, read-only survey).** No path below fixes a
+copied payload's recursive edges (`grep -n "needs_graph_copy\|copy_value_to_current_arena"` finds
+nothing in `list_mutate.rs`, `map_mutate.rs`, `gen_mutate.rs`, `gen_memory.rs`, `gen_slice.rs`,
+`builder_search.rs`, `builder_collection_layout.rs` or `collection_buffer.rs`; only the three G24
+guards consult `type_participates_in_cycle`):
+
+| Builtin (native path) | Copy primitive |
+|---|---|
+| rebuilding `append` (item and list) / `prepend` / `insert` (`gen_mutate.rs::lower_collection_end_insert`, `func_insert.rs`) | `lower_list_insert_collection` → `emit_block_copy_advance` |
+| rebuilding list `set` (non-fixed-width) | `lower_list_remove_at` + singleton + `lower_list_insert_collection` |
+| map `set` | `lower_map_remove_key` (`emit_copy_one_map_entry`) + `lower_map_concat` |
+| set `add` (`func_add.rs`) | `copy_collection_tight` + `lower_map_set_in_place` |
+| `removeAt` (`lower_list_remove_at`), `removeKey` / set `remove` (`lower_map_remove_key`) | `emit_block_copy_advance`, `emit_copy_one_map_entry` |
+| `transform`, `filter` (`func_transform.rs`, `func_filter.rs`) | `lower_list_append_in_place` → `emit_copy_payload_to_collection` (filter's item is an alias into the source) |
+| `keys` / `values` / `toList` (`gen_memory.rs::lower_map_projection`) | byte loop |
+| list `mid` (`builder_search.rs::lower_list_mid`), list `replace` (`builder_strings.rs::lower_list_replace`), `__collections_slice` (`gen_slice.rs`) | `emit_block_copy_advance`, `emit_bulk_copy_entries_shift` |
+
+The fast paths of `sort`, `sortBy`, `flatten`, `zip`, `chunks`, `window`, `partition`, `groupBy`,
+`merge` and `mapValues` are limited to scalar/String element types. Their general forms, and
+`take`/`drop`/`distinct`/`toSet`/set algebra, are source-generic `.mfb` bodies built from
+`collections::get` (which copies, `materialize_owned_element`) and the store members above.
+
 The in-place arms' item operands (added to Phase 1 by plan-134-D's audit) are the `try_inplace_*`
 row. The record-field and STATE in-place collection arms cannot fire for a recursive element (G17),
 but they share the lowering.
@@ -122,12 +144,21 @@ The E test checks independence; the `--debug` alloc counts check no double copy.
       on the plan-134-D compiler (a `/tmp` build of the first printed `record=96`, `union=96`
       before crashing).
 
-- [ ] Census the builtins that copy payloads from one collection into another (the rebuilding
+- [x] Census the builtins that copy payloads from one collection into another (the rebuilding
       store members behind `lower_abi_inline_args`, and every collection transform that
-      byte-copies elements), each with its copy primitive; record in §2 with the count.
-- [ ] Extend the RED test with one such builtin per copy primitive (e.g. `LET ys =
+      byte-copies elements), each with its copy primitive; record in §2 with the count. — §2
+      "Collection-to-collection copies": 12 native paths copy inline payload bytes with no edge
+      fix-up; the scalar-only fast paths cannot meet a recursive element; the source-generic
+      `.mfb` bodies inherit `get` (copies) and `append`/`set`/`add`.
+- [x] Extend the RED test with one such builtin per copy primitive (e.g. `LET ys =
       collections::append(xs, item)` on a non-`MUT` source, `collections::reverse`), each read after
-      the source's element graph changed through a `MUT` copy; confirm it fails.
+      the source's element graph changed through a `MUT` copy; confirm it fails. — structural, not
+      behavioural (Corrections): `a_native_collection_builtin_copies_its_result_elements_graphs`
+      requires copy calls in functions using a rebuilding `append`, `removeAt`, `filter` and map
+      `values` (one per copy primitive family: `lower_list_insert_collection`,
+      `lower_list_remove_at`, `emit_copy_payload_to_collection`, `lower_map_projection`). On the E
+      build before the fix (`/tmp/p134-mfb-e build -ncode`), all four functions made **0** copy
+      calls (only `main`'s three literal stores copied).
 
 Acceptance: §2 has no UNMEASURED row; the test fails on main.
   Check: `cargo test --release --test rt_recursive_value_construction_copies` → failed (est. 2 min).
@@ -138,30 +169,60 @@ Commit: —
 
 ### Phase 2 — copy at each store
 
-- [ ] Switch each operand path found in Phase 1 to `lower_value_owned`, including the in-place
-      arms' item operands.
-- [ ] Collection-to-collection copies from the census deep-copy the recursive edges of every
+- [x] Switch each operand path found in Phase 1 to `lower_value_owned`, including the in-place
+      arms' item operands. — via `lower_value_stored` (Corrections): the record constructor
+      argument loop, `UnionWrap`, `WITH` updates, list/map-literal values, set-literal items, and 19
+      in-place `item`/`val`/`rhs` operands. `cargo test --release --no-fail-fast --test
+      rt_recursive_value_construction_copies --test rt_recursive_value_copies --test
+      rt_recursive_value_copy_depth` → 2 + 2 + 3 passed, 0 failed.
+- [x] Collection-to-collection copies from the census deep-copy the recursive edges of every
       copied inline payload (the walker's edge enumeration over the new block's range, the shape
       `fix_collection_transfer_payloads` already applies to a thread transfer), and the rebuilding
-      store members copy their item operand the way `lower_value_stored` does.
-- [ ] Inline payload edge copy after the byte copy (`emit_copy_payload_to_collection`,
-      `emit_wrap_record_in_union`), reusing the walker's edge enumeration.
-- [ ] `StateAssign` → `lower_value_owned`.
-- [ ] Tests: Phase 1 passes; add an alloc-count pin — `node_copies` under `--debug` shows
-      exactly the copies the census predicts (no double copy of a fresh constructor).
+      store members copy their item operand the way `lower_value_stored` does. —
+      `own_collection_payload_edges` on the result of `try_abi_inline_lower`, `try_inline_slice_op`,
+      list `mid` and list `replace` (Corrections). The item operand needs no separate copy: the
+      rebuilt collection holds the item's payload bytes, and the result fix copies their edges with
+      everything else. `-ncode` of the probe: `viaAppend`/`viaRemoveAt`/`viaFilter`/`viaValues` each
+      went from 0 to 1 copy call.
+- [x] ~~Inline payload edge copy after the byte copy (`emit_copy_payload_to_collection`,
+      `emit_wrap_record_in_union`), reusing the walker's edge enumeration.~~ — moot: a single-operand construction store copies its aliased operand before the writer runs (`lower_value_stored`), so the byte-copied payload's edges already point at a private graph; a builtin that byte-copies payloads out of another collection has its result fixed by `own_collection_payload_edges`. A third copy inside `emit_copy_payload_to_collection` / `emit_wrap_record_in_union` would copy every edge a second time. Evidence: `rt_recursive_value_construction_copies` (record, union, literal, `append`, `insert`, `set`, `prepend`, map, `WITH`, STATE, self-reference, builtins) passes with the writers unchanged, and the copy-count pin shows `main` copying exactly three times.
+- [x] `StateAssign` → `lower_value_owned`. — `lower_value_stored` (Corrections), and the STATE
+      in-place append operand; the `state=1` line of the construction test passes.
+- [x] Tests: Phase 1 passes; add an alloc-count pin — `node_copies` under `--debug` shows
+      exactly the copies the census predicts (no double copy of a fresh constructor). — pinned by
+      copy-call count rather than `--debug` alloc totals (which also count the walker's work stack
+      and every other allocation): `a_construction_store_copies_an_aliased_source_once_and_a_fresh_value_never`
+      asserts `main` makes exactly 3 copy calls (`LET c = a`, `a` in a list literal, `a` as the
+      in-place append item) and none for a fresh constructor appended to `ys`.
+      `run.sh … node_copies` → `main_copy_calls=3`.
 
 Acceptance: every construction store yields an independent graph, with no redundant copy.
   Check: `cargo test --release --test rt_recursive_value_construction_copies --test
   rt_recursive_value_copies` → passed (est. 4 min).
+  Result: met — `cargo test --release --no-fail-fast --test rt_recursive_value_construction_copies
+  --test rt_recursive_value_copies --test rt_recursive_value_copy_depth` → 4 + 2 + 3 passed, 0
+  failed; `rt_scope_drop_leaks` → 118 passed after the operand switch (flat stores unchanged).
 Commit: —
 
 ### Phase 3 — speed and goldens
 
-- [ ] Bench medians (`tools/recursive-value-bench/run.sh … json_repeat regex_repeat`, ×5) within
+- [~] Bench medians (`tools/recursive-value-bench/run.sh … json_repeat regex_repeat`, ×5) within
       the plan-134-A budget; a miss is traced with `--debug` alloc counts to the store and fixed.
-- [ ] Artifact gate; expected diffs: json, regex, recursive-user-type fixtures; regenerate.
+      — json within budget, regex further over (Corrections): medians of 5 with the E build,
+      `json_repeat` K=1 0.25 s (budget 0.31), `regex_repeat` K=1 **0.89 s** (budget 0.34; 0.43 s
+      after letter D), RSS 2.39 GB (919 MB after D). Traced to `#regex_run`'s constructor stores
+      that must now copy (not an analysis miss). Covered by the owner's 2026-09-13 decision
+      (accept correctness-first copies, re-measure at plan-134-H, report before merge); the H
+      report task now carries E's numbers and the cause. Remaining: that re-measure.
+- [x] Artifact gate; expected diffs: json, regex, recursive-user-type fixtures; regenerate. —
+      `artifact-gate [all]` (E build, `/tmp/p134-mfb-e2`): `2013 golden(s) checked, 5 diff(s)`, all
+      `byte-identity/regex` on the five targets; json byte-identical. Localized per function
+      (Corrections). `scripts/regen-native-goldens.sh … tests/byte-identity/regex` → `5 golden(s)
+      rewritten, 0 failure(s)`; re-gated → `7 golden(s) checked, 0 diff(s)`.
 
 Acceptance: within budget; diffs confined and explained.
+  Result: diffs confined (regex only) and explained per function; budget partially met — json
+  within, regex over, under the owner's 2026-09-13 decision (re-measure and report at plan-134-H).
   Check: bench (est. 2 min); gate (est. 15 min).
 Commit: —
 
@@ -203,6 +264,47 @@ Commit: —
   leave each copied inline record/union payload's recursive edges pointing at the SOURCE
   collection's children. Sharing between two owners is unobservable until letter G/H free both,
   where it is a double free. Added below as Phase 1/2 tasks (append-only).
+- **That sharing cannot fail a value test before letter G/H.** Two collections sharing an element's
+  child blocks print identical values: no in-place arm reaches a collection nested inside another
+  collection's element (`collections::get` copies, `FOR EACH` borrows, and the record-field
+  in-place arms decline a recursive field by G17), so nothing can mutate the shared block. It
+  fails only when both owners free it. The RED for these builtins is therefore structural (the
+  copy calls are absent before the fix); plan-134-G/H's churn tests with `double_free_skips = 0`
+  are the behavioural proof. `collections::reverse` does not exist in the registry; the four
+  builtins above cover the census's copy primitives.
+- **One hook per native entry point, not one per byte-copy primitive.** The census found a dozen
+  primitives but only three native entry points producing a collection: `try_abi_inline_lower`
+  (every `abi_inline` member, including the `TRAP` raw path `lower_inline_builtin_raw`, which calls
+  it), `try_inline_slice_op` (`#collections_slice$T`), and the intrinsic list `mid`
+  (`builder_search.rs`) and `replace` (`builder_strings.rs`). Each result passes through
+  `own_collection_payload_edges` (`builder_arena_transfer.rs`): a collection whose payload type
+  `needs_graph_copy` gets the thread-transfer payload fix run in place (each edge read before its
+  copy is written back), so every element owns its graph. User and source-generic `.mfb`
+  functions return a graph their own stores already copied and are not hooked.
+- **Speed gate: E roughly doubles `regex_repeat` again, and the copies are inherent.** Five passes
+  of `run.sh /tmp/p134-mfb-e2 json_repeat regex_repeat`: `json_repeat` K=1 0.43 / 0.25 / 0.25 /
+  0.25 / 0.25 s → median 0.25 s, RSS 212 MB; `regex_repeat` K=1 0.89 / 0.88 / 0.89 / 0.88 / 0.89 s
+  → **median 0.89 s**, RSS **2.39 GB** (after D: 0.43 s, 919 MB). `-ncode` copy-shim calls in
+  `#regex_run`: D 8 `__regex_Node` / 1 `__regex_Repeat` / 1 `__regex_Cont` → E 12 / 8 / 5 plus 1
+  `List OF __regex_Node`; `#regex_parseQuantSuffix` +3 `__regex_Node` (one `__regex_Repeat[atom,
+  …]` per quantifier, parse time only). The constructor listing (`-nir`, args that are a local
+  or field) names the hot ones: every `__regex_Choice[kind, root, repRec, cont, pos, caps, …,
+  stack]` push copies `root` (a parameter, never movable), `repRec` and `cont` (read again after
+  the push); `__regex_ContSeq[seqNode.parts, 0, cont]` copies a pattern subtree through a borrowed
+  MATCH view; `__regex_ContRep[repRec, …]` copies the repeat record. Under value semantics each
+  record owns its fields, so these are the copies the design requires — and the matcher's own
+  comment says `root`/`repRec` are placeholders a kind does not use ("Fields a kind does not use
+  carry the root node and the current repeat as placeholders", `regex/helper_run.rs`). Removing
+  them means rewriting the regex helper (the option the owner was offered and deferred), not a
+  copy/move analysis change. Recorded for the plan-134-H owner report.
+- **Golden localization (Phase 3), against the plan-134-D final dumps.** `-ncode` per-function
+  diff (`/tmp/p134-ncode-diff.py`): **json** 162 → 162 functions, **none changed** — its decoders
+  append in place with a last-use move, and no native builtin in the module returns a recursive
+  collection, so neither `lower_value_stored` nor the result hook emits anything there;
+  **regex** 189 → 189, changed only `#regex_run` (copy-shim calls 8 `__regex_Node` / 1
+  `__regex_Repeat` / 1 `__regex_Cont` → 12 / 8 / 5 + 1 `List OF __regex_Node`, the constructor
+  stores listed above) and `#regex_parseQuantSuffix` (+3 `__regex_Node`, its
+  `__regex_Repeat[atom, lo, hi, greedy]` constructor). Nothing added or removed.
 
 ## Summary
 

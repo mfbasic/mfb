@@ -1218,6 +1218,32 @@ impl CodeBuilder<'_> {
         )
     }
 
+    /// plan-134-E: lower a value a CONSTRUCTION store writes into another value — a
+    /// constructor argument, a `WITH` update, a union wrap, a collection literal element or
+    /// in-place item, a `STATE` replacement. The writers byte-copy a flat payload themselves,
+    /// so a flat value lowers exactly as `lower_value` does (no copy, and a fresh temp stays
+    /// registered for the statement-scope free). A value whose type reaches a type cycle holds
+    /// pointers the byte copy would share, so an aliasing source gets its own graph from the
+    /// walker — unless the store is the source's last read (plan-134-C), which moves.
+    pub(crate) fn lower_value_stored(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+        let result = self.lower_value(value)?;
+        if self.value_needs_owning_copy(value)
+            && self.needs_graph_copy(&result.type_)
+            && !Self::is_fresh_trapped_result_wrapper(value, &result.type_)
+            && !self.store_is_last_use(value)
+            && !self.store_is_borrowed_view()
+        {
+            let copied = self.copy_value_to_current_arena(&result.type_, &result.location)?;
+            return Ok(ValueResult {
+                origin: None,
+                type_: result.type_,
+                location: Operand::from(copied.render()),
+                text: result.text,
+            });
+        }
+        Ok(result)
+    }
+
     /// plan-77 M6: the static type of a closure capture, used by the closure
     /// scope-drop to decide whether the env slot holds a freeable owned block.
     /// ONLY a `Local` capture qualifies: it is deep-copied (`lower_value_owned`)
@@ -2135,7 +2161,8 @@ impl CodeBuilder<'_> {
                 let mut arg_values = Vec::new();
                 let mut arg_slots = Vec::new();
                 for arg in args {
-                    let value = self.lower_value(arg)?;
+                    // plan-134-E: a recursive argument is stored into the new record.
+                    let value = self.lower_value_stored(arg)?;
                     // Observation boundary: a `Float` record/union field must be
                     // finite (plan-17).
                     self.observe_float(arg, &value)?;
@@ -2215,7 +2242,8 @@ impl CodeBuilder<'_> {
                 member_type,
                 value,
             } => {
-                let wrapped = self.lower_value(value)?;
+                // plan-134-E: the variant is stored into the new union block.
+                let wrapped = self.lower_value_stored(value)?;
                 let wrapped_slot = self.allocate_stack_object("union_wrap_source", 8);
                 self.emit(abi::store_u64(
                     &wrapped.location,
@@ -2720,11 +2748,13 @@ impl CodeBuilder<'_> {
         // show that one builtin is responsible. Timed around the body only: arg
         // lowering above recurses into other builtins, and including it would
         // charge them to whichever call happened to enclose them.
-        crate::trace::timed_tally(
+        let lowered = crate::trace::timed_tally(
             "abi_inline builtin",
             || target.to_string(),
             || Some(lower(self, &arg_values, &ctx)),
-        )
+        )?;
+        // plan-134-E: a collection built out of other values owns its elements' graphs.
+        Some(lowered.and_then(|result| self.own_collection_payload_edges(result)))
     }
 
     /// Pre-lower each `NirValue` arg to a `ValueResult` for an `AbiInline` body

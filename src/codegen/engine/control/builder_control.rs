@@ -428,7 +428,7 @@ impl CodeBuilder<'_> {
         let dest = self.open_inplace_state_dest(resource, target.field_index)?;
 
         // Evaluate the appended value and spill it for the grow helper.
-        let rhs = self.lower_value(&target.args[1])?;
+        let rhs = self.lower_value_stored(&target.args[1])?;
         self.observe_float(&target.args[1], &rhs)?;
         let rhs = self.materialize_value(rhs)?;
         let rhs_slot = self.allocate_stack_object("inline_state_rhs", 8);
@@ -1329,7 +1329,8 @@ impl CodeBuilder<'_> {
                         // STATE lives in the active variant's record at `+8`
                         // (plan-74). Concrete resources address their record directly.
                         let resource_type = local.type_.clone();
-                        let result = self.lower_value(value)?;
+                        // plan-134-E: the replacement is stored into the resource.
+                        let result = self.lower_value_stored(value)?;
                         // A register-native vector STATE payload materializes to its
                         // block here (identity otherwise; plan-01-vector).
                         let result = self.vector_value_as_block(result)?;

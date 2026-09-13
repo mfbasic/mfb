@@ -64,13 +64,15 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 new_slot,
             ));
-            return self.lower_list_replace(
+            let result = self.lower_list_replace(
                 value_slot,
                 old_slot,
                 new_slot,
                 &value.type_,
                 element_type,
-            );
+            )?;
+            // plan-134-E: the rebuilt list owns its elements' graphs.
+            return self.own_collection_payload_edges(result);
         }
         if value.type_ != ParameterType::String {
             return Err(format!(

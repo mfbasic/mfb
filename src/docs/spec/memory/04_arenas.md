@@ -315,7 +315,11 @@ when the source is an *aliasing source* (a `Local`, `Global`, `Capture`,
 field/`MemberAccess` read, `UnionExtract`, or `Result` payload — all of which yield a
 an interior pointer into an existing block) or a *static* `String` constant (which lives in rodata,
 not the arena). Record/union/collection construction, collection inserts, and `WITH`
-already byte-copy their flat payloads inline, so they introduce no new aliases.
+already byte-copy their flat payloads inline, so a flat payload introduces no new alias. A
+payload of a recursive type (one whose declaration reaches itself) is a graph of separate
+blocks that a byte copy would share, so those stores give an aliasing source its own graph
+first — unless the store is the source's last read, which moves it — and a collection a
+builtin builds out of another collection's elements copies those elements' graphs.
 
 A free is emitted at **every** scope exit — the normal end-of-block drain,
 `EXIT`/`CONTINUE` (only back to the loop's entry depth), `RETURN`, and `TRAP`
