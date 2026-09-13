@@ -272,17 +272,36 @@ Shape: `packages/logger/runtime-smoke.sh`.
 
 Acceptance: every listed case passes.
   Check: `target/release/mfb test packages/timezones` → `Fail: 0` with the `iso` group present (est. 1 min).
-Commit: —
+Commit: afbde58a3
 
 ### Phase 2 — oracle `roundtrip` and `ixdtf` modes, and the link smoke
 
-- [ ] Add the `roundtrip` mode (§ 4.4) to the probe and `run.sh`.
-- [ ] Add the `ixdtf` mode (§ 4.4): `temporal.mjs`, the corpus, the declared divergences
+- [x] Add the `roundtrip` mode (§ 4.4) to the probe and `run.sh`. (`run.sh <mfb> roundtrip`
+      → `roundtrip: 498303 jobs, 0 declared divergences, 0 mismatches`, 37 s. Every
+      instant carries nanos 123456789, so the "drop nanos" mutation is visible; see
+      Corrections.)
+- [x] Add the `ixdtf` mode (§ 4.4): `temporal.mjs`, the corpus, the declared divergences
       and the skipped-case log.
-- [ ] Mutation proof: make `parseIso` skip the consistency check. `ixdtf` must report
-      mismatches; revert.
-- [ ] Mutation proof: make `toIso` drop nanos. `roundtrip` must report mismatches;
-      revert.
+      - `run.sh <mfb> ixdtf`: 20,300 candidates, 89 skipped (`jobs/ixdtf.skipped`),
+        19,652 jobs.
+      - `diff.py ixdtf` → `ixdtf: 19652 jobs, 5341 declared divergences, 0 mismatches`,
+        `EXIT=0`.
+      - `divergences.json` declares the four divergences § 4.4 listed, plus numeric
+        annotations and lowercased digit names (see Corrections).
+      - `oracle/package.json` pins only `"node": ">=24"`.
+- [x] Mutation proof: make `parseIso` skip the consistency check. `ixdtf` must report
+      mismatches; revert. (`python3 /tmp/p135mut.py iso-no-consistency`: a `/tmp` copy
+      with the `consistentInstant` call disabled → `ixdtf: 19652 jobs, 5266 declared
+      divergences, 1234 mismatches`, `EXIT=1`. The unmutated package, under the same
+      declarations at that moment, had 74 mismatches, all numeric annotations since
+      declared. First new mismatch: `2026-07-01T09:00:00+01:00[Africa/Abidjan]`, where
+      the oracle says `reject` and the mutant says `accept … 0 Africa/Abidjan`. No live
+      edit, so nothing to revert.)
+- [x] Mutation proof: make `toIso` drop nanos. `roundtrip` must report mismatches;
+      revert. (`python3 /tmp/p135mut.py toiso-drop-nanos`: `toIso(dt, digits, …)`
+      writes `datetime::toIso(dt, 3)` → `roundtrip: 498303 jobs, 0 declared
+      divergences, 498303 mismatches`, `EXIT=1`; e.g. `…23:59:59.123-00:16:08
+      [Africa/Abidjan] -> -1830383033 123000000`.)
 - [x] Write `packages/timezones/runtime-smoke.sh` (§ 4.3). (`runtime-smoke.sh
       /Users/…/mfb/target/release/mfb` → `timezones runtime smoke passed`, `EXIT=0`. The
       consumer imports only `io` and `timezones`, reads the zoned string, passes
@@ -351,6 +370,46 @@ Commit: —
   `77050004` after an update.
 
 ## Corrections
+
+- **Prerequisite: bug-520 landed mid-plan, and main was merged in first.** The
+  bug-520 row went MET at `bfb0cfbfc`, and the probe prints `…-04:56:02`. `git merge
+  main` into `worktree-P-135` brought bug-520's `datetime` changes. After the merge,
+  `mfb test packages/timezones` still gave `Tests: 34  Pass: 34  Fail: 0`. The `addDays`
+  probe behind C's README still gives `8 9 -18000`. The final gate's
+  `git diff --stat <family base>..HEAD -- src tests src/docs` must therefore be
+  measured against `main`: `git diff --stat main...HEAD`. The merged `src/` changes are
+  main's, not this family's.
+- **Phase 1: both `toIso` arities share one `DOC` block.** A `DOC FUNC toIso` per
+  overload fails with `error[2-205-0003 DOC_DUPLICATE]`. `sqlite3` documents its four
+  `query` overloads the same way. `DOC TYPE ZonedDateTime` cannot carry `GROUP`
+  (`DOC_GROUP_INVALID_CONTEXT`).
+- **Phase 2: `roundtrip` uses nanos 123456789, not 0.** § 4.4 builds `v` from
+  `instant(s, 0)`. With zero nanos, the "make `toIso` drop nanos" mutation cannot change
+  a single answer. Every instant carries 123456789 nanoseconds, and the mutation then
+  fails all 498,303 jobs.
+- **Phase 2: Temporal checks the tz agreement, not `zoneinfo`.** § 4.4 said the corpus
+  generator checks 2025b/2026d agreement "with `zoneinfo`". `zoneinfo` only has 2026d,
+  so it cannot see a 2025b difference. `corpus.py ixdtf` writes candidates with the
+  2026d offset, and `temporal.mjs filter` keeps a candidate only when Temporal's
+  bundled tz gives the same offset. It logs every skip to `jobs/ixdtf.skipped`:
+  20,300 candidates, 19,652 jobs, 89 skipped. Of the skips, 33 name a zone Temporal
+  does not know, and 56 have an offset that differs between the releases.
+- **Phase 2: two more declared divergences than § 4.4 listed.**
+  - A numeric zone annotation that agrees with the offset (`…+03:00[+03:00]`, 74 jobs).
+    Temporal accepts it. The package refuses it, because § 1 makes numeric annotations
+    a non-goal. § 2's table only showed the disagreeing form, `-04:00[+05:30]`,
+    rejected.
+  - A lowercased name containing a digit (`[etc/gmt+5]`, `[est5edt]`, 36 jobs).
+    Temporal rejects it. The package accepts it under the owner's ignore-case ruling.
+  - Temporal also rejects an elective unknown key (`[foo=bar]`), as § 2 predicted.
+- **Phase 2: `diff.py` gained `pattern` and `nameOnly` declarations.** Declaring
+  thousands of exact `ixdtf` job lines is unreviewable. A declaration is now an exact
+  job, a regex over the job line, or "both accepted the same instant and offset, and
+  only the name differs" (the link case).
+- **Phase 3: a cross-target build overwrites the previous target's binaries.** Building
+  `--target linux-aarch64`, then `linux-x86_64`, `linux-riscv64` and `windows-x86_64`
+  into one project left only `build/tzprobe.exe`. Each Linux target is built in its own
+  copy (`/tmp/p135cross-<arch>`).
 
 ## Summary
 

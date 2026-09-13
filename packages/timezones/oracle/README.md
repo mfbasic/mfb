@@ -44,6 +44,44 @@ files line by line.
 |---|---|---|
 | `offsets` | `offset <name> <unixSeconds>` | `<utoff> <abbreviation>` from `timezones::toZone` |
 | `civil` | `civil <name> Y M D h m s` | `<utcSeconds> <utoff> <abbreviation> <wall>` from `timezones::civil`; `zoneinfo` uses `fold=0` |
+| `roundtrip` | `roundtrip <name> <unixSeconds>` | probe only: `ok` when `parseIso(toIso(v, 9, name))` gives back the same seconds, nanos, offset and name |
+| `ixdtf` | `ixdtf <text>` | `accept <seconds> <nanos> <utoff> <zone>` or `reject`; the reference is Temporal, not `zoneinfo` |
+
+### `roundtrip` corpus
+
+Every `offsets` instant, with 123456789 nanoseconds added. `v` is
+`datetime::inZone(instant, timezones::toZone(name, instant))`. The nanoseconds are not
+zero, so a writer that drops them fails every job.
+
+### `ixdtf` corpus — the syntax cross-check
+
+The reference is the JavaScript Temporal API in Node 24
+(`node --harmony-temporal temporal.mjs`). `package.json` pins nothing beyond
+`"node": ">=24"`. Temporal's rules come from the ICU tz data bundled with Node, which
+is **tz 2025b**, older than the package's 2026d. So the corpus only asks about text:
+
+1. `corpus.py ixdtf` writes candidates. For every name: 09:00 UTC on the 1st of
+   January, April, July and October 2026–2030, in the valid form. For 2026-07-01, a set
+   of mutations: a dropped bracket, an uppercased key, a critical unknown key, an
+   elective unknown key, a duplicated zone, a numeric zone, trailing text, a mismatched
+   offset, `Z`, `+00:00`, a critical zone, `u-ca=iso8601`, `u-ca=gregory`, and a
+   lowercased name. For three zones in 1850, local mean time written exactly and
+   rounded to the minute.
+2. `temporal.mjs filter` keeps a candidate only when Temporal's tz gives the zone the
+   same offset at that instant as 2026d does. Every skip is logged to
+   `jobs/ixdtf.skipped` with its reason.
+3. `temporal.mjs answer` and the probe answer the kept jobs.
+
+`divergences.json` declares, with reasons, every way the two sides differ by design:
+
+- a critical zone annotation (Temporal rejects, the package accepts);
+- an elective unknown tag (Temporal rejects, the package ignores it per RFC 9557 §3.3);
+- a non-ISO calendar (Temporal accepts, the package refuses);
+- a numeric zone annotation (Temporal accepts one that agrees with the offset, and
+  numeric annotations are a non-goal here);
+- a lowercased name containing a digit (Temporal rejects, the package ignores case);
+- a link or recased name that resolves to the same instant and offset (Temporal
+  reports the link's target, and the package keeps the link in tzdb spelling).
 
 A refusal is an answer (`error <code>`), and the probe still exits 0. A non-zero probe
 exit means the probe broke, and `run.sh` fails on it rather than counting mismatches.
@@ -76,6 +114,8 @@ still produces jobs that catch it.
 |---|---|---|---|
 | `offsets` | 498,303 | 0 | 18 s |
 | `civil` | 263,558 | 0 | 37 s |
+| `roundtrip` | 498,303 | 0 | 37 s |
+| `ixdtf` | 19,652 (of 20,300 candidates; 89 skipped) | 0 (5,341 declared divergences) | 6 s |
 
 ## Proof that it can fail
 
@@ -87,6 +127,8 @@ applied to a throwaway copy of the package, and the mode that should catch it wa
 | `footerType` always returns the standard type | `offsets` | 61,559 of 498,303 |
 | `civil` picks the later instant in an overlap | `civil` | 67,773 of 263,558 |
 | `civil` picks the post-transition offset in a gap | `civil` | 68,457 of 263,558 |
+| `parseIso` skips the offset-against-zone check | `ixdtf` | 1,234 of 19,652 (the unmutated package had 74 then, all numeric annotations since declared) |
+| `toIso(dt, digits, name)` always writes 3 digits | `roundtrip` | 498,303 of 498,303 |
 
 The first mutation's mismatches start at each zone's last stored transition. For
 example, `America/Chicago 1173600000` gets `-18000 CDT` from the oracle but

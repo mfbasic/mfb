@@ -167,7 +167,80 @@ def civil_jobs():
     return list(jobs.lines)
 
 
-MODES = {"offsets": offsets_jobs, "civil": civil_jobs}
+def roundtrip_jobs():
+    """plan-135-D section 4.4: every offsets instant, written and read back by the probe."""
+    return ["roundtrip " + job[len("offset "):] for job in offsets_jobs()]
+
+
+def offset_text(seconds):
+    sign = "-" if seconds < 0 else "+"
+    hours, rest = divmod(abs(seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+    text = "%s%02d:%02d" % (sign, hours, minutes)
+    return text + (":%02d" % secs if secs else "")
+
+
+def ixdtf_candidates():
+    """plan-135-D section 4.4: `candidate <name> <seconds> <utoff> <text>` lines.
+
+    temporal.mjs keeps a candidate only where Temporal's own tz release gives
+    the same offset for that zone at that instant, and turns it into an
+    `ixdtf <text>` job.
+    """
+    groups = load_groups()
+    names = all_names(groups)
+    lines = Jobs()
+
+    def local_text(zone, seconds, offset):
+        local = (EPOCH + timedelta(seconds=seconds)).astimezone(zone)
+        return local.strftime("%Y-%m-%dT%H:%M:%S") + offset_text(offset)
+
+    def add(name, seconds, offset, text):
+        lines.add("candidate %s %d %d %s" % (name, seconds, offset, text))
+
+    for name in names:
+        zone = ZoneInfo(name)
+        for year in range(2026, 2031):
+            for month in (1, 4, 7, 10):
+                seconds = utc_seconds(year, month, 1, 9)
+                offset = utoff(zone, seconds)
+                add(name, seconds, offset, local_text(zone, seconds, offset) + "[" + name + "]")
+        seconds = utc_seconds(2026, 7, 1, 9)
+        offset = utoff(zone, seconds)
+        wall = local_text(zone, seconds, offset)
+        utc = (EPOCH + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%S")
+        wrong = local_text(zone, seconds, offset)[:19] + offset_text(offset + 3600)
+        for text in (
+            wall + "[" + name,                              # a dropped bracket
+            wall + "[" + name + "][U-CA=iso8601]",          # an uppercased key
+            wall + "[" + name + "][!foo=bar]",              # a critical unknown key
+            wall + "[" + name + "][foo=bar]",               # an elective unknown key
+            wall + "[" + name + "][" + name + "]",          # a duplicated zone
+            wall + "[" + offset_text(offset) + "]",         # a numeric zone
+            wall + "[" + name + "]x",                       # trailing text
+            wrong + "[" + name + "]",                       # a mismatched offset
+            utc + "Z[" + name + "]",                        # Z
+            utc + "+00:00[" + name + "]",                   # +00:00
+            wall + "[!" + name + "]",                       # a critical zone
+            wall + "[" + name + "][u-ca=iso8601]",          # the ISO calendar
+            wall + "[" + name + "][u-ca=gregory]",          # another calendar
+            wall + "[" + name.lower() + "]",                # a lowercased name
+        ):
+            add(name, seconds, offset, text)
+    # Local mean time, whose offsets have seconds, written exactly and rounded
+    # to the minute the way an RFC 3339 writer without seconds would.
+    for name in ("America/New_York", "Europe/Amsterdam", "Asia/Kolkata"):
+        zone = ZoneInfo(name)
+        seconds = utc_seconds(1850, 7, 1, 12)
+        offset = utoff(zone, seconds)
+        local = (EPOCH + timedelta(seconds=seconds)).astimezone(zone).strftime("%Y-%m-%dT%H:%M:%S")
+        rounded = (abs(offset) + 30) // 60 * 60 * (-1 if offset < 0 else 1)
+        add(name, seconds, offset, local + offset_text(offset) + "[" + name + "]")
+        add(name, seconds, offset, local + offset_text(rounded) + "[" + name + "]")
+    return list(lines.lines)
+
+
+MODES = {"offsets": offsets_jobs, "civil": civil_jobs, "roundtrip": roundtrip_jobs, "ixdtf": ixdtf_candidates}
 
 
 def main():

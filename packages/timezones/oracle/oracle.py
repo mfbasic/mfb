@@ -77,6 +77,10 @@ def main():
                 out.append(oracle.offset(fields[1], int(fields[2])))
             elif fields[0] == "civil":
                 out.append(oracle.civil(fields[1], [int(v) for v in fields[2:8]]))
+            elif fields[0] == "roundtrip":
+                # Probe-only (plan-135-D section 4.4): the expected answer is
+                # an exact round trip.
+                out.append("ok")
             else:
                 sys.stderr.write("oracle: unknown job %r\n" % line)
                 sys.exit(2)

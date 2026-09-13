@@ -46,7 +46,36 @@ PRIVATE FUNC answer(line AS String) AS String
   LET kind AS String = collections::get(fields, 0)
   IF kind = "offset" THEN RETURN offsetAnswer(collections::get(fields, 1), field(fields, 2))
   IF kind = "civil" THEN RETURN civilAnswer(collections::get(fields, 1), fields)
+  IF kind = "roundtrip" THEN RETURN roundtripAnswer(collections::get(fields, 1), field(fields, 2))
+  IF kind = "ixdtf" THEN RETURN ixdtfAnswer(collections::get(fields, 1))
   FAIL error(77050002, "tzprobe: unknown job: " & line)
+END FUNC
+
+' roundtrip <name> <s>  ->  ok, or what came back.
+' The nanoseconds are deliberately not zero, so a writer that drops them fails.
+PRIVATE FUNC roundtripAnswer(name AS String, seconds AS Integer) AS String
+  LET at AS datetime::Instant = datetime::instant(seconds, 123456789)
+  LET value AS datetime::DateTime = datetime::inZone(at, timezones::toZone(name, at))
+  LET text AS String = timezones::toIso(value, 9, name)
+  LET back AS timezones::ZonedDateTime = timezones::parseIso(text)
+  LET got AS datetime::Instant = datetime::resolve(back.dateTime)
+  IF got.seconds = seconds AND got.nanos = 123456789 AND back.dateTime.offset = value.offset AND back.name = name THEN RETURN "ok"
+  RETURN "mismatch " & text & " -> " & toString(got.seconds) & " " & toString(got.nanos) & " " & toString(back.dateTime.offset) & " " & back.name
+
+  TRAP(problem)
+    RETURN "error " & toString(problem.code) & " " & problem.message
+  END TRAP
+END FUNC
+
+' ixdtf <text>  ->  accept <seconds> <nanos> <offset> <name>, or reject.
+PRIVATE FUNC ixdtfAnswer(text AS String) AS String
+  LET z AS timezones::ZonedDateTime = timezones::parseIso(text)
+  LET at AS datetime::Instant = datetime::resolve(z.dateTime)
+  RETURN "accept " & toString(at.seconds) & " " & toString(at.nanos) & " " & toString(z.dateTime.offset) & " " & z.name
+
+  TRAP(problem)
+    RETURN "reject"
+  END TRAP
 END FUNC
 
 PRIVATE FUNC field(fields AS List OF String, index AS Integer) AS Integer
