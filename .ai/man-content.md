@@ -48,7 +48,8 @@ The editable prose fields, and nothing else:
 | `Parameter.desc` | `func_*.rs` | the Description column of the Parameters table |
 | `RegistryRecord` / prop / union-variant / enum-variant / `RegistryResource` `description` | `mod.rs` | the `mfb man <pkg> types` page |
 
-Everything else on a page — Declaration, Parameters types, Errors, See also —
+Everything else on a page — Declaration, Parameters types, Errors, Constants
+(a package's registered constants, with type, value and any message), See also —
 is **derived from the descriptors the compiler actually executes** and is
 correct by construction. Do not try to "fix" a derived table by editing prose;
 if a derived table is wrong, the descriptor is wrong, and that is a code bug.
@@ -246,14 +247,20 @@ row below preserves the developer-visible fact.
 | "Consumed by the call — the handle is moved and unusable afterward." | "Closed by this call; the handle cannot be used again." |
 | "The value is consumed by the call." | "This call closes the handle." |
 
-### 4.4 The two carve-outs
+### 4.4 The three carve-outs
 
 1. **Arithmetic borrow.** `datetime` normalization legitimately borrows a
    second ("a negative nanos value borrows a second") — 15 rendered lines, and
    every `borrow` in `datetime` is this sense. Not a memory claim; keep it.
    `--memory-scope` classifies these automatically and reports them separately;
    they are never counted as unclassified hits.
-2. **`mfb spec` and `.ai/**` are untouched.** The spec's §14 memory model is
+2. **Derived runtime error messages.** An Errors-table row, and a row of the
+   `errorCode` overview's Constants table, print the `errorCode` constant's
+   `message` — the string a program prints when that error is raised.
+   `ErrOutOfMemory`'s is "Allocation failed.", so the banned word appears in a
+   cell no page author can edit; changing it changes program output. This is
+   carve-out 2 in `--memory-scope`, reported separately.
+3. **`mfb spec` and `.ai/**` are untouched.** The spec's §14 memory model is
    the precise language contract and needs its precise words. The ban covers
    the `mfb man` surface only. **If a man page needs that much precision, that
    is the signal it is saying too much** — cut it and link `mfb man variable`.
