@@ -511,6 +511,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// instead of calling a per-type copy function. `None` in every other builder.
     pub(crate) graph_copy_walker:
         Option<crate::codegen::memory::arena::graph_copy::GraphCopyWalker>,
+    /// plan-134-D: which owning stores of the NIR function being lowered read their
+    /// source for the last time (plan-134-C). `None` in a synthesized builder, where
+    /// every store copies.
+    pub(crate) move_sites: Option<crate::codegen::engine::analysis::last_use::MoveSites>,
+    /// plan-134-D: the `op_key` of the op `lower_ops_inner` is lowering — what a store
+    /// asks `move_sites` about.
+    pub(crate) current_op_key: Option<usize>,
 }
 
 impl<'a> CodeBuilder<'a> {
@@ -608,6 +615,8 @@ impl<'a> CodeBuilder<'a> {
             provable_index_locals: HashMap::new(),
             enclosing_loop_reassigned: Vec::new(),
             graph_copy_walker: None,
+            move_sites: None,
+            current_op_key: None,
         }
     }
 }

@@ -99,37 +99,74 @@ Acceptance: the new test fails on main for the documented reason.
   global g=96 local=2\nreturn h=96 got=2\nclosure f=96 cap=2\ntree ys=6 xs=112"` — identical
   to the pre-plan compiler's output (Corrections), so the failure is the documented aliasing and
   not a harness or build error.
-Commit: —
+Commit: a570a90d3
 
 ### Phase 2 — copy-insertion
 
-- [ ] `builder_values.rs`: `needs_graph_copy`; the new branch in `lower_value_owned`;
-      `owned.rs::materialize_owned_element` uses `needs_graph_copy`.
-- [ ] `builder_exits.rs`: the new branch in `lower_returned_value`.
-- [ ] Thread the op index / `MoveSites` to both.
-- [ ] The in-place-arm cycle audit, recorded in plan-134-A "Verified properties".
-- [ ] Tests: Phase 1 passes; add move-shape probes to the same file (json-style `acc =
+- [x] `builder_values.rs`: `needs_graph_copy`; the new branch in `lower_value_owned`;
+      `owned.rs::materialize_owned_element` uses `needs_graph_copy`. — plus `store_is_last_use`
+      (a `Local` or `Local.field` source whose store is a plan-134-C site); the branch copies with
+      `copy_value_to_current_arena` unless the store is a last use or a fresh trapped-`Result`
+      wrapper.
+- [x] `builder_exits.rs`: the new branch in `lower_returned_value`. — after the flat branch;
+      keeps the parameter-passthrough borrow (`current_returns_param_borrow` + bare local) so a
+      borrow function is not copied twice.
+- [x] Thread the op index / `MoveSites` to both. — `CodeBuilder::move_sites` (computed in
+      `lower_function` beside the other prescans) and `current_op_key` (set/restored per op in
+      `lower_ops_inner`); synthesized builders carry `None`. The build is warning-free (the
+      transient `last_use.rs` dead-code warnings are gone: 0 `warning` lines in the test build).
+- [x] The in-place-arm cycle audit, recorded in plan-134-A "Verified properties". — the
+      property is FALSE on main: a constructor argument and the in-place list/map arms' item
+      operand are lowered with `lower_value`, so `xs = collections::append(xs, Node[kids := xs,
+      tag := 1])` stores `xs`'s own block (repro: pre-plan compiler and plan-134-B walker both exit
+      139 at the first `get`). The record-field and STATE arms cannot fire for the class (G17);
+      removal arms store nothing. D's stores do not reach these operands; plan-134-E now owns them
+      (Phase 1 census + RED line added).
+- [x] Tests: Phase 1 passes; add move-shape probes to the same file (json-style `acc =
       append(acc, item)` with `item` rebound per iteration prints the right tree; a
-      last-use `LET b = a` then `a` never read — output unchanged).
+      last-use `LET b = a` then `a` never read — output unchanged). —
+      `a_moved_recursive_value_prints_what_it_printed_before` (`tree=99[0[0,],1[10,],2[20,],]`,
+      `moved=1[7,]`, the pre-plan compiler's output; committed with Phase 1's file).
 
 Acceptance: every store in the test yields an independent value.
   Check: `cargo test --release --test rt_recursive_value_copies` → passed; `cargo test
   --release --test rt_error_value_copies --test rt_net_address_record_layout` → passed (the
   sibling copy pins) (est. 4 min).
+  Result: met — `cargo test --release --no-fail-fast --test rt_recursive_value_copies --test
+  rt_error_value_copies --test rt_net_address_record_layout` → 2 + 1 + 2 passed, 0 failed.
+  `cargo test --release --bin mfb -- collect_last_use_moves` → 4 passed after the key API change.
+  Runtime: `tree_alias` → `ys=6 xs=1` on macOS and on Linux box 2223 (exit 0).
 Commit: —
 
 ### Phase 3 — the speed gate and goldens
 
-- [ ] `bash tools/recursive-value-bench/run.sh target/release/mfb json_repeat regex_repeat`
+- [~] `bash tools/recursive-value-bench/run.sh target/release/mfb json_repeat regex_repeat`
       five times; record the medians against §2.1. Over budget → count copies per parse with
       `--debug` (`arena.alloc_calls`) and find the store the analysis missed; fix it in C's
       analysis (with a table row), not by skipping the copy.
-- [ ] `node_copies` with `--ncode`: record the copy-call count from `main` (expected 1 for
-      `LET c AS Node = a` if `a` is read afterwards, else 0 — record which and why).
-- [ ] `bash scripts/artifact-gate.sh target/release/mfb all`; expected diffs: json, regex and
+      — json within budget, regex not: after plan-134-C's MATCH-view extension, medians of 5
+      `json_repeat` K=1 0.24 s (budget 0.31), `regex_repeat` K=1 0.43 s (budget 0.34), see
+      Corrections. **Owner decision (2026-09-13): accept the regex cost for now, keep the
+      correctness-first copies, re-measure after letters G/H free memory, and report the final
+      numbers before merge** (added to plan-134-H Phase 3). Remaining: that re-measure.
+- [x] `node_copies` with `--ncode`: record the copy-call count from `main` (expected 1 for
+      `LET c AS Node = a` if `a` is read afterwards, else 0 — record which and why). —
+      `run.sh <D mfb> node_copies` → `main_copy_calls=1` (was 0): `LET c AS Node = a` copies,
+      because `a` is read afterwards (`toString(a.tag)` in the print). The list literal in `b`
+      and the `append` are construction stores (letter E), so they still emit none.
+- [x] `bash scripts/artifact-gate.sh target/release/mfb all`; expected diffs: json, regex and
       recursive-user-type fixtures only; regenerate with `scripts/regen-native-goldens.sh`.
+      — `artifact-gate [all]` (final D build, `/tmp/p134-mfb-dfinal`): `2013 golden(s)
+      checked, 10 diff(s)`, exactly `byte-identity/json` and `byte-identity/regex` on all five
+      targets. Localized per function against the pre-D dumps (Corrections); regenerated with
+      `scripts/regen-native-goldens.sh` (`10 golden(s) rewritten, 0 failure(s)`); re-gated →
+      json `7 golden(s) checked, 0 diff(s)`, regex `7 golden(s) checked, 0 diff(s)`.
 
 Acceptance: decoders within budget; gate diffs confined and explained.
+  (Budget: partially met — json within, regex over; the owner accepted it pending plan-134-H's
+  re-measure, 2026-09-13.)
+  Result: gate diffs confined and explained (json/regex only, localized per function); the
+  budget as recorded above.
   Check: the bench medians (est. 2 min); the gate (est. 15 min — the only check covering every
   target's emitted stores).
 Commit: —
@@ -173,6 +210,67 @@ Commit: —
   returns the loaded pointer uncopied — exactly today's behaviour for that store — and the
   null-out belongs to plan-134-G's move deactivation, after E has removed construction aliasing.
   A D move therefore never creates an alias that did not exist before D.
+- **Speed gate, first measurement: `regex_repeat` is far over budget, `json_repeat` within it.**
+  Five passes of `run.sh /tmp/p134-mfb-d json_repeat regex_repeat` (D's release build):
+  `json_repeat` K=1 0.54 / 0.26 / 0.25 / 0.28 / 0.25 s → median 0.26 s (budget 0.31), RSS
+  212.5 MB (was 204.3); `regex_repeat` K=1 1.36 / 1.93 / 1.21 / 1.90 / 1.80 s → **median
+  1.80 s (budget 0.34)**, RSS **3.62 GB** (was 345 MB — every copy leaks until letter G).
+  Localized with `-ncode` relocations to the per-type copy shims, before (`/tmp/p134-mfb-c`) vs
+  after D: `#regex_run` went from 3 to 10 `__regex_Node` copy calls and gained 5 `__regex_Cont`,
+  2 `__regex_Repeat`, 2 `__regex_Choices`; `#regex_isSimpleNode`, `#regex_simpleMatchAt` and
+  `#regex_requiredFirstCp` each gained a `__regex_Node` copy. The NIR shows the cause
+  (`-nir`, `#regex_isSimpleNode`): the MATCH desugar binds its scrutinee to a temporary —
+  `Bind $match5 = Local(node)` — and the cases alias it (`Bind litNode =
+  UnionExtract(Local $match5)`). That bind is an ordinary owning store, so D deep-copies a
+  recursive scrutinee whenever plan-134-C does not call it a move: always for a parameter (the
+  per-step helpers), and in `#regex_run` whenever the source stays live. And C excludes the case
+  aliases, so `stack = c.nxt` copies the rest of the `__regex_Choices` chain on every backtrack
+  pop (quadratic in the pending count) and `cont = seqCont.nxt` copies the continuation.
+  Per the plan the fix is in C's analysis, not a skipped copy: a read-only MATCH view borrows,
+  an owning view's aliases are places of the view, and an exhaustive MATCH has no fall-through.
+- **The MATCH-view extension (plan-134-C Corrections) and the bug its first run found.** D's
+  consumer: `lower_value_owned` also skips the walker copy when the op is a borrowed view
+  (`store_is_borrowed_view` → `MoveSites::is_borrow`). The first run of
+  `collect_last_use_moves_covers_the_regex_matcher_views` failed: `#regex_run`'s `stack = c.nxt`
+  was not a site although `$match11 = stack` was correctly an owning move. A temporary
+  `#[ignore]` probe printed the shape — `$match12 <- Field("c", "alt")`, a borrowed view bound
+  from a FIELD of the alias `c` — and the cause: a read through a borrowed view was charged to
+  the source's root local as a whole read, so `MATCH c.alt` read all of `$match11` and kept
+  `$match11.nxt` live after the pop. Fixed by charging a view bound from a field to that field
+  (`Canon` maps a name to a `Place`); the SHAPES probe also renamed a field from the keyword
+  `next` (`MFB_PARSE_INVALID_IDENTIFIER`). `cargo test --release --bin mfb --
+  collect_last_use_moves` → `6 passed; 0 failed`.
+- **Speed gate after the MATCH-view fix: json within budget, regex still over.** Five passes of
+  `run.sh /tmp/p134-mfb-d2 json_repeat regex_repeat`: `json_repeat` K=1 0.27 / 0.24 / 0.25 /
+  0.24 / 0.24 s → median 0.24 s (budget 0.31); `regex_repeat` K=1 0.46 / 0.43 / 0.43 / 0.42 /
+  0.44 s → **median 0.43 s (budget 0.34)**, RSS 919 MB (was 3.62 GB before the fix, 345 MB
+  pre-plan). `regex_chain simple:10000 --debug`: `arena.0.alloc_calls` 712 092 (pre-plan
+  482 081). `-ncode` census of `#regex_run`: 8 `__regex_Node` copy calls (3 of them the
+  pre-existing `collections::get` copies), 1 `__regex_Repeat`, 1 `__regex_Cont`. The store listing
+  (`-nir`, binds/assigns from a local or field) names them: `MUT node = root` (a parameter — once
+  per match attempt), `repRec = repNode` (an alias of the `MATCH node` view, which borrows because
+  `node` stays live across loop iterations), `cont = c.cont` (`c.cont` is read again on the kind-1
+  path), `node = c.rep.child` / `grpNode.child` / `repRec.child` (nested or live sources).
+  **Refuted hypothesis:** the walker's 64-entry first work stack (1 552 bytes, entropy-filled on
+  alloc and scrubbed on free per copy) was not the cost — an initial capacity of 4 measured
+  0.58 / 0.45 / 0.40 / 0.40 / 0.54 s (median 0.45 s), no change; reverted. Removing the remaining
+  copies needs a *borrowed local* (a non-collection recursive local bound from a borrowed source
+  that never copies), which letter G would then have to free only when the slot owns its value —
+  an ownership state the design does not have. That is this plan's Open Decision ("speed budget
+  for letter D"), put to the owner.
+- **Golden localization (Phase 3).** Per-function `-ncode` diff of the two byte-identity fixtures,
+  pre-D (plan-134-B/C build — C's gate proved the two identical) vs the final D build: **regex**
+  189 → 189 functions, nothing added or removed, only `#regex_run` changed, and its copy-shim
+  calls went from 3 `__regex_Node` to 8 `__regex_Node` + 1 `__regex_Cont` + 1 `__regex_Repeat`
+  — the stores listed above. **json** 162 → 162, changed only `json::get` (2 → 4 `json::Json`
+  copy calls), `json::getOr` (2 → 7), `#json_parseArrayItems` (+1 `List OF Json`) and
+  `#json_parseObjectItems` (+1 `Map OF String TO Json`). The parse helpers' copy is their
+  accumulator bound from a parameter (`MUT acc AS List OF Json = items`,
+  `MUT acc AS Map OF String TO Json = fields`, one small copy per array/object). The `get`/`getOr`
+  copies are the path walk (`current = value` from a parameter, `nextValue = current`,
+  `currentValue = current`, `current = nextValue`): correct, but a `json::get` now copies the
+  subtree at each path step. `json_repeat` does not exercise `get`, so plan-134-H's speed
+  re-measure should add a `json::get` probe before the owner report.
 
 ## Summary
 

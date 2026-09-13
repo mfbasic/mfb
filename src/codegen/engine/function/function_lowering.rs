@@ -1018,6 +1018,8 @@ pub(crate) fn lower_function(
         provable_index_locals: HashMap::new(),
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
+        move_sites: None,
+        current_op_key: None,
     };
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -1088,6 +1090,14 @@ pub(crate) fn lower_function(
     // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2).
     collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
     collect_value_used_locals(&function.body, &mut builder.value_used_locals);
+    // plan-134-D: the owning stores that read their source for the last time
+    // (plan-134-C), so a recursive value's store can move instead of copying.
+    builder.move_sites = Some(
+        crate::codegen::engine::analysis::last_use::collect_last_use_moves(
+            function,
+            &builder.type_model,
+        ),
+    );
     // plan-86 E: read-only `get`-borrow bindings (needs address_taken above).
     builder.borrow_get_locals =
         collect_borrow_get_locals(&function.body, &builder.address_taken_locals);
@@ -1467,6 +1477,8 @@ pub(crate) fn lower_abi_function_helper(
         provable_index_locals: HashMap::new(),
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
+        move_sites: None,
+        current_op_key: None,
     };
 
     // Hand the body its incoming ABI argument registers directly as `ValueResult`s
@@ -1626,6 +1638,8 @@ pub(crate) fn lower_thread_copy_function(
         provable_index_locals: HashMap::new(),
         enclosing_loop_reassigned: Vec::new(),
         graph_copy_walker: None,
+        move_sites: None,
+        current_op_key: None,
     };
 
     // Hand the source to the walker with this type's kind, and return its copy.

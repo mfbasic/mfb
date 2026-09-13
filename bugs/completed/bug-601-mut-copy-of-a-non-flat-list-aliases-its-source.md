@@ -6,19 +6,20 @@ bug-536 shape C design
 Severity: HIGH — a 17-line program SIGSEGVs, and a 10-line one silently computes a wrong value
 Class: Memory-safety / Correctness (value semantics)
 
-Status: **Open — FIXED for the pointer-`String` records by plan-132** (Phase 1 `510a361ad`,
-Phase 2 `da7f876d5`). `net::Address`, `udp::Datagram` and `audio::AudioDevice` are on the
-ordinary flat layout, so they are `memcpy`-copyable and `MUT ys = xs` makes a real copy. The
-three `List OF net::Address` repros below flip on macOS, Linux (box 2223) and Windows (box
-2230): `removeAt` on the copy prints `ys=0 xs=1`, the two `append` shapes print `ys=2 xs=1`
-with every host intact, and nothing crashes.
-**Still open: the recursive-type row.** A `List OF Tree` (a recursive user union), `MUT ys =
-xs`, 5 in-place appends printed `ys=6 xs=112` — the same aliasing, in a class flattening does
-not touch (a recursive value cannot be flat). It rides on copy-insertion for recursive types,
-bug-536 shape C's prerequisite. `Error` and `ErrorLoc` are split out as bug-602.
+Status: **Closed — fixed, measured 2026-09-13.** The pointer-`String` records half was fixed
+by plan-132 (Phase 1 `510a361ad`, Phase 2 `da7f876d5`): `net::Address`, `udp::Datagram` and
+`audio::AudioDevice` are on the ordinary flat layout, so `MUT ys = xs` makes a real copy, and the
+three `List OF net::Address` repros flip on macOS, Linux (box 2223) and Windows (box 2230). The
+recursive-type row was fixed by **plan-134-D** (copy-insertion for recursive values at the owning
+stores, with plan-134-C's last-use analysis turning a store whose source is not read again into a
+move): the `List OF Tree` repro now prints `ys=6 xs=1` on macOS and on Linux box 2223 (was
+`ys=6 xs=112`, a read of freed memory). `Error` and `ErrorLoc` were split out as bug-602 (not a
+defect).
 Regression Test: `a_mut_copy_of_an_address_list_is_independent_of_its_source` in
-`tests/net/rt_net_address_record_layout.rs` (the pointer-`String` half). None yet for the
-recursive row.
+`tests/net/rt_net_address_record_layout.rs` (the pointer-`String` half);
+`a_recursive_value_copy_is_independent_of_its_source` in
+`tests/runtime/rt_recursive_value_copies.rs` (the recursive row, plus a field copy, a global, a
+returned field and a closure capture of a recursive list).
 
 ## How it was found
 
@@ -120,3 +121,15 @@ field or collection element that aliases the same buffer.
 
 bug-599's deep-drop option depends on B: without copy-insertion every drop is a double free
 of the shared block. Option A does not help bug-599 (the leak is unchanged).
+
+## Fixed (2026-09-13)
+
+- **Pointer-`String` records:** plan-132 flattened them (see Status).
+- **Recursive types:** plan-134-D. `lower_value_owned` and `lower_returned_value` now give a value
+  whose type reaches a type cycle an independent graph (`needs_graph_copy` →
+  `copy_value_to_current_arena`, plan-134-B's non-recursive walker) at bind, assign, global,
+  return and closure capture — unless plan-134-C's analysis marks the store as the source's last
+  read, which moves. The in-place arms were never changed: they are sound again because every
+  `MUT` binding owns its graph. Construction stores (a constructor argument, the in-place arms'
+  item operand) still alias until plan-134-E; that is a separate, reproduced shape tracked there
+  (`xs = collections::append(xs, Node[kids := xs, tag := 1])`), not this bug's.

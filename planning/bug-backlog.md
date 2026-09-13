@@ -69,8 +69,9 @@ neither filed it), 594 (macOS `drawText` column), 592.
   `audio::AudioDevice` are built through the record marshaller onto the ordinary flat
   layout, every native reader rebases, and `is_pointer_string_record` is deleted. bug-599 is
   fixed and archived (a looped `net::lookup` held 1.2 → 1.4 MB over 200k → 400k iterations,
-  was 99.8 → 198.3 MB). bug-601 **stays OPEN** for its recursive-type row only (`List OF
-  Tree`, still aliases; rides on bug-536 shape C). The `Error`/`ErrorLoc` question
+  was 99.8 → 198.3 MB). bug-601's recursive-type row (`List OF Tree`) is **fixed by
+  plan-134-D** (2026-09-13: copy-insertion for recursive values at the owning stores) and the
+  bug is archived. The `Error`/`ErrorLoc` question
   (bug-602) is **closed, not a defect** (2026-09-13): both are ordinary flat records, every
   second-binding shape copies (bug-601's three list shapes on a `List OF Error` included, on
   the compiler before plan-132 as well), and `an_error_value_copy_is_independent_of_its_source`
@@ -423,10 +424,10 @@ Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
 *(Updated 2026-09-12. This heading used to read "there is NO open HIGH", which stopped
 being true when 601 was filed.)*
 
-- **601** — a `MUT` copy of a non-flat list aliases its source, so an in-place `append`
-  on the copy segfaults and a short variant silently computes a wrong value. The
-  pointer-`String` records half (the crash) is fixed by **plan-132**; the recursive-type row
-  (`List OF Tree`, a wrong value) remains and rides on bug-536 shape C.
+- ~~**601**~~ — **CLOSED 2026-09-13.** A `MUT` copy of a non-flat list aliased its source.
+  The pointer-`String` records half was fixed by **plan-132**; the recursive-type row
+  (`List OF Tree`) by **plan-134-D** (`a_recursive_value_copy_is_independent_of_its_source`).
+  Construction stores of recursive values still alias until plan-134-E.
 - ~~**581**~~ — **CLOSED 2026-09-12.** Phase 1 landed (`ed87c111a`); Phase 2 won't be done
   (the registry is trusted by design).
 

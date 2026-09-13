@@ -103,6 +103,14 @@ Commit: —
 
 - [ ] `tools/recursive-value-bench/run.sh target/release/mfb` → record the full "after" table in
       plan-134-A §2.1 (every row), including speed against the budget.
+- [ ] Re-measure the plan-134-D speed budget the owner deferred here (2026-09-13): medians of 5
+      `json_repeat` / `regex_repeat` K=1 against the pre-plan 0.25 s / 0.27 s (budget +25 %), with
+      RSS, and report them to the owner before merging — at D they were 0.24 s / 0.43 s.
+- [ ] Add a `json::get` / `json::getOr` path-walk probe to `tools/recursive-value-bench/` and
+      measure it before and after plan-134 (median of 5): since plan-134-D the path walk copies the
+      subtree at each step (`current = value`, `nextValue = current`, `current = nextValue` in
+      `#json_get`/`#json_getOr`, plan-134-D Corrections), which `json_repeat` never exercises.
+      Include the numbers in the owner report.
 - [ ] Doc sync: `mfb spec memory arenas` ("Scope-Drop Frees": recursive values are freed by a
       per-type non-recursive drop; construction stores copy them); `mfb spec memory heap-values`
       (non-flat pointer fields are owned children); `mfb spec architecture native` (the

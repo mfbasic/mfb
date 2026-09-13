@@ -241,6 +241,29 @@ impl CodeBuilder<'_> {
                     true,
                 ));
             }
+            // plan-134-D: a recursive value returned from an aliasing source (a field, a
+            // parameter, a global) gets an independent graph from the walker, so the
+            // caller never owns a graph the callee's source still reaches — unless the
+            // return is the source's last read (plan-134-C), which is a move.
+            if self.needs_graph_copy(&lowered.type_) && !self.store_is_last_use(value) {
+                // The same parameter-passthrough borrow as the flat branch above: the
+                // caller copies at its own owning store, so copying here too would be a
+                // second copy. A recursive local owns no `OwnedValue` cleanup, so any
+                // bare local in a borrow function is the caller's argument.
+                if self.current_returns_param_borrow && matches!(value, NirValue::Local(_)) {
+                    return Ok((lowered, true));
+                }
+                let copied = self.copy_value_to_current_arena(&lowered.type_, &lowered.location)?;
+                return Ok((
+                    ValueResult {
+                        origin: None,
+                        type_: lowered.type_,
+                        location: Operand::from(copied.render()),
+                        text: lowered.text,
+                    },
+                    true,
+                ));
+            }
             return Ok((lowered, false));
         }
         let lowered = self.lower_value(value)?;

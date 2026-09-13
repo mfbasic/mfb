@@ -477,6 +477,11 @@ impl CodeBuilder<'_> {
             // plan-118-A: attribute the instructions this statement emits to its
             // op kind. The closure below is what makes the pairing safe — no `?`
             // can jump over the `exit`.
+            // plan-134-D: a store lowered for this op asks plan-134-C's analysis about
+            // THIS op; a nested body records its own and this op's key comes back after.
+            let enclosing_op_key = self
+                .current_op_key
+                .replace(crate::codegen::engine::analysis::last_use::op_key(op));
             crate::codegen::engine::expansion::enter(
                 || crate::codegen::engine::expansion::op_key(op).to_string(),
                 self.instructions.len(),
@@ -1675,6 +1680,7 @@ impl CodeBuilder<'_> {
                 Ok(())
             })();
             crate::codegen::engine::expansion::exit(self.instructions.len());
+            self.current_op_key = enclosing_op_key;
             result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
             // plan-39 I1: after lowering the op, invalidate range facts. A `Bind`/
             // `Assign` drops just the reassigned local's bounds (its RHS, already

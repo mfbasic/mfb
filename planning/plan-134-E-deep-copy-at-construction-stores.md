@@ -44,8 +44,27 @@ Prerequisites: see plan-134-A; plan-134-D complete (`ls planning/completed/plan-
 | `STATE` assignment | `builder_control.rs` `NirOp::StateAssign` | plain `lower_value`, no copy |
 | Record/collection literal operands | lowered through `lower_value` by their construct lowerings | no copy |
 
-UNMEASURED: the exact list of construct lowerings that feed these writers with a
-`NirValue` operand (the construct ops' lowering entry points). Phase 1's first task measures it.
+**Census (measured 2026-09-13, before letter E; read-only survey, rows spot-checked in source).**
+22 distinct store paths; **every one lowers its operand with plain `lower_value`**, none with
+`lower_value_owned` (the only `lower_value_owned` callers are the `Bind`, `Assign`, `StoreGlobal`
+arms, closure capture and `FAIL`). Paths (relative to `src/codegen/`):
+
+| Store | Site | Operand lowering → writer |
+|---|---|---|
+| `T[a, b]` record / register-native vector | `engine/value/builder_values.rs` `NirValue::Constructor` arm | `self.lower_value(arg)?` (lines ~2109, ~2138) → `emit_build_inlined_record` / `emit_construct_helper_call` / `make_vector_native` |
+| `construct.T` helper body | `memory/marshal/construct_helpers.rs::lower_construct_helper` | argument registers (the caller's constructor slots) → `emit_build_inlined_record` |
+| data-union variant wrap | `builder_values.rs` `NirValue::UnionWrap` arm | `self.lower_value(value)?` → `emit_wrap_record_in_union` |
+| `WITH r { f := v }` | `memory/value/builder_value_semantics.rs::lower_with_update` | target and each update `self.lower_value(...)` → `emit_build_inlined_record` |
+| default record / union | `builder_value_semantics.rs::lower_default_value_inner` | defaults, not user values |
+| `s.state = WITH s.state {scalar := v}` in place | `engine/control/builder_control.rs::try_inplace_state_scalar_assign` | `lower_value(&update.value)` → raw `store_u64` (inline scalars only) |
+| `s.state = v` whole replace | `builder_control.rs` `NirOp::StateAssign` | `self.lower_value(value)?` + `claim_pending_temp` → pointer stored in the resource record (an aliasing source is shared, not copied — check the flat case too) |
+| `l = append/prepend/insert/set(l, …)`, map `set`, set `add`, bulk append (plain local, record field, STATE field) | `collection/assign/builder_inplace_assign.rs` `try_inplace_*`; `builder_control.rs::try_inplace_state_*` | item `self.lower_value(&args[..])?` (+ `materialize_value`) → `emit_copy_payload_to_collection` (`list_mutate.rs` 797/1347/2824/2995/3334/3526, `map_mutate.rs` 385/683/1018/1052) or the bulk block copy |
+| `[a, b]` / `{k: v}` / set literal | `collection/layout/builder_collection_layout.rs::lower_list_literal` / `lower_map_literal` / `lower_set_literal` | `self.lower_value(value_node)?` (lines ~1258, ~1364) → `lower_collection_values` → `emit_copy_payload_to_collection` (1687/1763) |
+| rebuilding `append`/`prepend`/`insert`/`set`/`add` (in-place arm declined) | `builtins/collections/gen_mutate.rs::lower_collection_end_insert`, `func_insert.rs`, `func_set.rs`, `func_add.rs` | args pre-lowered by `lower_abi_inline_args` (`self.lower_value(arg)?`, ~2750) → singleton `lower_collection_values` + `lower_list_insert_collection` / `lower_map_concat` |
+
+The in-place arms' item operands (added to Phase 1 by plan-134-D's audit) are the `try_inplace_*`
+row. The record-field and STATE in-place collection arms cannot fire for a recursive element (G17),
+but they share the lowering.
 
 ## 3. Design
 

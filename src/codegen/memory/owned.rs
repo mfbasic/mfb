@@ -51,16 +51,8 @@ impl CodeBuilder<'_> {
         // resource handle is move-only — copying it would duplicate an OS object
         // with its own close op — so an alias is both the existing and the correct
         // behaviour there.
-        if !self.is_freeable_flat_value(&result.type_)
-            && crate::codegen::collection::layout::type_reaches_cycle(
-                &self.type_model,
-                &result.type_,
-            )
-            && !crate::codegen::collection::layout::type_contains_resource(
-                &self.type_model,
-                &result.type_,
-            )
-        {
+        // plan-134-D: this is the class `needs_graph_copy` defines for every owning store.
+        if self.needs_graph_copy(&result.type_) {
             let copied = self.copy_value_to_current_arena(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 origin: None,

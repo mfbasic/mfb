@@ -757,6 +757,24 @@ impl CodeBuilder<'_> {
                 text: result.text,
             });
         }
+        // plan-134-D: a recursive value is a graph `copy_flat_block` cannot copy, so an
+        // aliasing source gets an independent graph from the walker — unless this store is
+        // the source's last read (plan-134-C), when handing the same graph over is a move
+        // and nothing else can observe it.
+        if self.value_needs_owning_copy(value)
+            && self.needs_graph_copy(&result.type_)
+            && !Self::is_fresh_trapped_result_wrapper(value, &result.type_)
+            && !self.store_is_last_use(value)
+            && !self.store_is_borrowed_view()
+        {
+            let copied = self.copy_value_to_current_arena(&result.type_, &result.location)?;
+            return Ok(ValueResult {
+                origin: None,
+                type_: result.type_,
+                location: Operand::from(copied.render()),
+                text: result.text,
+            });
+        }
         // A fresh value returned unchanged becomes this owner's block; claim its
         // pending-temp registration so the statement-scope free never double-frees
         // what scope-drop (or the consuming store) now owns (plan-25).
@@ -1155,6 +1173,49 @@ impl CodeBuilder<'_> {
                 || matches!(type_, ParameterType::ResultOf(_))
                 || self.type_model.record_fields.contains_key(type_)
                 || self.union_is_data(type_))
+    }
+
+    /// plan-134-D: whether an owning store of `type_` needs the graph deep copy — a value
+    /// whose type reaches a type cycle is a pointer-linked graph `copy_flat_block` cannot
+    /// copy — and may take it: a value with a resource anywhere inside it is move-only and
+    /// keeps today's alias. The one definition every store uses (`lower_value_owned`,
+    /// `lower_returned_value`, `materialize_owned_element`).
+    pub(crate) fn needs_graph_copy(&self, type_: &ParameterType) -> bool {
+        !self.is_freeable_flat_value(type_)
+            && crate::codegen::collection::layout::type_reaches_cycle(&self.type_model, type_)
+            && !crate::codegen::collection::layout::type_contains_resource(
+                &self.type_model,
+                type_,
+            )
+    }
+
+    /// plan-134-D: whether `value`, stored by the op being lowered, is that place's last
+    /// read (plan-134-C), so the store may hand the same graph over instead of copying it.
+    /// Only a local or a field of a local can be a site; a builder with no analysis (a
+    /// synthesized function) answers no, so its stores copy.
+    pub(crate) fn store_is_last_use(&self, value: &NirValue) -> bool {
+        use crate::codegen::engine::analysis::last_use::Place;
+        let (Some(sites), Some(op)) = (self.move_sites.as_ref(), self.current_op_key) else {
+            return false;
+        };
+        let place = match value {
+            NirValue::Local(name) => Place::Local(name.clone()),
+            NirValue::MemberAccess { target, member } => match target.as_ref() {
+                NirValue::Local(name) => Place::Field(name.clone(), member.clone()),
+                _ => return false,
+            },
+            _ => return false,
+        };
+        sites.is_last_use(op, &place)
+    }
+
+    /// plan-134-D: whether the op being lowered binds a borrowed MATCH view (plan-134-C):
+    /// the bound local only inspects its source, so its bind needs no copy.
+    pub(crate) fn store_is_borrowed_view(&self) -> bool {
+        matches!(
+            (self.move_sites.as_ref(), self.current_op_key),
+            (Some(sites), Some(op)) if sites.is_borrow(op)
+        )
     }
 
     /// plan-77 M6: the static type of a closure capture, used by the closure

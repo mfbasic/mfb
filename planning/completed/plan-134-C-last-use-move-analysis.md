@@ -177,6 +177,29 @@ Commit: 7a3f67ff6
   `collect_last_use_moves`/`MoveSites` are unused between this letter's commit and D's. No
   `#[allow]` is added; letter D wires the analysis in and must show the warning gone
   (`cargo check --release --all-targets`).
+- **Reopened by plan-134-D's speed gate (2026-09-13): the analysis did not see the MATCH
+  desugar.** With D's copies in, `regex_repeat` K=1 went from a 0.27 s median to 1.80 s (RSS 345
+  MB → 3.62 GB). `-ncode` localization (plan-134-D Corrections) put the new copies at the MATCH
+  desugar's scrutinee temporary — `Bind $match5 = Local(node)` in `#regex_isSimpleNode`,
+  `Bind $match1 = Local(stack)` in `#regex_run` — and at stores through its case aliases
+  (`stack = c.nxt`, `cont = seqCont.nxt`, where `c`/`seqCont` are `UnionExtract` binds this
+  letter excluded). A parameter scrutinee is never a move, and an excluded alias never moves, so
+  every such store deep-copied: a whole AST node per matcher step and the rest of the backtrack
+  chain per pop. Extended (`src/codegen/engine/analysis/last_use.rs`), not worked around:
+  **views** (a local bound once from `x`/`x.f`, never assigned, read only as a `MATCH` scrutinee
+  or inside `UnionExtract`) and their **aliases** (bound once from `UnionExtract` of a view). An
+  owning view (its bind is a move, no alias excluded) charges its aliases' reads to itself, so
+  `c.nxt` is the view's field and can move; a borrowed view needs no copy
+  (`MoveSites::is_borrow`), charges reads to its source so the source stays live through the
+  case, and its aliases never move. Views start owning and are narrowed to a fixed point. A
+  `MATCH` whose unguarded cases name every variant of the scrutinee's declared union (or has an
+  unguarded `CASE ELSE`) has no fall-through edge — without that, `$match1 = stack` looks live
+  on a fall-through that cannot happen. New tests:
+  `collect_last_use_moves_views_of_a_match_scrutinee` (MATCH on a parameter borrows; a chain pop
+  whose cases all reassign or return moves the view and `l.next`; the same loop with one case
+  falling back borrows and moves nothing) and
+  `collect_last_use_moves_covers_the_regex_matcher_views` (`#regex_run`'s `stack = c.nxt` and
+  `cont = seqCont.nxt` move; `#regex_isSimpleNode`'s view borrows).
 
 ## Summary
 
