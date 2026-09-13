@@ -650,6 +650,10 @@ or `List OF Byte` (`Float` and `Fixed` also take an optional `Byte` second argum
 /// why it is a real-named-but-unqualified-global package and why `error` is irregular.
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("general", INTRO, DESC);
+    // `general` is the globals holder for the language: its members are called bare
+    // (`len(s)`) and a program never needs `general::`. Its man pages still group them
+    // under `general::` — that is intended (bug-607, closed NOT A BUG). See
+    // `RegistryPackage::unqualified_global`.
     pkg.mark_unqualified_global();
 
     func_error::register(&mut pkg);

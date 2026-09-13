@@ -1078,6 +1078,16 @@ pub(crate) struct RegistryPackage {
     /// documentation: `mfb man2 --all` skips such a package, because rendering a
     /// `# testing` / `testing::expect` page would advertise a spelling users cannot
     /// write. Defaults `false`; set via [`mark_unqualified_global`](Self::mark_unqualified_global).
+    ///
+    /// **`testing` and `general` are the globals holders, by design.** `testing` holds the
+    /// globals for testing; `general` holds the globals for the language. A program never
+    /// needs to write `testing::` or `general::` — the members *are* the globals and are
+    /// called bare (`expectEqual(a, b)`, `len(s)`). The package name is only their home in
+    /// the registry and their grouping in the documentation, so a `testing::expectEqual` /
+    /// `general::len` spelling on these packages' own man pages is expected, not a defect.
+    /// bug-607 reported it as one and was closed as NOT A BUG
+    /// (`bugs/skipped/bug-607-man-renders-unqualified-globals-with-package-prefix.md`);
+    /// do not re-file it.
     unqualified_global: bool,
 }
 

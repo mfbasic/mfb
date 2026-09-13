@@ -20,7 +20,7 @@ number.
 
 References (read first):
 
-- `bugs/bug-536-scope-drop-leaks-recursive-types-return-constructor-string-temps.md` —
+- `bugs/completed/bug-536-scope-drop-leaks-recursive-types-return-constructor-string-temps.md` —
   "USER DECISION (2026-09-06)" (Shape C is a plan, not a bug fix) and "Shape C is blocked on
   recursive COPY-insertion".
 - `bugs/bug-601-mut-copy-of-a-non-flat-list-aliases-its-source.md` — the recursive-type row.
