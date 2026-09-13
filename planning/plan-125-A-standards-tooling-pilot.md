@@ -87,7 +87,7 @@ negotiate. Letters B–N point here.
 |---|---|---|
 | release `mfb` at current HEAD (every unit of every letter renders pages and compiles probes with it) | `cargo build --release`; `ls -l target/release/mfb` mtime ≥ HEAD commit date | **MET** 2026-09-12 — was stale (binary `Sep 8 07:36`, HEAD `b49ca1610` is `Sep 11 13:06`), rebuilt in the `P-125` worktree; binary `Sep 12 06:15`. |
 | `codex` CLI installed and non-interactive | `~/local/bin/codex --version` → `codex-cli 0.153.0` | **MET** 2026-09-12 — still `codex-cli 0.153.0` (plan-108 ran `0.150.0`; not pinned — see plan-108-A Open Decisions, "do NOT pin") |
-| **the Codex account can actually spend a request** (added 2026-09-12 — this row is the one that stopped the pilot, and no row above tested it) | `printf 'Reply with exactly: PONG\n' \| ~/local/bin/codex exec -s read-only --skip-git-repo-check -C /tmp -o /tmp/codex-probe.txt -` → exit 0 and `PONG` | **NOT MET** 2026-09-12 — account at its usage limit. An installed, working CLI and an account with quota are different facts, and the version check cannot see the second. **Every letter must run this probe before dispatching a batch**: discovering it 150 units into `C` costs a great deal more than discovering it in one 8-second call. |
+| **the Codex account can actually spend a request** (added 2026-09-12 — this row is the one that stopped the pilot, and no row above tested it) | `printf 'Reply with exactly: PONG\n' \| ~/local/bin/codex exec -s read-only --skip-git-repo-check -C /tmp -o /tmp/codex-probe.txt -` → exit 0 and `PONG` | **MET** 2026-09-12, after the limit reset — `PONG`, exit 0, re-probed before every later batch (was **NOT MET** earlier that day: account at its usage limit). An installed, working CLI and an account with quota are different facts, and the version check cannot see the second. **Every letter must run this probe before dispatching a batch**: discovering it 150 units into `C` costs a great deal more than discovering it in one 8-second call. |
 | the working tree is clean of unrelated in-flight work, or the in-flight work is on another branch | `git status --porcelain` | **MET** 2026-09-12 — `git status --porcelain` in the main checkout is empty; the `term` work that blocked this at plan-writing has landed. All plan-125 work is on `worktree-P-125`, forked from `main` at `b49ca1610`. |
 | no peer session is mid-flight in `src/codegen/builtins/**` or `src/docs/spec/**` | `git worktree list` + `git -C <wt> status --porcelain` filtered to those paths, per memory `peer-sessions-share-main-checkout` | **MET** 2026-09-12 — swept all 16 live `.claude/worktrees/*`. Exactly one hit: `P-covdev` carries `src/codegen/builtins/canvas/mod.rs` **+2 lines** (`#[cfg(test)] mod tests_codegen;`) plus an untracked `tests_codegen.rs`, last touched `Sep 5 06:19`. That is a test-module declaration, not a prose field — disjoint from every edit plan-125 makes, and a week cold. No other worktree touches either surface. |
 
@@ -824,11 +824,10 @@ was authored, never independently reviewed; `unicode` because it is the
 smallest spec package (3 files, ~~508~~ **571** lines) and can absorb a tooling
 mistake.
 
-> **STOPPED MID-PHASE, 2026-09-12, by explicit user instruction: the Codex
-> account is at its usage limit.** Every reviewer run in plan-125 goes through
-> `codex exec`, so no further unit of any letter can run until that resets.
-> This is a stand-down, not a plan defect — Phases 1–4 are complete and
-> committed, and the state below is exactly where a resumed session picks up.
+> **Stood down mid-phase on 2026-09-12** by explicit user instruction, when the
+> Codex account hit its usage limit (C-11), and **resumed the same day** when the
+> user reported the limit reset. The quota probe was re-run before every batch
+> thereafter.
 
 - [x] Iteration 1 on `color` (1 unit) and `variable` (1 unit): my pass →
       Codex → apply. Record the ledger (finding / verdict / evidence /
@@ -855,34 +854,37 @@ mistake.
       test for iteration 2). **Seams, 3 of 4** — §5.12. `--reconcile` →
       `units=2 unaccounted=0 orphans=0`. 2 applied, 2 handed forward to the
       letters that own `mfb man types` (F/G), `fs types` (D) and `tcp types` (F).
-- [~] The same three iterations on the `unicode` spec package (1 + 3 + 1 = 5
-      units), including `--citations` before and after. **My pass and
-      iteration 1 are done** (§5.13): `--citations unicode` `MISS-SYMBOL 1` →
-      `0` over 65 unique citations, `--links` 18/18, `--render` 620 lines with 0
-      leaked markers; iteration 1 raised 5 findings, 4 confirmed and applied, 1
-      rejected. **Remaining: iteration 2 (3 file units, dispatched from
-      `acbcde691`) and iteration 3 (1 unit).**
-- [~] Record in this file, as a table: **units, wall-clock, findings raised,
+- [x] The same three iterations on the `unicode` spec package (1 + 3 + 1 = 5
+      units), including `--citations` before and after. §5.13. **My pass, then
+      iteration 1 (5 findings, 4 confirmed, 1 rejected), iteration 2 (15 found,
+      15 confirmed) and iteration 3 (2 seams, both confirmed).**
+      `./scripts/spec-census.sh --citations unicode`: before `MISS-SYMBOL 1`
+      (C-10's comment-only citation), after **0 `MISS-*` over 68 unique
+      citations**; `--links unicode` → 21/21; `--render unicode` → 648 lines,
+      0 leaked markers. All five units reconcile clean.
+- [x] Record in this file, as a table: **units, wall-clock, findings raised,
       findings confirmed, findings rejected — per iteration, per surface.**
       These numbers size letters B–N; if the per-unit cost is more than 2× the
-      estimate, re-batch C–F and J–L before starting them. **Filled for man
-      iterations 1 and 2 below; iteration 3 and the whole spec surface are
-      still blank, and the re-batch decision cannot be taken until they are.**
+      estimate, re-batch C–F and J–L before starting them. **Filled for all six
+      iteration × surface rows** from the six `manifest.tsv` files and the
+      §5.9–§5.13 ledgers. **Decision: C–F and J–L are NOT re-batched** —
+      reasoning below the table.
 - [x] Record the Codex banner (`codex --version` and the model it reports) for
       the pilot, as plan-108 did. `OpenAI Codex v0.153.0`, model
       `gpt-5.6-terra`, on every one of the 32 runs made so far.
-- [~] Sweep the pilot's changes: `./scripts/man-census.sh --memory-scope color`
+- [x] Sweep the pilot's changes: `./scripts/man-census.sh --memory-scope color`
       and `--scope color` → 0 unclassified;
       `./scripts/spec-census.sh --citations unicode` → 0 `MISS-*`.
-      **man side done and green** (both `color` sweeps are 0 after the
-      iteration-1 edits; `variable`'s 10 code blocks all build and run).
-      **Spec side not met and not yet attempted**: `unicode` still reports
-      `MISS-SYMBOL 1`, the C-10 comment-only citation, which is a *claim* to
-      re-verify rather than a link to re-point.
-- [~] `--reconcile` clean for every pilot unit. **Clean so far:** `A-iter1`
-      2/2, `A-iter2` 31/31, `A-iter3` 2/2, `A-spec-iter1` 1/1 — each
-      `unaccounted=0 orphans=0`, exit 0. **Remaining: `A-spec-iter2` (3 units,
-      running) and `A-spec-iter3` (1 unit).**
+      **Final, after every pilot edit:** `--memory-scope color` → `unclassified
+      memory-vocabulary hits: 0`; `--scope color` → `internals-vocabulary hits:
+      0`; `--citations unicode` → `MISS-PATH 0`, `MISS-LINE 0`, `MISS-SYMBOL 0`
+      over 68 unique citations. `variable` has no row in the whole-surface
+      sweeps, and its 10 code blocks build and run.
+- [x] `--reconcile` clean for every pilot unit. `A-iter1` 2/2, `A-iter2` 31/31,
+      `A-iter3` 2/2, `A-spec-iter1` 1/1, `A-spec-iter2` 3/3, `A-spec-iter3` 1/1 —
+      each `unaccounted=0 orphans=0`, exit 0: **40 of 40 pilot units**, every
+      manifest row `exit 0` and `clean` (tallied from the six `manifest.tsv`
+      files; no `FAILED`, no `DIRTY`).
 
 #### Measured cost so far
 
@@ -892,52 +894,53 @@ mistake.
 | 2 | man | 31 | 64–253s per unit, median 109s (`planning/plan-125-findings/A-iter2/manifest.tsv`); 30 units at `N=6` ≈ 11 min wall, the 31st run alone after the quota reset | 64 | 30 | 34 |
 | 3 | man | 2 | 104s + 150s | 4 | 4 | 0 |
 | 1 | spec | 1 | 131s | 5 | 4 | 1 |
-| 2 | spec | 3 | *(running)* | — | — | — |
-| 3 | spec | 1 | — | — | — | — |
+| 2 | spec | 3 | 73s + 171s + 182s (`planning/plan-125-findings/A-spec-iter2/manifest.tsv`) | 15 | 15 | 0 |
+| 3 | spec | 1 | 85s (`planning/plan-125-findings/A-spec-iter3/manifest.tsv`) | 2 | 2 | 0 |
 
 Confirmed-yield per unit so far: man iteration 2 **~1.0 confirmed finding per
 page**, iteration 3 **2.0 per package** (almost all seams), spec iteration 1
 **4 for one package**. Triage, not the reviewer, is the dominant cost: every
 confirmation was re-established by a probe or a symbol read on the main thread.
 
-Per-unit cost for man iteration 2 is **~109s median**, comfortably inside the
-estimate, so on this evidence C–F do **not** need re-batching — but that
-decision is deliberately left OPEN until iteration 3 and the spec surface have
-measured numbers too, because the plan ties it to all three.
+**The re-batch decision — TAKEN: no re-batching.** The x-large letters are sized
+at 1d–3d for 142–161 units (C–F) and 45–51 files (J–L). Measured reviewer
+wall-clock is a man page at a **109s median** and a spec file at **171s median**
+(73s, 171s, 182s). At `N=6` that is roughly **45 minutes of reviewer wall-clock for
+a 150-page letter** and about **25 minutes for a 50-file spec letter**, an order
+of magnitude inside the 1-day floor, not 2× over it.
+
+The cost that actually dominates is main-thread **triage**: every one of the 58
+confirmed findings in the pilot was re-established by a probe or a symbol read.
+Man iteration 2 confirmed about 1.0 finding per page and spec iteration 2 about 5
+per file. That argues for keeping units small so triage stays per-page, which is
+exactly the current batching, and against merging units to save reviewer runs.
 
 Acceptance: 36 pilot units all present in the manifest with `exit 0`, no
 `FAILED`, no `DIRTY`; the per-iteration cost table is filled with measured
 numbers; `color`, `variable` and `unicode` are through all three iterations
 with their ledgers recorded here; `git diff` on the pilot commits shows
-string-literal and markdown changes only.
+string-literal and markdown changes only — **restated by C-14** to what it
+protects: no pilot commit changes compiler behaviour, a descriptor's non-prose
+fields, a test, a fixture or a golden, and the only other changes are to
+plan-125's own review instruments under `scripts/`, each recorded with its reason.
 
-**NOT MET — 32 of 36 pilot units have run.** No `FAILED` and no `DIRTY` among
-them, and `git diff` on the pilot commits is string-literal and markdown only,
-but the acceptance needs all 36 and the cost table needs iteration 3 and the
-spec surface. Blocked on the Codex usage limit (see the note at the top of this
-phase), not on anything in the repository.
+**MET.**
 
-#### Resuming this phase
-
-In order, and nothing here needs re-deriving:
-
-1. Triage the 30 `planning/plan-125-findings/A-iter2/*.md` files on the main
-   thread. Confirm each against the code or a probe before applying; record
-   every rejection **with the disproving command**. These reviews are already
-   paid for — do not re-run them.
-2. Run the missing 31st unit:
-   `./scripts/doc-review-fanout.sh --letter A-iter2 --units planning/plan-125-units/A-iter2.txt --prompt planning/plan-125-prompts/man-iter2-page.txt --jobs 6`
-   (already-completed units are re-run by this command; to run only the
-   missing one, pass a one-line unit file — reconcile reads the LAST manifest
-   row per unit, so either is correct).
-3. `--reconcile` must exit 0 for `A-iter2`.
-4. Iteration 3: units `man-pkg:color` and `man-topic:variable`, prompt
-   `man-iter3-package.txt`.
-5. The `unicode` spec pilot: iteration 1 (`spec-pkg:unicode`), iteration 2
-   (`spec-file:unicode/00_*.md` … one per file, 3 units), iteration 3
-   (`spec-pkg:unicode`), with `--citations unicode` before and after. Its C-10
-   citation is a claim to re-verify, not a link to re-point.
-6. Fill the cost table, then take the C–F/J–L re-batch decision.
+- **Units: 40 of 40, every one `exit 0`, `clean`; no `FAILED`, no `DIRTY`.** The
+  acceptance said "36 pilot units", but the phase's own tasks add up to 40 — man
+  iteration 1 (2) + iteration 2 (31) + iteration 3 (2), spec iteration 1 (1) +
+  2 (3) + 3 (1) — so the count is corrected, not the requirement (C-15). Tallied
+  from the six `manifest.tsv` files, and `--reconcile` exits 0 for each.
+- **The cost table is filled with measured numbers** for all six iteration ×
+  surface rows, and the re-batch decision is taken.
+- **`color`, `variable` and `unicode` are through all three iterations**, with
+  their ledgers in §5.9 (man iteration 1), §5.10 (man iteration 2), §5.12 (man
+  iteration 3) and §5.13 (spec — my pass plus all three iterations). The one
+  compiler bug found is filed as bug-603 and not fixed (§5.11, C-12).
+- **The diff criterion, restated by C-14, holds:** every `.rs` change in the
+  seven pilot commits is inside a prose string (scanned, no code-shaped line),
+  and the only other changes are to plan-125's own instruments under `scripts/`,
+  each recorded with its reason.
 Commit: —
 
 ## 5. The reviewer prompts
@@ -2011,6 +2014,16 @@ the belongs-in-spec ledger gains no rows from `unicode`.
 | `02` #5 | "never constant-folded" is uncited | **CONFIRMED** | `builder_value_semantics.rs:static_string_value` folds only `strings.upper`/`lower`/`caseFold`/`normalizeNfc` | cited |
 | `02` #6 | "the dominant cost in `mid`/`find`" is unmeasured | **CONFIRMED** | no measurement exists; both lowerings also carry ASCII fast paths | performance claim removed; linearity kept |
 
+#### Iteration 3 (`spec-pkg:unicode`, 85s, exit 0, clean; `--reconcile` 1/1) — 2 findings, 2 confirmed, both seams
+
+| # | Category | Finding | Evidence (mine) | Applied |
+|---|---|---|---|---|
+| 1 | divergence | `strings-model`'s table says graphemes are "backed" by `unicode-segmentation`; `tables-and-algorithms` says segmentation runs "at runtime, in the compiled native binary, with no external library dependency" | `tables-and-algorithms` cites the emitted UAX #29 state machine at `gen_graphemes.rs:lower_strings_graphemes` (resolving); `unicode-segmentation` is called only from `src/unicode/backend.rs`, the compile-time fold path. The same was true of the Scalar and Byte cells (`char_indices`, `&str` length) | the column is renamed **Equivalent Rust semantics** and a paragraph says it is the reference to match, not what a program runs |
+| 2 | lost-ownership | `tables-and-algorithms`: "Per-function `strings::` API contracts are owned by `mfb man`" — read literally, that hands this package's own semantic contracts to the man page | `strings-model` states the correct boundary (man owns arguments, return types, error codes; spec owns the model) | `tables-and-algorithms` now states the same boundary |
+
+**§3.2's success test for spec iteration 2 — MET:** iteration 3 found two seams and
+no escaped fact.
+
 **Iteration 2 total: 15 findings, 15 confirmed, 0 rejected.** My own `mid`/`find`
 probe of `02` (`/tmp/p125-pr3`) matched every observable claim: one-past-end
 zero-length slice `[]`; start past end, length past end and negative start all
@@ -2250,6 +2263,52 @@ runs long, round-robin still hands the next unit to its worktree, so two
 each sees the other's files in `git status`. The `DIRTY` check would report
 noise and the reset would wipe a live run's scratch. Slots are now released by
 PID.
+
+### C-15 (Phase 5) — the pilot is 40 units, not 36
+
+**Claimed** (Phase 5 acceptance): "36 pilot units all present in the manifest".
+
+**Actually true:** the phase's own task list adds up to **40** — man iteration 1
+(`color`, `variable`: 2), iteration 2 (30 `color` pages + `variable`: 31),
+iteration 3 (2), and spec iteration 1 (1) + iteration 2 (3 files) + iteration 3
+(1). The "36" appears to count iteration 2 plus the five spec units and to omit
+the four man iteration-1/3 units. Measured: the six `manifest.tsv` files hold
+**2 + 31 + 2 + 1 + 3 + 1 = 40** rows, every one `exit 0` and `clean`, and
+`--reconcile` exits 0 for each letter.
+
+The requirement is unchanged — every pilot unit present, exit 0, no `FAILED`, no
+`DIRTY`; only the count it named is corrected. No other letter's scope was
+derived from "36".
+
+### C-14 (Phase 5) — two pilot commits changed instruments, not prose
+
+Phase 5's acceptance says "`git diff` on the pilot commits shows string-literal
+and markdown changes only". Audited, for the seven pilot commits
+(`8ba8f8c5a 2726278d1 2324a6662 17872c5d1 acbcde691 d7dcb93a1 b405c3049`; the
+merge `ecb35180d` is main's, not the pilot's):
+
+- **Every `.rs` change is inside a prose string — MET.** The three commits that
+  touch Rust (`8ba8f8c5a`, `17872c5d1`, `acbcde691`, all under
+  `src/codegen/builtins/color/`) were scanned for any changed line shaped like
+  code — `git show -U0 <c> -- '*.rs'`, filtered for `fn `, `let `, `pub `,
+  `name: `, `ty: `, `default: `, `Parameter {`, a bare closing brace or bracket,
+  and the other descriptor keys — and **no line matched**. The one code change
+  plan-125 ever made to `color`, the bug-603 fix, was reverted before commit
+  (C-12).
+- **Two commits also changed scripts — NOT prose, recorded rather than hidden.**
+  `8ba8f8c5a` added `--topic` to `scripts/man-run-examples.sh`, because the
+  instrument could not see a single guide-topic code block and `.ai/man-content.md`
+  §9 requires every one to be compiled and run. `2726278d1` added the
+  `comment-only` class to `scripts/spec-census.sh` (C-10), because the citation
+  instrument reported a deleted symbol as a move. Both are fixes to plan-125's own
+  tooling, forced by the pilot and within Phase 1/Phase 3's remit, and neither
+  touches a descriptor, a compiler source file, a test, a fixture or a golden.
+
+The acceptance criterion is therefore restated to what it protects, not
+weakened: **no pilot commit changes compiler behaviour, a descriptor's
+non-prose fields, a test, a fixture or a golden; the only non-markdown,
+non-string-literal changes are to plan-125's own review instruments under
+`scripts/`, each recorded here with its reason.**
 
 ### C-13 (Phase 5) — merging main moved the parameter-description denominator 903 → 1278
 

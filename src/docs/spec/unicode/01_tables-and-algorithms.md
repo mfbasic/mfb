@@ -30,8 +30,10 @@ utf8proc; the NFD and case-mapping tables are generated through those Rust crate
 (next section). [[src/codegen/string/unicode_props.rs:emit_unicode_property_lookup]]
 
 The string memory model these routines operate on (UTF-8 length-prefixed heap
-values) is `./mfb spec unicode strings-model`. Per-function `strings::` API
-contracts are owned by `mfb man`.
+values) is `./mfb spec unicode strings-model`. `mfb man strings` owns how each
+`strings::` function is called (arguments, return type, error codes); this package
+owns the runtime model and the semantic contracts a faithful reimplementation must
+reproduce.
 
 ## Pinned general-category and Script tables
 

@@ -12,11 +12,19 @@ semantics* a faithful reimplementation must reproduce.
 
 ## Three indexing units
 
-| Unit | Definition | Backing | Used by |
+| Unit | Definition | Equivalent Rust semantics | Used by |
 | --- | --- | --- | --- |
 | Scalar | One Unicode scalar value (Rust `char`, a single code point) | `char_indices` / `chars().count()` | `mid` (start + length), `find` (start + return), `toScalars`, `len` |
 | Grapheme | One user-perceived character (extended grapheme cluster) | `unicode-segmentation` | `graphemes`, `graphemesCount`, `graphemeAt` |
 | Byte | One UTF-8 code unit | `&str` length | `byteLen`, raw slice bounds |
+
+The third column names the Rust operation whose result each unit must match —
+it is the reference a faithful reimplementation reproduces, **not** what a compiled
+program runs. At run time every unit is computed by emitted native code over the
+embedded tables (grapheme segmentation is the UAX #29 state machine in
+`./mfb spec unicode tables-and-algorithms`); `unicode-segmentation` runs only on
+the compile-time fold path, for a statically known argument.
+[[src/codegen/builtins/strings/gen_graphemes.rs:lower_strings_graphemes]]
 
 Scalar and grapheme indices differ whenever a cluster spans multiple scalars: a
 combining sequence (`"a\u{301}"` = 2 scalars, 1 grapheme), a ZWJ emoji sequence
