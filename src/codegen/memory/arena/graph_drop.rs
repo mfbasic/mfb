@@ -57,6 +57,20 @@ pub(crate) const GRAPH_DROP_SYMBOL: &str = "_mfb_rt_graph_drop";
 /// The test hook's environment variable (see the module comment).
 const TEST_GRAPH_DROP_ENV: &str = "MFB_TEST_GRAPH_DROP";
 
+/// plan-134-G: how a construction store writes the value it is given
+/// (`CodeBuilder::lower_value_stored` and its siblings).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StoreShape {
+    /// A collection payload: a pointer word for a collection/`Result`/`Error` payload, the
+    /// block's bytes for a record or union payload (`payload_edge_shape`).
+    Payload,
+    /// The value's pointer is kept: a record field (a recursive field is never inlined) or a
+    /// resource `STATE`.
+    Pointer,
+    /// The value's block is byte-copied: a variant record wrapped into a union.
+    Inline,
+}
+
 /// The local names `MFB_TEST_GRAPH_DROP` lists, read once per compiler process.
 fn test_graph_drop_locals() -> &'static [String] {
     static LOCALS: OnceLock<Vec<String>> = OnceLock::new();
@@ -75,6 +89,70 @@ fn test_graph_drop_locals() -> &'static [String] {
 }
 
 impl CodeBuilder<'_> {
+    /// The walker kind a value of `type_` is dropped with: its index in
+    /// `recursive_transfer_types`, for a resource-free type that takes part in a cycle.
+    /// `None` for every other type — including a type that only reaches a cycle, which has no
+    /// kind of its own yet (plan-134-H).
+    pub(crate) fn graph_drop_kind(&self, type_: &ParameterType) -> Option<usize> {
+        if !type_participates_in_cycle(&self.type_model, type_)
+            || type_contains_resource(&self.type_model, type_)
+        {
+            return None;
+        }
+        let rendered = type_.name();
+        recursive_transfer_types(&self.type_model)
+            .iter()
+            .position(|kind| kind.as_str() == rendered.as_ref())
+    }
+
+    /// plan-134-G: drop the recursive value whose pointer is in `slot` through the walker, then
+    /// zero the slot — null-guarded and free-and-null, like the flat drop (bug-440).
+    pub(crate) fn emit_graph_value_drop(
+        &mut self,
+        type_: &ParameterType,
+        slot: usize,
+    ) -> Result<(), String> {
+        let kind = self
+            .graph_drop_kind(type_)
+            .ok_or_else(|| format!("the graph drop has no kind for '{type_}'"))?;
+        let skip = self.label("graph_value_drop_skip");
+        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), slot));
+        self.emit(abi::compare_immediate(abi::c_arg(1), "0"));
+        self.emit(abi::branch_eq(&skip));
+        self.emit(abi::move_immediate(
+            abi::c_arg(0),
+            "Integer",
+            &kind.to_string(),
+        ));
+        self.emit_symbol_call(GRAPH_DROP_SYMBOL);
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+        self.emit(abi::label(&skip));
+        Ok(())
+    }
+
+    /// plan-134-G: free only the block whose pointer is in `slot` — a recursive record or union
+    /// whose bytes a store copied, so the graph it points into now belongs to that store's
+    /// owner. Null-guarded and free-and-null.
+    pub(crate) fn emit_shallow_block_free(
+        &mut self,
+        type_: &ParameterType,
+        slot: usize,
+    ) -> Result<(), String> {
+        let skip = self.label("shallow_block_free_skip");
+        let pointer = self.temporary_vreg();
+        self.emit(abi::load_u64(&pointer, abi::stack_pointer(), slot));
+        self.emit(abi::compare_immediate(&pointer, "0"));
+        self.emit(abi::branch_eq(&skip));
+        let size_slot = self.allocate_stack_object("shallow_block_size", 8);
+        self.emit_inlined_block_size_from_ptr_slot(type_, slot, size_slot)?;
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), slot));
+        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
+        self.emit_arena_free_call();
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+        self.emit(abi::label(&skip));
+        Ok(())
+    }
+
     /// The test hook, after a `LET` or assignment of local `name` (see the module comment).
     pub(crate) fn emit_test_graph_drop_hook(&mut self, name: &str) -> Result<(), String> {
         if !test_graph_drop_locals().iter().any(|local| local == name) {
@@ -87,16 +165,9 @@ impl CodeBuilder<'_> {
             return Ok(());
         }
         let type_ = local.type_.clone();
-        if !type_participates_in_cycle(&self.type_model, &type_)
-            || type_contains_resource(&self.type_model, &type_)
-        {
+        let Some(kind) = self.graph_drop_kind(&type_) else {
             return Ok(());
-        }
-        let rendered = type_.name();
-        let kind = recursive_transfer_types(&self.type_model)
-            .iter()
-            .position(|kind| kind.as_str() == rendered.as_ref())
-            .ok_or_else(|| format!("{TEST_GRAPH_DROP_ENV}: recursive type '{type_}' has no kind"))?;
+        };
         let value = self.lower_value(&NirValue::Local(name.to_string()))?;
         let slot = self.allocate_stack_object("graph_drop_hook_copy", 8);
         let absent = self.label("graph_drop_hook_absent");

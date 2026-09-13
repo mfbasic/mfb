@@ -706,7 +706,7 @@ impl CodeBuilder<'_> {
                 ));
             };
             // plan-134-E: the updated value is stored into the rebuilt record.
-            let value = self.lower_value_stored(&update.value)?;
+            let value = self.lower_value_stored_field(&update.value)?;
             // Observation boundary: a `Float` field updated via WITH must be
             // finite (plan-17).
             self.observe_float(&update.value, &value)?;
@@ -739,6 +739,14 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_registers(field, base, field));
             }
             self.emit(abi::store_u64(field, abi::stack_pointer(), slot));
+            // plan-134-G: a kept recursive field points at a graph the target still owns and
+            // frees, so the rebuilt record gets its own copy rather than sharing it.
+            if self.owns_graph(field_type) {
+                let old = self.temporary_vreg();
+                self.emit(abi::load_u64(&old, abi::stack_pointer(), slot));
+                let copied = self.copy_value_to_current_arena(field_type, &old)?;
+                self.emit(abi::store_u64(&copied, abi::stack_pointer(), slot));
+            }
             field_slots.push(slot);
         }
         let register = self.emit_build_inlined_record(type_, &field_slots)?;

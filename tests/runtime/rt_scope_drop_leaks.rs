@@ -5990,16 +5990,31 @@ SUB main()
 END SUB
 "#;
 
-/// An unbound recursive temporary: `json::parse`'s result consumed by `stringify` inside
-/// one expression, freed at the end of the statement.
+/// An unbound recursive temporary: a function's fresh result consumed as another call's
+/// argument inside one expression, freed at the end of the statement. (The
+/// `len(json::stringify(json::parse(t)))` form of this case belongs to plan-134-H: a
+/// `--debug` build leaks the same 2 912 B per iteration whether `json::parse`'s result is
+/// bound or unbound — blocks left inside json's list-building helpers, not the temp.)
 const SHAPE_C_UNBOUND_TEMP: &str = r#"IMPORT io
-IMPORT json
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+FUNC mk(t AS Integer) AS Node
+  RETURN Node[kids := [Node[kids := [], tag := t]], tag := t]
+END FUNC
+FUNC total(n AS Node) AS Integer
+  MUT sum AS Integer = n.tag
+  FOR EACH k IN n.kids
+    sum = sum + total(k)
+  NEXT
+  RETURN sum
+END FUNC
 SUB main()
-  LET t AS String = "[1,{\u{22}a\u{22}:[2,3]}]"
   MUT acc AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < {N}
-    acc = acc + len(json::stringify(json::parse(t)))
+    acc = acc + total(mk(i))
     i = i + 1
   END WHILE
   io::print("acc=" & toString(acc))

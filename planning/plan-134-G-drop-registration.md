@@ -177,13 +177,34 @@ Commit: —
 
 ### Phase 2 — registration
 
-- [ ] `owns_graph`; change each ownership gate from the table.
-- [ ] `emit_owned_value_drop` dispatch to `_mfb_rt_graph_drop`.
-- [ ] Move-site deactivation in the store lowering (plan-134-C/D sites).
-- [ ] `MATCH` fresh-temp lifetime as verified.
-- [ ] Tests: Phase 1 leak cases pass; every B–F runtime test passes; add a `--debug` churn case to
+- [x] `owns_graph`; change each ownership gate from the table. — `builder_values.rs::owns_graph`
+      (`needs_graph_copy` with a walker kind). ORed into six gates:
+      - `Bind` `owns_freeable_value`, which also excludes a borrowed `MATCH` view;
+      - the `Assign` old-value free;
+      - the `StoreGlobal` old-value free;
+      - `pending_temp_is_freeable`;
+      - `runtime_result_is_caller_owned`;
+      - the `emit_closure_drop` capture free.
+
+      Row 7 is deferred to H (Corrections).
+- [x] `emit_owned_value_drop` dispatch to `_mfb_rt_graph_drop`. — `emit_graph_value_drop`
+      (`graph_drop.rs`): null-guarded walker call, then the slot is zeroed.
+- [x] Move-site deactivation in the store lowering (plan-134-C/D sites). — `release_moved_source`
+      zeroes the moved local's slot or record field word, and `move_source_is_owned` gates every
+      move. Also the shallow frees for byte-copying stores and the `WITH` kept-field copy
+      (Corrections).
+- [x] `MATCH` fresh-temp lifetime as verified. — No change needed (§2.2). A `MATCH` over a
+      parameter needed the borrowed-view bind exclusion instead (Corrections). Exercised by the
+      churn case's `weigh(t)` and `/tmp/p134-g-variants.sh` (5/5 exit 0; `--debug`
+      `live_bytes 0`, `double_free_skips 0`).
+- [x] Tests: Phase 1 leak cases pass; every B–F runtime test passes; add a `--debug` churn case to
       `rt_recursive_value_copies.rs` asserting `double_free_skips = 0` and unchanged output over
-      20 000 iterations of every store shape.
+      20 000 iterations of every store shape. —
+      `every_recursive_store_shape_frees_once_under_churn`: fresh bind, copy, inline-payload
+      moves, global overwrite, `WITH`, `get`, returned field, in-place appends, unbound temp,
+      union wrap with `MATCH` over a parameter, and closure capture. It expects `acc=1340000`
+      (67 per iteration, derived per line in the test's doc comment) and
+      `double_free_skips 0`.
 
 Acceptance: the shape-C repros are flat and no value or churn test changes.
   Check: `cargo test --release --test rt_scope_drop_leaks --test rt_recursive_value_copies
@@ -191,6 +212,16 @@ Acceptance: the shape-C repros are flat and no value or churn test changes.
   --test rt_recursive_value_copy_depth --test rt_error_value_copies` → passed (est. 12 min:
   `rt_scope_drop_leaks` is 118 RSS cases and is the only suite that sees a leak or a freed-flat
   regression).
+  Result (one binary):
+
+  | suite | passed |
+  |---|---|
+  | `rt_scope_drop_leaks` | 125 / 125 (118 existing + 7 shape-C) |
+  | `rt_recursive_value_copies` | 3 / 3 |
+  | `rt_recursive_value_construction_copies` | 4 / 4 |
+  | `rt_recursive_value_drop_symmetry` | 6 / 6 |
+  | `rt_recursive_value_copy_depth` | 3 / 3 |
+  | `rt_error_value_copies` | 1 / 1 |
 Commit: —
 
 ### Phase 3 — measurements and goldens
@@ -228,6 +259,62 @@ Commit: —
   read (§2.2) finds the statement-scope free already runs after the whole op. Phase 2's task
   is therefore a test that a fresh recursive scrutinee is read correctly in every arm under
   churn, not a code change.
+- **§2.1 row 7 (`free_intermediate_collection`) is deferred to plan-134-H, not changed here.**
+  Its callers (`list_mutate.rs` removeAt, `func_set.rs`, `func_insert.rs`, `gen_mutate.rs`,
+  `func_sort*.rs`, `func_group_by.rs`, `func_partition.rs`) free the intermediate INSIDE the
+  builtin's lowering. That is before `own_collection_payload_edges` (plan-134-E, hooked at
+  `try_abi_inline_lower`) deep-copies the result's element edges. A graph drop there would free
+  the element graphs the result still points at. It stays flat-only, so the intermediate leaks
+  as today; H owns element frees. Ownership gates changed in G: 6.
+- **"Moves deactivate" is not enough: a store that byte-copies a recursive value shares its
+  children.** §3 treats every store as keeping the value's pointer. Three store shapes copy the
+  top block's BYTES instead:
+  - a record or union collection payload (`payload_edge_shape` → `InlineRecord`/`InlineUnion`:
+    list/map/set literals, every in-place item store);
+  - a union wrap (`emit_wrap_record_in_union` byte-copies the variant record at +16);
+  - `WITH`'s kept fields (`lower_with_update` copies each untouched field's word, so a kept
+    recursive pointer field is shared by the old and the rebuilt record).
+
+  Freeing the source's graph after any of these frees the new owner's children. Remedies:
+  - **Store shapes.** `lower_value_stored` becomes `StoreShape`-aware (`graph_drop.rs`):
+    `Pointer` for a constructor argument, a `WITH` update and a `STATE` replacement;
+    `Inline` for a union wrap; `Payload` classified by `payload_edge_shape`.
+  - **Fresh values.** A pointer store claims the pending temp. An inline store makes it
+    `shallow` (`PendingTemp::shallow` → `emit_shallow_block_free` frees only the top block).
+  - **Last read of an owning place.** `release_moved_source` zeroes the local's slot, or the
+    record's pointer-field word, which every drop skips. An inline store also registers a
+    shallow free of the copied block.
+  - **Other aliasing sources.** Copied as in plan-134-E; an inline store shallow-frees the
+    copy's top block.
+  - **`WITH`.** A kept `owns_graph` pointer field is copied into the rebuilt record.
+- **A move must come from an owner.** `store_is_last_use` now also requires
+  `move_source_is_owned`: the place's root local has a live `OwnedValue` at its slot, and a field
+  place names a record pointer field. A `MATCH` view (an alias into its union) or a by-ref local
+  owns nothing, so handing its pointer to an owner would free an interior pointer. Such a store
+  copies instead, a codegen change from plan-134-D/E for those sites.
+- **The unbound-temp case is a user type; its json form moves to plan-134-H.** §1 names the case
+  "`len(json::stringify(json::parse(t)))`-style". After Phase 2 that program no longer crashes
+  but still grows 643 MB (400k → 800k). A `--debug` split shows the growth is not the temp:
+  - unbound `len(json::stringify(json::parse(t)))`, 1 000 iterations → `live_bytes 2912000`;
+  - bound `LET v AS json::Json = json::parse(t)` → the same `2912000` (82 003 allocs, 48 003
+    frees);
+  - user-type unbound temp `total(mk(i))` → `live_bytes 0` (5 002 allocs, 5 002 frees).
+
+  The 34 blocks per iteration are left inside json's list-building helpers, which §1's
+  non-goals assign to letter H ("list-heavy decoders are not yet flat"). The G case now uses the
+  user-type form, same test name. The json form is a new plan-134-H Phase 1 task with these
+  numbers.
+- **A borrowed `MATCH` view's bind is a non-owner §2.2 missed.** `MATCH t` over a parameter
+  lowers to `bind $match0 local t` before the `match` op (`-nir` of a `weigh(t AS Tree)`
+  probe). plan-134-C marks that bind a borrowed view, so `lower_value_owned` skips the graph
+  copy and `$match0` holds the caller's graph. The widened `owns_freeable_value` registered a
+  graph drop on it, and `weigh` freed the caller's tree. The caller's own drop then walked
+  garbage: SIGSEGV at exit after correct output, in 4 of 5 variants (`/tmp/p134-g-variants.sh`;
+  `_mfb_fn_weigh` relocated to `_mfb_rt_graph_drop`). Fix: `borrowed_graph_view`
+  (`owns_graph && store_is_borrowed_view`) is excluded from `owns_freeable_value`.
+- **`lower_returned_value`'s recursive param-borrow shortcut relied on "a recursive local owns no
+  `OwnedValue` cleanup".** That is false after this letter, so it now uses the flat branch's
+  `owns_block` guard.
 
 ## Summary
 

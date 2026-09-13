@@ -248,10 +248,22 @@ impl CodeBuilder<'_> {
             if self.needs_graph_copy(&lowered.type_) && !self.store_is_last_use(value) {
                 // The same parameter-passthrough borrow as the flat branch above: the
                 // caller copies at its own owning store, so copying here too would be a
-                // second copy. A recursive local owns no `OwnedValue` cleanup, so any
-                // bare local in a borrow function is the caller's argument.
-                if self.current_returns_param_borrow && matches!(value, NirValue::Local(_)) {
-                    return Ok((lowered, true));
+                // second copy. plan-134-G: and with the flat branch's guard — a recursive
+                // local now owns an `OwnedValue` cleanup, so only a local that owns no
+                // block is the caller's argument.
+                if self.current_returns_param_borrow {
+                    if let NirValue::Local(name) = value {
+                        let owns_block = self.locals.get(name).is_some_and(|local| {
+                            let stack_offset = local.stack_offset;
+                            self.active_cleanups.iter().any(|cleanup| {
+                                matches!(cleanup, ActiveCleanup::OwnedValue(c)
+                                    if c.stack_offset == stack_offset)
+                            })
+                        });
+                        if !owns_block {
+                            return Ok((lowered, true));
+                        }
+                    }
                 }
                 let copied = self.copy_value_to_current_arena(&lowered.type_, &lowered.location)?;
                 return Ok((
@@ -263,6 +275,10 @@ impl CodeBuilder<'_> {
                     },
                     true,
                 ));
+            }
+            // plan-134-G: a return that is the owning source's last read moves the graph out.
+            if self.owns_graph(&lowered.type_) && self.store_is_last_use(value) {
+                self.release_moved_source(value, &lowered, false)?;
             }
             return Ok((lowered, false));
         }

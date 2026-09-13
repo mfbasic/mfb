@@ -586,12 +586,18 @@ impl CodeBuilder<'_> {
                         let is_borrow_get = self.borrow_get_locals.contains(name)
                             && self.is_freeable_flat_value(type_)
                             && !matches!(type_, ParameterType::String);
+                        // plan-134-G: a recursive value's owner frees its graph — except a
+                        // borrowed `MATCH` view (plan-134-C), whose bind skips the graph copy
+                        // and so holds its source's graph without owning it.
+                        let borrowed_graph_view =
+                            self.owns_graph(type_) && self.store_is_borrowed_view();
                         let owns_freeable_value = !aliases_union_variant
                             && !by_ref_capture_slot
                             && !runtime_managed
                             && !promote_vector
                             && !is_borrow_get
-                            && self.is_freeable_flat_value(type_);
+                            && !borrowed_graph_view
+                            && (self.is_freeable_flat_value(type_) || self.owns_graph(type_));
                         // bug-593: the `$trap_resN : Result OF T = CallResult(..)` an
                         // inline `TRAP` binds is a `{tag, size, payload}` block THIS
                         // frame allocated (`fresh_trapped_result_value` is its only
@@ -991,7 +997,7 @@ impl CodeBuilder<'_> {
                         // call). `lower_value_owned` deep-copied any aliasing source,
                         // so the new block never aliases the freed one — the free is
                         // sound and once-only.
-                        if self.is_freeable_flat_value(&value_type) {
+                        if self.is_freeable_flat_value(&value_type) || self.owns_graph(&value_type) {
                             let new_slot = self.allocate_stack_object("store_global_new", 8);
                             self.emit(abi::store_u64(
                                 &result.location,
@@ -1192,7 +1198,8 @@ impl CodeBuilder<'_> {
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)
                             } else if !by_ref
-                                && self.is_freeable_flat_value(&result.type_)
+                                && (self.is_freeable_flat_value(&result.type_)
+                                    || self.owns_graph(&result.type_))
                                 && !self.for_each_iterable_locals.iter().any(|n| n == name)
                                 // bug-430: a live `FOR EACH x IN name.field` holds an
                                 // alias into this record's block; freeing the block
@@ -1330,7 +1337,7 @@ impl CodeBuilder<'_> {
                         // (plan-74). Concrete resources address their record directly.
                         let resource_type = local.type_.clone();
                         // plan-134-E: the replacement is stored into the resource.
-                        let result = self.lower_value_stored(value)?;
+                        let result = self.lower_value_stored_field(value)?;
                         // A register-native vector STATE payload materializes to its
                         // block here (identity otherwise; plan-01-vector).
                         let result = self.vector_value_as_block(result)?;

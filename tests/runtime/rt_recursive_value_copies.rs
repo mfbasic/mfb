@@ -221,3 +221,156 @@ fn a_moved_recursive_value_prints_what_it_printed_before() {
 
     let _ = std::fs::remove_dir_all(&project);
 }
+
+/// plan-134-G: every store shape of a recursive value, 20 000 times, now that each owner frees
+/// its graph. One iteration adds 67 to `acc`, line by line:
+///
+/// * fresh bind `a` plus its copy `b`: 2 + 2;
+/// * `c` moved into an inline list payload with `b` (last reads): 9;
+/// * a global overwritten by a move of `c`: 9;
+/// * `WITH` keeping the recursive `kids` field: 11;
+/// * a `get` result: 4;
+/// * a function returning a field: `len` 2;
+/// * in-place appends of a moved local and a fresh temp, read back through an unbound temp: 14;
+/// * a union wrap of two variants, `MATCH`ed over a parameter: 3;
+/// * a closure capturing a copy: 11.
+///
+/// A drop that frees a block still in use changes a number or crashes, and the arena scrubs
+/// freed chunks. A drop that frees one twice shows in `double_free_skips`.
+const STORE_SHAPE_CHURN_SOURCE: &str = r#"IMPORT io
+IMPORT collections
+
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+
+TYPE Leaf
+  v AS Integer
+END TYPE
+
+TYPE Couple
+  left AS Tree
+  right AS Tree
+END TYPE
+
+UNION Tree
+  Leaf
+  Couple
+END UNION
+
+MUT GN AS Node = Node[kids := [], tag := 0]
+
+FUNC mk(t AS Integer) AS Node
+  RETURN Node[kids := [Node[kids := [], tag := t]], tag := t]
+END FUNC
+
+FUNC total(n AS Node) AS Integer
+  MUT sum AS Integer = n.tag
+  FOR EACH k IN n.kids
+    sum = sum + total(k)
+  NEXT
+  RETURN sum
+END FUNC
+
+FUNC firstKids(n AS Node) AS List OF Node
+  RETURN n.kids
+END FUNC
+
+FUNC weigh(t AS Tree) AS Integer
+  MUT result AS Integer = 0
+  MATCH t
+    CASE Leaf(l)
+      result = l.v
+    CASE Couple(p)
+      result = weigh(p.left) + weigh(p.right)
+  END MATCH
+  RETURN result
+END FUNC
+
+SUB main()
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 20000
+    LET a AS Node = mk(1)
+    LET b AS Node = a
+    acc = acc + total(a) + total(b)
+    MUT c AS Node = mk(2)
+    c = Node[kids := [c, b], tag := 3]
+    acc = acc + total(c)
+    GN = c
+    acc = acc + total(GN)
+    LET d AS Node = WITH GN { tag := 5 }
+    acc = acc + total(d)
+    LET e AS Node = collections::get(d.kids, 0)
+    acc = acc + total(e)
+    LET ks AS List OF Node = firstKids(d)
+    acc = acc + len(ks)
+    MUT xs AS List OF Node = []
+    xs = collections::append(xs, e)
+    xs = collections::append(xs, mk(7))
+    acc = acc + total(collections::get(xs, 1))
+    LET t AS Tree = Couple[left := Leaf[v := 1], right := Leaf[v := 2]]
+    acc = acc + weigh(t)
+    LET f AS FUNC(Integer) AS Integer = LAMBDA(k AS Integer) -> k + total(d)
+    acc = acc + f(0)
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+#[cfg(unix)]
+#[test]
+fn every_recursive_store_shape_frees_once_under_churn() {
+    let project = common::temp_project("p134g_store_shape_churn", STORE_SHAPE_CHURN_SOURCE);
+    let output = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("--debug")
+        .arg(&project)
+        .output()
+        .expect("run mfb build --debug");
+    let build_stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "the store-shape churn probe failed to build:\n{build_stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let written: Vec<&str> = build_stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("Wrote executable to "))
+        .collect();
+    let exe = written
+        .iter()
+        .find(|path| path.ends_with("-glibc.out"))
+        .or_else(|| written.first())
+        .unwrap_or_else(|| panic!("no executable in build output:\n{build_stdout}"));
+
+    let output = Command::new(exe)
+        .output()
+        .expect("run the store-shape churn probe");
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    assert!(
+        output.status.success(),
+        "plan-134-G: a recursive store shape freed a block still in use (status {:?}).\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status
+    );
+    assert_eq!(
+        stdout.trim(),
+        "acc=1340000",
+        "plan-134-G: freeing recursive values changed what the program computes"
+    );
+    let skips = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("arena.0.double_free_skips "))
+        .and_then(|n| n.parse::<u64>().ok())
+        .unwrap_or_else(|| panic!("no arena.0.double_free_skips in the report:\n{stderr}"));
+    assert_eq!(
+        skips, 0,
+        "plan-134-G: a recursive value was freed twice\nstderr:\n{stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&project);
+}

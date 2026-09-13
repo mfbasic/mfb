@@ -81,6 +81,14 @@ both.
       arm, a `--debug` program that builds a list/map of recursive values, discards elements that
       way, and asserts `arena.live_bytes` back at its start; plus the json and regex K = 1/2/4
       `assert_flat` cases in `rt_scope_drop_leaks.rs`. Confirm they fail today.
+- [ ] Added by plan-134-G: the json form of G's unbound-temp case,
+      `acc = acc + len(json::stringify(json::parse(t)))` for `t = [1,{"a":[2,3]}]`, as an
+      `assert_flat` case in `rt_scope_drop_leaks.rs` (400 000 / 800 000). Measured after G:
+      `--debug`, 1 000 iterations → `alloc_calls 200003`, `free_calls 166003`,
+      `live_bytes 2912000`, doubling exactly at 2 000. The bound form
+      `LET v AS json::Json = json::parse(t)` leaks the same `2912000`. So the leak is 34 blocks
+      left inside `json::parse`'s helpers, not the statement-scope temp (a user-type unbound temp
+      is exactly flat: 5 002 allocs, 5 002 frees). Find which helper arms leave them.
 
 Acceptance: census complete; the tests fail on main.
   Check: `cargo test --release --test rt_recursive_value_collection_drops` → failed (est. 3 min).

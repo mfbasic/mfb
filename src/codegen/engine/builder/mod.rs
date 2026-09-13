@@ -830,6 +830,9 @@ pub(crate) struct PendingTemp {
     pub(crate) type_: ParameterType,
     pub(crate) slot: usize,
     pub(crate) location: Operand,
+    /// plan-134-G: free only this block, not the graph it points into — a recursive value whose
+    /// top block a store byte-copied, so its children now belong to that store's owner.
+    pub(crate) shallow: bool,
 }
 
 /// bug-572: a capturing `LAMBDA` built as a call ARGUMENT, awaiting the free
