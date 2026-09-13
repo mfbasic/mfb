@@ -124,7 +124,7 @@ fn emit_ping_result(
     emit_build_inlined_record_sized(
         symbol,
         "ping_result",
-        &ParameterType::declared(super::PING_RESULT_TYPE_ID),
+        &ParameterType::named(super::PING_RESULT_TYPE_ID),
         TypeModel::builtin_records(),
         &[
             slots.status,

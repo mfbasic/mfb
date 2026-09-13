@@ -511,7 +511,7 @@ pub(crate) fn lower_net_receive_from_helper(
     emit_build_inlined_record_sized(
         symbol,
         "datagram",
-        &ParameterType::declared(super::DATAGRAM_TYPE_ID),
+        &ParameterType::named(super::DATAGRAM_TYPE_ID),
         TypeModel::builtin_records(),
         &[ADDRPTR_OFFSET, BYTES_OFFSET],
         &[Some(ASIZE_OFFSET), None],

@@ -106,7 +106,7 @@ pub(crate) const DEVICE_FIELD_ID: usize = 0;
 
 /// The `audio::AudioDevice` type every enumerator builds.
 pub(crate) fn audio_device_type() -> ParameterType {
-    ParameterType::declared(super::AUDIO_DEVICE_TYPE_ID)
+    ParameterType::named(super::AUDIO_DEVICE_TYPE_ID)
 }
 
 /// The frame slots a device enumerator hands [`emit_device_record`] for one device:

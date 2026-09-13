@@ -465,7 +465,7 @@ pub(crate) struct AddressSlots {
 
 /// The type every `net::Address` builder constructs.
 pub(crate) fn address_type() -> ParameterType {
-    ParameterType::declared(crate::codegen::builtins::net::ADDRESS_TYPE_ID)
+    ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID)
 }
 
 /// The shared tail of both `net::Address` builders: measure the NUL-terminated

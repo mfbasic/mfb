@@ -414,3 +414,16 @@ Commit: `301c27462`
   `builder_arena_transfer.rs`, `net/gen_ping.rs` and `udp/mod.rs`).
   `builder_arena_transfer.rs` `record_field_is_pointer_in` lost the same parameter for the
   same reason. It is a signature change only; the final gate is what proves it neutral.
+- **C10 — the merged full suite failed `no_type_strings`: plan-132 added five
+  `ParameterType::declared(` sites below the AST.** `cargo test --release --no-fail-fast`
+  → `declared_sites / codegen: 57 > budget 52`. The five sites are:
+  `registry/mod.rs` `builtin_record_layouts`, `os/socket/shared.rs` `address_type`,
+  `audio/gen_shared.rs` `audio_device_type`, and the `Datagram` and `PingResult` builds
+  in `udp/gen_io.rs` and `net/gen_ping.rs`. Converted, budget unchanged: each names a
+  builtin record by its package-qualified registry identifier, never by a spelling
+  someone declared, so `ParameterType::named` is the constructor. The code already
+  builds these types that way (`tcp/mod.rs`, `udp/mod.rs`, `net/func_lookup.rs`,
+  `tls/func_local_address.rs` all use `named(ADDRESS_TYPE_ID)`). `declared`'s shadowing
+  case (C1 of plan-111) cannot arise for a dotted name. The unit tests that still key the
+  model with `declared("net.Address")` show that the two constructors produce the same
+  key.

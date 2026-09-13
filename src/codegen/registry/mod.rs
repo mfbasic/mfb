@@ -1997,7 +1997,7 @@ pub(crate) fn builtin_record_layouts() -> &'static [BuiltinRecordLayout] {
                 let owners = &owners;
                 package.records().iter().map(move |record| {
                     (
-                        ParameterType::declared(&format!("{pkg}.{}", record.name)),
+                        ParameterType::named(&format!("{pkg}.{}", record.name)),
                         record
                             .props
                             .iter()
