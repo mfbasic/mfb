@@ -107,11 +107,12 @@ pub(crate) const TERM_SIZE_TYPE_ID: &str = "term.TermSize";
 /// WITH-update one. Consulted by `ir::verify::read_only_record_type` and
 /// the former source checker's `helpers::read_only_record_type`.
 ///
-/// Asked through `is_builtin_named` so both spellings answer the same: a source
-/// `AS term::TermSize` resolves to the qualified `term.TermSize`, while the
-/// injected companion and any record field naming one stay bare (bug-483).
+/// Asked through `is_builtin_qualified`: a source `term::TermSize[…]` resolves to
+/// the qualified `term.TermSize` (bug-483), and a bare `TermSize` at a constructor
+/// or `WITH` is a project type of the same name, which must stay constructible
+/// (plan-132 D1). Neither consumer asks about a record field type.
 pub(crate) fn is_read_only_record(type_name: &ParameterType) -> bool {
-    type_name.is_builtin_named("term", TERM_SIZE_TYPE)
+    type_name.is_builtin_qualified("term", TERM_SIZE_TYPE)
 }
 
 /// One-line package intro (historically empty; the man page is the doc authority).

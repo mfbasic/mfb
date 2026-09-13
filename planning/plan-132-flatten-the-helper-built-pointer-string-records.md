@@ -103,11 +103,23 @@ emitters, each hit read):
   (`list_element_padding_alignment`), writes the entries, copies the blocks and frees the
   per-element scratch. Acceptance: unit test on the emitted entry/data arithmetic, plus the
   `net::lookup` runtime pins below.
-- [ ] D1 (found while probing C3): a project `TYPE Address` or `TYPE AudioDevice` cannot be
+- [x] D1 (found while probing C3): a project `TYPE Address` or `TYPE AudioDevice` cannot be
   constructed — `LET a = Address["x"]` fails `2-203-0043 TYPE_UNKNOWN_VALUE` with no import
   at all, while the same program with `Url`, `Datagram` or `KeyPair` (also builtin record
-  leaves) builds (`/tmp/p132/leaf_*`, base compiler). Root-cause it; fix it here or file it
-  with a repro if it proves unrelated and large.
+  leaves) builds (`/tmp/p132/leaf_*`, base compiler). Root cause: both copies of the
+  compiler-owned-record rule (`ir::shape::read_only_record`,
+  `ir::verify::read_only_record_type`, and `term::is_read_only_record`) matched through
+  `is_builtin_named`, which accepts the bare leaf; `TermSize` is refused the same way
+  (`/tmp/p132/d1_termsize`). Source cannot name an imported builtin record bare (`AS
+  Address` under `IMPORT net` → `SYMBOL_UNKNOWN_TYPE`, `/tmp/p132/d1_bare_imported`), so a
+  bare leaf there is always a project type. Fixed with `ParameterType::is_builtin_qualified`;
+  the bug-483 pin's disproved bare half corrected. Verified: `cargo test --release --bin mfb
+  --test rt_shadowing_type_name_diagnostics -- ir::verify ir::shape shadowing …` → 503 + 8
+  passed, EXIT=0 (two new cases: project `Address`/`AudioDevice`/`TermSize` construct and
+  `WITH`-update with and without the import; the qualified forms stay refused);
+  `bash scripts/test-accept.sh target/release/mfb /tmp/p132/accept_d1_json
+  net_address_read_only_invalid device_literal_invalid func_term_terminalSize_invalid …` →
+  15 passed, EXIT=0 (the three read-only fixtures' goldens unchanged).
 Commit:
 
 ### Phase 1 — `net::Address`, `udp::Datagram`, `net::PingResult`
@@ -211,3 +223,22 @@ Commit:
   `DEVID_OFF` and reads its length at `+0` and its bytes from `+8`, which are the `id`
   pointer and the `name` pointer's bytes. A pre-existing defect in a reader this plan
   rewrites; Phase 2 fixes it.
+- **C5 — Phase 0's first task was predicted gate-neutral; it moved 5 goldens, and the
+  cause is a pre-existing tag double count, not the new layouts.**
+  `bash scripts/artifact-gate.sh /tmp/p132/mfb-0a all` (binary of `e04ecae8f`) →
+  `1437 tests, 1603 build(s), 2013 golden(s) checked, 5 diff(s)`, all
+  `byte-identity/json/json_codegen_cover_rt` (every target). Localized by building that
+  fixture's `-ncode` with the base and Phase-0 compilers: 15 of 160 functions differ
+  (`main`, the `#json_*` bodies, three `thread_copy` functions), and in `#json_get` the
+  only change is `MATCH` tag constants (`cmp 10` → `cmp 4`, `cmp 6` → `cmp 0`). The old
+  values are the tags of `json.JsonObj`/`json.JsonArr` in a sorted set that ALSO holds
+  their bare aliases (`JsonArr`…`JsonStr` = 0–5, `json.JsonArr`…`json.JsonStr` = 6–11):
+  `from_module_and_packages` called `from_module`, which had already aliased, and then
+  recomputed tags — the order the code's own comment forbids. `TypeModel::finish` runs
+  the passes once, in order, so the tags are dense. Observability: every tag consumer
+  (`builder_value_semantics.rs` ×2, `builder_arena_transfer.rs`,
+  `builder_resource_cleanup.rs`, `builder_values.rs`) reads `union_variant_tags`, and no
+  `json` emitter hardcodes a tag (`grep` over `src/codegen/builtins/json`); user unions
+  have no dot, get no alias and did not move (0 other diffs). Kept, pinned by
+  `a_qualified_union_is_tagged_once_through_the_package_constructor`, and proven at
+  runtime by acceptance over every `json` fixture.

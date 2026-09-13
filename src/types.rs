@@ -884,10 +884,15 @@ impl ParameterType {
     /// package-qualified — but only where the registry rewrites it.
     /// `Registry::qualify_value_type_references` rewrites *signature* types (a
     /// member's parameters and return), so `tcp::localAddress` returns
-    /// `net.Address`; it deliberately leaves record *field* types bare so the
-    /// injected companion source stays parseable, so `udp::Datagram`'s `from`
-    /// field is still `Address`. Both spellings therefore reach any nominal
-    /// question asked about that record.
+    /// `net.Address`. A record *field* type is qualified only when it names
+    /// ANOTHER package's type (bug-484: `udp::Datagram`'s `from` is
+    /// `net.Address`); a field naming its own package's type stays bare in the
+    /// registry prop (`net::PingResult`'s `address` is `Address`). Both spellings
+    /// therefore reach any nominal question asked about that record.
+    ///
+    /// A question about what SOURCE wrote is different: ask
+    /// [`Self::is_builtin_qualified`], because a bare leaf there names a project
+    /// type (plan-132 D1).
     ///
     /// Asking `is_named` with one spelling answers `false` for every value that
     /// arrived by the other route — silently, since a nominal miss is not a
@@ -906,6 +911,25 @@ impl ParameterType {
                 .strip_prefix(package)
                 .and_then(|rest| rest.strip_prefix('.'))
                 == Some(leaf)
+    }
+
+    /// Whether this type is the built-in value type `leaf` declared by `package`
+    /// under its package-qualified identity ONLY (`net.Address`, never `Address`).
+    ///
+    /// For a question about a type SOURCE named. Source cannot name an imported
+    /// builtin type by its bare leaf — `AS Address` under `IMPORT net` is
+    /// `SYMBOL_UNKNOWN_TYPE` — so a bare leaf at a constructor or a `WITH` is a
+    /// project type that happens to share the name, and
+    /// [`Self::is_builtin_named`] would capture it: a project's own
+    /// `TYPE Address` was refused as compiler-owned (plan-132 D1).
+    pub(crate) fn is_builtin_qualified(&self, package: &str, leaf: &str) -> bool {
+        let ParameterType::Named(sym) = self else {
+            return false;
+        };
+        sym.resolve()
+            .strip_prefix(package)
+            .and_then(|rest| rest.strip_prefix('.'))
+            == Some(leaf)
     }
 
     /// The parameter type's formatted name.
