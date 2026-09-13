@@ -7,3 +7,6 @@ man-pkg:tls	0	90	18	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
 man-pkg:term	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
 man-pkg:astrings	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
 man-pkg:crypto	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:crypto	0	54	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:term	0	79	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:astrings	0	111	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

@@ -30,8 +30,11 @@ When TUI mode is on, the teardown runs in this order.
    normally.
 4. **TUI mode is switched off** and the drawing surface goes away.
 
-After `term::off` returns, `term::isOn` reports `FALSE` and every `term::` call
-except `term::on` and `term::isOn` is a no-op again. A later `term::on` starts
+After `term::off` returns, `term::isOn` reports `FALSE` and the surface is
+inactive again: every `term::` call except `term::on`, `term::isOn` and
+`term::didResize` does nothing, returns an inert default, or — for
+`term::terminalSize` — raises `ErrUnsupported` (`mfb man term isOn` lists
+which). A later `term::on` starts
 over with a fresh surface and the default state; nothing drawn before
 `term::off` survives it.
 

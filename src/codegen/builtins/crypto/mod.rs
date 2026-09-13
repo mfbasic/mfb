@@ -35,17 +35,24 @@ use crate::types::ParameterType;
 const MODULE_INTRO: &str = r#"Cryptographic hashes, HMAC, KDFs, authenticated encryption, secure random and time-ordered identifiers, public-key signatures, and constant-time comparison"#;
 const MODULE_DESC: &str = r#"The `crypto` package provides cryptographic hashes, HMAC, key-derivation
 functions, authenticated encryption (AEAD), a cryptographically-secure random
-generator, UUID and ULID identifiers, public-key signatures, and constant-time
-comparison. It is a built-in package, so `IMPORT crypto` needs no manifest
-dependency.
+generator, UUID and ULID identifiers, public-key signatures, public-key
+encryption, key agreement, and constant-time comparison. It is a built-in
+package, so `IMPORT crypto` needs no manifest dependency.
+
+For public-key encryption use `crypto::encrypt` and `crypto::decrypt` (HPKE,
+RFC 9180); for an X25519 or X448 shared secret use `crypto::exchange`; and
+`crypto::convert` turns an Ed25519 or Ed448 key pair into its matching
+key-agreement form.
 
 There are two password-based KDFs, and they are not interchangeable: use
 `crypto::argon2id` (memory-hard Argon2id, RFC 9106) to store a password, and
 `crypto::pbkdf2` for RFC 8018 / WPA2 compatibility or to stretch a passphrase into a
 key.
 
-Inputs and outputs are `List OF Byte`; the hash/HMAC/PBKDF2 functions also accept
-a `String` overload that UTF-8-encodes internally. A digest, ciphertext, or key
+The cryptographic operations take and return `List OF Byte`; `crypto::hash`,
+`crypto::hmac`, and `crypto::seal` also accept `String` data, which they encode
+as UTF-8. The identifier helpers (`uuid4`, `uuid7`, `ulid`) return a `String`,
+and `randomInt` returns an `Integer`. A digest, ciphertext, or key
 is raw binary — stringify it for display or storage with the `encoding` package
 (`encoding::hexEncode`, `encoding::base64Encode`). The package defines two record
 types, `crypto::Sealed` and `crypto::KeyPair`; see `mfb man crypto types`.

@@ -34,9 +34,8 @@ passed here; wrap it in a `SUB` of your own, as the first example below does.
 closure's captured environment around each call, so a callable value that
 carries an environment works as well as a plain named reference.
 
-`forEach` raises no domain error of its own. It is classified fallible solely
-because a failing `action` propagates: when the callback returns a non-`Ok`
-result, the loop stops immediately at that element, later elements are never
+`forEach` raises no domain error of its own. It can fail only
+because a failing `action` propagates: when the callback fails, the loop stops immediately at that element, later elements are never
 visited, and the callback's own error is passed straight through — unchanged, so
 whatever code and message the callback raised is what the caller sees. Because
 `forEach` holds no accumulator, no cleanup runs on that path.

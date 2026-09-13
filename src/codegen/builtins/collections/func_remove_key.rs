@@ -25,10 +25,8 @@ an absent key still builds a copy, rather than returning the argument itself. Th
 `len(value) - 1` entries when it was present. Because a map holds at most one
 entry per key, at most one entry is ever dropped.
 
-Key comparison is a comparison of the stored key payload: fixed-width keys
-compare their raw stored bits and a `String` key compares length and then bytes.
-Since the comparison is bitwise, a `Float` key of `NaN` matches no entry, so
-such a call always returns an unchanged copy.
+Keys compare exactly: a `String` key byte for byte, and a `Float` key by bit
+pattern, so removing `-0.0` leaves a key stored as `0.0` in place.
 
 `collections::removeKey` raises no trappable domain error — neither a missing
 key nor an empty map fails — so an inline `TRAP` on a `removeKey` call has a

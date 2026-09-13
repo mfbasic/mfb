@@ -56,6 +56,10 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 20 | `canvas::destroyFont` | `A scene carries the id, not the font, so it cannot dangle;` | `internals` | app | OPEN | — |
 | 21 | `collections::distinct` | `Building the result needs memory, but running out of it is not a trappable domain error, and the `append` it uses is classified infallible for exactly that reason.` | `internals` | stdlib | OPEN | — |
 | 22 | `collections::distinct` | `A call whose element type is not comparable is rejected at compile time with `TYPE_REQUIRES_COMPARABLE`, reported against the internal `collections.contains` call.` (the diagnostic's location clause) | `internals` | diagnostics | OPEN | — |
+| 23 | `collections::mid` | `mid` copies the selected run using a fast contiguous path when the source entries covering the slice are stored in order and packed tightly, and falls back to a per-entry copy otherwise. A list whose entry records have been permuted without moving the underlying data — the result of a sorted directory listing, for instance — takes the fallback. | `internals` | memory | OPEN | — |
+| 24 | `collections::values` | `The projection walks the lookup-entry array directly, and that array is maintained in insertion order; the hash bucket index is separate derived metadata that does not reorder it.` and `are the same traversal over the same entries and differ only in which payload field of each entry they copy` | `internals` | memory | OPEN | — |
+| 25 | `collections::contains` | `on a `Set` membership is an O(1)-average hash probe for a probe-eligible element type and a linear scan otherwise.` / `An empty list always yields `FALSE`, since the loop exits on the first bounds check.` | `internals` | memory | OPEN | — |
+| 26 | `fs::writeText` ×8 write functions | `The text payload is written directly from the `String`'s packed byte data.` / `The byte payload is written directly from the byte list's packed data region.` | `internals` | memory | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused

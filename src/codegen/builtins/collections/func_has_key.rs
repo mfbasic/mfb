@@ -17,12 +17,8 @@ This is a map-only member. There is no list or `String` form: to test list
 membership use `collections::contains`, and to test for a substring use the
 `strings::` package.
 
-Key comparison is a comparison of the stored key payload. Fixed-width keys
-compare their raw stored bits (one byte for `Boolean` and `Byte`, four for
-`Scalar`, eight for `Integer`, `Float`, `Fixed`, and `Money`), and a `String`
-key compares its length first and then its bytes. Because the comparison is
-bitwise, a `Float` key of `NaN` never reports as present and `-0.0` does not
-match a stored `0.0`.
+Keys compare exactly: a `String` key byte for byte, and a `Float` key by bit
+pattern, so `-0.0` does not match a key stored as `0.0`.
 
 For the key types `String`, `Integer`, `Float`, `Fixed`, `Byte`, and `Boolean`
 the lookup is direct; other key types are found by scanning the map. Both

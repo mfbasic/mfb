@@ -9,7 +9,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Render an `AttributedString` into a bespoke markdown-flavored format."#;
+const INTRO: &str = r#"Render an `AttributedString`'s flags, font, and size into a bespoke markdown-flavored format; colors are left out."#;
 
 const DESC: &str = r#"`toMarkdown` flattens the resolved (higher-start-wins per member) attribute state
 across the scalars into maximal runs and renders each run into a bespoke marker

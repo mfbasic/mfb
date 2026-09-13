@@ -256,23 +256,23 @@ Commit: 425093122 (my pass), 83e4199d2 (Codex reviews applied)
 
 ### Phase 2 — the eight most-changed packages (8 units)
 
-- [~] `datetime`, `http`, `process`, `json`, `tls`, `term`, `astrings`,
+- [x] `datetime`, `http`, `process`, `json`, `tls`, `term`, `astrings`,
       `crypto` — the packages with the most commits since plan-108 closed.
       My pass done for all eight (sweeps 0, examples as measured, commit
-      history read). Codex: `datetime`, `http`, `process`, `json`, `tls` ran
-      (exit 0, clean) and their 9 findings are applied. **Remaining: `term`,
-      `astrings`, `crypto`** — each exited `FAILED` in 3 s with "You've hit
-      your usage limit … try again at Sep 13th, 2026 3:16 AM" (their `.log`
-      files). A fresh quota probe failed the same way (C-5).
-- [~] For each: reconcile the page against what actually changed
+      history read). Codex: all eight reviewed. `term`, `astrings` and `crypto`
+      first failed on the usage limit and were re-dispatched after the reset
+      (C-5).
+- [x] For each: reconcile the page against what actually changed
       (`git log --since=2026-08-31 -- src/codegen/builtins/<pkg>`) — a prose
       field that was not touched by a behavior change is the likely defect.
-      Done through the five reviews above; the same three remain.
+      Done through the eight reviews; ledger below.
 
 #### Phase 2 ledger — Codex iteration 1 (`planning/plan-125-findings/B-phase2/`)
 
-Manifest: 5 units `exit 0`, `clean` (52–105 s); 3 `FAILED` on quota
-(`--reconcile`: `unaccounted=3`). 9 findings: 9 confirmed and applied, 0 rejected.
+Manifest: 8/8 units' last rows `exit 0`, `clean` (52–111 s). The retry's
+`--reconcile` over `B-phase2-retry.txt` reports `unaccounted=0`; its 5
+"orphans" are the first batch's five units, which are not in the retry list.
+14 findings: 14 confirmed and applied, 0 rejected.
 
 | Unit | # | Verdict | Evidence | Applied |
 |---|---|---|---|---|
@@ -285,20 +285,39 @@ Manifest: 5 units `exit 0`, `clean` (52–105 s); 3 `FAILED` on quota
 | process | 1 | CONFIRMED | `func_did_signal.rs` DESC: a Windows NTSTATUS error severity maps to `Signal.Error` | overview's Windows sentence |
 | tls | 1 | CONFIRMED | `tls/func_close.rs` declares `ErrResourceClosed` — "a second close raises"; `tcp/func_close.rs:34` also raises, so the overview's "unlike `tcp::close`" contrast was wrong too | "As with `tcp::close`, calling it again … raises `ErrResourceClosed`" |
 | tls | 2 | CONFIRMED | `tls::close` and `tls::poll` already say "`tls::connect` or `tls::accept`"; reviewer probe compiled `tls::read`/`write` on an accepted socket | `read` ×1 and `write` ×2 `sock` descriptions |
+| term | 1 | CONFIRMED (retry, C-5) | `func_is_on.rs` DESC: `on`, `isOn` and `didResize` are the three ungated calls, and `terminalSize` raises `ErrUnsupported` while off | `term::off`: inactive-state sentence names `didResize` and routes to `mfb man term isOn` |
+| astrings | 1 | CONFIRMED (retry) | `mfb spec stdlib astrings` "Attribute-aware `strings::` overloads" (Tier-A/Tier-B, and `&`); reviewer probe printed `ell!`/`styled` | overview paragraph: reading vs changing `strings::` functions, dropped styling for case/NFC, `&` |
+| astrings | 2 | CONFIRMED (retry) | `helper_md_state_at.rs` BODY comment: only `FontSize` renders; `Foreground`/`Background` carry no marker | `toMarkdown` INTRO |
+| crypto | 1 | CONFIRMED, wider (retry) | `mfb man crypto uuid4` → `String`, `randomInt` → `Integer`; `/tmp/p125-ex/crypto-facts.py`: `hash`, `hmac` and `seal` have `String` data forms, but `pbkdf2` has **one** `List OF Byte` form, so the overview's "hash/HMAC/PBKDF2 … also accept a `String`" was false too | overview types paragraph |
+| crypto | 2 | CONFIRMED (retry) | `func_encrypt.rs`/`func_decrypt.rs` (HPKE), `func_exchange.rs` (X25519/X448), `func_convert.rs` (Ed25519/Ed448 → key agreement) | overview capability list + routing paragraph |
 
 After apply (release build): whole-surface `--memory-scope` 0 unclassified,
-`--scope` 0; `mfb man <pkg> --all` exit 0 for all five.
+`--scope` 0; `mfb man <pkg> --all` exit 0 for all eight. Examples after the
+retry's edits: `astrings` 17/17 and `crypto` 31/31 build and run; `term` 43/43
+compile (running would take over the terminal).
 
 Acceptance: 8 units reconciled in the manifest; ledgers recorded; sweeps clean
 for all eight.
-Commit: —
+Commit: a1cd1f9f7 (first five), and the commit carrying this line (retry three)
 
 ### Phase 3 — the remaining 20 packages
 
-- [ ] `collections`, `fs`, `strings`, `encoding`, `math`, `vector`, `os`,
+- [~] `collections`, `fs`, `strings`, `encoding`, `math`, `vector`, `os`,
       `general`, `bits`, `io`, `audio`, `tcp`, `testing`, `thread`, `udp`,
       `net`, `csv`, `money`, `regex`, `app`, `errorCode` (21 names; `color` is
       A's pilot — 20 units remain here after Phase 2's eight).
+      **My pass done:**
+      - Examples: every package's build (`/tmp/p125-B-phase3-examples.log`). 19 also
+        run clean; `app` and `audio` compile only (desktop/audio); `io` 22/22
+        with `STDIN_FILE`.
+      - Word classes the census does not carry: `collections` "payload"/NaN/
+        non-`Ok` on 10 pages, `fs` "packed data" on 8, `distinct` internals and
+        a run-together paragraph.
+      - Rendered dotted type names: 6 cells, bug-605.
+      - Belongs-in-spec rows 21–26.
+
+      **Remaining: the 21 Codex reviews
+      (`planning/plan-125-units/B-phase3.txt`), triage and apply.**
 - [ ] Apply every class-level finding from Phases 1–2 across these units as
       part of the pass, not as a separate sweep.
 

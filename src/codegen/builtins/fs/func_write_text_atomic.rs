@@ -51,7 +51,7 @@ markers to make the name unique. Creating the temporary in the same directory as
 `path` keeps both files on the same filesystem so the final rename is a
 same-filesystem move rather than a copy.
 
-The text payload is written directly from the `String`'s packed byte data. A
+The text is written as the `String`'s UTF-8 bytes. A
 `String` already holds well-formed UTF-8, so the bytes are written exactly as
 held, with no re-encoding, decoding, or newline translation. The write is
 retried until every byte has been written or the host reports an output failure,

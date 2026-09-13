@@ -31,11 +31,8 @@ raw-supported, so an inline `TRAP` on a `collections::get` call catches the real
 runtime error. When a fallback value is more convenient than an error, use
 `collections::getOr`; when only presence matters, use `collections::hasKey`.
 
-For the map overload, key comparison is a comparison of the stored key payload:
-fixed-width keys compare their raw 64-bit (or 32-bit, or single-byte) stored
-bits and `String` keys compare length first and then bytes. A `Float` key is
-therefore matched bit-for-bit, so `NaN` never matches any key and `-0.0` does
-not match a stored `0.0`.
+For the map overload, keys compare exactly: a `String` key byte for byte, and a
+`Float` key by bit pattern, so `-0.0` does not find a key stored as `0.0`.
 
 Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
 `Byte`, and `Boolean` is a direct lookup; other key types are found by scanning

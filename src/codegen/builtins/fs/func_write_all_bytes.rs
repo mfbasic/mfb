@@ -30,8 +30,8 @@ pub(crate) fn lower_fs_write_all_bytes(
 
 const INTRO: &str = r#"Write a `List OF Byte` to an open `File`"#;
 const DESC: &str = r#"`fs::writeAllBytes` writes every byte from `bytes` to `file`, starting at the
-file's current write position, and returns nothing. The bytes are taken directly
-from the byte list's packed data region exactly as held, with no encoding,
+file's current write position, and returns nothing. The bytes are written exactly
+as the list holds them, with no encoding,
 decoding, or newline translation, so the function is suitable for binary data as
 well as text. An empty byte list writes no bytes and leaves the file unchanged.
 

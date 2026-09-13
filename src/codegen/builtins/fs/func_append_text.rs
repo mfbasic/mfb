@@ -40,8 +40,8 @@ text is added after them; to replace a file's contents instead of extending them
 use `fs::writeText`.
 
 The file is opened with the append flag set, so every write is positioned at the
-current end of the file. The text payload is written directly from the `String`'s
-packed byte data. A `String` already holds well-formed UTF-8, so the bytes are
+current end of the file. The text is written as the
+`String`'s UTF-8 bytes. A `String` already holds well-formed UTF-8, so the bytes are
 written exactly as held, with no re-encoding, decoding, or newline translation,
 and no trailing newline is added. The write is retried until every byte has been
 written or the host reports an output failure, so a short host write that

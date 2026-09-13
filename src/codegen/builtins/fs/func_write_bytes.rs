@@ -37,7 +37,7 @@ contents of `bytes`, flushes the file to disk, closes it, and returns nothing.
 Any previous contents of an existing file are discarded; to add to a file
 instead of replacing it, use `fs::appendBytes`.
 
-The byte payload is written directly from the byte list's packed data region.
+The bytes are written exactly as the list holds them.
 The write is retried until every byte has been written or the host reports an
 output failure, so a short host write that transfers only part of the buffer is
 resumed rather than treated as complete, and an interruption never loses or

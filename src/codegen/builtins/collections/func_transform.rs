@@ -36,8 +36,8 @@ one value per source element, in the same order.
 
 An empty `value` calls `f` zero times and yields an empty `List OF U`.
 
-`transform` raises no domain error of its own. It is classified fallible solely
-because a failing `f` propagates: when the callback returns a non-`Ok` result,
+`transform` raises no domain error of its own. It can fail only
+because a failing `f` propagates: when the callback fails,
 the loop stops immediately at that element, later elements are never visited, no
 result list is produced, and the callback's own error is passed through
 unchanged. The partially built output is discarded on that path before the error

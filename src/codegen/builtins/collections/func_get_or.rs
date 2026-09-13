@@ -28,10 +28,9 @@ returned.
 `default` is an ordinary argument expression, so it is evaluated before the
 lookup runs, whether or not it ends up being used.
 
-For the map overload, key comparison is a comparison of the stored key payload:
-fixed-width keys compare their raw stored bits and `String` keys compare length
-and then bytes. A `Float` key is matched bit-for-bit, so `NaN` never matches and
-`-0.0` does not match a stored `0.0`; such a lookup simply yields `default`.
+For the map overload, keys compare exactly: a `String` key byte for byte, and a
+`Float` key by bit pattern, so `-0.0` does not find a key stored as `0.0` and
+such a lookup simply yields `default`.
 
 Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
 `Byte`, and `Boolean` is a direct lookup — the same one
