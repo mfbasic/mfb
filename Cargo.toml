@@ -619,6 +619,10 @@ name = "rt_inline_trap_raising_operator"
 path = "tests/runtime/rt_inline_trap_raising_operator.rs"
 
 [[test]]
+name = "rt_big_int"
+path = "tests/runtime/rt_big_int.rs"
+
+[[test]]
 name = "rt_json_bounds"
 path = "tests/runtime/rt_json_bounds.rs"
 

@@ -384,35 +384,48 @@ probe; nothing here ships.
 
 Acceptance: the four offsets are recorded in this file, each citing the layout-builder
 symbol that confirmed it, and the count probe agreed with `len()` on all four lengths.
-Commit: —
+Commit: 8f8131e85
 
 ### Phase 2 — package skeleton, the type, and the enum
 
 The package exists and its type is declarable; no arithmetic yet.
 
-- [ ] Create `src/codegen/builtins/big/mod.rs` with `MODULE_INTRO`/`MODULE_DESC`, the
+- [x] Create `src/codegen/builtins/big/mod.rs` with `MODULE_INTRO`/`MODULE_DESC`, the
       `INT_TYPE`/`INT_TYPE_ID` constant pair (the `net/mod.rs:112-121` split), the
       `add_record` for `Int` carrying the field-order-is-contract comment, and the
       `add_enum` for `Endian`.
-- [ ] Register it: add `crate::codegen::builtins::big::register(&mut r);` to the
+      Done; `INT_TYPE_ID`/`ENDIAN_TYPE_ID` land with their first non-test user in the Phase 3+4
+      commit (Corrections C6). `mfb man big` renders the page (exit 0).
+- [x] Register it: add `crate::codegen::builtins::big::register(&mut r);` to the
       `crate::codegen::builtins::*::register(&mut r)` block in `src/codegen/registry/mod.rs`
       (`grep -n "::register(&mut r)" src/codegen/registry/mod.rs`; the cited 2050-2080 had
       drifted to 2193-2223), and declare the module in `src/codegen/builtins/mod.rs`.
-- [ ] Admit the name in every hand-kept package list (discovered; no task named them):
+- [x] Admit the name in every hand-kept package list (discovered; no task named them):
       `BUILTIN_IMPORTS` and `ARGUMENT_CHECKED_PACKAGES` in `src/codegen/builtins/mod.rs` —
       the latter's own comment says "Any new package needs a row here" — and the §18
       package-set sentence in `src/docs/spec/language/18_builtin-functions.md`, which
       `spec_section_18_package_list_matches_is_builtin_import` pins to `BUILTIN_IMPORTS`.
-- [ ] Tests in `big/mod.rs`, following the `money/mod.rs:105-182` shape: the package
+- [x] Tests in `big/mod.rs`, following the `money/mod.rs:105-182` shape: the package
       resolves; `Int` and `Endian` are registered types;
       `qualified_builtin_type("big.Int")` is `Some("big.Int")`; the rendered companion
       source contains `EXPORT TYPE Int` and `EXPORT ENUM Endian`.
-- [ ] Runtime test: `MUT x AS big::Int` compiles, and its default is `{[], FALSE}` —
+      `cargo test --release -p mfb --bin mfb -- codegen::builtins::big codegen::builtins::tests`
+      → `30 passed; 0 failed` (the four `big` registry tests, the §18 package-list pin, the
+      import-set cases).
+- [x] Runtime test: `MUT x AS big::Int` compiles, and its default is `{[], FALSE}` —
       the canonical-zero-by-default property. (Was `LET`, which cannot compile — Corrections C4.)
+      `cargo test --release --test rt_big_int` → `a_defaulted_int_is_canonical_zero ... ok`,
+      `1 passed; 0 failed` (prints `0` then `FALSE`).
 
 Acceptance: `mfb man big` renders the package page; a program with `IMPORT big` and a
 defaulted `LET x AS big::Int` compiles and runs; a program that does **not** import
 `big` produces byte-identical `.ncode` to before this phase.
+Evidence (worktree-P-127 release build, 0 warnings): `mfb man big` → exit 0, package page
+rendered; non-disturbance — `/tmp/p127-baseline/nonbig` built `-ncode` on all five targets with
+the HEAD binary and with this phase's binary, `cmp` of the five checksums → identical
+(`macos-aarch64` `4138faa7…`, `linux-aarch64` `2b15ff24…`, `linux-x86_64` `45f8affd…`,
+`linux-riscv64` `18991bfe…`, `windows-x86_64` `c5332835…`). The defaulted binding is `MUT`
+(Corrections C4).
 Commit: —
 
 ### Phase 3 — the native access foundation

@@ -2193,6 +2193,7 @@ fn build() -> Registry {
     crate::codegen::builtins::app::register(&mut r);
     crate::codegen::builtins::astrings::register(&mut r);
     crate::codegen::builtins::audio::register(&mut r);
+    crate::codegen::builtins::big::register(&mut r);
     crate::codegen::builtins::bits::register(&mut r);
     crate::codegen::builtins::canvas::register(&mut r);
     crate::codegen::builtins::color::register(&mut r);
