@@ -221,78 +221,152 @@ Shape: `packages/logger/runtime-smoke.sh`.
 
 ### Phase 1 — `toIso`, `parseIso`, `ZonedDateTime`
 
-- [ ] Write `src/iso.mfb` per §§ 4.1–4.2.
-- [ ] In `lib.mfb`, add the `EXPORT` declarations and `DOC` blocks, declaring the type
+- [x] Write `src/iso.mfb` per §§ 4.1–4.2. (`zoneAnnotation` for the write check;
+      `zonedParseIso` for the reader. A probe of the post-bug-520 `datetime::parseIso`
+      confirmed what § 4.2 assumes: `…Z` and `…+00:00` → offset 0; `…-04:56:02` →
+      −17762 at −3771144000; `…-04:56` → −17760 at −3771144002; `""` → `error 77050003`.)
+- [x] In `lib.mfb`, add the `EXPORT` declarations and `DOC` blocks, declaring the type
       the way `packages/jwt` declares its exported records. Build each `EXAMPLE` against
       the `.mfp`.
-- [ ] In `src/test_iso.mfb`, cover:
-  - [ ] the New York January and July writes;
-  - [ ] the 1850 New York LMT round trip (`-04:56:02` written, read back exact);
-  - [ ] a minute-rounded `-04:56` read, recomputed to the exact instant;
-  - [ ] `Z[America/New_York]`;
-  - [ ] `+00:00[America/New_York]` → `77050003`;
-  - [ ] `[!America/New_York]` accepted;
-  - [ ] `[u-ca=iso8601]` accepted, `[u-ca=gregory]` → `77050003`;
-  - [ ] `[foo=bar]` ignored, `[!foo=bar]` → `77050003`;
-  - [ ] numeric zone `[+05:30]` → `77050003`;
-  - [ ] two zone annotations → `77050003`;
-  - [ ] trailing text after `]` → `77050003`;
-  - [ ] missing `]` → `77050003`;
-  - [ ] `[Nowhere/Bogus]` → `77050004`;
-  - [ ] `[america/new_york]` accepted, `name` = `America/New_York`; `[us/eastern]` → `US/Eastern`;
-  - [ ] `toIso(dt, "america/new_york")` writes `[America/New_York]`;
-  - [ ] `toIso` with a wrong offset → `77050002`;
-  - [ ] `toIso(dt, 5, name)` → `77050002`;
-  - [ ] nanos preserved at `digits = 9`.
-- [ ] Add the README section "Writing and reading a zoned time", including the
+      - Both `toIso` overloads share one `DOC` block, the way `sqlite3` documents
+        `query`. A second `DOC FUNC toIso` failed with `error[2-205-0003 DOC_DUPLICATE]`.
+      - `ZonedDateTime` has a `DOC TYPE` block without `GROUP`. With it, the build failed
+        with `DOC_GROUP_INVALID_CONTEXT`.
+      - `bash /tmp/p135ex/build.sh toiso parseiso` printed:
+        - `toiso`: `2026-07-15T09:00:00.123-04:00[America/New_York]` and
+          `2026-07-15T09:00:00.123456789-04:00[America/New_York]`
+        - `parseiso`: `America/New_York 1784120400 EDT`
+- [x] In `src/test_iso.mfb`, cover (`mfb test packages/timezones` → `* iso`, 14 cases
+      all `[P]`, `Tests: 48  Pass: 48  Fail: 0`):
+  - [x] the New York January and July writes; (`…09:00:00.000-05:00[America/New_York]` /
+        `…-04:00[…]`, plus the July read → `1784120400 0 -14400 America/New_York`)
+  - [x] the 1850 New York LMT round trip (`-04:56:02` written, read back exact);
+        (`1850-07-01T07:03:58.000-04:56:02[America/New_York]` → `-3771144000 0 -17762
+        America/New_York`, label `LMT`)
+  - [x] a minute-rounded `-04:56` read, recomputed to the exact instant; (→ −3771144000,
+        −17762)
+  - [x] `Z[America/New_York]`; (→ 1784120400, −14400, and rendered `09:00:00.000-04:00`)
+  - [x] `+00:00[America/New_York]` → `77050003`; (also `-05:00` in July, elective and
+        critical)
+  - [x] `[!America/New_York]` accepted;
+  - [x] `[u-ca=iso8601]` accepted, `[u-ca=gregory]` → `77050003`; (the first `u-ca` counts:
+        `[u-ca=gregory][u-ca=iso8601]` refused, `[u-ca=iso8601][u-ca=gregory]` accepted)
+  - [x] `[foo=bar]` ignored, `[!foo=bar]` → `77050003`; (and `[Foo=bar]`, not a valid key,
+        → `77050003`)
+  - [x] numeric zone `[+05:30]` → `77050003`;
+  - [x] two zone annotations → `77050003`;
+  - [x] trailing text after `]` → `77050003`;
+  - [x] missing `]` → `77050003`; (also no annotation, `[]`, a tag before the zone, an
+        `..` zone part, and a malformed base)
+  - [x] `[Nowhere/Bogus]` → `77050004`;
+  - [x] `[america/new_york]` accepted, `name` = `America/New_York`; `[us/eastern]` → `US/Eastern`;
+  - [x] `toIso(dt, "america/new_york")` writes `[America/New_York]`;
+  - [x] `toIso` with a wrong offset → `77050002`; (a January 09:00 at fixed −14400; an
+        unknown zone → `77050004`)
+  - [x] `toIso(dt, 5, name)` → `77050002`; (`digits = 0` writes
+        `2026-07-15T09:00:00-04:00[America/New_York]`)
+  - [x] nanos preserved at `digits = 9`. (`…09:00:00.123456789-04:00[America/New_York]`
+        → `1784120400 123456789 -14400 America/New_York`)
+- [x] Add the README section "Writing and reading a zoned time", including the
       case-insensitive name rule and the always-act inconsistency rule.
 
 Acceptance: every listed case passes.
   Check: `target/release/mfb test packages/timezones` → `Fail: 0` with the `iso` group present (est. 1 min).
-Commit: —
+Commit: afbde58a3
 
 ### Phase 2 — oracle `roundtrip` and `ixdtf` modes, and the link smoke
 
-- [ ] Add the `roundtrip` mode (§ 4.4) to the probe and `run.sh`.
-- [ ] Add the `ixdtf` mode (§ 4.4): `temporal.mjs`, the corpus, the declared divergences
+- [x] Add the `roundtrip` mode (§ 4.4) to the probe and `run.sh`. (`run.sh <mfb> roundtrip`
+      → `roundtrip: 498303 jobs, 0 declared divergences, 0 mismatches`, 37 s. Every
+      instant carries nanos 123456789, so the "drop nanos" mutation is visible; see
+      Corrections.)
+- [x] Add the `ixdtf` mode (§ 4.4): `temporal.mjs`, the corpus, the declared divergences
       and the skipped-case log.
-- [ ] Mutation proof: make `parseIso` skip the consistency check. `ixdtf` must report
-      mismatches; revert.
-- [ ] Mutation proof: make `toIso` drop nanos. `roundtrip` must report mismatches;
-      revert.
-- [ ] Write `packages/timezones/runtime-smoke.sh` (§ 4.3).
+      - `run.sh <mfb> ixdtf`: 20,300 candidates, 89 skipped (`jobs/ixdtf.skipped`),
+        19,652 jobs.
+      - `diff.py ixdtf` → `ixdtf: 19652 jobs, 5341 declared divergences, 0 mismatches`,
+        `EXIT=0`.
+      - `divergences.json` declares the four divergences § 4.4 listed, plus numeric
+        annotations and lowercased digit names (see Corrections).
+      - `oracle/package.json` pins only `"node": ">=24"`.
+- [x] Mutation proof: make `parseIso` skip the consistency check. `ixdtf` must report
+      mismatches; revert. (`python3 /tmp/p135mut.py iso-no-consistency`: a `/tmp` copy
+      with the `consistentInstant` call disabled → `ixdtf: 19652 jobs, 5266 declared
+      divergences, 1234 mismatches`, `EXIT=1`. The unmutated package, under the same
+      declarations at that moment, had 74 mismatches, all numeric annotations since
+      declared. First new mismatch: `2026-07-01T09:00:00+01:00[Africa/Abidjan]`, where
+      the oracle says `reject` and the mutant says `accept … 0 Africa/Abidjan`. No live
+      edit, so nothing to revert.)
+- [x] Mutation proof: make `toIso` drop nanos. `roundtrip` must report mismatches;
+      revert. (`python3 /tmp/p135mut.py toiso-drop-nanos`: `toIso(dt, digits, …)`
+      writes `datetime::toIso(dt, 3)` → `roundtrip: 498303 jobs, 0 declared
+      divergences, 498303 mismatches`, `EXIT=1`; e.g. `…23:59:59.123-00:16:08
+      [Africa/Abidjan] -> -1830383033 123000000`.)
+- [x] Write `packages/timezones/runtime-smoke.sh` (§ 4.3). (`runtime-smoke.sh
+      /Users/…/mfb/target/release/mfb` → `timezones runtime smoke passed`, `EXIT=0`. The
+      consumer imports only `io` and `timezones`, reads the zoned string, passes
+      `z.dateTime.date`/`.time` back to `civil`, and asserts both lines exactly.)
 
 Acceptance: round trips are exact across the whole corpus, syntax verdicts match
 Temporal except for the declared divergences, and the `.mfp` links into an executable
 that imports only `io` and `timezones`.
   Check: `packages/timezones/oracle/run.sh '' roundtrip ixdtf; echo EXIT=$?` → `EXIT=0`; mutation runs → mismatches > 0; `packages/timezones/runtime-smoke.sh; echo EXIT=$?` → `EXIT=0` (est. UNMEASURED for `roundtrip`; set from the `offsets` corpus time recorded in plan-135-B).
-Commit: —
+Commit: 31384318f
 
 ### Phase 3 — cross-target proof
 
-- [ ] Run § 4.5 on 2223, 2227 and 2229. Record each `cmp` result and wall time in
-      `oracle/README.md`.
-- [ ] Record the Windows build-only result, and that no Windows execution was possible.
+- [x] Run § 4.5 on 2223, 2227 and 2229. Record each `cmp` result and wall time in
+      `oracle/README.md`. (`bash /tmp/p135box.sh <port> <arch> <full|sample>` →
+      - 2223 aarch64 glibc, full: offsets `cmp identical, 498303 jobs, 7 s`;
+        civil `cmp identical, 263558 jobs, 31 s`.
+      - 2229 riscv64 musl, sample: offsets `identical, 306357 jobs, 69 s`;
+        civil `identical, 183128 jobs, 361 s`.
+      - 2227 x86_64 musl, sample: offsets `identical, 306357 jobs, 324 s`;
+        civil `identical, 183128 jobs, 570 s`.
+      All three logs end `EXIT=0`. Every probe was built on macOS from the same `.mfp`.)
+- [x] Record the Windows build-only result, and that no Windows execution was possible.
+      (`mfb build -q --target windows-x86_64 /tmp/p135cross` → `Wrote executable to
+      /tmp/p135cross/build/tzprobe.exe`, 2,569,728 B. It was not run: box 2230 has no
+      execution harness, so no Windows answers exist to `cmp`. Recorded in the oracle
+      README.)
 
 Acceptance: the same answers on every executed target.
   Check: `cmp` per box → exit 0; `target/release/mfb build --target windows-x86_64 packages/timezones/oracle/probe` → `Wrote executable` (est. UNMEASURED on the emulated boxes; the per-zone sample is the smallest input that still reaches every footer and transition).
-Commit: —
+Commit: 1a542d248
 
 ### Phase 4 — docs and family close
 
-- [ ] Complete `packages/timezones/README.md`: an API table of all five members plus the
+- [x] Complete `packages/timezones/README.md`: an API table of all five members plus the
       record, every example compiled, where the rules come from, how to update, what the
       package never does, and `timezones` vs `datetime::local()`.
-- [ ] Check that `target/release/mfb pkg doc packages/timezones/timezones.mfp` renders
+      - The README now has sections "API" (the five members, `ZonedDateTime`,
+        `ERR_UNKNOWN_ZONE`), "`timezones` or `datetime::local()`?", "Offsets at an
+        instant", "A clock reading in a zone", "Writing and reading a zoned time",
+        "Where the rules come from" (with the update-procedure link), and "What it
+        never does".
+      - `python3 /tmp/p135readme.py` builds every README block containing `SUB main`
+        against the `.mfp`, runs it, and compares each `io::print` with its
+        `' expected` comment → `3 programs, 0 failed`.
+      - The one-line `tomorrow` snippet is a fragment, not a program; its calls are the
+        ones the `civil` block exercises.
+- [x] Check that `target/release/mfb pkg doc packages/timezones/timezones.mfp` renders
       all five members and `ZonedDateTime`.
-- [ ] In `planning/bug-backlog.md`, update the datetime line: named zones are delivered
-      by plan-135.
-- [ ] Move `plan-135-A` through `plan-135-D` to `planning/completed/` as each letter
-      completes.
+      - `pkg doc` writes HTML to a file; it does not print to stdout. See Corrections.
+      - `mfb pkg doc packages/timezones/timezones.mfp --out /tmp/p135-doc.html` → EXIT=0.
+      - `grep -o 'timezones::[A-Za-z]*' … | sort | uniq -c` → `ZonedDateTime` 1, `civil` 5,
+        `offsetAt` 3, `parseIso` 3, `toIso` 3, `toZone` 2.
+      - `grep -c ZonedDateTime` → 5.
+- [x] In `planning/bug-backlog.md`, update the datetime line: named zones are delivered
+      by plan-135. The **datetime** paragraph now reads "Named zones moved out of 520
+      and are delivered by plan-135-A–D". It lists the five members and the oracle, and
+      drops the stale line "plan-135-D cannot start until 520 closes".
+- [x] Move `plan-135-A` through `plan-135-D` to `planning/completed/` as each letter
+      completes. (A, B and C were moved once C closed. D moves in the same commit as this
+      tick. `git mv planning/plan-135-{A,B,C,D}-… planning/completed/`)
 
 Acceptance: the package docs render and every example builds.
   Check: `target/release/mfb pkg doc packages/timezones/timezones.mfp | grep -c "timezones::"` → at least 6 (est. 1 min).
-Commit: —
+Commit: 1a542d248
 
 ## Validation Plan
 
@@ -325,6 +399,79 @@ Commit: —
   `77050004` after an update.
 
 ## Corrections
+
+- **Prerequisite: bug-520 landed mid-plan, and main was merged in first.** The
+  bug-520 row went MET at `bfb0cfbfc`, and the probe prints `…-04:56:02`. `git merge
+  main` into `worktree-P-135` brought bug-520's `datetime` changes. After the merge,
+  `mfb test packages/timezones` still gave `Tests: 34  Pass: 34  Fail: 0`. The `addDays`
+  probe behind C's README still gives `8 9 -18000`. The final gate's
+  `git diff --stat <family base>..HEAD -- src tests src/docs` must therefore be
+  measured against `main`: `git diff --stat main...HEAD`. The merged `src/` changes are
+  main's, not this family's.
+- **Phase 1: both `toIso` arities share one `DOC` block.** A `DOC FUNC toIso` per
+  overload fails with `error[2-205-0003 DOC_DUPLICATE]`. `sqlite3` documents its four
+  `query` overloads the same way. `DOC TYPE ZonedDateTime` cannot carry `GROUP`
+  (`DOC_GROUP_INVALID_CONTEXT`).
+- **Phase 2: `roundtrip` uses nanos 123456789, not 0.** § 4.4 builds `v` from
+  `instant(s, 0)`. With zero nanos, the "make `toIso` drop nanos" mutation cannot change
+  a single answer. Every instant carries 123456789 nanoseconds, and the mutation then
+  fails all 498,303 jobs.
+- **Phase 2: Temporal checks the tz agreement, not `zoneinfo`.** § 4.4 said the corpus
+  generator checks 2025b/2026d agreement "with `zoneinfo`". `zoneinfo` only has 2026d,
+  so it cannot see a 2025b difference. `corpus.py ixdtf` writes candidates with the
+  2026d offset, and `temporal.mjs filter` keeps a candidate only when Temporal's
+  bundled tz gives the same offset. It logs every skip to `jobs/ixdtf.skipped`:
+  20,300 candidates, 19,652 jobs, 89 skipped. Of the skips, 33 name a zone Temporal
+  does not know, and 56 have an offset that differs between the releases.
+- **Phase 2: two more declared divergences than § 4.4 listed.**
+  - A numeric zone annotation that agrees with the offset (`…+03:00[+03:00]`, 74 jobs).
+    Temporal accepts it. The package refuses it, because § 1 makes numeric annotations
+    a non-goal. § 2's table only showed the disagreeing form, `-04:00[+05:30]`,
+    rejected.
+  - A lowercased name containing a digit (`[etc/gmt+5]`, `[est5edt]`, 36 jobs).
+    Temporal rejects it. The package accepts it under the owner's ignore-case ruling.
+  - Temporal also rejects an elective unknown key (`[foo=bar]`), as § 2 predicted.
+- **Phase 2: `diff.py` gained `pattern` and `nameOnly` declarations.** Declaring
+  thousands of exact `ixdtf` job lines is unreviewable. A declaration is now an exact
+  job, a regex over the job line, or "both accepted the same instant and offset, and
+  only the name differs" (the link case).
+- **Phase 3: a cross-target build overwrites the previous target's binaries.** Building
+  `--target linux-aarch64`, then `linux-x86_64`, `linux-riscv64` and `windows-x86_64`
+  into one project left only `build/tzprobe.exe`. Each Linux target is built in its own
+  copy (`/tmp/p135cross-<arch>`).
+- **Phase 3: box 2223 runs the glibc binary.** § 4.5 calls 2223 "aarch64 glibc"
+  but ships both flavours. `./tzprobe-musl.out` fails there with `cannot execute:
+  required file not found`, because it has no musl loader. `/tmp/p135box.sh` tries
+  musl and falls back to glibc, logging `flavor glibc` for 2223 and `flavor musl` for
+  2227 and 2229.
+- **Phase 3: the per-zone sample is 61% of `offsets` and 69% of `civil`.** § 4.5 named it
+  "every job line for the first name of each of the 345 distinct zones" and left its
+  size UNMEASURED. `python3 /tmp/p135sample.py` → `distinct zones 345`,
+  `offsets full 498303 sample 306357`, `civil full 263558 sample 183128`. The
+  1800–2100 yearly grid is per name, so the first names carry most of it. On 2229 the
+  offsets sample took 69 s under emulation.
+- **Final gate, run once after Phase 4 (2026-09-13, macOS aarch64, main's release `mfb`
+  built after bug-520).**
+  - `sh scripts/check-generated.sh` → six `ok:` lines, including `ok:
+    packages/timezones/src/data.mfb matches tools/tzdb/gen_timezones_data.py`; exit 0.
+  - `mfb test packages/timezones` → `Tests: 48  Pass: 48  Fail: 0`.
+  - `oracle/run.sh <mfb>` with all modes → offsets 498,303 jobs, 0 mismatches, 34 s;
+    civil 263,558 jobs, 0 mismatches, 80 s; roundtrip 498,303 jobs, 0 mismatches,
+    51 s; ixdtf 19,652 jobs, 5,341 declared divergences, 0 mismatches, 12 s (89
+    candidates skipped); `EXIT=0`. The worktree passes the main checkout's compiler as
+    `$1` (plan-135-B Corrections).
+  - `runtime-smoke.sh <mfb>` → `timezones runtime smoke passed`, `EXIT=0`.
+  - `git diff --stat main...HEAD -- src tests src/docs` → empty. Owner ruling 2
+    held: nothing under `src/`, `tests/` or `src/docs/` changed.
+  - `cargo fmt --all -- --check` in the root and in `repository/` → exit 0 each, with no
+    formatting churn to commit.
+- **Phase 4: `mfb pkg doc` writes a file, so the check was strengthened.** § Phase 4's
+  check pipes `pkg doc … | grep -c "timezones::"`. But `pkg doc` prints only `Wrote
+  documentation to doc.html`, into the current directory. The pipe counted `0`, and
+  the run left a stray `doc.html` in the worktree root, which was deleted. The check is
+  now `mfb pkg doc <mfp> --out /tmp/p135-doc.html`, then a per-name count, which
+  requires each of the five members and `ZonedDateTime` to appear at least once. That
+  is stricter than "at least 6 lines".
 
 ## Summary
 

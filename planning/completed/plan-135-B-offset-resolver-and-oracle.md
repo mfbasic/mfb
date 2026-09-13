@@ -300,77 +300,109 @@ Files:
 It is a pure function with no callers yet, so it lands safely: it changes no existing
 behavior, and it concentrates the letter's risk behind its own tests.
 
-- [ ] `packages/timezones/src/posix.mfb`: `TYPE LocalType`, `FUNC footerType(footer AS
+- [x] `packages/timezones/src/posix.mfb`: `TYPE LocalType`, `FUNC footerType(footer AS
       String, seconds AS Integer) AS LocalType`, and the parse/date/event helpers of
       § 4.1 as `PRIVATE FUNC`s. A malformed footer FAILs with
-      `error(77050003, "timezones: corrupt footer rule …")`.
-- [ ] `packages/timezones/src/test_posix.mfb`. Every expected value in these cases comes
+      `error(77050003, "timezones: corrupt footer rule …")`. (`ruleDayOfMonth` and
+      `weekdayOfFirst` are package-visible so the weekday pin can test them; see
+      Corrections.)
+- [x] `packages/timezones/src/test_posix.mfb`. Every expected value in these cases comes
       from `zoneinfo` with `reset_tzpath([])` in `oracle/.venv`, and the exact one-liner
-      is pasted above each `TCASE`. Cases:
-  - [ ] `EST5EDT,M3.2.0,M11.1.0` at 2026-03-08 06:59:59Z / 07:00:00Z, and at
-        2026-11-01 05:59:59Z / 06:00:00Z.
-  - [ ] A southern-hemisphere rule, `<+1030>-10:30<+11>-11,M10.1.0,M4.1.0` (Lord Howe),
-        either side of both 2026 changes.
-  - [ ] Both RFC 8536 §3.3.1 extension footers from § 2, either side of each 2030
-        change.
-  - [ ] A no-DST footer: `<-05>5` → −18000 `-05`.
-  - [ ] The last-week rule `M10.5.0` in a month where week 5 does not exist.
-  - [ ] Year boundary: 1 January 00:00:00 local, for a southern rule.
-  - [ ] Weekday-mapping pin: the first Sunday of March 2026 is the 1st.
-  - [ ] A malformed footer traps `77050003`, written in the `expectTrap` style of
-        `packages/jwt/src/test_verify.mfb`.
+      is pasted above each `TCASE`. Cases (`mfb test packages/timezones` → `* posix`,
+      9 `[P]`, `Tests: 16  Pass: 16  Fail: 0`):
+  - [x] `EST5EDT,M3.2.0,M11.1.0` at 2026-03-08 06:59:59Z / 07:00:00Z, and at
+        2026-11-01 05:59:59Z / 06:00:00Z. (1772953199/1772953200, 1793512799/1793512800)
+  - [x] A southern-hemisphere rule, `<+1030>-10:30<+11>-11,M10.1.0,M4.1.0` (Lord Howe),
+        either side of both 2026 changes. (1775314799/800, 1791041399/400)
+  - [x] Both RFC 8536 §3.3.1 extension footers from § 2, either side of each 2030
+        change. (Asia/Jerusalem `…/26` 1900972799/800, 1919285999/6000; America/Nuuk
+        `…/-1` 1901149199/200, 1919293199/200)
+  - [x] A no-DST footer: `<-05>5` → −18000 `-05`. (America/Lima at 1780000000, and at
+        −2^40)
+  - [x] The last-week rule `M10.5.0` in a month where week 5 does not exist. (Europe/London
+        `GMT0BST,M3.5.0/1,M10.5.0`: `ruleDayOfMonth(2026,10,5,0)` = 25; the switch at
+        1792890000)
+  - [x] Year boundary: 1 January 00:00:00 local, for a southern rule. (Lord Howe
+        1767185999/1767186000 → +11 both)
+  - [x] Weekday-mapping pin: the first Sunday of March 2026 is the 1st.
+        (`weekdayOfFirst(2026,3)` = 0, `ruleDayOfMonth(2026,3,1,0)` = 1, plus 1970-01 → 4
+        and 1969-12 → 1 across the epoch)
+  - [x] A malformed footer traps `77050003`, written in the `expectTrap` style of
+        `packages/jwt/src/test_verify.mfb`. (`J60` date, a leading digit, DST with no
+        rule, month 13, empty `<>`)
 
 Acceptance: every evaluator case passes with values independently produced by `zoneinfo`.
   Check: `target/release/mfb test packages/timezones` → the `posix` group all `[P]`, `Fail: 0` (est. 1 min).
-Commit: —
+Commit: 28b6af197
 
 ### Phase 2 — lookup and the public members
 
-- [ ] `packages/timezones/src/zone.mfb`: `localTypeAt` per § 4.2.
-- [ ] `packages/timezones/src/lib.mfb`: `ERR_UNKNOWN_ZONE`, `offsetAt` and `toZone`, with
+- [x] `packages/timezones/src/zone.mfb`: `localTypeAt` per § 4.2. (Also holds the shared
+      `unknownZone(name) AS Error`, so the 77050004 message has one spelling.)
+- [x] `packages/timezones/src/lib.mfb`: `ERR_UNKNOWN_ZONE`, `offsetAt` and `toZone`, with
       `DOC` blocks (§ 4.3). Build each `EXAMPLE` in a scratch project that imports the
-      built `.mfp`, and record the command.
-- [ ] `packages/timezones/src/test_offsets.mfb`. Every expected value comes from a
-      `zoneinfo` one-liner pasted above the case. Cases:
-  - [ ] New York 2026-01-15 09:00 local and 2026-07-15 09:00 local: −18000 / −14400,
-        labels `EST` / `EDT`. This is the original bug-520 case.
-  - [ ] New York 1850-07-01: −17762 `LMT`, before the first transition.
-  - [ ] New York 2100-07-01: −14400, on the footer path.
-  - [ ] `Etc/GMT+5` at 0 and at 4102444800: −18000, a zone with no transitions.
-  - [ ] `US/Eastern` equals `America/New_York` at three instants.
-  - [ ] `Asia/Kolkata` 2026: 19800.
-  - [ ] Exactly at a zone's last stored transition, and one second before it.
-  - [ ] `offsetAt("Nowhere/Bogus", …)` and `offsetAt("", …)` trap `77050004`, and the
-        message contains `2026d`.
-  - [ ] Ordinal pin: `toZone("UTC", instant(0,0)).kind = 1` and
+      built `.mfp`, and record the command. (`bash /tmp/p135ex/build.sh offsetat tozone`:
+      `mfb build -q packages/timezones`, copy `timezones.mfp` into each scratch project's
+      `packages/`, `mfb build -q`, run → `offsetat` prints `-18000` / `-14400`; `tozone`
+      prints `EDT -14400` / `2026-07-15T09:00:00.000-04:00`)
+- [x] `packages/timezones/src/test_offsets.mfb`. Every expected value comes from a
+      `zoneinfo` one-liner pasted above the case. Cases (`mfb test packages/timezones` →
+      `* offsets`, 9 `[P]`, `Tests: 25  Pass: 25  Fail: 0`):
+  - [x] New York 2026-01-15 09:00 local and 2026-07-15 09:00 local: −18000 / −14400,
+        labels `EST` / `EDT`. This is the original bug-520 case. (1768485600 /
+        1784120400)
+  - [x] New York 1850-07-01: −17762 `LMT`, before the first transition. (−3771169438;
+        first stored transition −2717650800)
+  - [x] New York 2100-07-01: −14400, on the footer path. (4118097600 → `EDT`)
+  - [x] `Etc/GMT+5` at 0 and at 4102444800: −18000, a zone with no transitions.
+  - [x] `US/Eastern` equals `America/New_York` at three instants. (−3771144000,
+        1784106000, 4118083200)
+  - [x] `Asia/Kolkata` 2026: 19800. (1782844200 → `IST`)
+  - [x] Exactly at a zone's last stored transition, and one second before it. (New York's
+        last stored transition is 1173596400: 1173596399 → −18000 `EST` from the table,
+        1173596400 → −14400 `EDT` from the footer)
+  - [x] `offsetAt("Nowhere/Bogus", …)` and `offsetAt("", …)` trap `77050004`, and the
+        message contains `2026d`. (`toZone` too; the message also names the zone)
+  - [x] Ordinal pin: `toZone("UTC", instant(0,0)).kind = 1` and
         `datetime::fixedOffset(1, 0).kind = 1`.
-- [ ] README section "Offsets at an instant": `offsetAt`/`toZone` with the New York
+- [x] README section "Offsets at an instant": `offsetAt`/`toZone` with the New York
       example, and the rule that a `datetime::Zone` from `toZone` is a snapshot for that
       instant.
 
 Acceptance: the public members return `zoneinfo`'s answers on the hand cases, and an
 unknown name raises `ErrNotFound`.
   Check: `target/release/mfb test packages/timezones` → `Fail: 0`, with the `offsets` group present (est. 1 min).
-Commit: —
+Commit: bd0c5a22b
 
 ### Phase 3 — the oracle, and proof that it can fail
 
-- [ ] Add `oracle/README.md`, `requirements.txt`, `corpus.py`, `oracle.py`, `probe/`,
+- [x] Add `oracle/README.md`, `requirements.txt`, `corpus.py`, `oracle.py`, `probe/`,
       `diff.py`, `divergences.json` (`[]`), `run.sh` and `.gitignore`, per § 4.4.
-- [ ] Record the corpus size. It is UNMEASURED until `corpus.py` runs. Put the line
+      (`run.sh /Users/…/mfb/target/release/mfb offsets civil` → `offsets: 498303 jobs,
+      0 declared divergences, 0 mismatches`, `EXIT=0`)
+- [x] Record the corpus size. It is UNMEASURED until `corpus.py` runs. Put the line
       count and the `run.sh` wall time in the oracle README, and in this plan's
-      Corrections if they change an estimate.
-- [ ] Mutation proof: temporarily make `footerType` return the standard type
+      Corrections if they change an estimate. (`wc -l jobs/offsets.txt` → 498303;
+      `corpus.py offsets` alone takes 10.3 s; the whole mode, including corpus, oracle,
+      probe and diff, takes 18 s. That is under the 10-minute bound, so no sampling
+      question arises.)
+- [x] Mutation proof: temporarily make `footerType` return the standard type
       unconditionally, run `run.sh '' offsets`, confirm a non-zero mismatch count, and
       revert. Record the count in the README. Without this, a probe that never reaches
-      the evaluator would pass.
-- [ ] `.ai/testing-gates.md` § oracle homes: add `packages/timezones/oracle` (Python
-      `zoneinfo`, `tzdata` pinned to the vendored release) to the package row.
+      the evaluator would pass. (`python3 /tmp/p135mut.py footer-std` copied the
+      package to `/tmp/p135mut-footer-std`, rewrote the no-DST early return to
+      `IF f.hasDst = FALSE OR f.hasDst THEN …`, and ran `run.sh <mfb> offsets` →
+      `offsets: 498303 jobs, 0 declared divergences, 61559 mismatches`, `EXIT=1`. The
+      first mismatch was `America/Chicago 1173600000`: oracle `-18000 CDT`, probe
+      `-21600 CST`. The live worktree was never edited, so there was nothing to revert.)
+- [x] `.ai/testing-gates.md` § oracle homes: add `packages/timezones/oracle` (Python
+      `zoneinfo`, `tzdata` pinned to the vendored release) to the package row. (line 721,
+      "Where an oracle lives")
 
 Acceptance: the package agrees with `zoneinfo` on the whole corpus, and a broken
 evaluator is caught.
   Check: `packages/timezones/oracle/run.sh '' offsets; echo EXIT=$?` → `0 mismatches`, `EXIT=0`; the mutation run → mismatches > 0 (est. UNMEASURED — set from the corpus line count × the measured 50 µs per lookup, plus the Python side; if > 10 min, record why the full corpus is needed: the future-transition sweep is the only coverage of every DST footer).
-Commit: —
+Commit: b86f68aba
 
 ## Validation Plan
 
@@ -394,6 +426,34 @@ Commit: —
   additive.
 
 ## Corrections
+
+- **Phase 1: the weekday comes from epoch days, not `datetime::weekday`.** § 4.1 step 1
+  called for `weekdayIndex(datetime::date(y, m, 1))`, and § 2 marked the enum mapping
+  UNVERIFIED. `weekdayOfFirst` computes `floorMod(floorDiv(utcMidnight(y, m, 1), 86400)
+  + 4, 7)` instead, because 1970-01-01 was a Thursday. That needs no enum ordinal. The
+  pin the plan asked for tests it: 2026-03 → 0 (Python: `date(2026,3,1)` is `Sunday`),
+  2026-10 → 4 (`Thursday`), and 1969-12 → 1 (Monday), a pre-epoch month.
+- **Phase 1: MFBASIC `/` and `MOD` truncate toward zero.** A probe printed
+  `div -3 3 -1` for `-7 / 2`, `7 / 2`, `-86401 / 86400`, and `mod -1 1` for `-7 MOD 3`,
+  `7 MOD -3`. The evaluator therefore uses its own `floorDiv`/`floorMod` for pre-epoch
+  dates. § 4.1 had assumed floor semantics without saying so.
+- **Phase 1: § 4.1's grammar marks `"," rule "," rule` optional after `dst`.** RFC 8536
+  allows a DST footer without rules, but plan-135-A's generator rejects one. The
+  evaluator therefore FAILs `77050003` on it (a test covers `EST5EDT`), rather than
+  guessing POSIX's implementation-defined default rules.
+- **Phase 3: −2^40 is outside what the oracle can represent.** § 4.4 item 4 asked for
+  `−2^40` for every name, and item 5 caps the corpus at Python's years 1..9999. The two
+  conflict: −2^40 s is about year −32,873, and `datetime(1970,1,1) + timedelta(seconds=
+  -2**40)` raises `OverflowError`. The corpus therefore uses the earliest instant Python
+  can convert in every zone, 0001-01-03T00:00Z (−62135424000). The package's own
+  test still reaches −2^40 on the footer path (`test_posix.mfb`, Lima).
+- **Phase 3: the worktree has no compiler.** `run.sh ''` looks for
+  `<root>/target/release/mfb`, and a plan worktree has no `target/`. The first background
+  run printed `FAIL: no compiler at …/P-135/target/release/mfb`. Every run from the
+  worktree passes the main checkout's compiler as `$1`. From the main checkout, `''`
+  works as written.
+- **Phase 3: the offsets corpus measured 498,303 jobs, and the mode runs in 18 s.**
+  The estimate was UNMEASURED. `civil` (plan-135-C) adds 263,558 jobs and 37 s.
 
 ## Summary
 

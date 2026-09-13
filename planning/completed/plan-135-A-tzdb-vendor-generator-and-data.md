@@ -71,12 +71,12 @@ The whole plan-135 family (A–D) is gated here. Letters B–D point to this tab
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-135 number unclaimed elsewhere | `git log --all --oneline --grep plan-135; ls planning planning/completed \| grep plan-135` → only this family | MET (2026-09-13: both empty before these files were written) |
-| No `timezones` package exists | `ls -d packages/timezones` → `No such file or directory` | MET (2026-09-13) |
-| The release compiler builds and tests a source package | `target/release/mfb init-pkg /tmp/p135 && target/release/mfb build -q /tmp/p135` → `Wrote package` | MET (2026-09-13, `/tmp/tzpkgprobe`) |
-| The generator host has Python ≥ 3.9 (`zoneinfo`), `cc`, `make` | `python3 --version; cc --version; make --version` | MET locally (2026-09-13: Python 3.14.5; tzcode `make zic` built a 107,728-byte `zic`) |
-| **Gates D only:** bug-520 closed, with the offset writer printing seconds | `ls bugs/completed/bug-520-*` → one file, **and** a probe printing `datetime::toIso(datetime::toLocal(datetime::instant(-3771144000, 0)))` under `TZ=America/New_York` → `1850-07-01T07:03:58.000-04:56:02` | NOT MET (2026-09-13: bug open; probe prints `-04:56`) |
-| **Gates D's cross-target proof only:** boxes 2223, 2227, 2229 reachable | `for p in 2223 2227 2229; do ssh -o ConnectTimeout=8 -o BatchMode=yes -p $p test@127.0.0.1 true && echo $p ok; done` → three `ok` | NOT PROBED |
+| plan-135 number unclaimed elsewhere | `git log --all --oneline --grep plan-135; ls planning planning/completed \| grep plan-135` → only this family | MET (2026-09-13, follow-plan re-run: `git log` → only `93500e25d`, the commit that wrote this family; `ls` → only the four plan-135-A..D files) |
+| No `timezones` package exists | `ls -d packages/timezones` → `No such file or directory` | MET (2026-09-13, follow-plan re-run: `No such file or directory`) |
+| The release compiler builds and tests a source package | `target/release/mfb init-pkg /tmp/p135 && target/release/mfb build -q /tmp/p135` → `Wrote package` | MET (2026-09-13, follow-plan re-run: `Wrote package to /tmp/p135/p135.mfp`) |
+| The generator host has Python ≥ 3.9 (`zoneinfo`), `cc`, `make` | `python3 --version; cc --version; make --version` | MET locally (2026-09-13, follow-plan re-run: Python 3.14.5, Apple clang 17.0.0, GNU Make 3.81) |
+| **Gates D only:** bug-520 closed, with the offset writer printing seconds | `ls bugs/completed/bug-520-*` → one file, **and** a probe printing `datetime::toIso(datetime::toLocal(datetime::instant(-3771144000, 0)))` under `TZ=America/New_York` → `1850-07-01T07:03:58.000-04:56:02` | NOT MET (2026-09-13, follow-plan re-run: `bugs/completed/` has no bug-520, `bugs/bug-520-datetime-is-not-correct-standalone.md` is open; the probe, built with the main checkout's release `mfb`, prints `1850-07-01T07:03:58.000-04:56`. Re-checked after A–C were complete: still `Status: Open` on main at `80d3bd664`, with work in progress on branch `worktree-B-520`). **MET (2026-09-13, before D):** `bfb0cfbfc bugs: archive bug-520 to bugs/completed/ (fixed in 633c258bb)`; `ls bugs/completed/ \| grep bug-520` → `bug-520-datetime-is-not-correct-standalone.md`. The probe, built with the main checkout's release `mfb` (built 09:32, after the 09:31 merge `3aadb4084`), prints `1850-07-01T07:03:58.000-04:56:02` under `TZ=America/New_York`. Main was merged into `worktree-P-135` |
+| **Gates D's cross-target proof only:** boxes 2223, 2227, 2229 reachable | `for p in 2223 2227 2229; do ssh -o ConnectTimeout=8 -o BatchMode=yes -p $p test@127.0.0.1 true && echo $p ok; done` → three `ok` | MET (2026-09-13, follow-plan re-run: `2223 ok`, `2227 ok`, `2229 ok`) |
 
 Everything below assumes the rows gating a letter hold before that letter starts. There
 are no hedges for the world where they don't.
@@ -384,68 +384,90 @@ and concatenate. Record which happened in Corrections.
 
 Data files only. Safe alone: nothing reads them yet.
 
-- [ ] Download the four release files into `third_party/tzdb/2026d/`, then write
-      `SHA256SUMS`.
-- [ ] Verify both signatures with `gpg --verify` against the tz maintainers' key. Record
+- [x] Download the four release files into `third_party/tzdb/2026d/`, then write
+      `SHA256SUMS`. (`curl -sSfLO https://data.iana.org/time-zones/releases/<file>` ×4 →
+      tzdata 479,409 B, tzcode 328,712 B, both `.asc` 833 B; `shasum -a 256 -c SHA256SUMS`
+      → `tzdata2026d.tar.gz: OK`, `tzcode2026d.tar.gz: OK`)
+- [x] Verify both signatures with `gpg --verify` against the tz maintainers' key. Record
       the exact output lines in `third_party/tzdb/README.md`. If the key cannot be
       fetched on this host, that is a blocker to report. Never skip verification.
-- [ ] Write `third_party/tzdb/README.md` (§ 4.1).
+      (Key `7E3792A9D8ACF7D633BC1588ED97E90E62AA7E34`, Paul Eggert, imported over HTTPS from
+      keys.openpgp.org → `gpg --verify` both pairs → `Good signature from "Paul Eggert
+      <eggert@cs.ucla.edu>"`. See Corrections for the HKP port and the stale-expiry copy.)
+- [x] Write `third_party/tzdb/README.md` (§ 4.1).
 
 Acceptance: the committed bytes are the signed IANA release.
   Check: `cd third_party/tzdb/2026d && shasum -a 256 -c SHA256SUMS` → two `OK` lines; `gpg --verify tzdata2026d.tar.gz.asc tzdata2026d.tar.gz` and the tzcode pair → `Good signature` each (est. 2 min).
-Commit: —
+Commit: b3771486a
 
 ### Phase 2 — generator and drift gate
 
-- [ ] `tools/tzdb/gen_timezones_data.py` per § 4.2, emitting § 4.3.
-- [ ] `tools/tzdb/README.md` per § 4.2, including the update procedure.
-- [ ] Generate `packages/timezones/src/data.mfb`:
+- [x] `tools/tzdb/gen_timezones_data.py` per § 4.2, emitting § 4.3. (Also checks that the
+      tarballs' `version` file equals `RELEASE`, that every transition's type index is
+      below `typecnt`, and that the footer holds no `"` or `\`.)
+- [x] `tools/tzdb/README.md` per § 4.2, including the update procedure.
+- [x] Generate `packages/timezones/src/data.mfb`:
       `python3 tools/tzdb/gen_timezones_data.py > packages/timezones/src/data.mfb`.
-- [ ] `scripts/check-generated.sh`: add
+      (EXIT=0, 0.69 s real; stderr → `names 598 distinct 345 transitions 17018 types 1598
+      footers 94`, equal to § 2; the file is 337,535 B with 385 `PRIVATE FUNC`s)
+- [x] `scripts/check-generated.sh`: add
       `check tools/tzdb/gen_timezones_data.py packages/timezones/src/data.mfb` with a
       comment naming plan-135-A and the reason (nobody reviews 17018 transitions by
-      eye).
-- [ ] Mutation proof for the gate: append one space to `data.mfb`, run
-      `sh scripts/check-generated.sh`, confirm `DRIFT` and exit 1, then revert.
-- [ ] Mutation proof for the fail-closed checks: temporarily lower the spacing threshold
+      eye). (`sh scripts/check-generated.sh` → six `ok:` lines, the last
+      `ok: packages/timezones/src/data.mfb matches tools/tzdb/gen_timezones_data.py`,
+      exit 0)
+- [x] Mutation proof for the gate: append one space to `data.mfb`, run
+      `sh scripts/check-generated.sh`, confirm `DRIFT` and exit 1, then revert. (A
+      Python wrapper appended `b" "`, ran the gate, and restored the bytes → `EXIT=1`,
+      `DRIFT: packages/timezones/src/data.mfb does not match …`, `restored True`)
+- [x] Mutation proof for the fail-closed checks: temporarily lower the spacing threshold
       in a *copy* of the generator to 600,000, confirm it exits 1 naming
-      America/Cambridge_Bay, and discard the copy.
-- [ ] Cross-host determinism. On box 2223, native aarch64 Linux: copy
+      America/Cambridge_Bay, and discard the copy. (Copy `tools/tzdb/mutant_gap.py` with
+      `MIN_TRANSITION_GAP = 600000` → `EXIT=1`, `America/Cambridge_Bay: transitions at
+      972802800 and 973400400 are 597600 s apart, not more than 600000`; copy deleted.
+      "Lower" is wrong: 600,000 *raises* the threshold, and raising it is what trips.)
+- [x] Cross-host determinism. On box 2223, native aarch64 Linux: copy
       `tools/tzdb/gen_timezones_data.py` and `third_party/tzdb/2026d/`, run the
       generator, and `cmp` against the committed `data.mfb`. The CI gate runs on Linux
       and this file is generated on macOS, so a platform-dependent `zic` or `make` would
       otherwise surface only as a red CI row. If 2223 lacks `cc`/`make`, record that and
-      use the first box that has them.
+      use the first box that has them. (2223: `aarch64`, Python 3.14.6, `/usr/bin/cc`,
+      `/usr/bin/make` → `GEN=0`, the same statistics line, `cmp` → `CMP=0`)
 
 Acceptance: the generator reproduces the measured populations, the gate accepts the
 committed file and rejects a changed one, and a second OS produces identical bytes.
   Check: `python3 tools/tzdb/gen_timezones_data.py 2>&1 >/dev/null` → `names 598 distinct 345 transitions 17018 types 1598 footers 94`; `sh scripts/check-generated.sh; echo EXIT=$?` → the `ok: packages/timezones/src/data.mfb …` line and `EXIT=0`; on 2223 `cmp` → no output, exit 0 (est. 5 min).
-Commit: —
+Commit: b6668242d
 
 ### Phase 3 — package skeleton and data tests
 
-- [ ] `packages/timezones/project.json`, `src/lib.mfb`, `README.md` and `.gitignore` as
-      needed, per § 4.4.
-- [ ] `packages/timezones/src/test_data.mfb`, with these cases:
-  - [ ] `len(zoneNames())` is 598, and every name has non-empty `zoneData`.
-  - [ ] `zoneData("US/Eastern") = zoneData("America/New_York")`.
-  - [ ] `zoneData("Etc/UTC") = zoneData("Zulu")`.
-  - [ ] `zoneData` is `""` for `"Nowhere/Bogus"`, `""` and `"America/New_York "`.
-  - [ ] `zoneData("america/new_york") = zoneData("America/New_York")` and
+- [x] `packages/timezones/project.json`, `src/lib.mfb`, `README.md` and `.gitignore` as
+      needed, per § 4.4. (`.gitignore` ~~not added~~ — moot: `git check-ignore -v
+      packages/x/build/a packages/x/x.mfp` → `.gitignore:24:build/` and
+      `.gitignore:34:packages/**/*.mfp`; the root file already covers both.)
+- [x] `packages/timezones/src/test_data.mfb`, with these cases (`mfb test
+      packages/timezones` → `* data`, 7 `[P]`, `Tests: 7  Pass: 7  Fail: 0`):
+  - [x] `len(zoneNames())` is 598, and every name has non-empty `zoneData`.
+  - [x] `zoneData("US/Eastern") = zoneData("America/New_York")`.
+  - [x] `zoneData("Etc/UTC") = zoneData("Zulu")`.
+  - [x] `zoneData` is `""` for `"Nowhere/Bogus"`, `""` and `"America/New_York "`.
+  - [x] `zoneData("america/new_york") = zoneData("America/New_York")` and
         `zoneData("AMERICA/NEW_YORK") = zoneData("America/New_York")`.
-  - [ ] `canonicalName("america/new_york")` is `"America/New_York"`,
+  - [x] `canonicalName("america/new_york")` is `"America/New_York"`,
         `canonicalName("us/eastern")` is `"US/Eastern"`, and
         `canonicalName("Nowhere/Bogus")` is `""`; every name in `zoneNames()` is its
         own `canonicalName`.
-  - [ ] Every returned string has exactly two `|` separators.
-  - [ ] `tzdbVersion()` is `"2026d"`.
-- [ ] Record the real `mfb build -q packages/timezones` time and `.mfp` size in
+  - [x] Every returned string has exactly two `|` separators.
+  - [x] `tzdbVersion()` is `"2026d"`.
+- [x] Record the real `mfb build -q packages/timezones` time and `.mfp` size in
       Corrections if they differ materially from the probe's 0.05 s / 363,531 B.
+      (`/usr/bin/time -p mfb build -q packages/timezones` → `real 0.09`; `.mfp` 527,392 B.
+      Recorded in Corrections.)
 
 Acceptance: every tzdb name reaches data through the generated dispatcher, and nothing
 else does.
   Check: `target/release/mfb build -q packages/timezones && target/release/mfb test packages/timezones` → `Wrote package`, then `Fail: 0` with the `data` group present (est. 1 min).
-Commit: —
+Commit: df56b1bda
 
 ## Validation Plan
 
@@ -467,6 +489,37 @@ Commit: —
   roughly 800 KB of committed binary at the cost of that verification.
 
 ## Corrections
+
+- **2026-09-13, follow-plan start: the gate is letter-scoped.** The first
+  `/follow-plan 135` stopped the whole family on the "Gates D only" bug-520 row. That was
+  wrong: the owner ruled that A–C proceed while bug-520 is being worked on. The row gates
+  D and is re-checked before D starts.
+- **Phase 1: the key fetch needed HTTPS.** `gpg --keyserver hkps://keyserver.ubuntu.com
+  --recv-keys ED97E90E62AA7E34` → `keyserver receive failed: No route to host`. The HKP
+  port is unreachable from this host. Fetching the same key over HTTPS worked:
+  `curl https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x7E37…7E34 | gpg --import`.
+  That copy was stale: `gpg --fingerprint` → `[expired: 2026-09-01]`, and `gpg --verify`
+  printed `Good signature … [expired]` for signatures made 2026-09-11. Importing from
+  `https://keys.openpgp.org/vks/v1/by-fingerprint/7E3792A9D8ACF7D633BC1588ED97E90E62AA7E34`
+  added 2 new signatures → `[expires: 2031-07-24]`, and both `gpg --verify` →
+  `Good signature from "Paul Eggert <eggert@cs.ucla.edu>"` with no expiry note.
+  `third_party/tzdb/README.md` records keys.openpgp.org as the source to use.
+- **Phase 2: the fail-closed mutation said "lower"; it raises.** The measured minimum
+  spacing is 597,600 s. Only a threshold *above* that trips: a copy with
+  `MIN_TRANSITION_GAP = 600000` exits 1 naming America/Cambridge_Bay. Lowering it
+  cannot fail. The task was run as it was meant to be.
+- **Phase 2: the generator checks three premises § 4.2 did not list.** The tarballs'
+  `version` file must equal `RELEASE`. Every transition's type index must be below
+  `typecnt`. The footer must hold no `"` or `\`. Without the last check, a footer could
+  break the MFBASIC string literal that `zoneN()` returns. All three hold for 2026d,
+  and the statistics line is unchanged.
+- **Phase 3: the real package is larger than the probe.** `/usr/bin/time -p mfb build -q
+  packages/timezones` → `real 0.09`, and `timezones.mfp` is 527,392 B, against the probe's
+  0.05 s and 363,531 B. The generated `data.mfb` is 337,535 B, against the probe's
+  279,910 B. The probe predates the owner's case-insensitive `canonicalName` decision.
+  That decision adds a second 20-bucket dispatcher with 598 `CASE` arms, and lower-cases
+  every `MATCH` literal. The build is still well under a second, and `zoneNames()` built
+  as one 598-string literal, so no bucket split was needed.
 
 ## Summary
 

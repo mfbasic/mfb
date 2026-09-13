@@ -1,0 +1,63 @@
+' ---------------------------------------------------------------------------
+' Tests: the generated zone table (data.mfb).
+'
+' These pin the dispatcher, not the rules. Every tzdb name must reach a zone
+' string, a link must reach exactly its target's string, and nothing else --
+' an unknown name, the empty string, a name with a trailing space -- may reach
+' anything. The rules themselves are checked against zoneinfo by the oracle.
+' ---------------------------------------------------------------------------
+
+IMPORT strings
+
+TESTING
+  TGROUP "data"
+    TCASE "every one of the 598 names has zone data"
+      LET names AS List OF String = zoneNames()
+      expectInteger(len(names), 598)
+      MUT missing AS Integer = 0
+      FOR EACH name IN names
+        IF zoneData(name) = "" THEN missing = missing + 1
+      NEXT
+      expectInteger(missing, 0)
+    END TCASE
+
+    TCASE "a link shares its target's data"
+      expectEqual(zoneData("US/Eastern") = zoneData("America/New_York"), TRUE)
+      expectEqual(zoneData("Etc/UTC") = zoneData("Zulu"), TRUE)
+    END TCASE
+
+    TCASE "an unknown, empty or padded name has no data"
+      expectString(zoneData("Nowhere/Bogus"), "")
+      expectString(zoneData(""), "")
+      expectString(zoneData("America/New_York "), "")
+    END TCASE
+
+    TCASE "names match ignoring case"
+      expectEqual(zoneData("america/new_york") = zoneData("America/New_York"), TRUE)
+      expectEqual(zoneData("AMERICA/NEW_YORK") = zoneData("America/New_York"), TRUE)
+    END TCASE
+
+    TCASE "canonicalName returns the tzdb spelling and keeps a link a link"
+      expectString(canonicalName("america/new_york"), "America/New_York")
+      expectString(canonicalName("us/eastern"), "US/Eastern")
+      expectString(canonicalName("Nowhere/Bogus"), "")
+      MUT wrong AS Integer = 0
+      FOR EACH name IN zoneNames()
+        IF canonicalName(name) <> name THEN wrong = wrong + 1
+      NEXT
+      expectInteger(wrong, 0)
+    END TCASE
+
+    TCASE "every zone string has exactly two field separators"
+      MUT malformed AS Integer = 0
+      FOR EACH name IN zoneNames()
+        IF strings::count(zoneData(name), "|") <> 2 THEN malformed = malformed + 1
+      NEXT
+      expectInteger(malformed, 0)
+    END TCASE
+
+    TCASE "the table is release 2026d"
+      expectString(tzdbVersion(), "2026d")
+    END TCASE
+  END TGROUP
+END TESTING

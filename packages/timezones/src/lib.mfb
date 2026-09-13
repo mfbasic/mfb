@@ -1,0 +1,265 @@
+' ---------------------------------------------------------------------------
+' timezones/lib.mfb — the package's public API.
+'
+' The package answers named-zone questions ("what offset does America/New_York
+' apply at this instant?") from IANA tzdb rules committed to this repository,
+' and from nothing else. The rules are compiled ahead of time into data.mfb by
+' tools/tzdb/gen_timezones_data.py, and a CI gate keeps that file in step with
+' the vendored release.
+'
+' The one decision worth reading the rest of the package for is that the host
+' is never consulted -- not /usr/share/zoneinfo, not TZ, not a platform time
+' zone API. A program built on macOS and run on Linux gets the same answer,
+' and an answer never depends on how up to date the machine's zone database is.
+' datetime::local() remains the way to ask the host what ITS clock says.
+' ---------------------------------------------------------------------------
+
+IMPORT datetime
+
+DOC
+  PACKAGE
+  DESC Named IANA time zones, such as `America/New_York` or `Europe/London`,
+  DESC answered from a tzdb release committed with the package.
+  DESC
+  DESC The rules are IANA tzdb 2026d, vendored unmodified and compiled by the
+  DESC release's own `zic`. The package never reads the host's zone database,
+  DESC the `TZ` variable, or a platform time zone API, so every host and every
+  DESC target returns the same answer for the same question.
+  DESC
+  DESC Zone names match ignoring case, and a link such as `US/Eastern` answers
+  DESC exactly as its target does.
+  DESC
+  DESC To ask what the machine running the program considers local time, use
+  DESC `datetime::local()` instead. That answer is host-scoped by design.
+END DOC
+
+' ---------------------------------------------------------------------------
+' Error codes. Every failure has a registry code (`mfb spec diagnostics
+' error-codes`), so the package defines no user codes of its own.
+' ---------------------------------------------------------------------------
+
+' 7-705-0004 errorCode::ErrNotFound — the zone name is not in the tzdb release
+' this package carries. The message names the name and the release.
+PUBLIC LET ERR_UNKNOWN_ZONE AS Integer = 77050004
+
+' ---------------------------------------------------------------------------
+' Offsets at an instant
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC offsetAt
+  GROUP Offsets
+  DESC The UTC offset, in seconds east of Greenwich, that the named zone
+  DESC applies at `at`.
+  DESC
+  DESC The answer follows RFC 8536: the zone's stored transitions up to its
+  DESC last one, and its footer rule from then on. So an instant before 1883
+  DESC in New York gets local mean time, and an instant in 2100 still gets
+  DESC daylight saving time. `at.nanos` does not matter, because every
+  DESC transition falls on a whole second.
+  ARG name A tzdb zone name, such as `America/New_York`; case is ignored.
+  ARG at The instant to ask about.
+  RET The offset in seconds, positive east of UTC.
+  ERROR 77050004 `name` is not a zone in the package's tzdb release.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT datetime
+    IMPORT io
+
+    SUB main()
+      LET winter AS datetime::Instant = datetime::instant(1768485600, 0)
+      LET summer AS datetime::Instant = datetime::instant(1784120400, 0)
+      io::print(toString(timezones::offsetAt("America/New_York", winter)))
+      io::print(toString(timezones::offsetAt("America/New_York", summer)))
+    END SUB
+  END EXAMPLE
+END DOC
+EXPORT FUNC offsetAt(name AS String, at AS datetime::Instant) AS Integer
+  RETURN localTypeAt(name, at.seconds).utoff
+END FUNC
+
+DOC
+  FUNC toZone
+  GROUP Offsets
+  DESC The named zone's rules at `at`, as a fixed-offset `datetime::Zone`:
+  DESC the offset from `timezones::offsetAt`, labelled with the tzdb
+  DESC abbreviation in force, such as `EST`, `EDT`, `LMT` or `-03`.
+  DESC
+  DESC The result is a snapshot for that instant. Its kind is
+  DESC `datetime::ZoneKind.FixedOffset`, so it keeps the same offset for
+  DESC every instant it is later applied to, including one on the other side
+  DESC of a daylight saving change. Call `toZone` again for another instant.
+  ARG name A tzdb zone name, such as `America/New_York`; case is ignored.
+  ARG at The instant whose rules to capture.
+  RET A fixed-offset zone holding the offset and abbreviation at `at`.
+  ERROR 77050004 `name` is not a zone in the package's tzdb release.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT datetime
+    IMPORT io
+
+    SUB main()
+      LET at AS datetime::Instant = datetime::instant(1784120400, 0)
+      LET zone AS datetime::Zone = timezones::toZone("America/New_York", at)
+      io::print(zone.label & " " & toString(zone.offsetSeconds))
+      io::print(datetime::toIso(datetime::inZone(at, zone)))
+    END SUB
+  END EXAMPLE
+END DOC
+EXPORT FUNC toZone(name AS String, at AS datetime::Instant) AS datetime::Zone
+  LET t AS LocalType = localTypeAt(name, at.seconds)
+  RETURN datetime::Zone[t.utoff, 1, t.abbreviation]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' A clock reading in a zone
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC civil
+  GROUP Clock readings
+  DESC The `datetime::DateTime` for a wall-clock reading in a named zone.
+  DESC Its `zone` is `timezones::toZone` at that instant, and its `offset` is
+  DESC that zone's offset.
+  DESC
+  DESC A reading that never happens, because the clocks sprang forward past it,
+  DESC moves forward by the length of the gap. 02:30 on 2026-03-08 in New York
+  DESC becomes 03:30 EDT. A reading that happens twice, because the clocks fell
+  DESC back through it, resolves to the earlier instant. 01:30 on 2026-11-01
+  DESC in New York is 01:30 EDT, not EST. This is the RFC 9557 "compatible"
+  DESC rule, and Python's `zoneinfo` with `fold=0` answers the same way.
+  DESC
+  DESC The result carries a fixed-offset snapshot. `datetime::addDays` on it
+  DESC keeps that offset across a daylight saving change. To move by calendar
+  DESC days in the zone, call `civil` again with the new date.
+  ARG date The calendar date on the zone's wall clock.
+  ARG time The time of day on the zone's wall clock; nanoseconds are kept.
+  ARG name A tzdb zone name, such as `America/New_York`; case is ignored.
+  RET The zoned date and time, with the offset in force at that instant.
+  ERROR 77050002 A calendar field of `date` or `time` is out of range.
+  ERROR 77050004 `name` is not a zone in the package's tzdb release.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT datetime
+    IMPORT io
+
+    SUB main()
+      LET winter AS datetime::DateTime = timezones::civil(datetime::date(2026, 1, 15), datetime::time(9, 0, 0, 0), "America/New_York")
+      LET summer AS datetime::DateTime = timezones::civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 0), "America/New_York")
+      io::print(datetime::toIso(winter))
+      io::print(datetime::toIso(summer))
+      LET skipped AS datetime::DateTime = timezones::civil(datetime::date(2026, 3, 8), datetime::time(2, 30, 0, 0), "America/New_York")
+      io::print(datetime::toIso(skipped))
+    END SUB
+  END EXAMPLE
+END DOC
+EXPORT FUNC civil(date AS datetime::Date, time AS datetime::Time, name AS String) AS datetime::DateTime
+  RETURN zonedCivil(date, time, name)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Writing and reading a zoned time (RFC 9557)
+' ---------------------------------------------------------------------------
+
+' A zoned time read by `timezones::parseIso`: the date, time and offset, and
+' the zone they belong to.
+DOC
+  TYPE ZonedDateTime
+  DESC A date and time together with the named zone it belongs to, as
+  DESC `timezones::parseIso` reads it. `dateTime` carries the offset and
+  DESC abbreviation in force at that instant. `name` is the zone in its tzdb
+  DESC spelling, so `timezones::toIso(z.dateTime, z.name)` writes the value
+  DESC back.
+END DOC
+EXPORT TYPE ZonedDateTime
+  ' The date and time, with the zone's offset and abbreviation at that instant.
+  ' Its `zone` is the fixed-offset snapshot `timezones::toZone` returns.
+  dateTime AS datetime::DateTime
+  ' The zone name, in its tzdb spelling. A link such as `US/Eastern` stays a
+  ' link.
+  name AS String
+END TYPE
+
+DOC
+  FUNC toIso
+  GROUP Zoned text
+  DESC Write `dt` as an RFC 9557 zoned timestamp: `datetime::toIso`'s RFC
+  DESC 3339 text followed by the zone name in brackets, for example
+  DESC `2026-07-15T09:00:00.000-04:00[America/New_York]`.
+  DESC
+  DESC The name is written in its tzdb spelling, whatever case it was given
+  DESC in. `dt.offset` must be the zone's offset at `dt`'s instant, so a
+  DESC written string never contradicts itself. A `DateTime` from
+  DESC `timezones::civil` or `timezones::parseIso` always passes. An offset
+  DESC that is not a whole number of minutes, such as New York's 1850 local
+  DESC mean time, is written with seconds (`-04:56:02`).
+  DESC
+  DESC Without `digits` the text has milliseconds. With `digits` it has 0, 3,
+  DESC 6 or 9 fractional digits, as `datetime::toIso` accepts. Only
+  DESC `digits = 9` keeps every nanosecond, so use it when the text must read
+  DESC back to the same instant.
+  ARG dt The date and time to write.
+  ARG digits How many fractional-second digits to write: 0, 3, 6 or 9.
+  ARG name The zone `dt` belongs to, such as `America/New_York`; case is ignored.
+  RET The RFC 9557 text.
+  ERROR 77050002 `digits` is not 0, 3, 6 or 9, or `dt.offset` is not the zone's offset at `dt`'s instant.
+  ERROR 77050004 `name` is not a zone in the package's tzdb release.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT datetime
+    IMPORT io
+
+    SUB main()
+      LET meeting AS datetime::DateTime = timezones::civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 123456789), "America/New_York")
+      io::print(timezones::toIso(meeting, "America/New_York"))
+      io::print(timezones::toIso(meeting, 9, "America/New_York"))
+    END SUB
+  END EXAMPLE
+END DOC
+EXPORT FUNC toIso(dt AS datetime::DateTime, name AS String) AS String
+  LET annotation AS String = zoneAnnotation(dt, name)
+  RETURN datetime::toIso(dt) & annotation
+END FUNC
+
+EXPORT FUNC toIso(dt AS datetime::DateTime, digits AS Integer, name AS String) AS String
+  LET annotation AS String = zoneAnnotation(dt, name)
+  RETURN datetime::toIso(dt, digits) & annotation
+END FUNC
+
+DOC
+  FUNC parseIso
+  GROUP Zoned text
+  DESC Read an RFC 9557 zoned timestamp, such as
+  DESC `2026-07-15T09:00:00.000-04:00[America/New_York]`, into the instant it
+  DESC names and the zone it names.
+  DESC
+  DESC The text is an RFC 3339 timestamp that `datetime::parseIso` accepts,
+  DESC then one time-zone annotation, then any suffix tags. The zone may be
+  DESC marked critical (`[!America/New_York]`). A `[u-ca=iso8601]` calendar
+  DESC tag is accepted, and any other calendar is refused. An unknown tag is
+  DESC ignored, unless it is marked critical, which refuses it.
+  DESC
+  DESC The offset must be the zone's offset at that instant, and text where
+  DESC they disagree is refused whether or not the zone is critical. Two
+  DESC spellings are also accepted. `Z` names the instant without an offset,
+  DESC so the zone supplies one. An offset rounded to the minute from a
+  DESC local-mean-time offset with seconds, such as `-04:56` for `-04:56:02`,
+  DESC is read back to the exact instant.
+  ARG text The zoned timestamp to read.
+  RET The date and time in the zone, and the zone name in tzdb spelling.
+  ERROR 77050003 The text is malformed, has no zone annotation or an unsupported calendar or critical tag, or its offset is not the zone's offset.
+  ERROR 77050004 The zone name is not in the package's tzdb release.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT datetime
+    IMPORT io
+
+    SUB main()
+      LET z AS timezones::ZonedDateTime = timezones::parseIso("2026-07-15T09:00:00.000-04:00[America/New_York]")
+      io::print(z.name & " " & toString(datetime::resolve(z.dateTime).seconds) & " " & z.dateTime.zone.label)
+    END SUB
+  END EXAMPLE
+END DOC
+EXPORT FUNC parseIso(text AS String) AS ZonedDateTime
+  RETURN zonedParseIso(text)
+END FUNC
