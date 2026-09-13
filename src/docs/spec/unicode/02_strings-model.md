@@ -2,7 +2,8 @@
 
 The three indexing units a `String` exposes and which `strings::` operations use
 each. A `String` is an immutable, UTF-8-encoded byte sequence; the runtime never
-mutates it in place. The unit a builtin counts in is a deliberate, fixed property
+mutates it in place (the value model and byte layout are owned by
+`./mfb spec memory heap-values`). The unit a builtin counts in is a deliberate, fixed property
 of that builtin — callers must know which.
 
 The per-function `strings::` API (arguments, return types, error codes) is owned
@@ -35,8 +36,11 @@ most scalars are 1, and a zero-width scalar (a combining mark, ZWSP, ZWJ) is 0.
 the width of its **first non-zero-width scalar**, so it is 0, 1 or 2 columns
 regardless of its scalar count: a grapheme made only of zero-width scalars — a
 lone combining mark, ZWSP, or ZWJ — is `0`. `"café"` (NFD) is 4, `"日本語"` is 6,
-`"👨‍👩‍👧‍👦"` is 2. [[src/codegen/builtins/strings/func_display_width.rs:lower]] The `term::` backends lay one grapheme per cell at this width; a
-wide grapheme reserves a trailing cell and wraps at the right edge.
+`"👨‍👩‍👧‍👦"` is 2. [[src/codegen/builtins/strings/func_display_width.rs:lower]] The `term::` backends lay one
+grapheme per cell at this width, with one exception: for terminal placement only,
+a grapheme made only of zero-width scalars occupies one cell, not zero. A wide
+grapheme reserves a trailing cell and wraps at the right edge.
+[[src/codegen/term/core/term.rs:emit_draw_text]]
 [[src/codegen/builtins/strings/func_display_width.rs:displayWidth]]
 [[src/unicode/runtime_tables.rs:charwidth]]
 
@@ -58,8 +62,7 @@ Neither pair truncates.
 
 The runtime converts between a scalar index and a byte offset on demand; it never
 caches a per-scalar offset table. Mapping is a scan that counts non-continuation
-bytes (`byte & 0xC0 != 0x80`), the dominant cost in `mid`/`find`, each direction
-being O(n) in the bytes scanned.
+bytes (`byte & 0xC0 != 0x80`), linear in the bytes scanned, in each direction.
 
 Mapping a scalar index to a byte offset walks forward to the `scalar_index`-th
 scalar boundary. The one-past-the-end index (`scalar_index == scalar_count`) is
@@ -101,9 +104,10 @@ The byte slice is always taken on scalar boundaries, so the result is always
 valid UTF-8. `mid` is *not* grapheme-aware: slicing through a combining sequence
 splits the cluster.
 
-`mid` (and `find`) are **never constant-folded**: a call with static, out-of-range
+`mid` (and `find`) are **never constant-folded**: they are not among the `String`
+calls the static-string fold evaluates, so a call with static, out-of-range
 arguments still compiles and raises the catchable runtime error, never a build
-error. There is a single evaluation path. If folding is ever added, the error
+error. [[src/codegen/memory/value/builder_value_semantics.rs:static_string_value]] There is a single evaluation path. If folding is ever added, the error
 condition must keep folding to the runtime raise.
 
 ## `find` semantics — scalar in, scalar out
@@ -156,9 +160,9 @@ space `U+3000`, among others. [[src/codegen/string/unicode_props.rs:emit_unicode
 | `trimStart` | leading | `str::trim_start_matches(is_whitespace)` |
 | `trimEnd` | trailing | `str::trim_end_matches(is_whitespace)` |
 
-Trimming operates scalar by scalar from the end(s); it is not grapheme-aware (it
-cannot strip a whitespace scalar buried inside a cluster, but no standard cluster
-begins with a `White_Space` scalar). Zero-width characters (e.g. ZWSP `U+200B`,
+Trimming operates scalar by scalar from the end(s); it is not grapheme-aware. A cluster can begin with a `White_Space` scalar — a
+space followed by a combining mark is one extended grapheme cluster (UAX #29
+GB9) — and trimming removes the space and leaves the mark behind. Zero-width characters (e.g. ZWSP `U+200B`,
 ZWJ) are **not** `White_Space` and are never trimmed. [[src/codegen/builtins/strings/gen_trim.rs:lower_strings_trim]]
 
 ## The empty-needle rule
@@ -210,7 +214,9 @@ non-overlapping matches produce N+1 parts, so the result is never empty. The
 delimiter match is on raw UTF-8 bytes with no
 normalization. There is no `limit` parameter. The inverse `join(parts, delimiter)`
 concatenates with the
-delimiter between parts and never errors. [[src/codegen/builtins/strings/func_join.rs:lower]]
+delimiter between parts. It accepts an empty delimiter; its only failure is
+`ErrOutOfMemory`, raised when the result's size overflows or cannot be allocated.
+[[src/codegen/builtins/strings/func_join.rs:lower]] [[src/codegen/builtins/strings/func_join.rs:lower]]
 
 `regex::split(value, pattern)` is the pattern form, and it obeys this same
 counting rule over the matches `regex::findAll` reports — N matches, N+1 parts,

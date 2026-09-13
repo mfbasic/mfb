@@ -1996,6 +1996,26 @@ the belongs-in-spec ledger gains no rows from `unicode`.
 | Unit | Finding | Verdict | Evidence (mine) | Applied |
 |---|---|---|---|---|
 | `spec.md` (73s) | "The Unicode data and algorithms the compiler embeds into **every binary**" | **CONFIRMED** | the package's own `tables-and-algorithms` says a table is emitted only when generated code relocates against its `_mfb_unicode_*` symbol, at `src/codegen/memory/data/data_objects.rs:unicode_runtime_data_objects` (resolving: `--citations unicode` → 0 MISS); statically known calls fold with no table at all | overview now says the tables go into a program whose generated code performs a Unicode-aware operation at run time, only those referenced, and links `tables-and-algorithms` for the provenance rather than duplicating it |
+| `01_tables-and-algorithms.md` (171s) #1 | tables embedded "into every program that calls a Unicode-aware builtin" | **CONFIRMED** | a statically known call folds (`type_utils.rs:strings_package_static_string_value`) and emits no table | now: a program whose generated code performs such an operation at run time |
+| `01` #2 | "The tables are derived from utf8proc, not from those Rust crates" | **CONFIRMED** — the file contradicted its own Provenance section | Provenance: "The NFD, uppercase, lowercase, and casefold mapping tables are **not** taken from utf8proc" (`runtime_tables.rs:build_mapping_tables`) | property trie + composition tables from utf8proc; NFD/case tables from the Rust crates |
+| `01` #3 | normalization and case mapping "follow utf8proc's Unicode version" — **in the section I added in iteration 1** | **CONFIRMED** | same `build_mapping_tables` evidence | now names three data sources, each with its own Unicode version |
+| `01` #4 | the parser maps `UTF8PROC_CATEGORY_*` and `UTF8PROC_DECOMP_TYPE_*` | **CONFIRMED** | `runtime_tables.rs:parse_value` maps only `UINT16_MAX`, booleans, bidi, boundclass and conjunct-break; its comment says the category/decomposition maps were removed | rewritten, cited |
+| `01` #5 | "emits the thirteen tables" | **CONFIRMED** | `data_objects.rs` test: `assert_eq!(all.len(), 17, …)` | seventeen: thirteen + four pinned range/name tables |
+| `01` #6 | "u32 / record tables align 4" | **CONFIRMED** — contradicted the file's own table | `data_objects.rs:unicode_runtime_data_objects` emits `UNICODE_PROPERTIES_SYMBOL` (12-byte records) with alignment `2` | split: `properties` records align 2, mapping-entry records align 4 |
+| `01` #7 | "`ß → ss` (uppercase)" | **CONFIRMED** | probe `/tmp/p125-pr4`: `strings::upper("\u{DF}")` → `SS` | `ß → SS` |
+| `01` #8 | NFC's buffer sizing states no failure mode | **CONFIRMED** | `func_normalize_nfc.rs:lower` checks the size add and calls `raise_error_bare("ErrOutOfMemory")` | failure mode stated, cited |
+| `02_strings-model.md` #1 | `term::` "lay one grapheme per cell at this width" — but an all-zero-width grapheme has width 0 | **CONFIRMED** | `src/codegen/term/core/term.rs`: "a zero-width glyph (a lone combining mark) falls back to width 1" | the terminal-placement exception is stated |
+| `02` #2 | "no standard cluster begins with a `White_Space` scalar" | **CONFIRMED** | probe `/tmp/p125-pr4`: `" \u{301}"` is `1` grapheme, and `len(trim(…))` is `1` — the mark is left behind (UAX #29 GB9) | rewritten |
+| `02` #3 | `join` "never errors" | **CONFIRMED** | `func_join.rs:lower` checks each size add and raises `ErrOutOfMemory` | failure mode stated, cited |
+| `02` #4 | `String` immutability is uncited | **CONFIRMED** (uncited) | a value-model contract owned elsewhere; `.ai/specifications.md` single-source rule | linked to `mfb spec memory heap-values` rather than re-cited |
+| `02` #5 | "never constant-folded" is uncited | **CONFIRMED** | `builder_value_semantics.rs:static_string_value` folds only `strings.upper`/`lower`/`caseFold`/`normalizeNfc` | cited |
+| `02` #6 | "the dominant cost in `mid`/`find`" is unmeasured | **CONFIRMED** | no measurement exists; both lowerings also carry ASCII fast paths | performance claim removed; linearity kept |
+
+**Iteration 2 total: 15 findings, 15 confirmed, 0 rejected.** My own `mid`/`find`
+probe of `02` (`/tmp/p125-pr3`) matched every observable claim: one-past-end
+zero-length slice `[]`; start past end, length past end and negative start all
+`77050001`; empty needle returns `start`; no match `77050004`; a scalar index is
+returned.
 
 ## Validation Plan
 

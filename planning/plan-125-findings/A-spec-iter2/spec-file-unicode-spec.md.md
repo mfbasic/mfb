@@ -1,0 +1,7 @@
+### 1. Unicode data is not embedded into every binary
+UNIT:      spec-file:unicode/spec.md  
+LINE:      3  
+CATEGORY:  wrong-claim  
+CLAIM:     “The Unicode data and algorithms the compiler embeds into every binary and the runtime executes for text operations.”  
+EVIDENCE:  `src/codegen/engine/builder/mod.rs:build` emits Unicode data only when generated functions contain `_mfb_unicode_*` data relocations; with none, it emits no Unicode tables. `src/codegen/memory/data/data_objects.rs:unicode_runtime_data_objects` further emits only the referenced subset. `src/codegen/engine/analysis/module_analysis.rs:module_uses_unicode_runtime_tables` excludes statically folded Unicode calls from the runtime-table path. The unit has zero provenance markers (`rg -o '\\[\\[[^]]+\\]\\]' src/docs/spec/unicode/spec.md | wc -l` → `0`).  
+SUGGESTED: “For dynamic Unicode-aware operations, the compiler embeds only the Unicode tables referenced by generated runtime code; statically known operations can be folded without runtime tables. [[src/codegen/engine/builder/mod.rs:build]] [[src/codegen/memory/data/data_objects.rs:unicode_runtime_data_objects]] [[src/codegen/engine/analysis/module_analysis.rs:module_uses_unicode_runtime_tables]]”
