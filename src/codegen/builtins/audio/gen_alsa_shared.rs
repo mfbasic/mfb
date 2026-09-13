@@ -210,6 +210,27 @@ pub(crate) const WAIT_FN_OFF: usize = 440; // cached snd_pcm_wait fn-ptr
 
 pub(crate) const AVAIL_FN_OFF: usize = 448; // cached snd_pcm_avail_update fn-ptr
 
+// devices(): building each `AudioDevice` and the list (plan-132).
+pub(crate) const DEV_ONE_OFF: usize = 456; // the Boolean TRUE word canInput/canOutput take
+
+pub(crate) const DEV_ZERO_OFF: usize = 464; // the Boolean FALSE word the defaults take
+
+pub(crate) const DEVREC_SIZE_OFF: usize = 472; // record marshaller scratch
+
+pub(crate) const DEVREC_RESULT_OFF: usize = 480; // the built AudioDevice
+
+pub(crate) const DEVREC_CURSOR_OFF: usize = 488; // record marshaller scratch
+
+pub(crate) const DEVREC_BLOCK_OFF: usize = 496; // record marshaller scratch
+
+pub(crate) const DEVPAIRS_OFF: usize = 504; // (record, size) per device
+
+pub(crate) const DEVLIST_CURSOR_OFF: usize = 512; // record-list builder scratch
+
+pub(crate) const DEVLIST_INDEX_OFF: usize = 520; // record-list builder scratch
+
+pub(crate) const DEVLIST_OFF: usize = 528; // the built list
+
 /// Resolve `libasound.so.2` (dlopen), storing the handle at `DL_HANDLE_OFF`;
 /// branch to `unavailable` if it does not load.
 pub(crate) fn emit_dlopen(ctx: &mut EmitCtx, unavailable: &str) -> Result<(), String> {
@@ -369,9 +390,12 @@ pub(crate) fn emit_device_cstring(
     let v14 = vregs.next();
     instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), device_off),
-        abi::load_u64(&v9, &v9, DEVICE_FIELD_ID), // id String ptr
-        abi::load_u64(&v10, &v9, 0),              // len
-        abi::add_immediate(&v11, &v9, 8),         // src bytes
+        // The `audio::AudioDevice` record's `id` is the `String` inlined at
+        // `record + [record + DEVICE_FIELD_ID]` (plan-132).
+        abi::load_u64(&v10, &v9, DEVICE_FIELD_ID),
+        abi::add_registers(&v9, &v9, &v10), // id String ptr
+        abi::load_u64(&v10, &v9, 0),        // len
+        abi::add_immediate(&v11, &v9, 8),   // src bytes
         // Clamp the copy count to NAME_BUF's 128 bytes minus the NUL terminator;
         // an oversized device id would otherwise overrun the fixed buffer.
         abi::move_immediate(&v9, "Integer", "127"),

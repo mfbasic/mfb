@@ -1,5 +1,5 @@
 # GENERATED FILE — do not edit by hand.
-# Source: scripts/gen_unicode_script_table.py
+# Source: tools/unicode-tables/gen_unicode_script_table.py
 # Pinned Unicode version: 16.0.0
 # Data: third_party/unicode/Scripts-16.0.0.txt (UCD Script property).
 # One line per run, ascending and contiguous over 0 .. 0x10FFFF:

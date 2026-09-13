@@ -40,12 +40,6 @@ icns = "0.3"
 [lints.clippy]
 items_after_test_module = "deny"
 
-[lints.rust]
-# `--cfg perf` opts a build into runtime perf-tracking injection
-# (`perf_injection_enabled()`), independent of debug/release. Register it so the
-# 1.80+ unexpected-cfg lint recognizes the name instead of warning on it.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(perf)'] }
-
 [dev-dependencies]
 tempfile = "3"
 serde_json = "1"
@@ -275,6 +269,10 @@ name = "rt_canvas_graphics_thread"
 path = "tests/canvas/rt_canvas_graphics_thread.rs"
 
 [[test]]
+name = "rt_canvas_debug_hooks"
+path = "tests/canvas/rt_canvas_debug_hooks.rs"
+
+[[test]]
 name = "rt_canvas_group_ownership"
 path = "tests/canvas/rt_canvas_group_ownership.rs"
 
@@ -428,6 +426,14 @@ path = "tests/gate/gate_release_on_normal_exit.rs"
 name = "golden"
 path = "tests/gate/golden.rs"
 
+[[test]]
+name = "script_selftests"
+path = "tests/gate/script_selftests.rs"
+
+[[test]]
+name = "scripts_index_is_complete"
+path = "tests/gate/scripts_index_is_complete.rs"
+
 # --- tests/guards/ ----------------------------------------------------
 [[test]]
 name = "architecture_guards"
@@ -553,6 +559,10 @@ name = "rt_encoding_punycode_bounds"
 path = "tests/runtime/rt_encoding_punycode_bounds.rs"
 
 [[test]]
+name = "rt_error_value_copies"
+path = "tests/runtime/rt_error_value_copies.rs"
+
+[[test]]
 name = "rt_foreign_type_reexport"
 path = "tests/runtime/rt_foreign_type_reexport.rs"
 
@@ -651,6 +661,14 @@ path = "tests/runtime/rt_operand_snapshot.rs"
 [[test]]
 name = "rt_package_calls_software_curve_builtin"
 path = "tests/runtime/rt_package_calls_software_curve_builtin.rs"
+
+[[test]]
+name = "rt_debug_arena"
+path = "tests/runtime/rt_debug_arena.rs"
+
+[[test]]
+name = "rt_debug_report"
+path = "tests/runtime/rt_debug_report.rs"
 
 [[test]]
 name = "rt_process_detach_preserves_exit_code"

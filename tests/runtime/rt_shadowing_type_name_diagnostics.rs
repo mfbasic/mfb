@@ -151,3 +151,63 @@ fn an_enum_shadowing_a_builtin_name_still_checks_its_members() {
         "an enum shadowing `Money` must still reject an undeclared member"
     );
 }
+
+/// plan-132 D1: a project record whose NAME is the leaf of a compiler-owned builtin
+/// record — `net::Address`, `audio::AudioDevice`, `term::TermSize` — is an ordinary
+/// project record. The read-only rule matched the bare leaf as well as the qualified
+/// identity, so `TYPE Address` could be neither constructed nor `WITH`-updated in any
+/// program, with or without `IMPORT net` (`TYPE_READ_ONLY_RECORD_CONSTRUCTOR` and
+/// `TYPE_UNKNOWN_VALUE`), while the same program with `TYPE Url`, `TYPE Datagram` or
+/// `TYPE KeyPair` built. A bare leaf in source can only name a project type: an
+/// imported builtin record cannot be named bare (`AS Address` under `IMPORT net` is
+/// `SYMBOL_UNKNOWN_TYPE`).
+#[test]
+fn a_project_record_named_like_a_compiler_owned_record_is_an_ordinary_record() {
+    for (leaf, package) in [
+        ("Address", "net"),
+        ("AudioDevice", "audio"),
+        ("TermSize", "term"),
+    ] {
+        for imported in [false, true] {
+            let imports = if imported {
+                format!("IMPORT {package}\n\n")
+            } else {
+                String::new()
+            };
+            let source = format!(
+                "{imports}TYPE {leaf}\n  street AS String\nEND TYPE\n\nFUNC main() AS Integer\n  LET a = {leaf}[\"x\"]\n  LET b = WITH a {{ street := \"yz\" }}\n  RETURN len(b.street)\nEND FUNC\n"
+            );
+            let codes = diagnostics(&format!("d1_project_{leaf}_{imported}"), &source);
+            assert!(
+                codes.is_empty(),
+                "a project `TYPE {leaf}` (IMPORT {package}: {imported}) must construct and \
+                 WITH-update like any record; got {codes:?}"
+            );
+        }
+    }
+}
+
+/// The other half of D1: the builtin records stay compiler-owned under the only
+/// spelling source has for them.
+#[test]
+fn a_compiler_owned_record_stays_unconstructible_under_its_qualified_name() {
+    for (package, constructor) in [
+        ("net", "net::Address[\"1.2.3.4\", 80]"),
+        (
+            "audio",
+            "audio::AudioDevice[\"x\", \"y\", TRUE, FALSE, FALSE, FALSE]",
+        ),
+        ("term", "term::TermSize[rows := 10, columns := 10]"),
+    ] {
+        let source = format!(
+            "IMPORT {package}\n\nFUNC main() AS Integer\n  LET a = {constructor}\n  RETURN 0\nEND FUNC\n"
+        );
+        let codes = diagnostics(&format!("d1_owned_{package}"), &source);
+        assert!(
+            codes
+                .iter()
+                .any(|code| code.contains("TYPE_READ_ONLY_RECORD_CONSTRUCTOR")),
+            "`{constructor}` must stay refused as compiler-owned; got {codes:?}"
+        );
+    }
+}

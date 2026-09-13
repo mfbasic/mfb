@@ -1399,13 +1399,16 @@ fn read_only_record_type(type_: &ParameterType) -> bool {
     if matches!(type_, ParameterType::MapEntryOf(_, _)) {
         return true;
     }
-    // Both spellings, via `is_builtin_named`: a source `AS net::Address`
-    // resolves to the qualified `net.Address`, and matching only the bare leaf
-    // left this rule looking for a name nothing produces any more — so
-    // `net::Address["1.2.3.4", 80]` compiled and ran (bug-483).
+    // The qualified identity only. A source `net::Address[…]` resolves to
+    // `net.Address`, and matching only the bare leaf once left this rule looking
+    // for a name nothing produced — so `net::Address["1.2.3.4", 80]` compiled and
+    // ran (bug-483). The bare leaf must NOT match either: source cannot name an
+    // imported builtin record bare (`SYMBOL_UNKNOWN_TYPE`), so a bare `Address`
+    // here is a project `TYPE Address`, which the old both-spellings match refused
+    // as compiler-owned (plan-132 D1).
     crate::codegen::builtins::term::is_read_only_record(type_)
-        || type_.is_builtin_named("net", crate::codegen::builtins::net::ADDRESS_TYPE)
-        || type_.is_builtin_named("audio", crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
+        || type_.is_builtin_qualified("net", crate::codegen::builtins::net::ADDRESS_TYPE)
+        || type_.is_builtin_qualified("audio", crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
 }
 
 /// Whether `name` is a built-in resource type (has a registered close op).

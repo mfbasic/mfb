@@ -78,6 +78,10 @@ pub(crate) struct AbiCtx<'a> {
     /// RNG state). `thread.start` alone consumes it; every other abi body ignores it.
     /// `false` on the inline (`abi_inline`) path.
     pub(crate) uses_rng: bool,
+    /// plan-130-C: whether the `--debug` arena registry is active. `thread.start` and
+    /// `canvas.startGraphics` consume it to register the arena they create; `false` on
+    /// the inline (`abi_inline`) path.
+    pub(crate) debug_arena_registry: bool,
 }
 
 /// A builder-driven **inline** lowering — the single sanctioned inline shape:
@@ -304,6 +308,12 @@ pub(crate) enum HelperGate {
     /// Inject whenever the owning package's source is injected (i.e. the package is
     /// imported). Byte-identical to the pre-plan-99 unconditional `add_helper_functions`.
     Always,
+    /// Render inline like [`Always`](Self::Always), but only in a build WITHOUT
+    /// `--debug`: the normal half of a [`RegistryHelper::debug_split`] (plan-130-E).
+    NormalBuildOnly,
+    /// Render inline like [`Always`](Self::Always), but only in a `--debug` build: the
+    /// debug half of a [`RegistryHelper::debug_split`] (plan-130-E).
+    DebugBuildOnly,
     /// Inject only when the program references at least one of these **local**
     /// function names — the `strings` scalar-seam gate (`toScalars`/`isLetter`/…),
     /// which keeps the heavy Unicode general-category table out of a program that
@@ -404,6 +414,29 @@ impl RegistryHelper {
             natively_called: true,
             ..Self::always(name, body)
         }
+    }
+
+    /// A source chunk with one body for a normal build and another for a `--debug`
+    /// build (plan-130-E): reporting hooks (a stats file, a frame dump) live only in
+    /// `debug_body`, so a normal build's source does not contain them at all. Both halves
+    /// render inline in [`get_mfb_for`](RegistryPackage::get_mfb_for) at the position the
+    /// pair was added, so the two bodies must declare the same functions the rest of the
+    /// package calls; `debug_body` may add functions of its own.
+    pub(crate) fn debug_split(
+        name: &'static str,
+        normal_body: &'static str,
+        debug_body: &'static str,
+    ) -> [Self; 2] {
+        [
+            RegistryHelper {
+                gate: HelperGate::NormalBuildOnly,
+                ..Self::always(name, normal_body)
+            },
+            RegistryHelper {
+                gate: HelperGate::DebugBuildOnly,
+                ..Self::always(name, debug_body)
+            },
+        ]
     }
 }
 
@@ -1142,10 +1175,20 @@ impl RegistryPackage {
     /// order — the chunks that render inline in [`get_mfb`](Self::get_mfb) (the old
     /// `helper_functions`). Gated helpers (`WhenUsed`/`WhenImported`) are injected as
     /// separate files by [`Registry::augment_project`] and are excluded here.
-    fn always_helper_bodies(&self) -> Vec<&'static str> {
+    ///
+    /// A [`debug_split`](RegistryHelper::debug_split) pair contributes the half that
+    /// matches `debug`.
+    fn always_helper_bodies(&self, debug: bool) -> Vec<&'static str> {
         self.helpers
             .iter()
-            .filter(|h| matches!(h.gate, HelperGate::Always))
+            .filter(|h| match h.gate {
+                HelperGate::Always => true,
+                HelperGate::NormalBuildOnly => !debug,
+                HelperGate::DebugBuildOnly => debug,
+                HelperGate::WhenUsed(_)
+                | HelperGate::WhenImported(_)
+                | HelperGate::WhenBothImported(..) => false,
+            })
             .filter_map(|h| h.body)
             .collect()
     }
@@ -1197,7 +1240,14 @@ impl RegistryPackage {
     /// separated by a blank line and the result ends with a newline, so the output is
     /// directly parseable.
     pub(crate) fn get_mfb(&self) -> String {
-        let helper_bodies = self.always_helper_bodies();
+        self.get_mfb_for(false)
+    }
+
+    /// [`get_mfb`](Self::get_mfb) for a build with (`debug`) or without `--debug`: the
+    /// same assembly, with each [`debug_split`](RegistryHelper::debug_split) pair
+    /// contributing the matching half (plan-130-E). `get_mfb` is the normal build's.
+    pub(crate) fn get_mfb_for(&self, debug: bool) -> String {
+        let helper_bodies = self.always_helper_bodies(debug);
         let bodies: Vec<&str> = self
             .functions
             .iter()
@@ -1492,11 +1542,15 @@ impl Registry {
     /// nothing to inject (empty [`get_mfb`](RegistryPackage::get_mfb)), contributes no
     /// file. The synthetic path/doc labels match the pre-migration convention
     /// (`<builtin-csv>` / `builtins/csv.mfb`).
+    ///
+    /// `debug` selects each [`debug_split`](RegistryHelper::debug_split) helper's half:
+    /// the build passes its `--debug` flag (plan-130-E).
     pub(crate) fn augment_project(
         &self,
         ast: &crate::ast::AstProject,
+        debug: bool,
     ) -> Result<crate::ast::AstProject, ()> {
-        let synthetic_files = self.synthetic_files(&ProjectView::of_ast(ast))?;
+        let synthetic_files = self.synthetic_files(&ProjectView::of_ast(ast), debug)?;
         if synthetic_files.is_empty() {
             return Ok(ast.clone());
         }
@@ -1513,7 +1567,8 @@ impl Registry {
         &self,
         hir: &crate::hir::HirProject,
     ) -> Result<crate::hir::HirProject, ()> {
-        let synthetic_files = self.synthetic_files(&ProjectView::of_hir(hir))?;
+        // The HIR chain serves only in-process tests of normal builds.
+        let synthetic_files = self.synthetic_files(&ProjectView::of_hir(hir), false)?;
         if synthetic_files.is_empty() {
             return Ok(hir.clone());
         }
@@ -1526,7 +1581,11 @@ impl Registry {
 
     /// Every builtin-package source file whose injection gate `view` opens, in
     /// dependency order.
-    fn synthetic_files(&self, view: &ProjectView) -> Result<Vec<crate::ast::AstFile>, ()> {
+    fn synthetic_files(
+        &self,
+        view: &ProjectView,
+        debug: bool,
+    ) -> Result<Vec<crate::ast::AstFile>, ()> {
         let mut synthetic_files = Vec::new();
 
         for package in self.packages() {
@@ -1576,7 +1635,7 @@ impl Registry {
             if !package.is_imported_by(view) {
                 continue;
             }
-            let source = package.get_mfb();
+            let source = package.get_mfb_for(debug);
             if source.is_empty() {
                 continue;
             }
@@ -1603,7 +1662,10 @@ impl Registry {
                     continue; // an `import_name` ordering edge — no source to inject.
                 };
                 let gate_open = match helper.gate {
-                    HelperGate::Always => false, // rendered inline in `get_mfb`.
+                    // rendered inline in `get_mfb_for`.
+                    HelperGate::Always
+                    | HelperGate::NormalBuildOnly
+                    | HelperGate::DebugBuildOnly => false,
                     // `WhenUsed` fires only when the OWNING package is imported and a
                     // gated member is referenced (the `strings` scalar-seam gate).
                     HelperGate::WhenUsed(names) => package_imported && view.references_any(names),
@@ -1880,6 +1942,77 @@ impl Registry {
 pub(crate) fn registry() -> &'static Registry {
     static REGISTRY: OnceLock<Registry> = OnceLock::new();
     REGISTRY.get_or_init(build)
+}
+
+/// One builtin record's layout: its package-qualified type and its fields in
+/// declaration order.
+pub(crate) type BuiltinRecordLayout = (ParameterType, Vec<(String, ParameterType)>);
+
+/// Every builtin record's field layout, keyed by its package-qualified type
+/// (`net.Address`), with every field type package-qualified the way the NIR spells
+/// it: `net.PingResult`'s `address` is `net.Address`, not the bare local `Address` a
+/// record prop carries so the companion source stays local.
+///
+/// plan-132 C3: the codegen `TypeModel` is built from a program's NIR types, which
+/// carry a builtin record only when some file imports its package. A value still
+/// reaches a program that imports nothing of the kind — `tcp::localAddress` hands a
+/// `net.Address` to a file that imports only `tcp` — and a nominal the model does not
+/// know is classified as a plain 8-byte scalar. `TypeModel` registers this table so a
+/// builtin record always has its real layout.
+pub(crate) fn builtin_record_layouts() -> &'static [BuiltinRecordLayout] {
+    static LAYOUTS: OnceLock<Vec<BuiltinRecordLayout>> = OnceLock::new();
+    LAYOUTS.get_or_init(|| {
+        let registry = registry();
+        // leaf -> the packages declaring it, built exactly as
+        // `qualify_value_type_references` builds it, so a leaf qualifies here the
+        // way it qualified there.
+        let mut owners: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for package in registry.packages() {
+            let pkg = package.import_name().to_string();
+            let mut add = |leaf: &str| {
+                owners
+                    .entry(leaf.to_string())
+                    .or_default()
+                    .push(pkg.clone());
+            };
+            for record in package.records() {
+                add(record.name);
+            }
+            for union in package.unions() {
+                add(union.name);
+            }
+            for r#enum in package.enums() {
+                add(r#enum.name);
+            }
+            for source_type in package.source_types() {
+                add(source_type);
+            }
+        }
+        registry
+            .packages()
+            .iter()
+            .flat_map(|package| {
+                let pkg = package.import_name();
+                let owners = &owners;
+                package.records().iter().map(move |record| {
+                    (
+                        ParameterType::named(&format!("{pkg}.{}", record.name)),
+                        record
+                            .props
+                            .iter()
+                            .map(|prop| {
+                                (
+                                    prop.name.to_string(),
+                                    qualify_type_leaves_inner(&prop.ty, pkg, owners, true),
+                                )
+                            })
+                            .collect(),
+                    )
+                })
+            })
+            .collect()
+    })
 }
 
 /// Construct the registry by registering every migrated package.
@@ -5611,6 +5744,50 @@ mod tests {
         assert!(!src.contains("__demo_b"));
     }
 
+    /// plan-130-E: a `debug_split` helper contributes its normal body to a normal
+    /// build's source and its debug body to a `--debug` build's, in the same position,
+    /// and the normal source carries nothing from the debug body.
+    #[test]
+    fn a_debug_split_helper_renders_the_half_matching_the_build() {
+        let mut r = Registry::new();
+        let mut pkg = RegistryPackage::new("demo", "intro", "desc");
+        pkg.add_helper(RegistryHelper::always(
+            "demo_before",
+            "FUNC __demo_before() AS Nothing\nEND FUNC",
+        ));
+        for helper in RegistryHelper::debug_split(
+            "demo_hook",
+            "FUNC __demo_hook() AS Nothing\nEND FUNC",
+            "FUNC __demo_hook() AS Nothing\n  __demo_report()\nEND FUNC\n\nFUNC __demo_report() AS Nothing\nEND FUNC",
+        ) {
+            pkg.add_helper(helper);
+        }
+        pkg.add_helper(RegistryHelper::always(
+            "demo_after",
+            "FUNC __demo_after() AS Nothing\nEND FUNC",
+        ));
+        r.add_package(pkg);
+        let package = r.resolve_package("demo").unwrap();
+
+        let normal = package.get_mfb_for(false);
+        assert_eq!(
+            normal,
+            "FUNC __demo_before() AS Nothing\nEND FUNC\n\n\
+             FUNC __demo_hook() AS Nothing\nEND FUNC\n\n\
+             FUNC __demo_after() AS Nothing\nEND FUNC\n",
+        );
+        assert_eq!(package.get_mfb(), normal);
+        assert!(!normal.contains("__demo_report"));
+
+        assert_eq!(
+            package.get_mfb_for(true),
+            "FUNC __demo_before() AS Nothing\nEND FUNC\n\n\
+             FUNC __demo_hook() AS Nothing\n  __demo_report()\nEND FUNC\n\n\
+             FUNC __demo_report() AS Nothing\nEND FUNC\n\n\
+             FUNC __demo_after() AS Nothing\nEND FUNC\n",
+        );
+    }
+
     #[test]
     fn get_mfb_is_empty_when_the_package_has_no_mfb_member() {
         // A package with only Intrinsic/Rewrite members and no records/unions/helpers
@@ -5932,7 +6109,7 @@ mod tests {
         assert_eq!(pkg.intro(), "pkg intro");
         assert_eq!(pkg.desc(), "pkg desc");
         assert_eq!(
-            pkg.always_helper_bodies(),
+            pkg.always_helper_bodies(false),
             vec!["FUNC __demo_helper()\nEND FUNC"]
         );
 

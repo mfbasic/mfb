@@ -197,6 +197,7 @@ fn build_source_dependency(options: &BuildOptions, dir: &Path, cache: &Path) -> 
         sign_owner: None,
         app_mode: false,
         app_debug: false,
+        debug: false,
         opt: options.opt,
         allow_unsigned: options.allow_unsigned,
         mode: crate::testing::CompileMode::Build,

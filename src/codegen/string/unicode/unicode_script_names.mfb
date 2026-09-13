@@ -1,5 +1,5 @@
 REM GENERATED FILE — do not edit by hand.
-REM Source: scripts/gen_regex_scripts.py
+REM Source: tools/unicode-tables/gen_regex_scripts.py
 REM Pinned Unicode version: 16.0.0
 REM Data: third_party/unicode/Scripts-16.0.0.txt (UCD Script property).
 REM Maps a lowercased script name to its canonical spelling, for `\p{Script=…}`.

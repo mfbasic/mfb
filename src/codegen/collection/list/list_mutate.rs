@@ -3490,9 +3490,36 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(&cnt, &scratch8, COLLECTION_OFFSET_COUNT));
             self.emit(abi::add_immediate(&dst, &scratch8, COLLECTION_HEADER_SIZE));
+            // Every entry at or past the old span's END moves — including one that
+            // shares the written element's offset because either of them is empty
+            // (see `emit_offset_expansion_fixup`: `> voff` here was a miscompile).
             self.emit(abi::load_u64(&voff, abi::stack_pointer(), voffset_slot));
+            self.emit(abi::load_u64(&oldlen, abi::stack_pointer(), oldlen_slot));
+            self.emit(abi::add_registers(&src, &voff, &oldlen)); // tail start
             self.emit(abi::load_u64(&delta, abi::stack_pointer(), delta_slot));
-            self.emit_offset_expansion_fixup(&dst, &cnt, &voff, &delta, "set_inplace_widenfix");
+            self.emit_offset_expansion_fixup(&dst, &cnt, &src, &delta, "set_inplace_widenfix");
+            // When the old length was 0 the written entry's own offset equals the
+            // tail start, so the fixup just moved it; its start never moves.
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
+            self.emit(abi::move_immediate(
+                &scratch16,
+                "Integer",
+                &entry_stride.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch17, &scratch10, &scratch16));
+            self.emit(abi::add_immediate(
+                &scratch12,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::add_registers(&scratch12, &scratch12, &scratch17));
+            self.emit(abi::load_u64(&voff, abi::stack_pointer(), voffset_slot));
+            self.emit(abi::store_u64(
+                &voff,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
 
             // --- Both directions: write the payload, then the two lengths. ---
             self.emit(abi::label(&shift_write));

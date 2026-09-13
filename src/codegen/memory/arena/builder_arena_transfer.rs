@@ -1315,21 +1315,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&moved_flag, &source_ptr, FILE_OFFSET_CLOSED));
     }
 
-    /// True when field `field_type` of `record_type` is a pointer to a separate
+    /// True when a record field of type `field_type` is a pointer to a separate
     /// allocation that a whole-block `memcpy` would alias and must therefore be
     /// deep-copied. Inlined fields (`String` and fully-flat nested records) come
     /// along with the block copy; only still-pointer composites (`Union`/`List`/
-    /// `Map`/`Result`/`Error`, a not-yet-flat nested record) and the built-in
-    /// pointer-`String` records' `String` fields need the fix.
-    fn record_field_is_pointer_in(
-        &self,
-        record_type: &ParameterType,
-        field_type: &ParameterType,
-    ) -> bool {
-        if self.record_field_is_inlined(record_type, field_type) {
+    /// `Map`/`Result`/`Error`, a not-yet-flat nested record) need the fix.
+    ///
+    /// A `String` field is always inlined — plan-132 removed the pointer-`String`
+    /// records whose `String` fields once needed a separate copy here.
+    fn record_field_is_pointer_in(&self, field_type: &ParameterType) -> bool {
+        if self.record_field_is_inlined(field_type) {
             return false;
         }
-        *field_type == ParameterType::String || self.record_field_is_pointer(field_type)
+        self.record_field_is_pointer(field_type)
     }
 
     fn record_needs_pointer_field_fix(&self, record_type: &ParameterType) -> bool {
@@ -1339,7 +1337,7 @@ impl CodeBuilder<'_> {
             .map(|fields| {
                 fields
                     .iter()
-                    .any(|(_, ft)| self.record_field_is_pointer_in(record_type, &ft))
+                    .any(|(_, ft)| self.record_field_is_pointer_in(ft))
             })
             .unwrap_or(false)
     }
@@ -1776,7 +1774,7 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_pointer_in(type_, &field_type) {
+            if !self.record_field_is_pointer_in(&field_type) {
                 continue;
             }
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));

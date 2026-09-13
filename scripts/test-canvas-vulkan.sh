@@ -30,6 +30,7 @@
 # renderer itself gates on, so the test and the runtime can never disagree about
 # whether the GPU path was taken.
 set -euo pipefail
+. "$(dirname "$0")/remote-common.sh"
 
 MFB_EXE="${1:?usage: test-canvas-vulkan.sh <mfb-exe> [--box <port>]}"
 shift || true
@@ -59,26 +60,21 @@ done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MFB_EXE="$(cd "$(dirname "$MFB_EXE")" && pwd)/$(basename "$MFB_EXE")"
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
-fails=0
-pass() { echo "ok: $1"; }
-fail() { echo "FAIL: $1"; fails=$((fails + 1)); }
+# Every relative path below (the GROUPS extraction included) is repo-relative, so the
+# script runs from any cwd. After MFB_EXE is made absolute, which needs the caller cwd.
+cd "$ROOT"
+rc_workdir
 
 proj="$work/vkcanvas"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "vkcanvas", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" vkcanvas
 
 # The fixture font, so the scene can contain text.
 #
 # Synthesized rather than borrowed from the box: a system font would make the
 # comparison depend on which fonts the box happens to have, and the point of this test
 # is that the two *backends* agree — not that a particular typeface renders. This is
-# the same twelve-glyph file `tests/rt_canvas_font.rs` builds: `unitsPerEm` 1000, one
+# the same twelve-glyph file `tests/canvas/rt_canvas_font.rs` builds: `unitsPerEm` 1000, one
 # square glyph at (100,0)-(400,300), so a `Text` item is a row of squares whose pixels
 # are easy to reason about and whose bitmaps are far inside both backends' caps.
 base64 -d > "$proj/fixture.ttf" <<'TTF'
@@ -103,6 +99,7 @@ TTF
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 IMPORT os
 SUB main()
@@ -110,25 +107,25 @@ SUB main()
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)
-  LET green AS canvas::Color = canvas::rgb(0, 160, 0)
+  LET yellow AS color::Color = color::rgb(255, 255, 0)
+  LET green AS color::Color = color::rgb(0, 160, 0)
   LET head AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 320.0, radius := 150.0, paint := canvas::fill(yellow)]
   LET eyeL AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
   LET eyeR AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
   LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
-  LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(canvas::rgb(0, 0, 255), canvas::rgb(255, 255, 255), 4.0)]
-  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(canvas::rgb(255, 128, 0), 9.0)]
-  LET faint AS canvas::DrawItem = canvas::Rectangle[x := 600.0, y := 40.0, w := 120.0, h := 80.0, paint := canvas::fill(canvas::rgba(0, 200, 255, 180))]
-  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 620.0, y := 200.0], canvas::Point[x := 740.0, y := 200.0], canvas::Point[x := 680.0, y := 300.0]], paint := canvas::fill(canvas::rgb(200, 0, 200))]
-  LET arrow AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]], paint := canvas::fillStroke(canvas::rgb(0, 180, 180), canvas::rgb(20, 20, 20), 6.0)]
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]
+  LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0)]
+  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 128, 0), 9.0)]
+  LET faint AS canvas::DrawItem = canvas::Rectangle[x := 600.0, y := 40.0, w := 120.0, h := 80.0, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 620.0, y := 200.0], canvas::Point[x := 740.0, y := 200.0], canvas::Point[x := 680.0, y := 300.0]], paint := canvas::fill(color::rgb(200, 0, 200))]
+  LET arrow AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]], paint := canvas::fillStroke(color::rgb(0, 180, 180), color::rgb(20, 20, 20), 6.0)]
   ' TRANSLUCENT, deliberately (plan-116-A). The fixture glyph is an axis-aligned opaque
   ' square, so its coverage is binary -- and compositing an opaque square over itself is
   ' idempotent, which means a renderer that drew every glyph TWICE produced a
   ' byte-identical frame and no assertion here could see it. At alpha 160 a second
   ' composite is arithmetically different from one, so a duplicated glyph draw becomes a
   ' pixel difference against the oracle. That is what makes `tail` below a real gate.
-  LET label AS canvas::DrawItem = canvas::Text[x := 300.0, y := 560.0, text := "AAAA", font := canvas::fontRef(face), size := 90.0, paint := canvas::fill(canvas::rgba(220, 40, 160, 160))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 300.0, y := 560.0, text := "AAAA", font := face, size := 90.0, paint := canvas::fill(color::rgba(220, 40, 160, 160))]
   ' plan-116-A: a shape AFTER the glyph run, and the scene's only reason for it.
   '
   ' The item block now rides a per-frame buffer indexed by instance, and consecutive
@@ -139,7 +136,7 @@ SUB main()
   ' moment any scene put a shape after its text. Sat clear of the label's band (row 545)
   ' and of `faint`/`tri`, so the existing lit-pixel and diff assertions keep meaning what
   ' they meant.
-  LET tail AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 180.0, radius := 40.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]
+  LET tail AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 180.0, radius := 40.0, paint := canvas::fill(color::rgb(120, 220, 60))]
   ' plan-116-B: one item per non-Normal BlendMode, and one clipped item.
   '
   ' Without these the frame never binds a pipeline other than Normal's and never takes
@@ -153,7 +150,7 @@ SUB main()
   ' which the shaders cannot compose in one pass (the stroke-over-fill identity is
   ' Normal-only), so it must be emitted as two adjacent instances. If that split is
   ' missing, this item alone diverges from the oracle.
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 20.0, y := 240.0, w := 360.0, h := 120.0, paint := canvas::fill(canvas::rgb(128, 128, 128))]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 20.0, y := 240.0, w := 360.0, h := 120.0, paint := canvas::fill(color::rgb(128, 128, 128))]
   ' Deliberately SMALL. Each one only has to bind its pipeline and take its arm; the
   ' area buys nothing. It costs, though: a blended pixel agrees with the oracle to
   ' within one or two steps but rarely exactly, because the oracle blends through a
@@ -164,11 +161,11 @@ SUB main()
   ' bound is the correctness signal and it holds either way; its 2% population budget
   ' is a fraction of the WHOLE frame, so a large blended patch would exhaust it
   ' without testing anything the small one does not.
-  LET blendMul AS canvas::DrawItem = canvas::Circle[x := 70.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(canvas::rgb(230, 120, 40)) { blend := canvas::BlendMode.Multiply }]
-  LET blendScr AS canvas::DrawItem = canvas::Circle[x := 170.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(canvas::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }]
-  LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(canvas::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
-  LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 300.0, radius := 12.0, paint := WITH canvas::fillStroke(canvas::rgb(230, 120, 40), canvas::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
-  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 240.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 460.25, y := 240.0, w := 200.5, h := 60.0] }]
+  LET blendMul AS canvas::DrawItem = canvas::Circle[x := 70.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Multiply }]
+  LET blendScr AS canvas::DrawItem = canvas::Circle[x := 170.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }]
+  LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
+  LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 300.0, radius := 12.0, paint := WITH canvas::fillStroke(color::rgb(230, 120, 40), color::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
+  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 240.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 460.25, y := 240.0, w := 200.5, h := 60.0] }]
   ' plan-116-C: transformed items, so the shader's inverse-map path actually runs.
   ' Without these the frame never sets hasTransform and the whole of this letter's
   ' shader work would go unexercised while the suite still reported success.
@@ -179,26 +176,26 @@ SUB main()
   ' inverse-sample arm. Small, for the reason the blend items are small -- see the
   ' comment there.
   LET rotT AS canvas::Transform = canvas::Transform[a := 0.7071067811865476, b := 0.7071067811865476, c := 0.0 - 0.7071067811865476, d := 0.7071067811865476, tx := 120.0, ty := 560.0]
-  LET rotBox AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 25.0, y := 0.0 - 25.0, w := 50.0, h := 50.0, paint := WITH canvas::fill(canvas::rgb(255, 200, 40)) { transform := rotT }]
+  LET rotBox AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 25.0, y := 0.0 - 25.0, w := 50.0, h := 50.0, paint := WITH canvas::fill(color::rgb(255, 200, 40)) { transform := rotT }]
   LET scaleT AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 1.0, tx := 250.0, ty := 560.0]
-  LET scaleDot AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 18.0, paint := WITH canvas::fillStroke(canvas::rgb(90, 200, 255), canvas::rgb(255, 255, 255), 6.0) { transform := scaleT }]
+  LET scaleDot AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 18.0, paint := WITH canvas::fillStroke(color::rgb(90, 200, 255), color::rgb(255, 255, 255), 6.0) { transform := scaleT }]
   LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 700.0, ty := 460.0]
-  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := canvas::fontRef(face), size := 40.0, paint := WITH canvas::fill(canvas::rgb(200, 255, 120)) { transform := textT }]
+  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := face, size := 40.0, paint := WITH canvas::fill(color::rgb(200, 255, 120)) { transform := textT }]
   ' plan-116-D: the same line twice, butt and round, so the SPIR-V cap arm actually
   ' runs. Without a butt one the branch is compiled into the blob and never taken, and
   ' the oracle comparison would agree everywhere the scene looks. Thick and short,
   ' because the cap is a half-width feature.
-  LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(canvas::rgb(255, 240, 120), 24.0)]
-  LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(canvas::rgb(255, 240, 120), 24.0)]
+  LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 240, 120), 24.0)]
+  LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 240, 120), 24.0)]
   ' And a ROUND-capped arc: `smile` above is butt, which is what every arc was before
   ' plan-116-D, so without this the cap-disc arm is compiled into the SPIR-V and never
   ' taken.
-  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(canvas::rgb(120, 255, 200), 20.0)]
+  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(120, 255, 200), 20.0)]
   ' plan-116-E: a rotated, eccentric, stroked ellipse -- kind 7 is a brand-new geometry
   ' kind, so without one here the SPIR-V's ellipse arm is compiled and never taken and
   ' a predicate that accepted a kind the shader does not know would render it as
   ' NOTHING and report success (`.ai/canvas-threading.md` section 10).
-  LET ell AS canvas::DrawItem = canvas::Ellipse[x := 760.0, y := 430.0, radiusX := 110.0, radiusY := 38.0, angle := 0.5235987755982988, paint := canvas::fillStroke(canvas::rgb(226, 150, 255), canvas::rgb(255, 255, 255), 8.0)]
+  LET ell AS canvas::DrawItem = canvas::Ellipse[x := 760.0, y := 430.0, radiusX := 110.0, radiusY := 38.0, angle := 0.5235987755982988, paint := canvas::fillStroke(color::rgb(226, 150, 255), color::rgb(255, 255, 255), 8.0)]
   ' plan-116-F: a linear ramp, a radial ramp, and a gradient-filled POLYGON. Without
   ' one here the SPIR-V's gradient walk is compiled into the blob and never taken, and
   ' a shader that could not read the stops would draw the flat `fill` beneath -- which
@@ -214,19 +211,19 @@ SUB main()
   ' Two gradient items rather than one, for the reason there are two polygons above:
   ' with a single one, a per-item first-stop index of zero would pass whether or not it
   ' was ever written.
-  LET rampStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := canvas::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(32, 96, 255)]]
+  LET rampStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := color::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
   LET gLin AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 430.0, y := 100.0], endPoint := canvas::Point[x := 580.0, y := 160.0], stops := rampStops]
-  LET gradBar AS canvas::DrawItem = canvas::Rectangle[x := 430.0, y := 100.0, w := 150.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gLin }]
-  LET orbStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 244, 214)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(90, 30, 120)]]
+  LET gradBar AS canvas::DrawItem = canvas::Rectangle[x := 430.0, y := 100.0, w := 150.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gLin }]
+  LET orbStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 244, 214)], canvas::GradientStop[offset := 1.0, color := color::rgb(90, 30, 120)]]
   LET gRad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 820.0, y := 300.0], endPoint := canvas::Point[x := 865.0, y := 300.0], stops := orbStops]
-  LET gradOrb AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 300.0, radius := 42.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gRad }]
+  LET gradOrb AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 300.0, radius := 42.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gRad }]
   LET gPoly AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 40.0, y := 120.0], endPoint := canvas::Point[x := 40.0, y := 210.0], stops := rampStops]
-  LET gradTri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 20.0, y := 120.0], canvas::Point[x := 120.0, y := 120.0], canvas::Point[x := 70.0, y := 210.0]], paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gPoly }]
+  LET gradTri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 20.0, y := 120.0], canvas::Point[x := 120.0, y := 120.0], canvas::Point[x := 70.0, y := 210.0]], paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gPoly }]
   LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can
-  ' only ever check the "not yet" half (`tests/rt_canvas_damage.rs`).
+  ' only ever check the "not yet" half (`tests/canvas/rt_canvas_damage.rs`).
   io::print("didResize-before:" & toString(canvas::didResize()))
   MUT edges AS Integer = 0
   MUT polls AS Integer = 0
@@ -247,20 +244,20 @@ END SUB
 MFB
 
 echo "--- building for linux-x86_64 ---"
-"$MFB_EXE" build --app --target linux-x86_64 "$proj" >/dev/null
+"$MFB_EXE" build --app --debug --target linux-x86_64 "$proj" >/dev/null
 
 host="test@127.0.0.1"
 remote="/tmp/mfb-vkcanvas-$$"
-ssh -p "$PORT" "$host" "rm -rf $remote && mkdir -p $remote"
-scp -P "$PORT" "$proj/build/vkcanvas-$LIBC.AppImage" "$host:$remote/app.AppImage" >/dev/null
-scp -P "$PORT" "$proj/fixture.ttf" "$host:$remote/fixture.ttf" >/dev/null
+remote_ssh "$PORT" "$host" "rm -rf $remote && mkdir -p $remote"
+remote_scp "$PORT" "$proj/build/vkcanvas-$LIBC.AppImage" "$host:$remote/app.AppImage" >/dev/null
+remote_scp "$PORT" "$proj/fixture.ttf" "$host:$remote/fixture.ttf" >/dev/null
 
 # Provision the driver before anything measures with it.
 icd_env=""
 if [ -n "$ICD" ]; then
   if [ "$ICD" = auto ]; then
     echo "--- provisioning a software Vulkan driver on box $PORT ---"
-    ssh -p "$PORT" "$host" '
+    remote_ssh "$PORT" "$host" '
       set -e
       dir=/tmp/mfb-vulkan-icd
       manifest=$dir/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
@@ -286,7 +283,7 @@ if [ -n "$ICD" ]; then
 fi
 
 echo "--- running on box $PORT ---"
-ssh -p "$PORT" "$host" "
+remote_ssh "$PORT" "$host" "
   set -e
   cd $remote
   ./app.AppImage --appimage-extract >/dev/null 2>&1
@@ -310,16 +307,16 @@ ssh -p "$PORT" "$host" "
     MFB_CANVAS_RESIZE_W=900 MFB_CANVAS_RESIZE_H=640 MFB_CANVAS_STATS=$remote/dmg.txt \
     MFB_CANVAS_DUMP=$remote/dmg.rgba timeout 180 \$bin >/dev/null 2>&1
 "
-scp -P "$PORT" "$host:$remote/sw.rgba" "$work/sw.rgba" >/dev/null
-scp -P "$PORT" "$host:$remote/gpu.rgba" "$work/gpu.rgba" >/dev/null
-scp -P "$PORT" "$host:$remote/gpu.txt" "$work/gpu.txt" >/dev/null
-scp -P "$PORT" "$host:$remote/sw2.rgba" "$work/sw2.rgba" >/dev/null
-scp -P "$PORT" "$host:$remote/sw2.out" "$work/sw2.out" >/dev/null
-scp -P "$PORT" "$host:$remote/gpu2.rgba" "$work/gpu2.rgba" >/dev/null
-scp -P "$PORT" "$host:$remote/gpu2.txt" "$work/gpu2.txt" >/dev/null
-scp -P "$PORT" "$host:$remote/dmg.rgba" "$work/dmg.rgba" >/dev/null
-scp -P "$PORT" "$host:$remote/dmg.txt" "$work/dmg.txt" >/dev/null
-ssh -p "$PORT" "$host" "rm -rf $remote"
+remote_scp "$PORT" "$host:$remote/sw.rgba" "$work/sw.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remote/gpu.rgba" "$work/gpu.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remote/gpu.txt" "$work/gpu.txt" >/dev/null
+remote_scp "$PORT" "$host:$remote/sw2.rgba" "$work/sw2.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remote/sw2.out" "$work/sw2.out" >/dev/null
+remote_scp "$PORT" "$host:$remote/gpu2.rgba" "$work/gpu2.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remote/gpu2.txt" "$work/gpu2.txt" >/dev/null
+remote_scp "$PORT" "$host:$remote/dmg.rgba" "$work/dmg.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remote/dmg.txt" "$work/dmg.txt" >/dev/null
+remote_ssh "$PORT" "$host" "rm -rf $remote"
 
 if [ ! -s "$work/gpu.txt" ]; then
   fail "the program wrote no stats line — it did not reach a rendered frame (wrong --libc for this box?)"
@@ -343,41 +340,8 @@ case "$stats" in
 esac
 
 compare() {
-python3 - "$1" "$2" "$3" <<'PY'
-import sys
-
-software = open(sys.argv[1], "rb").read()
-gpu = open(sys.argv[2], "rb").read()
-# The width only names the coordinate a beyond-tolerance pixel is reported at, so the
-# resized case has to pass its own rather than inherit the default surface's.
-width = int(sys.argv[3])
-if len(software) != len(gpu) or not software:
-    print(f"frame sizes differ ({len(software)} vs {len(gpu)}) — a harness bug")
-    raise SystemExit
-# Tolerance::GPU_DEFAULT: no pixel may differ by more than 2 steps in any channel,
-# and no more than 2% of pixels may differ at all.
-worst = 0
-differing = 0
-first = None
-total = len(software) // 4
-for i in range(0, len(software), 4):
-    a = software[i:i + 4]
-    b = gpu[i:i + 4]
-    if a == b:
-        continue
-    differing += 1
-    delta = max(abs(x - y) for x, y in zip(a, b))
-    if delta > worst:
-        worst = delta
-    if first is None and delta > 2:
-        pixel = i // 4
-        first = (pixel % width, pixel // width, a.hex(), b.hex())
-fraction = differing / total
-if worst <= 2 and fraction <= 0.02:
-    print(f"ok worst={worst} differing={fraction * 100:.4f}%")
-else:
-    print(f"worst={worst} differing={fraction * 100:.4f}% first-beyond-tolerance={first}")
-PY
+  # Tolerance::GPU_DEFAULT, shared with test-winapp.sh (scripts/rgba_compare.py).
+  python3 "$ROOT/scripts/rgba_compare.py" "$1" "$2" "$3"
 }
 
 # Agreement is only meaningful if both frames actually contain the text. Two backends
@@ -453,7 +417,7 @@ esac
 #
 # This box is the only place the TRUE half can be checked at all — `MFB_CANVAS_RESIZE_W`
 # drives the production resize path and macOS has no equivalent affordance, so
-# `tests/rt_canvas_damage.rs` can only assert the "not yet" half. Both halves matter:
+# `tests/canvas/rt_canvas_damage.rs` can only assert the "not yet" half. Both halves matter:
 # a `didResize` stuck FALSE never tells a program to lay out again, and one stuck TRUE
 # makes it lay out every frame while looking correct.
 if [ ! -s "$work/sw2.out" ]; then
@@ -509,7 +473,7 @@ fi
 # stacked at the origin. That is the failure `.ai/canvas-threading.md` §10 is about, and
 # only a comparison at a NON-ZERO offset can see it.
 #
-# **The scene is extracted from `tests/rt_canvas_golden.rs`, not copied.** It is the same
+# **The scene is extracted from `tests/canvas/rt_canvas_golden.rs`, not copied.** It is the same
 # `GROUPS` const that `groups_match_their_reference_exactly` renders, so this script and
 # that test cannot drift into rendering different scenes and both claiming to check
 # `groups.png`. A copy here would be a second source of truth for a reference image that
@@ -534,14 +498,14 @@ mkdir -p "$projg/src"
 cp "$proj/fixture.ttf" "$projg/fixture.ttf"
 sed 's/"name": "vkcanvas"/"name": "vkgroups"/' "$proj/project.json" > "$projg/project.json"
 # The Rust const's body, between the raw-string delimiters.
-sed -n '/^const GROUPS: &str = r#"/,/^"#;$/p' tests/rt_canvas_golden.rs \
+sed -n '/^const GROUPS: &str = r#"/,/^"#;$/p' tests/canvas/rt_canvas_golden.rs \
   | sed -e '1s/^const GROUPS: &str = r#"//' -e '$d' > "$projg/src/main.mfb"
 if ! grep -q "canvas::setGroup" "$projg/src/main.mfb"; then
-  fail "could not extract the GROUPS scene from tests/rt_canvas_golden.rs — the const's shape changed"
+  fail "could not extract the GROUPS scene from tests/canvas/rt_canvas_golden.rs — the const's shape changed"
   exit 1
 fi
 
-"$MFB_EXE" build --app --target linux-x86_64 "$projg" >/dev/null
+"$MFB_EXE" build --app --debug --target linux-x86_64 "$projg" >/dev/null
 
 # The reference, decoded to raw RGBA here so the box needs no PNG library. Same bytes
 # `Frame::load_png` would hand the Rust comparators.
@@ -591,16 +555,16 @@ open(sys.argv[2], "wb").write(bytes(out))
 PY
 
 remoteg="$remote/groups"
-ssh -p "$PORT" "$host" "mkdir -p $remoteg"
-scp -P "$PORT" "$projg/build/vkgroups-$LIBC.AppImage" "$host:$remoteg/app.AppImage" >/dev/null
-scp -P "$PORT" "$projg/fixture.ttf" "$host:$remoteg/fixture.ttf" >/dev/null
+remote_ssh "$PORT" "$host" "mkdir -p $remoteg"
+remote_scp "$PORT" "$projg/build/vkgroups-$LIBC.AppImage" "$host:$remoteg/app.AppImage" >/dev/null
+remote_scp "$PORT" "$projg/fixture.ttf" "$host:$remoteg/fixture.ttf" >/dev/null
 
 echo "--- groups: running on box $PORT ---"
-ssh -p "$PORT" "$host" "
+remote_ssh "$PORT" "$host" "
   set -e
   cd $remoteg
   ./app.AppImage --appimage-extract >/dev/null 2>&1
-  # `loadFont` resolves against the working directory, so the fixture has to sit beside
+  # loadFont resolves against the working directory, so the fixture has to sit beside
   # the extracted tree and the run has to happen from there.
   cp fixture.ttf squashfs-root/fixture.ttf
   cd squashfs-root
@@ -610,9 +574,9 @@ ssh -p "$PORT" "$host" "
   $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remoteg/gpu.txt \
     MFB_CANVAS_DUMP=$remoteg/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
 "
-scp -P "$PORT" "$host:$remoteg/sw.rgba" "$work/gsw.rgba" >/dev/null
-scp -P "$PORT" "$host:$remoteg/gpu.rgba" "$work/ggpu.rgba" >/dev/null
-scp -P "$PORT" "$host:$remoteg/gpu.txt" "$work/ggpu.txt" >/dev/null
+remote_scp "$PORT" "$host:$remoteg/sw.rgba" "$work/gsw.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remoteg/gpu.rgba" "$work/ggpu.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remoteg/gpu.txt" "$work/ggpu.txt" >/dev/null
 
 gstats="$(tail -1 "$work/ggpu.txt")"
 echo "    $gstats"
@@ -653,9 +617,9 @@ case "$verdict" in
     group." ;;
 esac
 
-if [ "$fails" -eq 0 ]; then
+if [ "$rc_failures" -eq 0 ]; then
   echo "canvas Vulkan runtime tests passed"
 else
-  echo "$fails failure(s)"
+  echo "$rc_failures failure(s)"
   exit 1
 fi

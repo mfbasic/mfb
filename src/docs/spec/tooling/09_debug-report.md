@@ -1,0 +1,136 @@
+# Debug Report
+
+`mfb build --debug` and `mfb test --debug` produce a program that carries a
+**debug report**: after everything the program itself printed, the very last
+thing the process does before exiting is write one block of machine-readable
+lines to stderr. The report exists to measure a program from the outside — it
+needs no source change, and a build without `--debug` is byte-identical to one
+made before the flag existed.[[src/cli/build/options.rs:parse_build_options]]
+
+## Enabling
+
+`--debug` is accepted at most once by `build` and by `test`
+(`mfb build accepts at most one --debug option`). It is an axis of its own: it
+does not change the optimization level, the target, or the build mode, and
+`--app --debug` is a valid combination. The flag reaches native codegen as
+`NirModule::debug` (a `DebugOptions` value), never as a process global, so the
+nested builds of source dependencies are unaffected. A `--debug` build written as
+a `--nir` dump says so with a `"debug": true` line; a normal dump is unchanged.
+[[src/codegen/debug/mod.rs:DebugOptions]]
+
+The report is emitted only for a module with an entry point. A package, or any
+build without `--debug`, gets no report code and no report data.
+[[src/codegen/debug/mod.rs:report_enabled]]
+
+## When it prints
+
+The report is written by `_mfb_debug_shutdown`, called as the **last call** of
+`_mfb_shutdown` — after its `shutdown_done` label, so both of `_mfb_shutdown`'s
+paths reach it: the full teardown, and the early return a second entry takes
+(for example SIGINT/SIGTERM arriving during normal cleanup). A once-guard, set
+before the first byte is written, makes any later arrival print nothing, so a
+process prints at most one block.
+[[src/codegen/os/process/process_lifecycle.rs:lower_shutdown]]
+[[src/codegen/debug/shutdown.rs:lower_debug_shutdown]]
+
+Every exit that reaches `_mfb_shutdown` therefore prints it: a normal return from
+the entry function, `EXIT PROGRAM n`, an untrapped error (after the error text),
+the SIGINT/SIGTERM handler of a Unix console program, and the finish of an app
+build's worker. The report never changes the exit status, stdout, or anything on
+stderr before the block.
+
+An exit that does **not** reach `_mfb_shutdown` prints no report. That includes a
+crash (a fatal signal or access violation), Ctrl-C on a Windows console program
+(no console control handler is installed), and a signal delivered to an app-mode
+build (app builds install no console signal handlers).
+[[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+
+The report helper runs after the main arena has been destroyed, so it never
+allocates and never reads the arena register; each line it writes is assembled
+from constants or in its own stack frame.
+
+## Format (version 1)
+
+Every line is `<key> <value>` followed by a newline, written to file descriptor 2.
+Keys are dot-separated; a value is a decimal integer or a single token with no
+spaces. The block is bracketed by `begin` and `end` lines whose value is the
+format version:
+
+```
+mfb.debug.begin 1
+mfb.debug.target macos-aarch64
+mfb.debug.build console
+mfb.debug.end 1
+```
+
+Each line is written with a single `write`, so another thread's stderr output
+cannot land inside a line. A consumer takes the **last** `mfb.debug.begin` block
+in stderr.
+
+## Sections
+
+Sections print in the order of the compiler's feature registry,
+`DEBUG_FEATURES`; each owns the keys that start with its name.
+[[src/codegen/debug/mod.rs:DEBUG_FEATURES]]
+
+| Section | Keys | Meaning |
+| --- | --- | --- |
+| `mfb.debug` | `mfb.debug.target` | the target the program was compiled for (`macos-aarch64`, `linux-aarch64`, `linux-x86_64`, `linux-riscv64`, `windows-x86_64`) |
+| | `mfb.debug.build` | `console` or `app` |
+| `perf` (macOS only) | `perf.<span>.count`, `.avg`, `.median`, `.min`, `.max`, `.sum` | for each timed span — `program` (from entry to the report), `mfb_alloc` and `mfb_free` (every arena allocation and free call) — the number of samples and their average, median, minimum, maximum, and total duration in nanoseconds; a span that never ran prints nothing |
+| | `perf.mismatch`, `perf.overflow` | printed only when non-zero: a span end with no open start, and samples dropped because the timing region filled |
+| `arena` | `arena.count` | the number of arenas registered during the run |
+| | `arena.registry_overflow` | arenas that could not register because all 1024 slots were taken; their events are not counted |
+| | `arena.<n>.kind` | `main` (the entry thread), `worker` (a `thread::start` thread), or `graphics` (a canvas program's graphics thread), numbered in registration order |
+| | `arena.<n>.maps`, `.mapped_bytes`, `.unmaps`, `.unmapped_bytes` | blocks the arena mapped from the OS and returned to it, and their bytes |
+| | `arena.<n>.alloc_calls`, `.alloc_bytes` | allocation calls and the bytes requested, after size and alignment rounding |
+| | `arena.<n>.hit_quick_bin`, `.hit_carve`, `.hit_large_bin`, `.hit_walk`, `.grow` | which path served each allocation: a small-size bin, a split of the current carve chunk, an exact-size large bin, a free-list walk, or a newly mapped block; the five always add up to `alloc_calls` |
+| | `arena.<n>.free_calls`, `.free_bytes` | free calls and their bytes, including frees that were skipped |
+| | `arena.<n>.double_free_skips` | frees skipped because the chunk was already free |
+| | `arena.<n>.live_bytes`, `.peak_live_bytes` | bytes allocated and not yet freed when the report ran, and the most ever held at once |
+| | `arena.<n>.flushes`, `.insert_free_calls` | free-list coalescing passes, and chunks inserted into the coalescing free list |
+| `process` | `process.peak_rss_bytes` | the most physical memory the process has held at once, in bytes, as the operating system counts it when the report runs: `ru_maxrss` from `getrusage` on macOS and Linux (Linux's KiB scaled to bytes), `PeakWorkingSetSize` from `K32GetProcessMemoryInfo` on Windows; `0` if the call fails |
+
+The `arena` section is emitted for every target. Every arena registers in a
+shared table when it is created, and each allocator helper adds to its own
+arena's counters there. The helpers do this only in a `--debug` build, so a normal
+build's allocator is unchanged. The report reads the table without stopping
+other threads, so it is a **snapshot**: a thread still running at exit may have
+updated some counters and not others. A finished thread's counters are final.
+`live_bytes` stops at zero when a subtraction would take it below: a free of memory
+allocated before the arena registered was never added, so the value can
+undercount but never wraps.
+[[src/codegen/debug/arena.rs:ArenaFeature]]
+
+The `perf` section maps its own timing region at program entry (never the arena)
+and prints each line with a single `write`; it is emitted only for a `macos-aarch64`
+`--debug` build. [[src/codegen/debug/perf.rs:PerfFeature]]
+
+## Reporting hooks
+
+Three environment variables make a program write diagnostic output while it runs.
+They are reporting hooks, not program behavior, so only a `--debug` build contains
+the code that reads them; a normal build ignores them.
+
+| Variable | Build | What the program writes |
+| --- | --- | --- |
+| `MFB_CANVAS_STATS` | canvas program | appends one line of renderer counters (`generations=`, `frames=`, `skipped=`, `damage=`, …) to the named file for every rendered or skipped frame |
+| `MFB_CANVAS_DUMP` | canvas program | writes each presented frame's raw RGBA8 bytes to the named file, overwriting it |
+| `MFB_WINAPP_DUMP` | Windows app | when set, the UI thread reads the window transcript back at exit and writes it to stdout as raw UTF-16 |
+
+The canvas hooks live in the canvas package's source, which carries a normal and a
+`--debug` body for `__canvas_presentSurface` and the render loop
+(`RegistryHelper::debug_split`); the build injects the body matching its flag.
+[[src/codegen/registry/mod.rs:debug_split]]
+The Windows hook's variable name, buffer and reader are emitted only when the app
+entry is built with `--debug`. [[src/target/win_x86_64/app/mod.rs:app_mode_data_objects]]
+
+The switches tests use to drive a program — `MFB_MACAPP_HEADLESS`,
+`MFB_WINAPP_HEADLESS`, `MFB_GTKAPP_HEADLESS`, `MFB_CANVAS_SYNC`, `MFB_CANVAS_GPU`,
+`MFB_CANVAS_RESIZE_W`/`_H`, `MFB_WINAPP_INPUT` — are not reporting hooks and work in
+every build.
+
+## See Also
+
+* ./mfb spec tooling cli-reference — the `build` and `test` flags
+* ./mfb spec memory program-startup — `_mfb_shutdown` and the exit sequence

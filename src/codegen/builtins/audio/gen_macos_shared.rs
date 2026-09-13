@@ -41,12 +41,6 @@ pub(crate) const SIZE_OFF: usize = 32; // UInt32 ioDataSize
 
 pub(crate) const COUNT_OFF: usize = 40;
 
-pub(crate) const LIST_OFF: usize = 48;
-
-pub(crate) const ENTRY_OFF: usize = 56; // entry-array cursor base
-
-pub(crate) const DATA_OFF: usize = 64; // inline record data region base
-
 pub(crate) const INDEX_OFF: usize = 72;
 
 pub(crate) const CURID_OFF: usize = 80;
@@ -78,6 +72,27 @@ pub(crate) const IDSBUF_CAP: &str = "256";
 pub(crate) const BUFLIST_OFF: usize = 672; // AudioBufferList scratch
 
 pub(crate) const BUFLIST_CAP: &str = "256";
+
+// devices(): building each `AudioDevice` and the list (plan-132).
+pub(crate) const DEVFLAG_DEFIN_OFF: usize = 928; // isDefaultInput word
+
+pub(crate) const DEVFLAG_DEFOUT_OFF: usize = 936; // isDefaultOutput word
+
+pub(crate) const DEVREC_SIZE_OFF: usize = 944; // record marshaller scratch
+
+pub(crate) const DEVREC_RESULT_OFF: usize = 952; // the built AudioDevice
+
+pub(crate) const DEVREC_CURSOR_OFF: usize = 960; // record marshaller scratch
+
+pub(crate) const DEVREC_BLOCK_OFF: usize = 968; // record marshaller scratch
+
+pub(crate) const DEVPAIRS_OFF: usize = 976; // (record, size) per device
+
+pub(crate) const DEVLIST_CURSOR_OFF: usize = 984; // record-list builder scratch
+
+pub(crate) const DEVLIST_INDEX_OFF: usize = 992; // record-list builder scratch
+
+pub(crate) const DEVLIST_OFF: usize = 1000; // the built list
 
 // --- AudioQueue / mmap / format constants ------------------------------------
 pub(crate) const FORMAT_LPCM: &str = "1819304813"; // 0x6C70636D 'lpcm' kAudioFormatLinearPCM
@@ -175,11 +190,13 @@ pub(crate) fn emit_select_device(
     let copy_loop = format!("{symbol}_uid_copy");
     let copy_done = format!("{symbol}_uid_copy_done");
     let clamp_ok = format!("{symbol}_uid_clamp_ok");
-    // The device record's `id` String field pointer is at DEVID_OFF's record + H? No:
-    // DEVID_OFF holds the AudioDevice record pointer; its `id` field is at offset 0.
+    // DEVID_OFF holds the `audio::AudioDevice` record (the open's first argument).
+    // Its `id` is the `String` inlined at `record + [record + DEVICE_FIELD_ID]`
+    // (plan-132): slot 0 holds a block-relative offset, not a pointer.
     ctx.instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), DEVID_OFF),
-        abi::load_u64(&v9, &v9, DEVICE_FIELD_ID), // id String ptr
+        abi::load_u64(&v10, &v9, DEVICE_FIELD_ID),
+        abi::add_registers(&v9, &v9, &v10), // id String ptr
         abi::store_u64(&v9, abi::stack_pointer(), BUFPTR_OFF),
         // Copy the String (len-prefixed) into the UID C-string buffer.
         abi::load_u64(&v10, &v9, 0),      // len

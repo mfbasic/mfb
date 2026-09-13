@@ -779,8 +779,8 @@ pub(crate) struct OwnedValueCleanup {
     pub(crate) loop_alias_slot: Option<usize>,
     /// bug-593: `Some` when this cleanup releases ONLY the `{tag, size, payload}`
     /// wrapper an inline `TRAP` built for a `Result OF T` whose `T` is not a flat
-    /// value (a resource, or a collection of a pointer-`String` record such as
-    /// `net::Address`), so `is_freeable_flat_value` gave the bind no drop at all.
+    /// value (a resource, or a collection of a recursive type), so
+    /// `is_freeable_flat_value` gave the bind no drop at all.
     /// The drop frees the one wrapper block by the size word at +8 and never walks
     /// into its payload; see [`ResultWrapperDrop`] for which paths it covers.
     ///
@@ -946,18 +946,6 @@ pub(crate) struct TypeModel {
     pub(crate) resource_closers: HashMap<ParameterType, String>,
 }
 
-/// plan-67-B: the single predicate gating all runtime perf-tracking injection.
-/// It is `true` exactly when the **compiler** is built with `--cfg perf`
-/// (`RUSTFLAGS="--cfg perf" cargo build`, in debug or release); every ordinary
-/// build returns `false`, so the entire golden/acceptance path (plan-67-A drives
-/// it from a perf-free build) is byte-identical to pre-plan-67 HEAD. The
-/// macOS-only and has-entry conditions are applied at each *use* site (the force
-/// in `plan::symbols::runtime_symbols` and the entry/exit injection), so this
-/// predicate stays a pure build-flag question.
-pub(crate) fn perf_injection_enabled() -> bool {
-    cfg!(perf)
-}
-
 pub(crate) fn lower_module_for_platform(
     module: &NirModule,
     native_plan: &NativePlan,
@@ -1082,6 +1070,10 @@ pub(crate) fn lower_module_for_platform(
             value: "0000000000000000".to_string(),
         });
     }
+    // plan-130-A: the `--debug` report's data (once-guard, key and line strings)
+    // and each registered section's. Empty unless the report is on, so every
+    // normal build keeps its exact data-object set.
+    data_objects.extend(crate::codegen::debug::data_objects(module));
     // plan-32-A: the RVV runtime-detection flag byte (padded to 8), a writable
     // zeroed global the startup auxv scan sets to 1 on a V-capable chip and the
     // dual-path v128 lowering (plan-32-C) branches on. Emitted only for a
@@ -1143,49 +1135,6 @@ pub(crate) fn lower_module_for_platform(
             size: 8,
             value: "0000000000000000".to_string(),
         });
-    }
-    // plan-67-B: perf-tracking region base (an 8-byte writable global, mirroring
-    // the arena global above) and the table-header string. Emitted only for a
-    // `--cfg perf`-built macOS entry module — the exact gate under which the
-    // entry/exit injection and the `_mfb_rt_perf_*` bodies are emitted — so
-    // perf-free, non-macOS, and non-entry plans stay byte-identical to pre-plan-67 HEAD.
-    if perf_injection_enabled() && module.entry.is_some() && module.target == "macos-aarch64" {
-        data_objects.push(CodeDataObject {
-            symbol: PERF_STATE_SYMBOL.to_string(),
-            kind: "raw".to_string(),
-            layout: "mfb.runtime.perf_state.v1 { u64 regionBase }".to_string(),
-            align: 8,
-            size: 8,
-            value: "0000000000000000".to_string(),
-        });
-        data_objects.push(string_data_object(
-            PERF_HEADER_SYMBOL,
-            "name count avg median min max sum\n".to_string(),
-        ));
-        // plan-67-C: the whole-program span's name object (one object per unique
-        // name; plan-67-F adds one per instrumented arena region).
-        data_objects.push(string_data_object(
-            PERF_NAME_PROGRAM_SYMBOL,
-            "program".to_string(),
-        ));
-        // plan-67-D: pseudo-name objects for the diagnostic counter rows.
-        data_objects.push(string_data_object(
-            PERF_NAME_MISMATCH_SYMBOL,
-            "mismatch".to_string(),
-        ));
-        data_objects.push(string_data_object(
-            PERF_NAME_OVERFLOW_SYMBOL,
-            "overflow".to_string(),
-        ));
-        // plan-67-F: name objects for the instrumented arena regions.
-        data_objects.push(string_data_object(
-            PERF_NAME_MFB_ALLOC_SYMBOL,
-            "mfb_alloc".to_string(),
-        ));
-        data_objects.push(string_data_object(
-            PERF_NAME_MFB_FREE_SYMBOL,
-            "mfb_free".to_string(),
-        ));
     }
     // Writable `argc`/`argv` globals for `os::args()` and `os::prog()` (plan-128-A): filled by the
     // program entry from the values the OS passes in, read back when a later
@@ -1557,6 +1506,10 @@ pub(crate) fn lower_module_for_platform(
     // but still share `_mfb_shutdown` for their normal-exit cleanup. Windows has
     // no POSIX `signal()` (and this build links only kernel32, no CRT); Ctrl-C
     // handling there is `SetConsoleCtrlHandler`, deferred past the machine floor.
+    // plan-130: the active `--debug` features; the program entry runs each one's
+    // `emit_entry_start`. Empty for a normal build.
+    let debug_features: Vec<&'static dyn crate::codegen::debug::DebugFeature> =
+        crate::codegen::debug::active_features(module).collect();
     let register_signal_handlers = module.entry.is_some()
         && !module.build_mode.is_app()
         && platform.family() != PlatformFamily::Windows;
@@ -1586,6 +1539,7 @@ pub(crate) fn lower_module_for_platform(
                 initial_mode,
                 uses_canvas: module_uses_canvas(module)
                     || module_uses_call(module, "canvas.blitSurface"),
+                debug_hooks: module.debug.enabled,
             };
             let app_entry = platform
                 .emit_app_program_entry(&app_spec, &platform_imports)
@@ -1622,11 +1576,13 @@ pub(crate) fn lower_module_for_platform(
                     // slot the program's `app::` calls read/write, so it seeds the
                     // `None` static default here.
                     seed_presentation_mode_offset,
+                    debug_features: &debug_features,
                 },
                 &platform_imports,
             )?);
             code_functions.extend(app_entry);
-            data_objects.extend(platform.app_mode_data_objects(&module.project));
+            data_objects
+                .extend(platform.app_mode_data_objects(&module.project, module.debug.enabled));
             // plan-62-C Phase 2: the reconcile's selector/key data objects, for a
             // program that can change mode (static default `None`) — matching where
             // its reconcile helpers are emitted, so a Console-default program that
@@ -1678,6 +1634,7 @@ pub(crate) fn lower_module_for_platform(
                     // Console builds have no `app::` (the package is `--app`-gated),
                     // so this is always `None` here and the entry is unchanged.
                     seed_presentation_mode_offset,
+                    debug_features: &debug_features,
                 },
                 &platform_imports,
             )?);
@@ -1781,19 +1738,27 @@ pub(crate) fn lower_module_for_platform(
             type_model.clone(),
         )?);
     }
-    code_functions.push(lower_arena_alloc(platform)?);
+    // plan-130-B: the arena hot path times itself exactly when the `--debug` perf
+    // section is active for this module.
+    let perf_arena =
+        crate::codegen::debug::feature_active(module, crate::codegen::debug::PERF_SECTION);
+    // plan-130-C: the allocator counts its events exactly when the `--debug` arena
+    // section is active for this module.
+    let debug_arena =
+        crate::codegen::debug::feature_active(module, crate::codegen::debug::ARENA_SECTION);
+    code_functions.push(lower_arena_alloc(platform, perf_arena, debug_arena)?);
     code_functions.push(lower_build_error_loc());
     code_functions.push(lower_make_error_result());
     code_functions.push(lower_simd_alloc_list());
-    code_functions.push(lower_arena_insert_free());
-    code_functions.push(lower_arena_flush_coalesce());
-    code_functions.push(lower_arena_free(platform));
+    code_functions.push(lower_arena_insert_free(debug_arena));
+    code_functions.push(lower_arena_flush_coalesce(debug_arena));
+    code_functions.push(lower_arena_free(perf_arena, debug_arena));
     // Entropy fill is always on (plan-01 §6.5): scrub freed chunks and poison
     // fresh blocks. The fill RNG/seed helpers ship with every arena.
     code_functions.push(lower_arena_fill_random());
     code_functions.push(lower_arena_fill_seed());
     code_functions.push(lower_arena_fill_next());
-    code_functions.push(lower_arena_destroy(platform)?);
+    code_functions.push(lower_arena_destroy(platform, debug_arena)?);
     // Opt-in stdout buffering (plan-14-A): the shared `_mfb_rt_io_stdout_drain`
     // helper is emitted whenever any stdout writer, stdin reader, or buffering
     // control is present — every point that references the drain. App mode has no
@@ -1895,6 +1860,13 @@ pub(crate) fn lower_module_for_platform(
             skip_entry_arena_destroy,
             uses_stdout_buffer,
             module_uses_call(module, "canvas.startGraphics"),
+            &platform_imports,
+            platform,
+            crate::codegen::debug::report_enabled(module),
+        )?);
+        // plan-130-A: `_mfb_debug_shutdown` and every report section it calls.
+        code_functions.extend(crate::codegen::debug::code_functions(
+            module,
             &platform_imports,
             platform,
         )?);
@@ -2154,6 +2126,10 @@ pub(crate) fn lower_module_for_platform(
                         term_state_offset,
                         presentation_mode_offset,
                         global_slots: arena_global_slots,
+                        debug_arena_registry: crate::codegen::debug::feature_active(
+                            module,
+                            crate::codegen::debug::ARENA_SECTION,
+                        ),
                     },
                     uses_rng,
                     &type_model,
@@ -2718,6 +2694,7 @@ pub(crate) fn lower_runtime_helper(
                 arena_layout.presentation_mode_offset,
                 arena_layout.global_slots,
                 uses_rng,
+                arena_layout.debug_arena_registry,
             )?
         // (`term.*` members are `Body::abi_function` since the clean-room migration —
         // each member's own per-member body (`func_*.rs::lower_<name>`) calls the shared

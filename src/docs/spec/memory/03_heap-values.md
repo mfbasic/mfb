@@ -76,11 +76,9 @@ Construction, `WITH`-update, copy/transfer, equality, and collection embedding
 all use that runtime size; copying a record whose fields are all scalar,
 `String`, or flat-composite (i.e. a flat record) is a single block `memcpy`
 (no per-field deep copy) — only a non-flat pointer field needs a deep copy of its
-separate allocation. The built-in helper-
-constructed socket records `net::Address` and `udp::Datagram` are
-**excluded**: their `String`/sub-record fields remain pointers to separate
-allocations (the socket helpers build them that way), so reads of those records
-do not rebase. [[src/codegen/collection/layout/builder_collection_layout.rs:type_is_flat]]
+separate allocation. Records a runtime helper constructs — `net::Address`,
+`udp::Datagram`, `net::PingResult`, `audio::AudioDevice` — follow the same layout
+exactly: the helper builds the flat image, and every read of their fields rebases. [[src/codegen/memory/marshal/record.rs:emit_build_inlined_record_sized]]
 
 ## `Error` and `ErrorLoc`
 

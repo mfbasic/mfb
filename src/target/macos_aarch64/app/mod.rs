@@ -1743,6 +1743,7 @@ mod canvas_reconcile_tests {
             uses_term: false,
             initial_mode: PresentationMode::None,
             uses_canvas: true,
+            debug_hooks: false,
         };
         let symbols: Vec<String> = emit_app_program_entry(&spec)
             .expect("app entry")

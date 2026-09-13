@@ -3,7 +3,7 @@
 # smoke.sh — check every command-line path of the yamljson example.
 #
 # The `yaml` package has its own test suite (`mfb test packages/yaml`), and
-# `scripts/yaml_oracle_diff.py` differential-tests it against PyYAML. Neither
+# `packages/yaml/oracle/pyyaml_diff.py` differential-tests it against PyYAML. Neither
 # touches this program's ARGUMENT HANDLING, which is how `yamljson <file>`
 # shipped comparing `fs::pathExtension` against "yaml" when that call returns
 # ".yaml" — every by-extension invocation failed and nothing noticed. This

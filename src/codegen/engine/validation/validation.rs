@@ -246,6 +246,16 @@ impl TypeModel {
     }
 
     pub(crate) fn from_module(module: &NirModule) -> Result<Self, String> {
+        let mut model = Self::module_tables(module)?;
+        model.finish();
+        Ok(model)
+    }
+
+    /// The tables `module.types` and the unconditional compiler records populate,
+    /// before any finishing pass. Split from [`Self::from_module`] so
+    /// [`Self::from_module_and_packages`] merges its package exports into the same
+    /// tables and runs [`Self::finish`] exactly once, over the full set.
+    fn module_tables(module: &NirModule) -> Result<Self, String> {
         let mut enum_members = HashMap::new();
         let mut record_fields = HashMap::new();
         let mut union_names = HashSet::new();
@@ -423,7 +433,9 @@ impl TypeModel {
                 )
             })
             .collect();
-        let mut model = Self {
+        // Canonical variant tags, bare aliases and the builtin record layouts are
+        // assigned by `finish`, once, after every table is populated (bug-80).
+        Ok(Self {
             enum_members,
             record_fields,
             union_names,
@@ -434,14 +446,7 @@ impl TypeModel {
             resource_names,
             sendable_resource_names,
             resource_closers,
-        };
-        // Assign canonical variant tags over this module's unions (bug-80). When
-        // packages are also present, from_module_and_packages re-derives them over
-        // the combined set.
-        model.recompute_canonical_variant_tags();
-        model.alias_bare_builtin_type_names();
-        model.assert_type_keys_are_bijective();
-        Ok(model)
+        })
     }
 
     /// Register the BARE leaf of every package-qualified builtin type as an alias
@@ -547,7 +552,7 @@ impl TypeModel {
         module: &NirModule,
         packages: &[PathBuf],
     ) -> Result<Self, String> {
-        let mut model = Self::from_module(module)?;
+        let mut model = Self::module_tables(module)?;
         for package in packages {
             // A native `LINK` resource is exported as a zero-field opaque type for
             // naming, but its runtime value is a raw `CPtr` scalar handle — never a
@@ -627,13 +632,56 @@ impl TypeModel {
         // Re-derive canonical variant tags over the FULL set (module + every
         // imported package union), so a variant shared across the boundary gets one
         // globally-consistent tag regardless of registration order (bug-80).
-        model.recompute_canonical_variant_tags();
-        // AFTER the recompute, never before: an alias shares its qualified entry's
-        // tag, and aliasing first would make the recompute count one variant twice
-        // and renumber the tag space.
-        model.alias_bare_builtin_type_names();
-        model.assert_type_keys_are_bijective();
+        model.finish();
         Ok(model)
+    }
+
+    /// The finishing passes, in their one legal order.
+    ///
+    /// 1. Canonical variant tags over every registered union (bug-80).
+    /// 2. Bare aliases AFTER the recompute, never before: an alias shares its
+    ///    qualified entry's tag, and aliasing first would make the recompute count
+    ///    one variant twice and renumber the tag space.
+    /// 3. Builtin record layouts AFTER aliasing (plan-132 C3). A record of a package
+    ///    the program never imports must not count as a second owner of a bare
+    ///    leaf — that would silently drop the alias an imported package's lookups
+    ///    rely on — and must not gain a bare alias of its own, which could capture a
+    ///    lookup meant for a project-declared type of the same leaf.
+    /// 4. The bijectivity check, over everything the model now holds.
+    fn finish(&mut self) {
+        self.recompute_canonical_variant_tags();
+        self.alias_bare_builtin_type_names();
+        self.register_builtin_record_layouts();
+        self.assert_type_keys_are_bijective();
+    }
+
+    /// Fill in every builtin record's layout under its package-qualified key
+    /// (plan-132 C3). An entry the program or an imported package already registered
+    /// is kept: the NIR spelling of an imported builtin record is the same layout,
+    /// and a package's own declaration is authoritative for its own name.
+    /// A model holding only the builtin record layouts (plan-132).
+    ///
+    /// A runtime helper that builds a builtin record — `net::Address`,
+    /// `udp::Datagram`, `net::PingResult` — is emitted below the `CodeBuilder`, and
+    /// its layout must not depend on the program that happens to call it.
+    /// [`Self::finish`] registers this same table into every program's model, so the
+    /// helper that writes the record and the program that reads it classify its
+    /// fields identically.
+    pub(crate) fn builtin_records() -> &'static TypeModel {
+        static MODEL: std::sync::OnceLock<TypeModel> = std::sync::OnceLock::new();
+        MODEL.get_or_init(|| {
+            let mut model = TypeModel::empty();
+            model.register_builtin_record_layouts();
+            model
+        })
+    }
+
+    fn register_builtin_record_layouts(&mut self) {
+        for (type_, fields) in crate::codegen::registry::builtin_record_layouts() {
+            self.record_fields
+                .entry(type_.clone())
+                .or_insert_with(|| fields.clone());
+        }
     }
 
     /// plan-111-C Phase 2: the equivalence check that stands in for the
@@ -894,6 +942,7 @@ mod union_tag_tests {
             target: "test".to_string(),
             build_mode: crate::target::NativeBuildMode::Console,
             stdin_log_cap: crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT,
+            debug: crate::codegen::debug::DebugOptions::OFF,
             project: "test".to_string(),
             entry: None,
             globals: Vec::new(),
@@ -975,6 +1024,64 @@ mod union_tag_tests {
         assert!(model.record_fields.get(&stateful).is_none());
     }
 
+    /// plan-132 C3: a builtin record has its real layout in a program that never
+    /// imports its package — `tcp::localAddress` hands a `net.Address` to a file that
+    /// imports only `tcp` — with each field qualified the way the NIR spells it, and
+    /// without a bare alias that could capture a project type of the same leaf.
+    #[test]
+    fn a_builtin_record_has_its_layout_without_an_import() {
+        let model = TypeModel::from_module(&module(Vec::new())).expect("model builds");
+        let fields = |name: &str| {
+            model
+                .record_fields
+                .get(&ParameterType::declared(name))
+                .unwrap_or_else(|| panic!("`{name}` is not registered"))
+                .clone()
+        };
+        assert_eq!(
+            fields("net.Address"),
+            vec![
+                ("host".to_string(), ParameterType::String),
+                ("port".to_string(), ParameterType::Integer),
+            ]
+        );
+        let ping = fields("net.PingResult");
+        assert_eq!(
+            ping[0].1,
+            ParameterType::declared("net.PingStatus"),
+            "a same-package field type is qualified, as the NIR spells it"
+        );
+        assert_eq!(ping[1].1, ParameterType::declared("net.Address"));
+        assert_eq!(
+            fields("udp.Datagram")[0].1,
+            ParameterType::declared("net.Address"),
+            "a cross-package field type is qualified"
+        );
+        assert_eq!(fields("audio.AudioDevice").len(), 6);
+        assert!(
+            model
+                .record_fields
+                .get(&ParameterType::declared("Address"))
+                .is_none(),
+            "a registered builtin layout must not add a bare alias"
+        );
+    }
+
+    /// The registry only fills gaps: a record the module itself registered under a
+    /// builtin record's key keeps the module's layout.
+    #[test]
+    fn a_module_record_keeps_its_own_layout_over_the_builtin_one() {
+        let model = TypeModel::from_module(&module(vec![record(
+            "net.Address",
+            &[("only", ParameterType::Integer)],
+        )]))
+        .expect("model builds");
+        assert_eq!(
+            model.record_fields[&ParameterType::declared("net.Address")],
+            vec![("only".to_string(), ParameterType::Integer)]
+        );
+    }
+
     /// Tags are globally-canonical: keyed by the (sorted) variant name, not by a
     /// variant's position within any including union (bug-80). Variants Sq, Tri,
     /// V1 sort to tags 0, 1, 2.
@@ -1024,5 +1131,31 @@ mod union_tag_tests {
             model.union_variant_tags.get(&ParameterType::declared("W1")),
             Some(&1)
         );
+    }
+
+    /// A package-qualified union's variants get one dense canonical tag each, and
+    /// their bare aliases share it — through `from_module_and_packages`, the
+    /// constructor every build uses.
+    ///
+    /// plan-132 C5: `from_module_and_packages` used to call `from_module`, which had
+    /// already aliased the bare leaves, and then recompute the tags over a table
+    /// that held `A`, `B`, `pkg.A` and `pkg.B` — the order `finish` documents as
+    /// wrong — so the qualified variants took tags 2 and 3 (`json.JsonObj` was 10 of
+    /// 12, measured in `json_codegen_cover_rt`). Every tag consumer reads the model,
+    /// so the sparse space was consistent; this pins the one-pass order.
+    #[test]
+    fn a_qualified_union_is_tagged_once_through_the_package_constructor() {
+        let types = vec![union("pkg.U", &[], &["pkg.A", "pkg.B"])];
+        let model = TypeModel::from_module_and_packages(&module(types), &[])
+            .expect("the package constructor builds with no packages");
+        for (variant, tag) in [("pkg.A", 0), ("pkg.B", 1), ("A", 0), ("B", 1)] {
+            assert_eq!(
+                model
+                    .union_variant_tags
+                    .get(&ParameterType::declared(variant)),
+                Some(&tag),
+                "`{variant}` must carry canonical tag {tag}"
+            );
+        }
     }
 }

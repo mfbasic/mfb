@@ -12,6 +12,8 @@
 #
 # Usage: scripts/test-macapp.sh <mfb-exe>
 set -u
+RC_FAIL_TO_STDERR=1
+. "$(dirname "$0")/remote-common.sh"
 
 if [ "$#" -lt 1 ]; then
   echo "usage: test-macapp.sh <mfb-exe>" >&2
@@ -52,14 +54,9 @@ if [ -n "$other" ]; then
   exit 1
 fi
 
-work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
-failures=0
-
-# Result reporting, matching test-appimage.sh so the two macOS/Linux runtime
-# gates read the same. `fail` is the single place `failures` is incremented.
-pass() { echo "ok: $1"; }
-fail() { echo "FAIL: $1" >&2; failures=$((failures + 1)); }
+rc_workdir
+# Result reporting (`pass`/`fail`/`rc_failures`) comes from scripts/remote-common.sh,
+# shared with test-appimage.sh so the two macOS/Linux runtime gates read the same.
 
 # GUI cases open real windows (stealing focus) and, in one case, inject
 # keystrokes via System Events into the focused app. They are OPT-IN so the
@@ -106,11 +103,7 @@ run_headless_stdout() {
 # Case 1: FUNC main() AS Integer returns 42 -> process exits 42 (worker ran it).
 proj="$work/exitcode"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "exitcode", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" exitcode
 cat > "$proj/src/main.mfb" <<'MFB'
 FUNC main() AS Integer
   RETURN 42
@@ -130,11 +123,7 @@ fi
 # Case 2: SUB main() runs to completion -> process exits 0.
 proj="$work/nothing"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "nothing", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" nothing
 cat > "$proj/src/main.mfb" <<'MFB'
 SUB main()
 END SUB
@@ -156,11 +145,7 @@ fi
 # format correctly (print adds a newline, write does not).
 proj="$work/output"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "output", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" output
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT io
 SUB main()
@@ -188,15 +173,11 @@ fi
 #     startup (the slot zero-inits to 0 = Console).
 proj="$work/appdefault"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "appdefault", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" appdefault
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 FUNC main() AS Integer
-  IF app::getMode() = Mode.Console THEN
+  IF app::getMode() = app::Mode.Console THEN
     RETURN 0
   END IF
   RETURN 1
@@ -217,20 +198,16 @@ fi
 #     then getMode observes Console.
 proj="$work/approundtrip"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "approundtrip", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" approundtrip
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 FUNC main() AS Integer
-  app::setMode(Mode.None)
-  IF app::getMode() = Mode.Console THEN
+  app::setMode(app::Mode.None)
+  IF app::getMode() = app::Mode.Console THEN
     RETURN 1
   END IF
-  app::setMode(Mode.Console)
-  IF app::getMode() = Mode.None THEN
+  app::setMode(app::Mode.Console)
+  IF app::getMode() = app::Mode.None THEN
     RETURN 2
   END IF
   RETURN 0
@@ -251,16 +228,12 @@ fi
 #     None, observable at the very first statement (the entry seeds the slot to 1).
 proj="$work/appnone"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "appnone", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" appnone
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 FUNC main() AS Integer
-  IF app::getMode() = Mode.None THEN
-    app::setMode(Mode.Console)
+  IF app::getMode() = app::Mode.None THEN
+    app::setMode(app::Mode.Console)
     RETURN 0
   END IF
   RETURN 1
@@ -285,20 +258,16 @@ fi
 #   - term::moveTo in None traps ErrWrongMode; the same call in Console does not.
 proj="$work/wrongmode_term"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "wrongmode_term", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" wrongmode_term
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT term
 IMPORT errorCode
 FUNC main AS Integer
-  app::setMode(Mode.None)
+  app::setMode(app::Mode.None)
   term::moveTo(1, 1) TRAP(err)
     IF err.code = errorCode::ErrWrongMode THEN
-      app::setMode(Mode.Console)
+      app::setMode(app::Mode.Console)
       term::moveTo(1, 1) TRAP(err2)
         RETURN 61       ' Console must NOT trap
       END TRAP
@@ -323,17 +292,13 @@ fi
 #   - io::readLine in None traps ErrWrongMode; io::print is never gated (it printed).
 proj="$work/wrongmode_io"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "wrongmode_io", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" wrongmode_io
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT io
 IMPORT errorCode
 FUNC main AS Integer
-  app::setMode(Mode.None)
+  app::setMode(app::Mode.None)
   LET line AS String = io::readLine() TRAP(err)
     IF err.code = errorCode::ErrWrongMode THEN
       RETURN 0
@@ -361,19 +326,15 @@ fi
 # run: only the pre-switch line appears. GUI-opt-in — it briefly opens a window.
 proj="$work/reconcile"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "reconcile", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" reconcile
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT io
 SUB main()
-  app::setMode(Mode.None)
+  app::setMode(app::Mode.None)
   io::print("RECONCILE_BEFORE")
   io::flush()
-  app::setMode(Mode.Console)
+  app::setMode(app::Mode.Console)
   io::print("RECONCILE_AFTER")
   io::flush()
   WHILE TRUE
@@ -422,25 +383,21 @@ fi
 # view: re-entry would then message a freed object rather than print.
 proj="$work/canvasmode"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "canvasmode", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" canvasmode
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT io
 SUB main()
-  app::setMode(Mode.Console)
+  app::setMode(app::Mode.Console)
   io::print("CANVAS_HIDDEN")
   io::flush()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   io::print("CANVAS_ON")
   io::flush()
-  app::setMode(Mode.None)
+  app::setMode(app::Mode.None)
   io::print("CANVAS_OFF")
   io::flush()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   io::print("CANVAS_AGAIN")
   io::flush()
   WHILE TRUE
@@ -486,22 +443,19 @@ fi
 # wallpaper, so the script fails loudly rather than passing on a blank image.
 proj="$work/canvasblit"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "canvasblit", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" canvasblit
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET size AS Size = canvas::getSize()
+  app::setMode(app::Mode.Canvas)
+  LET size AS canvas::Size = canvas::getSize()
   LET w AS Float = toFloat(size.width)
   LET h AS Float = toFloat(size.height)
-  LET left AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(canvas::rgb(255, 0, 0))]
-  LET right AS DrawItem = Rectangle[x := w / 2.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(canvas::rgb(0, 0, 255))]
+  LET left AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(color::rgb(255, 0, 0))]
+  LET right AS canvas::DrawItem = canvas::Rectangle[x := w / 2.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(color::rgb(0, 0, 255))]
   canvas::present([left, right])
   io::print("BLIT_PRESENTED")
   io::flush()
@@ -568,18 +522,15 @@ fi
 # program blocked", since the program is parked in io::pollInput throughout.
 proj="$work/canvasresize"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "canvasresize", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" canvasresize
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET mark AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  app::setMode(app::Mode.Canvas)
+  LET mark AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   canvas::present([mark])
   io::print("RESIZE_READY")
   io::flush()
@@ -674,11 +625,7 @@ fi
 # exiting. This briefly opens a window and requires a window-server session.
 proj="$work/keepopen"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "keepopen", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" keepopen
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT io
 SUB main()
@@ -716,11 +663,7 @@ fi
 # input field -> pipe path is manual, plan §7.4.)
 proj="$work/input"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "input", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" input
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT io
 SUB main()
@@ -748,11 +691,7 @@ fi
 # _isatty import". Keep this case free of io::readLine.
 proj="$work/inputonly"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "inputonly", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" inputonly
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT io
 SUB main()
@@ -778,11 +717,7 @@ fi
 # non-delivery is reported as a skip rather than a failure.
 proj="$work/keyinput"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "keyinput", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" keyinput
 cat > "$proj/src/main.mfb" <<MFB
 IMPORT io
 IMPORT fs
@@ -824,17 +759,13 @@ fi
 # so a missing CR->LF translation shows up as a hang, not as wrong text.
 proj="$work/canvaskeys"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "canvaskeys", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" canvaskeys
 cat > "$proj/src/main.mfb" <<MFB
 IMPORT app
 IMPORT io
 IMPORT fs
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   LET name AS String = io::readLine()
   fs::writeText("$proj/got.txt", "got:" & name)
 END SUB
@@ -863,11 +794,7 @@ fi
 # interactive console, so all three return TRUE even headless.
 proj="$work/isterm"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "isterm", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" isterm
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT io
 SUB main()
@@ -897,17 +824,13 @@ fi
 # term::terminalSize is gated behind TUI mode, hence the term::on() first.
 proj="$work/tsize"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "tsize", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" tsize
 cat > "$proj/src/main.mfb" <<MFB
 IMPORT term
 IMPORT fs
 SUB main()
   term::on()
-  LET s AS TermSize = term::terminalSize()
+  LET s AS term::TermSize = term::terminalSize()
   term::off()
   fs::writeText("$proj/size.txt", toString(s.columns) & "x" & toString(s.rows))
 END SUB
@@ -929,8 +852,8 @@ else
   fi
 fi
 
-if [ "$failures" -ne 0 ]; then
-  echo "macOS app mode runtime tests failed: $failures" >&2
+if [ "$rc_failures" -ne 0 ]; then
+  echo "macOS app mode runtime tests failed: $rc_failures" >&2
   exit 1
 fi
 echo "macOS app mode runtime tests passed"

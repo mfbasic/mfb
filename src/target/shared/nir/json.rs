@@ -26,6 +26,7 @@ impl NirModule {
                 "  \"version\": 1,\n",
                 "  \"target\": {},\n",
                 "  \"buildMode\": {},\n",
+                "{}",
                 "  \"project\": {},\n",
                 "  \"entry\": {},\n",
                 "{}",
@@ -38,6 +39,13 @@ impl NirModule {
             ),
             json_string(&self.target),
             json_string(self.build_mode.as_str()),
+            // plan-130: only a `--debug` module says so, so every normal dump (and
+            // every committed `.nir` golden) is unchanged.
+            if self.debug.enabled {
+                "  \"debug\": true,\n"
+            } else {
+                ""
+            },
             json_string(&self.project),
             self.entry
                 .as_ref()

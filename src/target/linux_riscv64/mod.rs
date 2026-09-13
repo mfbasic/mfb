@@ -59,6 +59,7 @@ impl NativeBackend for Backend {
         app_version: Option<&str>,
         vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
+        debug: crate::codegen::debug::DebugOptions,
         progress: &dyn Fn(&str),
     ) -> Result<Vec<PathBuf>, String> {
         // App icons are macOS-only (plan-22); the Linux/GTK backend ignores it.
@@ -74,6 +75,7 @@ impl NativeBackend for Backend {
             build_mode,
             vendors_native_libraries,
             stdin_log_cap,
+            debug,
             progress,
         )
     }
@@ -84,6 +86,7 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
         linux_common::write_nir(
             &DUMPS,
@@ -92,6 +95,7 @@ impl NativeBackend for Backend {
             &self.target(),
             packages,
             build_mode,
+            debug,
         )
     }
 
@@ -101,6 +105,7 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
         linux_common::write_native_plan(
             &DUMPS,
@@ -109,6 +114,7 @@ impl NativeBackend for Backend {
             &self.target(),
             packages,
             build_mode,
+            debug,
         )
     }
 
@@ -118,6 +124,7 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
         linux_common::write_native_object_plan(
             &DUMPS,
@@ -126,6 +133,7 @@ impl NativeBackend for Backend {
             &self.target(),
             packages,
             build_mode,
+            debug,
         )
     }
 
@@ -135,6 +143,7 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
         linux_common::write_native_code_plan(
             &DUMPS,
@@ -143,6 +152,7 @@ impl NativeBackend for Backend {
             &self.target(),
             packages,
             build_mode,
+            debug,
         )
     }
 
@@ -152,6 +162,7 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
         linux_common::write_mir(
             &DUMPS,
@@ -160,6 +171,7 @@ impl NativeBackend for Backend {
             &self.target(),
             packages,
             build_mode,
+            debug,
         )
     }
 }
@@ -174,10 +186,11 @@ fn write_executable(
     build_mode: NativeBuildMode,
     vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
+    debug: crate::codegen::debug::DebugOptions,
     progress: &dyn Fn(&str),
 ) -> Result<Vec<PathBuf>, String> {
     progress("lowering module");
-    let module = lower_validated_module(ir, target, packages, build_mode, stdin_log_cap)?;
+    let module = lower_validated_module(ir, target, packages, build_mode, stdin_log_cap, debug)?;
     // The console build emits one executable per libc world — `<name>-glibc.out`
     // (libc.so.6, /lib64/ld-linux-riscv64.so.2) and `<name>-musl.out`
     // (libc.musl-riscv64.so.1, /lib/ld-musl-riscv64.so.1) — exactly like
@@ -253,6 +266,7 @@ fn lower_validated_module(
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
     stdin_log_cap: Option<u64>,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
@@ -267,7 +281,14 @@ fn lower_validated_module(
             build_mode.as_str()
         ));
     }
-    let module = lower::lower_project(ir, target.name(), packages, build_mode, stdin_log_cap)?;
+    let module = lower::lower_project(
+        ir,
+        target.name(),
+        packages,
+        build_mode,
+        stdin_log_cap,
+        debug,
+    )?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     Ok(module)
@@ -290,8 +311,14 @@ mod tests {
     fn app_build_mode_is_rejected_before_lowering() {
         let ir = crate::testutil::lower_src("SUB main()\nEND SUB\n");
         let target = BACKEND.target();
-        let Err(err) = lower_validated_module(&ir, &target, &[], NativeBuildMode::LinuxApp, None)
-        else {
+        let Err(err) = lower_validated_module(
+            &ir,
+            &target,
+            &[],
+            NativeBuildMode::LinuxApp,
+            None,
+            crate::codegen::debug::DebugOptions::OFF,
+        ) else {
             panic!("riscv64 must reject an app build");
         };
         assert!(
@@ -316,7 +343,14 @@ mod tests {
     fn console_build_mode_passes_the_guard() {
         let ir = crate::testutil::lower_src("SUB main()\nEND SUB\n");
         let target = BACKEND.target();
-        let err = match lower_validated_module(&ir, &target, &[], NativeBuildMode::Console, None) {
+        let err = match lower_validated_module(
+            &ir,
+            &target,
+            &[],
+            NativeBuildMode::Console,
+            None,
+            crate::codegen::debug::DebugOptions::OFF,
+        ) {
             Ok(_) => return,
             Err(err) => err,
         };

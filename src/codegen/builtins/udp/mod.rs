@@ -231,11 +231,23 @@ mod tests {
         ));
     }
 
-    /// The receive emitter writes the `Datagram` record's two slots positionally,
-    /// so the declared field order IS the memory layout. Reordering these — or
-    /// inserting a field — would silently mis-assign both values.
+    /// The receive emitter hands the record marshaller the built `Address` and the
+    /// byte list in this order, and the marshaller lays fields out in declaration
+    /// order. Reordering these — or inserting a field — would silently mis-assign
+    /// both values. Both fields are inlined into the `Datagram` (plan-132): `from`
+    /// is a flat `net::Address` whose size the emitter supplies, `bytes` a flat
+    /// list the marshaller sizes itself.
     #[test]
     fn datagram_field_order_is_from_then_bytes() {
+        let model = crate::codegen::engine::builder::TypeModel::builtin_records();
+        let datagram_type = crate::types::ParameterType::declared(super::DATAGRAM_TYPE_ID);
+        let layout = model
+            .record_fields
+            .get(&datagram_type)
+            .expect("Datagram layout");
+        assert!(layout.iter().all(|(_, field)| {
+            crate::codegen::collection::layout::record_field_is_inlined(model, field)
+        }));
         let pkg = registry().resolve_package("udp").expect("udp package");
         let datagram = pkg
             .records()

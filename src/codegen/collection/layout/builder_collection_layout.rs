@@ -657,20 +657,6 @@ impl CodeBuilder<'_> {
         Ok(result)
     }
 
-    /// Built-in records that are constructed by bespoke runtime helpers (which
-    /// still write their `String` fields as pointers) rather than the codegen
-    /// `Constructor` path. They are excluded from the inline-`String` record
-    /// layout so that machinery — and field reads of values it produces — stay on
-    /// the pointer layout consistently (plan-02 Phase 2):
-    ///   - `Error`/`ErrorLoc`: the fallible-call ABI, trap materialization, `FAIL`.
-    ///   - `net::Address`/`udp::Datagram`/`audio::AudioDevice`: the socket and
-    ///     audio-device helpers (`emit_address_from_sockaddr`, etc.).
-    ///
-    /// Every other record inlines its `String` fields.
-    pub(crate) fn is_pointer_string_record(&self, type_: &ParameterType) -> bool {
-        is_pointer_string_record(type_)
-    }
-
     /// True when `field_type` occupies a record slot as a pointer to a separate
     /// allocation (nested record/union/collection/`Result`/`Error`). These stay
     /// pointers in Phase 2 (later phases inline them).
@@ -686,8 +672,7 @@ impl CodeBuilder<'_> {
     /// resource rather than duplicating it (§15.6), which is the same rule
     /// [`Self::is_pointer_collection_payload_type`] already applies to a
     /// collection slot. Not copyable: resource *unions* (a `{tag, ptr}` block,
-    /// not a plain slot), `Result` of a non-copyable payload, `Error`/`ErrorLoc`
-    /// and the other helper-built pointer-`String` records, and any recursive
+    /// not a plain slot), `Result` of a non-copyable payload, and any recursive
     /// type (broken by the `visited` path set, so a cyclic type stays a pointer).
     pub(crate) fn type_is_memcpy_copyable(&self, type_: &ParameterType) -> bool {
         type_is_memcpy_copyable(&self.type_model, type_)
@@ -713,25 +698,18 @@ impl CodeBuilder<'_> {
         is_sendable_resource_nominal(&self.type_model, type_)
     }
 
-    /// True when field `field_type` of `record_type` is inlined into the record's
+    /// True when a record field of type `field_type` is inlined into the record's
     /// trailing data region (the slot holds a block-relative offset): an inlined
     /// `String`, or a fully-flat composite — a nested record, a flat data union,
     /// or a flat collection (plan-02 §4.2–§4.4). Scalars stay inline in the slot;
     /// not-yet-flat composites stay pointers.
-    pub(crate) fn record_field_is_inlined(
-        &self,
-        record_type: &ParameterType,
-        field_type: &ParameterType,
-    ) -> bool {
-        record_field_is_inlined(&self.type_model, record_type, field_type)
+    pub(crate) fn record_field_is_inlined(&self, field_type: &ParameterType) -> bool {
+        record_field_is_inlined(&self.type_model, field_type)
     }
 
     /// True when `record_type` has at least one inlined field (so its block is
     /// variable-length and carries a trailing data region).
     pub(crate) fn record_has_inline_data(&self, record_type: &ParameterType) -> bool {
-        if self.is_pointer_string_record(record_type) {
-            return false;
-        }
         self.type_model
             .record_fields
             .get(record_type)
@@ -739,7 +717,7 @@ impl CodeBuilder<'_> {
             .map(|fields| {
                 fields
                     .iter()
-                    .any(|(_, ft)| self.record_field_is_inlined(record_type, ft))
+                    .any(|(_, ft)| self.record_field_is_inlined(ft))
             })
             .unwrap_or(false)
     }
@@ -919,7 +897,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_inlined(record_type, field_type) {
+            if !self.record_field_is_inlined(field_type) {
                 continue;
             }
             // The field's own offset word at `8*index` is authoritative — and `0`
@@ -1013,7 +991,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_inlined(record_type, field_type) {
+            if !self.record_field_is_inlined(field_type) {
                 continue;
             }
             self.emit_align_offset_slot(size_slot, 8);
@@ -1058,7 +1036,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), cursor_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if self.record_field_is_inlined(record_type, field_type) {
+            if self.record_field_is_inlined(field_type) {
                 self.emit_align_offset_slot(cursor_slot, 8);
                 // Slot stores the block-relative offset of the inlined sub-block.
                 self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
@@ -2816,28 +2794,6 @@ pub(crate) fn byte_list_block_kind() -> usize {
 // and can never drift.
 // ---------------------------------------------------------------------------
 
-/// The built-in helper-constructed records whose `String`/sub-record fields are
-/// kept as **pointers** to separate allocations rather than inlined into the data
-/// region (spec §Record "excluded"). The socket helpers build `net::Address` and
-/// `udp::Datagram` that way, and audio builds `audio::AudioDevice`.
-///
-/// The membership question goes through `is_builtin_named`, which accepts both
-/// the bare leaf and the package-qualified id, and **both are load-bearing**
-/// (bug-483). A *signature* type — a member's parameter or return, rewritten by
-/// `Registry::qualify_value_type_references` — arrives as `net.Address`; a record
-/// *field* type does not, because that pass deliberately leaves field types bare
-/// so the injected companion source stays parseable, so `udp::Datagram`'s `from`
-/// field arrives as `Address`. Matching only the bare leaf silently reclassified
-/// every qualified reference as an ordinary inlined-`String` record, and its
-/// readers then took the slot the socket helper had written an absolute pointer
-/// into as a block-relative offset — a wild pointer, and a `SIGSEGV` the moment
-/// anything touched `.host`.
-pub(crate) fn is_pointer_string_record(type_: &ParameterType) -> bool {
-    type_.is_builtin_named("net", "Address")
-        || type_.is_builtin_named("udp", "Datagram")
-        || type_.is_builtin_named("audio", "AudioDevice")
-}
-
 /// True when `field_type` occupies a record slot as a pointer to a separate
 /// allocation (nested record/union/collection/`Result`/`Error`).
 ///
@@ -3120,14 +3076,13 @@ fn flatness_of_model_type(
     visited: &mut std::collections::HashSet<ParameterType>,
 ) -> bool {
     if model.record_fields.contains_key(type_) {
-        !is_pointer_string_record(type_)
-            && model
-                .record_fields
-                .get(type_)
-                .cloned()
-                .unwrap_or_default()
-                .iter()
-                .all(|(_, ft)| flatness_walk(model, ft, mode, visited))
+        model
+            .record_fields
+            .get(type_)
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .all(|(_, ft)| flatness_walk(model, ft, mode, visited))
     } else if union_is_data(model, type_) {
         model
             .variants_for_union(type_)
@@ -3182,10 +3137,11 @@ fn flatness_of_model_type(
     }
 }
 
-/// True when field `field_type` of `record_type` is inlined into the record's
+/// True when a record field of type `field_type` is inlined into the record's
 /// trailing data region (the slot holds a block-relative offset): an inlined
 /// `String`, or a fully-flat composite. Scalars stay inline in the slot;
-/// not-yet-flat composites stay pointers.
+/// not-yet-flat composites stay pointers. The answer depends on the field's type
+/// alone: every record, builtin or declared, has the same layout (plan-132).
 ///
 /// **A resource field is NOT inlined** (plan-114-B): it is not a composite, so
 /// `is_composite` is false and the `type_is_memcpy_copyable` term is never
@@ -3193,14 +3149,7 @@ fn flatness_of_model_type(
 /// makes `emit_record_block_size_to_slot` (`:794`) contribute exactly its 8
 /// bytes from the fixed `8 * fields.len()` term and `continue` past it without
 /// walking a sub-block that does not exist.
-pub(crate) fn record_field_is_inlined(
-    model: &TypeModel,
-    record_type: &ParameterType,
-    field_type: &ParameterType,
-) -> bool {
-    if is_pointer_string_record(record_type) {
-        return false;
-    }
+pub(crate) fn record_field_is_inlined(model: &TypeModel, field_type: &ParameterType) -> bool {
     if *field_type == ParameterType::String {
         return true;
     }
@@ -3391,86 +3340,6 @@ pub(crate) fn thread_copy_symbol(type_: &ParameterType) -> String {
         hash = hash.wrapping_mul(1099511628211);
     }
     format!("_mfb_thread_copy_{sanitized}_{hash:016x}")
-}
-
-#[cfg(test)]
-mod pointer_string_record_tests {
-    use super::*;
-    use crate::codegen::registry::registry;
-
-    /// The three helper-built records, in both spellings the compiler can hand
-    /// this predicate.
-    ///
-    /// bug-483: a *signature* type (a member's parameter or return) is rewritten
-    /// to the package-qualified id by `Registry::qualify_value_type_references`,
-    /// while a record *field* type is deliberately left bare so the injected
-    /// companion source stays parseable. Both spellings therefore reach
-    /// `is_pointer_string_record` for the same record, and both must answer the
-    /// same — a disagreement silently reclassifies the record's layout, and its
-    /// readers then dereference an absolute pointer as a block-relative offset.
-    const POINTER_STRING: &[(&str, &str)] = &[
-        ("net", "Address"),
-        ("udp", "Datagram"),
-        ("audio", "AudioDevice"),
-    ];
-
-    #[test]
-    fn both_spellings_of_a_pointer_string_record_agree() {
-        for (package, leaf) in POINTER_STRING {
-            let qualified = format!("{package}.{leaf}");
-            assert!(
-                is_pointer_string_record(&ParameterType::declared(leaf)),
-                "bare `{leaf}` must classify as a pointer-string record"
-            );
-            assert!(
-                is_pointer_string_record(&ParameterType::declared(&qualified)),
-                "qualified `{qualified}` must classify as a pointer-string record: \
-                 a member signature returning it carries the qualified spelling, \
-                 and missing it inlines the record's String fields while the \
-                 runtime helper writes pointers (bug-483)"
-            );
-        }
-    }
-
-    /// The names above are the ones the registry actually declares. A record
-    /// renamed or moved to another package would otherwise leave this predicate
-    /// matching a name nothing produces — the same silent miss as bug-483, just
-    /// arrived at from the other side.
-    #[test]
-    fn every_pointer_string_record_is_declared_where_it_claims() {
-        for (package, leaf) in POINTER_STRING {
-            let pkg = registry()
-                .packages()
-                .iter()
-                .find(|p| p.import_name() == *package)
-                .unwrap_or_else(|| panic!("registry has no `{package}` package"));
-            assert!(
-                pkg.records().iter().any(|r| r.name == *leaf),
-                "`{package}` no longer declares a `{leaf}` record; \
-                 `is_pointer_string_record` is matching a dead name"
-            );
-        }
-    }
-
-    /// The predicate must not answer true for anything else — it is a
-    /// hand-maintained exception list, and a stray match would put an ordinary
-    /// record's inlined `String` fields on the pointer layout.
-    #[test]
-    fn no_other_declared_record_is_pointer_string() {
-        for pkg in registry().packages() {
-            for record in pkg.records() {
-                let qualified = format!("{}.{}", pkg.import_name(), record.name);
-                let expected = POINTER_STRING
-                    .iter()
-                    .any(|(p, l)| *p == pkg.import_name() && *l == record.name);
-                assert_eq!(
-                    is_pointer_string_record(&ParameterType::declared(&qualified)),
-                    expected,
-                    "`{qualified}` classified unexpectedly"
-                );
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -3844,7 +3713,7 @@ mod res_field_record_layout_tests {
     /// lowered value, which for a resource is its record pointer.
     #[test]
     fn the_handle_field_is_a_plain_value_slot_not_a_pointer_or_inlined_block() {
-        let (model, holder) = holder_model();
+        let (model, _) = holder_model();
         let handle = ParameterType::parse("RES fs.File");
 
         assert!(
@@ -3853,17 +3722,13 @@ mod res_field_record_layout_tests {
              that would give it a separate allocation instead of a handle slot"
         );
         assert!(
-            !record_field_is_inlined(&model, &holder, &handle),
+            !record_field_is_inlined(&model, &handle),
             "a resource field must not be inlined into the data region — its \
              slot holds the handle, not a block-relative offset"
         );
         // Contrast: the String field IS inlined, so the record really does
         // exercise both branches of the write loop.
-        assert!(record_field_is_inlined(
-            &model,
-            &holder,
-            &ParameterType::String
-        ));
+        assert!(record_field_is_inlined(&model, &ParameterType::String));
     }
 
     /// (b) A `memcpy` of the block is a correct copy, and the copied handle word
@@ -3906,7 +3771,7 @@ mod res_field_record_layout_tests {
         // skipped, so the only variable term is the String's.
         let inlined: Vec<&str> = fields
             .iter()
-            .filter(|(_, ft)| record_field_is_inlined(&model, &holder, ft))
+            .filter(|(_, ft)| record_field_is_inlined(&model, ft))
             .map(|(n, _)| n.as_str())
             .collect();
         assert_eq!(

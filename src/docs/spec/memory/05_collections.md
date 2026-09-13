@@ -499,11 +499,16 @@ iterator, unlike a beyond-`count` append, so that case takes the value path.
 - **`List`.** When the replacement payload is the **same size**
   (`newValueLength == oldValueLength` — always true for fixed-width elements and
   same-size records/strings) the value bytes are overwritten at the entry's
-  `valueOffset` in place: no allocation, no copy, offsets unchanged. **Any** size
-  change — grow *or* shrink — falls back to the value-semantic rebuild
-  (`removeAt` + `insert`), which produces a tight buffer; a shrink that overwrote
-  in place would leave dead space between payloads. An out-of-range index fails
-  with `ErrIndexOutOfRange`, like the value path.
+  `valueOffset` in place: no allocation, no copy, offsets unchanged. A size
+  change shifts the bytes after the element's old span (`valueOffset + oldLength`
+  through `dataLength`) up or down by the difference inside the block — growing
+  `dataCapacity` geometrically first when it cannot hold the result — and moves
+  every other entry whose `valueOffset` is at or past that point by the same
+  amount. The written entry keeps its `valueOffset`. "At or past" is load-bearing:
+  a zero-length element occupies no bytes and shares its offset with whatever
+  follows it, so an entry at exactly the end of the old span moved too, even when
+  the old span was empty. An out-of-range index fails with `ErrIndexOutOfRange`,
+  like the value path.
 - **`Map`.** `lower_map_set_in_place` locates the key with the same hash probe as
   `get` (linear-scan fallback for non-probe key types), which also lazily builds
   the bucket index so a build-via-`set` loop stays O(n). A hit whose new

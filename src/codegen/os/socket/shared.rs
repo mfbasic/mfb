@@ -20,6 +20,9 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
+use crate::codegen::memory::marshal::{
+    emit_build_inlined_record_sized, MarshalRegs, RecordBuildScratch,
+};
 use crate::codegen::os::syscall::*;
 use crate::codegen::string::validate::*;
 
@@ -409,7 +412,7 @@ pub(crate) fn emit_hints(
     ]);
 }
 
-/// The eight scratch vregs the two `net::Address` builders share, allocated in
+/// The seven scratch vregs the two `net::Address` builders share, allocated in
 /// one place and in one order so both name the same register for the same role.
 struct AddrVregs {
     /// Walking cursor while measuring the host string. The `sockaddr` builder
@@ -425,10 +428,8 @@ struct AddrVregs {
     idx: String,
     /// The byte in flight.
     byte: String,
-    /// The allocated MFBASIC `String` block.
+    /// The scratch MFBASIC `String` block the record copies the host from.
     string: String,
-    /// The allocated `net::Address` record.
-    record: String,
 }
 
 impl AddrVregs {
@@ -441,28 +442,49 @@ impl AddrVregs {
             idx: vregs.next(),
             byte: vregs.next(),
             string: vregs.next(),
-            record: vregs.next(),
         }
     }
 }
 
-/// The shared tail of both `net::Address` builders: measure the NUL-terminated
-/// host string whose pointer sits at `sp + src_off`, copy it into a freshly
-/// allocated MFBASIC `String`, then allocate the 16-byte `Address` record and
-/// store the host pointer into it. `len_off`/`host_off` are scratch stack slots.
+/// The frame slots a `net::Address` builder writes — all the caller's, all
+/// distinct.
 ///
-/// The record is left in `v.record` (and in `x1`) with its **port field still
-/// unwritten**: where the port comes from is the only thing the two builders do
-/// differently, so each stores it itself right after this returns.
+/// After a build, `record.result` holds the record pointer (also left in `x1`) and
+/// `record.size` its byte size, which a caller that inlines the record into a
+/// `udp::Datagram` or a `net::PingResult`, embeds it in a list, or frees it, needs.
+pub(crate) struct AddressSlots {
+    /// The measured host length.
+    pub(crate) len: usize,
+    /// The scratch host `String`, freed once the record holds its own copy.
+    pub(crate) host: usize,
+    /// The port the record is built with.
+    pub(crate) port: usize,
+    /// The record marshaller's scratch.
+    pub(crate) record: RecordBuildScratch,
+}
+
+/// The type every `net::Address` builder constructs.
+pub(crate) fn address_type() -> ParameterType {
+    ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID)
+}
+
+/// The shared tail of both `net::Address` builders: measure the NUL-terminated
+/// host string whose pointer sits at `sp + src_off`, copy it into a scratch
+/// MFBASIC `String`, build the spec-canonical `Address` record from that `String`
+/// and the port at `slots.port` — the host inlined into the record's data region,
+/// exactly as a source-built record (plan-132) — and free the scratch `String`.
+///
+/// The record is left in `x1`, its pointer in `slots.record.result` and its byte
+/// size in `slots.record.size`.
 fn emit_address_host_and_record(
     ctx: &mut EmitCtx,
     prefix: &str,
     src_off: usize,
-    len_off: usize,
-    host_off: usize,
+    slots: &AddressSlots,
     alloc_fail: &str,
     v: &AddrVregs,
-) {
+    vregs: &mut Vregs,
+) -> Result<(), String> {
     let symbol = ctx.symbol;
     let count_loop = format!("{symbol}_{prefix}_addr_count");
     let count_done = format!("{symbol}_{prefix}_addr_count_done");
@@ -480,17 +502,17 @@ fn emit_address_host_and_record(
         abi::add_immediate(&v.len, &v.len, 1),
         abi::branch(&count_loop),
         abi::label(&count_done),
-        abi::store_u64(&v.len, abi::stack_pointer(), len_off),
-        // Allocate the host String: [u64 len][bytes][nul].
+        abi::store_u64(&v.len, abi::stack_pointer(), slots.len),
+        // Allocate the scratch host String: [u64 len][bytes][nul].
         abi::add_immediate(abi::return_register(), &v.len, 9),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
     ctx.instructions.extend([
         abi::move_register(&v.string, abi::mfb_return(1)), // alloc result → vreg (plan-34-B Phase 3)
-        abi::load_u64(&v.len, abi::stack_pointer(), len_off),
+        abi::load_u64(&v.len, abi::stack_pointer(), slots.len),
         abi::store_u64(&v.len, &v.string, 0),
-        abi::store_u64(&v.string, abi::stack_pointer(), host_off),
+        abi::store_u64(&v.string, abi::stack_pointer(), slots.host),
         abi::load_u64(&v.src, abi::stack_pointer(), src_off),
         abi::add_immediate(&v.dst, &v.string, 8),
         abi::move_immediate(&v.idx, "Integer", "0"),
@@ -505,22 +527,42 @@ fn emit_address_host_and_record(
         abi::branch(&copy_loop),
         abi::label(&copy_done),
         abi::store_u8(abi::ZERO, &v.dst, 0),
-        // Allocate the Address record: [host ptr][port].
-        abi::move_immediate(abi::return_register(), "Integer", "16"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
-    emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
+    emit_build_inlined_record_sized(
+        symbol,
+        &format!("{prefix}_addr"),
+        &address_type(),
+        TypeModel::builtin_records(),
+        &[slots.host, slots.port],
+        &[None, None],
+        &slots.record,
+        &MarshalRegs::fresh(vregs),
+        abi::mfb_return(1),
+        alloc_fail,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    // The record now holds its own copy of the host bytes, so the scratch `String`
+    // is garbage, and nothing but this builder ever held it. `len + 9` is the size
+    // it was allocated with. `_mfb_arena_free` clobbers `x1`; reload the record.
     ctx.instructions.extend([
-        abi::move_register(&v.record, abi::mfb_return(1)), // alloc result → vreg (plan-34-B Phase 3)
-        abi::load_u64(&v.cursor, abi::stack_pointer(), host_off),
-        abi::store_u64(&v.cursor, &v.record, 0),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), slots.len),
+        abi::add_immediate(abi::c_arg(1), abi::c_arg(1), 9),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), slots.host),
     ]);
+    emit_arena_free(symbol, ctx.instructions, ctx.relocations);
+    ctx.instructions.push(abi::load_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        slots.record.result,
+    ));
+    Ok(())
 }
 
 /// Build an `Address` record from a host name and port the caller already holds:
 /// a NUL-terminated `char *` at `sp + host_cstr_off` and a host-order port at
-/// `sp + port_off`. `len_off`/`host_off` are scratch stack slots, and the
-/// `Address` pointer is left in `x1`.
+/// `sp + slots.port`. The `Address` pointer is left in `x1`, and in
+/// `slots.record.result` with its size in `slots.record.size`.
 ///
 /// The sibling of [`emit_address_from_sockaddr`], for the one handle that has no
 /// descriptor to ask: a macOS TLS `Listener` holds a Network.framework
@@ -528,47 +570,32 @@ fn emit_address_host_and_record(
 /// assembled from the host it was created with plus `nw_listener_get_port`
 /// (bug-465). Both builders emit the identical record, so every package renders
 /// an endpoint the same way.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_address_from_host_and_port(
     ctx: &mut EmitCtx,
     prefix: &str,
     host_cstr_off: usize,
-    port_off: usize,
-    len_off: usize,
-    host_off: usize,
+    slots: &AddressSlots,
     alloc_fail: &str,
     vregs: &mut Vregs,
-) {
+) -> Result<(), String> {
     let v = AddrVregs::new(vregs);
-    emit_address_host_and_record(
-        ctx,
-        prefix,
-        host_cstr_off,
-        len_off,
-        host_off,
-        alloc_fail,
-        &v,
-    );
-    ctx.instructions.extend([
-        abi::load_u64(&v.len, abi::stack_pointer(), port_off),
-        abi::store_u64(&v.len, &v.record, 8),
-    ]);
+    emit_address_host_and_record(ctx, prefix, host_cstr_off, slots, alloc_fail, &v, vregs)
 }
 
 #[allow(clippy::too_many_arguments)]
 /// Build an `Address` record from a `sockaddr` whose pointer lives at
 /// `sp + sockaddr_off`. The observed port is read from `sockaddr + 2/3`.
-/// `len_off`, `dst_off`, and `host_off` are scratch stack slots. Leaves the
-/// `Address` pointer in `x1`, branches to `alloc_fail` on allocation failure or
-/// `addr_fail` when `inet_ntop` fails. Everything persists on the stack so no
-/// callee-saved registers are clobbered.
+/// `dst_off` is a scratch slot for the `inet_ntop` buffer. Leaves the `Address`
+/// pointer in `x1` and in `slots.record.result`, its size in `slots.record.size`;
+/// branches to `alloc_fail` on allocation failure or `addr_fail` when `inet_ntop`
+/// fails. Everything persists on the stack so no callee-saved registers are
+/// clobbered.
 pub(crate) fn emit_address_from_sockaddr(
     ctx: &mut EmitCtx,
     prefix: &str,
     sockaddr_off: usize,
-    len_off: usize,
     dst_off: usize,
-    host_off: usize,
+    slots: &AddressSlots,
     alloc_fail: &str,
     addr_fail: &str,
     vregs: &mut Vregs,
@@ -605,34 +632,33 @@ pub(crate) fn emit_address_from_sockaddr(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(addr_fail),
     ]);
-    emit_address_host_and_record(ctx, prefix, dst_off, len_off, host_off, alloc_fail, &v);
-    // bug-599: the `inet_ntop` buffer is this builder's own scratch. Its bytes were
-    // just copied into the host `String`, and nothing — not the record, not any
-    // caller (every `dst_off` is declared a scratch slot and read nowhere else) —
-    // holds its pointer, so it was orphaned on every address built: 64 bytes per
-    // `net::lookup` element, `tcp`/`udp`/`tls::localAddress`, `udp::receive` and
-    // `net::ping`. Free it with the size it was allocated with. `_mfb_arena_free`
-    // clobbers every caller-saved register, so the record pointer is parked in the
-    // now-dead `dst_off` slot across the call and reloaded.
+    // port = (sockaddr[2] << 8) | sockaddr[3], parked in its slot for the build.
     ctx.instructions.extend([
-        abi::load_u64(&v.cursor, abi::stack_pointer(), dst_off),
-        abi::store_u64(&v.record, abi::stack_pointer(), dst_off),
-        abi::move_register(abi::c_arg(0), &v.cursor),
-        abi::move_immediate(abi::c_arg(1), "Integer", &ADDR_STR_CAP.to_string()),
-    ]);
-    emit_arena_free(symbol, ctx.instructions, ctx.relocations);
-    ctx.instructions.extend([
-        abi::load_u64(&v.record, abi::stack_pointer(), dst_off),
-        // port = (sockaddr[2] << 8) | sockaddr[3]
         abi::load_u64(&v.cursor, abi::stack_pointer(), sockaddr_off),
         abi::load_u8(&v.len, &v.cursor, 2),
         abi::load_u8(&v.src, &v.cursor, 3),
         abi::shift_left_immediate(&v.len, &v.len, 8),
         abi::or_registers(&v.len, &v.len, &v.src),
-        abi::store_u64(&v.len, &v.record, 8),
-        // Every caller reads the record from `x1`, which the free clobbered.
-        abi::move_register(abi::mfb_return(1), &v.record),
+        abi::store_u64(&v.len, abi::stack_pointer(), slots.port),
     ]);
+    emit_address_host_and_record(ctx, prefix, dst_off, slots, alloc_fail, &v, vregs)?;
+    // bug-599: the `inet_ntop` buffer is this builder's own scratch. Its bytes were
+    // copied into the host `String`, and nothing — not the record, not any caller
+    // (every `dst_off` is declared a scratch slot and read nowhere else) — holds its
+    // pointer, so it was orphaned on every address built: 64 bytes per
+    // `net::lookup` element, `tcp`/`udp`/`tls::localAddress`, `udp::receive` and
+    // `net::ping`. Free it with the size it was allocated with.
+    ctx.instructions.extend([
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), dst_off),
+        abi::move_immediate(abi::c_arg(1), "Integer", &ADDR_STR_CAP.to_string()),
+    ]);
+    emit_arena_free(symbol, ctx.instructions, ctx.relocations);
+    // Every caller reads the record from `x1`, which the free clobbered.
+    ctx.instructions.push(abi::load_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        slots.record.result,
+    ));
     Ok(())
 }
 
@@ -730,9 +756,12 @@ fn lower_net_endpoint_helper(
     let v10 = vregs.next();
     let v11 = vregs.next();
     if address {
-        // x0 = Address record { host String ptr @0, port @8 }; x1 = timeoutMs.
+        // x0 = the flat `net::Address` (plan-132): slot 0 holds the host `String`'s
+        // block-relative offset, so the host is `x0 + [x0]`; the port is slot 1.
+        // x1 = timeoutMs.
         instructions.extend([
             abi::load_u64(&v9, abi::return_register(), 0),
+            abi::add_registers(&v9, abi::return_register(), &v9),
             abi::store_u64(&v9, abi::stack_pointer(), HOST_OFFSET),
             abi::load_u64(&v9, abi::return_register(), 8),
             abi::store_u64(&v9, abi::stack_pointer(), PORT_OFFSET),
@@ -1352,7 +1381,7 @@ pub(crate) fn lower_net_address_helper(
     platform: &dyn CodegenPlatform,
     remote: bool,
 ) -> Result<NetBodyParts, String> {
-    const FRAME_SIZE: usize = 224;
+    const FRAME_SIZE: usize = 256;
     const FD_OFFSET: usize = 8;
     const LEN_OFFSET: usize = 16;
     const DST_OFFSET: usize = 24;
@@ -1360,6 +1389,11 @@ pub(crate) fn lower_net_address_helper(
     const SADDR_PTR_OFFSET: usize = 40;
     const HOSTLEN_OFFSET: usize = 48;
     const ADDR_OFFSET: usize = 64; // 64..192 sockaddr_storage
+    const APORT_OFFSET: usize = 192; // the port the Address is built with
+    const ASIZE_OFFSET: usize = 200; // the Address's byte size
+    const ARESULT_OFFSET: usize = 208; // the built Address
+    const ACURSOR_OFFSET: usize = 216; // record marshaller scratch
+    const ABLOCK_OFFSET: usize = 224; // record marshaller scratch
 
     let closed = format!("{symbol}_closed");
     let name_fail = format!("{symbol}_name_fail");
@@ -1411,9 +1445,18 @@ pub(crate) fn lower_net_address_helper(
         },
         "addr",
         SADDR_PTR_OFFSET,
-        HOSTLEN_OFFSET,
         DST_OFFSET,
-        HOST_OFFSET,
+        &AddressSlots {
+            len: HOSTLEN_OFFSET,
+            host: HOST_OFFSET,
+            port: APORT_OFFSET,
+            record: RecordBuildScratch {
+                size: ASIZE_OFFSET,
+                result: ARESULT_OFFSET,
+                cursor: ACURSOR_OFFSET,
+                block_size: ABLOCK_OFFSET,
+            },
+        },
         &alloc_fail,
         &addr_fail,
         &mut vregs,

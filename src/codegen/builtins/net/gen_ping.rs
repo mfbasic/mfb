@@ -1,6 +1,6 @@
 //! The `net.ping` OS seam — real ICMP echo (plan-110-A).
 //!
-//! Three backends, not the two the plan first assumed. `scripts/icmp-capability-probe.c`
+//! Three backends, not the two the plan first assumed. `tools/net-probes/icmp-capability-probe.c`
 //! was run on macOS AArch64, Alpine x86_64/riscv64 (musl), Debian x86_64 and Kali
 //! AArch64 (glibc); macOS and Linux disagree on every fact the parser depends on
 //! (plan-110-A §Corrections C1):
@@ -51,11 +51,15 @@ use std::collections::HashMap;
 use crate::target::shared::abi;
 
 use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
+use crate::codegen::memory::marshal::{
+    emit_build_inlined_record_sized, MarshalRegs, RecordBuildScratch,
+};
 use crate::codegen::os::socket::shared::{
     emit_address_from_sockaddr, emit_cstring, emit_fd_cloexec_fallback, emit_hints,
-    emit_pollfd_events, emit_socket_type_cloexec, net_symbol, NetBodyParts, NetSymbol, AF_INET,
-    SOCKADDR_STORAGE_SIZE, SOCK_DGRAM,
+    emit_pollfd_events, emit_socket_type_cloexec, net_symbol, AddressSlots, NetBodyParts,
+    NetSymbol, AF_INET, SOCKADDR_STORAGE_SIZE, SOCK_DGRAM,
 };
+use crate::types::ParameterType;
 
 /// `IPPROTO_ICMP` — 1 on every supported platform (measured).
 const IPPROTO_ICMP: &str = "1";
@@ -84,16 +88,76 @@ pub(crate) const PING_MAX_PAYLOAD: i64 = 8184;
 /// allocation avoids sizing this at run time.
 const RECV_CAPACITY: &str = "8320";
 
-/// `PingResult { status, address, rttMs, ttl, size }` — five 8-byte slots.
-const PING_RESULT_SIZE: &str = "40";
-const RESULT_OFFSET_STATUS: usize = 0;
-const RESULT_OFFSET_ADDRESS: usize = 8;
-const RESULT_OFFSET_RTT: usize = 16;
-const RESULT_OFFSET_TTL: usize = 24;
-const RESULT_OFFSET_SIZE: usize = 32;
-
 /// The `Address` record's port slot, forced to 0 because ICMP has no transport port.
 const ADDRESS_OFFSET_PORT: usize = 8;
+
+/// The frame slots a backend hands [`emit_ping_result`]: the five field values in
+/// declaration order — `address` is the built `net::Address` block, with its byte
+/// size beside it — and the record marshaller's scratch.
+struct PingResultSlots {
+    status: usize,
+    address: usize,
+    address_size: usize,
+    rtt: usize,
+    ttl: usize,
+    size: usize,
+    result_size: usize,
+    result: usize,
+    cursor: usize,
+    block: usize,
+}
+
+/// Build the `net::PingResult` both backends return, through the record marshaller
+/// (plan-132): `address` is inlined from the backend's built `net::Address`, whose
+/// size the address builder left, and the other four fields are slot values
+/// (`rttMs` carries raw f64 bits). The `Address` block is then scratch — the result
+/// holds its own copy, and nothing outside this helper ever held the pointer — so it
+/// is freed with its size. The result is left in `RESULT_VALUE_REGISTER`.
+fn emit_ping_result(
+    symbol: &str,
+    slots: &PingResultSlots,
+    alloc_fail: &str,
+    vregs: &mut Vregs,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    emit_build_inlined_record_sized(
+        symbol,
+        "ping_result",
+        &ParameterType::named(super::PING_RESULT_TYPE_ID),
+        TypeModel::builtin_records(),
+        &[
+            slots.status,
+            slots.address,
+            slots.rtt,
+            slots.ttl,
+            slots.size,
+        ],
+        &[None, Some(slots.address_size), None, None, None],
+        &RecordBuildScratch {
+            size: slots.result_size,
+            result: slots.result,
+            cursor: slots.cursor,
+            block_size: slots.block,
+        },
+        &MarshalRegs::fresh(vregs),
+        abi::mfb_return(1),
+        alloc_fail,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), slots.address),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), slots.address_size),
+    ]);
+    emit_arena_free(symbol, instructions, relocations);
+    instructions.push(abi::load_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        slots.result,
+    ));
+    Ok(())
+}
 
 /// Nanoseconds per millisecond — the `f64` divisor for the round-trip time.
 const NANOS_PER_MILLI: &str = "1000000";
@@ -126,7 +190,7 @@ pub(crate) fn lower_net_ping_helper(
 // Frame layout (POSIX)
 // ---------------------------------------------------------------------------
 
-const FRAME_SIZE: usize = 640;
+const FRAME_SIZE: usize = 704;
 
 const HOST_OFFSET: usize = 8; // String ptr (after unwrapping the Address form)
 const TIMEOUT_OFFSET: usize = 16;
@@ -161,6 +225,12 @@ const IOV_OFFSET: usize = 304; // struct iovec (16) 304..320
 const HINTS_OFFSET: usize = 320; // addrinfo hints (48) 320..368
 const FROM_OFFSET: usize = 384; // sockaddr_storage (128) 384..512
 const CMSG_OFFSET: usize = 512; // control buffer (Linux) 512..576
+const APORT_OFFSET: usize = 576; // the port the Address is built with
+const ASIZE_OFFSET: usize = 584; // the built Address's byte size
+const ACURSOR_OFFSET: usize = 592; // record marshaller scratch
+const ABLOCK_OFFSET: usize = 600; // record marshaller scratch
+const PSIZE_OFFSET: usize = 608; // the PingResult's byte size
+const PRESULT_OFFSET: usize = 616; // the built PingResult
 
 // Linux `msghdr` / `cmsghdr` offsets. Measured identical on x86_64/aarch64/riscv64
 // and on glibc/musl (plan-110-A §C5) — only the declared width of `msg_iovlen` /
@@ -230,6 +300,11 @@ fn lower_ping_posix(
     let mut relocations: Vec<CodeRelocation> = Vec::new();
     let mut vregs = Vregs::new();
     let host_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
+    // plan-132 C8: the echo packet and the receive buffer are this helper's scratch
+    // and were never freed. Declared before the first branch that reaches `done`,
+    // where they are released with the host C-string.
+    let packet_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
+    let receive_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
@@ -247,10 +322,12 @@ fn lower_ping_posix(
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), SIZE_OFFSET),
     ]);
     if address_form {
-        // Address { host String ptr @0, port @8 }. The port is deliberately ignored:
-        // ICMP has no transport port (plan-110-A §C3).
+        // The flat `net::Address` (plan-132): slot 0 holds the host `String`'s
+        // block-relative offset, so the host is `x0 + [x0]`. The port is
+        // deliberately ignored: ICMP has no transport port (plan-110-A §C3).
         instructions.extend([
             abi::load_u64(&v9, abi::return_register(), 0),
+            abi::add_registers(&v9, abi::return_register(), &v9),
             abi::store_u64(&v9, abi::stack_pointer(), HOST_OFFSET),
         ]);
     } else {
@@ -411,16 +488,19 @@ fn lower_ping_posix(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
+        abi::move_register(&packet_scratch.pointer, abi::mfb_return(1)),
+        abi::load_u64(&packet_scratch.size, abi::stack_pointer(), SIZE_OFFSET),
+        abi::add_immediate(&packet_scratch.size, &packet_scratch.size, 8),
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), PKT_OFFSET),
         abi::move_immediate(abi::return_register(), "Integer", RECV_CAPACITY),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-    instructions.push(abi::store_u64(
-        abi::mfb_return(1),
-        abi::stack_pointer(),
-        BUF_OFFSET,
-    ));
+    instructions.extend([
+        abi::move_register(&receive_scratch.pointer, abi::mfb_return(1)),
+        abi::move_immediate(&receive_scratch.size, "Integer", RECV_CAPACITY),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFFSET),
+    ]);
 
     // --- derive a per-call echo identifier ----------------------------------
     // Taken from the monotonic clock rather than a constant: on macOS every ICMP
@@ -895,19 +975,27 @@ fn lower_ping_posix(
         },
         "ping",
         SADDR_PTR_OFFSET,
-        HOSTLEN_OFFSET,
         DST_OFFSET,
-        AHOST_OFFSET,
+        &AddressSlots {
+            len: HOSTLEN_OFFSET,
+            host: AHOST_OFFSET,
+            port: APORT_OFFSET,
+            record: RecordBuildScratch {
+                size: ASIZE_OFFSET,
+                result: ADDRREC_OFFSET,
+                cursor: ACURSOR_OFFSET,
+                block_size: ABLOCK_OFFSET,
+            },
+        },
         &alloc_fail,
         &addr_fail,
         &mut vregs,
     )?;
     instructions.extend([
-        abi::move_register(&v9, abi::mfb_return(1)),
+        abi::load_u64(&v9, abi::stack_pointer(), ADDRREC_OFFSET),
         // ICMP has no transport port: whatever the sockaddr carried, publish 0
         // (plan-110-A §C3).
         abi::store_u64(abi::ZERO, &v9, ADDRESS_OFFSET_PORT),
-        abi::store_u64(&v9, abi::stack_pointer(), ADDRREC_OFFSET),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_external_call(
@@ -917,24 +1005,26 @@ fn lower_ping_posix(
         &mut instructions,
         &mut relocations,
     )?;
+    emit_ping_result(
+        symbol,
+        &PingResultSlots {
+            status: STATUS_OFFSET,
+            address: ADDRREC_OFFSET,
+            address_size: ASIZE_OFFSET,
+            rtt: RTT_OFFSET,
+            ttl: RTTL_OFFSET,
+            size: RSIZE_OFFSET,
+            result_size: PSIZE_OFFSET,
+            result: PRESULT_OFFSET,
+            cursor: ACURSOR_OFFSET,
+            block: ABLOCK_OFFSET,
+        },
+        &alloc_fail,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
-        abi::move_immediate(abi::return_register(), "Integer", PING_RESULT_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-    ]);
-    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-    instructions.extend([
-        abi::move_register(&v9, abi::mfb_return(1)),
-        abi::load_u64(&v10, abi::stack_pointer(), STATUS_OFFSET),
-        abi::store_u64(&v10, &v9, RESULT_OFFSET_STATUS),
-        abi::load_u64(&v10, abi::stack_pointer(), ADDRREC_OFFSET),
-        abi::store_u64(&v10, &v9, RESULT_OFFSET_ADDRESS),
-        abi::load_u64(&v10, abi::stack_pointer(), RTT_OFFSET),
-        abi::store_u64(&v10, &v9, RESULT_OFFSET_RTT),
-        abi::load_u64(&v10, abi::stack_pointer(), RTTL_OFFSET),
-        abi::store_u64(&v10, &v9, RESULT_OFFSET_TTL),
-        abi::load_u64(&v10, abi::stack_pointer(), RSIZE_OFFSET),
-        abi::store_u64(&v10, &v9, RESULT_OFFSET_SIZE),
-        abi::move_register(RESULT_VALUE_REGISTER, &v9),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -1032,10 +1122,11 @@ fn lower_ping_posix(
     );
     instructions.push(abi::label(&done));
     // bug-574: release the marshalled host C-string; the host call consumed
-    // it and nothing on the MFBASIC side of this call can see it.
+    // it and nothing on the MFBASIC side of this call can see it. plan-132 C8:
+    // the echo packet and the receive buffer are released with it, on every exit.
     emit_helper_scratch_release(
         symbol,
-        &[host_scratch],
+        &[host_scratch, packet_scratch, receive_scratch],
         &mut vregs,
         &mut instructions,
         &mut relocations,
@@ -1290,6 +1381,12 @@ const W_ADDRREC: usize = 200;
 const W_HINTS: usize = 208; // addrinfo hints (48) 208..256
 const W_SOCKADDR: usize = 256; // synthesized sockaddr_in (16) for the responder
 const W_OPTINFO: usize = 272; // IP_OPTION_INFORMATION (16)
+const W_APORT: usize = 288; // the port the Address is built with
+const W_ASIZE: usize = 296; // the built Address's byte size
+const W_ACURSOR: usize = 304; // record marshaller scratch
+const W_ABLOCK: usize = 312; // record marshaller scratch
+const W_PSIZE: usize = 320; // the PingResult's byte size
+const W_PRESULT: usize = 328; // the built PingResult
 
 /// The Windows ICMP backend — `iphlpapi`, not a socket.
 #[allow(clippy::too_many_lines)]
@@ -1327,6 +1424,11 @@ fn lower_ping_windows(
     let mut relocations: Vec<CodeRelocation> = Vec::new();
     let mut vregs = Vregs::new();
     let host_scratch_win = HelperScratch::declare(&mut vregs, &mut instructions);
+    // plan-132 C8: the request payload and the reply buffer are this helper's
+    // scratch and were never freed. Declared before the first branch that reaches
+    // `done`, where they are released with the host C-string.
+    let request_scratch_win = HelperScratch::declare(&mut vregs, &mut instructions);
+    let reply_scratch_win = HelperScratch::declare(&mut vregs, &mut instructions);
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
@@ -1339,8 +1441,10 @@ fn lower_ping_windows(
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), W_SIZE),
     ]);
     if address_form {
+        // The flat `net::Address` (plan-132): the host is `x0 + [x0]`.
         instructions.extend([
             abi::load_u64(&v9, abi::return_register(), 0),
+            abi::add_registers(&v9, abi::return_register(), &v9),
             abi::store_u64(&v9, abi::stack_pointer(), W_HOST),
         ]);
     } else {
@@ -1438,6 +1542,9 @@ fn lower_ping_windows(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
+        abi::move_register(&request_scratch_win.pointer, abi::mfb_return(1)),
+        abi::load_u64(&request_scratch_win.size, abi::stack_pointer(), W_SIZE),
+        abi::add_immediate(&request_scratch_win.size, &request_scratch_win.size, 1),
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), W_REQ),
         abi::load_u64(&v10, abi::stack_pointer(), W_SIZE),
         abi::move_register(&v11, abi::mfb_return(1)),
@@ -1459,6 +1566,8 @@ fn lower_ping_windows(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
+        abi::move_register(&reply_scratch_win.pointer, abi::mfb_return(1)),
+        abi::load_u64(&reply_scratch_win.size, abi::stack_pointer(), W_REPLY_LEN),
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), W_REPLY),
         // IP_OPTION_INFORMATION { Ttl, Tos, Flags, OptionsSize, OptionsData }
         abi::store_u64(abi::ZERO, abi::stack_pointer(), W_OPTINFO),
@@ -1676,17 +1785,26 @@ fn lower_ping_windows(
         },
         "ping",
         W_SADDR_PTR,
-        W_HOSTLEN,
         W_DST,
-        W_AHOST,
+        &AddressSlots {
+            len: W_HOSTLEN,
+            host: W_AHOST,
+            port: W_APORT,
+            record: RecordBuildScratch {
+                size: W_ASIZE,
+                result: W_ADDRREC,
+                cursor: W_ACURSOR,
+                block_size: W_ABLOCK,
+            },
+        },
         &alloc_fail,
         &addr_fail,
         &mut vregs,
     )?;
     instructions.extend([
-        abi::move_register(&v9, abi::mfb_return(1)),
+        abi::load_u64(&v9, abi::stack_pointer(), W_ADDRREC),
+        // ICMP has no transport port (plan-110-A §C3).
         abi::store_u64(abi::ZERO, &v9, ADDRESS_OFFSET_PORT),
-        abi::store_u64(&v9, abi::stack_pointer(), W_ADDRREC),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), W_RES),
     ]);
     platform.emit_external_call(
@@ -1696,24 +1814,26 @@ fn lower_ping_windows(
         &mut instructions,
         &mut relocations,
     )?;
+    emit_ping_result(
+        symbol,
+        &PingResultSlots {
+            status: W_STATUS,
+            address: W_ADDRREC,
+            address_size: W_ASIZE,
+            rtt: W_RTT,
+            ttl: W_RTTL,
+            size: W_RSIZE,
+            result_size: W_PSIZE,
+            result: W_PRESULT,
+            cursor: W_ACURSOR,
+            block: W_ABLOCK,
+        },
+        &alloc_fail,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
-        abi::move_immediate(abi::return_register(), "Integer", PING_RESULT_SIZE),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-    ]);
-    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-    instructions.extend([
-        abi::move_register(&v9, abi::mfb_return(1)),
-        abi::load_u64(&v10, abi::stack_pointer(), W_STATUS),
-        abi::store_u64(&v10, &v9, RESULT_OFFSET_STATUS),
-        abi::load_u64(&v10, abi::stack_pointer(), W_ADDRREC),
-        abi::store_u64(&v10, &v9, RESULT_OFFSET_ADDRESS),
-        abi::load_u64(&v10, abi::stack_pointer(), W_RTT),
-        abi::store_u64(&v10, &v9, RESULT_OFFSET_RTT),
-        abi::load_u64(&v10, abi::stack_pointer(), W_RTTL),
-        abi::store_u64(&v10, &v9, RESULT_OFFSET_TTL),
-        abi::load_u64(&v10, abi::stack_pointer(), W_RSIZE),
-        abi::store_u64(&v10, &v9, RESULT_OFFSET_SIZE),
-        abi::move_register(RESULT_VALUE_REGISTER, &v9),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -1783,10 +1903,11 @@ fn lower_ping_windows(
     );
     instructions.push(abi::label(&done));
     // bug-574: release the marshalled host C-string; the host call consumed
-    // it and nothing on the MFBASIC side of this call can see it.
+    // it and nothing on the MFBASIC side of this call can see it. plan-132 C8:
+    // the request payload and the reply buffer are released with it, on every exit.
     emit_helper_scratch_release(
         symbol,
-        &[host_scratch_win],
+        &[host_scratch_win, request_scratch_win, reply_scratch_win],
         &mut vregs,
         &mut instructions,
         &mut relocations,
@@ -1833,12 +1954,16 @@ mod tests {
         assert_eq!(status.variants.len(), 4);
     }
 
-    /// Both backends build `PingResult` by storing five consecutive 8-byte slots at
-    /// hardcoded offsets. Those offsets are only correct while the record's declared
-    /// field order matches; inserting or reordering a field would silently write
-    /// each value into the wrong one.
+    /// Both backends build `PingResult` through the record marshaller, handing it
+    /// five frame slots in exactly this order: the status, the built `Address`, the
+    /// round-trip time, the TTL and the size. The marshaller lays fields out in
+    /// declaration order, so inserting or reordering a field would silently assign
+    /// each value to the wrong one.
+    ///
+    /// plan-132: `address` is a flat `net::Address` inlined into the result — the
+    /// backends pass its block's known size — and the other four stay slot values.
     #[test]
-    fn ping_result_offsets_match_the_declared_field_order() {
+    fn ping_result_fields_match_what_the_backends_hand_the_marshaller() {
         let record = net_package()
             .records()
             .iter()
@@ -1846,23 +1971,22 @@ mod tests {
             .expect("PingResult record");
         let names: Vec<&str> = record.props.iter().map(|p| p.name).collect();
         assert_eq!(names, ["status", "address", "rttMs", "ttl", "size"]);
-        for (index, offset) in [
-            RESULT_OFFSET_STATUS,
-            RESULT_OFFSET_ADDRESS,
-            RESULT_OFFSET_RTT,
-            RESULT_OFFSET_TTL,
-            RESULT_OFFSET_SIZE,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            assert_eq!(offset, index * 8, "field {} offset", names[index]);
-        }
-        // The allocation must cover exactly the declared fields.
-        assert_eq!(
-            PING_RESULT_SIZE.parse::<usize>().unwrap(),
-            record.props.len() * 8
-        );
+        let model = crate::codegen::engine::builder::TypeModel::builtin_records();
+        let result = crate::types::ParameterType::declared(super::super::PING_RESULT_TYPE_ID);
+        let fields = model.record_fields.get(&result).expect("PingResult layout");
+        let inlined: Vec<bool> = fields
+            .iter()
+            .map(|(_, ty)| crate::codegen::collection::layout::record_field_is_inlined(model, ty))
+            .collect();
+        assert_eq!(inlined, [false, true, false, false, false]);
+        // Both backends zero the built Address's port slot: ICMP has no port.
+        let address = model
+            .record_fields
+            .get(&crate::types::ParameterType::declared(
+                super::super::ADDRESS_TYPE_ID,
+            ))
+            .expect("Address layout");
+        assert_eq!(address[ADDRESS_OFFSET_PORT / 8].0, "port");
         // `rttMs` is Float by contract, not Integer: a loopback round trip is tens
         // of microseconds and would truncate to zero (plan-110-A §C3). The emitters
         // store raw f64 bits into that slot, so an Integer field here would render

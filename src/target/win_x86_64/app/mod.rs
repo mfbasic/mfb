@@ -375,7 +375,7 @@ pub(super) fn emit_app_program_entry(
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
     Ok(vec![
-        emit_main(spec.initial_mode, spec.uses_canvas),
+        emit_main(spec.initial_mode, spec.uses_canvas, spec.debug_hooks),
         emit_worker(),
         emit_wndproc(spec.uses_canvas),
         // plan-98-C Phase 3: the frame blit's worker side. Emitted unconditionally
@@ -391,7 +391,7 @@ pub(super) fn emit_app_program_entry(
 /// stack args [0x20..0x60], WNDCLASSEXW [0x60..0xB0], MSG [0xB0..0xE0],
 /// hInstance @0xE0, hwnd @0xE8, worker HANDLE @0xF0. FRAME 0xF8 keeps the PE
 /// entry's `sp % 16 == 8` arrival 16-aligned before the first call.
-fn emit_main(initial_mode: PresentationMode, uses_canvas: bool) -> CodeFunction {
+fn emit_main(initial_mode: PresentationMode, uses_canvas: bool, debug_hooks: bool) -> CodeFunction {
     const FRAME: usize = 0x118;
     const WNDCLASS: usize = 0x60;
     const MSG: usize = 0xB0;
@@ -874,82 +874,84 @@ fn emit_main(initial_mode: PresentationMode, uses_canvas: bool) -> CodeFunction 
     call_external(from, "WaitForSingleObject", KERNEL32, &mut ins, &mut rel);
 
     // The loop ended (worker posted WM_APP_QUIT) or the headless worker exited.
-    // Test affordance (plan-66-J-3 box proof): when MFB_WINAPP_DUMP is set, the UI
-    // thread reads the transcript back (WM_GETTEXT) and writes the raw UTF-16 to
-    // stdout, so an ssh box run can confirm io::print reached the window without a
-    // visible display. Off by default (no side effect for real GUI runs).
+    // Test affordance (plan-66-J-3 box proof), a `--debug` build only (plan-130-E): when
+    // MFB_WINAPP_DUMP is set, the UI thread reads the transcript back (WM_GETTEXT) and
+    // writes the raw UTF-16 to stdout, so an ssh box run can confirm io::print reached
+    // the window without a visible display. A normal build contains no reader.
     ins.push(abi::label("main_done"));
-    load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x60));
-    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
-    ins.push(abi::branch_eq("main_exit"));
-    load_addr(abi::mfb_arg(0), DUMP_ENV_SYM, from, &mut ins, &mut rel);
-    load_addr(
-        abi::mfb_arg(1),
-        "_mfb_winapp_testbuf",
-        from,
-        &mut ins,
-        &mut rel,
-    );
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "200"));
-    call_external(
-        from,
-        "GetEnvironmentVariableW",
-        KERNEL32,
-        &mut ins,
-        &mut rel,
-    );
-    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
-    ins.push(abi::branch_eq("main_exit"));
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x60));
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "13")); // WM_GETTEXT
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "250"));
-    load_addr(
-        abi::mfb_arg(3),
-        "_mfb_winapp_testbuf",
-        from,
-        &mut ins,
-        &mut rel,
-    );
-    call_external(from, "SendMessageW", USER32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "65535"));
-    ins.push(abi::and_registers(
-        abi::c_return(0),
-        abi::c_return(0),
-        abi::mfb_arg(1),
-    ));
-    ins.push(abi::shift_left_immediate(
-        abi::mfb_arg(0),
-        abi::c_return(0),
-        1,
-    ));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x68)); // nbytes
-    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
-    ins.push(abi::subtract_immediate(
-        abi::mfb_arg(0),
-        abi::mfb_arg(0),
-        FILE_FLAG_STDOUT_FD,
-    ));
-    call_external(from, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 0x70));
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x78));
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20));
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x70));
-    load_addr(
-        abi::mfb_arg(1),
-        "_mfb_winapp_testbuf",
-        from,
-        &mut ins,
-        &mut rel,
-    );
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x68));
-    ins.push(abi::add_immediate(
-        abi::mfb_arg(3),
-        abi::stack_pointer(),
-        0x78,
-    ));
-    call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
+    if debug_hooks {
+        load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x60));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+        ins.push(abi::branch_eq("main_exit"));
+        load_addr(abi::mfb_arg(0), DUMP_ENV_SYM, from, &mut ins, &mut rel);
+        load_addr(
+            abi::mfb_arg(1),
+            "_mfb_winapp_testbuf",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "200"));
+        call_external(
+            from,
+            "GetEnvironmentVariableW",
+            KERNEL32,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::compare_immediate(abi::c_return(0), "0"));
+        ins.push(abi::branch_eq("main_exit"));
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x60));
+        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "13")); // WM_GETTEXT
+        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "250"));
+        load_addr(
+            abi::mfb_arg(3),
+            "_mfb_winapp_testbuf",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        call_external(from, "SendMessageW", USER32, &mut ins, &mut rel);
+        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "65535"));
+        ins.push(abi::and_registers(
+            abi::c_return(0),
+            abi::c_return(0),
+            abi::mfb_arg(1),
+        ));
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(0),
+            abi::c_return(0),
+            1,
+        ));
+        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x68)); // nbytes
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
+        ins.push(abi::subtract_immediate(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            FILE_FLAG_STDOUT_FD,
+        ));
+        call_external(from, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
+        ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 0x70));
+        ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x78));
+        ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20));
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x70));
+        load_addr(
+            abi::mfb_arg(1),
+            "_mfb_winapp_testbuf",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x68));
+        ins.push(abi::add_immediate(
+            abi::mfb_arg(3),
+            abi::stack_pointer(),
+            0x78,
+        ));
+        call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
+    }
     ins.push(abi::label("main_exit"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "ExitProcess", KERNEL32, &mut ins, &mut rel);
@@ -4319,7 +4321,26 @@ fn utf16z_data_object(symbol: &str, text: &str) -> CodeDataObject {
 
 /// Read-only data the bootstrap references: the window class name, the title
 /// (the project name), and the headless env-var name.
-pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
+///
+/// The `MFB_WINAPP_DUMP` name and its readback buffer are a `--debug` build's only
+/// (plan-130-E), beside the reader `emit_main` emits then.
+pub(super) fn app_mode_data_objects(project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
+    let mut objects = bootstrap_data_objects(project_name);
+    if debug_hooks {
+        objects.push(utf16z_data_object(DUMP_ENV_SYM, "MFB_WINAPP_DUMP"));
+        objects.push(CodeDataObject {
+            symbol: "_mfb_winapp_testbuf".to_string(),
+            kind: "raw".to_string(),
+            layout: "u8[512] (writable readback scratch)".to_string(),
+            align: 2,
+            size: 512,
+            value: "00".repeat(512),
+        });
+    }
+    objects
+}
+
+fn bootstrap_data_objects(project_name: &str) -> Vec<CodeDataObject> {
     let title = if project_name.is_empty() {
         "MFBASIC App"
     } else {
@@ -4340,7 +4361,6 @@ pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
             value: "00".repeat(RESIZE_BUF_CHARS * 2),
         },
         utf16z_data_object(EDIT_CLASS_SYM, "EDIT"),
-        utf16z_data_object(DUMP_ENV_SYM, "MFB_WINAPP_DUMP"),
         utf16z_data_object(CRLF_SYM, "\r\n"),
         utf16z_data_object(INPUT_ENV_SYM, "MFB_WINAPP_INPUT"),
         // Writable 8-byte globals (kind:"raw" → the writable data partition): the
@@ -4365,14 +4385,6 @@ pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         // plan-70-F: cached CJK-capable HFONT + its face name.
         writable_qword(TUI_FONT_SYM),
         utf16z_data_object(FONT_NAME_SYM, "Consolas"),
-        CodeDataObject {
-            symbol: "_mfb_winapp_testbuf".to_string(),
-            kind: "raw".to_string(),
-            layout: "u8[512] (writable readback scratch)".to_string(),
-            align: 2,
-            size: 512,
-            value: "00".repeat(512),
-        },
         CodeDataObject {
             symbol: INPUT_BUF_SYM.to_string(),
             kind: "raw".to_string(),
@@ -4409,6 +4421,7 @@ mod tests {
             uses_term: false,
             initial_mode: PresentationMode::Console,
             uses_canvas: true,
+            debug_hooks: false,
         }
     }
 
@@ -4494,9 +4507,28 @@ mod tests {
         }
     }
 
+    /// plan-130-E: the `MFB_WINAPP_DUMP` transcript readback — its variable name, its
+    /// buffer, and the reader in `_main` — exists only in a `--debug` build.
+    #[test]
+    fn the_dump_readback_exists_only_in_a_debug_build() {
+        for debug in [false, true] {
+            let objects = app_mode_data_objects("P", debug);
+            let has = |symbol: &str| objects.iter().any(|o| o.symbol == symbol);
+            assert_eq!(has(DUMP_ENV_SYM), debug, "dump name, debug={debug}");
+            assert_eq!(
+                has("_mfb_winapp_testbuf"),
+                debug,
+                "readback buffer, debug={debug}"
+            );
+            let main = emit_main(PresentationMode::Console, true, debug);
+            let reads_dump = main.relocations.iter().any(|r| r.to == DUMP_ENV_SYM);
+            assert_eq!(reads_dump, debug, "reader in _main, debug={debug}");
+        }
+    }
+
     #[test]
     fn data_objects_are_utf16() {
-        let objs = app_mode_data_objects("MyProj");
+        let objs = app_mode_data_objects("MyProj", false);
         let title = objs.iter().find(|o| o.symbol == TITLE_SYM).unwrap();
         // "MyProj" → 6 UTF-16 code units × 2 bytes + 2-byte NUL = 14.
         assert_eq!(title.size, 14);
@@ -4639,7 +4671,7 @@ mod tests {
 
     #[test]
     fn input_data_objects_present() {
-        let objs = app_mode_data_objects("P");
+        let objs = app_mode_data_objects("P", false);
         // The injection env-var name (UTF-16) and the two input-state writable globals.
         assert!(objs.iter().any(|o| o.symbol == INPUT_ENV_SYM));
         let w = objs.iter().find(|o| o.symbol == STDIN_WRITE_SYM).unwrap();
@@ -4795,6 +4827,7 @@ mod canvas_reconcile_tests {
             uses_term: false,
             initial_mode,
             uses_canvas: true,
+            debug_hooks: false,
         }
     }
 
@@ -5110,7 +5143,7 @@ mod canvas_reconcile_tests {
     /// Every global the arm addresses must be emitted, or the relocations dangle.
     #[test]
     fn canvas_globals_are_emitted() {
-        let objects = app_mode_data_objects("proj");
+        let objects = app_mode_data_objects("proj", false);
         for symbol in [CANVAS_HWND_SYM, EDIT_HWND_SAVED_SYM] {
             assert!(
                 objects.iter().any(|d| d.symbol == symbol),

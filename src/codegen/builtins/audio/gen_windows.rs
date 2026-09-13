@@ -142,12 +142,21 @@ const TIMEOUT_OFF: usize = 128; // read/query: timeoutMs
 const DEVID_OFF: usize = 136; // devices: id string
 const NAME_OFF: usize = 144; // devices: name string
 const COUNT_OFF: usize = 152; // devices: endpoint count
-const COLL_SRC_OFF: usize = 160; // devices: record data-region base
-const COLL_ENTRY_OFF: usize = 168; // devices: entry-array base
 const DEADLINE_OFF: usize = 176; // read timeout: absolute deadline (ms tick)
 const FINAL_LIST_OFF: usize = 184; // read timeout: right-sized result
 const GOTBYTES_OFF: usize = 192;
 const CSTR_OFF: usize = 200; // wstr->string scratch (source pointer save)
+                             // devices(): building each `AudioDevice` and the list (plan-132).
+const DEV_ONE_OFF: usize = 208; // the Boolean TRUE word canInput/canOutput take
+const DEV_ZERO_OFF: usize = 216; // the Boolean FALSE word the defaults take
+const DEVREC_SIZE_OFF: usize = 224; // record marshaller scratch
+const DEVREC_RESULT_OFF: usize = 232; // the built AudioDevice
+const DEVREC_CURSOR_OFF: usize = 240; // record marshaller scratch
+const DEVREC_BLOCK_OFF: usize = 248; // record marshaller scratch
+const DEVPAIRS_OFF: usize = 256; // (record, size) per device
+const DEVLIST_CURSOR_OFF: usize = 264; // record-list builder scratch
+const DEVLIST_INDEX_OFF: usize = 272; // record-list builder scratch
+const DEVLIST_OFF: usize = 280; // the built list
 
 // plan-73-B: the convention clamps a too-large `timeoutMs` to INT_MAX (the
 // deadline math takes a C `int`) rather than raising the old 24h cap.

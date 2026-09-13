@@ -7,9 +7,15 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
+use crate::codegen::memory::marshal::{
+    emit_build_record_list, MarshalRegs, RecordBuildScratch, RecordListScratch,
+};
 use crate::target::shared::abi;
 use std::collections::HashMap;
 
+/// `audio::devices` on macOS: every Core Audio device, each built as the flat
+/// `audio::AudioDevice` record (plan-132) by `emit_device_record` and gathered into
+/// a `List OF AudioDevice` by `emit_build_record_list`.
 pub(crate) fn lower_devices(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -30,7 +36,6 @@ pub(crate) fn lower_devices(
     let v11 = vregs.next();
     let v12 = vregs.next();
     let v13 = vregs.next();
-    let v15 = vregs.next();
     let v14 = vregs.next();
 
     // Seed CURID_OFF with the system object id — `call_get_property` loads its
@@ -96,41 +101,17 @@ pub(crate) fn lower_devices(
         abi::store_u64(&v9, abi::stack_pointer(), COUNT_OFF),
         abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&unavailable),
-        // Allocate List OF AudioDevice: count*ENTRY + HEADER + count*RECORD.
-        abi::move_immediate(&v10, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers(&v11, &v9, &v10),
-        abi::add_immediate(&v11, &v11, COLLECTION_HEADER_SIZE),
-        abi::move_immediate(&v12, "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers(&v13, &v9, &v12),
-        abi::add_registers(abi::return_register(), &v11, &v13),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
-    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    emit_alloc_device_pairs(
+        symbol,
+        COUNT_OFF,
+        DEVPAIRS_OFF,
+        &alloc_fail,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
-        abi::move_register(&v15, abi::mfb_return(1)),
-        abi::store_u64(&v15, abi::stack_pointer(), LIST_OFF),
-        abi::move_immediate(&v9, "Byte", &COLLECTION_KIND_LIST.to_string()),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KIND),
-        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KEY_TYPE),
-        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_OBJECT.to_string()),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_VALUE_TYPE),
-        abi::move_immediate(&v9, "Byte", "1"),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFF),
-        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_COUNT),
-        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate(&v12, "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers(&v13, &v10, &v12),
-        abi::store_u64(&v13, &v15, COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64(&v13, &v15, COLLECTION_OFFSET_DATA_CAPACITY),
-        // entry cursor base and record data region base.
-        abi::add_immediate(&v11, &v15, COLLECTION_HEADER_SIZE),
-        abi::store_u64(&v11, abi::stack_pointer(), ENTRY_OFF),
-        abi::move_immediate(&v12, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers(&v13, &v10, &v12),
-        abi::add_registers(&v14, &v11, &v13),
-        abi::store_u64(&v14, abi::stack_pointer(), DATA_OFF),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), INDEX_OFF),
         abi::label(&fill_loop),
         abi::load_u64(&v9, abi::stack_pointer(), INDEX_OFF),
@@ -198,66 +179,75 @@ pub(crate) fn lower_devices(
         CANOUT_OFF,
         &mut vregs,
     )?;
-    // Build the record at DATA_OFF + index*RECORD.
-    instructions.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), INDEX_OFF),
-        abi::move_immediate(&v10, "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers(&v11, &v9, &v10),
-        abi::load_u64(&v12, abi::stack_pointer(), DATA_OFF),
-        abi::add_registers(&v12, &v12, &v11), // record ptr
-        abi::load_u64(&v13, abi::stack_pointer(), IDPTR_OFF),
-        abi::store_u64(&v13, &v12, DEVICE_FIELD_ID),
-        abi::load_u64(&v13, abi::stack_pointer(), NAMEPTR_OFF),
-        abi::store_u64(&v13, &v12, DEVICE_FIELD_NAME),
-        abi::load_u64(&v13, abi::stack_pointer(), CANIN_OFF),
-        abi::store_u64(&v13, &v12, DEVICE_FIELD_CAN_INPUT),
-        abi::load_u64(&v13, abi::stack_pointer(), CANOUT_OFF),
-        abi::store_u64(&v13, &v12, DEVICE_FIELD_CAN_OUTPUT),
-    ]);
-    // isDefaultInput = (CURID == DEFIN) ? 1 : 0
+    // isDefaultInput / isDefaultOutput = (CURID == DEFIN / DEFOUT) ? 1 : 0, into
+    // their frame slots for the record build.
     emit_id_matches(
         CURID_OFF,
         DEFIN_OFF,
-        DEVICE_FIELD_IS_DEFAULT_INPUT,
+        DEVFLAG_DEFIN_OFF,
         symbol,
         "in",
-        &v12,
+        abi::stack_pointer(),
         &mut instructions,
         &mut vregs,
     );
     emit_id_matches(
         CURID_OFF,
         DEFOUT_OFF,
-        DEVICE_FIELD_IS_DEFAULT_OUTPUT,
+        DEVFLAG_DEFOUT_OFF,
         symbol,
         "out",
-        &v12,
+        abi::stack_pointer(),
         &mut instructions,
         &mut vregs,
     );
-    // Entry descriptor at ENTRY_OFF + index*ENTRY.
+    emit_device_record(
+        symbol,
+        &DeviceRecordSlots {
+            id: IDPTR_OFF,
+            name: NAMEPTR_OFF,
+            can_input: CANIN_OFF,
+            can_output: CANOUT_OFF,
+            is_default_input: DEVFLAG_DEFIN_OFF,
+            is_default_output: DEVFLAG_DEFOUT_OFF,
+            record: RecordBuildScratch {
+                size: DEVREC_SIZE_OFF,
+                result: DEVREC_RESULT_OFF,
+                cursor: DEVREC_CURSOR_OFF,
+                block_size: DEVREC_BLOCK_OFF,
+            },
+            pairs: DEVPAIRS_OFF,
+            index: INDEX_OFF,
+        },
+        &alloc_fail,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), INDEX_OFF),
-        abi::move_immediate(&v10, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers(&v11, &v9, &v10),
-        abi::load_u64(&v12, abi::stack_pointer(), ENTRY_OFF),
-        abi::add_registers(&v12, &v12, &v11), // entry ptr
-        abi::move_immediate(&v13, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8(&v13, &v12, COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, &v12, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, &v12, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        // value_offset = index * RECORD
-        abi::move_immediate(&v10, "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers(&v11, &v9, &v10),
-        abi::store_u64(&v11, &v12, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::move_immediate(&v13, "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::store_u64(&v13, &v12, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        // index++
         abi::add_immediate(&v9, &v9, 1),
         abi::store_u64(&v9, abi::stack_pointer(), INDEX_OFF),
         abi::branch(&fill_loop),
         abi::label(&fill_done),
-        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), LIST_OFF),
+    ]);
+    emit_build_record_list(
+        symbol,
+        "devices",
+        DEVPAIRS_OFF,
+        COUNT_OFF,
+        &RecordListScratch {
+            cursor: DEVLIST_CURSOR_OFF,
+            index: DEVLIST_INDEX_OFF,
+            list: DEVLIST_OFF,
+        },
+        &MarshalRegs::fresh(&mut vregs),
+        RESULT_VALUE_REGISTER,
+        &alloc_fail,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&dev_fail),

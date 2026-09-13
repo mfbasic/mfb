@@ -394,13 +394,13 @@ fn read_only_record(type_: &ParameterType) -> bool {
     if matches!(type_, ParameterType::MapEntryOf(..)) {
         return true;
     }
-    // Both spellings, via `is_builtin_named` — see `verify::read_only_record_type`,
-    // this rule's twin. bug-480 Phase 4b package-qualified builtin value types,
-    // and matching the bare leaf alone silently stopped recognising the very
-    // records this rule exists to protect (bug-483).
+    // The qualified identity only — see `verify::read_only_record_type`, this
+    // rule's twin. A source constructor of the builtin can only spell it
+    // qualified (bug-483 is why the qualified form must match); a bare leaf here
+    // is a project type of the same name and must not be refused (plan-132 D1).
     crate::codegen::builtins::term::is_read_only_record(type_)
-        || type_.is_builtin_named("net", crate::codegen::builtins::net::ADDRESS_TYPE)
-        || type_.is_builtin_named("audio", crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
+        || type_.is_builtin_qualified("net", crate::codegen::builtins::net::ADDRESS_TYPE)
+        || type_.is_builtin_qualified("audio", crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
 }
 
 /// A CONST pin expression the compiler folds to an immediate (plan-50-G): an
@@ -3582,8 +3582,8 @@ mod tests {
         };
         // The build's order: registry injection into the AST, then the generic
         // HIR is monomorphized into the concrete program the pass walks.
-        let augmented =
-            crate::resolver::augment_project(&project).expect("builtin augmentation must succeed");
+        let augmented = crate::resolver::augment_project(&project, false)
+            .expect("builtin augmentation must succeed");
         crate::monomorph::monomorphize_project(Path::new("."), &crate::hir::elaborate(&augmented))
             .expect("test source must monomorphize")
     }
@@ -3977,7 +3977,7 @@ mod tests {
             name: "test".to_string(),
             files: vec![file],
         };
-        let augmented = crate::resolver::augment_project(&project).expect("augments");
+        let augmented = crate::resolver::augment_project(&project, false).expect("augments");
         let concrete = crate::monomorph::monomorphize_project(
             Path::new("."),
             &crate::hir::elaborate(&augmented),

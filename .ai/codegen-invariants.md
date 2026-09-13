@@ -104,9 +104,11 @@ Rule of thumb: anything needed AFTER a `bl _mfb_*` runtime-helper call must live
 
 A record's `String` field is not a pointer. The word at `8*i` is the offset, relative to the record's own block, of an inlined `{len, bytes, NUL}` sub-block in a trailing data region. Blocks sit contiguously, each 8-aligned, each `len + 9` bytes. Block size = `8*n + Σ align8(len+9)`.
 
-Only `net::Address`, `udp::Datagram` and `audio::AudioDevice` keep pointer strings — every other record inlines. The list is `is_pointer_string_record` and the layout rule `record_field_is_inlined`, both in `src/codegen/collection/layout/builder_collection_layout.rs` (`DatagramText` left the list in bug-483: it is no longer declared anywhere); the authoritative construction is `emit_build_inlined_record` in the same file. Mirror it; never hand-roll a record from a mental model.
+Every record inlines — there is no pointer-string exception any more. plan-132 moved the last three (`net::Address`, `udp::Datagram`, `audio::AudioDevice`), whose runtime helpers had written absolute pointers. The layout rule is `record_field_is_inlined` in `src/codegen/collection/layout/builder_collection_layout.rs`; the authoritative call-site construction is `emit_build_inlined_record` in the same file. A runtime helper below the `CodeBuilder` builds the identical image through `memory::marshal::record::emit_build_inlined_record_sized` (a nested inlined record takes the size its own build left) and a list of such records through `memory::marshal::record_list::emit_build_record_list`. Mirror them; never hand-roll a record from a mental model.
 
-A pointer-string record is not `type_is_memcpy_copyable`, and neither is any value that holds one (a `List OF net::Address`, a `Result` of one, a user record with an `Address` field). That class gets **no owning copy at a bind and no drop anywhere** — the same second-class status as a recursive type (bug-536 shape C). So every such value leaks (bug-599), two bindings can share one block, and an in-place collection arm on the copy mutates or frees the source (bug-601). Do not add a drop for the class on its own: it double-frees the shared block.
+A **native reader** of a record argument must rebase: a `String` or flat-composite field is `base + [base + 8*i]`, never `[base + 8*i]`. A helper that classifies a builtin record must use `TypeModel::builtin_records()` — a program that never imports the declaring package still holds its values (`tcp::localAddress` in a `tcp`-only file), and a nominal the model does not know is classified as a plain 8-byte scalar (plan-132 C3).
+
+A value that is not `type_is_memcpy_copyable` gets **no owning copy at a bind and no drop anywhere**. The pointer-string records were that class until plan-132 — every such value leaked (bug-599), and a `MUT` copy of a list shared its source so an in-place arm emptied or freed it (bug-601). Recursive types are still in it (bug-536 shape C). Do not add a drop for such a class on its own: it double-frees the shared block.
 
 Why it bites: the caller sizes/copies a record by walking the data region contiguously (`emit_record_block_size_to_slot` ignores the stored offsets when sizing), so hand-built code that stores a pointer and omits the region makes the caller read garbage as a length and add 9 → `ldr x11,[x10]; add x11,x11,#9`. Huge garbage → "Allocation failed" (7-701-0001); small-but-wrong → SIGSEGV at a different address every run. A scalar-only record hides this completely — `8*n` is then exactly right, so scalar tests passing proves nothing about the String path.
 
@@ -284,7 +286,7 @@ type-independent — the `$trap_resN` binding gets no scope-drop free)". For a
 FLAT `T` the `$trap_resN` binding always DID get a scope-drop free (`Result OF T`
 is then a freeable flat value). **For a non-flat `T` it did not** — a resource
 (`RES f = fs::open(..) TRAP`, `tcp::connect`, `tls::connect`) or a collection of a
-pointer-`String` record (`List OF net::Address`) fails `type_is_memcpy_copyable`,
+recursive type (and, until plan-132 flattened it, `List OF net::Address`) fails `type_is_memcpy_copyable`,
 so `is_freeable_flat_value` registered nothing and every failing iteration
 orphaned the wrapper with the trapped `Error` inlined in it: ~1 KB per call, flat
 in the argument, sized by the error message (bug-593, fixed by a wrapper-only

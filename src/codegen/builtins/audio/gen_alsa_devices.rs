@@ -8,9 +8,18 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::*;
+use crate::codegen::memory::marshal::{
+    emit_build_record_list, MarshalRegs, RecordBuildScratch, RecordListScratch,
+};
 use crate::target::shared::abi;
 use std::collections::HashMap;
 
+/// `audio::devices` on Linux: one `audio::AudioDevice` per ALSA PCM hint, each built
+/// as the flat record (plan-132) by `emit_device_record` and gathered into a
+/// `List OF AudioDevice` by `emit_build_record_list`. ALSA hints usually permit
+/// both directions and report no default, so every device carries `canInput` and
+/// `canOutput` TRUE and both default flags FALSE (a precise IOID split is a
+/// refinement).
 pub(crate) fn lower_devices(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -30,10 +39,6 @@ pub(crate) fn lower_devices(
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
-    let v12 = vregs.next();
-    let v13 = vregs.next();
-    let v14 = vregs.next();
-    let v15 = vregs.next();
     emit_dlopen(
         &mut EmitCtx {
             symbol,
@@ -84,43 +89,20 @@ pub(crate) fn lower_devices(
         abi::branch(&count_loop),
         abi::label(&count_done),
     ]);
-    // Allocate List OF AudioDevice (48-byte records inline).
+    emit_alloc_device_pairs(
+        symbol,
+        COUNT_OFF,
+        DEVPAIRS_OFF,
+        &alloc_fail,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
-        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFF),
-        abi::move_immediate(&v11, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers(&v12, &v10, &v11),
-        abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
-        abi::move_immediate(&v13, "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers(&v14, &v10, &v13),
-        abi::add_registers(abi::return_register(), &v12, &v14),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-    ]);
-    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-    instructions.extend([
-        abi::move_register(&v15, abi::mfb_return(1)),
-        abi::store_u64(&v15, abi::stack_pointer(), LIST_OFF),
-        abi::move_immediate(&v9, "Byte", &COLLECTION_KIND_LIST.to_string()),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KIND),
-        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KEY_TYPE),
-        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_OBJECT.to_string()),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_VALUE_TYPE),
-        abi::move_immediate(&v9, "Byte", "1"),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFF),
-        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_COUNT),
-        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate(&v13, "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers(&v14, &v10, &v13),
-        abi::store_u64(&v14, &v15, COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64(&v14, &v15, COLLECTION_OFFSET_DATA_CAPACITY),
-        // data region base = list + HEADER + count*ENTRY
-        abi::add_immediate(&v11, &v15, COLLECTION_HEADER_SIZE),
-        abi::move_immediate(&v12, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers(&v13, &v10, &v12),
-        abi::add_registers(&v14, &v11, &v13),
-        abi::store_u64(&v14, abi::stack_pointer(), SRC_OFF), // data region base
-        abi::store_u64(&v11, abi::stack_pointer(), TOTAL_OFF), // entry cursor base
+        // The flag words every ALSA device carries.
+        abi::move_immediate(&v9, "Integer", "1"),
+        abi::store_u64(&v9, abi::stack_pointer(), DEV_ONE_OFF),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), DEV_ZERO_OFF),
         abi::load_u64(&v9, abi::stack_pointer(), HINTS_OFF),
         abi::store_u64(&v9, abi::stack_pointer(), HINT_PTR_OFF),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), OFFSET_OFF), // index
@@ -250,39 +232,32 @@ pub(crate) fn lower_devices(
         &mut instructions,
         &mut relocations,
     )?;
-    // Build the record: id, name, canInput=1, canOutput=1, defaults=0 (a precise
-    // IOID split is a refinement; ALSA hints usually permit both directions).
+    emit_device_record(
+        symbol,
+        &DeviceRecordSlots {
+            id: DEVID_OFF,
+            name: NAME_OFF,
+            can_input: DEV_ONE_OFF,
+            can_output: DEV_ONE_OFF,
+            is_default_input: DEV_ZERO_OFF,
+            is_default_output: DEV_ZERO_OFF,
+            record: RecordBuildScratch {
+                size: DEVREC_SIZE_OFF,
+                result: DEVREC_RESULT_OFF,
+                cursor: DEVREC_CURSOR_OFF,
+                block_size: DEVREC_BLOCK_OFF,
+            },
+            pairs: DEVPAIRS_OFF,
+            index: OFFSET_OFF,
+        },
+        &alloc_fail,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
-        abi::move_immediate(&v10, "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers(&v11, &v9, &v10),
-        abi::load_u64(&v12, abi::stack_pointer(), SRC_OFF),
-        abi::add_registers(&v12, &v12, &v11), // record ptr
-        abi::load_u64(&v13, abi::stack_pointer(), DEVID_OFF),
-        abi::store_u64(&v13, &v12, DEVICE_FIELD_ID),
-        abi::load_u64(&v13, abi::stack_pointer(), NAME_OFF),
-        abi::store_u64(&v13, &v12, DEVICE_FIELD_NAME),
-        abi::move_immediate(&v13, "Integer", "1"),
-        abi::store_u64(&v13, &v12, DEVICE_FIELD_CAN_INPUT),
-        abi::store_u64(&v13, &v12, DEVICE_FIELD_CAN_OUTPUT),
-        abi::store_u64(abi::ZERO, &v12, DEVICE_FIELD_IS_DEFAULT_INPUT),
-        abi::store_u64(abi::ZERO, &v12, DEVICE_FIELD_IS_DEFAULT_OUTPUT),
-        // entry descriptor
-        abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
-        abi::move_immediate(&v10, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers(&v11, &v9, &v10),
-        abi::load_u64(&v12, abi::stack_pointer(), TOTAL_OFF),
-        abi::add_registers(&v12, &v12, &v11),
-        abi::move_immediate(&v13, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8(&v13, &v12, COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, &v12, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, &v12, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::move_immediate(&v10, "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers(&v11, &v9, &v10),
-        abi::store_u64(&v11, &v12, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::move_immediate(&v13, "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::store_u64(&v13, &v12, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
         // advance
+        abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
         abi::add_immediate(&v9, &v9, 1),
         abi::store_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
         abi::load_u64(&v9, abi::stack_pointer(), HINT_PTR_OFF),
@@ -312,8 +287,23 @@ pub(crate) fn lower_devices(
             ));
         },
     )?;
+    emit_build_record_list(
+        symbol,
+        "devices",
+        DEVPAIRS_OFF,
+        COUNT_OFF,
+        &RecordListScratch {
+            cursor: DEVLIST_CURSOR_OFF,
+            index: DEVLIST_INDEX_OFF,
+            list: DEVLIST_OFF,
+        },
+        &MarshalRegs::fresh(&mut vregs),
+        RESULT_VALUE_REGISTER,
+        &alloc_fail,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
-        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), LIST_OFF),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&unavailable),

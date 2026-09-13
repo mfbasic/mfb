@@ -1073,8 +1073,11 @@ pub(crate) trait CodegenPlatform {
     /// the GApplication id and the window title from it (plan-51-A §4.5), so every
     /// MFBASIC app no longer shares one D-Bus name and one window class; the macOS
     /// backend has no per-project string here and ignores it.
-    fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
-        let _ = project_name;
+    ///
+    /// `debug_hooks` is a `--debug` build (plan-130-E): a reporting hook's data is
+    /// emitted only then.
+    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
+        let _ = (project_name, debug_hooks);
         Vec::new()
     }
 
@@ -1297,6 +1300,9 @@ pub(crate) struct ArenaLayout {
     /// `thread::start` sizes a worker's arena block from this so the worker's region
     /// matches the entry frame's (bug-369).
     pub(crate) global_slots: usize,
+    /// plan-130-C: whether the `--debug` arena registry is active, so the thread and
+    /// canvas start paths register the arenas they create.
+    pub(crate) debug_arena_registry: bool,
 }
 
 /// The compiler-internal name for the runtime `app::Mode` presentation mode
@@ -1334,6 +1340,9 @@ pub(crate) struct AppEntrySpec {
     /// emitted ("internal relocation target '_mfb_macapp_canvas_blit' is not
     /// defined").
     pub(crate) uses_canvas: bool,
+    /// A `--debug` build (plan-130-E): the backend emits its reporting hooks (the Windows
+    /// `MFB_WINAPP_DUMP` transcript readback). A normal build contains none of them.
+    pub(crate) debug_hooks: bool,
 }
 
 /// Everything the per-backend program-entry emitter needs (plan-00-G). Program
@@ -1391,6 +1400,9 @@ pub(crate) struct ProgramEntrySpec<'a> {
     /// `Console`-default program leaves it `None` here (the region zero-inits to
     /// `0` = `Console`), so its entry stays byte-identical.
     pub(crate) seed_presentation_mode_offset: Option<usize>,
+    /// plan-130: the active `--debug` features, whose `emit_entry_start` runs right after
+    /// the entry publishes the main arena address. Empty for a normal build.
+    pub(crate) debug_features: &'a [&'static dyn crate::codegen::debug::DebugFeature],
 }
 
 #[derive(Clone, Copy)]

@@ -504,6 +504,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
             spec.entry_called_as_function,
             spec.needs_winsock,
             spec.seed_presentation_mode_offset,
+            spec.debug_features,
         )
     }
 
@@ -551,8 +552,10 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         })
     }
 
-    fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
+    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
         self.arch.app().require_gtk();
+        // The GTK bootstrap has no reporting hook of its own.
+        let _ = debug_hooks;
         gtk::app_mode_data_objects(project_name)
     }
 
@@ -1323,7 +1326,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         "8" // SO_RCVBUF on Linux
     }
 
-    // plan-110-A §C5: measured with `scripts/icmp-constants-probe.c` on 2227
+    // plan-110-A §C5: measured with `tools/net-probes/icmp-constants-probe.c` on 2227
     // (x86_64 musl), 2228 (x86_64 glibc), 2229 (riscv64 musl) and 2223 (aarch64
     // glibc) — identical on all four, so one Linux row is correct for every ISA.
 
@@ -1528,6 +1531,7 @@ mod tests {
             entry_called_as_function: false,
             needs_winsock: false,
             seed_presentation_mode_offset: None,
+            debug_features: &[],
         };
         // The entry's always-on arena-start-time + entropy-fill blocks call libc,
         // so provide the imports they resolve against.
@@ -1651,6 +1655,7 @@ mod tests {
                 uses_term: false,
                 initial_mode: crate::codegen::engine::types::PresentationMode::Console,
                 uses_canvas: false,
+                debug_hooks: false,
             };
             let _ = riscv64().emit_app_program_entry(&spec, &HashMap::new());
         }
@@ -1658,7 +1663,7 @@ mod tests {
         #[test]
         #[should_panic(expected = "rv64 app mode not ported")]
         fn data_objects() {
-            let _ = riscv64().app_mode_data_objects("demo");
+            let _ = riscv64().app_mode_data_objects("demo", false);
         }
 
         #[test]

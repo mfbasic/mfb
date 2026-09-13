@@ -152,7 +152,7 @@ pub fn lower_project_with_external_functions(
     imported_globals: &[ImportedGlobal],
 ) -> IrProject {
     let augmented = crate::codegen::registry::registry()
-        .augment_project(ast)
+        .augment_project(ast, false)
         .expect("clean-room registry package source must parse");
 
     // `term`'s injected source (the registry-modeled `LineStyle`/`FillStyle` enums)
@@ -237,7 +237,8 @@ pub fn lower_monomorphized_project(
         imported_globals,
     );
     ir.docs = collect_project_docs(
-        &crate::resolver::augment_project(source).expect("built-in package source must parse"),
+        &crate::resolver::augment_project(source, false)
+            .expect("built-in package source must parse"),
     );
     ir
 }

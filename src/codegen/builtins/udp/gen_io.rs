@@ -13,10 +13,13 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
-use crate::codegen::memory::marshal::push_write_payload_view;
+use crate::codegen::memory::marshal::{
+    emit_build_inlined_record_sized, push_write_payload_view, MarshalRegs, RecordBuildScratch,
+};
 use crate::codegen::os::socket::shared::*;
 use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 
 /// Winsock `WSAETIMEDOUT`: a blocking socket op that hits SO_RCVTIMEO/SO_SNDTIMEO
@@ -271,34 +274,43 @@ pub(crate) fn lower_net_bind_udp_helper(
 }
 
 // ---------------------------------------------------------------------------
-// net.receiveFrom / net.receiveTextFrom
+// udp.receive
 // ---------------------------------------------------------------------------
 
-/// `receiveFrom(sock, maxBytes)` / `receiveTextFrom(sock, maxBytes)`: receive a
-/// single datagram with `recvfrom`, building a `Datagram` (`from`, `bytes`) or
-/// `DatagramText` (`from`, `value`) record. The receive buffer is sized
+/// `udp::receive(sock, maxBytes)`: receive a single datagram with `recvfrom` and
+/// build a `udp::Datagram` (`from`, `bytes`). The receive buffer is sized
 /// `maxBytes + 1` so a datagram larger than `maxBytes` is detected (the returned
 /// length exceeds `maxBytes`) and rejected with `ErrMessageTooLarge` rather than
 /// silently truncated (§10.3).
+///
+/// plan-132: the `Datagram` is the spec-canonical flat record. The sender
+/// `Address` and the byte list are built as scratch blocks, inlined into it by the
+/// record marshaller, and freed.
 pub(crate) fn lower_net_receive_from_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    text: bool,
 ) -> Result<NetBodyParts, String> {
-    const FRAME_SIZE: usize = 224;
+    const FRAME_SIZE: usize = 288;
     const FD_OFFSET: usize = 8;
     const MAX_OFFSET: usize = 16;
     const BUF_OFFSET: usize = 24;
     const N_OFFSET: usize = 32;
-    const ADDRPTR_OFFSET: usize = 40; // built Address record pointer
+    const ADDRPTR_OFFSET: usize = 40; // the built sender Address
     const SADDR_PTR_OFFSET: usize = 48; // pointer to ADDR_STORAGE
     const ADDRLEN_OFFSET: usize = 56; // recvfrom socklen in/out
     const DST_OFFSET: usize = 64;
     const HOSTLEN_OFFSET: usize = 72;
     const AHOST_OFFSET: usize = 80;
-    const STR_OFFSET: usize = 88; // built bytes/string pointer
+    const BYTES_OFFSET: usize = 88; // the built byte list
     const ADDR_STORAGE_OFFSET: usize = 96; // 96..224 sockaddr_storage
+    const APORT_OFFSET: usize = 224; // the port the Address is built with
+    const ASIZE_OFFSET: usize = 232; // the Address's byte size
+    const RCURSOR_OFFSET: usize = 240; // record marshaller scratch
+    const RBLOCK_OFFSET: usize = 248; // record marshaller scratch
+    const BYTES_SIZE_OFFSET: usize = 256; // the byte list's allocated size
+    const DSIZE_OFFSET: usize = 264; // the Datagram's byte size
+    const DRESULT_OFFSET: usize = 272; // the built Datagram
 
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
@@ -308,9 +320,6 @@ pub(crate) fn lower_net_receive_from_helper(
     let too_large = format!("{symbol}_too_large");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let addr_fail = format!("{symbol}_addr_fail");
-    let encoding_error = format!("{symbol}_encoding_error");
-    let str_copy = format!("{symbol}_str_copy");
-    let str_done = format!("{symbol}_str_done");
     let entry_loop = format!("{symbol}_entry_loop");
     let entry_done = format!("{symbol}_entry_done");
     let done = format!("{symbol}_done");
@@ -318,6 +327,11 @@ pub(crate) fn lower_net_receive_from_helper(
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
+    // plan-132 C8: the `recvfrom` buffer is this helper's scratch — its bytes are
+    // copied into the returned byte list — and was never freed, on success or on
+    // any failure exit. Declared before the first branch that reaches `done`, where
+    // it is released.
+    let buf_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
@@ -341,6 +355,9 @@ pub(crate) fn lower_net_receive_from_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
+        abi::move_register(&buf_scratch.pointer, abi::mfb_return(1)),
+        abi::load_u64(&buf_scratch.size, abi::stack_pointer(), MAX_OFFSET),
+        abi::add_immediate(&buf_scratch.size, &buf_scratch.size, 1),
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFFSET),
         // recv_retry: an EINTR before any byte moved re-issues recvfrom without
         // re-allocating the buffer; fd/buf/max are reloaded from the stack and
@@ -404,110 +421,127 @@ pub(crate) fn lower_net_receive_from_helper(
         },
         net_symbol(platform, NetSymbol::Recv),
         SADDR_PTR_OFFSET,
-        HOSTLEN_OFFSET,
         DST_OFFSET,
-        AHOST_OFFSET,
+        &AddressSlots {
+            len: HOSTLEN_OFFSET,
+            host: AHOST_OFFSET,
+            port: APORT_OFFSET,
+            record: RecordBuildScratch {
+                size: ASIZE_OFFSET,
+                result: ADDRPTR_OFFSET,
+                cursor: RCURSOR_OFFSET,
+                block_size: RBLOCK_OFFSET,
+            },
+        },
         &alloc_fail,
         &addr_fail,
         &mut vregs,
     )?;
-    instructions.push(abi::store_u64(
-        abi::mfb_return(1),
-        abi::stack_pointer(),
-        ADDRPTR_OFFSET,
-    ));
-    if text {
-        // Build a String: [u64 len][bytes][nul], validate UTF-8.
-        emit_string_result_build(
-            symbol,
-            BUF_OFFSET,
-            N_OFFSET,
-            STR_OFFSET,
-            &str_copy,
-            &str_done,
-            &alloc_fail,
-            &encoding_error,
-            &mut instructions,
-            &mut relocations,
-        );
-    } else {
-        // Build a List OF Byte with N elements.
-        instructions.extend([
-            abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
-            abi::move_immediate(&v11, "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers(&v12, &v10, &v11),
-            abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
-            abi::add_registers(abi::return_register(), &v12, &v10),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        ]);
-        emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-        instructions.extend([
-            abi::move_register(&v15, abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
-            abi::store_u64(&v15, abi::stack_pointer(), STR_OFFSET),
-            abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),
-            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KIND),
-            abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
-            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KEY_TYPE),
-            abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_VALUE_TYPE),
-            abi::move_immediate(&v9, "Byte", "1"),
-            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_FLAGS_VERSION),
-            abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
-            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_COUNT),
-            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_CAPACITY),
-            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_DATA_LENGTH),
-            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_DATA_CAPACITY),
-            abi::add_immediate(&v11, &v15, COLLECTION_HEADER_SIZE),
-            abi::move_immediate(&v12, "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers(&v13, &v10, &v12),
-            abi::add_registers(&v14, &v11, &v13),
-            abi::load_u64(&v15, abi::stack_pointer(), BUF_OFFSET),
-            abi::move_immediate(&v9, "Integer", "0"),
-            abi::label(&entry_loop),
-            abi::compare_registers(&v9, &v10),
-            abi::branch_eq(&entry_done),
-        ]);
-        // See the guard in `emit_read_body`: kind 2 has no entry array, and a
-        // zero-stride cursor would rewrite one "entry" over the data region.
-        if byte_list_entry_stride() != 0 {
-            instructions.extend([
-                abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-                abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
-                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-                abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-                abi::move_immediate(&v12, "Integer", "1"),
-                abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-            ]);
-        }
-        instructions.extend([
-            abi::add_registers(&v12, &v14, &v9),
-            abi::load_u8(&v13, &v15, 0),
-            abi::store_u8(&v13, &v12, 0),
-            abi::add_immediate(&v15, &v15, 1),
-        ]);
-        if byte_list_entry_stride() != 0 {
-            instructions.push(abi::add_immediate(&v11, &v11, COLLECTION_ENTRY_SIZE));
-        }
-        instructions.extend([
-            abi::add_immediate(&v9, &v9, 1),
-            abi::branch(&entry_loop),
-            abi::label(&entry_done),
-        ]);
-    }
-    // Allocate the Datagram/DatagramText record: [from Address][bytes/value].
+    // Build a List OF Byte with N elements.
     instructions.extend([
-        abi::move_immediate(abi::return_register(), "Integer", "16"),
+        abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
+        abi::move_immediate(&v11, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&v12, &v10, &v11),
+        abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
+        abi::add_registers(abi::return_register(), &v12, &v10),
+        // The size the list is allocated with, which its free below needs.
+        abi::store_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            BYTES_SIZE_OFFSET,
+        ),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register(&v15, abi::mfb_return(1)), // alloc result -> vreg base; x1 kept for RESULT_VALUE_REGISTER
-        abi::load_u64(&v9, abi::stack_pointer(), ADDRPTR_OFFSET),
-        abi::store_u64(&v9, &v15, 0),
-        abi::load_u64(&v9, abi::stack_pointer(), STR_OFFSET),
-        abi::store_u64(&v9, &v15, 8),
-        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
+        abi::move_register(&v15, abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
+        abi::store_u64(&v15, abi::stack_pointer(), BYTES_OFFSET),
+        abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KIND),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_BYTE.to_string()),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate(&v9, "Byte", "1"),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
+        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate(&v11, &v15, COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&v12, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&v13, &v10, &v12),
+        abi::add_registers(&v14, &v11, &v13),
+        abi::load_u64(&v15, abi::stack_pointer(), BUF_OFFSET),
+        abi::move_immediate(&v9, "Integer", "0"),
+        abi::label(&entry_loop),
+        abi::compare_registers(&v9, &v10),
+        abi::branch_eq(&entry_done),
+    ]);
+    // See the guard in `emit_read_body`: kind 2 has no entry array, and a
+    // zero-stride cursor would rewrite one "entry" over the data region.
+    if byte_list_entry_stride() != 0 {
+        instructions.extend([
+            abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+            abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
+            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+            abi::move_immediate(&v12, "Integer", "1"),
+            abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        ]);
+    }
+    instructions.extend([
+        abi::add_registers(&v12, &v14, &v9),
+        abi::load_u8(&v13, &v15, 0),
+        abi::store_u8(&v13, &v12, 0),
+        abi::add_immediate(&v15, &v15, 1),
+    ]);
+    if byte_list_entry_stride() != 0 {
+        instructions.push(abi::add_immediate(&v11, &v11, COLLECTION_ENTRY_SIZE));
+    }
+    instructions.extend([
+        abi::add_immediate(&v9, &v9, 1),
+        abi::branch(&entry_loop),
+        abi::label(&entry_done),
+    ]);
+    // The Datagram, with the sender Address (its size is known) and the byte list
+    // inlined into its data region.
+    emit_build_inlined_record_sized(
+        symbol,
+        "datagram",
+        &ParameterType::named(super::DATAGRAM_TYPE_ID),
+        TypeModel::builtin_records(),
+        &[ADDRPTR_OFFSET, BYTES_OFFSET],
+        &[Some(ASIZE_OFFSET), None],
+        &RecordBuildScratch {
+            size: DSIZE_OFFSET,
+            result: DRESULT_OFFSET,
+            cursor: RCURSOR_OFFSET,
+            block_size: RBLOCK_OFFSET,
+        },
+        &MarshalRegs::fresh(&mut vregs),
+        abi::mfb_return(1),
+        &alloc_fail,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    // The Datagram holds its own copies. The Address block and the byte list are
+    // this helper's scratch — nothing outside it ever held either pointer — so
+    // both are freed with the sizes they were allocated with.
+    instructions.extend([
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ADDRPTR_OFFSET),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), ASIZE_OFFSET),
+    ]);
+    emit_arena_free(symbol, &mut instructions, &mut relocations);
+    instructions.extend([
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), BYTES_OFFSET),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BYTES_SIZE_OFFSET),
+    ]);
+    emit_arena_free(symbol, &mut instructions, &mut relocations);
+    instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), DRESULT_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -566,16 +600,6 @@ pub(crate) fn lower_net_receive_from_helper(
         &mut relocations,
         &done,
     );
-    if text {
-        instructions.push(abi::label(&encoding_error));
-        emit_fail(
-            symbol,
-            "ErrEncoding",
-            &mut instructions,
-            &mut relocations,
-            &done,
-        );
-    }
     instructions.push(abi::label(&invalid));
     emit_fail(
         symbol,
@@ -608,7 +632,17 @@ pub(crate) fn lower_net_receive_from_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    // plan-132 C8: release the receive buffer on every exit; its null guard covers
+    // the exits reached before it was allocated.
+    emit_helper_scratch_release(
+        symbol,
+        &[buf_scratch],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     {
         Ok((instructions, relocations, FRAME_SIZE))
     }
@@ -666,8 +700,10 @@ pub(crate) fn lower_net_send_to_helper(
         abi::branch_ne(&closed),
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
-        // x1 = Address record { host String ptr @0, port @8 }.
+        // x1 = the flat `net::Address` (plan-132): slot 0 holds the host `String`'s
+        // block-relative offset, so the host is `x1 + [x1]`; the port is slot 1.
         abi::load_u64(&v9, abi::c_arg(1), 0),
+        abi::add_registers(&v9, abi::c_arg(1), &v9),
         abi::store_u64(&v9, abi::stack_pointer(), HOST_OFFSET),
         abi::load_u64(&v9, abi::c_arg(1), 8),
         abi::store_u64(&v9, abi::stack_pointer(), PORT_OFFSET),

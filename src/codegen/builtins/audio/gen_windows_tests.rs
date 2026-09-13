@@ -107,3 +107,51 @@ fn shared_open_guards_mix_channel_underflow() {
         "bug-416 (3): openInput must load W_MIX_CH to reject mixCh < userCh"
     );
 }
+
+/// plan-132 C4: a device-specific open reads the `id` of the `audio::AudioDevice`
+/// record at `DEVID_OFF` as the `String` inlined at
+/// `record + [record + DEVICE_FIELD_ID]`. The widen used to take the record pointer
+/// itself as the `String` — its first word read as the length, the next as bytes — so
+/// `openOutputDevice`/`openInputDevice` handed WASAPI a garbage endpoint id. No host
+/// running this suite has an audio device, so the rebase is pinned on the emitted
+/// stream: load the record, load its slot-0 offset from it, add the two.
+#[test]
+fn widen_device_id_reads_the_id_inlined_in_the_device_record() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let mut ins = Vec::new();
+    let mut vregs = Vregs::new();
+    emit_widen_device_id(&mut ins, &mut vregs);
+
+    assert_eq!(
+        ins[0].op,
+        CodeOp::LdrU64,
+        "the widen starts by loading the record"
+    );
+    assert_eq!(ins[0].get("base").as_deref(), Some(abi::stack_pointer()));
+    assert_eq!(
+        ins[0].get("offset").as_deref(),
+        Some(DEVID_OFF.to_string().as_str())
+    );
+    let record = ins[0].get("dst");
+    assert!(record.is_some());
+
+    assert_eq!(
+        ins[1].op,
+        CodeOp::LdrU64,
+        "then the id's block-relative offset"
+    );
+    assert_eq!(ins[1].get("base").as_deref(), record.as_deref());
+    assert_eq!(
+        ins[1].get("offset").as_deref(),
+        Some(DEVICE_FIELD_ID.to_string().as_str())
+    );
+    let offset = ins[1].get("dst");
+
+    assert_eq!(
+        ins[2].op,
+        CodeOp::Add,
+        "then record + offset is the id String"
+    );
+    assert_eq!(ins[2].get("lhs").as_deref(), record.as_deref());
+    assert_eq!(ins[2].get("rhs").as_deref(), offset.as_deref());
+}

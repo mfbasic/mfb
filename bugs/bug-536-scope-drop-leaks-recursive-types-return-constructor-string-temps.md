@@ -520,7 +520,8 @@ introduces a double free is not a fix):
   the same values at 20 000 and 40 000 iterations with peak RSS 138/281 MB before
   and 80/164 MB after.
 - **Golden containment.** `artifact-gate all`: 1945 goldens checked, 83 diffs
-  across 17 fixtures, 0 after `bash scripts/regen-ncodesum.sh`. Attributed at the
+  across 17 fixtures, 0 after regenerating the `.ncodesum` goldens (the script used then is
+  now `scripts/regen-native-goldens.sh`, plan-131-B). Attributed at the
   instruction level (pre vs post `-ncode` for every changed fixture): **zero
   functions added or removed, zero `bl` targets removed, zero new stack-slot
   KINDS, and exactly one added `bl` target everywhere —
@@ -837,7 +838,7 @@ Commit: (branches `bug-536-shape-b`, `bug-536-shape-b2`)
 
 ### Phase 5 — regenerate expected outputs + full validation
 
-- [ ] `regen-ncodesum.sh` + `regen-outside-ncode.sh` under bash;
+- [ ] `bash scripts/regen-native-goldens.sh target/release/mfb`;
       `artifact-gate all` → 0 diffs; full `cargo test --no-fail-fast`.
 - [ ] Re-run the decoder measurements and record them here.
 

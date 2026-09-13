@@ -27,6 +27,8 @@
 # the inner ELF's DT_NEEDED, which is what `assert_dt_needed` checks. Never
 # weaken that case into a smoke test.
 set -u
+RC_FAIL_TO_STDERR=1
+. "$(dirname "$0")/remote-common.sh"
 
 MFB_EXE=${1:-}
 if [ -z "$MFB_EXE" ]; then
@@ -99,30 +101,12 @@ target_for_box() {
 }
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-work=$(mktemp -d)
-failures=0
-trap 'rm -rf "$work"' EXIT
-
-pass() { echo "ok: $1"; }
-fail() { echo "FAIL: $1" >&2; failures=$((failures + 1)); }
+rc_workdir
 
 # Run a command on the box under a watchdog. A GUI app that fails to start does
 # not exit — it hangs — and a hung ssh in an acceptance script is a wedged
 # terminal. Prints output; exits 99 on timeout. `-n` keeps ssh off our stdin.
-timeout_run() {
-  local limit=$1; shift
-  perl -e '
-    my $limit = shift @ARGV;
-    my $pid = open(my $fh, "-|");
-    if (!defined $pid) { exit 98; }
-    if ($pid == 0) { exec(@ARGV) or exit 127; }
-    local $SIG{ALRM} = sub { kill "KILL", $pid; waitpid($pid, 0); exit 99; };
-    alarm $limit;
-    local $/; my $out = <$fh>; close($fh); my $st = $?;
-    print $out if defined $out;
-    exit($st >> 8);
-  ' "$limit" "$@"
-}
+timeout_run() { watchdog "$@"; }
 
 # ⚠️ The only check that can detect a wrongly-flavored build (plan-56-A §2.4).
 # Asserts on the ABSENCE of every glibc soname, not merely the presence of the
@@ -173,8 +157,8 @@ run_flavor() {
     return
   fi
 
-  local ssh="ssh -o ConnectTimeout=8 -o BatchMode=yes -p $port test@127.0.0.1"
-  local scp="scp -q -o ConnectTimeout=8 -o BatchMode=yes -P $port"
+  local ssh="ssh $RC_SSH_OPTS -p $port test@127.0.0.1"
+  local scp="scp -q $RC_SCP_OPTS -P $port"
   if ! $ssh true 2>/dev/null; then
     # The GTK boxes are developer infrastructure, not CI. A suite that goes red
     # for infrastructure reasons trains people to ignore red bars — but a
@@ -419,8 +403,8 @@ else
   run_flavor "$LIBC"
 fi
 
-if [ "$failures" -ne 0 ]; then
-  echo "Linux AppImage runtime tests failed: $failures" >&2
+if [ "$rc_failures" -ne 0 ]; then
+  echo "Linux AppImage runtime tests failed: $rc_failures" >&2
   exit 1
 fi
 echo "Linux AppImage runtime tests passed"

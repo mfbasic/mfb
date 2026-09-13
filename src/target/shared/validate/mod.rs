@@ -236,6 +236,7 @@ mod tests {
             target: "test-target".to_string(),
             build_mode: crate::target::NativeBuildMode::Console,
             stdin_log_cap: crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT,
+            debug: crate::codegen::debug::DebugOptions::OFF,
             project: "hello".to_string(),
             entry: Some(NirEntryPoint {
                 name: "main".to_string(),
@@ -464,6 +465,7 @@ mod tests {
             target: "test-target".to_string(),
             build_mode: crate::target::NativeBuildMode::Console,
             stdin_log_cap: crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT,
+            debug: crate::codegen::debug::DebugOptions::OFF,
             project: "hello".to_string(),
             entry: Some(NirEntryPoint {
                 name: "main".to_string(),

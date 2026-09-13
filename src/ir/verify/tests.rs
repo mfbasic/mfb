@@ -8847,21 +8847,29 @@ fn accepts_a_body_that_returns_before_its_trap() {
 /// `net::Address["1.2.3.4", 80]` compiled and ran — silently handing a program a
 /// record whose layout only the runtime helpers are allowed to write.
 ///
-/// Both spellings must be refused: a source `AS net::Address` resolves to the
-/// qualified id, while a record FIELD type still arrives bare.
+/// The qualified identity must be refused: a source `net::Address[…]` resolves to
+/// the qualified id.
+///
+/// plan-132 D1 corrected the other half of this test, which also required the BARE
+/// leaves to be refused "because a record FIELD type still arrives bare". This rule
+/// is asked only about a constructor's or a `WITH` target's type, never a field
+/// type, and source cannot name an imported builtin record bare (`AS Address` under
+/// `IMPORT net` is `SYMBOL_UNKNOWN_TYPE`, measured). So a bare leaf here is always a
+/// project type of the same name — and requiring it refused made a project's own
+/// `TYPE Address`, `TYPE AudioDevice` or `TYPE TermSize` unconstructible in every
+/// program (`rt_shadowing_type_name_diagnostics`), while `TYPE Url` built.
 #[test]
-fn read_only_records_are_refused_under_either_spelling() {
-    for name in [
-        "Address",
-        "net.Address",
-        "AudioDevice",
-        "audio.AudioDevice",
-        "TermSize",
-        "term.TermSize",
-    ] {
+fn read_only_records_are_refused_under_their_qualified_identity() {
+    for name in ["net.Address", "audio.AudioDevice", "term.TermSize"] {
         assert!(
             super::read_only_record_type(&ParameterType::declared(name)),
             "`{name}` must stay a read-only compiler-owned record (bug-483)"
+        );
+    }
+    for name in ["Address", "AudioDevice", "TermSize"] {
+        assert!(
+            !super::read_only_record_type(&ParameterType::declared(name)),
+            "a bare `{name}` is a project type and must stay constructible (plan-132 D1)"
         );
     }
     // An ordinary record is still constructible.

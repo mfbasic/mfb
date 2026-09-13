@@ -27,7 +27,7 @@ fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
 fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<String>) {
     let project = common::temp_project(name, source);
     let stats = project.join("stats.txt");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let mut command = Command::new(&binary);
     command
         .env("MFB_MACAPP_HEADLESS", "1")

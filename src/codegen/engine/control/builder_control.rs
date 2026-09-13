@@ -178,8 +178,7 @@ impl CodeBuilder<'_> {
             else {
                 return Ok(false);
             };
-            if self.record_field_is_inlined(type_, field_type)
-                || self.record_field_is_pointer(field_type)
+            if self.record_field_is_inlined(field_type) || self.record_field_is_pointer(field_type)
             {
                 return Ok(false);
             }
@@ -303,7 +302,7 @@ impl CodeBuilder<'_> {
         if !typed_is_collection_type(&field_type) {
             return None;
         }
-        if !self.record_field_is_inlined(record_type, &field_type) {
+        if !self.record_field_is_inlined(&field_type) {
             return None;
         }
         // No field after this one may be inlined, or growing this sub-block would
@@ -311,7 +310,7 @@ impl CodeBuilder<'_> {
         if fields
             .iter()
             .skip(index + 1)
-            .any(|(_, ft)| self.record_field_is_inlined(record_type, ft))
+            .any(|(_, ft)| self.record_field_is_inlined(ft))
         {
             return None;
         }
