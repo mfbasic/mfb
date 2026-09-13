@@ -36,11 +36,16 @@ safe for the value representation; mutable or unique resources must preserve
 ownership rules.
 
 For copyable sendable values, crossing a thread boundary deep-copies the value and
-hands the copy to the receiving side. Because every non-resource value is a flat,
-pointer-free block, this is a single allocation plus byte copy (see
-`./mfb spec memory heap-values`); the sender keeps its own block and the receiver
-owns and reclaims the copy. The boundary copy is the builder's ordinary
-flat-block copy, made at the send site **in the sender's own arena** — the
+hands the copy to the receiving side. A flat, pointer-free value is a single
+allocation plus byte copy (see `./mfb spec memory heap-values`); a value of a
+recursive type (one whose declaration reaches itself, such as a tree whose nodes
+hold a `List OF` the node type) is a graph of separate blocks, and is copied by
+the module's one non-recursive walker, which copies a block at a time and keeps the
+edges still to copy on a work stack in the arena, so a value of any depth copies
+without growing the native stack. [[src/codegen/memory/arena/graph_copy.rs:lower_graph_copy_walker]]
+Either way the sender keeps its own value and the receiver owns and reclaims the
+copy. The boundary copy is the builder's ordinary
+deep copy, made at the send site **in the sender's own arena** — the
 arena-state register is never repointed at another thread's state, because that
 thread may be allocating from it at the same instant and the allocator's free-list
 pop is unsynchronized (bug-498). The queue-write helper stores the copied pointer

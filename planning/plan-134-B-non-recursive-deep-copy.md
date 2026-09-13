@@ -140,15 +140,20 @@ Acceptance: deep copies succeed at any depth and existing copies are unchanged i
   `rt_thread_accept_res_drop_closes` 1, `rt_thread_send_cross_arena` 2,
   `rt_tls_listener_thread_transfer` 1 — 0 failed anywhere. `cargo test --release --bin mfb --
   graph_copy` → 1 passed.
-Commit: —
+Commit: 4d8a199d5
 
 ### Phase 3 — goldens and Linux
 
-- [ ] `bash scripts/artifact-gate.sh target/release/mfb all`; expected diffs: only fixtures whose
+- [x] `bash scripts/artifact-gate.sh target/release/mfb all`; expected diffs: only fixtures whose
       module has a recursive type (`tests/byte-identity/json`, `tests/byte-identity/regex`, any
       fixture declaring one). Localize each package that moves to the copy functions/walker by
       building its `-ncode` before and after; regenerate with `bash
-      scripts/regen-native-goldens.sh target/release/mfb`.
+      scripts/regen-native-goldens.sh target/release/mfb`. — `all` → `2013 golden(s) checked,
+      10 diff(s)`: `byte-identity/json` and `byte-identity/regex`, each on all five targets, and
+      nothing else. Localized per function (Corrections). Regenerated with
+      `scripts/regen-native-goldens.sh <walker mfb> tests/byte-identity/json
+      tests/byte-identity/regex` (exit 0); re-gated → json `7 golden(s) checked, 0 diff(s)`,
+      regex `7 golden(s) checked, 0 diff(s)`.
 - [x] Cross-build `deep_chain` for `linux-aarch64` and run it on box 2223 at n = 1 000 000
       (native aarch64 box — plan-134 needs no x86 behaviour here). — `mfb build -target
       linux-aarch64 tools/recursive-value-bench/programs/deep_chain`, `deep_chain-glibc.out`
@@ -159,6 +164,8 @@ Acceptance: the gate's diffs are confined to modules with a recursive type, each
 box 2223 prints `top=1000000`, exit 0.
   Check: the gate → only json/regex/recursive-type fixtures differ (est. 15 min: the gate is the
   only instrument that sees every target's emitted copy functions); box 2223 run (est. 3 min).
+  Result: met — the 10 diffs are the two recursive-type fixtures × 5 targets, each explained by
+  the added walker and the per-type shims; box 2223 printed `top=1000000`, exit 0.
 Commit: —
 
 ## Validation Plan
@@ -217,6 +224,21 @@ Commit: —
   `rt_thread_send_cross_arena`, plus `rt_thread_accept_res_drop_closes`,
   `rt_tls_listener_thread_transfer` and `rt_scope_drop_leaks`. `rt_canvas_graphics_thread` is
   left out: it drives the desktop (a GUI test) and contains no recursive value.
+- **Doc sync lands in `mfb spec threading isolation`, not `mfb spec memory arenas`.** The arenas
+  page has no deep-copy paragraph to name the walker in (`grep -n -i "deep.cop\|per-type"
+  src/docs/spec/memory/04_arenas.md` → only the scope-drop "no per-type recursive drop glue"
+  line, which is letter G's). The boundary deep copy is described in
+  `src/docs/spec/threading/02_isolation.md`, whose claim "every non-resource value is a flat,
+  pointer-free block, [so the copy] is a single allocation plus byte copy" was never true for a
+  recursive value; it now names the walker. `.ai/codegen-invariants.md` gained the
+  "never recurse on the native stack" section; `.ai/collections.md`'s bug-538 note names the
+  shim.
+- **Golden churn localized before regenerating.** The main checkout's `target/release/mfb`
+  reproduces the committed macOS goldens byte-for-byte (json `1dfb046c…`, regex `fa1eb36a…`), so
+  it served as the before binary. Per-function diff of `-ncode` (`/tmp/p134-ncode-diff.py`):
+  json 160 → 162 functions, added `_mfb_rt_graph_copy` + `_mfb_rt_graph_stack_grow`, changed
+  only its 5 `_mfb_thread_copy_*` shims; regex 187 → 189, same two added, changed only its 12
+  shims; nothing removed, no other function changed.
 
 ## Summary
 
