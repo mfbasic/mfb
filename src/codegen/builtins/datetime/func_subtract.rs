@@ -85,7 +85,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: super::ParameterType::named("Instant"),
-            errors: vec![],
+            errors: vec!["ErrOverflow"],
             body: super::Body::mfb(BODY, "__datetime_subtract"),
         }],
     });
