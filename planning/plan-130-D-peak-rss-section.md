@@ -24,7 +24,7 @@ See plan-130-A § Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-130-C complete | `ls planning/completed/plan-130-C-*` → one match | NOT MET |
+| plan-130-C complete | `ls planning/completed/plan-130-C-*` → one match | MET (2026-09-12) |
 
 ## 1. Goal
 
@@ -86,9 +86,16 @@ already gives the peak).
 
 ### Phase 1 — Unix targets
 
-- [ ] Prove the four Unix UNVERIFIED rows with a throwaway C probe per box (2223, 2227,
+- [x] Prove the four Unix UNVERIFIED rows with a throwaway C probe per box (2223, 2227,
       2228, 2229, and macOS): print `offsetof(struct rusage, ru_maxrss)`, `sizeof`, and a
       64 MiB-touch value. Record results in Corrections.
+      `/tmp/p130-d-rusage.c` (malloc + memset 64 MiB between two `getrusage` calls):
+      | target | offsetof ru_maxrss | sizeof rusage | maxrss before → after | SYS_getrusage |
+      | macOS aarch64 | 32 | 144 | 1,032,192 → 68,141,056 (bytes) | — |
+      | 2223 aarch64 glibc | 32 | 144 | 4,404 → 66,596 (KiB) | 165 |
+      | 2227 x86_64 musl | 32 | 272 | 2,476 → 65,972 (KiB) | 98 |
+      | 2228 x86_64 glibc | 32 | 144 | 4,392 → 66,732 (KiB) | 98 |
+      | 2229 riscv64 musl | 32 | 272 | 2,400 → 65,928 (KiB) | 165 |
 - [ ] `emit_peak_rss_bytes` for macOS, linux-aarch64, linux-riscv64 (libc `getrusage`),
       linux-x86_64 (raw syscall 98); scale KiB → bytes on Linux.
 - [ ] `ProcessFeature` + `_mfb_debug_report_process`; imports only in debug builds.
@@ -136,6 +143,12 @@ Commit: —
   lines (costs a thread and a timer per target).
 
 ## Corrections
+
+- **Phase 1 — musl's `struct rusage` is 272 bytes, not 144.** The offset of `ru_maxrss` is 32
+  on every Unix target (verified rows 1–3 hold), but musl reserves 16 `long`s where glibc and
+  Darwin reserve fewer, so the stack buffer for the call must be at least 272 bytes; the
+  kernel's own struct is 144. Linux units are KiB (66,596 after touching 64 MiB = 65 MiB) and
+  Darwin's are bytes. `getrusage` is syscall 98 on x86_64 and 165 on aarch64/riscv64.
 
 ## Summary
 
