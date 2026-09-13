@@ -161,6 +161,15 @@ Commit: —
      normal builds, so normal canvas codegen changes.
    Record the user's choice here as `DECIDED: <option> (<date>)` before Phase 1.
 
+   DECIDED: `RegistryHelper::debug_split(name, normal_body, debug_body)` (2026-09-12). The user's
+   stated goal is that the hooks' code is ABSENT from normal builds, which rules out the native
+   member (code stays, switched off) and leaves the constant option dependent on unverified
+   dead-branch + dead-function removal. Research at the decision: helpers are pasted at the
+   SOURCE stage by `Registry::augment_project(&self, ast)`, which receives no build options, so
+   the flag must be threaded into it and its callers
+   (`git grep -n "augment_project(" -- src` → cli/build, resolver ×2, ir/lower ×2, audit,
+   ir/shape ×2, testutil ×2).
+
 ## Corrections
 
 ## Summary
