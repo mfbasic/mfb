@@ -21,10 +21,11 @@ pub enum RuntimeHelper {
     Process,
     // plan-67-B: internal runtime performance tracking. Unlike every other family
     // it is NOT reachable from MFB source (there is no `perf::` package); its four
-    // helpers are invoked only by compiler-injected calls in a `--cfg perf`-built,
-    // macOS-entry program, so its calls are catalogued as code-layer-only (see
+    // helpers are invoked only by compiler-injected calls in a `--debug` build of a
+    // macOS entry, so its calls are catalogued as code-layer-only (see
     // `catalog::tests::CODE_LAYER_ONLY_CALLS`) and forced into the emitted symbol
-    // set in `plan::symbols::runtime_symbols` rather than routed by
+    // set by the debug report's `perf` section (`plan::symbols::runtime_symbols`
+    // asks `codegen::debug`) rather than routed by
     // `helper_for_call`/`required_helpers`.
     Perf,
     Tcp,

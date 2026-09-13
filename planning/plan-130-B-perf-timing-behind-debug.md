@@ -103,20 +103,28 @@ and CI never builds it); porting timings to all targets now (user decision).
 
 ### Phase 1 — perf as a DebugFeature, gated by `--debug`
 
-- [ ] `src/codegen/debug/perf.rs`: `PerfFeature`; append to `DEBUG_FEATURES`.
-- [ ] (moved here from plan-130-A Phase 2) `DebugEmitCtx` and a
+- [x] `src/codegen/debug/perf.rs`: `PerfFeature`; append to `DEBUG_FEATURES`. (`DEBUG_FEATURES = [&CoreSection, &perf::PerfFeature]`; data objects, runtime
+      calls `perf.init/start/end/done`, import call `perf.start`, report `_mfb_debug_report_perf`.)
+- [x] (moved here from plan-130-A Phase 2) `DebugEmitCtx` and a
       `DebugFeature::emit_entry_start(&self, ctx: &mut DebugEmitCtx)` hook, called by
       `lower_program_entry` for each active feature after the main arena global is stored
       (the site of today's perf init/start); `PerfFeature` implements it with the
       init/start calls. Landed here because `CoreSection` has no entry work and an
       unread context fails the warning-free tree.
-- [ ] Replace the 6 `perf_injection_enabled()` sites with registry queries; delete
-      `perf_injection_enabled`; delete the `check-cfg` lines in `Cargo.toml`.
-- [ ] Move perf end/done from the `entry.rs` exit tail into `_mfb_debug_report_perf`.
-- [ ] `src/codegen/builtins/tests/perf.rs`: the 7 tests build their platform/module with
-      `DebugOptions { enabled: true }` instead of relying on a cfg build; add
-      `a_normal_build_emits_no_perf_symbol` (macOS `.ncode` of a non-debug build has no
-      `_mfb_rt_perf_`).
+- [x] Replace the 6 `perf_injection_enabled()` sites with registry queries; delete
+      `perf_injection_enabled`; delete the `check-cfg` lines in `Cargo.toml`. Builder data objects -> `PerfFeature::data_objects`; entry init/start ->
+      `emit_entry_start` via `ProgramEntrySpec::debug_features`; both `symbols.rs` blocks -> the
+      registry loops; arena -> `lower_arena_alloc(platform, perf)` / `lower_arena_free(perf)` fed by
+      `feature_active(module, PERF_SECTION)`. `git grep -nE "cfg\(perf\)|cfg!\(perf\)|--cfg perf|perf_injection_enabled" -- src Cargo.toml scripts` -> no matches.
+- [x] Move perf end/done from the `entry.rs` exit tail into `_mfb_debug_report_perf`.
+- [x] ~~the 7 tests build their platform/module with `DebugOptions { enabled: true }`~~ — moot:
+      none of them relied on a cfg build; each calls `lower_perf_helper` directly with no gate
+      (`grep -n "lower_perf_helper(" src/codegen/builtins/tests/perf.rs`), so they already ran
+      in every CI build.
+- [x] `src/codegen/builtins/tests/perf.rs`: add `a_normal_build_emits_no_perf_symbol` (macOS code
+      plan of a non-debug build has no `_mfb_rt_perf_`; the same program with `--debug` carries
+      all four helpers, `_mfb_rt_perf_state` and `_mfb_debug_report_perf`; a linux-aarch64
+      `--debug` build carries none). `cargo test --bin mfb -- perf codegen::debug` -> 13 passed.
 
 Acceptance: `cargo test --bin mfb perf` green; `git grep -nE "cfg\(perf\)|cfg!\(perf\)|--cfg perf" -- src Cargo.toml` → no matches; artifact gate `0 diff(s)`.
 Commit: —
@@ -161,6 +169,16 @@ Commit: —
 
 ## Corrections
 
+- **Phase 1 — docs landed early.** Phase 1's acceptance grep covers `src` doc comments, so the
+  `--cfg perf` prose in `perf.rs`, `tests/perf.rs`, `error_constants.rs`, `runtime/mod.rs`,
+  `perf_specs.rs`, `macos_aarch64/code.rs`, `scripts/man-census.sh` and
+  `07_runtime-helper-abi.md` was rewritten in Phase 1, not Phase 3.
+- **Phase 1 — `lower_arena_free` lost its `platform` parameter.** Its only use was the perf gate;
+  keeping it would leave an unused parameter warning.
+- **Phase 1 -> 2 — `rt_debug_report` is red on macOS between the two phases.** Once perf is a
+  report section, the macOS `--debug` block contains `perf.done`'s old space-separated table,
+  which the test's exact four-line block rejects; Phase 2 rewrites the rows as `perf.*` report
+  lines and updates the test.
 ## Summary
 
 A gate move and a print-site move; the timing code is untouched. The only care needed

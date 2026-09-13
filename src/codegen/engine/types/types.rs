@@ -1391,6 +1391,9 @@ pub(crate) struct ProgramEntrySpec<'a> {
     /// `Console`-default program leaves it `None` here (the region zero-inits to
     /// `0` = `Console`), so its entry stays byte-identical.
     pub(crate) seed_presentation_mode_offset: Option<usize>,
+    /// plan-130: the active `--debug` features, whose `emit_entry_start` runs right after
+    /// the entry publishes the main arena address. Empty for a normal build.
+    pub(crate) debug_features: &'a [&'static dyn crate::codegen::debug::DebugFeature],
 }
 
 #[derive(Clone, Copy)]

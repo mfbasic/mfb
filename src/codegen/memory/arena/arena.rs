@@ -7,13 +7,6 @@ use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
-/// plan-67-F: is arena hot-path perf instrumentation active? `--cfg perf`-built
-/// compiler (`perf_injection_enabled()`) on the macOS backend only, so ordinary
-/// and Linux/Windows arena helpers stay byte-identical to pre-plan-67 HEAD.
-fn perf_arena_enabled(platform: &dyn CodegenPlatform) -> bool {
-    perf_injection_enabled() && platform.family() == PlatformFamily::MacOS
-}
-
 /// Emit `perf_start(name)` / `perf_end(name)` at an arena-region boundary: load the
 /// region's name object into the arg register and `bl` the perf helper. The
 /// register allocator spills any live vreg across the `bl` (perf clobbers x0–x17),
@@ -35,7 +28,12 @@ fn emit_perf_arena_call(
     relocations.push(internal_branch(from, &sym));
 }
 
-pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
+/// `perf` (plan-130-B): bracket the body with the `mfb_alloc` perf span — true exactly
+/// when the `--debug` perf section is active for the module.
+pub(crate) fn lower_arena_alloc(
+    platform: &dyn CodegenPlatform,
+    perf: bool,
+) -> Result<CodeFunction, String> {
     // Vreg-allocated (plan-00-G Phase 2): the body names virtual registers and the
     // shared allocator places them per-ISA; `finalize_vreg_helper` runs the
     // allocator + `finalize_frame` (which builds the frame, saves the link
@@ -114,7 +112,7 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     ];
     // plan-67-F: open the `mfb_alloc` span now that size/eff_align are captured in
     // vregs (spilled across the perf `bl`); the body below re-derives ARG[0]/ARG[1].
-    if perf_arena_enabled(platform) {
+    if perf {
         emit_perf_arena_call(
             "perf.start",
             ARENA_ALLOC_SYMBOL,
@@ -572,7 +570,7 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     // plan-67-F: close the `mfb_alloc` span at the single exit. The result (tag in
     // the return register, pointer in RET[1]) is live and the perf `bl` clobbers
     // both, so save them into vregs across the call and restore before returning.
-    if perf_arena_enabled(platform) {
+    if perf {
         let saved_tag = vregs.next();
         let saved_ptr = vregs.next();
         instructions.push(abi::move_register(&saved_tag, abi::return_register()));
@@ -1054,7 +1052,9 @@ pub(crate) fn lower_arena_flush_coalesce() -> CodeFunction {
 /// an idempotent no-op inside the insert — must never scrub a live node's
 /// `{next, size}` words). Never unmaps. Vreg-allocated — treat all caller-saved
 /// integer registers as clobbered.
-pub(crate) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
+/// `perf` (plan-130-B): bracket the body with the `mfb_free` perf span — true exactly
+/// when the `--debug` perf section is active for the module.
+pub(crate) fn lower_arena_free(perf: bool) -> CodeFunction {
     let mut vregs = Vregs::new();
     let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
     // ptr/size are live across both helper calls; each tramples every integer
@@ -1081,7 +1081,7 @@ pub(crate) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
     ];
     // plan-67-F: open the `mfb_free` span now that ptr/size are captured in vregs
     // (spilled across the perf `bl`); the body below re-derives ARG[0]/ARG[1].
-    if perf_arena_enabled(platform) {
+    if perf {
         emit_perf_arena_call(
             "perf.start",
             ARENA_FREE_SYMBOL,
@@ -1148,7 +1148,7 @@ pub(crate) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
     ]);
     // plan-67-F: close the `mfb_free` span at the single exit. The helper returns
     // Nothing, so there is no result register to preserve across the perf `bl`.
-    if perf_arena_enabled(platform) {
+    if perf {
         emit_perf_arena_call(
             "perf.end",
             ARENA_FREE_SYMBOL,

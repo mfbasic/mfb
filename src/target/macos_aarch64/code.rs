@@ -47,8 +47,8 @@ pub(crate) fn lower_module_mir(
 ///
 /// `pub(crate)` so a unit test can drive a macOS-only emitter against the REAL
 /// platform rather than a stub. `codegen::builtins::perf` is the case that
-/// forced it: those bodies are emitted only by a `--cfg perf` compiler on a
-/// macOS entry, so no whole-program lowering reaches them, and a hand-written
+/// forced it: those bodies are emitted only for a `--debug` build of a macOS
+/// entry, so no ordinary whole-program lowering reaches them, and a hand-written
 /// `CodegenPlatform` stub would be asserting against the test's own
 /// approximation of `emit_arena_map` / `emit_external_call` / `emit_write`
 /// instead of the code that ships.
@@ -151,6 +151,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             spec.entry_called_as_function,
             spec.needs_winsock,
             spec.seed_presentation_mode_offset,
+            spec.debug_features,
         )
     }
 

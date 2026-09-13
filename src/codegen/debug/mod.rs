@@ -15,16 +15,20 @@
 //! bracketed by `mfb.debug.begin 1` … `mfb.debug.end 1`. A consumer takes the last
 //! `mfb.debug.begin` block in stderr.
 
+mod perf;
 mod shutdown;
 #[cfg(test)]
 mod tests;
 mod write;
 
+pub(crate) use perf::PERF_SECTION;
 pub(crate) use shutdown::DEBUG_SHUTDOWN_SYMBOL;
 
 use std::collections::HashMap;
 
-use crate::codegen::engine::types::{CodeDataObject, CodeFunction, CodegenPlatform};
+use crate::codegen::engine::types::{
+    CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, CodegenPlatform,
+};
 use crate::codegen::engine::util::{finalize_vreg_helper, Vregs};
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirModule;
@@ -48,6 +52,19 @@ impl DebugOptions {
     /// module outside the CLI need a named "off".
     #[cfg(test)]
     pub(crate) const OFF: DebugOptions = DebugOptions { enabled: false };
+}
+
+/// The program entry's instruction stream, handed to each feature's
+/// [`emit_entry_start`](DebugFeature::emit_entry_start).
+///
+/// The hook runs right after the entry publishes the main arena address. A `bl`
+/// there clobbers only caller-saved registers: the entry's argc/argv are parked in
+/// callee-saved scratch and re-materialized after it.
+pub(crate) struct DebugEmitCtx<'a> {
+    /// The entry function's symbol, the `from` of every relocation emitted here.
+    pub(crate) entry_symbol: &'a str,
+    pub(crate) instructions: &'a mut Vec<CodeInstruction>,
+    pub(crate) relocations: &'a mut Vec<CodeRelocation>,
 }
 
 /// One section of the debug report and everything it needs emitted.
@@ -74,12 +91,15 @@ pub(crate) trait DebugFeature: Sync {
     fn runtime_calls(&self) -> &'static [&'static str];
     /// Runtime calls whose platform imports this feature's code needs.
     fn import_calls(&self) -> &'static [&'static str];
+    /// Instructions emitted in the program entry after the main arena address is
+    /// published. May emit nothing.
+    fn emit_entry_start(&self, ctx: &mut DebugEmitCtx<'_>) -> Result<(), String>;
     /// This feature's report-section helper, called by `_mfb_debug_shutdown`.
     fn report_symbol(&self) -> Option<&'static str>;
 }
 
 /// The report's sections, in the order they print.
-pub(crate) static DEBUG_FEATURES: &[&dyn DebugFeature] = &[&CoreSection];
+pub(crate) static DEBUG_FEATURES: &[&dyn DebugFeature] = &[&CoreSection, &perf::PerfFeature];
 
 /// Whether `module` carries the report: a `--debug` build of a program with an
 /// entry (a package or entry-less module has no `_mfb_shutdown` to report from).
@@ -96,6 +116,12 @@ pub(crate) fn active_features(
         .iter()
         .copied()
         .filter(move |feature| report_enabled(module) && feature.applies(module))
+}
+
+/// Whether the section named `name` emits for `module` — for codegen outside the
+/// report (e.g. the arena helpers the perf section times) that must match it.
+pub(crate) fn feature_active(module: &NirModule, name: &str) -> bool {
+    active_features(module).any(|feature| feature.name() == name)
 }
 
 /// Every debug-only data object for `module`: the report helper's own, then each
@@ -214,6 +240,12 @@ impl DebugFeature for CoreSection {
 
     fn import_calls(&self) -> &'static [&'static str] {
         &[]
+    }
+
+    fn emit_entry_start(&self, _ctx: &mut DebugEmitCtx<'_>) -> Result<(), String> {
+        // The target and build mode are compile-time constants: nothing to record
+        // while the program runs.
+        Ok(())
     }
 
     fn report_symbol(&self) -> Option<&'static str> {

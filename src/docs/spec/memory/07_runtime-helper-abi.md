@@ -128,17 +128,18 @@ MFB language surface and no `helper_for_call` routing — its four helpers
 (`perf.init`/`perf.start`/`perf.end`/`perf.done`) are catalogued (so
 `spec_for_symbol` resolves them during emission) but injected directly by the code
 layer, so they are listed in `CODE_LAYER_ONLY_CALLS` and never take part in the
-Required-Helper Analysis or the declared-vs-used parity below. Injection is gated
-on `perf_injection_enabled()` (a `--cfg perf`-built compiler) **and** a macOS entry
-module: a perf-free compiler, and every Linux/Windows build, emit nothing, so their
-output is byte-identical to a pre-perf build. The emitted symbols are forced into
-the plan's runtime-symbol set (`plan::symbols::runtime_symbols`), not derived from
-the IR. [[src/codegen/builtins/perf/perf.rs:lower_perf_helper]]
+Required-Helper Analysis or the declared-vs-used parity below. Injection is the
+`perf` section of the debug report: it happens only for an **`mfb build --debug`**
+build **and** a macOS entry module; a build without `--debug`, and every
+Linux/Windows build, emits nothing. The emitted symbols are forced into the plan's
+runtime-symbol set (`plan::symbols::runtime_symbols`, which asks the debug
+registry), not derived from the IR. See `./mfb spec tooling debug-report`. [[src/codegen/builtins/perf/perf.rs:lower_perf_helper]]
 
 Under the same gate, the program-entry stub opens a whole-program `program` span,
 and the arena hot-path helpers `_mfb_arena_alloc` / `_mfb_arena_free` are bracketed
 with `perf_start`/`perf_end` (regions `mfb_alloc` / `mfb_free`), so `perf_done`
-prints a timing row per region at exit. The perf helpers themselves never touch the
+prints its timing table as the report's `perf` section, from `_mfb_debug_report_perf`
+(called by `_mfb_debug_shutdown`, the last call of `_mfb_shutdown`). The perf helpers themselves never touch the
 arena (their region is the `emit_arena_map` mmap seam), so bracketing arena code
 cannot recurse. [[src/codegen/memory/arena/arena.rs:lower_arena_alloc]]
 

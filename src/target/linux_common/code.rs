@@ -504,6 +504,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
             spec.entry_called_as_function,
             spec.needs_winsock,
             spec.seed_presentation_mode_offset,
+            spec.debug_features,
         )
     }
 
@@ -1528,6 +1529,7 @@ mod tests {
             entry_called_as_function: false,
             needs_winsock: false,
             seed_presentation_mode_offset: None,
+            debug_features: &[],
         };
         // The entry's always-on arena-start-time + entropy-fill blocks call libc,
         // so provide the imports they resolve against.

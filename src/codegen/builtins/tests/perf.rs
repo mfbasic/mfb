@@ -1,8 +1,8 @@
 //! Codegen contracts for the runtime perf-tracking helpers (`perf.rs`).
 //!
-//! These four bodies are emitted only by a compiler built with `--cfg perf`,
-//! and only for a macOS entry (`perf_injection_enabled()`), so no whole-program
-//! lowering in an ordinary build reaches them and nothing in `tests/` can either.
+//! These four bodies are emitted only for a `--debug` build of a macOS entry (the
+//! `perf` section of the debug report), so no ordinary whole-program lowering
+//! reaches them; `a_normal_build_emits_no_perf_symbol` below pins both halves.
 //! They are lowered here directly, against the real
 //! [`crate::target::macos_aarch64::code::Platform`] — a stub would only be
 //! asserting against this file's own approximation of `emit_arena_map`,
@@ -66,7 +66,7 @@ fn stream<'a>(name: &'a str, instructions: &'a [CodeInstruction]) -> Stream<'a> 
 /// path itself with `perf.start`/`perf.end`, so a perf body that reached the
 /// arena would recurse perf → arena → perf. The recursion is unbounded and shows
 /// up as a stack overflow inside the allocator, nowhere near this file — and only
-/// in a `--cfg perf` build, which is not what CI runs.
+/// in a `--debug` build, which no ordinary golden exercises.
 #[test]
 fn no_perf_body_calls_an_arena_helper() {
     for call in HELPERS {
@@ -274,5 +274,74 @@ fn a_perf_body_refuses_to_call_an_undeclared_import() {
     assert!(
         lower_perf_helper("perf.init", "_mfb_rt_perf_init", &none, &MacosPlatform).is_ok(),
         "perf.init reaches libc for nothing and must lower with no imports declared"
+    );
+}
+
+/// Every symbol a code plan defines or references: data objects, functions, and
+/// relocation targets.
+fn plan_names(plan: &crate::codegen::engine::types::NativeCodePlan) -> Vec<String> {
+    let mut names: Vec<String> = plan
+        .data_objects
+        .iter()
+        .map(|object| object.symbol.clone())
+        .collect();
+    for function in &plan.functions {
+        names.push(function.symbol.clone());
+        names.extend(function.relocations.iter().map(|r| r.to.clone()));
+    }
+    names
+}
+
+/// plan-130-B: perf is a `--debug` feature, not a compiler build flag.
+///
+/// A normal macOS build emits no perf helper, region object, or injected call, so
+/// the timings cannot leak into an ordinary program. The same program lowered with
+/// `--debug` carries all four helpers, the region state, and the `perf` report
+/// section — so turning them on needs no special compiler — while a `--debug`
+/// build for any other target still carries none (the helpers are macOS-only).
+#[test]
+fn a_normal_build_emits_no_perf_symbol() {
+    use crate::codegen::debug::DebugOptions;
+    use crate::target::shared::runtime::{symbol_for_call, RuntimeHelper};
+    use crate::target::NativeBuildMode;
+    use crate::testutil::CodeTarget;
+
+    const SOURCE: &str = "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n";
+    let is_perf = |name: &String| name.starts_with("_mfb_rt_perf_") || name.contains("report_perf");
+
+    let normal = crate::testutil::code_for_src_on(SOURCE, CodeTarget::MacosAarch64);
+    let leaked: Vec<String> = plan_names(&normal).into_iter().filter(is_perf).collect();
+    assert!(
+        leaked.is_empty(),
+        "a build without --debug must emit nothing of perf, found {leaked:?}"
+    );
+
+    let lower_debug = |target: CodeTarget| {
+        let mut module =
+            crate::testutil::nir_for_src(SOURCE, target, NativeBuildMode::Console).unwrap();
+        module.debug = DebugOptions { enabled: true };
+        plan_names(&crate::testutil::code_for_nir(&module, target).unwrap())
+    };
+
+    let macos = lower_debug(CodeTarget::MacosAarch64);
+    for call in HELPERS {
+        let symbol = symbol_for_call(RuntimeHelper::Perf, call);
+        assert!(
+            macos.contains(&symbol),
+            "a macOS --debug build must emit {symbol}"
+        );
+    }
+    for expected in ["_mfb_rt_perf_state", "_mfb_debug_report_perf"] {
+        assert!(
+            macos.iter().any(|name| name == expected),
+            "a macOS --debug build must carry {expected}"
+        );
+    }
+
+    let linux = lower_debug(CodeTarget::LinuxAarch64);
+    let linux_perf: Vec<String> = linux.into_iter().filter(is_perf).collect();
+    assert!(
+        linux_perf.is_empty(),
+        "perf is macOS-only; a linux-aarch64 --debug build emitted {linux_perf:?}"
     );
 }

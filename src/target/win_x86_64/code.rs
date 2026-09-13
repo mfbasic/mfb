@@ -692,6 +692,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             spec.entry_called_as_function,
             spec.needs_winsock,
             spec.seed_presentation_mode_offset,
+            spec.debug_features,
         )
     }
 
