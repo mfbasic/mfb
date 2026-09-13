@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-13
-Open bugs: **6** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **12** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — integration rounds and what they taught
 
@@ -295,10 +295,11 @@ the bug doc.
 
 Filed, not fixed: plan-125 is documentation-only by user instruction.
 
-- **603 LOW** — `color::hsl`/`hsla`/`rotateHue` raise `ErrOverflow` for a finite
-  hue past ~3.3e21 degrees: `__color_wrapHue` takes the fractional turn through
-  `Integer`-returning `math::floor`. One-line fix (`hue MOD 360.0`); the golden
-  regeneration is the real cost.
+- ~~**603 LOW**~~ — **LANDED `333b23197`** (2026-09-13; archived to
+  `bugs/completed/`). `color::hsl`/`hsla`/`rotateHue` raised `ErrOverflow` for a finite
+  hue past ~3.3e21 degrees: `__color_wrapHue` took the fractional turn through
+  `Integer`-returning `math::floor`. Now `hue MOD 360.0`; 40 `.ir` goldens and 9
+  `.ncodesum`s regenerated, each proven to be only the helper.
 
 ## 2026-09-11 — repository security review intake
 
@@ -609,8 +610,10 @@ S2–S5 `parseIso`/`parse` accept an offset's `:SS`, trailing text, `+05:75`, an
 wrong code for `+24:00`; S6 `addDays(dt, 0)` moves a repeated hour; S7–S9 page claims
 ("pure", missing error lists, the `fixedOffset` formula); S10 no fixture sets `TZ`.
 Owner decisions: S1 **write seconds**; S6 **keep the offset** when it is still valid.
-The file is now `bugs/bug-520-datetime-is-not-correct-standalone.md`. **bug-603** was
-filed the same day for S1–S3 and merged into 520 — the number is used, no file exists.
+The file is now `bugs/bug-520-datetime-is-not-correct-standalone.md`. A datetime
+**bug-603** was filed the same day for S1–S3 and merged into 520, with no file of its own.
+That number was already taken: the colour hue-wrap `bugs/completed/bug-603-color-hue-wrap-overflows.md`
+(plan-125 intake above) is a different bug.
 **Named zones moved out of 520** into **plan-135-A–D** (`packages/timezones`, a source
 package over vendored IANA tzdb 2026d, never the host's zone data; zone names match
 ignoring case). plan-135-D cannot start until 520 closes. 518, 519 and 521 are landed.

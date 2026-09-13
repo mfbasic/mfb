@@ -401,7 +401,8 @@ Commit: —
 ## Interaction with other work
 
 - **bug-603** was filed earlier on 2026-09-13 for S1–S3 and is merged here. It is not a
-  separate document.
+  separate document. The number collides: `bugs/completed/bug-603-color-hue-wrap-overflows.md`
+  is an unrelated colour bug that already held 603.
 - **plan-135-D** (`timezones::toIso`/`parseIso`) builds its RFC 9557 reader and writer on
   `datetime::parseIso`/`toIso`, so it cannot start until this bug closes with Open
   Decision 1 = (a).
