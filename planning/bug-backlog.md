@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-13
-Open bugs: **12** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **11** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — integration rounds and what they taught
 
