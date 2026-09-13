@@ -283,3 +283,141 @@ END SUB
         ]
     );
 }
+
+/// plan-127-B Phase 1: a carry out of every byte, a borrow through a run of zeros, and
+/// three ways to reach zero, each canonical (never a negative zero).
+#[test]
+fn additive_carry_and_borrow_chains() {
+    let lines = run(
+        "big_b_carry_borrow",
+        r#"IMPORT io
+IMPORT big
+IMPORT collections
+
+FUNC show(bytes AS List OF Byte) AS String
+  MUT s AS String = "["
+  MUT i AS Integer = 0
+  WHILE i < len(bytes)
+    IF i > 0 THEN
+      s = s & ","
+    END IF
+    s = s & toString(collections::get(bytes, i))
+    i = i + 1
+  END WHILE
+  RETURN s & "]"
+END FUNC
+
+SUB main()
+  LET allOnes AS List OF Byte = [255, 255, 255, 255, 255, 255, 255, 255, 255]
+  LET twoTo72 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  LET one AS big::Int = big::fromInteger(1)
+  io::print(show(big::toBytes(big::add(big::fromBytes(allOnes, FALSE), one))))
+  io::print(show(big::toBytes(big::subtract(big::fromBytes(twoTo72, FALSE), one))))
+  io::print(show(big::toBytes(big::add(one, big::fromBytes(allOnes, FALSE)))))
+  io::print(show(big::toBytes(big::subtract(big::fromBytes(allOnes, TRUE), one))))
+  LET x AS big::Int = big::fromBytes(allOnes, TRUE)
+  LET zero AS big::Int = big::add(x, big::negate(x))
+  io::print(toString(len(zero.magnitude)) & " " & toString(zero.negative))
+  LET same AS big::Int = big::subtract(x, x)
+  io::print(toString(len(same.magnitude)) & " " & toString(same.negative))
+  LET oneMinusOne AS big::Int = big::add(one, big::fromInteger(-1))
+  io::print(toString(len(oneMinusOne.magnitude)) & " " & toString(oneMinusOne.negative))
+END SUB
+"#,
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "[0,0,0,0,0,0,0,0,0,1]",
+            "[255,255,255,255,255,255,255,255,255]",
+            "[0,0,0,0,0,0,0,0,0,1]",
+            "[0,0,0,0,0,0,0,0,0,1]",
+            "0 FALSE",
+            "0 FALSE",
+            "0 FALSE"
+        ]
+    );
+}
+
+/// plan-127-B Phase 1: `add`/`subtract` agree with `Integer` arithmetic on every pair of a
+/// signed spread, and commutativity, antisymmetry, `(a + b) - b = a` and associativity
+/// hold on a spread that leaves the `Integer` range.
+#[test]
+fn additive_identities_and_integer_oracle() {
+    let lines = run(
+        "big_b_identities",
+        r#"IMPORT io
+IMPORT big
+IMPORT collections
+
+SUB main()
+  LET small AS List OF Integer = [-70000, -65536, -300, -256, -255, -1, 0, 1, 255, 256, 300, 65535, 70000]
+  MUT mismatches AS Integer = 0
+  MUT checked AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < len(small)
+    MUT j AS Integer = 0
+    WHILE j < len(small)
+      LET x AS Integer = collections::get(small, i)
+      LET y AS Integer = collections::get(small, j)
+      LET bx AS big::Int = big::fromInteger(x)
+      LET by AS big::Int = big::fromInteger(y)
+      IF big::toInteger(big::add(bx, by)) <> x + y THEN
+        mismatches = mismatches + 1
+      END IF
+      IF big::toInteger(big::subtract(bx, by)) <> x - y THEN
+        mismatches = mismatches + 1
+      END IF
+      checked = checked + 2
+      j = j + 1
+    END WHILE
+    i = i + 1
+  END WHILE
+  io::print("integer oracle: " & toString(mismatches) & " mismatches of " & toString(checked))
+
+  LET wide AS List OF Byte = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  LET ones AS List OF Byte = [255, 255, 255, 255, 255, 255, 255, 255, 255, 255]
+  LET spread AS List OF big::Int = [big::fromBytes(wide, TRUE), big::fromBytes(ones, FALSE), big::fromInteger(-1), big::fromInteger(0), big::fromInteger(1), big::fromInteger(9223372036854775807), big::fromInteger(-9223372036854775807 - 1), big::fromBytes(ones, TRUE), big::fromBytes(wide, FALSE)]
+  MUT failures AS Integer = 0
+  MUT cases AS Integer = 0
+  MUT p AS Integer = 0
+  WHILE p < len(spread)
+    MUT q AS Integer = 0
+    WHILE q < len(spread)
+      LET a AS big::Int = collections::get(spread, p)
+      LET b AS big::Int = collections::get(spread, q)
+      IF NOT big::equals(big::add(a, b), big::add(b, a)) THEN
+        failures = failures + 1
+      END IF
+      IF NOT big::equals(big::subtract(a, b), big::negate(big::subtract(b, a))) THEN
+        failures = failures + 1
+      END IF
+      IF NOT big::equals(big::subtract(big::add(a, b), b), a) THEN
+        failures = failures + 1
+      END IF
+      MUT r AS Integer = 0
+      WHILE r < len(spread)
+        LET c AS big::Int = collections::get(spread, r)
+        IF NOT big::equals(big::add(big::add(a, b), c), big::add(a, big::add(b, c))) THEN
+          failures = failures + 1
+        END IF
+        cases = cases + 1
+        r = r + 1
+      END WHILE
+      cases = cases + 3
+      q = q + 1
+    END WHILE
+    p = p + 1
+  END WHILE
+  io::print("identities: " & toString(failures) & " failures of " & toString(cases))
+END SUB
+"#,
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "integer oracle: 0 mismatches of 338",
+            "identities: 0 failures of 972"
+        ]
+    );
+}

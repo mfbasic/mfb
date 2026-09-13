@@ -202,16 +202,33 @@ values and a reader will assume the other one.
 
 ### Phase 1 — additive arithmetic
 
-- [ ] `gen_big.rs`: `emit_add_magnitude`, `emit_sub_magnitude` per §4.1.
-- [ ] `func_add.rs`, `func_subtract.rs` — the shared sign dispatch of §4.2.
-- [ ] Tests — carry and borrow chains explicitly, not only random values:
+- [x] `gen_big.rs`: `emit_add_magnitude`, `emit_sub_magnitude` per §4.1. (Landed with their
+      caller `emit_add_int`, B-C3; `cargo build --release -p mfb --all-targets 2>&1 | grep -c
+      '^warning'` → `0`.)
+- [x] `func_add.rs`, `func_subtract.rs` — the shared sign dispatch of §4.2. (Both `errors: vec![]`;
+      `cargo test --release -p mfb --bin mfb big` → `19 passed; 0 failed`, including
+      `every_member_declares_exactly_its_errors_and_lowers_natively`.)
+- [x] Tests — carry and borrow chains explicitly, not only random values:
       `0xFF..FF + 1` (carry out of every byte, result one byte longer);
       `0x0100..00 - 1` (borrow through a run of zeros);
       `x + negate(x) = 0` and the result is `{[], FALSE}`, not negative zero;
       `subtract(a, b) = negate(subtract(b, a))`;
       addition is commutative and associative over a spread covering both signs.
-- [ ] Measure and record: 1e6 iterations of a 128-bit `add`, with the command.
-- [ ] Admit `add`/`subtract` in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`tests/runtime/rt_big_int.rs` `additive_carry_and_borrow_chains` →
+      `[0,0,0,0,0,0,0,0,0,1]`, `[255,255,255,255,255,255,255,255,255]`, three `0 FALSE`;
+      `additive_identities_and_integer_oracle` → `integer oracle: 0 mismatches of 338`,
+      `identities: 0 failures of 972`; `cargo test --release --test rt_big_int` → `7 passed; 0 failed`.)
+- [x] Measure and record: 1e6 iterations of a 128-bit `add`, with the command.
+      (`mfb build /tmp/p127-rt-b/perf_add && perf_add.out`, a `WHILE` of 1,000,000
+      `big::add` of two 16-byte values timed by `datetime::monotonicNanos` → `16 bytes; 59 ms
+      for 1000000 adds of two 128-bit values`, macOS aarch64 release, load average 63.00, so an
+      upper bound.)
+- [x] Admit `add`/`subtract` in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `12` in each of `macos_aarch64`, `linux_common`, `win_x86_64`;
+      `every_big_member_is_admitted_on_every_backend` passes in the 19 above.)
+- [x] Doc: `scripts/man-census.sh --fill big` → `12 12 12 12 19/19 11 4/4`;
+      `scripts/man-run-examples.sh big --run` → `examples: 16 built: 16 ran: 16 failed: 0`;
+      `--memory-scope` → `unclassified memory-vocabulary hits: 0`.
 
 Acceptance: both members declare an empty registry `errors` vector (plan-127-A Corrections C1); the carry and
 borrow chain tests pass; the negative-zero case yields canonical zero.
@@ -306,6 +323,17 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **B-C3 — every member's emitters land with that member.** Carried from plan-127-A C6 (the `mfb`
+  binary crate warns on an unused `pub(crate)` item): no B phase commits an emitter without its
+  caller. Phase 1 lands `emit_add_magnitude`/`emit_sub_magnitude`/`emit_add_int` with
+  `add`/`subtract`. Measured per phase: 0 warnings.
+- **B-C4 — runtime proof programs bind byte lists and use `MUT`/function-level `TRAP`**
+  (plan-127-A C4): an integer list literal passed straight to `big::fromBytes` is `List OF
+  Integer` and is rejected; `TRAP(e)` is a function-level block.
+- **B-C6 — the "Tests" location.** The Validation Plan says `tests/rt_big_int.rs`; the file is
+  `tests/runtime/rt_big_int.rs` (plan-127-A C3), built through `common::build_project` against the
+  release `mfb`. Registry facts stay in-crate (`src/codegen/builtins/big/mod.rs` tests).
 
 ## Summary
 

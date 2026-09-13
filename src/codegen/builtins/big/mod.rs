@@ -13,6 +13,7 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 mod func_abs;
+mod func_add;
 mod func_compare;
 mod func_equals;
 mod func_from_bytes;
@@ -20,6 +21,7 @@ mod func_from_integer;
 mod func_is_zero;
 mod func_negate;
 mod func_sign;
+mod func_subtract;
 mod func_to_bytes;
 mod func_to_integer;
 
@@ -119,6 +121,9 @@ pub(crate) fn register(r: &mut Registry) {
     func_sign::register(&mut pkg);
     func_abs::register(&mut pkg);
     func_negate::register(&mut pkg);
+    // Additive arithmetic (plan-127-B Phase 1).
+    func_add::register(&mut pkg);
+    func_subtract::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -191,6 +196,8 @@ mod tests {
         ("big.sign", &[]),
         ("big.abs", &[]),
         ("big.negate", &[]),
+        ("big.add", &[]),
+        ("big.subtract", &[]),
     ];
 
     #[test]
@@ -288,6 +295,9 @@ SUB main()
   LET e AS big::Int = big::negate(b)
   io::print(toString(big::toInteger(d)))
   io::print(toString(len(little) + len(wire) + len(e.magnitude)))
+  LET s AS big::Int = big::add(a, b)
+  LET t AS big::Int = big::subtract(a, b)
+  io::print(toString(big::sign(s)) & toString(big::sign(t)))
 END SUB
 "#;
         for target in crate::testutil::CodeTarget::ALL {

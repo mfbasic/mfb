@@ -401,3 +401,245 @@ fn emit_trim(
         abi::label(&sign_ok),
     ]);
 }
+
+// ---------------------------------------------------------------------------
+// Additive arithmetic (plan-127-B Phase 1).
+//
+// Byte limbs keep every intermediate small: a byte sum plus a carry is at most
+// `255 + 255 + 1 = 511`, and a byte difference minus a borrow is at least
+// `0 - 255 - 1 = -256`, so no step needs a widening primitive and none can overflow.
+// ---------------------------------------------------------------------------
+
+/// `|a| + |b|` into a fresh result sized `max(countA, countB) + 1`. Returns the result's
+/// slots and the slot holding how many bytes were written (the full capacity; the top
+/// byte is the final carry, which `emit_build_int` trims when it is zero). Branches to
+/// `alloc_fail` when the result cannot be made.
+pub(crate) fn emit_add_magnitude(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    a: &IntSlots,
+    b: &IntSlots,
+    tag: &str,
+    alloc_fail: &str,
+) -> (ResultSlots, usize) {
+    let symbol = builder.current_symbol.clone();
+    let capacity = builder.allocate_stack_object(&format!("big_{tag}_capacity"), 8);
+    let longer = format!("{symbol}_{tag}_longer");
+    let count_a = vregs.next();
+    let count_b = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&count_a, abi::stack_pointer(), a.count),
+        abi::load_u64(&count_b, abi::stack_pointer(), b.count),
+        abi::compare_registers(&count_a, &count_b),
+        abi::branch_ge(&longer),
+        abi::move_register(&count_a, &count_b),
+        abi::label(&longer),
+        abi::add_immediate(&count_a, &count_a, 1),
+        abi::store_u64(&count_a, abi::stack_pointer(), capacity),
+    ]);
+    let result = emit_alloc_magnitude(builder, vregs, capacity, tag, alloc_fail);
+
+    // Everything reloads after the allocation call.
+    let add_loop = format!("{symbol}_{tag}_add");
+    let skip_a = format!("{symbol}_{tag}_skip_a");
+    let skip_b = format!("{symbol}_{tag}_skip_b");
+    let add_done = format!("{symbol}_{tag}_add_done");
+    let index = vregs.next();
+    let acc = vregs.next();
+    let dst = vregs.next();
+    let data_a = vregs.next();
+    let data_b = vregs.next();
+    let count_a = vregs.next();
+    let count_b = vregs.next();
+    let limit = vregs.next();
+    let cursor = vregs.next();
+    let byte = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&dst, abi::stack_pointer(), result.data),
+        abi::load_u64(&data_a, abi::stack_pointer(), a.data),
+        abi::load_u64(&data_b, abi::stack_pointer(), b.data),
+        abi::load_u64(&count_a, abi::stack_pointer(), a.count),
+        abi::load_u64(&count_b, abi::stack_pointer(), b.count),
+        abi::load_u64(&limit, abi::stack_pointer(), capacity),
+        abi::subtract_immediate(&limit, &limit, 1),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::move_immediate(&acc, "Integer", "0"),
+        abi::label(&add_loop),
+        abi::compare_registers(&index, &limit),
+        abi::branch_eq(&add_done),
+        // acc holds the incoming carry; add each operand's byte where it has one.
+        abi::compare_registers(&index, &count_a),
+        abi::branch_ge(&skip_a),
+        abi::add_registers(&cursor, &data_a, &index),
+        abi::load_u8(&byte, &cursor, 0),
+        abi::add_registers(&acc, &acc, &byte),
+        abi::label(&skip_a),
+        abi::compare_registers(&index, &count_b),
+        abi::branch_ge(&skip_b),
+        abi::add_registers(&cursor, &data_b, &index),
+        abi::load_u8(&byte, &cursor, 0),
+        abi::add_registers(&acc, &acc, &byte),
+        abi::label(&skip_b),
+        // Low byte out; the rest is the carry into the next position.
+        abi::add_registers(&cursor, &dst, &index),
+        abi::store_u8(&acc, &cursor, 0),
+        abi::shift_right_immediate(&acc, &acc, 8),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&add_loop),
+        abi::label(&add_done),
+        // The final carry is the top byte.
+        abi::add_registers(&cursor, &dst, &index),
+        abi::store_u8(&acc, &cursor, 0),
+    ]);
+    (result, capacity)
+}
+
+/// `|larger| - |smaller|` into a fresh result sized `countLarger`. **The caller
+/// guarantees `|larger| >= |smaller|`** — the sign dispatch in [`emit_add_int`] does so
+/// with [`emit_compare_magnitude`]; this emitter does not check. Returns the result's
+/// slots and the slot holding the written byte count. Branches to `alloc_fail` when the
+/// result cannot be made.
+pub(crate) fn emit_sub_magnitude(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    larger: &IntSlots,
+    smaller: &IntSlots,
+    tag: &str,
+    alloc_fail: &str,
+) -> (ResultSlots, usize) {
+    let symbol = builder.current_symbol.clone();
+    let result = emit_alloc_magnitude(builder, vregs, larger.count, tag, alloc_fail);
+
+    let sub_loop = format!("{symbol}_{tag}_sub");
+    let no_subtrahend = format!("{symbol}_{tag}_no_subtrahend");
+    let no_borrow = format!("{symbol}_{tag}_no_borrow");
+    let sub_done = format!("{symbol}_{tag}_sub_done");
+    let index = vregs.next();
+    let borrow = vregs.next();
+    let diff = vregs.next();
+    let dst = vregs.next();
+    let data_l = vregs.next();
+    let data_s = vregs.next();
+    let count_l = vregs.next();
+    let count_s = vregs.next();
+    let cursor = vregs.next();
+    let byte = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&dst, abi::stack_pointer(), result.data),
+        abi::load_u64(&data_l, abi::stack_pointer(), larger.data),
+        abi::load_u64(&data_s, abi::stack_pointer(), smaller.data),
+        abi::load_u64(&count_l, abi::stack_pointer(), larger.count),
+        abi::load_u64(&count_s, abi::stack_pointer(), smaller.count),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::move_immediate(&borrow, "Integer", "0"),
+        abi::label(&sub_loop),
+        abi::compare_registers(&index, &count_l),
+        abi::branch_eq(&sub_done),
+        abi::add_registers(&cursor, &data_l, &index),
+        abi::load_u8(&diff, &cursor, 0),
+        abi::subtract_registers(&diff, &diff, &borrow),
+        abi::compare_registers(&index, &count_s),
+        abi::branch_ge(&no_subtrahend),
+        abi::add_registers(&cursor, &data_s, &index),
+        abi::load_u8(&byte, &cursor, 0),
+        abi::subtract_registers(&diff, &diff, &byte),
+        abi::label(&no_subtrahend),
+        // A negative byte difference borrows one from the next position.
+        abi::move_immediate(&borrow, "Integer", "0"),
+        abi::compare_immediate(&diff, "0"),
+        abi::branch_ge(&no_borrow),
+        abi::add_immediate(&diff, &diff, 256),
+        abi::move_immediate(&borrow, "Integer", "1"),
+        abi::label(&no_borrow),
+        abi::add_registers(&cursor, &dst, &index),
+        abi::store_u8(&diff, &cursor, 0),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&sub_loop),
+        abi::label(&sub_done),
+    ]);
+    (result, larger.count)
+}
+
+/// `a + b` (or `a - b` when `subtract`) as signed numbers, normalized, in
+/// `RESULT_VALUE_REGISTER` (plan-127-B §4.2). With `sb` the sign of `b` flipped for a
+/// subtraction:
+///
+/// - equal signs: the magnitudes add and the result takes that sign;
+/// - opposing signs: the smaller magnitude comes off the larger and the result takes
+///   the larger operand's sign. `emit_build_int` clears the sign of a zero result, which
+///   is why `1 + (-1)` is canonical zero and not a negative zero.
+pub(crate) fn emit_add_int(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    a: &IntSlots,
+    b: &IntSlots,
+    subtract: bool,
+    tag: &str,
+    alloc_fail: &str,
+) {
+    let symbol = builder.current_symbol.clone();
+    let sign_a = builder.allocate_stack_object(&format!("big_{tag}_sign_a"), 8);
+    let sign_b = builder.allocate_stack_object(&format!("big_{tag}_sign_b"), 8);
+    let opposing = format!("{symbol}_{tag}_opposing");
+    let b_larger = format!("{symbol}_{tag}_b_larger");
+    let joined = format!("{symbol}_{tag}_joined");
+    let flag_a = vregs.next();
+    let flag_b = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&flag_a, abi::stack_pointer(), a.negative),
+        abi::load_u64(&flag_b, abi::stack_pointer(), b.negative),
+    ]);
+    if subtract {
+        let one = vregs.next();
+        builder.instructions.extend([
+            abi::move_immediate(&one, "Integer", "1"),
+            abi::exclusive_or_registers(&flag_b, &flag_b, &one),
+        ]);
+    }
+    builder.instructions.extend([
+        abi::store_u64(&flag_a, abi::stack_pointer(), sign_a),
+        abi::store_u64(&flag_b, abi::stack_pointer(), sign_b),
+        abi::compare_registers(&flag_a, &flag_b),
+        abi::branch_ne(&opposing),
+    ]);
+
+    // Equal effective signs: add the magnitudes.
+    let (sum, sum_count) =
+        emit_add_magnitude(builder, vregs, a, b, &format!("{tag}_sum"), alloc_fail);
+    emit_build_int(builder, vregs, &sum, sum_count, sign_a, &format!("{tag}_sum"));
+    builder
+        .instructions
+        .extend([abi::branch(&joined), abi::label(&opposing)]);
+
+    // Opposing signs: subtract the smaller magnitude from the larger.
+    let order = vregs.next();
+    emit_compare_magnitude(builder, vregs, a, b, &order, &format!("{tag}_order"));
+    builder.instructions.extend([
+        abi::compare_immediate(&order, "0"),
+        abi::branch_lt(&b_larger),
+    ]);
+    let (a_minus_b, a_minus_b_count) =
+        emit_sub_magnitude(builder, vregs, a, b, &format!("{tag}_ab"), alloc_fail);
+    emit_build_int(
+        builder,
+        vregs,
+        &a_minus_b,
+        a_minus_b_count,
+        sign_a,
+        &format!("{tag}_ab"),
+    );
+    builder
+        .instructions
+        .extend([abi::branch(&joined), abi::label(&b_larger)]);
+    let (b_minus_a, b_minus_a_count) =
+        emit_sub_magnitude(builder, vregs, b, a, &format!("{tag}_ba"), alloc_fail);
+    emit_build_int(
+        builder,
+        vregs,
+        &b_minus_a,
+        b_minus_a_count,
+        sign_b,
+        &format!("{tag}_ba"),
+    );
+    builder.instructions.push(abi::label(&joined));
+}

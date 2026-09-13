@@ -102,6 +102,8 @@ impl NativeBackend for Backend {
                 "big.sign",
                 "big.abs",
                 "big.negate",
+                "big.add",
+                "big.subtract",
                 "crypto.seal",
                 "crypto.open",
                 "datetime.nowNanos",

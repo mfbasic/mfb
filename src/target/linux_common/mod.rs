@@ -117,6 +117,8 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "big.sign",
     "big.abs",
     "big.negate",
+    "big.add",
+    "big.subtract",
     "crypto.seal",
     "crypto.open",
     "datetime.nowNanos",

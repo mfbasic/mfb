@@ -522,7 +522,7 @@ codegen::builtins::big target::tests::every_big_member codegen::builtins::tests`
 `compare_is_a_total_order_and_the_predicates_agree` and `negate_abs_and_the_total_decoder`;
 `man-census --fill big` 10/10/10, params 15/15, types 4/4; memory-scope 0; `man-run-examples big
 --run` 14 of 14; non-`big` `.ncode` identical to the HEAD baseline on all five targets.
-Commit: —
+Commit: 6e8aaf0ed
 
 ## Validation Plan
 

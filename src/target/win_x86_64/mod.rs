@@ -275,6 +275,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "big.sign",
     "big.abs",
     "big.negate",
+    "big.add",
+    "big.subtract",
     "crypto.seal",
     "crypto.open",
     // TLS client + server over Schannel (plan-47-J).
