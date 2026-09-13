@@ -20,7 +20,8 @@ References: plan-134-A; plan-134-D (`needs_graph_copy`, move sites); `mfb spec l
 memory-semantics` §14.2 (record/union/collection construction consume the expression result),
 §14.6.
 
-Prerequisites: see plan-134-A; plan-134-D complete (`ls planning/completed/plan-134-D-*`).
+Prerequisites: see plan-134-A; plan-134-D complete (`ls planning/completed/plan-134-D-*`). — MET
+2026-09-13 (`planning/completed/plan-134-D-copy-insertion-at-owning-stores.md`).
 
 ## 1. Goal
 
@@ -89,34 +90,60 @@ The E test checks independence; the `--debug` alloc counts check no double copy.
 
 ### Phase 1 — census and RED
 
-- [ ] Measure the construct lowerings: `grep -rn "fn lower_.*construct\|NirValue::Constructor\|NirValue::ListLiteral\|NirValue::MapLiteral" src/codegen --include='*.rs'`
+- [x] Measure the construct lowerings: `grep -rn "fn lower_.*construct\|NirValue::Constructor\|NirValue::ListLiteral\|NirValue::MapLiteral" src/codegen --include='*.rs'`
       and every caller of the writers in §2; record each operand path (file::symbol, `lower_value`
-      or `lower_value_owned`) in §2 with the count.
-- [ ] Add to the census the in-place arms' ITEM operands, which the §2 table does not list
+      or `lower_value_owned`) in §2 with the count. — §2 "Census": 22 distinct paths, every operand lowered with
+      `lower_value` (survey of every constructor/wrap/`WITH`/literal/in-place/rebuild/STATE store,
+      rows spot-checked: `builder_values.rs` Constructor arm `self.lower_value(arg)?` at ~2109 and
+      ~2138, `lower_abi_inline_args` ~2750, `lower_list_literal`/`lower_map_literal` ~1258/~1364,
+      `StateAssign` `lower_value` + `claim_pending_temp`).
+- [x] Add to the census the in-place arms' ITEM operands, which the §2 table does not list
       (found by plan-134-D's audit, recorded in plan-134-A "Verified properties"): 
       `try_inplace_append_assign`, `try_inplace_bulk_append_assign`, `try_inplace_prepend_assign`,
       `try_inplace_insert_assign`, `try_inplace_set_assign` (List and Map) and
       `try_inplace_set_add_assign` (`collection/assign/builder_inplace_assign.rs`) lower the item
       with `lower_value` and byte-copy it into the destination, so a constructor argument that
       aliases the destination builds a self-cycle or a dangling pointer. Record each with its
-      lowering call in §2.
-- [ ] `tests/runtime/rt_recursive_value_construction_copies.rs` (register in `Cargo.toml`):
+      lowering call in §2. — the `try_inplace_*` row of §2's census (item
+      `self.lower_value(&args[..])?`, written by `emit_copy_payload_to_collection` or the bulk
+      block copy).
+- [x] `tests/runtime/rt_recursive_value_construction_copies.rs` (register in `Cargo.toml`):
       one program, one line per store in §2 — a node read after being put into a record field,
       a union variant, a list literal, `append`, `insert`, `set`, `prepend`, a `Map` value, a
       `WITH` replacement, a `STATE` field — then the source's list is rebuilt and each holder
       re-read. Also the self-referencing construction: `MUT xs AS List OF Node = []`, then
       `xs = collections::append(xs, Node[kids := xs, tag := 1])` twice, then `collections::get`
       each element — must print `len xs=2`, `first.kids=0`, `second.kids=1` (today: SIGSEGV at
-      the first `get`, pre-plan compiler and plan-134-B walker alike). Confirm it fails today.
+      the first `get`, pre-plan compiler and plan-134-B walker alike). Confirm it fails today. —
+      two tests: `a_recursive_value_built_into_another_is_independent_of_its_source` (one `MUT xs`
+      stored into a record field, a union variant, a list literal, `append`, `insert`, `set`,
+      `prepend`, a map value, `WITH`, and a `STATE` replacement, then grown in place) and
+      `a_value_built_from_the_list_it_is_appended_to_holds_the_old_list`. Both die with SIGSEGV
+      on the plan-134-D compiler (a `/tmp` build of the first printed `record=96`, `union=96`
+      before crashing).
+
+- [ ] Census the builtins that copy payloads from one collection into another (the rebuilding
+      store members behind `lower_abi_inline_args`, and every collection transform that
+      byte-copies elements), each with its copy primitive; record in §2 with the count.
+- [ ] Extend the RED test with one such builtin per copy primitive (e.g. `LET ys =
+      collections::append(xs, item)` on a non-`MUT` source, `collections::reverse`), each read after
+      the source's element graph changed through a `MUT` copy; confirm it fails.
 
 Acceptance: §2 has no UNMEASURED row; the test fails on main.
   Check: `cargo test --release --test rt_recursive_value_construction_copies` → failed (est. 2 min).
+  Result: met — §2 carries the measured census; `cargo test --release --no-fail-fast --test
+  rt_recursive_value_construction_copies` → `0 passed; 2 failed`, both "status
+  ExitStatus(unix_wait_status(11))" (SIGSEGV).
 Commit: —
 
 ### Phase 2 — copy at each store
 
 - [ ] Switch each operand path found in Phase 1 to `lower_value_owned`, including the in-place
       arms' item operands.
+- [ ] Collection-to-collection copies from the census deep-copy the recursive edges of every
+      copied inline payload (the walker's edge enumeration over the new block's range, the shape
+      `fix_collection_transfer_payloads` already applies to a thread transfer), and the rebuilding
+      store members copy their item operand the way `lower_value_stored` does.
 - [ ] Inline payload edge copy after the byte copy (`emit_copy_payload_to_collection`,
       `emit_wrap_record_in_union`), reusing the walker's edge enumeration.
 - [ ] `StateAssign` → `lower_value_owned`.
@@ -153,7 +180,29 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Prerequisite re-run** (2026-09-13): `ls planning/completed/plan-134-D-*` → one file — MET.
+- **Not `lower_value_owned`: a construction-store helper, `lower_value_stored`.** Phase 2's first
+  task says to switch each operand path to `lower_value_owned`. For a flat value that function
+  copies an aliasing source with `copy_flat_block` and claims a fresh value's pending temp
+  (`builder_values.rs::lower_value_owned`: `claim_pending_temp(&result)`) — but a construction
+  writer byte-copies a flat payload itself, so the flat copy would be redundant and the claimed
+  temp would never be freed (a leak), contradicting this letter's non-goal "Flat payloads keep
+  their existing byte copies, byte-identical". `lower_value_stored` is `lower_value` plus only
+  plan-134-D's recursive branch (`needs_graph_copy` + aliasing source, not a last use, not a
+  borrowed view → `copy_value_to_current_arena`), with no temp claim; flat operands emit exactly
+  what they did. Switched: the record `Constructor` argument loop (not the register-native vector
+  lanes), `UnionWrap`, `WITH` updates, list/map-literal values and set-literal items, the
+  `StateAssign` whole replace and the STATE in-place append operand, and every in-place arm's
+  `item`/`val`/`rhs` operand in `builder_inplace_assign.rs` (keys and indices are never
+  recursive and keep `lower_value`).
+- **The census missed collection-to-collection payload copies.** The 22 paths are stores of ONE
+  operand. Builtins that build a new collection by byte-copying payloads out of an existing one —
+  the rebuilding `append`/`prepend`/`insert`/`set`/`add` when the in-place arm declines (args
+  pre-lowered by `lower_abi_inline_args`, which also feeds `get`, `len` and every other inline
+  builtin, so it cannot copy blindly), and transforms such as reverse/sort/slice/concat/filter —
+  leave each copied inline record/union payload's recursive edges pointing at the SOURCE
+  collection's children. Sharing between two owners is unobservable until letter G/H free both,
+  where it is a double free. Added below as Phase 1/2 tasks (append-only).
 
 ## Summary
 
