@@ -326,9 +326,17 @@ Commit: e0dc2b8c7
       unchanged`, `1 build(s), 0 golden(s) rewritten, 1 failure(s)`. The sha256 of all 10 files in
       its `golden/` is unchanged, no stale dump was left beside the fixture, and the source was
       restored byte-for-byte from its saved copy.
-- [ ] Linux host: on box 2228, run the neutral run on a synced tree (use `git archive`, per memory
+- [x] Linux host: on box 2228, run the neutral run on a synced tree (use `git archive`, per memory
       `macos-tar-appledouble-breaks-a-linux-build`) → no diff in the macOS goldens. This is the
       `HOST` bug fix.
+      Run 2026-09-12 on box **2227** (see Corrections for why not 2228). The tree was a
+      `git archive HEAD` plus `regen-native-goldens.sh` with the `sha256_of` fix, and `mfb` was built on
+      the box (`Finished release profile … in 145m 19s`). `/tmp/p131-linux-neutral.sh` reported:
+      `host: Linux x86_64`, regen exit 0 in 1739 s, `166 build(s), 213 golden(s) rewritten, 0
+      failure(s)`, and a sha256sum snapshot of all 7596 files under `tests/` IDENTICAL before and
+      after. Among the unchanged files are the 29 `macos-aarch64` sum goldens. On a Linux host they
+      were built with `-target macos-aarch64` and reproduced their committed sums, which is exactly
+      the case the old `HOST=${2:-macos-aarch64}` default got wrong.
 - [x] `git rm` the three old regen scripts.
       `regen-ncodesum.sh`, `regen-outside-ncode.sh` and `regen-rt-goldens.sh` are removed. Nothing
       still needed them: every Phase 4 run uses `regen-native-goldens.sh`.
@@ -360,11 +368,13 @@ Commit: e0dc2b8c7
 
 Acceptance:
 - The neutral, mutation, failure and Linux-host runs all pass as specified.
+  (Met 2026-09-12: all four recorded above. The local runs used the scratch worktree
+  `/tmp/p131-regen`, and the Linux-host run used box 2227.)
 - `cargo test --test gate_lock_covers_every_writer --test gate_mutual_exclusion --test gate_release_on_normal_exit --no-fail-fast` passes.
 - `git grep -n -e regen-ncodesum -e regen-outside-ncode -e regen-rt-goldens -- ':!planning/completed' ':!bugs/completed' ':!planning/plan-131-*'` → 0.
   (Met 2026-09-12: exit 1, no hits. The three `tests/gate` tests pass, 1 + 5 + 3, exit 0.)
 
-Commit: —
+Commit: e0dc2b8c7
 
 ## Validation Plan
 
