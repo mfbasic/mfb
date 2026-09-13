@@ -467,7 +467,7 @@ Commit: b6668242d
 Acceptance: every tzdb name reaches data through the generated dispatcher, and nothing
 else does.
   Check: `target/release/mfb build -q packages/timezones && target/release/mfb test packages/timezones` → `Wrote package`, then `Fail: 0` with the `data` group present (est. 1 min).
-Commit: —
+Commit: df56b1bda
 
 ## Validation Plan
 

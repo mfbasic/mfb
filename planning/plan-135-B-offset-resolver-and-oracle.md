@@ -300,25 +300,36 @@ Files:
 It is a pure function with no callers yet, so it lands safely: it changes no existing
 behavior, and it concentrates the letter's risk behind its own tests.
 
-- [ ] `packages/timezones/src/posix.mfb`: `TYPE LocalType`, `FUNC footerType(footer AS
+- [x] `packages/timezones/src/posix.mfb`: `TYPE LocalType`, `FUNC footerType(footer AS
       String, seconds AS Integer) AS LocalType`, and the parse/date/event helpers of
       § 4.1 as `PRIVATE FUNC`s. A malformed footer FAILs with
-      `error(77050003, "timezones: corrupt footer rule …")`.
-- [ ] `packages/timezones/src/test_posix.mfb`. Every expected value in these cases comes
+      `error(77050003, "timezones: corrupt footer rule …")`. (`ruleDayOfMonth` and
+      `weekdayOfFirst` are package-visible so the weekday pin can test them; see
+      Corrections.)
+- [x] `packages/timezones/src/test_posix.mfb`. Every expected value in these cases comes
       from `zoneinfo` with `reset_tzpath([])` in `oracle/.venv`, and the exact one-liner
-      is pasted above each `TCASE`. Cases:
-  - [ ] `EST5EDT,M3.2.0,M11.1.0` at 2026-03-08 06:59:59Z / 07:00:00Z, and at
-        2026-11-01 05:59:59Z / 06:00:00Z.
-  - [ ] A southern-hemisphere rule, `<+1030>-10:30<+11>-11,M10.1.0,M4.1.0` (Lord Howe),
-        either side of both 2026 changes.
-  - [ ] Both RFC 8536 §3.3.1 extension footers from § 2, either side of each 2030
-        change.
-  - [ ] A no-DST footer: `<-05>5` → −18000 `-05`.
-  - [ ] The last-week rule `M10.5.0` in a month where week 5 does not exist.
-  - [ ] Year boundary: 1 January 00:00:00 local, for a southern rule.
-  - [ ] Weekday-mapping pin: the first Sunday of March 2026 is the 1st.
-  - [ ] A malformed footer traps `77050003`, written in the `expectTrap` style of
-        `packages/jwt/src/test_verify.mfb`.
+      is pasted above each `TCASE`. Cases (`mfb test packages/timezones` → `* posix`,
+      9 `[P]`, `Tests: 16  Pass: 16  Fail: 0`):
+  - [x] `EST5EDT,M3.2.0,M11.1.0` at 2026-03-08 06:59:59Z / 07:00:00Z, and at
+        2026-11-01 05:59:59Z / 06:00:00Z. (1772953199/1772953200, 1793512799/1793512800)
+  - [x] A southern-hemisphere rule, `<+1030>-10:30<+11>-11,M10.1.0,M4.1.0` (Lord Howe),
+        either side of both 2026 changes. (1775314799/800, 1791041399/400)
+  - [x] Both RFC 8536 §3.3.1 extension footers from § 2, either side of each 2030
+        change. (Asia/Jerusalem `…/26` 1900972799/800, 1919285999/6000; America/Nuuk
+        `…/-1` 1901149199/200, 1919293199/200)
+  - [x] A no-DST footer: `<-05>5` → −18000 `-05`. (America/Lima at 1780000000, and at
+        −2^40)
+  - [x] The last-week rule `M10.5.0` in a month where week 5 does not exist. (Europe/London
+        `GMT0BST,M3.5.0/1,M10.5.0`: `ruleDayOfMonth(2026,10,5,0)` = 25; the switch at
+        1792890000)
+  - [x] Year boundary: 1 January 00:00:00 local, for a southern rule. (Lord Howe
+        1767185999/1767186000 → +11 both)
+  - [x] Weekday-mapping pin: the first Sunday of March 2026 is the 1st.
+        (`weekdayOfFirst(2026,3)` = 0, `ruleDayOfMonth(2026,3,1,0)` = 1, plus 1970-01 → 4
+        and 1969-12 → 1 across the epoch)
+  - [x] A malformed footer traps `77050003`, written in the `expectTrap` style of
+        `packages/jwt/src/test_verify.mfb`. (`J60` date, a leading digit, DST with no
+        rule, month 13, empty `<>`)
 
 Acceptance: every evaluator case passes with values independently produced by `zoneinfo`.
   Check: `target/release/mfb test packages/timezones` → the `posix` group all `[P]`, `Fail: 0` (est. 1 min).
@@ -394,6 +405,21 @@ Commit: —
   additive.
 
 ## Corrections
+
+- **Phase 1: the weekday comes from epoch days, not `datetime::weekday`.** § 4.1 step 1
+  called for `weekdayIndex(datetime::date(y, m, 1))`, and § 2 marked the enum mapping
+  UNVERIFIED. `weekdayOfFirst` computes `floorMod(floorDiv(utcMidnight(y, m, 1), 86400)
+  + 4, 7)` instead, because 1970-01-01 was a Thursday. That needs no enum ordinal. The
+  pin the plan asked for tests it: 2026-03 → 0 (Python: `date(2026,3,1)` is `Sunday`),
+  2026-10 → 4 (`Thursday`), and 1969-12 → 1 (Monday), a pre-epoch month.
+- **Phase 1: MFBASIC `/` and `MOD` truncate toward zero.** A probe printed
+  `div -3 3 -1` for `-7 / 2`, `7 / 2`, `-86401 / 86400`, and `mod -1 1` for `-7 MOD 3`,
+  `7 MOD -3`. The evaluator therefore uses its own `floorDiv`/`floorMod` for pre-epoch
+  dates. § 4.1 had assumed floor semantics without saying so.
+- **Phase 1: § 4.1's grammar marks `"," rule "," rule` optional after `dst`.** RFC 8536
+  allows a DST footer without rules, but plan-135-A's generator rejects one. The
+  evaluator therefore FAILs `77050003` on it (a test covers `EST5EDT`), rather than
+  guessing POSIX's implementation-defined default rules.
 
 ## Summary
 
