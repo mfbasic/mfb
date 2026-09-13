@@ -119,15 +119,18 @@ Commit: —
 - [ ] Read `scripts/test-accept-selftest.sh`'s usage. Add `tests/gate/script_selftests.rs` and its
       `[[test]]` entry. Run it → pass. Mutation: make one selftest assertion false in the working
       tree → the test fails; revert.
-- [ ] Fresh worktree: `git worktree add --detach /tmp/wt-131e HEAD` and run both new tests there →
-      pass. Then remove the worktree.
+- [ ] ~~Fresh worktree: build and run both new tests in `git worktree add --detach /tmp/wt-131e`~~ —
+      replaced 2026-09-12 (a fresh worktree is a full cold build). The failure it guards against is a
+      census that passes only because of an untracked/ignored local file. Cheapest check that fails on
+      exactly that: `git status --short --ignored scripts tools` → no ignored or untracked file under
+      the census roots (est. seconds).
 - [ ] AGENTS.md: add the §3 rule.
 - [ ] Record the memory update needed: a feedback/project lesson that `scripts/` is indexed and
       census-guarded, and where generators and probes go. A sub-agent makes it, per AGENTS.md.
 
 Acceptance:
 - `cargo test --test scripts_index_is_complete --test script_selftests --test gate_lock_covers_every_writer --no-fail-fast`
-  passes in the main tree and the fresh worktree.
+  passes (est. <3 min incremental), and the ignored-file check above is empty.
 - All mutation checks failed as recorded.
 
 Commit: —
@@ -144,6 +147,8 @@ Commit: —
       "Run by" fields for the five network files, to name the CI job.
 - [ ] Prove the job locally as far as possible: run the exact step commands on the runner's OS
       class (Linux box 2227/2228, or locally for macOS) → exit 0; and push nothing without asking.
+      Box: 2223 (native aarch64 Linux), not the emulated 2227/2228; `bash scripts/check-net-harness-selftest.sh
+      <mfb>` (est. <5 min) → exit 0.
 
 Acceptance:
 - The workflow YAML parses (`python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))' <file>`).
@@ -155,7 +160,8 @@ Commit: —
 ## Validation Plan
 
 - Tests: the two new `tests/gate` tests plus the existing census and lock tests.
-- Full suite before archiving plan-131:
+- Final gate — runs ONCE for all of plan-131, after E's last phase; no letter repeats it. Start each
+  in the background and keep working; measure and record each wall time:
   - `cargo test --release --no-fail-fast` (per memory, never piped to `tail`);
   - `sh scripts/check-generated.sh`;
   - `bash scripts/artifact-gate.sh target/release/mfb all`;

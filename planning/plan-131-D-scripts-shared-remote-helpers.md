@@ -101,15 +101,17 @@ lines are compared with timings and temp paths normalized away.
 
 - [ ] Count the duplicated lines per helper candidate in each script, citing a
       `grep -c`/`sed -n` per block. Record a table: helper → scripts → lines.
-- [ ] Record each script's baseline PASS/FAIL lines on its box, normalized with
-      `grep -E '^(PASS|FAIL|SKIP)' | sed -E 's/[0-9]+(\.[0-9]+)?(ms|s)\b/<t>/g'`:
-      - `test-winprocess`: 2230
-      - `test-winapp`: 2230
-      - `test-appimage`: default boxes
-      - `test-canvas-vulkan`: 2228
-      - `test-macapp`: local
-      - `linux-runtime-proof`: 2228, `linux-x86_64`
-      Store them under `/tmp/131d-baseline/`, and paste the file line counts here.
+- [ ] ~~Record each script's baseline PASS/FAIL lines on its box before migrating~~ — replaced
+      2026-09-12: a before-run doubles every remote proof and cannot fail on anything the after-run
+      misses (a migration that breaks a helper produces a FAIL or an error in the after-run). Instead,
+      list each script's EXPECTED lines from its own source (`grep -n -E 'pass |fail |ok:|FAIL|SKIP'`
+      per script, est. seconds) and the box each runs on:
+      - `test-winprocess`, `test-winapp`: 2230 (Windows).
+      - `test-appimage`, `test-canvas-vulkan`: an x86_64 box (2227/2228 are EMULATED; this proof needs
+        an x86_64 AppImage, so there is no native box; one run each, est. 15–30 min, run in background).
+      - `test-macapp`: local, non-GUI run only; the GUI legs need the user's explicit go-ahead.
+      - `linux-runtime-proof`: `FILTER=<one fixture>` on 2223 `linux-aarch64` (native), not a full sweep
+        on 2228 (est. <5 min).
 - [ ] Present the measurement to the user if the Open Decision was conditional on it.
 
 Acceptance: the duplication table and six baselines are recorded.
@@ -133,7 +135,7 @@ Commit: —
 For each script, in the §3 order:
 
 - [ ] Replace its local copies with the helpers.
-- [ ] Re-run it on the same box, normalize the output, and `diff` it against its Phase 1 baseline → empty.
+- [ ] Run it once on its box (Phase 1 list) → every expected PASS line present, 0 FAIL, only the SKIPs its header documents (est. per the Phase 1 list; background the x86_64 ones).
 - [ ] Record `wc -l` before and after.
 
 The rows:
@@ -148,7 +150,7 @@ The rows:
       within `ConnectTimeout` + 5 s instead of hanging.
 
 Acceptance:
-- Six empty baseline diffs.
+- Each migrated script's single run: 0 FAIL, expected PASS lines present.
 - The closed-port run fails fast.
 - `grep -nE '\bssh -p|\bscp -P' scripts/test-*.sh scripts/linux-runtime-proof.sh` → 0 (all go
   through the helpers).
@@ -159,7 +161,7 @@ Commit: —
 
 - Tests: `remote-common-selftest.sh`. It is added to `scripts/README.md` by E, and wiring it into
   a `tests/gate` spawn test is sub-plan E's job.
-- Runtime proof: the six box baselines, diffed.
+- Runtime proof: one post-migration run per script on the box named in Phase 1; no before/after baselines.
 - Doc sync: `.ai/remote_systems.md` gains a short section: "remote proofs source
   `scripts/remote-common.sh`; `MFB_SSH_CONNECT_TIMEOUT`".
 

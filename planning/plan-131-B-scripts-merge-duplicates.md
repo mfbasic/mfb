@@ -395,7 +395,7 @@ Commit: e0dc2b8c7
 
 - Tests: the three `tests/gate` lock/census tests.
 - Differential proofs: recorded in each phase.
-- Neutrality: `bash scripts/artifact-gate.sh target/release/mfb all` → 0 diffs at the end of B.
+- ~~Neutrality: `artifact-gate.sh all` at the end of B~~ — B changes no compiler input; the scoped check is the three `tests/gate` tests (`cargo test --test gate_lock_covers_every_writer --test gate_mutual_exclusion --test gate_release_on_normal_exit`, est. <2 min incremental). The full gate runs once, at the end of plan-131.
 - Doc sync: `.ai/testing-gates.md`, `.ai/build-tooling.md`, `scripts/README.md`,
   `planning/tests.md`, open bug docs 536/540.
 
@@ -439,10 +439,10 @@ See plan-131-A.
   timestamps" cannot hold between two separate runs of the test binaries, whichever script runs
   them. It is replaced by a checkable criterion:
   (a) the executed commands are textually identical (shown above);
-  (b) the script-vs-script report differences (A2 vs B2) are no larger in kind than the SAME
-      script's run-to-run differences. A control run of `coverage-bins.sh` repeats it from a clean
-      profile (A2 vs A3, `/tmp/p131-covcontrol.sh`), queued after the CI-mode passes. The comparison
-      task stays open until that control run is measured.
+  ~~(b) a same-script control run (A2 vs A3)~~ — dropped 2026-09-12 (stopped by the user; a
+      40-minute run cannot fail on anything (a) misses). The check that fails if `--bins` measured
+      differently is (a): the executed command lines, extracted from both scripts and diffed,
+      differ only by `mkdir -p target/coverage`. (Est. seconds; already run, output above.)
   The one coverage flip has a traced cause that no script can affect. `src/ir/verify/values.rs:1199`
   is the `return false; // a cycle` arm of `is_comparable_seen`, reached only inside
   `fields.values().all(|ft| …)`. `field_types` is `HashMap<ParameterType, HashMap<String,

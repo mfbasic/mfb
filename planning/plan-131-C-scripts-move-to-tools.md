@@ -124,6 +124,10 @@ abandon the move.
 - [ ] Prove the rvv move: run `tools/math-kernels/rvv-ulp-two-profile.sh` on box 2232 with the
       smallest `--limit` it accepts (read the script) → the same `primary` summary under both
       profiles. Record it.
+      Check: `LIMIT=5 FNS=exp bash tools/math-kernels/rvv-ulp-two-profile.sh` from `/tmp` →
+      `all kernels bit-identical across both cpu profiles` (est. <5 min; the script takes `LIMIT`/`FNS`
+      env, not a `--limit` flag; one kernel proves the moved `ROOT`/`RUNNER` paths resolve, which is
+      all a move can break). Box 2232 is an emulated riscv64 VM, so keep it to one kernel.
 - [ ] `git mv scripts/yaml_oracle_diff.py packages/yaml/oracle/pyyaml_diff.py` and fix `ROOT`
       depth. Before the move, run `python3 scripts/yaml_oracle_diff.py corpus > /tmp/y-old`; after,
       run the new path `> /tmp/y-new`; `diff` → empty. (Needs `pyyaml` and `examples/yaml-json`
@@ -135,7 +139,7 @@ Acceptance:
 - Both probes build from their new paths.
 - The rvv run matches across profiles.
 - The yaml corpus output is identical.
-- `bash scripts/artifact-gate.sh target/release/mfb all` → 0 diffs (only comments in `src/` changed).
+- Only comments changed in `src/`: `git diff -U0 -- src | grep -E '^[+-][^+-]' | grep -vE '^[+-][[:space:]]*(//|\*)'` → no output (est. seconds). ~~artifact-gate all~~ — a comment edit cannot change a dump, and this grep fails on any non-comment change.
 
 Commit: —
 
@@ -156,16 +160,17 @@ Commit: —
       - update `check-generated.sh`, `src/unicode/range_tables.rs` comments, `.gitignore` comment
         and `scripts/README.md`;
       - write `tools/unicode-tables/README.md`.
-- [ ] Resolve the UNVERIFIED `REM` question: `bash scripts/artifact-gate.sh target/release/mfb all`
-      and `bash scripts/test-accept.sh target/release/mfb /tmp/accept-131c '*regex*' '*unicode*' '*genCat*'`
-      → 0 diffs. If a golden diffs, inspect one fixture to see whether the `REM` text or its span
-      reaches the output, and record the finding in Corrections. Then decide: keep the old
-      header wording, or fix the leak.
+- [ ] Resolve the UNVERIFIED `REM` question. ~~`artifact-gate.sh all` + a three-filter
+      `test-accept.sh` run~~ — replaced 2026-09-12. Cheapest check that fails if the header text reaches
+      a golden: `grep -rlF 'gen_regex_scripts.py' tests/` → no file (est. seconds). If a golden does name
+      it, run only that fixture: `bash scripts/test-accept.sh target/release/mfb /tmp/accept-131c
+      '<that fixture>'` (est. <1 min), inspect the diff, and record in Corrections whether to keep the
+      old header wording or fix the leak.
 
 Acceptance:
 - `sh scripts/check-generated.sh` exits 0.
 - Generated-file diffs are header-only.
-- artifact-gate plus the scoped acceptance run show 0 diffs.
+- The golden grep for the old generator path finds nothing (or the one named fixture passes).
 
 Commit: —
 
@@ -202,6 +207,10 @@ Commit: —
       script → `cargo test --test gate_lock_covers_every_writer` must fail naming it. Revert.
 - [ ] Run `tools/bench-lowering/bench-lowering.sh` once from `/tmp` → it completes and prints its
       table. Record the wall time.
+      Check: read its usage for a probe/subset argument and run it on ONE probe from `/tmp` → the table
+      prints (est. <5 min). If it has no subset and a full run is >10 min, `bash -n` plus the census
+      mutation above is the check (the move can only break paths, which the census and one invocation
+      of its argument parsing exercise); record the reason.
 
 Acceptance:
 - The census tests pass.
@@ -216,7 +225,7 @@ Commit: —
 - Tests: `tests/gate` census and lock tests, `check-generated.sh`, and
   `codepage_tables_match_the_vendored_index_files`
   (`cargo test codepage_tables_match_the_vendored_index_files --no-fail-fast`).
-- Neutrality: artifact-gate `all` → 0 diffs after each phase.
+- ~~Neutrality: artifact-gate `all` after each phase~~ — per-phase checks are the scoped ones named in each phase; the full gate runs once, at the end of plan-131.
 - Doc sync: spec `08_encoding.md` (path only), `.ai/remote_systems.md`, the package and tools READMEs.
 - Fresh-worktree check (memory `pin-over-a-gitignored-file-is-not-a-pin`): run
   `sh scripts/check-generated.sh` once from `git worktree add --detach /tmp/wt-131c`, so no
