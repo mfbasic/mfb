@@ -855,12 +855,13 @@ mistake.
       test for iteration 2). **Seams, 3 of 4** — §5.12. `--reconcile` →
       `units=2 unaccounted=0 orphans=0`. 2 applied, 2 handed forward to the
       letters that own `mfb man types` (F/G), `fs types` (D) and `tcp types` (F).
-- [ ] The same three iterations on the `unicode` spec package (1 + 3 + 1 = 5
-      units), including `--citations` before and after. **My own pass is done**
-      and already produced one finding (C-10, a tooling defect, fixed); the
-      package's baseline is `MISS-SYMBOL 1`, `MISS-PATH 0`, `MISS-LINE 0`,
-      `--links` 17/17 resolving, 2 code fences both tagged `text`. No Codex
-      unit has run.
+- [~] The same three iterations on the `unicode` spec package (1 + 3 + 1 = 5
+      units), including `--citations` before and after. **My pass and
+      iteration 1 are done** (§5.13): `--citations unicode` `MISS-SYMBOL 1` →
+      `0` over 65 unique citations, `--links` 18/18, `--render` 620 lines with 0
+      leaked markers; iteration 1 raised 5 findings, 4 confirmed and applied, 1
+      rejected. **Remaining: iteration 2 (3 file units, dispatched from
+      `acbcde691`) and iteration 3 (1 unit).**
 - [~] Record in this file, as a table: **units, wall-clock, findings raised,
       findings confirmed, findings rejected — per iteration, per surface.**
       These numbers size letters B–N; if the per-unit cost is more than 2× the
@@ -878,17 +879,26 @@ mistake.
       **Spec side not met and not yet attempted**: `unicode` still reports
       `MISS-SYMBOL 1`, the C-10 comment-only citation, which is a *claim* to
       re-verify rather than a link to re-point.
-- [~] `--reconcile` clean for every pilot unit. **`A-iter1` clean (2/2).
-      `A-iter2` NOT clean: 1 unit missing of 31.**
+- [~] `--reconcile` clean for every pilot unit. **Clean so far:** `A-iter1`
+      2/2, `A-iter2` 31/31, `A-iter3` 2/2, `A-spec-iter1` 1/1 — each
+      `unaccounted=0 orphans=0`, exit 0. **Remaining: `A-spec-iter2` (3 units,
+      running) and `A-spec-iter3` (1 unit).**
 
 #### Measured cost so far
 
 | Iteration | Surface | Units run | Wall-clock | Findings raised | Confirmed | Rejected |
 |---|---|---|---|---|---|---|
 | 1 | man | 2 | 83s + 108s | 3 | 3 | 0 |
-| 2 | man | 30 | 64–202s per unit, median ~109s; 31 units at `N=6` ≈ 11 min wall | 30 files, not yet triaged | — | — |
-| 3 | man | 0 | — | — | — | — |
-| 1–3 | spec | 0 | — | — | — | — |
+| 2 | man | 31 | 64–253s per unit, median 109s (`planning/plan-125-findings/A-iter2/manifest.tsv`); 30 units at `N=6` ≈ 11 min wall, the 31st run alone after the quota reset | 64 | 30 | 34 |
+| 3 | man | 2 | 104s + 150s | 4 | 4 | 0 |
+| 1 | spec | 1 | 131s | 5 | 4 | 1 |
+| 2 | spec | 3 | *(running)* | — | — | — |
+| 3 | spec | 1 | — | — | — | — |
+
+Confirmed-yield per unit so far: man iteration 2 **~1.0 confirmed finding per
+page**, iteration 3 **2.0 per package** (almost all seams), spec iteration 1
+**4 for one package**. Triage, not the reviewer, is the dominant cost: every
+confirmation was re-established by a probe or a symbol read on the main thread.
 
 Per-unit cost for man iteration 2 is **~109s median**, comfortably inside the
 estimate, so on this evidence C–F do **not** need re-batching — but that
@@ -1980,6 +1990,12 @@ after.
 
 No sentence was cut for being too internal (this is the contributor surface), so
 the belongs-in-spec ledger gains no rows from `unicode`.
+
+#### Iteration 2 (`spec-file:*`, dispatched from `acbcde691`)
+
+| Unit | Finding | Verdict | Evidence (mine) | Applied |
+|---|---|---|---|---|
+| `spec.md` (73s) | "The Unicode data and algorithms the compiler embeds into **every binary**" | **CONFIRMED** | the package's own `tables-and-algorithms` says a table is emitted only when generated code relocates against its `_mfb_unicode_*` symbol, at `src/codegen/memory/data/data_objects.rs:unicode_runtime_data_objects` (resolving: `--citations unicode` → 0 MISS); statically known calls fold with no table at all | overview now says the tables go into a program whose generated code performs a Unicode-aware operation at run time, only those referenced, and links `tables-and-algorithms` for the provenance rather than duplicating it |
 
 ## Validation Plan
 

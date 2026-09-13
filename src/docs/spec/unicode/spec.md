@@ -1,7 +1,9 @@
 # Unicode Runtime Model
 
-The Unicode data and algorithms the compiler embeds into every binary and the
-runtime executes for text operations. This is the model behind the `strings::`
+The Unicode data and algorithms behind MFBASIC's text operations: what the
+compiler folds at compile time, and the tables and routines it embeds into a
+program whose generated code performs a Unicode-aware operation at run time
+(only the tables that code actually references — see `tables-and-algorithms`). This is the model behind the `strings::`
 package: how a `String` is indexed (scalars vs graphemes vs bytes), and the
 grapheme-segmentation, normalization, and case-mapping algorithms that operate on
 it, plus the embedded property tables they consult.
