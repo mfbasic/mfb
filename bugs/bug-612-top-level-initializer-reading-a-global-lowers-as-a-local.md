@@ -6,7 +6,7 @@ Severity: MEDIUM
 Class: Correctness
 
 Status: Open
-Regression Test: none yet — see Phase 1
+Regression Test: `tests/runtime/rt_top_level_initializer_globals.rs`
 
 A top-level `LET` or `MUT` whose initializer reads **another global** does not build.
 That includes an imported package's `EXPORT LET`/`EXPORT MUT` (`test::SomeConst`)
@@ -200,26 +200,58 @@ Rejected: the validator / NIR-lowering workarounds listed under Non-goals.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add tests to `tests/runtime/rt_imported_package_global.rs` (or a sibling
+- [x] Add tests to `tests/runtime/rt_imported_package_global.rs` (or a sibling
       runtime test) for every failing row of the matrix. Each builds and asserts the
       printed value. Confirm each is RED with the documented error.
-- [ ] Add a package-internal case: a package with `EXPORT LET B = A`, imported and
+- [x] Add a package-internal case: a package with `EXPORT LET B = A`, imported and
       read inside a function, prints `1`.
-- [ ] Audit each Blast Radius row, including parameter defaults, and grep the
+- [x] Audit each Blast Radius row, including parameter defaults, and grep the
       `.ir` goldens for top-level bindings with `"kind": "local"` values; record verdicts here.
 
+Tests landed in the sibling `tests/runtime/rt_top_level_initializer_globals.rs`
+(shared with bug-613). Measured RED with `cargo test --release --no-fail-fast --test
+rt_top_level_initializer_globals` before any fix: `NIR local reference 'own'`,
+`'limits.Answer'`, `'A'` and `'upper.Derived'` does not resolve.
+
+Audit verdicts:
+
+- `lower_binding` initializer value: fixed.
+- `lower_binding` `expression_type` for an untyped binding: unaffected. With an
+  empty scope the untyped `LET top = own` and `LET inferred = limits::Answer` still
+  type as `Integer` and print `7` / `42` (the runtime tests).
+- `infer_binding_types`: already an empty scope; unaffected.
+- Parameter defaults: the callee's `lower_param` uses the function's real scope
+  (parameters only), so a global lowers as `Global` there. But the call site,
+  `lower_local_call_arguments`, re-lowers the omitted HIR default in the CALLER's
+  scope, so a caller local with the global's name captures it (prints `99`, not
+  `5`). Separately, an exported package function whose default reads a package
+  global fails the importer with `only constant IR values can be stored in
+  CONST_POOL`. Different mechanism: filed as **bug-614**.
+- Package build shipping a dangling `Local`: this instance is fixed
+  (`a_package_initializer_reads_the_packages_own_global`). The open decision on
+  validating a package build stays open.
+- Thread workers: they run the same initializer function, so the same change fixes
+  them. No separate test.
+- `.ir` goldens: a Python scan of the 902 parseable tracked `.ir` files found 452
+  top-level bindings with a value and 0 whose value contains `"kind": "local"`.
+
 Acceptance: new tests fail for the documented reason; every audit row has a verdict.
-Commit: —
+Commit: 53f10b1fe
 
 ### Phase 2 — the fix
 
-- [ ] `src/ir/lower.rs:lower_binding`: lower the initializer (and its
+- [x] `src/ir/lower.rs:lower_binding`: lower the initializer (and its
       `expression_type`) with an empty local scope.
-- [ ] Apply the same change to any in-scope sibling from the audit.
+- [x] Apply the same change to any in-scope sibling from the audit. (None in scope:
+      the parameter-default sibling is bug-614.)
+
+With only this fix, the own-global and package-internal tests went GREEN and the
+three tests reading a package slot printed zeros (`0, 0, 0, 1`; chain `1, 2, 0`).
+That is bug-613, fixed in the same commit. bug-551's ten tests pass.
 
 Acceptance: Phase 1 tests pass; function-body contrast cases unchanged; bug-551's
 ten tests still pass.
-Commit: —
+Commit: 53f10b1fe
 
 ### Phase 3 — regenerate expected outputs + full validation
 
