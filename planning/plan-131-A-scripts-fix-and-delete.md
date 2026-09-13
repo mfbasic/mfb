@@ -256,19 +256,23 @@ Each is a self-contained fix to one script, and each restores a proof somebody i
       (the one attempt typed into the user's windows and was killed). The `reconcile` leg's
       `got ''` in that attempt did not reproduce when the built bundle was run directly
       (`stdout=[RECONCILE_BEFORE]`).
-- [~] Prove the canvas fix: run `bash scripts/test-canvas-vulkan.sh target/release/mfb --box 2228`
+- [x] Prove the canvas fix: run `bash scripts/test-canvas-vulkan.sh target/release/mfb --box 2228`
       from a directory other than the repo root (e.g. `/tmp`). The groups stage must get past the
       `sed` extraction. Record the stage results. Box access per `.ai/remote_systems.md`.
       Done on **2227** (musl, `--libc musl --icd auto`) from `/tmp`, 2026-09-12: 15 `ok`, 0 `FAIL`,
       exit 0, including `ok: groups: the software render reproduces tests/golden/canvas/groups.png
       exactly` and `ok: groups: the Vulkan render matches tests/golden/canvas/groups.png (ok worst=1
-      differing=0.0521%)`. Remaining: the glibc run on 2228 (connection refused at plan start; the
-      user is bringing it up).
+      differing=0.0521%)`.
+      Then on **2228** (glibc, the command as written) from `/tmp`, once the box came up: 15 `ok`,
+      0 `FAIL`, exit 0. The groups stage completed with `ok: groups: the software render reproduces
+      tests/golden/canvas/groups.png exactly` and `ok: groups: the Vulkan render matches
+      tests/golden/canvas/groups.png (ok worst=1 differing=0.0521%)`.
 
 Acceptance:
 - The ICMP harness program builds.
 - `check-net-harness-selftest.sh` exits 0.
 - `test-canvas-vulkan.sh` run from `/tmp` reaches and completes the groups stage.
+  (Met on 2227/musl and 2228/glibc, 2026-09-12.)
 
 Commit: 6347f0be5
 
@@ -412,7 +416,7 @@ Commit: 6347f0be5
   baseline step would have recorded the broken output as the baseline.
 - **2026-09-12, Phase 1: the canvas proof ran on 2227, not 2228.** 2228 refused connections at plan
   start (`ssh … -p 2228 … true` → exit 255). 2227 is the musl half of the same test's evidence and
-  was up; the glibc/2228 run stays `[~]`.
+  was up. The glibc/2228 run followed once the user brought 2228 up (15 `ok`, exit 0).
 - **2026-09-12, Phase 1: the GUI legs of `test-macapp.sh` are gated on the user, not on this plan.**
   `MFB_MACAPP_GUI=1` types into the focused window of the live desktop. The macapp task stays `[~]`
   until the user approves a GUI run.
