@@ -505,6 +505,13 @@ fn render_declaration(pkg: &str, name: &str, implementation: &Implementation) ->
         })
         .collect::<Vec<_>>()
         .join(", ");
+    // Every member renders as `pkg::name(...)`, including the unqualified-global
+    // packages. `testing` and `general` are the globals holders — `testing` holds the
+    // globals for testing, `general` the globals for the language — so a program calls
+    // their members bare and never needs the prefix; on their own pages the package name
+    // is the documentation grouping. `testing::expectEqual` / `general::len` here is
+    // intended: bug-607 reported it as a defect and was closed as NOT A BUG. See
+    // `RegistryPackage::unqualified_global` (`src/codegen/registry/mod.rs`).
     format!(
         "`{pkg}::{name}({params}) AS {}`",
         public_type_name(&implementation.return_type)

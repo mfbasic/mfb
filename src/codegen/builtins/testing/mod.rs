@@ -176,6 +176,10 @@ pub(super) fn assertion(
 /// for why it is a real-named-but-unqualified-global package.
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("testing", INTRO, DESC);
+    // `testing` is the globals holder for testing: its members are called bare
+    // (`expectEqual(a, b)`) and a program never needs `testing::`. Its man pages still
+    // group them under `testing::` — that is intended (bug-607, closed NOT A BUG). See
+    // `RegistryPackage::unqualified_global`.
     pkg.mark_unqualified_global();
 
     // Generic equality / inequality (any `=`-comparable, printable operands).
