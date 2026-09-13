@@ -311,13 +311,24 @@ Acceptance: round trips are exact across the whole corpus, syntax verdicts match
 Temporal except for the declared divergences, and the `.mfp` links into an executable
 that imports only `io` and `timezones`.
   Check: `packages/timezones/oracle/run.sh '' roundtrip ixdtf; echo EXIT=$?` → `EXIT=0`; mutation runs → mismatches > 0; `packages/timezones/runtime-smoke.sh; echo EXIT=$?` → `EXIT=0` (est. UNMEASURED for `roundtrip`; set from the `offsets` corpus time recorded in plan-135-B).
-Commit: —
+Commit: 31384318f
 
 ### Phase 3 — cross-target proof
 
-- [ ] Run § 4.5 on 2223, 2227 and 2229. Record each `cmp` result and wall time in
-      `oracle/README.md`.
-- [ ] Record the Windows build-only result, and that no Windows execution was possible.
+- [x] Run § 4.5 on 2223, 2227 and 2229. Record each `cmp` result and wall time in
+      `oracle/README.md`. (`bash /tmp/p135box.sh <port> <arch> <full|sample>` →
+      - 2223 aarch64 glibc, full: offsets `cmp identical, 498303 jobs, 7 s`;
+        civil `cmp identical, 263558 jobs, 31 s`.
+      - 2229 riscv64 musl, sample: offsets `identical, 306357 jobs, 69 s`;
+        civil `identical, 183128 jobs, 361 s`.
+      - 2227 x86_64 musl, sample: offsets `identical, 306357 jobs, 324 s`;
+        civil `identical, 183128 jobs, 570 s`.
+      All three logs end `EXIT=0`. Every probe was built on macOS from the same `.mfp`.)
+- [x] Record the Windows build-only result, and that no Windows execution was possible.
+      (`mfb build -q --target windows-x86_64 /tmp/p135cross` → `Wrote executable to
+      /tmp/p135cross/build/tzprobe.exe`, 2,569,728 B. It was not run: box 2230 has no
+      execution harness, so no Windows answers exist to `cmp`. Recorded in the oracle
+      README.)
 
 Acceptance: the same answers on every executed target.
   Check: `cmp` per box → exit 0; `target/release/mfb build --target windows-x86_64 packages/timezones/oracle/probe` → `Wrote executable` (est. UNMEASURED on the emulated boxes; the per-zone sample is the smallest input that still reaches every footer and transition).
@@ -325,15 +336,33 @@ Commit: —
 
 ### Phase 4 — docs and family close
 
-- [ ] Complete `packages/timezones/README.md`: an API table of all five members plus the
+- [x] Complete `packages/timezones/README.md`: an API table of all five members plus the
       record, every example compiled, where the rules come from, how to update, what the
       package never does, and `timezones` vs `datetime::local()`.
-- [ ] Check that `target/release/mfb pkg doc packages/timezones/timezones.mfp` renders
+      - The README now has sections "API" (the five members, `ZonedDateTime`,
+        `ERR_UNKNOWN_ZONE`), "`timezones` or `datetime::local()`?", "Offsets at an
+        instant", "A clock reading in a zone", "Writing and reading a zoned time",
+        "Where the rules come from" (with the update-procedure link), and "What it
+        never does".
+      - `python3 /tmp/p135readme.py` builds every README block containing `SUB main`
+        against the `.mfp`, runs it, and compares each `io::print` with its
+        `' expected` comment → `3 programs, 0 failed`.
+      - The one-line `tomorrow` snippet is a fragment, not a program; its calls are the
+        ones the `civil` block exercises.
+- [x] Check that `target/release/mfb pkg doc packages/timezones/timezones.mfp` renders
       all five members and `ZonedDateTime`.
-- [ ] In `planning/bug-backlog.md`, update the datetime line: named zones are delivered
-      by plan-135.
-- [ ] Move `plan-135-A` through `plan-135-D` to `planning/completed/` as each letter
-      completes.
+      - `pkg doc` writes HTML to a file; it does not print to stdout. See Corrections.
+      - `mfb pkg doc packages/timezones/timezones.mfp --out /tmp/p135-doc.html` → EXIT=0.
+      - `grep -o 'timezones::[A-Za-z]*' … | sort | uniq -c` → `ZonedDateTime` 1, `civil` 5,
+        `offsetAt` 3, `parseIso` 3, `toIso` 3, `toZone` 2.
+      - `grep -c ZonedDateTime` → 5.
+- [x] In `planning/bug-backlog.md`, update the datetime line: named zones are delivered
+      by plan-135. The **datetime** paragraph now reads "Named zones moved out of 520
+      and are delivered by plan-135-A–D". It lists the five members and the oracle, and
+      drops the stale line "plan-135-D cannot start until 520 closes".
+- [x] Move `plan-135-A` through `plan-135-D` to `planning/completed/` as each letter
+      completes. (A, B and C were moved once C closed. D moves in the same commit as this
+      tick. `git mv planning/plan-135-{A,B,C,D}-… planning/completed/`)
 
 Acceptance: the package docs render and every example builds.
   Check: `target/release/mfb pkg doc packages/timezones/timezones.mfp | grep -c "timezones::"` → at least 6 (est. 1 min).
@@ -410,6 +439,39 @@ Commit: —
   `--target linux-aarch64`, then `linux-x86_64`, `linux-riscv64` and `windows-x86_64`
   into one project left only `build/tzprobe.exe`. Each Linux target is built in its own
   copy (`/tmp/p135cross-<arch>`).
+- **Phase 3: box 2223 runs the glibc binary.** § 4.5 calls 2223 "aarch64 glibc"
+  but ships both flavours. `./tzprobe-musl.out` fails there with `cannot execute:
+  required file not found`, because it has no musl loader. `/tmp/p135box.sh` tries
+  musl and falls back to glibc, logging `flavor glibc` for 2223 and `flavor musl` for
+  2227 and 2229.
+- **Phase 3: the per-zone sample is 61% of `offsets` and 69% of `civil`.** § 4.5 named it
+  "every job line for the first name of each of the 345 distinct zones" and left its
+  size UNMEASURED. `python3 /tmp/p135sample.py` → `distinct zones 345`,
+  `offsets full 498303 sample 306357`, `civil full 263558 sample 183128`. The
+  1800–2100 yearly grid is per name, so the first names carry most of it. On 2229 the
+  offsets sample took 69 s under emulation.
+- **Final gate, run once after Phase 4 (2026-09-13, macOS aarch64, main's release `mfb`
+  built after bug-520).**
+  - `sh scripts/check-generated.sh` → six `ok:` lines, including `ok:
+    packages/timezones/src/data.mfb matches tools/tzdb/gen_timezones_data.py`; exit 0.
+  - `mfb test packages/timezones` → `Tests: 48  Pass: 48  Fail: 0`.
+  - `oracle/run.sh <mfb>` with all modes → offsets 498,303 jobs, 0 mismatches, 34 s;
+    civil 263,558 jobs, 0 mismatches, 80 s; roundtrip 498,303 jobs, 0 mismatches,
+    51 s; ixdtf 19,652 jobs, 5,341 declared divergences, 0 mismatches, 12 s (89
+    candidates skipped); `EXIT=0`. The worktree passes the main checkout's compiler as
+    `$1` (plan-135-B Corrections).
+  - `runtime-smoke.sh <mfb>` → `timezones runtime smoke passed`, `EXIT=0`.
+  - `git diff --stat main...HEAD -- src tests src/docs` → empty. Owner ruling 2
+    held: nothing under `src/`, `tests/` or `src/docs/` changed.
+  - `cargo fmt --all -- --check` in the root and in `repository/` → exit 0 each, with no
+    formatting churn to commit.
+- **Phase 4: `mfb pkg doc` writes a file, so the check was strengthened.** § Phase 4's
+  check pipes `pkg doc … | grep -c "timezones::"`. But `pkg doc` prints only `Wrote
+  documentation to doc.html`, into the current directory. The pipe counted `0`, and
+  the run left a stray `doc.html` in the worktree root, which was deleted. The check is
+  now `mfb pkg doc <mfp> --out /tmp/p135-doc.html`, then a per-name count, which
+  requires each of the five members and `ZonedDateTime` to appear at least once. That
+  is stricter than "at least 6 lines".
 
 ## Summary
 

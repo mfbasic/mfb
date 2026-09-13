@@ -614,9 +614,11 @@ The file is now `bugs/bug-520-datetime-is-not-correct-standalone.md`. A datetime
 **bug-603** was filed the same day for S1–S3 and merged into 520, with no file of its own.
 That number was already taken: the colour hue-wrap `bugs/completed/bug-603-color-hue-wrap-overflows.md`
 (plan-125 intake above) is a different bug.
-**Named zones moved out of 520** into **plan-135-A–D** (`packages/timezones`, a source
-package over vendored IANA tzdb 2026d, never the host's zone data; zone names match
-ignoring case). plan-135-D cannot start until 520 closes. 518, 519 and 521 are landed.
+**Named zones moved out of 520** and are **delivered by plan-135-A–D**: `packages/timezones`,
+a source package over vendored IANA tzdb 2026d, never the host's zone data, with zone
+names matching ignoring case. It provides `offsetAt`, `toZone`, `civil` (compatible
+disambiguation), and RFC 9557 `toIso`/`parseIso`, checked against Python `zoneinfo` and
+Temporal (`packages/timezones/oracle`). 518, 519 and 521 are landed.
 
 **crypto**: the cluster is **complete**. **515 is landed (`b399e3363`)**, as are
 **511 (`e24914d5d`)** and **517 (`5c2024f71`)**.

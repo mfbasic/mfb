@@ -6,6 +6,31 @@ applies at an instant, converts a wall-clock reading in a zone into a
 `datetime::DateTime`, and writes and reads RFC 9557 zoned timestamps. Zone names match
 ignoring case.
 
+## API
+
+| Member | What it answers | Raises |
+|---|---|---|
+| `timezones::offsetAt(name, at) AS Integer` | The UTC offset, in seconds east, that the zone applies at an instant | `77050004` unknown zone |
+| `timezones::toZone(name, at) AS datetime::Zone` | That offset as a fixed-offset `datetime::Zone`, labelled with the tzdb abbreviation (`EDT`, `LMT`, `-03`) | `77050004` |
+| `timezones::civil(date, time, name) AS datetime::DateTime` | A wall-clock reading in the zone, with gaps moved forward and overlaps resolved to the earlier instant | `77050002` bad calendar field, `77050004` |
+| `timezones::toIso(dt, name)` / `toIso(dt, digits, name) AS String` | RFC 9557 text, `2026-07-15T09:00:00.000-04:00[America/New_York]` | `77050002` offset not the zone's or bad `digits`, `77050004` |
+| `timezones::parseIso(text) AS timezones::ZonedDateTime` | The instant and zone an RFC 9557 string names | `77050003` malformed or inconsistent, `77050004` |
+| `timezones::ZonedDateTime` | A record: `dateTime AS datetime::DateTime`, `name AS String` (tzdb spelling) | — |
+| `timezones::ERR_UNKNOWN_ZONE` | `77050004`, `errorCode::ErrNotFound` | — |
+
+Zone names match ignoring case and are returned in tzdb spelling. A link such as
+`US/Eastern` answers exactly as its target, and keeps its own name.
+
+## `timezones` or `datetime::local()`?
+
+- **Use `timezones`** when the zone is data: a user's chosen zone, a meeting's zone, a
+  timestamp that must mean the same thing on every machine. The rules are the
+  committed tzdb release, so every host and target gets the same answer.
+- **Use `datetime::local()`** when the question is what the machine running the program
+  considers local time. It reads the host's configured zone, which is exactly right
+  for "show this in the user's own clock" and exactly wrong for anything stored or
+  shared.
+
 ## Offsets at an instant
 
 ```

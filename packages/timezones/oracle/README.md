@@ -117,6 +117,33 @@ still produces jobs that catch it.
 | `roundtrip` | 498,303 | 0 | 37 s |
 | `ixdtf` | 19,652 (of 20,300 candidates; 89 skipped) | 0 (5,341 declared divergences) | 6 s |
 
+## Same answers on every target (plan-135-D § 4.5, 2026-09-13)
+
+`oracle/probe` was cross-built on macOS for each Linux target, each in its own project
+copy, because a second `--target` build replaces the first one's binaries. Each box
+ran the `offsets` and `civil` jobs, and its answer file was `cmp`ed with the macOS
+probe's answers to the same lines. Those macOS answers already agree with `zoneinfo`.
+
+- **Native aarch64 box (2223):** the full corpus.
+- **Emulated boxes (2227, 2229):** the per-zone sample, every job line whose name is the
+  first name of one of the 345 distinct zones. That is 306,357 `offsets` and 183,128
+  `civil` jobs. It reaches every footer rule and every stored transition.
+
+| Box | Target | Binary | Set | `offsets` | `civil` |
+|---|---|---|---|---|---|
+| 2223 | linux-aarch64 (native) | glibc | full | identical, 498,303 jobs, 7 s | identical, 263,558 jobs, 31 s |
+| 2229 | linux-riscv64 (emulated) | musl | per-zone sample | identical, 306,357 jobs, 69 s | identical, 183,128 jobs, 361 s |
+| 2227 | linux-x86_64 (emulated) | musl | per-zone sample | identical, 306,357 jobs, 324 s | identical, 183,128 jobs, 570 s |
+| — | windows-x86_64 | `tzprobe.exe` | — | built only | built only |
+
+**Windows is built, never run.** `mfb build --target windows-x86_64` wrote
+`tzprobe.exe` (2,569,728 B). No Windows box has an execution harness, so no Windows
+answers exist to compare.
+
+Box 2223 has no musl loader (`./tzprobe-musl.out: cannot execute: required file not
+found`), so it ran the glibc binary. `/tmp/p135box.sh` tries musl and falls back to
+glibc, and it records which one ran.
+
 ## Proof that it can fail
 
 A green run means nothing unless a broken package turns it red. Each mutation below was
