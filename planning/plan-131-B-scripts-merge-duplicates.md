@@ -165,19 +165,34 @@ own phase with a mutation test.
 - [ ] Add `--bins` to `scripts/coverage.sh`. Run `sh scripts/coverage.sh --bins` and compare its
       JSON with `coverage-bins.sh`'s: they must be identical after sorting keys, or differ only in
       timestamps (record which).
-- [ ] Run `sh scripts/coverage.sh` (no flag), then `sh scripts/coverage-check.sh` → same result as
+- [x] Run `sh scripts/coverage.sh` (no flag), then `sh scripts/coverage-check.sh` → same result as
       before (the CI path is unchanged).
       Where it runs was decided by the user, 2026-09-12: on this Mac, now. The full suite includes
       `tests/runtime/rt_audio_mml_bounds.rs`, which plays tunes through the default audio output, and
       each pass is hours of CPU. "Before" is HEAD's committed `coverage.sh`, which has no `--bins`. It
       runs from `scripts/.coverage-head.sh` in the same tree, after the "after" pass, so both passes
       use the same instrumented build.
+      Result 2026-09-12, each pass starting from `cargo llvm-cov clean --workspace` (0 profraw left):
+      - AFTER (this branch's `coverage.sh`): `coverage.sh` exit 0 in 2961 s, running 159 test
+        binaries with 0 failed results. `coverage-check.sh` exit 1: 166 files below 98% (a GATE
+        FAILURE, the gate's standing state on this host), overall line coverage 97.47% (1672 files,
+        13 excepted).
+      - BEFORE (HEAD's `coverage.sh`, 59 lines, no `--bins`): `coverage.sh` exit 0 in 3085 s.
+        `coverage-check.sh` exit 1, with the same overall 97.47% (1672 files, 13 excepted).
+
+      Exit statuses are identical (0 and 1 on both sides). The check outputs differ in exactly one
+      line: `src/ir/verify/values.rs` covers 727/755 before and 726/755 after. That is the
+      HashMap-order region traced in Corrections (`values.rs:1199`). It moves in the opposite
+      direction between the two `--bins` runs (726 for `coverage-bins.sh`, 727 for `coverage.sh
+      --bins`), so it follows the run, not the script.
 - [ ] `git rm` `coverage-bins.sh` and the five `coverage-src-*.py`. Update `planning/tests.md` (every
       cited command) and the `scripts/README.md` coverage section.
 
 Acceptance:
 - The five subcommand diffs are empty.
 - The CI-mode `coverage.sh` + `coverage-check.sh` exit status is unchanged.
+  (Met: 0/1 before and 0/1 after, from clean profiles; the only output difference is the one traced
+  nondeterministic region.)
 - `git grep -n -e coverage-bins.sh -e coverage-src- -- ':!planning/completed' ':!planning/plan-131-*'` → 0.
 
 Commit: —
@@ -406,6 +421,35 @@ See plan-131-A.
   (`.ai/remote_systems.md`); 2227 (Alpine x86_64, 4 cores, `/usr/bin/cargo` 1.96.1) is equally a
   Linux host for the `uname`-derived HOST fix. The tree is shipped as `git archive HEAD` plus the
   uncommitted `regen-native-goldens.sh`, built with `CARGO_TARGET_DIR=/tmp/p131-target`.
+- **2026-09-12, Phase 1: two clean instrumented runs are never byte-identical, so the `--bins`
+  criterion is strengthened.** From clean profiles, `coverage-bins.sh` (exit 0, 2341 s →
+  `bins-a2.json`) and `coverage.sh --bins` (exit 0, 2097 s → `bins-b2.json`) were measured by
+  `/tmp/p131-covkind.py`:
+  - 56181 segment differences are count-only (the region ran in both runs, a different number of
+    times), spread over 205 files;
+  - exactly 1 is a coverage flip: `src/ir/verify/values.rs` 1199:20, 0 executions vs 1, so that file
+    covers 726 vs 727 lines;
+  - totals: 271032 vs 271033 covered of 285250 lines.
+
+  The two scripts execute textually identical commands. The sequence is `cd` repo root, source
+  `coverage-common.sh`, `cargo llvm-cov --bins --no-fail-fast --no-report "$@"`,
+  `drop_never_executed_binaries`, then `cargo llvm-cov report $PKG_FLAGS --ignore-filename-regex
+  "$IGNORE" --json --output-path target/coverage/coverage.json`. The `--bins` block only adds `mkdir
+  -p target/coverage`, which writes no data. So "identical after sorting keys, or differing only in
+  timestamps" cannot hold between two separate runs of the test binaries, whichever script runs
+  them. It is replaced by a checkable criterion:
+  (a) the executed commands are textually identical (shown above);
+  (b) the script-vs-script report differences (A2 vs B2) are no larger in kind than the SAME
+      script's run-to-run differences. A control run of `coverage-bins.sh` repeats it from a clean
+      profile (A2 vs A3, `/tmp/p131-covcontrol.sh`), queued after the CI-mode passes. The comparison
+      task stays open until that control run is measured.
+  The one coverage flip has a traced cause that no script can affect. `src/ir/verify/values.rs:1199`
+  is the `return false; // a cycle` arm of `is_comparable_seen`, reached only inside
+  `fields.values().all(|ft| …)`. `field_types` is `HashMap<ParameterType, HashMap<String,
+  ParameterType>>` (`src/ir/verify/mod.rs:686`), so the field visit order follows each process's
+  random hash seed, and `all` short-circuits on the first false field. Whether the cycle arm executes
+  therefore varies from process to process. The returned verdict does not, because `all` over the
+  same field set is order-independent, so this is not a correctness bug.
 - **2026-09-12, Phase 1: back-to-back coverage runs merged each other's profiles.** Neither coverage
   script cleans `target/llvm-cov-target/*.profraw`, and `cargo llvm-cov report` merges every profraw
   it finds. After four instrumented runs there were 30 profraw files, time-stamped 16:3x (25),
