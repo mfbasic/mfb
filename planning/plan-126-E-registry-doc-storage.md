@@ -232,7 +232,7 @@ result: FAILED. 4 passed; 1 failed`) — and the other four stayed green. That i
 precisely the test that proves the accessor is built on the plan-126-A selection.
 `store.rs` was then restored from its backup and `filecmp` asserted it
 byte-identical.
-Commit: —
+Commit: acdbe0648 (recorded late, in plan-126-F Phase 3's commit; the line was missed when Phase 2 landed)
 
 ### Phase 2 — Capture at publish
 

@@ -466,6 +466,7 @@ pub struct DocsView {
 /// explicit statement: a missing tab would make "no documentation" and "the docs
 /// failed to load" indistinguishable.
 pub fn docs_page(registry_id: &str, view: &DocsView) -> Markup {
+    let raw = format!("{}/docs", package_json_path(&view.ident));
     let body = html! {
         div."wrap" {
             div."pkg-head" {
@@ -478,24 +479,49 @@ pub fn docs_page(registry_id: &str, view: &DocsView) -> Markup {
                 }
                 @if let Some(page) = &view.page {
                     @if !page.subtitle.is_empty() {
-                        p."pkg-desc" { (page.subtitle) }
+                        p."pkg-desc" { (doc_inline(&page.subtitle)) }
                     }
                 }
             }
 
             (package_tabs(&view.ident, PackageTab::Docs))
 
+            p { a."raw-link" href=(raw) { (raw) " — raw JSON" } }
+
             @match &view.page {
                 Some(page) => {
                     @if let Some(message) = &page.package_deprecated {
                         div."callout callout--warning" role="note" {
                             strong."callout__label" { "Deprecated." }
-                            (message)
+                            @if message.is_empty() {
+                                "This package is deprecated."
+                            } @else {
+                                (doc_inline(message))
+                            }
                         }
                     }
                     @if !page.intro.is_empty() {
                         div."doc-intro" {
                             (doc_prose(&page.intro))
+                        }
+                    }
+                    // Only the public groups. A declaration its author marked
+                    // `INTERNAL` is not part of the package's API — a consumer
+                    // cannot call it — so the registry does not present it
+                    // (plan-126-F Open Decision; `GET /packages/:ident/docs`
+                    // omits them identically).
+                    @if page.public.is_empty() {
+                        p."muted" {
+                            "This release documents the package itself but none of its \
+                             public declarations."
+                        }
+                    } @else {
+                        (doc_index(&page.public))
+                        @for group in &page.public {
+                            h2."section-title" { (group.title) }
+                            @for decl in &group.decls {
+                                (doc_decl(decl))
+                            }
                         }
                     }
                 },
@@ -533,26 +559,170 @@ fn doc_prose(prose: &[mfb_wire::docpage::Prose]) -> Markup {
         @for block in prose {
             @match block.kind {
                 DocProseKind::Desc => {
-                    p { (block.text) }
+                    p { (doc_inline(&block.text)) }
                 },
                 DocProseKind::Warn => {
                     div."callout callout--warning" role="note" {
                         strong."callout__label" { "Warning." }
-                        (block.text)
+                        (doc_inline(&block.text))
                     }
                 },
                 DocProseKind::Info => {
                     div."callout callout--info" role="note" {
                         strong."callout__label" { "Note." }
-                        (block.text)
+                        (doc_inline(&block.text))
                     }
                 },
                 DocProseKind::Sec => {
                     div."callout callout--danger" role="note" {
                         strong."callout__label" { "Security." }
-                        (block.text)
+                        (doc_inline(&block.text))
                     }
                 },
+            }
+        }
+    }
+}
+
+/// Inline doc text: a backtick span becomes `<code>`, and nothing else is markup
+/// (plan-09-doc.md §2.3) — the rule the compiler's renderer applies
+/// (`src/doc/html.rs`, `inline`), including leaving an unclosed backtick as a
+/// literal character. Every piece is interpolated, so maud escapes the code span
+/// and the text around it alike; splitting on a backtick never produces markup.
+fn doc_inline(text: &str) -> Markup {
+    let mut pieces: Vec<(bool, &str)> = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('`') {
+        let Some(close) = rest[open + 1..].find('`') else {
+            break;
+        };
+        pieces.push((false, &rest[..open]));
+        pieces.push((true, &rest[open + 1..open + 1 + close]));
+        rest = &rest[open + 1 + close + 1..];
+    }
+    pieces.push((false, rest));
+    html! {
+        @for (is_code, piece) in pieces {
+            @if is_code {
+                code { (piece) }
+            } @else {
+                (piece)
+            }
+        }
+    }
+}
+
+/// The HTML element id for a declaration: the model's anchor under a `doc-`
+/// prefix. The model's anchors are unique among declarations and avoid only the
+/// compiler page's own ids; this page's shell carries others (`q` on the search
+/// box in every page header), so a declaration named `q` would otherwise
+/// duplicate an id and its index link would jump to the search box. No shell id
+/// starts `doc-`. `GET /packages/:ident/docs` reports this same id.
+pub fn doc_element_id(anchor: &str) -> String {
+    format!("doc-{anchor}")
+}
+
+/// A no-script index of the declaration groups, folded with the checkbox + label
+/// pattern the Overview's target rows use. Rendered **checked** (open), so the
+/// index is visible by default and without CSS. The checkbox id contains `_`,
+/// which [`doc_element_id`] never produces, so it cannot collide with a
+/// declaration.
+fn doc_index(groups: &[mfb_wire::docpage::DocGroup]) -> Markup {
+    let count: usize = groups.iter().map(|group| group.decls.len()).sum();
+    html! {
+        nav."doc-index" aria-label="Declarations" {
+            input."fold-cb" type="checkbox" id="doc_index_fold" checked;
+            label."tgt-toggle doc-index__toggle" for="doc_index_fold"
+                title="Show/hide the declaration index" {
+                span."chev" {}
+                "Contents"
+                span."tgt-count" { (count) }
+            }
+            div."doc-index__groups" {
+                @for group in groups {
+                    div."doc-index__group" {
+                        p."eyebrow" { (group.title) }
+                        ul {
+                            @for decl in &group.decls {
+                                li {
+                                    a."mono" href={ "#" (doc_element_id(&decl.anchor)) } {
+                                        (decl.name)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One declaration: the same parts, in the same order, as the compiler's
+/// `render_decl` (`src/doc/html.rs`) — heading and kind badge, signature,
+/// deprecation, description, parameters, members, returns, errors, example.
+/// The signature and example look like code and are the fields most tempting to
+/// emit raw; they are interpolated like everything else.
+fn doc_decl(decl: &mfb_wire::docpage::DocDecl) -> Markup {
+    let id = doc_element_id(&decl.anchor);
+    html! {
+        section."decl" id=(id) {
+            div."decl__head" {
+                h3."decl__name" {
+                    a."mono" href={ "#" (id) } { (decl.name) }
+                }
+                span class={ "doc-badge doc-badge--" (decl.badge_class) } { (decl.kind_label) }
+            }
+            @if !decl.signature.is_empty() {
+                pre."decl__sig" { code { (decl.signature) } }
+            }
+            @if let Some(message) = &decl.deprecated {
+                div."callout callout--warning" role="note" {
+                    strong."callout__label" { "Deprecated." }
+                    @if message.is_empty() {
+                        "This declaration is deprecated."
+                    } @else {
+                        (doc_inline(message))
+                    }
+                }
+            }
+            (doc_prose(&decl.desc))
+            (doc_table("Parameters", "name", &decl.args))
+            @if let Some(label) = decl.member_label {
+                (doc_table(label, "name", &decl.props))
+            }
+            @if !decl.ret.is_empty() {
+                h4."decl__h" { "Returns" }
+                p { (doc_inline(&decl.ret)) }
+            }
+            (doc_table("Errors", "code", &decl.errors))
+            @if !decl.example.is_empty() {
+                div."decl__example" {
+                    p."eyebrow" { "Example" }
+                    pre { code { (decl.example) } }
+                }
+            }
+        }
+    }
+}
+
+/// A two-column name/description table; renders nothing for no rows.
+fn doc_table(heading: &str, name_column: &str, rows: &[(String, String)]) -> Markup {
+    html! {
+        @if !rows.is_empty() {
+            h4."decl__h" { (heading) }
+            table."grid doc-table" {
+                thead {
+                    tr { th { (name_column) } th { "description" } }
+                }
+                tbody {
+                    @for (name, desc) in rows {
+                        tr {
+                            td."mono" data-label=(name_column) { (name) }
+                            td data-label="description" { (doc_inline(desc)) }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1403,6 +1573,227 @@ mod tests {
         let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
         assert!(!rendered.contains("<script"), "{rendered}");
         assert!(rendered.contains("&lt;script&gt;"), "{rendered}");
+    }
+
+    fn doc_decl_entry(kind: &str, name: &str, group: &str) -> mfb_wire::docs::DeclDocEntry {
+        mfb_wire::docs::DeclDocEntry {
+            kind: kind.to_string(),
+            name: name.to_string(),
+            signature: String::new(),
+            group: group.to_string(),
+            desc: Vec::new(),
+            args: Vec::new(),
+            props: Vec::new(),
+            ret: String::new(),
+            errors: Vec::new(),
+            example: String::new(),
+            internal: false,
+            deprecated: None,
+        }
+    }
+
+    fn doc_page_with_decls(
+        desc: Vec<(u8, String)>,
+        decls: Vec<mfb_wire::docs::DeclDocEntry>,
+    ) -> mfb_wire::docpage::DocPage {
+        mfb_wire::docpage::from_package(
+            mfb_wire::docs::PackageDocs {
+                package: Some(mfb_wire::docs::PackageDocEntry {
+                    name: "matrix".to_string(),
+                    desc,
+                    deprecated: None,
+                }),
+                decls,
+            },
+            "matrix",
+        )
+    }
+
+    /// **plan-126-F Phase 3.** Every part of a declaration renders: group
+    /// heading, index link, anchored section, kind badge, signature, deprecation,
+    /// description, parameters, members under the kind's label, returns, errors
+    /// and example.
+    #[test]
+    fn the_docs_page_renders_every_part_of_a_declaration() {
+        let mut add = doc_decl_entry("func", "addUp", "Arithmetic");
+        add.signature = "EXPORT FUNC addUp(a AS Integer, b AS Integer) AS Integer".to_string();
+        add.desc = vec![(0, "Adds two integers.".to_string())];
+        add.args = vec![
+            ("a".to_string(), "The first addend.".to_string()),
+            ("b".to_string(), "The second addend.".to_string()),
+        ];
+        add.ret = "The sum.".to_string();
+        add.errors = vec![("ErrOverflow".to_string(), "The sum overflowed.".to_string())];
+        add.example = "PRINT matrix::addUp(1, 2)".to_string();
+        add.deprecated = Some("use addAll".to_string());
+        let mut point = doc_decl_entry("type", "Point", "");
+        point.props = vec![("x".to_string(), "Horizontal.".to_string())];
+
+        let page = doc_page_with_decls(vec![(0, "Sub.".to_string())], vec![add, point]);
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+
+        // Groups in first-appearance order, each with its heading.
+        let arithmetic = rendered.find(">Arithmetic</h2>").expect(&rendered);
+        let types = rendered.find(">Types</h2>").expect(&rendered);
+        assert!(arithmetic < types, "{rendered}");
+        // Anchored sections, linked from the index and from their own heading.
+        assert!(
+            rendered.contains(r#"<section class="decl" id="doc-addup">"#),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains(r#"<section class="decl" id="doc-point">"#),
+            "{rendered}"
+        );
+        assert_eq!(
+            rendered.matches(r##"href="#doc-addup""##).count(),
+            2,
+            "{rendered}"
+        );
+        assert!(rendered.contains("doc-badge--function"), "{rendered}");
+        assert!(rendered.contains(">Function</span>"), "{rendered}");
+        assert!(rendered.contains(">Type</span>"), "{rendered}");
+        assert!(
+            rendered.contains("<pre class=\"decl__sig\"><code>EXPORT FUNC addUp(a AS Integer, b AS Integer) AS Integer</code></pre>"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("use addAll"), "{rendered}");
+        assert!(rendered.contains("<p>Adds two integers.</p>"), "{rendered}");
+        assert!(rendered.contains(">Parameters</h4>"), "{rendered}");
+        assert!(rendered.contains("The second addend."), "{rendered}");
+        assert!(rendered.contains(">Fields</h4>"), "{rendered}");
+        assert!(rendered.contains("Horizontal."), "{rendered}");
+        assert!(
+            rendered.contains(">Returns</h4><p>The sum.</p>"),
+            "{rendered}"
+        );
+        assert!(rendered.contains(">Errors</h4>"), "{rendered}");
+        assert!(rendered.contains("ErrOverflow"), "{rendered}");
+        assert!(
+            rendered.contains("<pre><code>PRINT matrix::addUp(1, 2)</code></pre>"),
+            "{rendered}"
+        );
+        // The index is open by default, so it works without CSS.
+        assert!(
+            rendered.contains(r#"id="doc_index_fold" checked"#),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("<span class=\"tgt-count\">2</span>"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("<script"), "{rendered}");
+        assert!(!rendered.contains("style="), "{rendered}");
+    }
+
+    /// A declaration its author marked `INTERNAL` is not rendered anywhere on the
+    /// page — not in the index and not as a section.
+    #[test]
+    fn internal_declarations_are_not_rendered() {
+        let public = doc_decl_entry("func", "visibleOne", "");
+        let mut hidden = doc_decl_entry("func", "secretHelper", "");
+        hidden.internal = true;
+        let page = doc_page_with_decls(Vec::new(), vec![public, hidden]);
+        assert_eq!(
+            page.internal.len(),
+            1,
+            "the fixture must carry an internal decl"
+        );
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+        assert!(rendered.contains("visibleOne"), "{rendered}");
+        assert!(!rendered.contains("secretHelper"), "{rendered}");
+        assert!(!rendered.contains("secrethelper"), "{rendered}");
+    }
+
+    /// A package documented with no public declarations says so rather than
+    /// rendering an empty index.
+    #[test]
+    fn a_page_with_no_public_declarations_says_so() {
+        let page = doc_page_with_decls(vec![(0, "Sub.".to_string())], Vec::new());
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+        assert!(
+            rendered.contains("none of its public declarations"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("doc-index"), "{rendered}");
+    }
+
+    /// Backtick spans become `<code>`, escaped like the text around them; an
+    /// unclosed backtick stays a literal character — the compiler renderer's rule.
+    #[test]
+    fn doc_inline_renders_backtick_spans_as_escaped_code() {
+        assert_eq!(
+            doc_inline("call `f(<a>)` now").into_string(),
+            "call <code>f(&lt;a&gt;)</code> now"
+        );
+        assert_eq!(
+            doc_inline("a `b` c `d`").into_string(),
+            "a <code>b</code> c <code>d</code>"
+        );
+        assert_eq!(doc_inline("tick ` alone").into_string(), "tick ` alone");
+        assert_eq!(doc_inline("``").into_string(), "<code></code>");
+        assert_eq!(doc_inline("").into_string(), "");
+    }
+
+    /// The page header's search box is `id="q"`. A declaration named `q` must not
+    /// duplicate that id, or its index link would jump to the search box.
+    #[test]
+    fn a_declaration_named_like_a_shell_id_does_not_duplicate_it() {
+        let page = doc_page_with_decls(Vec::new(), vec![doc_decl_entry("func", "q", "")]);
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+        assert_eq!(rendered.matches(r#"id="q""#).count(), 1, "{rendered}");
+        assert!(rendered.contains(r#"id="doc-q""#), "{rendered}");
+        assert!(rendered.contains(r##"href="#doc-q""##), "{rendered}");
+    }
+
+    /// **plan-126-F Phase 3's escaping test.** Each publisher-controlled field
+    /// carries its own hostile marker, so the assertions prove every field was
+    /// *rendered* escaped — a field silently dropped would otherwise pass as
+    /// "escaped" too.
+    #[test]
+    fn docs_page_escapes_every_publisher_controlled_field() {
+        let attack = |field: &str| format!("<script>alert('{field}')</script>\" onmouseover=\"x");
+        let mut decl = doc_decl_entry("func", "addUp", "");
+        decl.signature = attack("signature");
+        decl.example = attack("example");
+        decl.args = vec![("a".to_string(), attack("param"))];
+        decl.ret = attack("returns");
+        decl.errors = vec![("ErrX".to_string(), attack("error"))];
+        decl.desc = vec![(0, attack("decl-desc"))];
+        let page = doc_page_with_decls(
+            vec![(0, attack("package")), (1, attack("callout"))],
+            vec![decl],
+        );
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+
+        for field in [
+            "package",
+            "callout",
+            "signature",
+            "example",
+            "param",
+            "returns",
+            "error",
+            "decl-desc",
+        ] {
+            let escaped =
+                format!("&lt;script&gt;alert('{field}')&lt;/script&gt;&quot; onmouseover=&quot;x");
+            assert!(
+                rendered.contains(&escaped),
+                "{field} must render escaped: {rendered}"
+            );
+        }
+        assert!(!rendered.contains("<script"), "{rendered}");
+        // No attribute break: every `onmouseover` on the page is the escaped
+        // text of one of the eight fields, never an attribute. (A bare
+        // ` onmouseover=` substring check would match that escaped *text*.)
+        assert!(!rendered.contains("\" onmouseover=\""), "{rendered}");
+        assert_eq!(rendered.matches("onmouseover").count(), 8, "{rendered}");
+        assert_eq!(
+            rendered.matches("&quot; onmouseover=&quot;x").count(),
+            8,
+            "{rendered}"
+        );
     }
 
     /// maud escapes interpolated values by default. This asserts the property

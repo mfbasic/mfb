@@ -919,6 +919,7 @@ pub fn build_router(state: AppState) -> Router {
         // below; matchit resolves static before param.
         .route("/packages/:ident", get(package_detail))
         .route("/packages/:ident/audit", get(package_audit))
+        .route("/packages/:ident/docs", get(package_docs))
         .route(
             "/blob/:hash",
             get(package_blob).head(head_blob).put(put_blob),
@@ -1299,16 +1300,48 @@ async fn package_docs_html(
     axum::extract::Path(ident): axum::extract::Path<String>,
 ) -> Response {
     let (registry_id, _fingerprint) = registry_identity(&state);
-    let detail =
-        match package_detail(State(state.clone()), axum::extract::Path(ident.clone())).await {
-            Ok(Json(detail)) => detail,
-            Err((status, Json(error))) => {
-                return crate::web::html_response(
-                    status,
-                    crate::web::message_page(&registry_id, "Package not found", &error.error),
-                )
-            }
-        };
+    let view = match lookup_package_docs(&state, ident).await {
+        Ok(view) => view,
+        Err(DocsLookupError::Package((status, Json(error)))) => {
+            return crate::web::html_response(
+                status,
+                crate::web::message_page(&registry_id, "Package not found", &error.error),
+            )
+        }
+        Err(DocsLookupError::Unavailable(message)) => {
+            return crate::web::html_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                crate::web::message_page(&registry_id, "Documentation unavailable", message),
+            )
+        }
+    };
+    crate::web::html_response(StatusCode::OK, crate::web::docs_page(&registry_id, &view))
+}
+
+/// Why the Docs tab's lookup produced no view.
+enum DocsLookupError {
+    /// `package_detail` refused the ident (malformed, or no such package) —
+    /// passed through unchanged so every surface reports it identically.
+    Package((StatusCode, Json<ErrorResponse>)),
+    /// The package exists but its stored documentation could not be read.
+    Unavailable(&'static str),
+}
+
+/// The one lookup behind both `GET /p/:ident/docs` and `GET /packages/:ident/docs`,
+/// so the HTML page and its JSON mirror cannot disagree about which release is
+/// documented or what its documentation says.
+///
+/// Resolves the package through `package_detail` (same 400/404 as the other
+/// package routes), then reads the **latest active** release's stored section
+/// 17 (`Store::latest_active_version_docs`, plan-126-A's selection) — the release
+/// `detail.latest_version` names, so the version reported is the one documented.
+async fn lookup_package_docs(
+    state: &AppState,
+    ident: String,
+) -> Result<crate::web::DocsView, DocsLookupError> {
+    let Json(detail) = package_detail(State(state.clone()), axum::extract::Path(ident))
+        .await
+        .map_err(DocsLookupError::Package)?;
 
     let fallback_name = detail
         .ident
@@ -1319,35 +1352,163 @@ async fn package_docs_html(
         Ok(Some((_version, section))) => match mfb_wire::docs::read_doc_table(&section) {
             Ok(docs) => Some(mfb_wire::docpage::from_package(docs, &fallback_name)),
             Err(_) => {
-                return crate::web::html_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    crate::web::message_page(
-                        &registry_id,
-                        "Documentation unavailable",
-                        "The stored documentation for this release could not be decoded.",
-                    ),
-                )
+                return Err(DocsLookupError::Unavailable(
+                    "The stored documentation for this release could not be decoded.",
+                ))
             }
         },
         Ok(None) => None,
         Err(_) => {
-            return crate::web::html_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                crate::web::message_page(
-                    &registry_id,
-                    "Documentation unavailable",
-                    "The registry could not load this package's documentation.",
-                ),
-            )
+            return Err(DocsLookupError::Unavailable(
+                "The registry could not load this package's documentation.",
+            ))
         }
     };
 
-    let view = crate::web::DocsView {
+    Ok(crate::web::DocsView {
         ident: detail.ident,
         version: detail.latest_version,
         page,
-    };
-    crate::web::html_response(StatusCode::OK, crate::web::docs_page(&registry_id, &view))
+    })
+}
+
+/// `GET /packages/:ident/docs` — the Docs tab as JSON (plan-126-F Phase 3).
+///
+/// Anonymous and read-only, like `GET /packages/:ident`. Serializes the same
+/// `DocPage` model the HTML tab renders — not the raw wire structures — so the
+/// two surfaces agree on grouping, order and anchors by construction.
+/// `documentation` is `null` exactly when the HTML tab shows the
+/// no-documentation statement.
+async fn package_docs(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Result<Json<PackageDocsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    match lookup_package_docs(&state, ident).await {
+        Ok(view) => Ok(Json(PackageDocsResponse::from_view(view))),
+        Err(DocsLookupError::Package(error)) => Err(error),
+        Err(DocsLookupError::Unavailable(message)) => Err(internal(message.to_string())),
+    }
+}
+
+/// `GET /packages/:ident/docs` (plan-126-F Phase 3).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PackageDocsResponse {
+    pub ident: String,
+    /// The latest active release — the same value `GET /packages/:ident` reports
+    /// as `latestVersion`, and the release whose documentation this is. `null`
+    /// when no release is active.
+    pub version: Option<String>,
+    /// `null` when that release carries no documentation.
+    pub documentation: Option<DocPageResponse>,
+}
+
+/// A `DocPage` as JSON. Carries only the **public** groups: declarations the
+/// author marked `INTERNAL` are omitted here exactly as on the HTML tab
+/// (`crate::web::docs_page`).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocPageResponse {
+    #[serde(rename = "packageName")]
+    pub package_name: String,
+    pub subtitle: String,
+    pub intro: Vec<DocProseResponse>,
+    pub deprecated: Option<String>,
+    pub groups: Vec<DocGroupResponse>,
+}
+
+/// One prose block; `kind` is `desc`, `warn`, `info` or `sec`.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocProseResponse {
+    pub kind: String,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocGroupResponse {
+    pub title: String,
+    pub declarations: Vec<DocDeclResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocDeclResponse {
+    /// The HTML tab's element id for this declaration
+    /// (`crate::web::doc_element_id`), so a client can link to
+    /// `/p/<ident>/docs#<anchor>`.
+    pub anchor: String,
+    pub kind: String,
+    pub name: String,
+    pub signature: String,
+    pub description: Vec<DocProseResponse>,
+    pub parameters: Vec<DocEntryResponse>,
+    /// `Fields` / `Variants` / `Members` for a type-like declaration, else `null`.
+    #[serde(rename = "memberLabel")]
+    pub member_label: Option<String>,
+    pub members: Vec<DocEntryResponse>,
+    pub returns: String,
+    /// `name` is the error code.
+    pub errors: Vec<DocEntryResponse>,
+    pub example: String,
+    pub deprecated: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocEntryResponse {
+    pub name: String,
+    pub description: String,
+}
+
+impl PackageDocsResponse {
+    fn from_view(view: crate::web::DocsView) -> Self {
+        fn prose(blocks: Vec<mfb_wire::docpage::Prose>) -> Vec<DocProseResponse> {
+            blocks
+                .into_iter()
+                .map(|block| DocProseResponse {
+                    kind: block.kind.label().to_string(),
+                    text: block.text,
+                })
+                .collect()
+        }
+        fn entries(rows: Vec<(String, String)>) -> Vec<DocEntryResponse> {
+            rows.into_iter()
+                .map(|(name, description)| DocEntryResponse { name, description })
+                .collect()
+        }
+        let documentation = view.page.map(|page| DocPageResponse {
+            package_name: page.package_name,
+            subtitle: page.subtitle,
+            intro: prose(page.intro),
+            deprecated: page.package_deprecated,
+            groups: page
+                .public
+                .into_iter()
+                .map(|group| DocGroupResponse {
+                    title: group.title,
+                    declarations: group
+                        .decls
+                        .into_iter()
+                        .map(|decl| DocDeclResponse {
+                            anchor: crate::web::doc_element_id(&decl.anchor),
+                            kind: decl.kind_label.to_string(),
+                            name: decl.name,
+                            signature: decl.signature,
+                            description: prose(decl.desc),
+                            parameters: entries(decl.args),
+                            member_label: decl.member_label.map(str::to_string),
+                            members: entries(decl.props),
+                            returns: decl.ret,
+                            errors: entries(decl.errors),
+                            example: decl.example,
+                            deprecated: decl.deprecated,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        });
+        PackageDocsResponse {
+            ident: view.ident,
+            version: view.version,
+            documentation,
+        }
+    }
 }
 
 /// `GET /p/:ident` — the rendered package page (plan-61-C Phase 3).
@@ -6786,6 +6947,177 @@ mod tests {
         );
     }
 
+    /// A doc section whose subtitle names the release, with one public
+    /// declaration (in group `Math`) and one the author marked `INTERNAL`.
+    fn release_doc_section(release_tag: &str) -> Vec<u8> {
+        let decl = |name: &str, internal: bool| mfb_wire::docs::DeclDocEntry {
+            kind: "func".to_string(),
+            name: name.to_string(),
+            signature: format!("EXPORT FUNC {name}() AS Integer"),
+            group: "Math".to_string(),
+            desc: vec![(0, format!("{name} of {release_tag}."))],
+            args: vec![("a".to_string(), "An argument.".to_string())],
+            props: Vec::new(),
+            ret: "A number.".to_string(),
+            errors: Vec::new(),
+            example: format!("PRINT toolbox::{name}()"),
+            internal,
+            deprecated: None,
+        };
+        mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
+            package: Some(mfb_wire::docs::PackageDocEntry {
+                name: "toolbox".to_string(),
+                desc: vec![(0, format!("Toolbox {release_tag}."))],
+                deprecated: None,
+            }),
+            decls: vec![decl("addUp", false), decl("secretHelper", true)],
+        })
+    }
+
+    fn publish_toolbox_release(h: &Harness, version: &str, docs: Option<Vec<u8>>) {
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                version,
+                &format!("hash-{version}"),
+                &format!("data/{version}.mfp"),
+                "{}",
+                &[],
+                &crate::store::PublishMetadata {
+                    docs,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+
+    fn docs_json(body: &str) -> PackageDocsResponse {
+        serde_json::from_str(body).unwrap_or_else(|err| panic!("{err}: {body}"))
+    }
+
+    /// **plan-126-F Validation Plan: the JSON/HTML parity test.** Both routes
+    /// report the same release, the same groups and the same declaration
+    /// anchors, and both omit the internal declaration.
+    #[tokio::test]
+    async fn the_docs_json_route_mirrors_the_docs_tab() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        publish_toolbox_release(&h, "1.0.0", Some(release_doc_section("r1")));
+
+        let (json_status, json_headers, json_body) =
+            get_page(&h.state, "/packages/alice%23toolbox/docs").await;
+        let (html_status, _headers, html_body) =
+            get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(json_status, StatusCode::OK, "{json_body}");
+        assert_eq!(html_status, StatusCode::OK, "{html_body}");
+        assert!(json_headers
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("application/json"));
+
+        let docs = docs_json(&json_body);
+        assert_eq!(docs.ident, "alice#toolbox");
+        assert_eq!(docs.version.as_deref(), Some("1.0.0"));
+        assert!(html_body.contains("v1.0.0"), "{html_body}");
+        // The HTML tab links its JSON mirror.
+        assert!(
+            html_body.contains("/packages/alice%23toolbox/docs"),
+            "{html_body}"
+        );
+
+        let documentation = docs.documentation.expect("documented release");
+        assert_eq!(documentation.subtitle, "Toolbox r1.");
+        assert!(html_body.contains("Toolbox r1."), "{html_body}");
+        assert_eq!(documentation.groups.len(), 1);
+        let group = &documentation.groups[0];
+        assert_eq!(group.title, "Math");
+        assert!(html_body.contains(">Math</h2>"), "{html_body}");
+        let anchors: Vec<&str> = group
+            .declarations
+            .iter()
+            .map(|decl| decl.anchor.as_str())
+            .collect();
+        assert_eq!(anchors, ["doc-addup"]);
+        for anchor in anchors {
+            assert!(
+                html_body.contains(&format!("id=\"{anchor}\"")),
+                "the JSON anchor {anchor} must be an element id on the tab: {html_body}"
+            );
+        }
+        let add = &group.declarations[0];
+        assert_eq!(add.signature, "EXPORT FUNC addUp() AS Integer");
+        assert_eq!(add.parameters[0].name, "a");
+        assert_eq!(add.returns, "A number.");
+        assert_eq!(add.example, "PRINT toolbox::addUp()");
+        assert!(!json_body.contains("secretHelper"), "{json_body}");
+        assert!(!html_body.contains("secretHelper"), "{html_body}");
+    }
+
+    /// An undocumented release is `documentation: null` on the JSON route —
+    /// the state the HTML tab states in words.
+    #[tokio::test]
+    async fn the_docs_json_route_reports_null_for_an_undocumented_release() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (status, _headers, body) = get_page(&h.state, "/packages/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let docs = docs_json(&body);
+        assert_eq!(docs.version.as_deref(), Some("1.0.0"));
+        assert!(docs.documentation.is_none(), "{body}");
+        assert!(body.contains("\"documentation\":null"), "{body}");
+    }
+
+    /// The JSON route refuses an unknown package with the same status as
+    /// `GET /packages/:ident`.
+    #[tokio::test]
+    async fn the_docs_json_route_404s_like_the_package_route() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (detail_status, _h1, _b1) = get_page(&h.state, "/packages/alice%23nope").await;
+        let (docs_status, _h2, docs_body) = get_page(&h.state, "/packages/alice%23nope/docs").await;
+        assert_eq!(detail_status, StatusCode::NOT_FOUND);
+        assert_eq!(docs_status, detail_status);
+        assert!(docs_body.contains("unknown package"), "{docs_body}");
+    }
+
+    /// **plan-126-F Validation Plan: the cross-surface check.** When the newest
+    /// release is yanked, both the tab and its JSON mirror serve the older
+    /// active release's documentation and name that release — plan-126-A's
+    /// selection end to end, not merely the newest row.
+    #[tokio::test]
+    async fn the_docs_tab_documents_the_older_active_release_when_the_newest_is_yanked() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        publish_toolbox_release(&h, "1.0.0", Some(release_doc_section("r1")));
+        publish_toolbox_release(&h, "2.0.0", Some(release_doc_section("r2")));
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        let (_status, _headers, before) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert!(before.contains("Toolbox r2."), "{before}");
+        assert!(before.contains("v2.0.0"), "{before}");
+
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "yanked")
+            .unwrap();
+
+        let (status, _headers, html_body) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html_body.contains("Toolbox r1."), "{html_body}");
+        assert!(html_body.contains("v1.0.0"), "{html_body}");
+        assert!(!html_body.contains("Toolbox r2."), "{html_body}");
+        assert!(!html_body.contains("v2.0.0"), "{html_body}");
+
+        let (_status, _headers, json_body) =
+            get_page(&h.state, "/packages/alice%23toolbox/docs").await;
+        let docs = docs_json(&json_body);
+        assert_eq!(docs.version.as_deref(), Some("1.0.0"));
+        assert_eq!(docs.documentation.unwrap().subtitle, "Toolbox r1.");
+    }
+
     /// An unknown package renders a 404 **page**, not a bare status — and that
     /// page still carries the CSP, because it is built by the shared builder.
     #[tokio::test]
@@ -7025,7 +7357,7 @@ mod tests {
     async fn anonymous_log_routes_are_rate_limited_per_ip() {
         let h = harness();
         for _ in 0..LOG_PER_IP_MAX {
-            log_checkpoint(State(h.state.clone()), peer("10.0.0.2"))
+            let _ = log_checkpoint(State(h.state.clone()), peer("10.0.0.2"))
                 .await
                 .expect("within budget");
         }
@@ -7045,7 +7377,7 @@ mod tests {
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 
         // It is PER IP: one abusive peer must not deny the rest of the world.
-        log_checkpoint(State(h.state.clone()), peer("10.0.0.3"))
+        let _ = log_checkpoint(State(h.state.clone()), peer("10.0.0.3"))
             .await
             .expect("a different peer has its own budget");
     }
@@ -7073,7 +7405,7 @@ mod tests {
              requests from one IP; LOG_PER_IP_MAX is {LOG_PER_IP_MAX}"
         );
         for _ in 0..burst {
-            log_checkpoint(State(h.state.clone()), peer("10.0.0.4"))
+            let _ = log_checkpoint(State(h.state.clone()), peer("10.0.0.4"))
                 .await
                 .expect("an ordinary install burst must not be throttled");
         }

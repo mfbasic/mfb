@@ -215,7 +215,7 @@ all three routes and asserts exactly one `aria-current` on each, on the right ta
 `package_tabs_mark_exactly_the_current_tab` pins the same at the renderer.
 `rustup run 1.96.0 cargo test --no-fail-fast --manifest-path repository/Cargo.toml --lib`
 → 392 passed, 0 failed.
-Commit: —
+Commit: aa1d90ca1 (Phases 1 and 2 together; see Corrections)
 
 ### Phase 2 — Render one real package
 
@@ -247,30 +247,48 @@ carries the subtitle, and renders 6 `callout--danger` blocks. In the browser:
 A static audit of the served HTML (`python3 /tmp/p126-csp-audit.py`) found 0 `style=`
 attributes, 0 `on*` handlers, 0 `javascript:` URLs, and one loaded resource,
 same-origin `/style.css`; nothing on the page can trip `default-src 'none'`.
-Commit: —
+Commit: aa1d90ca1
 
 ### Phase 3 — Declarations, and the escaping proof (largest blast radius)
 
-- [ ] Render each `DocGroup` and `DocDecl`: kind badge, name, signature, description
+- [x] Render each `DocGroup` and `DocDecl`: kind badge, name, signature, description
       prose, `args` / `props` tables with the group's `member_label`, `ret`,
       `errors`, `example`, and the deprecation notice.
-- [ ] Render the internal groups separately from the public ones, or omit them —
+- [x] Render the internal groups separately from the public ones, or omit them —
       decide per the Open Decision below and state which in Corrections.
-- [ ] Add in-page anchors from `DocDecl::anchor` and a no-script group index using
+- [x] Add in-page anchors from `DocDecl::anchor` and a no-script group index using
       the checkbox+label pattern already used at `repository/src/web/mod.rs:527-534`.
-- [ ] Add `GET /packages/:ident/docs` returning the same content as JSON, so the
+- [x] Add `GET /packages/:ident/docs` returning the same content as JSON, so the
       HTML page mirrors a JSON route like every other page on the site.
-- [ ] **Escaping test**: construct a `DocPage` whose package description, a decl
+- [x] **Escaping test**: construct a `DocPage` whose package description, a decl
       `signature`, a decl `example` and a parameter description each contain
       `<script>alert(1)</script>` and `" onmouseover="`, render it, and assert the
       output contains `&lt;script&gt;` and contains neither `<script>` nor an
       unescaped attribute break.
-- [ ] Confirm `grep -rc PreEscaped repository/src/web/` equals the Phase 1 baseline.
+- [x] Confirm `grep -rc PreEscaped repository/src/web/` equals the Phase 1 baseline.
+      Measured after Phase 3: `mod.rs:1`, `style.css:0` — the baseline — and
+      `grep -rn 'PreEscaped(' repository/src/` finds no call.
+- [x] *(Added.)* Prefix every declaration element id with `doc-`
+      (`crate::web::doc_element_id`). The model's anchors avoid only the compiler
+      page's own ids; this site's shell puts `id="q"` on the search box in every page
+      header, so a declaration named `q` would have duplicated it and its index link
+      would have jumped to the search box. Pinned by
+      `a_declaration_named_like_a_shell_id_does_not_duplicate_it`; the JSON route
+      reports the same prefixed id.
+- [x] *(Added.)* Render backtick spans in doc text as `<code>` (`doc_inline`), the
+      compiler renderer's only inline markup (`src/doc/html.rs`, `inline`), with every
+      piece still interpolated so it is escaped. Pinned by
+      `doc_inline_renders_backtick_spans_as_escaped_code`.
 
 Acceptance: `/p/<ident>/docs` for `jwt` renders every declaration group with
 signatures, parameters, returns, errors and examples; the escaping test is green;
 the `PreEscaped` count is unchanged from the Phase 1 baseline; and
 `rustup run 1.96.0 cargo test --no-fail-fast` passes.
+**Met (2026-09-12):** see § Validation results. `jwt`'s tab renders 21 declarations in
+5 groups with 21 signatures, 28 parameters, 21 returns, 38 errors and 17 examples;
+`docs_page_escapes_every_publisher_controlled_field` is green; the `PreEscaped` count
+is the baseline 1; repository lib tests 402 passed.
+`rustup run 1.96.0 cargo test --no-fail-fast` (full workspace, pre-merge tree) → exit 0: **163 test binaries, 5,395 passed, 0 failed, 6 ignored** (log `/tmp/p126-f3-fulltest.log`; 5,317 at plan-126-E's prerequisite run). The main crate's unit tests alone took 4,002 s against 2,073 s earlier the same day, on a host at load average 70–110 on 12 cores (other sessions' test runs, a QEMU VM, two stray probes); the slowest test, `the_whole_corpus_survives_the_top_of_the_dial`, predates this plan (8e19307a1) and is untouched by it.
 Commit: —
 
 ## Validation Plan
@@ -298,6 +316,56 @@ Commit: —
   `docker build -f repository/Dockerfile .`.
 - **Format:** `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
+### Validation results (measured 2026-09-12)
+
+- **Tests** (`rustup run 1.96.0 cargo test --no-fail-fast --manifest-path repository/Cargo.toml --lib`
+  → **402 passed, 0 failed**, 0 warnings; 392 before Phase 3). Phase 3 added
+  `the_docs_page_renders_every_part_of_a_declaration`,
+  `internal_declarations_are_not_rendered`, `a_page_with_no_public_declarations_says_so`,
+  `doc_inline_renders_backtick_spans_as_escaped_code`,
+  `a_declaration_named_like_a_shell_id_does_not_duplicate_it`,
+  `docs_page_escapes_every_publisher_controlled_field` (web), and
+  `the_docs_json_route_mirrors_the_docs_tab` (the JSON/HTML parity test),
+  `the_docs_json_route_reports_null_for_an_undocumented_release`,
+  `the_docs_json_route_404s_like_the_package_route`,
+  `the_docs_tab_documents_the_older_active_release_when_the_newest_is_yanked`
+  (server, through the real router). The four `Prose` kinds each rendering their
+  callout class is `the_docs_page_renders_package_prose_and_every_callout_kind`.
+- **Runtime proof.** All six documented packages plus `dom` were published
+  (`mfb repo publish alice <copy>`; logs `/tmp/p126-pub-*.log`, all `valid: true`) to a
+  local `mfb-repo` restarted on the Phase 3 build, then checked by
+  `python3 /tmp/p126-f3-validate.py`, which fetches both `/p/<ident>/docs` and
+  `/packages/<ident>/docs` for each and requires: HTTP 200 on both; the exact site CSP;
+  no `<script`, `<style` or `style=`; the JSON `version` named on the page; every JSON
+  anchor present as an element id; section count = JSON declaration count = the
+  compiler's own `mfb doc` section count for the same package; and signature/example/
+  returns counts equal between the two surfaces. Result, `failures: 0`:
+
+  | package | version | groups | decls (registry / `mfb doc`) | params | errors | examples |
+  |---|---|---|---|---|---|---|
+  | jwt | 0.1.0 | 5 | 21 / 21 | 28 | 38 | 17 |
+  | json_schema | 0.1.0 | 4 | 12 / 12 | 12 | 24 | 12 |
+  | libsnd | 1.5.0 | 4 | 12 / 12 | 12 | 24 | 6 |
+  | mustache | 0.1.0 | 1 | 4 / 4 | 6 | 6 | 4 |
+  | sqlite3 | 0.1.0 | 6 | 20 / 20 | 23 | 9 | 3 |
+  | yaml | 0.1.0 | 1 | 3 / 3 | 2 | 16 | 3 |
+  | dom | 0.1.0 | — | no documentation; the explicit copy renders | — | — | — |
+
+- **Browser check** (jwt, fresh-origin load): one stylesheet, 0 `[style]`, 0 `<script>`,
+  0 `<style>`, 21 `section.decl`, 0 duplicate element ids, 21 index links with 0
+  broken; the new rules apply (index groups `display: grid`, signature background
+  `oklch(0.24 0.006 90)` = dark `--surface-2`, `overflow-x: auto`, badge radius
+  `999px`). The fold works with no script: unchecking the index checkbox computes
+  `display: none`, re-checking restores `grid`.
+- **Cross-surface check.** Proven through the real router by
+  `the_docs_tab_documents_the_older_active_release_when_the_newest_is_yanked`: before
+  the yank the tab names `v2.0.0` and shows its docs; after yanking 2.0.0 both the tab
+  and `/packages/:ident/docs` name `1.0.0` and serve 1.0.0's documentation, with no
+  trace of 2.0.0's.
+- **Doc sync.** Moot: `grep -n -E '/p/|/packages/' repository/DEPLOY.md` returns
+  nothing — DEPLOY.md enumerates no routes.
+- **Acceptance.** `docker build -f repository/Dockerfile .` → exit 0 on the Phase 3 tree (log `/tmp/p126-docker-f.log`: `Compiling mfb_wire`, `Compiling mfb_repository`, `Finished release profile … in 2m 11s`, all five runtime stages DONE). The full `rustup run 1.96.0 cargo test --no-fail-fast` result is recorded under Phase 3's acceptance.
+
 ## Open Decisions
 
 - **Show internal declarations?** `DocPage` separates `public` from `internal`
@@ -306,13 +374,18 @@ Commit: —
   package cannot call them, and render only `public`. Alternative: render them
   collapsed behind the existing fold pattern for transparency. Decide before Phase 3
   and record it. (§Phase 3)
+  **Resolved: omitted** — see Corrections.
 - **Does the tab appear when the latest active version has no docs but an older one
   did?** Recommended: show the no-documentation copy for the *current* release
   without mentioning older ones — the tab's contract is "the current version's
   docs", and surfacing an older version's would contradict it. (§1)
+  **Resolved as recommended:** `lookup_package_docs` reads only
+  `latest_active_version_docs`; the empty state names the current release only.
 - **JSON shape for `/packages/:ident/docs`.** Recommended: serialize the `DocPage`
   model directly rather than the raw wire structures, so the two surfaces cannot
   disagree about grouping and anchors. (§Phase 3)
+  **Resolved as recommended:** `PackageDocsResponse` is built from the `DocPage` by
+  `PackageDocsResponse::from_view`, and both routes share one `lookup_package_docs`.
 
 ## Corrections
 
@@ -345,6 +418,48 @@ Commit: —
   `--note*` / `--warn*` / `--danger*` tokens (each already with light and dark values)
   without a second design system: `git diff -- repository/src/web/style.css` is 32 added
   lines, 0 removed, and no new custom property. No change to the Phase 3 markup plan.
+- **Internal declarations are omitted** (Open Decision). A decl is internal only when its
+  author wrote the `INTERNAL` attribute on its `DOC` block
+  (`grep -n 'eq_ignore_ascii_case("INTERNAL")' src/ir/docs.rs`), i.e. it is
+  explicitly not API. Neither surface renders them; both the HTML renderer and
+  `PackageDocsResponse::from_view` read only `page.public`
+  (`internal_declarations_are_not_rendered`, and the parity test asserts `secretHelper`
+  is absent from both bodies). None of the seven real packages ships one: the
+  compiler's `mfb doc` HTML for all of them contains 0 `Internal — not part of the
+  public API` headings (`grep -c` over `/tmp/p126-bytecheck`).
+- **Declaration ids are `doc-<anchor>`, not the bare model anchor** — the id collision
+  with the shell's `id="q"` recorded as an added Phase 3 task. The JSON `anchor` field
+  carries the prefixed id so it links straight into the tab.
+- **JSON `members` carries a declaration's `props` whatever its kind**, the model
+  serialized directly as the Open Decision recommended; the HTML tab shows them only
+  under a `memberLabel` (`Fields`/`Variants`/`Members`), matching the compiler's
+  `render_decl`. Measured over the six published packages' JSON, no declaration has
+  members without a label (0 in each); the 22 members that exist (libsnd 12, sqlite3
+  10) all sit under a label, so the two surfaces show the same members today.
+- **The HTML tab links its JSON mirror** (`… — raw JSON`), as the Audit tab does, which
+  the parity test asserts.
+- **Escaping test assertion corrected before landing.** A draft of
+  `docs_page_escapes_every_publisher_controlled_field` also asserted the page contains
+  no ` onmouseover=` substring; it failed because the correctly escaped *text*
+  `&quot; onmouseover=&quot;x` contains that substring (the same over-match plan-126
+  corrected once before). It now asserts no attribute break (`" onmouseover="`) and that
+  `onmouseover` occurs exactly 8 times, each as the escaped text of one of the eight
+  hostile fields — which also proves each field was rendered, not dropped.
+- **Stylesheet caching hid the new rules in the browser.** The first Phase 3 browser
+  measurement showed the index as `display: block` and a transparent signature:
+  `/style.css` is served with `cache-control: public, max-age=3600`
+  (`curl -sI http://127.0.0.1:7792/style.css`), so the tab reused the sheet cached
+  during the Phase 2 look, while `curl` showed the served sheet already had the rules.
+  A load from a fresh origin (`localhost` instead of `127.0.0.1`) measured them
+  applied. Not a defect in this sub-plan, but a deploy consequence worth knowing: a
+  stylesheet change reaches a returning visitor up to an hour after deploy.
+- **Three pre-existing test warnings fixed.** `cargo test --lib` warned
+  ``unused `axum::Json` that must be used`` at three `log_checkpoint(...).expect(...)`
+  calls in `anonymous_log_routes_are_rate_limited_per_ip` and
+  `the_log_budget_clears_a_full_install_burst_from_one_ip`, from 460b983dd (bug-579),
+  an ancestor of this plan's fork
+  (`git merge-base --is-ancestor 460b983dd e66e594a4` → 0). Bound to `let _ =`; the lib
+  tests now build with 0 warnings.
 
 ## Summary
 
