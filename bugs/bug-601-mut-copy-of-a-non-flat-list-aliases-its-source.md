@@ -8,7 +8,7 @@ Class: Memory-safety / Correctness (value semantics)
 Status: Open — **DECIDED 2026-09-12 for the pointer-`String` records: flatten.** The owner chose
 to move `net::Address`, `udp::Datagram` and `audio::AudioDevice` onto the ordinary inline-`String`
 layout (bug-599's candidate 2), which makes them `memcpy`-copyable, so `MUT ys = xs` gets a real
-copy. In progress. Recursive types (for example `List OF json::Json`) are a separate class that
+copy. Planned as **plan-132** (not started). Recursive types (for example `List OF json::Json`) are a separate class that
 flattening does not touch; whether they alias this way still needs its own probe. `Error` and
 `ErrorLoc` are split out as bug-602.
 Regression Test: none yet — the repros below are the RED cases a fix must flip.

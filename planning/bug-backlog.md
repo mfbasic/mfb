@@ -64,8 +64,8 @@ neither filed it), 594 (macOS `drawText` column), 592.
   image (`emit_build_inlined_record`), and the pointer-`String` record exception
   (`is_pointer_string_record`, its call sites and tests, the spec's §Record "excluded"
   note) is deleted. `net::PingResult` and `udp::Datagram` change layout with it, since
-  both embed an `Address`. In progress. The `Error`/`ErrorLoc` question is split out as
-  bug-602.
+  both embed an `Address`. **Planned as plan-132 (not started).** The `Error`/`ErrorLoc`
+  question is split out as bug-602.
 - **bug-593's residual**: a successful or failing `RES` call still grows by the closed
   resource record plan-52-B deliberately never frees (aliases read its closed flag).
   Reclaiming it moves a lifetime.
