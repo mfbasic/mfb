@@ -37,7 +37,7 @@ References:
 - `mfb spec language` numeric edge cases — Float `MOD`: "the remainder has the
   same sign as a"; a non-finite Float is caught at the observation boundary.
 - Memory `math-floor-returns-an-integer` — the same trap, recorded earlier.
-- `planning/plan-125-A-standards-tooling-pilot.md` §5.10 / §5.11.
+- `planning/completed/plan-125-A-standards-tooling-pilot.md` §5.10 / §5.11.
 
 ## Failing Reproduction
 

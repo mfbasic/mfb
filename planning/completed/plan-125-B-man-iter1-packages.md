@@ -40,7 +40,7 @@ See plan-125-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-125-A complete | `grep -c '^- \[ \]' planning/plan-125-A-standards-tooling-pilot.md` → `0` | — |
+| plan-125-A complete | `grep -c '^- \[ \]' planning/completed/plan-125-A-standards-tooling-pilot.md` → `0` | — |
 | the pilot's cost table is filled with measured numbers | read plan-125-A Phase 5's table | — |
 | `--reconcile` is self-tested | plan-125-A Phase 3 acceptance | — |
 

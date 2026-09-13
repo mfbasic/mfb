@@ -101,5 +101,5 @@ open      : grep -c '| OPEN |'  planning/plan-125-belongs-in-spec.md
 
 - `.ai/man-content.md` §4.4 — the carve-out that sends a sentence here.
 - `.ai/spec-content.md` §8 — the seam, from the spec side.
-- `planning/plan-125-A-standards-tooling-pilot.md` §3.1 — why the man surface
+- `planning/completed/plan-125-A-standards-tooling-pilot.md` §3.1 — why the man surface
   goes first.

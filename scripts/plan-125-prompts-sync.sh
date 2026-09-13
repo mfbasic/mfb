@@ -24,7 +24,7 @@
 set -uo pipefail
 
 REPO=$(git rev-parse --show-toplevel) || exit 2
-PLAN="$REPO/planning/plan-125-A-standards-tooling-pilot.md"
+PLAN="$REPO/planning/completed/plan-125-A-standards-tooling-pilot.md"
 PROMPTS="$REPO/planning/plan-125-prompts"
 
 BEGIN='<!-- BEGIN GENERATED PROMPTS -- edit planning/plan-125-prompts/*.txt, then scripts/plan-125-prompts-sync.sh --write -->'
