@@ -89,11 +89,21 @@ emitters, each hit read):
 
 ### Phase 0 — prerequisites the plan did not list (see Corrections C2, C3)
 
-- [ ] The codegen `TypeModel` knows every builtin registry record a program can hold,
+- [x] The codegen `TypeModel` knows every builtin registry record a program can hold,
   whether or not it imports the declaring package (C3). Acceptance: a `tcp`-only program
   that binds, copies and reassigns a `tcp::localAddress` result resolves `net.Address` in
   `record_fields`; the artifact gate over the existing fixtures is unchanged by this task
-  alone.
+  alone — corrected by C5 to "changes only what the tag-order fix explains". Evidence:
+  `registry::builtin_record_layouts` + `TypeModel::finish` (`e04ecae8f`);
+  `a_builtin_record_has_its_layout_without_an_import` (a model with no module types
+  resolves `net.Address`, `net.PingResult` with `net.PingStatus`/`net.Address` fields,
+  `udp.Datagram` with `net.Address`, and adds no bare `Address`) and
+  `a_qualified_union_is_tagged_once_through_the_package_constructor`:
+  `cargo test --release --bin mfb union_tag_tests` → 6 passed, EXIT=0. Gate on
+  `e04ecae8f`: 5 diffs, all `json_codegen_cover_rt`, localized to `MATCH` tag constants
+  (C5); `bash scripts/regen-ncodesum.sh /tmp/p132/mfb-d1` → `144 golden(s) refreshed`,
+  and `git status --short tests/` shows exactly those five `.ncodesum` files changed;
+  test-accept over every `json` fixture → 15 passed.
 - [ ] The helper-tier marshaller can inline a nested record field whose byte size the caller
   already holds (C2). Acceptance: a unit test builds a record with a known-size nested
   record field and the emitted size/offset stores match `emit_record_block_size_to_slot`'s

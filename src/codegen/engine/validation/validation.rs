@@ -1115,4 +1115,30 @@ mod union_tag_tests {
             Some(&1)
         );
     }
+
+    /// A package-qualified union's variants get one dense canonical tag each, and
+    /// their bare aliases share it — through `from_module_and_packages`, the
+    /// constructor every build uses.
+    ///
+    /// plan-132 C5: `from_module_and_packages` used to call `from_module`, which had
+    /// already aliased the bare leaves, and then recompute the tags over a table
+    /// that held `A`, `B`, `pkg.A` and `pkg.B` — the order `finish` documents as
+    /// wrong — so the qualified variants took tags 2 and 3 (`json.JsonObj` was 10 of
+    /// 12, measured in `json_codegen_cover_rt`). Every tag consumer reads the model,
+    /// so the sparse space was consistent; this pins the one-pass order.
+    #[test]
+    fn a_qualified_union_is_tagged_once_through_the_package_constructor() {
+        let types = vec![union("pkg.U", &[], &["pkg.A", "pkg.B"])];
+        let model = TypeModel::from_module_and_packages(&module(types), &[])
+            .expect("the package constructor builds with no packages");
+        for (variant, tag) in [("pkg.A", 0), ("pkg.B", 1), ("A", 0), ("B", 1)] {
+            assert_eq!(
+                model
+                    .union_variant_tags
+                    .get(&ParameterType::declared(variant)),
+                Some(&tag),
+                "`{variant}` must carry canonical tag {tag}"
+            );
+        }
+    }
 }
