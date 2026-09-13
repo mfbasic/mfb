@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-13
-Open bugs: **7** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **6** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — integration rounds and what they taught
 
@@ -38,8 +38,9 @@ Round 4 (594) was verified the same way: artifact gate 0 diffs; merged release u
 4137 passed; `cli_macos_app_term_draw_text` 3 passed (the gate is blind to app mode).
 
 **In flight:** nothing. No agents are running. Every bug worked this stretch has landed;
-the ones that stay open (540, 564, 599, 601, 602) are blocked only on the owner decisions
-below. The remaining open docs (484, 520, 536) are large planned work, not quick fixes.
+the ones that stay open (540, 564, 601) are blocked only on the owner decisions below
+(599 was fixed by plan-132; 602 was tested and closed as not a defect). The remaining
+open docs (484, 520, 536) are large planned work, not quick fixes.
 
 **Filed this stretch:** 601 (HIGH — a `MUT` copy of a non-flat list aliases its source and
 an in-place `append` then segfaults; found while fixing 599), 600 (a timed-out test run
@@ -69,8 +70,11 @@ neither filed it), 594 (macOS `drawText` column), 592.
   layout, every native reader rebases, and `is_pointer_string_record` is deleted. bug-599 is
   fixed and archived (a looped `net::lookup` held 1.2 → 1.4 MB over 200k → 400k iterations,
   was 99.8 → 198.3 MB). bug-601 **stays OPEN** for its recursive-type row only (`List OF
-  Tree`, still aliases; rides on bug-536 shape C). The `Error`/`ErrorLoc` question is
-  bug-602.
+  Tree`, still aliases; rides on bug-536 shape C). The `Error`/`ErrorLoc` question
+  (bug-602) is **closed, not a defect** (2026-09-13): both are ordinary flat records, every
+  second-binding shape copies (bug-601's three list shapes on a `List OF Error` included, on
+  the compiler before plan-132 as well), and `an_error_value_copy_is_independent_of_its_source`
+  pins it.
 - **bug-593's residual**: a successful or failing `RES` call still grows by the closed
   resource record plan-52-B deliberately never frees (aliases read its closed flag).
   Reclaiming it moves a lifetime.

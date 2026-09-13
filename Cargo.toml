@@ -559,6 +559,10 @@ name = "rt_encoding_punycode_bounds"
 path = "tests/runtime/rt_encoding_punycode_bounds.rs"
 
 [[test]]
+name = "rt_error_value_copies"
+path = "tests/runtime/rt_error_value_copies.rs"
+
+[[test]]
 name = "rt_foreign_type_reexport"
 path = "tests/runtime/rt_foreign_type_reexport.rs"
 
