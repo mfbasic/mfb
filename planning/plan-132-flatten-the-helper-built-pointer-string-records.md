@@ -103,6 +103,11 @@ emitters, each hit read):
   (`list_element_padding_alignment`), writes the entries, copies the blocks and frees the
   per-element scratch. Acceptance: unit test on the emitted entry/data arithmetic, plus the
   `net::lookup` runtime pins below.
+- [ ] D1 (found while probing C3): a project `TYPE Address` or `TYPE AudioDevice` cannot be
+  constructed — `LET a = Address["x"]` fails `2-203-0043 TYPE_UNKNOWN_VALUE` with no import
+  at all, while the same program with `Url`, `Datagram` or `KeyPair` (also builtin record
+  leaves) builds (`/tmp/p132/leaf_*`, base compiler). Root-cause it; fix it here or file it
+  with a repro if it proves unrelated and large.
 Commit:
 
 ### Phase 1 — `net::Address`, `udp::Datagram`, `net::PingResult`

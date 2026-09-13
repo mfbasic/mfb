@@ -1944,6 +1944,77 @@ pub(crate) fn registry() -> &'static Registry {
     REGISTRY.get_or_init(build)
 }
 
+/// One builtin record's layout: its package-qualified type and its fields in
+/// declaration order.
+pub(crate) type BuiltinRecordLayout = (ParameterType, Vec<(String, ParameterType)>);
+
+/// Every builtin record's field layout, keyed by its package-qualified type
+/// (`net.Address`), with every field type package-qualified the way the NIR spells
+/// it: `net.PingResult`'s `address` is `net.Address`, not the bare local `Address` a
+/// record prop carries so the companion source stays local.
+///
+/// plan-132 C3: the codegen `TypeModel` is built from a program's NIR types, which
+/// carry a builtin record only when some file imports its package. A value still
+/// reaches a program that imports nothing of the kind — `tcp::localAddress` hands a
+/// `net.Address` to a file that imports only `tcp` — and a nominal the model does not
+/// know is classified as a plain 8-byte scalar. `TypeModel` registers this table so a
+/// builtin record always has its real layout.
+pub(crate) fn builtin_record_layouts() -> &'static [BuiltinRecordLayout] {
+    static LAYOUTS: OnceLock<Vec<BuiltinRecordLayout>> = OnceLock::new();
+    LAYOUTS.get_or_init(|| {
+        let registry = registry();
+        // leaf -> the packages declaring it, built exactly as
+        // `qualify_value_type_references` builds it, so a leaf qualifies here the
+        // way it qualified there.
+        let mut owners: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for package in registry.packages() {
+            let pkg = package.import_name().to_string();
+            let mut add = |leaf: &str| {
+                owners
+                    .entry(leaf.to_string())
+                    .or_default()
+                    .push(pkg.clone());
+            };
+            for record in package.records() {
+                add(record.name);
+            }
+            for union in package.unions() {
+                add(union.name);
+            }
+            for r#enum in package.enums() {
+                add(r#enum.name);
+            }
+            for source_type in package.source_types() {
+                add(source_type);
+            }
+        }
+        registry
+            .packages()
+            .iter()
+            .flat_map(|package| {
+                let pkg = package.import_name();
+                let owners = &owners;
+                package.records().iter().map(move |record| {
+                    (
+                        ParameterType::declared(&format!("{pkg}.{}", record.name)),
+                        record
+                            .props
+                            .iter()
+                            .map(|prop| {
+                                (
+                                    prop.name.to_string(),
+                                    qualify_type_leaves_inner(&prop.ty, pkg, owners, true),
+                                )
+                            })
+                            .collect(),
+                    )
+                })
+            })
+            .collect()
+    })
+}
+
 /// Construct the registry by registering every migrated package.
 ///
 /// The `example` package is an illustrative entry that exercises the shape (a
