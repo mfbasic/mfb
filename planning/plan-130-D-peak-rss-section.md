@@ -144,6 +144,12 @@ Commit: —
 
 ## Corrections
 
+- **Phase 2 layout, proven before coding (2230, no C compiler: a PowerShell `Add-Type` P/Invoke
+  probe, `/tmp/p130-d-pmc.ps1`).** `K32GetProcessMemoryInfo(GetCurrentProcess(), buf, cb)`
+  succeeds with `cb = 72` and fails with `cb = 64`, so `sizeof(PROCESS_MEMORY_COUNTERS)` is 72.
+  The SIZE_T at offset 8 is the peak working set: 80,699,392 before touching 64 MiB and
+  143,589,376 after (+62.9 MB); `Get-Process` `PeakWorkingSet64` read just after was
+  148,934,656. Offset 16 is the current working set.
 - **Phase 1 — musl's `struct rusage` is 272 bytes, not 144.** The offset of `ru_maxrss` is 32
   on every Unix target (verified rows 1–3 hold), but musl reserves 16 `long`s where glibc and
   Darwin reserve fewer, so the stack buffer for the call must be at least 272 bytes; the
