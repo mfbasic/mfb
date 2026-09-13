@@ -22,7 +22,9 @@ its producer put alpha in before trusting it: `0xRRGGBBAA` is also in common use
 and the two are indistinguishable by inspection.
 
 To get the 24-bit `0xRRGGBB` form with alpha dropped, mask it off:
-`bits::band(color::toPacked(c), 16777215)`."#;
+`bits::band(color::toPacked(c), 16777215)`. That value is no longer a whole
+colour: passed back to `color::fromPacked`, its missing top byte reads as alpha
+`0`, and you get a fully transparent colour."#;
 
 const EX: &str = r#"The byte order, spelled out:
 

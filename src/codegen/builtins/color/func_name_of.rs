@@ -12,9 +12,9 @@ name of `base`, or raises `ErrNotFound` (`77050004`) if the colour is not in the
 table.
 
 **The match is exact, not nearest.** A colour one step off a named one has no
-name, and asking for it is an error rather than an approximation. "Closest named
-colour" is a different function, with a contestable metric and a much higher cost;
-it is deliberately not this one.
+name, and asking for it is an error rather than an approximation. `color` has no
+"closest named colour" lookup at all: choosing the closest needs a colour-distance
+measure that people reasonably disagree about, so `nameOf` does not guess.
 
 `base` must be **fully opaque**. Every entry in the table has alpha `255`, so a
 translucent colour has no name even when its red, green and blue match one

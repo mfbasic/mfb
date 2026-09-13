@@ -16,7 +16,8 @@ keeping its hue and lightness. `amount` `0.0` returns the colour unchanged and
 Saturation is an **HSL** property, so this works on the sRGB colour rather than in
 linear light.
 
-**`desaturate(c, 1.0)` is not `color::grayscale(c)`.** They are two different
+**Fully desaturating is not the same as grayscale:** `desaturate(c, 1.0)` is
+not `color::grayscale(c)`. They are two different
 answers to "remove the colour", and they disagree. This one drives HSL saturation
 to zero, which preserves HSL *lightness* — the midpoint between the colour's
 brightest and dimmest channel. `grayscale` projects onto **relative luminance**,

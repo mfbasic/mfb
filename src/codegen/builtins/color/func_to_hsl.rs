@@ -7,8 +7,9 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Decompose a colour into its hue, saturation and lightness."#;
 
-const DESC: &str = r#"`toHsl` returns a `color::Hsl` describing `base`: `hue` in degrees `0.0`..`360.0`,
-`saturation` and `lightness` in `0.0`..`1.0`. `color::hsl` is the inverse.
+const DESC: &str = r#"`toHsl` returns a `color::Hsl` describing `base`: `hue` in degrees from `0.0` up to
+but not including `360.0`, `saturation` and `lightness` in `0.0`..`1.0`.
+`color::hsl` is the inverse.
 
 **HSL describes the sRGB colour, not linear light.** That is what CSS `hsl()` and
 every design tool mean, so the numbers here match what a designer's tool shows for
@@ -20,7 +21,8 @@ the same as brightening the other.
 **A fully unsaturated colour has no meaningful hue.** For any grey — including
 black and white — `saturation` is `0.0` and `hue` is reported as `0.0` rather than
 as an arbitrary angle. The round trip is still exact: `hsl` ignores hue entirely
-when saturation is `0.0`, so `hsl(toHsl(grey))` returns the grey.
+when saturation is `0.0`, so `hsl(toHsl(grey))` returns the grey — for an opaque
+grey, since `hsl` always builds an opaque colour.
 
 `alpha` is not part of the HSL model and is not returned. Keep it from the
 original colour, or rebuild with `color::hsla`."#;

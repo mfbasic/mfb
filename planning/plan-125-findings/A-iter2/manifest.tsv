@@ -29,3 +29,4 @@ man-page:color/toLinear	0	94	19	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
 man-page:color/toHsl	0	119	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
 man-page:color/toPacked	0	100	5	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
 man-page:color/withAlpha	0	90	15	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-topic-page:variable/package	0	253	33	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

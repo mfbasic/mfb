@@ -187,10 +187,15 @@ When the spec says X and the code does Y, **never average them.** Decide which
 is wrong:
 
 - **Spec stale** → fix the spec. Cite the symbol you read.
-- **Code wrong** → this is a found compiler bug and AGENTS.md applies: it is
-  not left. Small → fix it now. Large → a `bug-NN` document with a repro.
-  Record it either way; a documentation pass is allowed to find compiler bugs
-  and is not allowed to ignore them.
+- **Code wrong** → this is a found compiler bug. **A documentation pass files it
+  and never fixes it**, however small the fix looks: it writes a `bug-NN`
+  document with a repro and records the bug in its ledger. (User instruction,
+  2026-09-12, for plan-125: "file all bugs, make no fixes. your only job is
+  updating the docs." A doc pass that edits code turns a prose-only change into
+  one that needs rebuilds, goldens and gates.) Until the bug lands, the page
+  describes what the code **does** — the as-is rule — and the ledger links the
+  bug. A documentation pass is allowed to find compiler bugs and is not allowed
+  to ignore them.
 - **Genuinely undecided** → that is itself the finding. Say which is
   authoritative and why, in the topic, with the citation.
 

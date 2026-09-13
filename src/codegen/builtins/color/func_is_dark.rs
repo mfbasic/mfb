@@ -17,8 +17,8 @@ read on that background?", the answer is `color::contrastRatio` against the WCAG
 thresholds (`4.5` for body text, `3.0` for large text), not this.
 
 The threshold is on **relative luminance**, so it accounts for the eye's uneven
-channel sensitivity — a saturated blue at full strength is dark, a saturated
-yellow is not, even though both have two channels at `255`.
+channel sensitivity — a saturated blue at full strength is dark and a saturated
+yellow is not, even though every channel either one uses is at `255`.
 
 `alpha` is ignored, because `luminance` ignores it. A half-transparent colour's
 apparent lightness depends on what is behind it, which this function cannot see.
@@ -38,7 +38,8 @@ SUB main()
 END SUB
 ```
 
-Pick readable text for a background:
+Pick a light or dark text colour for a background (check the result with
+`color::contrastRatio` when it has to be readable, not just plausible):
 
 ```
 IMPORT color

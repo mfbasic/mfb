@@ -3,6 +3,15 @@
 Last updated: 2026-09-07
 Open bugs: **24** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
+## 2026-09-12 — plan-125 documentation-review intake
+
+Filed, not fixed: plan-125 is documentation-only by user instruction.
+
+- **603 LOW** — `color::hsl`/`hsla`/`rotateHue` raise `ErrOverflow` for a finite
+  hue past ~3.3e21 degrees: `__color_wrapHue` takes the fractional turn through
+  `Integer`-returning `math::floor`. One-line fix (`hue MOD 360.0`); the golden
+  regeneration is the real cost.
+
 ## 2026-09-11 — repository security review intake
 
 - **578 HIGH** — a bounded repository upload can force multi-hundred-megabyte

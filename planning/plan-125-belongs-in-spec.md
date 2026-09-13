@@ -34,7 +34,9 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 
 | # | Man unit | Cut sentence (verbatim) | Why cut | Candidate spec package | Status | Resolution |
 |---|---|---|---|---|---|---|
-| | | | | | | |
+| 1 | `color::fromLinear` | `Together they are the seam every perceptual operation in `color` is built on, and the one the canvas software rasteriser blends through.` | `internals` | stdlib | COVERED | `src/docs/spec/stdlib/18_color.md:134` — "rasteriser blends through this same pair (`./mfb spec app canvas`" (`grep -n 'rasteriser blends through' src/docs/spec/stdlib/18_color.md`) |
+| 2 | `color::fromLinear` | `The answer is found by binary search over the same 256-entry table `toLinear` reads — eight comparisons, and exactly as deterministic as a lookup. A reverse table would need 65536 entries to say the same thing.` | `internals` | stdlib | COVERED | `src/docs/spec/stdlib/18_color.md:129-130` — "The mapping is a fixed 256-entry table and a binary search over it" (`grep -n 'binary search' src/docs/spec/stdlib/18_color.md`) |
+| 3 | `color::toLinear` | `That is deliberate: the software rasteriser is the oracle the GPU backends are compared against, so it must produce identical bytes on every target, and a libm transcendental does not.` | `internals` | stdlib | COVERED | `src/docs/spec/stdlib/18_color.md:261-268` — the oracle and the libm `pow` rationale (`grep -n 'oracle\|libm' src/docs/spec/stdlib/18_color.md`) |
 
 <!-- Row format:
      # ................ sequential, never reused

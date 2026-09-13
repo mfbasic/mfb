@@ -12,7 +12,7 @@ lightness. It is how a palette of related colours gets built from one: the
 complement is `180.0` away, a triad is `120.0` apart, and analogous colours are a
 few tens of degrees either side.
 
-**`degrees` wraps rather than clamping.** `rotateHue(c, 400.0)` is
+**The angle wraps rather than clamping.** `rotateHue(c, 400.0)` is
 `rotateHue(c, 40.0)`, and a negative value turns the other way, so walking around
 the wheel needs no bookkeeping and no range check.
 
@@ -22,8 +22,10 @@ light. `alpha` is carried through unchanged.
 A colour with no saturation — any grey — has no hue to turn, so `rotateHue`
 returns it unchanged whatever `degrees` says.
 
-Rotating by `360.0` returns the original colour, and rotating twice is the same as
-rotating once by the sum."#;
+Rotating by `360.0` returns the original colour. Rotating twice lands within a
+channel step of rotating once by the sum, not always exactly on it: each call
+rounds its result to whole channel values before the next one starts. When the
+exact colour matters, add the angles and rotate once."#;
 
 const EX: &str = r##"A triad: three colours 120 degrees apart:
 
@@ -79,8 +81,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "degrees",
-                    desc: "How far around the wheel. Wraps, so any value is valid, and \
-                           a negative value turns the other way.",
+                    desc: "How far around the wheel. Wraps by whole turns, so any \
+                           ordinary angle is valid, and a negative value turns the other \
+                           way. A value so large that its number of whole turns is past \
+                           the `Integer` range raises `ErrOverflow`.",
                     aliases: &[],
                     ty: ParameterType::Float,
                     default: DefaultValue::None,

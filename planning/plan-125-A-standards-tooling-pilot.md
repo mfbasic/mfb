@@ -450,11 +450,14 @@ re-batched before they start.
   a resolving symbol citation is checked *at that symbol*; a claim with none
   is either given one or cut), and by the rule below.
 - **Found compiler bugs.** A spec/code disagreement is triaged, never
-  averaged: *spec stale* → fix the spec; *code wrong* → per AGENTS.md the bug
-  is not left, it goes through `write-bug` (small → fix now; large → a
-  `bug-NN` document with a repro), recorded in the letter's ledger either
-  way. A doc plan is allowed to find compiler bugs; it is not allowed to
-  ignore them.
+  averaged: *spec stale* → fix the spec; *code wrong* → **file a `bug-NN`
+  document with a repro and make no fix, however small** (user instruction,
+  2026-09-12: "file all bugs, make no fixes. you only job is updating the
+  docs." — Correction C-12). The bug is recorded in the letter's ledger, and
+  until it lands the page describes what the code actually does. No letter of
+  plan-125 edits compiler code, tests, fixtures or goldens, or runs a test gate
+  for a code change. A doc plan is allowed to find compiler bugs; it is not
+  allowed to ignore them.
 - **The Codex sandbox cannot bind sockets** (plan-108-C's recorded lesson).
   Any probe for `tcp`/`udp`/`tls`/`net`/`http` must be run by the main thread
   in the primary checkout; the prompts say so explicitly (§5).
@@ -831,15 +834,22 @@ mistake.
       Codex → apply. Record the ledger (finding / verdict / evidence /
       disproving command for every rejection). **3 findings, 3 confirmed by
       probe, 3 applied** — see the ledger in §5.9 below. Commit `8ba8f8c5a`.
-- [~] Iteration 2 on all 30 `color` pages and both `variable` pages
+- [x] Iteration 2 on all 30 `color` pages and both `variable` pages
       (`package.md` is the only file; 1 page) — 31 units through the harness
       at `N=6`. Every example compiled and run. Record wall-clock per unit.
-      **30 of 31 units REVIEWED** (all 30 `color` pages: 28 functions +
-      overview + types), `exit 0`, `clean`, findings committed under
-      `planning/plan-125-findings/A-iter2/`. **Remaining: (a) the 31st unit
-      `man-topic-page:variable/package` has no manifest row — `--reconcile`
-      reports it `MISSING`, exit 1; (b) NONE of the 30 findings files has been
-      triaged or applied yet.** Wall-clock is recorded below and is measured.
+      **31 of 31 reviewed** — the 31st (`man-topic-page:variable/package`, 253s,
+      exit 0, clean) ran after the Codex limit reset; `--reconcile` over
+      `planning/plan-125-units/A-iter2.txt` → `units=31 unaccounted=0
+      orphans=0`, exit 0. **64 findings triaged: 30 confirmed and applied, 34
+      rejected with disproving evidence** — §5.10. One confirmed finding was a
+      compiler bug, **filed as bug-603 and not fixed** (§5.11, C-12). After the
+      edits: `SCRATCH=/tmp/mre-color ./scripts/man-run-examples.sh color --run`
+      → 57 built, 57 ran, 0 failed; `SCRATCH=/tmp/mre-var
+      ./scripts/man-run-examples.sh variable --topic --run` → 10/10;
+      `--memory-scope color` and `--scope color` → 0; no `variable` row in the
+      whole-surface sweeps. Rendering the changed pages also turned up a
+      pre-existing leak — `rotateHue` printed literal backticks from a bold span
+      containing code — fixed in the same pass.
 - [ ] Iteration 3 on `color` and `variable` (2 units): the re-integration
       lens. Record whether its findings are seams or facts (§3.2's success
       test for iteration 2).
@@ -1825,6 +1835,100 @@ spec citation and the probe both hold. Recorded because a reviewer's evidence
 is itself a claim, and accepting a finding is not the same as accepting every
 line of its justification.
 
+### 5.10 Pilot ledger — man iteration 2
+
+31 units, **64 findings raised: 30 CONFIRMED, 34 REJECTED.** Three units
+(`fromHex`, `isLight`, `toHexAlpha`) returned an audited NO FINDINGS. Every
+confirmation below was re-established on the main thread — by my own probe
+(`/tmp/p125-pr1`…`pr4`, built with the release binary), by reading the cited
+symbol, or by a citable external definition — never by accepting the reviewer's
+evidence as written.
+
+#### Confirmed
+
+| Unit | Finding | Confirming evidence (mine) |
+|---|---|---|
+| `brighten` #1–2 | "the same multiplier lifts a dark colour far more than a light one" and "equal `amount` steps look like equal steps" — linear light is proportional to light, not perceptually uniform | the claim is about the space, and `func_brighten.rs:__color_brightenChannel` interpolates linear light; rewritten to the true reason (bytes are not proportional to light). **The same false sentence was in `darken`** — fixed there too, found while applying |
+| `contrastRatio` #1 | "composited over something; do that first, with `color::mix`" | probe: `mix(rgba(0,0,0,0), white, 0.5)` → `#bcbcbc7f` — still half transparent; `func_mix.rs:__color_mix` interpolates alpha |
+| `contrastRatio` #2 | ratio `1.0` means "the text is invisible" | probe: `contrastRatio(rgb(45,29,0), rgb(1,0,123))` → `1.00` for two visibly different colours |
+| `darken` #2 | "`darken(brighten(c, 0.5), 0.5)` … lands lower" | probe: `#3366cc` → `#8b91aa`: red and green end HIGHER. Per channel the result is `(1+L)/4`, lower than `L` only when `L > 1/3` |
+| `fromLinear` #3–4, `toLinear` #3 | rasteriser seam, binary search over the 256-entry table, GPU-oracle/libm rationale | `.ai/man-content.md` §3 (codegen mechanics). Cut; all three are **already covered** by `src/docs/spec/stdlib/18_color.md:129-134, 261-268` — rows 1–3 of `planning/plan-125-belongs-in-spec.md` |
+| `toLinear` #2 | "the seam **every** perceptual operation in `color` is built on" | `func_saturate.rs:__color_saturate` goes through `__color_colorToHsl`, not `toLinear`. Now names the five linear-light operations |
+| `gray` #2 | `gray(128)` "is the midpoint by channel value" | the byte range's midpoint is 127.5 |
+| `gray` #3 | "half as bright to the eye, use `color::darken` on white, or pick the level by `color::luminance`" | probe: `darken(gray(255), 0.5)` → `#bcbcbc`, luminance `0.50` — half the **luminance**, not a perceptual half; `luminance` measures and cannot pick |
+| `hsla` #1 | "The hue in degrees. Wraps, so any value is valid." | **COMPILER BUG** — probe `/tmp/p125-pr2`: `hsla(1e36, …)` → `Error: 7-705-0010`, exit 255. `helper_hsl.rs:__color_wrapHue` used `math::floor`, which returns an `Integer` (memory `math-floor-returns-an-integer`). Same helper, same failure in `hsl` and `rotateHue` (probe `/tmp/p125-pr3`) — none of the three documents any error. **Filed as bug-603, not fixed** (§5.11, C-12); the three parameter descriptions now state the overflow as current behavior |
+| `invert` #1 | not inverting alpha keeps `invert` usable "for the thing it is for — finding a contrasting colour" | probe: `contrastRatio(gray(128), invert(gray(128)))` → `1.01`. The page's own next paragraph said the opposite |
+| `isDark` #1 | blue and yellow "both have two channels at `255`" | blue has one |
+| `isDark` #2 | example "Pick readable text for a background" | probe: `gray(187)` → `isDark TRUE`, contrast against the white text the example picks `1.92` — fails the 4.5 the page itself cites |
+| `luminance` #1 | green carries "roughly seven times" blue | `func_luminance.rs` BODY: `7152 * g` vs `722 * b` → 9.9 |
+| `nameOf` #1 | "'Closest named colour' is a different function" | no such member: `mfb man color` Functions table |
+| overview #1 | "**Components clamp rather than fail.**" | only `rgb`/`rgba` clamp; probe `/tmp/p125-pr4`: `color::Color[v, 0, 0, 255]` with `v = 300` → `TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH` |
+| overview #2 | "These are the CSS basic colours" — **my own iteration-1 sentence** | `constants.rs:BASIC` has `orange`, `cyan`, `magenta`; the CSS basic sixteen have `lime`, `aqua`, `fuchsia` and no `orange` |
+| `rotateHue` #1 | "rotating twice is the same as rotating once by the sum" | probe: two 1° turns of `rgb(0,0,17)` → `#000011`; one 2° turn → `#010011` |
+| `saturate` #1 | "what CSS and Sass `saturate()` do" | CSS Filter Effects `saturate()` is a colour-matrix filter, not an HSL operation; Sass's is HSL |
+| `toHsl` #1 | hue "`0.0`..`360.0`" | probe: `toHsl(hsl(360.0, 1.0, 0.5)).hue` → `0.00`; `__color_wrapHue` never returns 360 |
+| `toHsl` #2, types #1 | "`hsl(toHsl(grey))` returns the grey" / `hsl` builds back "from the same three values" | probe: `rgba(128,128,128,64)` → `#80808040`, rebuilt → `#808080ff`. `hsl` is always opaque |
+| `toPacked` #1 | masking alpha off, with no warning that the result is no longer a colour | probe: `fromPacked(band(toPacked(rgba(51,102,204,255)), 16777215))` → `#3366cc00`, fully transparent |
+| `withAlpha` #1 | "`withAlpha(withAlpha(c, 0), 255)` is `c`" | probe: `rgba(1,2,3,12)` → `#010203ff` vs `#0102030c` |
+| `variable` #1 | "every value is independent. Assigning or passing gives a copy" | `src/ir/verify/resources.rs:is_copyable` → `ParameterType::ThreadHandle { .. } => false` |
+| `variable` #2 | `STATE` is "an ordinary copyable record" — **my own iteration-1 sentence** | `mfb spec language` §15: `T must be an ordinary copyable, defaultable data type (TYPE_STATE_INVALID)`. An enum field has no default |
+| `variable` #3 | "A record is a value like any other, so it is copied on assignment" — silent that a `RES` field stays one open handle | probe `/tmp/p125-pr3`: copy the record, close through the copy, write through the original → `Error: 7-703-0004 Resource handle is already closed` |
+| `variable` #4 | "`thread::transfer` … the handle is closed by the call" — **my own iteration-1 sentence, and it was wrong** | `thread::accept` returns the same open handle, closed on the receiving side; the reviewer's run of `tests/rt-behavior/native/native-resource-thread-accept-rt` used every transferred handle |
+
+**Three of the 30 confirmed findings were in sentences I wrote in iteration 1**
+(overview #2, `variable` #2, `variable` #4). That is the depth pass doing its
+job on its own plan's edits, and it is the argument for iteration 2 running on
+already-reviewed text rather than skipping it.
+
+#### Rejected — each class with the command that disproves it
+
+| Class | Findings | Disproving evidence |
+|---|---|---|
+| "Clamp bounds are not explicitly inclusive" (19) | `desaturate` #1, `fromLinear` #1, `gray` #1, `hsl` #1–2, `hsla` #2–4, `mix` #1, `rgb` #1–3, `rgba` #1–4, `saturate` #2, `withAlpha` #2, `toLinear` #1 | A clamp includes its bounds by definition, and the language says so: `mfb man math clamp` → "Restrict a value or list to an inclusive [low, high] range." Every reviewer probe on these pages printed exactly what "clamped to `a`..`b`" states. `.ai/man-content.md` §2.1's inclusivity rule governs **position** parameters (`start`/`endIndex`), not value clamps. `fromLinear` #1: its DESC already says "anything at or below `0` yields `0` and anything at or past `65535` yields `255`". `toLinear` #1: the parameter is typed `Byte` (`mfb man color toLinear`, Parameters table), so it cannot be out of range |
+| "The page omits that the input is unchanged" (5) | `brighten` #3, `desaturate` #2, `invert` #2, `mix` #2, `toHex` #1 | `color::Color` is "an ordinary value record" (`mfb man color`), and the language guarantee is stated once: `grep -n 'passing gives a copy' src/docs/man/variable/package.md` → "Assigning or passing gives a copy. Changing one name can never change another." `.ai/man-content.md` §4.5 is explicit that a package page links that model rather than restating it; five restatements are the churn §6 forbids |
+| "Results are rounded to bytes" (4) | `darken` #1, `grayscale` #1, `hsl` #3, `mix` #3 | every `color` result is an 8-bit-per-channel `Color` — "A `color::Color` carries four `Byte` channels" (`mfb man color`). No sentence on these pages claims a result finer than a byte |
+| `fromLinear` #2 — tie rule | 1 | at an exact tie both candidates *are* nearest, so "nearest" is still true; the lower-channel choice changes no documented behaviour |
+| `fromName` #1 — empty name | 1 | `mfb man color fromName`: "Anything not in the table raises ErrNotFound (77050004)". `""` is not in the table |
+| `fromPacked` #1 — negative input | 1 | its parameter already says "Only the low 32 bits are read", which fully determines every negative input |
+| `contrastRatio` #3 — WCAG 3.0 for UI components | 1 | WCAG 2.2 SC 1.4.11 (Non-text Contrast) sets 3:1 for user-interface components. The sentence is a correct reminder of the thresholds, not a restatement of the criterion's exceptions |
+| types #2 — `Hsl` literals are not range-checked | 1 | `Hsl` is an ordinary record; no record validates its fields (the same rule as `Color`). The field descriptions state what `toHsl` reports |
+| `variable` #5 — the `mfb spec memory` link is out of scope | 1 | `.ai/spec-content.md`'s audience line names "the developer who wants the internal detail", and `.ai/man-content.md` §4.4 carve-out 2 is exactly this hand-off: precision goes to spec, and the man page links it. The bullet adds no internal detail to the page |
+
+**Handed forward, not fixed here** (outside the pilot's units, recorded so the
+owning letter starts with it): `mfb man thread transfer` says "after a
+successful transfer the sending binding is **closed**", which is the same
+wrong lifetime `variable` #4 corrected. It belongs to the letter that reviews
+`thread`.
+
+### 5.11 Pilot finding that was a compiler bug — the hue wrap (FILED as bug-603, not fixed)
+
+`__color_wrapHue` (`src/codegen/builtins/color/helper_hsl.rs`) computes
+`hue - toFloat(math::floor(hue / 360.0)) * 360.0`. `math::floor` returns an
+`Integer` and raises `ErrOverflow` for a magnitude past the `Integer` range, so
+any finite hue beyond about 3.3e21 degrees fails — in `color::hsl`,
+`color::hsla` and `color::rotateHue`, none of which declares an error.
+
+**Filed as `bugs/bug-603-color-hue-wrap-overflows.md`, with the repro, root
+cause, blast-radius audit and a one-line fix design (`hue MOD 360.0`, measured
+exact at `1e36`).** A fix, a RED fixture extension and a rebuild were started and
+then **reverted in full** (`git checkout --` of `helper_hsl.rs` and
+`color_hsl_rt/src/main.mfb`; `git status` clean for both) when the user
+directed "file all bugs, make no fixes. you only job is updating the docs." —
+Correction C-12.
+
+**What the pages say meanwhile — the as-is rule.** The `hue` parameter of
+`color::hsl` and `color::hsla`, and `degrees` of `color::rotateHue`, now say the
+value wraps by whole turns for any ordinary angle and that a value whose number
+of whole turns is past the `Integer` range raises `ErrOverflow`. Bug-603's
+Phase 2 removes that sentence when the fix lands. The derived Errors tables
+still list nothing, because they come from the descriptors and plan-125 does not
+edit descriptors.
+
+A non-finite hue is a separate, correct case: the language raises
+`ErrFloatOverflow`/`ErrFloatNaN` where the value is produced, before it can
+reach `color` (`mfb spec language`, numeric edge cases; probe: `big^9` →
+`Error: 7-705-0015`).
+
 ## Validation Plan
 
 - **Tests**: none for man prose (Non-goals). For any spec letter:
@@ -2058,6 +2162,42 @@ runs long, round-robin still hands the next unit to its worktree, so two
 each sees the other's files in `git status`. The `DIRTY` check would report
 noise and the reset would wipe a live run's scratch. Slots are now released by
 PID.
+
+### C-12 (Phase 5) — found compiler bugs are FILED, never fixed
+
+**Claimed** (§3.5 as authored, and `.ai/spec-content.md` §7 as first written):
+a spec/code disagreement where the code is wrong goes through `write-bug`,
+"small → fix now; large → a `bug-NN` document".
+
+**Actually true** — user instruction, 2026-09-12, on being asked how to handle
+the hue-wrap overflow: **"file all bugs, make no fixes. you only job is updating
+the docs."** (preceded by "why are you running tests?" when a RED probe of a
+fixture copy was built). This covers the whole plan, not the one bug.
+
+What changed in response:
+
+- The in-progress fix to `helper_hsl.rs:__color_wrapHue` and the RED extension
+  of `tests/rt-behavior/color/color_hsl_rt/src/main.mfb` were reverted with
+  `git checkout --` of exactly those two files (neither had been committed;
+  `git status --porcelain` clean for both afterwards). No golden was touched and
+  no gate was run.
+- The bug is filed as `bugs/bug-603-color-hue-wrap-overflows.md` and listed in
+  `planning/bug-backlog.md`.
+- §3.5 and `.ai/spec-content.md` §7 now say: file with a repro, never fix; the
+  page states current behavior until the bug lands.
+- A durable feedback memory was recorded
+  (`doc-tasks-file-bugs-never-fix`).
+
+**Consequence for B–N:** no letter edits compiler code, tests, fixtures or
+goldens, or runs a test gate for a code change. The compile-and-run of page
+examples, the census and citation instruments, and the spec letters' `cargo
+build` / `cargo test --bin mfb spec` for embedded markdown remain — those verify
+documentation, not a code fix.
+
+Also recorded: plan-125-A's Phase 1 `render_all_markdown` change is the one
+renderer change the plan authorised before this instruction. It renders
+existing documentation and fixes no compiler bug, so it stays; it is called out
+here so the reader can judge it against the instruction.
 
 ### C-11 (Phase 5) — the Prerequisites gate never tested that Codex could spend a request
 

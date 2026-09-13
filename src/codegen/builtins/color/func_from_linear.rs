@@ -8,17 +8,13 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Convert a linear-light value, `0`..`65535`, back to an sRGB channel."#;
 
 const DESC: &str = r#"`fromLinear` is the inverse of `color::toLinear`: it returns the sRGB channel
-byte whose linear value is nearest to `value`. Together they are the seam every
-perceptual operation in `color` is built on, and the one the canvas software
-rasteriser blends through.
+byte whose linear value is nearest to `value`. Together they are what the
+linear-light operations — `color::brighten`, `color::darken`, `color::mix`,
+`color::grayscale` and `color::luminance` — are built on.
 
-`value` is clamped by the search rather than rejected: anything at or below `0`
-yields `0` and anything at or past `65535` yields `255`, so an intermediate that
-overshot by a rounding step does not need guarding before the call.
-
-The answer is found by binary search over the same 256-entry table `toLinear`
-reads — eight comparisons, and exactly as deterministic as a lookup. A reverse
-table would need 65536 entries to say the same thing.
+`value` is clamped rather than rejected: anything at or below `0` yields `0` and
+anything at or past `65535` yields `255`, so an intermediate that overshot by a
+rounding step does not need guarding before the call.
 
 The mapping is **not** one-to-one in this direction, and cannot be: there are
 65536 linear values and 256 channels. `fromLinear(toLinear(c))` is `c` for every

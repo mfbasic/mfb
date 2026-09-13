@@ -111,12 +111,14 @@ A `color::Color` carries four `Byte` channels — `red`, `green`, `blue` and
 would any record of your own. Most programs use `color::rgb` and `color::rgba`
 instead, because those clamp.
 
-**Components clamp rather than fail.** `color::rgba(300, -20, 128, 255)` is the
-same colour as `color::rgba(255, 0, 128, 255)`. Colours get computed — a base plus
-a delta, a channel scaled by a fraction — and a value one past an end is a
-rounding artefact, not a mistake worth stopping the program for. The component
-parameters are `Integer` rather than `Byte` precisely so an out-of-range value can
-reach that clamp.
+**The rgb and rgba constructors clamp rather than fail.**
+`color::rgba(300, -20, 128, 255)` is the same colour as
+`color::rgba(255, 0, 128, 255)`. Colours get computed — a base plus a delta, a
+channel scaled by a fraction — and a value one past an end is a rounding artefact,
+not a mistake worth stopping the program for. Their component parameters are
+`Integer` rather than `Byte` precisely so an out-of-range value can reach that
+clamp. A `color::Color[...]` literal does not clamp: its fields are `Byte`, so an
+out-of-range value is rejected rather than pulled into range.
 
 **Alpha is straight, not premultiplied.** `0` is fully transparent and `255`
 fully opaque, and a colour's `red`/`green`/`blue` are unaffected by it. The
@@ -135,8 +137,8 @@ Text forms use `color::fromHex` and `color::toHex`/`color::toHexAlpha`.
 `black`, `white`, `red`, `green`, `blue`, `yellow`, `cyan`, `magenta`, `gray`,
 `silver`, `maroon`, `olive`, `navy`, `teal`, `purple`, `orange`.
 
-These are the CSS basic colours, so `color::green` is `#008000` — **a dark
-green**. The vivid green most people picture is CSS `lime`, reached with
+Each takes the value of the CSS named colour of the same name, so `color::green`
+is `#008000` — **a dark green**. The vivid green most people picture is CSS `lime`, reached with
 `color::fromName("lime")`. The constant follows CSS because
 `color::fromName("green")` has to agree with it.
 

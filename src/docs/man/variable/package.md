@@ -25,7 +25,9 @@ There are only two ideas, and the second one has exactly one exception:
 1. **A variable holds a value, and every value is independent.** Assigning or
    passing gives a copy. Changing one name can never change another.
 2. **A RES handle is the exception.** A handle is not copied — a second name is
-   an *alias* for the same open thing.
+   an *alias* for the same open thing. A `Thread` handle behaves the same way:
+   two names for one thread are two names for the same running thread (see
+   `mfb man thread`).
 
 Everything else follows from those two.
 
@@ -132,8 +134,10 @@ changes a `List` its caller can see.
 
 ## Changing a record: WITH
 
-A record is a value like any other, so it is copied on assignment. To change
-one, build a new one from the old with `WITH`, naming only the fields that
+A record is a value like any other, so it is copied on assignment — with one
+exception: a `RES` field is still an alias after the copy, so both records name
+the same open handle, and closing it through either closes it for both. To change
+a record, build a new one from the old with `WITH`, naming only the fields that
 differ:
 
 ```basic
@@ -244,11 +248,11 @@ handle is still an alias, and it is still closed once, when the scope that holds
 it ends.
 
 Handing a handle to **another thread** is the one place they do not.
-`thread::transfer` takes the handle: on success the sending name cannot be used
-again, and the handle is closed by the call rather than at the end of its scope.
-`thread::accept` produces the same open thing at the other end, so there is
-still exactly one, and still exactly one close — it just happens somewhere else.
-See `mfb man thread transfer`.
+`thread::transfer` takes the name: on success the sending name cannot be used
+again, even though its scope has not ended. `thread::accept` produces the same
+open thing at the other end, and it is closed there — explicitly, or when the
+receiving scope ends. There is still exactly one open thing and exactly one
+close; it just happens on the other side. See `mfb man thread transfer`.
 
 A record with a `RES` field is built the same way as any other record, with the
 positional `Type[...]` form:
@@ -278,7 +282,7 @@ wrote through app
 `log.handle` and `f` are two names for one open file, exactly as a parameter and
 its argument are.
 
-A collection of handles is written **`List OF RES fs::File`** — the `RES` marker
+A collection of handles is written `List OF RES fs::File` — the `RES` marker
 on the element is required, and a bare `List OF fs::File` is refused:
 
 ```basic
@@ -311,8 +315,9 @@ and so on — and `mfb man thread` describes the resource channel that carries i
 ## A handle can carry its own data: STATE
 
 A `RES` binding may carry a data value alongside the open thing, written with
-`STATE`. That value is an ordinary copyable record, and it is the one place a
-field is updated by assignment rather than with `WITH`:
+`STATE`. That value is an ordinary record that can be copied and has a default for
+every field — so no enum or handle fields — and it is the one place a field is
+updated by assignment rather than with `WITH`:
 
 ```basic
 IMPORT io

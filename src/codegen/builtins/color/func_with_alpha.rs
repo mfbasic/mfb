@@ -15,8 +15,9 @@ This is how a program makes an existing colour transparent without restating it:
 `brand` happens to be.
 
 `alpha` is straight, not premultiplied, so the red, green and blue channels are
-returned exactly as they were. A colour at `alpha` `0` still remembers its
-hue — `color::withAlpha(color::withAlpha(c, 0), 255)` is `c`."#;
+returned exactly as they were. A colour at `alpha` `0` still remembers its red,
+green and blue — `color::withAlpha(color::withAlpha(c, 0), 255)` gets them back
+exactly, and is `c` itself whenever `c` was opaque."#;
 
 const EX: &str = r#"Make a colour half transparent without restating it:
 

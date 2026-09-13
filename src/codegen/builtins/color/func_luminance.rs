@@ -12,7 +12,8 @@ luminance: the weighted sum `0.2126 * red + 0.7152 * green + 0.0722 * blue` over
 the **linear-light** channels, normalised so black is `0.0` and white is `1.0`.
 
 The weights are not equal because the eye is not equally sensitive: green carries
-roughly seven times the perceived brightness of blue at the same channel value.
+roughly ten times the weight of blue at the same linear-light value (`0.7152`
+against `0.0722`).
 This is why a pure green reads as far lighter than a pure blue even though both
 are `255` in one channel.
 

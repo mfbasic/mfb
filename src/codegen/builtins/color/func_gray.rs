@@ -9,15 +9,15 @@ const INTRO: &str = r#"Build an opaque neutral grey with every channel set to th
 
 const DESC: &str = r#"`gray` builds a `color::Color` whose red, green and blue channels are all
 `level`, with `alpha` fixed at `255`. `color::gray(0)` is black,
-`color::gray(255)` is white, and `color::gray(128)` is the midpoint by channel
-value.
+`color::gray(255)` is white, and `color::gray(128)` is the conventional middle
+grey by channel value.
 
 `level` is clamped to `0`..`255` like every other component.
 
-Note that a grey chosen this way is neutral by *channel value*, not by perceived
-lightness — `color::gray(128)` is darker than "half as bright as white" looks.
-For a grey that is half as bright to the eye, use `color::darken` on white, or
-pick the level by `color::luminance`.
+Note that a grey chosen this way is neutral by *channel value*, not by light:
+`color::gray(128)` gives off only about 22% of white's light (`color::luminance`
+reports `0.22`). For a grey with half of white's luminance, use
+`color::darken(color::gray(255), 0.5)` — it lands on channel value `188`.
 
 The spelling is `gray`, matching the CSS keyword. There is no `grey` member."#;
 
