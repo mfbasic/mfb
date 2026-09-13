@@ -16,25 +16,16 @@
 #
 #   --box <port>   ssh port of the Windows box (default 2230).
 set -euo pipefail
+. "$(dirname "$0")/remote-common.sh"
 
 MFB_EXE="${1:?usage: test-winprocess.sh <mfb-exe> [--box <port>]}"
 shift || true
 PORT=2230
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --box) PORT="$2"; shift 2 ;;
-    *) echo "test-winprocess: unknown argument $1" >&2; exit 2 ;;
-  esac
-done
+rc_parse_box test-winprocess "$@"
 
 host="test@127.0.0.1"
 remote='C:\mfbproc'
-fails=0
-pass() { echo "ok: $1"; }
-fail() { echo "FAIL: $1"; fails=$((fails + 1)); }
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+rc_workdir
 
 # ---------------------------------------------------------------------------
 # argdump.exe — the child whose whole job is to report the argv it was handed.
@@ -45,11 +36,7 @@ trap 'rm -rf "$work"' EXIT
 # quoting bug shows up as a different `argc`, not as a subtly wrong byte.
 adump="$work/argdump"
 mkdir -p "$adump/src"
-cat > "$adump/project.json" <<'JSON'
-{ "name": "argdump", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$adump" argdump
 cat > "$adump/src/main.mfb" <<'MFB'
 IMPORT io
 IMPORT os
@@ -74,11 +61,7 @@ MFB
 # pretending it does not happen.
 probe="$work/procprobe"
 mkdir -p "$probe/src"
-cat > "$probe/project.json" <<'JSON'
-{ "name": "procprobe", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$probe" procprobe
 cat > "$probe/src/main.mfb" <<'MFB'
 IMPORT io
 IMPORT process
@@ -99,7 +82,7 @@ SUB runStdin(label AS String, args AS List OF String, a AS String, b AS String)
   RES p = process::spawn(args)
   process::send(p, a)
   process::send(p, b)
-  process::close(p)
+  process::closeInput(p)
   WHILE TRUE
     LET line AS String = process::receive(p) TRAP(e)
       EXIT WHILE
@@ -135,7 +118,7 @@ SUB runShellStdin(label AS String, cmd AS String, a AS String, b AS String)
   RES p = process::shell(cmd)
   process::send(p, a)
   process::send(p, b)
-  process::close(p)
+  process::closeInput(p)
   WHILE TRUE
     LET line AS String = process::receive(p) TRAP(e)
       EXIT WHILE
@@ -223,11 +206,8 @@ echo rc=%errorlevel%
 BAT
 
 echo "--- running on box $PORT ---"
-ssh -p "$PORT" "$host" "if not exist $remote mkdir $remote" >/dev/null
-scp -P "$PORT" "$adump/build/argdump.exe" "$host:C:/mfbproc/argdump.exe" >/dev/null
-scp -P "$PORT" "$probe/build/procprobe.exe" "$host:C:/mfbproc/procprobe.exe" >/dev/null
-scp -P "$PORT" "$work/runner.bat" "$host:C:/mfbproc/runner.bat" >/dev/null
-out="$(ssh -p "$PORT" "$host" "$remote\\runner.bat" 2>&1 || true)"
+win_ship "$PORT" "$host" "$remote" "$adump/build/argdump.exe" "$probe/build/procprobe.exe" "$work/runner.bat"
+out="$(remote_ssh "$PORT" "$host" "$remote\\runner.bat" 2>&1 || true)"
 echo "$out" | sed 's/^/    /'
 
 # `expect <label> <needle> <why>` — a substring assertion over the whole transcript.
@@ -324,9 +304,9 @@ expect "a case-variant key overrides the inherited one" "e6:path=MFB-OVERRIDE" \
 reject "  ...and the inherited spelling is NOT also present" "e6:Path=" \
   "the override skip is byte-exact, so the child got BOTH Path and path"
 
-if [ "$fails" -eq 0 ]; then
+if [ "$rc_failures" -eq 0 ]; then
   echo "windows process runtime tests passed"
 else
-  echo "$fails failure(s)"
+  echo "$rc_failures failure(s)"
   exit 1
 fi
