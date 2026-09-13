@@ -315,35 +315,43 @@ const OS_HELPERS: &[(&str, Counts)] = &[
 /// of their allocations build the `List OF net::Address` / `net::PingResult` they
 /// return.
 ///
-/// bug-599: every helper that builds a `net::Address` through
-/// `emit_address_from_sockaddr` also frees that builder's 64-byte `inet_ntop`
-/// buffer, inline and right after the host `String` is copied out of it — one
-/// UNGUARDED free per address built, sound without a null guard because it is
-/// reached only past the buffer's own successful allocation (`alloc_fail` branches
-/// away first), never from `done`. `lookup` adds a second: the 16-byte record whose
-/// two words it copies into the list. Neither is a block any helper returns: the
-/// host `String` and the list stay allocated.
+/// bug-599 / plan-132: every `net::Address` is the flat record image, built by
+/// `emit_address_from_sockaddr` through the record marshaller. The builder
+/// allocates three blocks — the 64-byte `inet_ntop` buffer, a scratch host `String`
+/// and the record — and frees the first two inline: UNGUARDED, sound without a null
+/// guard because each is reached only past both allocations (`alloc_fail` branches
+/// away first), never from `done`.
+///
+/// `lookup` adds a `(pointer, size)` pair array and the list, and
+/// `emit_build_record_list` frees each element block (one free site, inside its
+/// loop) and the pair array: 6 allocations, 4 unguarded frees plus the host
+/// C-string. `ping`/`pingAddr` inline the built `Address` into the `PingResult`
+/// and free it — 3 unguarded — and plan-132 C8 releases the echo packet and the
+/// receive buffer at `done` with the host C-string: 3 guarded. The list, the result
+/// and everything inlined into them stay allocated.
 const NET_HELPERS: &[(&str, Counts)] = &[
-    ("_mfb_rt_net_net_lookup", (5, 3, 1)),
-    ("_mfb_rt_net_net_ping", (7, 2, 1)),
-    ("_mfb_rt_net_net_pingAddr", (7, 2, 1)),
+    ("_mfb_rt_net_net_lookup", (6, 5, 1)),
+    ("_mfb_rt_net_net_ping", (7, 6, 3)),
+    ("_mfb_rt_net_net_pingAddr", (7, 6, 3)),
 ];
 
 /// `tcp::connect`/`connectAddr`/`listen` all route through the shared endpoint
 /// helper and marshal their host; `accept`, `read`, `localAddress`,
 /// `remoteAddress` and `pollList` take no `String` argument. `pollList`'s three
 /// frees are its own poll-array bookkeeping, which predates this change.
+/// `localAddress`/`remoteAddress` are the address builder's 3 allocations and its 2
+/// inline frees (see `NET_HELPERS`).
 const TCP_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_tcp_tcp_accept", (1, 0, 0)),
     ("_mfb_rt_tcp_tcp_close", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_connect", (2, 1, 1)),
     ("_mfb_rt_tcp_tcp_connectAddr", (2, 1, 1)),
     ("_mfb_rt_tcp_tcp_listen", (2, 1, 1)),
-    ("_mfb_rt_tcp_tcp_localAddress", (3, 1, 0)),
+    ("_mfb_rt_tcp_tcp_localAddress", (3, 2, 0)),
     ("_mfb_rt_tcp_tcp_poll", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_pollList", (1, 3, 0)),
     ("_mfb_rt_tcp_tcp_read", (2, 0, 0)),
-    ("_mfb_rt_tcp_tcp_remoteAddress", (3, 1, 0)),
+    ("_mfb_rt_tcp_tcp_remoteAddress", (3, 2, 0)),
     ("_mfb_rt_tcp_tcp_setReadTimeout", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_setWriteTimeout", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_write", (0, 0, 0)),
@@ -351,15 +359,20 @@ const TCP_HELPERS: &[(&str, Counts)] = &[
 ];
 
 /// `udp::bind` marshals its bind host; `send`/`sendText` marshal the destination
-/// host out of the `net::Address` they are handed. `receive` and `localAddress`
-/// build only results.
+/// host out of the `net::Address` they are handed. `localAddress` is the address
+/// builder's 3 allocations and 2 inline frees (see `NET_HELPERS`). `receive`
+/// (plan-132, C8) allocates its `recvfrom` buffer, the address builder's three
+/// blocks, the byte list and the `Datagram`; it frees the builder's two scratch
+/// blocks, then the `Address` and the byte list once the `Datagram` holds copies of
+/// both, and releases the receive buffer guarded at `done` — every exit, including
+/// the timeout a polling receive ends on.
 const UDP_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_udp_udp_bind", (2, 1, 1)),
     ("_mfb_rt_udp_udp_close", (0, 0, 0)),
-    ("_mfb_rt_udp_udp_localAddress", (3, 1, 0)),
+    ("_mfb_rt_udp_udp_localAddress", (3, 2, 0)),
     ("_mfb_rt_udp_udp_poll", (0, 0, 0)),
     ("_mfb_rt_udp_udp_pollList", (1, 3, 0)),
-    ("_mfb_rt_udp_udp_receive", (6, 1, 0)),
+    ("_mfb_rt_udp_udp_receive", (6, 5, 1)),
     ("_mfb_rt_udp_udp_send", (1, 1, 1)),
     ("_mfb_rt_udp_udp_sendText", (1, 1, 1)),
     ("_mfb_rt_udp_udp_setReadTimeout", (0, 0, 0)),
@@ -415,8 +428,8 @@ const TLS_HELPERS_OPENSSL: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_connect", (4, 2, 2)),
     ("_mfb_rt_tls_tls_connectAddr", (4, 2, 2)),
     ("_mfb_rt_tls_tls_listen", (4, 3, 3)),
-    ("_mfb_rt_tls_tls_localAddress", (3, 1, 0)),
-    ("_mfb_rt_tls_tls_localAddressListener", (3, 1, 0)),
+    ("_mfb_rt_tls_tls_localAddress", (3, 2, 0)),
+    ("_mfb_rt_tls_tls_localAddressListener", (3, 2, 0)),
     ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
     ("_mfb_rt_tls_tls_read", (2, 0, 0)),
@@ -451,8 +464,10 @@ const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_connect", (4, 2, 2)),
     ("_mfb_rt_tls_tls_connectAddr", (4, 2, 2)),
     ("_mfb_rt_tls_tls_listen", (7, 2, 2)),
-    ("_mfb_rt_tls_tls_localAddress", (3, 1, 0)),
-    ("_mfb_rt_tls_tls_localAddressListener", (2, 0, 0)),
+    ("_mfb_rt_tls_tls_localAddress", (3, 2, 0)),
+    // plan-132: `emit_address_from_host_and_port` allocates the scratch host
+    // `String` and the record, and frees the scratch once the record holds it.
+    ("_mfb_rt_tls_tls_localAddressListener", (2, 1, 0)),
     ("_mfb_rt_tls_tls_poll", (1, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
     ("_mfb_rt_tls_tls_read", (2, 1, 0)),
@@ -473,8 +488,8 @@ const TLS_HELPERS_SCHANNEL: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_connect", (5, 1, 1)),
     ("_mfb_rt_tls_tls_connectAddr", (5, 1, 1)),
     ("_mfb_rt_tls_tls_listen", (9, 1, 1)),
-    ("_mfb_rt_tls_tls_localAddress", (3, 1, 0)),
-    ("_mfb_rt_tls_tls_localAddressListener", (3, 1, 0)),
+    ("_mfb_rt_tls_tls_localAddress", (3, 2, 0)),
+    ("_mfb_rt_tls_tls_localAddressListener", (3, 2, 0)),
     ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
     ("_mfb_rt_tls_tls_read", (2, 0, 0)),

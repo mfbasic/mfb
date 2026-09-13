@@ -2816,26 +2816,23 @@ pub(crate) fn byte_list_block_kind() -> usize {
 // and can never drift.
 // ---------------------------------------------------------------------------
 
-/// The built-in helper-constructed records whose `String`/sub-record fields are
-/// kept as **pointers** to separate allocations rather than inlined into the data
-/// region (spec §Record "excluded"). The socket helpers build `net::Address` and
-/// `udp::Datagram` that way, and audio builds `audio::AudioDevice`.
+/// The built-in helper-constructed record whose `String` fields are still kept as
+/// **pointers** to separate allocations rather than inlined into the data region
+/// (spec §Record "excluded"): `audio::AudioDevice`, which the three device
+/// enumerators build that way. plan-132 moved `net::Address` and `udp::Datagram`
+/// onto the ordinary layout — their builders go through the record marshaller —
+/// and moves `audio::AudioDevice` in its Phase 2.
 ///
 /// The membership question goes through `is_builtin_named`, which accepts both
 /// the bare leaf and the package-qualified id, and **both are load-bearing**
-/// (bug-483). A *signature* type — a member's parameter or return, rewritten by
-/// `Registry::qualify_value_type_references` — arrives as `net.Address`; a record
-/// *field* type does not, because that pass deliberately leaves field types bare
-/// so the injected companion source stays parseable, so `udp::Datagram`'s `from`
-/// field arrives as `Address`. Matching only the bare leaf silently reclassified
-/// every qualified reference as an ordinary inlined-`String` record, and its
-/// readers then took the slot the socket helper had written an absolute pointer
-/// into as a block-relative offset — a wild pointer, and a `SIGSEGV` the moment
-/// anything touched `.host`.
+/// (bug-483): a *signature* type arrives package-qualified, while a registry
+/// record prop naming its own package's type stays bare. Matching one spelling
+/// silently reclassified the other as an ordinary inlined-`String` record, and its
+/// readers then took the slot a helper had written an absolute pointer into as a
+/// block-relative offset — a wild pointer, and a `SIGSEGV` the moment anything
+/// touched the field.
 pub(crate) fn is_pointer_string_record(type_: &ParameterType) -> bool {
-    type_.is_builtin_named("net", "Address")
-        || type_.is_builtin_named("udp", "Datagram")
-        || type_.is_builtin_named("audio", "AudioDevice")
+    type_.is_builtin_named("audio", "AudioDevice")
 }
 
 /// True when `field_type` occupies a record slot as a pointer to a separate
@@ -3398,21 +3395,19 @@ mod pointer_string_record_tests {
     use super::*;
     use crate::codegen::registry::registry;
 
-    /// The three helper-built records, in both spellings the compiler can hand
-    /// this predicate.
+    /// The helper-built records still on the pointer layout, in both spellings the
+    /// compiler can hand this predicate. plan-132 Phase 1 moved `net::Address` and
+    /// `udp::Datagram` off it; `no_other_declared_record_is_pointer_string` is what
+    /// holds them off.
     ///
     /// bug-483: a *signature* type (a member's parameter or return) is rewritten
     /// to the package-qualified id by `Registry::qualify_value_type_references`,
-    /// while a record *field* type is deliberately left bare so the injected
-    /// companion source stays parseable. Both spellings therefore reach
-    /// `is_pointer_string_record` for the same record, and both must answer the
-    /// same — a disagreement silently reclassifies the record's layout, and its
-    /// readers then dereference an absolute pointer as a block-relative offset.
-    const POINTER_STRING: &[(&str, &str)] = &[
-        ("net", "Address"),
-        ("udp", "Datagram"),
-        ("audio", "AudioDevice"),
-    ];
+    /// while a registry record prop naming its own package's type stays bare. Both
+    /// spellings therefore reach `is_pointer_string_record` for the same record,
+    /// and both must answer the same — a disagreement silently reclassifies the
+    /// record's layout, and its readers then dereference an absolute pointer as a
+    /// block-relative offset.
+    const POINTER_STRING: &[(&str, &str)] = &[("audio", "AudioDevice")];
 
     #[test]
     fn both_spellings_of_a_pointer_string_record_agree() {

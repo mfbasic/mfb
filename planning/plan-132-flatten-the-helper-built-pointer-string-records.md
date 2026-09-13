@@ -104,15 +104,31 @@ emitters, each hit read):
   (C5); `bash scripts/regen-ncodesum.sh /tmp/p132/mfb-d1` → `144 golden(s) refreshed`,
   and `git status --short tests/` shows exactly those five `.ncodesum` files changed;
   test-accept over every `json` fixture → 15 passed.
-- [ ] The helper-tier marshaller can inline a nested record field whose byte size the caller
+- [x] The helper-tier marshaller can inline a nested record field whose byte size the caller
   already holds (C2). Acceptance: a unit test builds a record with a known-size nested
   record field and the emitted size/offset stores match `emit_record_block_size_to_slot`'s
-  rule.
-- [ ] A helper-tier `List OF <flat record>` builder: from `count` built element blocks and
+  rule. Evidence: `memory::marshal::record::emit_build_inlined_record_sized`;
+  `a_nested_record_field_builds_from_its_known_size_in_both_passes` (the size slot is read
+  by both the sizing and the copy pass), `a_nested_record_field_without_its_size_is_refused`,
+  `a_known_size_on_a_slot_field_is_refused`, plus C6's
+  `the_fixed_regs_are_the_legacy_names` and `fresh_regs_never_write_a_vreg_the_caller_already_holds`:
+  `cargo test --release --bin mfb memory::marshal` → 9 passed, EXIT=0. The runtime half of
+  the size rule is the `udp::Datagram`/`net::PingResult` pins in Phase 1.
+- [x] A helper-tier `List OF <flat record>` builder: from `count` built element blocks and
   their sizes, it allocates the list, pads each element start to 8
   (`list_element_padding_alignment`), writes the entries, copies the blocks and frees the
   per-element scratch. Acceptance: unit test on the emitted entry/data arithmetic, plus the
-  `net::lookup` runtime pins below.
+  `net::lookup` runtime pins below. Unit half: `memory::marshal::record_list` (one
+  allocation and two free sites, `LIST`/`OBJECT` header, both passes pad to 8, fresh
+  regs) in the 9 passed above. Runtime half: `net::lookup` now builds through it, and
+  `a_looped_net_lookup_runs_at_constant_rss`,
+  `every_address_reads_back_after_its_builder_scratch_is_freed` and
+  `rt_net_address_record_layout` pass (Phase 1 evidence below).
+- [x] C8 (found while predicting counts): the receive buffer of `udp::receive` and the
+  packet/receive buffers of both `net::ping` backends are released at `done` as
+  `HelperScratch`. Evidence: `codegen_helper_scratch_release` rows `udp::receive
+  (6, 5, 1)`, `net::ping`/`pingAddr (7, 6, 3)`, predicted by hand before measuring and
+  matched (9 passed); `a_looped_udp_receive_runs_at_constant_rss` passes.
 - [x] D1 (found while probing C3): a project `TYPE Address` or `TYPE AudioDevice` cannot be
   constructed — `LET a = Address["x"]` fails `2-203-0043 TYPE_UNKNOWN_VALUE` with no import
   at all, while the same program with `Url`, `Datagram` or `KeyPair` (also builtin record
@@ -134,29 +150,48 @@ Commit:
 
 ### Phase 1 — `net::Address`, `udp::Datagram`, `net::PingResult`
 
-- [ ] `emit_address_host_and_record` builds the canonical `Address` image through the
+- [x] `emit_address_host_and_record` builds the canonical `Address` image through the
   marshaller and frees its host-`String` scratch; `emit_address_from_sockaddr` /
-  `emit_address_from_host_and_port` leave the record pointer and its byte size.
-- [ ] `net::lookup` builds its list with the record-list builder.
-- [ ] Both `net::ping` backends build `PingResult` with `address` inlined.
-- [ ] `udp::receive` builds `Datagram` with `from` and `bytes` inlined.
-- [ ] `lower_net_address_helper` and both macOS TLS address helpers return the canonical
+  `emit_address_from_host_and_port` leave the record pointer and its byte size
+  (`AddressSlots`, `MarshalRegs::fresh`).
+- [x] `net::lookup` builds its list with the record-list builder.
+- [x] Both `net::ping` backends build `PingResult` with `address` inlined
+  (`gen_ping::emit_ping_result`; `PING_RESULT_TYPE_ID` ungated for it).
+- [x] `udp::receive` builds `Datagram` with `from` and `bytes` inlined (dead `text` arm
+  deleted, C7).
+- [x] `lower_net_address_helper` and both macOS TLS address helpers return the canonical
   record.
-- [ ] Readers rebased (`recordBase + offset`): `lower_net_endpoint_helper` address arm,
+- [x] Readers rebased (`recordBase + offset`): `lower_net_endpoint_helper` address arm,
   `lower_net_send_to_helper`, `connect_arg_prologue` address arm, both ping `address_form`
-  arms.
-- [ ] `net::Address` and `udp::Datagram` removed from `is_pointer_string_record` (and its
+  arms. Census: every registry member taking `net::Address`
+  (`grep -rn "ADDRESS_TYPE_ID\|super::address()" src/codegen/builtins`) is one of these.
+- [x] `net::Address` and `udp::Datagram` removed from `is_pointer_string_record` (and its
   tests' table).
-- [ ] Layout-pinning tests updated: `ping_result_offsets_match_the_declared_field_order`,
-  `datagram_field_order_is_from_then_bytes`, the `net`/`tcp`/`udp`/`tls` rows of
-  `codegen_helper_scratch_release`.
-- [ ] bug-601 regression tests committed and green: the three repros flip (`ys=0 xs=1`,
+- [x] Layout-pinning tests updated: `ping_result_offsets_match_the_declared_field_order` →
+  `ping_result_fields_match_what_the_backends_hand_the_marshaller`,
+  `datagram_field_order_is_from_then_bytes` (now also asserts both fields inlined), the
+  `net`/`tcp`/`udp`/`tls` rows of `codegen_helper_scratch_release` (every new triple
+  predicted by hand before measuring; `cargo test --release --test
+  codegen_helper_scratch_release` → 9 passed). Unit: `cargo test --release --bin mfb --
+  memory::marshal net:: udp:: pointer_string_record_tests union_tag_tests tls::` → 61
+  passed, EXIT=0.
+- [x] bug-601 regression tests committed and green: the three repros flip (`ys=0 xs=1`,
   no crash, correct hosts), with the `List OF String` contrast.
-- [ ] bug-599 RSS pin committed: `net::lookup`, `tcp::localAddress` and a user-built
-  `List OF net::Address` flat at >=200k iterations.
-- [ ] Positive pins green: `every_address_reads_back_after_its_builder_scratch_is_freed`,
+  `a_mut_copy_of_an_address_list_is_independent_of_its_source` in
+  `rt_net_address_record_layout` (2 passed). Probes on the Phase 1 binary: macOS
+  `/tmp/p132/p1.log`, Linux box 2223 and Windows box 2230 (cross-built, all exit 0,
+  `ys=0 xs=1` / `ys=2 xs=1` / hosts `127.0.0.1:80`).
+- [x] bug-599 RSS pin committed: `net::lookup`, `tcp::localAddress` and a user-built
+  `List OF net::Address` flat at >=200k iterations — plus `udp::receive`.
+  `cargo test --release --test rt_scope_drop_leaks -- --test-threads=1 a_looped_ …` → 5
+  passed. Peak RSS 200k → 400k on macOS, before → after: lookup 99.8→198.3 MB became
+  1.2→1.4 MB; localAddress 38.0→74.9 became 1.1→1.1; user-built list 196.4→391.8 became
+  1.1→1.1; udp receive 157.5→313.6 became 1.49→1.49.
+- [x] Positive pins green: `every_address_reads_back_after_its_builder_scratch_is_freed`,
   `tests/net/rt_net_address_*`, `rt_tls_listener_local_address`,
-  `rt_tls_listener_thread_transfer`.
+  `rt_tls_listener_thread_transfer` — 1 + 2 + 1 + 2 + 1 passed. A `tcp`-only and a
+  `udp`-only program (no `IMPORT net`) copy and pass the flat records correctly on all
+  three platforms (C3's prerequisite, measured).
 Commit:
 
 ### Phase 2 — `audio::AudioDevice`
@@ -184,9 +219,30 @@ Commit:
 
 ### Verification (plan end)
 
-- [ ] Artifact gate: goldens regenerated; every package that moves is explained.
-- [ ] Acceptance over the `net`/`tcp`/`udp`/`tls`/`http`/`audio` fixtures.
-- [ ] Runtime on Linux (box 2223) and Windows (box 2230) for the socket packages.
+- [~] Artifact gate: goldens regenerated; every package that moves is explained. Phase 1
+  done: `bash scripts/artifact-gate.sh /tmp/p132/mfb-p1 all` → `2013 golden(s) checked,
+  30 diff(s)` = `http`, `net`, `resource-xfer-slots`, `tcp`, `tls`, `udp` × 5 targets.
+  Each localized by building its host `-ncode` with the Phase-0 and Phase-1 compilers
+  (`/tmp/p132/fdiff.sh`): changed functions are exactly the rewritten builders/readers
+  plus `main` (`net`: lookup, ping, pingAddr; `tcp`: connectAddr, localAddress,
+  remoteAddress; `udp`: localAddress, receive, send, sendText; `tls`: net.lookup,
+  tls.connectAddr, localAddress, localAddressListener; `http`: tcp.connectAddr,
+  tcp.localAddress, tls.connectAddr; `resource-xfer-slots`: tls.connectAddr only — it
+  imports `tls`); none added or removed. `net`'s `main` gains ownership code only
+  (`_mfb_arena_free` 9 → 123 behind owned-value guards, owned-collection drops 4 → 6, one
+  flat-copy allocation — the bug-601 copy). Crypto did not move (fixed marshaller regs).
+  `bash scripts/regen-ncodesum.sh /tmp/p132/mfb-p1` → `144 refreshed`, and exactly those
+  30 sums changed. Remaining: Phase 2's `audio` movement.
+- [~] Acceptance over the `net`/`tcp`/`udp`/`tls`/`http`/`audio` fixtures. Phase 1:
+  `bash scripts/test-accept.sh /tmp/p132/mfb-p1 /tmp/p132/accept_p1 <the 122 fixtures under
+  those package directories>` → `acceptance tests passed (123 test(s) ran)`, EXIT=0.
+  Remaining: rerun after Phase 2.
+- [x] Runtime on Linux (box 2223) and Windows (box 2230) for the socket packages.
+  Cross-built the probe set with the Phase 1 compiler (`/tmp/p132/xbuild.sh`, targets
+  `linux-aarch64` and `windows-x86_64`) and ran it on each box: every program exits 0;
+  the bug-601 repros print `ys=0 xs=1` / `ys=2 xs=1` with `127.0.0.1:80` hosts; the
+  `tcp`-only and `udp`-only programs work; the lookup/localAddress/user-list/udp loops
+  complete. Box 2223 has no GNU `time`, so RSS is measured on macOS only (the pins).
 - [ ] Full suite + test-accept once, merged with main.
 
 ## Verification
@@ -252,3 +308,39 @@ Commit:
   have no dot, get no alias and did not move (0 other diffs). Kept, pinned by
   `a_qualified_union_is_tagged_once_through_the_package_constructor`, and proven at
   runtime by acceptance over every `json` fixture.
+- **C6 — the record marshaller wrote FIXED vreg names, which the plan's new call sites
+  cannot use safely.** `memory/marshal/record.rs` wrote the literals `%v9`..`%v14`,
+  documented as safe because "callers spill everything live to frame slots first".
+  A helper's vregs are numbered by its own allocator from `%v0`
+  (`engine/util/vreg_frame.rs` `Vregs::next`), and a `HelperScratch` keeps its pointer
+  in vregs until the helper's `done` (`memory/arena/native_arena.rs`
+  `emit_helper_scratch_release`). The socket helpers this plan routes through the
+  marshaller draw vregs all through their bodies, so whether a fixed name collided with
+  a live one would depend on how many were drawn first — a silent wrong free, invisible
+  to any emitted-code test. Fixed by construction: `MarshalRegs::fresh(&mut vregs)`
+  for every new caller, `MarshalRegs::fixed()` (the unchanged legacy names, pinned by
+  `the_fixed_regs_are_the_legacy_names`) for `crypto::generate`'s three existing calls,
+  and a test per marshaller that fresh regs never write a vreg the caller holds.
+- **C7 — `udp::receive`'s `text` arm is dead and is deleted, not ported.**
+  `lower_net_receive_from_helper(…, text)` has one caller,
+  `udp/func_receive.rs` `lower_receive`, which passes `false`
+  (`grep -rn "lower_net_receive_from_helper(" src`), and the record that arm built
+  (`DatagramText`) is retired — `udp::tests::no_text_receive_shape_survives` asserts
+  it is not declared. Porting it to the flat layout would be building a record the
+  type model cannot resolve for a path nothing reaches. `emit_string_result_build`
+  stays: `tcp/gen_io.rs` and `process/func_receive.rs` still use it.
+- **C8 — three helpers this plan rewrites leaked their own I/O buffers on every call.**
+  Found while predicting the new `codegen_helper_scratch_release` counts by hand
+  before measuring them. `grep -n "emit_alloc\|emit_arena_free\|HelperScratch"` over
+  each helper:
+  `udp/gen_io.rs` `lower_net_receive_from_helper` allocates its `maxBytes + 1`
+  `recvfrom` buffer and has no free of it on any path; `net/gen_ping.rs`
+  `lower_ping_posix` allocates the echo packet (`PKT_OFFSET`, `size + 8`) and the
+  receive buffer (`BUF_OFFSET`, `RECV_CAPACITY`) and frees neither;
+  `lower_ping_windows` does the same with `W_REQ` and `W_REPLY`. Every
+  `udp::receive` — including every timeout, the common exit of a polling receive —
+  and every `net::ping` grew the arena by those buffers, and the `udp::receive`
+  RSS pin this plan adds would stay red after the flatten because of it. Fixed with
+  the bug-574 pattern: each buffer is a `HelperScratch` declared before the first
+  branch to `done`, named right after its allocation, and released at `done`, so
+  every exit frees it and the exits before the allocation skip it on the null guard.

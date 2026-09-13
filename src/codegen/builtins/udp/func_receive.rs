@@ -61,7 +61,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-/// `abi_function` body for `udp::receive` — the byte form only (`text = false`).
+/// `abi_function` body for `udp::receive`.
 pub(crate) fn lower_receive(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
@@ -69,7 +69,7 @@ pub(crate) fn lower_receive(
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let (instructions, relocations, stack_size) =
-        gen_io::lower_net_receive_from_helper(&symbol, ctx.platform_imports, ctx.platform, false)?;
+        gen_io::lower_net_receive_from_helper(&symbol, ctx.platform_imports, ctx.platform)?;
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = stack_size;

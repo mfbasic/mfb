@@ -48,6 +48,10 @@ pub(crate) fn lower_tls_address_macos(
     const DST: usize = 72; // scratch
     const AHOST: usize = 80; // scratch
     const ADDRREC: usize = 88; // the built Address record
+    const APORT: usize = 96; // the port the Address is built with
+    const ASIZE: usize = 104; // the built Address's byte size
+    const ACURSOR: usize = 112; // record marshaller scratch
+    const ABLOCK: usize = 120; // record marshaller scratch
 
     let closed = format!("{symbol}_closed");
     let load_fail = format!("{symbol}_load_fail");
@@ -174,9 +178,18 @@ pub(crate) fn lower_tls_address_macos(
         },
         "tlsaddr",
         SADDR,
-        HOSTLEN,
         DST,
-        AHOST,
+        &crate::codegen::os::socket::shared::AddressSlots {
+            len: HOSTLEN,
+            host: AHOST,
+            port: APORT,
+            record: crate::codegen::memory::marshal::RecordBuildScratch {
+                size: ASIZE,
+                result: ADDRREC,
+                cursor: ACURSOR,
+                block_size: ABLOCK,
+            },
+        },
         &alloc_fail,
         &addr_fail,
         &mut vregs,
@@ -308,6 +321,10 @@ pub(crate) fn lower_tls_listener_address_macos(
     const PORT: usize = 48; // host-order port from nw_listener_get_port
     const HOSTLEN: usize = 56; // scratch for the shared Address builder
     const AHOST: usize = 64; // scratch
+    const ASIZE: usize = 72; // the built Address's byte size
+    const ARESULT: usize = 80; // the built Address
+    const ACURSOR: usize = 88; // record marshaller scratch
+    const ABLOCK: usize = 96; // record marshaller scratch
 
     let closed = format!("{symbol}_closed");
     let load_fail = format!("{symbol}_load_fail");
@@ -383,12 +400,20 @@ pub(crate) fn lower_tls_listener_address_macos(
         },
         "tlslisten",
         HOSTP,
-        PORT,
-        HOSTLEN,
-        AHOST,
+        &crate::codegen::os::socket::shared::AddressSlots {
+            len: HOSTLEN,
+            host: AHOST,
+            port: PORT,
+            record: crate::codegen::memory::marshal::RecordBuildScratch {
+                size: ASIZE,
+                result: ARESULT,
+                cursor: ACURSOR,
+                block_size: ABLOCK,
+            },
+        },
         &alloc_fail,
         &mut vregs,
-    );
+    )?;
     ins.extend([
         abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),

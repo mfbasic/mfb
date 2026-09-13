@@ -117,3 +117,72 @@ fn address_valued_endpoint_queries_report_a_readable_host() {
 
     let _ = std::fs::remove_dir_all(&project);
 }
+
+/// plan-132 (bug-601): a `MUT` copy of a `List OF net::Address` is an independent
+/// value. On the pointer-`String` layout the record was not `memcpy`-copyable, so
+/// `MUT ys = xs` made no copy and the in-place collection arms mutated the one
+/// shared block: `removeAt` on the copy emptied the source (`ys=0 xs=0`), and a
+/// growing `append` freed the source under it (`xs=96`, then exit 139). Measured on
+/// the compiler before plan-132.
+const MUT_COPY_SOURCE: &str = r#"IMPORT io
+IMPORT net
+IMPORT collections
+
+FUNC main AS Integer
+  LET xs = net::lookup("127.0.0.1", 80)
+
+  MUT removed = xs
+  removed = collections::removeAt(removed, 0)
+  io::print("removed ys=" & toString(len(removed)) & " xs=" & toString(len(xs)))
+
+  LET a = collections::get(xs, 0)
+  MUT grown = xs
+  grown = collections::append(grown, a)
+  io::print("grown ys=" & toString(len(grown)) & " xs=" & toString(len(xs)))
+  FOR EACH e IN grown
+    io::print("grown " & e.host & ":" & toString(e.port))
+  NEXT
+
+  MUT fetched = xs
+  fetched = collections::append(fetched, collections::get(xs, 0))
+  io::print("fetched ys=" & toString(len(fetched)) & " xs=" & toString(len(xs)))
+
+  LET first = collections::get(xs, 0)
+  io::print("source " & first.host & ":" & toString(first.port))
+  RETURN 0
+END FUNC
+"#;
+
+#[test]
+fn a_mut_copy_of_an_address_list_is_independent_of_its_source() {
+    let project = common::temp_project("bug601_mut_copy_independent", MUT_COPY_SOURCE);
+    let exe = common::build_project(&project);
+
+    let output = Command::new(&exe).output().expect("run the copy probe");
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(
+        output.status.success(),
+        "bug-601: mutating a MUT copy of a List OF net::Address crashed (status {:?}): \
+         the copy shares its source's block, and a growing append frees it.\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status
+    );
+    assert_eq!(
+        stdout.trim(),
+        [
+            "removed ys=0 xs=1",
+            "grown ys=2 xs=1",
+            "grown 127.0.0.1:80",
+            "grown 127.0.0.1:80",
+            "fetched ys=2 xs=1",
+            "source 127.0.0.1:80",
+        ]
+        .join("\n"),
+        "bug-601: every copy must change only itself; `xs` must stay one \
+         127.0.0.1:80.\nstderr:\n{stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&project);
+}

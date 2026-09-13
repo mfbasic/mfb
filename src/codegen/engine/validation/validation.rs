@@ -659,6 +659,23 @@ impl TypeModel {
     /// (plan-132 C3). An entry the program or an imported package already registered
     /// is kept: the NIR spelling of an imported builtin record is the same layout,
     /// and a package's own declaration is authoritative for its own name.
+    /// A model holding only the builtin record layouts (plan-132).
+    ///
+    /// A runtime helper that builds a builtin record — `net::Address`,
+    /// `udp::Datagram`, `net::PingResult` — is emitted below the `CodeBuilder`, and
+    /// its layout must not depend on the program that happens to call it.
+    /// [`Self::finish`] registers this same table into every program's model, so the
+    /// helper that writes the record and the program that reads it classify its
+    /// fields identically.
+    pub(crate) fn builtin_records() -> &'static TypeModel {
+        static MODEL: std::sync::OnceLock<TypeModel> = std::sync::OnceLock::new();
+        MODEL.get_or_init(|| {
+            let mut model = TypeModel::empty();
+            model.register_builtin_record_layouts();
+            model
+        })
+    }
+
     fn register_builtin_record_layouts(&mut self) {
         for (type_, fields) in crate::codegen::registry::builtin_record_layouts() {
             self.record_fields

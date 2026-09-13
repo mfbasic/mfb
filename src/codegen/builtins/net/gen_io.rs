@@ -14,10 +14,22 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
+use crate::codegen::memory::marshal::{
+    emit_build_record_list, MarshalRegs, RecordBuildScratch, RecordListScratch,
+    RECORD_LIST_PAIR_SIZE,
+};
 use crate::codegen::os::socket::shared::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 
+/// `net::lookup(host[, port])`: resolve `host` with `getaddrinfo` and return one
+/// `net::Address` per `AF_INET` result, each carrying the requested port.
+///
+/// plan-132: every `Address` is the spec-canonical flat record (its host inlined),
+/// so the list's elements are variable-length. Each is built as its own block and
+/// recorded as a `(pointer, size)` pair; `emit_build_record_list` then lays the
+/// list out exactly as a source-built `List OF net::Address` and frees the
+/// per-element blocks and the pair array.
 pub(crate) fn lower_net_lookup_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -30,16 +42,21 @@ pub(crate) fn lower_net_lookup_helper(
     const CSTR_OFFSET: usize = 32;
     const COUNT_OFFSET: usize = 40;
     const NODE_OFFSET: usize = 48;
-    const LIST_OFFSET: usize = 56;
-    const ENTRY_OFFSET: usize = 64;
-    const DATA_OFFSET: usize = 72;
-    const INDEX_OFFSET: usize = 80;
-    const DST_OFFSET: usize = 88;
-    const ADDRHOST_OFFSET: usize = 96;
-    const SADDR_PTR_OFFSET: usize = 152;
-    const HOSTLEN_OFFSET: usize = 160;
+    const PAIRS_OFFSET: usize = 56; // one (Address pointer, size) pair per result
+    const INDEX_OFFSET: usize = 64;
+    const DST_OFFSET: usize = 72; // the address builder's inet_ntop scratch
+    const ADDRHOST_OFFSET: usize = 80; // the address builder's host String scratch
+    const HOSTLEN_OFFSET: usize = 88;
+    const APORT_OFFSET: usize = 96;
     const HINTS_OFFSET: usize = 104; // 104..152
-    const ADDRREC_OFFSET: usize = 168; // the builder's temp record, freed per element
+    const SADDR_PTR_OFFSET: usize = 152;
+    const RSIZE_OFFSET: usize = 160; // the built Address's byte size
+    const RRESULT_OFFSET: usize = 168; // the built Address
+    const RCURSOR_OFFSET: usize = 176;
+    const RBLOCK_OFFSET: usize = 184;
+    const LCURSOR_OFFSET: usize = 192;
+    const LINDEX_OFFSET: usize = 200;
+    const LLIST_OFFSET: usize = 208;
 
     let resolve_fail = format!("{symbol}_resolve_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -47,6 +64,7 @@ pub(crate) fn lower_net_lookup_helper(
     let count_loop = format!("{symbol}_count_loop");
     let count_skip = format!("{symbol}_count_skip");
     let count_done = format!("{symbol}_count_done");
+    let pairs_ready = format!("{symbol}_pairs_ready");
     let fill_loop = format!("{symbol}_fill_loop");
     let fill_skip = format!("{symbol}_fill_skip");
     let fill_done = format!("{symbol}_fill_done");
@@ -62,8 +80,6 @@ pub(crate) fn lower_net_lookup_helper(
     let v11 = vregs.next();
     let v12 = vregs.next();
     let v13 = vregs.next();
-    let v14 = vregs.next();
-    let v15 = vregs.next();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
@@ -122,42 +138,20 @@ pub(crate) fn lower_net_lookup_helper(
         abi::store_u64(&v9, abi::stack_pointer(), NODE_OFFSET),
         abi::branch(&count_loop),
         abi::label(&count_done),
-        // Allocate List OF Address: count Address records (16 bytes) inline.
+        // One (pointer, size) pair per AF_INET result. An empty result allocates
+        // no array, and `emit_build_record_list` frees none for it.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PAIRS_OFFSET),
         abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
-        abi::move_immediate(&v11, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers(&v12, &v10, &v11),
-        abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
-        abi::move_immediate(&v13, "Integer", "16"),
-        abi::multiply_registers(&v14, &v10, &v13),
-        abi::add_registers(abi::return_register(), &v12, &v14),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_eq(&pairs_ready),
+        abi::move_immediate(&v11, "Integer", &RECORD_LIST_PAIR_SIZE.to_string()),
+        abi::multiply_registers(abi::return_register(), &v10, &v11),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register(&v15, abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
-        abi::store_u64(&v15, abi::stack_pointer(), LIST_OFFSET),
-        abi::move_immediate(&v9, "Byte", &COLLECTION_KIND_LIST.to_string()),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KIND),
-        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KEY_TYPE),
-        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_OBJECT.to_string()),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_VALUE_TYPE),
-        abi::move_immediate(&v9, "Byte", "1"),
-        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
-        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_COUNT),
-        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate(&v13, "Integer", "16"),
-        abi::multiply_registers(&v14, &v10, &v13),
-        abi::store_u64(&v14, &v15, COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64(&v14, &v15, COLLECTION_OFFSET_DATA_CAPACITY),
-        // entry cursor and data region.
-        abi::add_immediate(&v11, &v15, COLLECTION_HEADER_SIZE),
-        abi::store_u64(&v11, abi::stack_pointer(), ENTRY_OFFSET),
-        abi::move_immediate(&v12, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers(&v13, &v10, &v12),
-        abi::add_registers(&v14, &v11, &v13),
-        abi::store_u64(&v14, abi::stack_pointer(), DATA_OFFSET),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), PAIRS_OFFSET),
+        abi::label(&pairs_ready),
         // Iterate results again, building one Address per AF_INET node.
         abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
         abi::store_u64(&v9, abi::stack_pointer(), NODE_OFFSET),
@@ -187,47 +181,33 @@ pub(crate) fn lower_net_lookup_helper(
         },
         "node",
         SADDR_PTR_OFFSET,
-        HOSTLEN_OFFSET,
         DST_OFFSET,
-        ADDRHOST_OFFSET,
+        &AddressSlots {
+            len: HOSTLEN_OFFSET,
+            host: ADDRHOST_OFFSET,
+            port: APORT_OFFSET,
+            record: RecordBuildScratch {
+                size: RSIZE_OFFSET,
+                result: RRESULT_OFFSET,
+                cursor: RCURSOR_OFFSET,
+                block_size: RBLOCK_OFFSET,
+            },
+        },
         &alloc_fail,
         &addr_fail,
         &mut vregs,
     )?;
-    // x1 = Address pointer; copy its 16 bytes into the list data region and
-    // record the entry descriptor.
+    // pairs[index] = (the built Address, its byte size).
     instructions.extend([
-        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), ADDRREC_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), INDEX_OFFSET),
-        abi::move_immediate(&v10, "Integer", "16"),
+        abi::move_immediate(&v10, "Integer", &RECORD_LIST_PAIR_SIZE.to_string()),
         abi::multiply_registers(&v11, &v9, &v10),
-        abi::load_u64(&v12, abi::stack_pointer(), DATA_OFFSET),
+        abi::load_u64(&v12, abi::stack_pointer(), PAIRS_OFFSET),
         abi::add_registers(&v12, &v12, &v11),
-        abi::load_u64(&v13, abi::mfb_return(1), 0),
+        abi::load_u64(&v13, abi::stack_pointer(), RRESULT_OFFSET),
         abi::store_u64(&v13, &v12, 0),
-        abi::load_u64(&v13, abi::mfb_return(1), 8),
+        abi::load_u64(&v13, abi::stack_pointer(), RSIZE_OFFSET),
         abi::store_u64(&v13, &v12, 8),
-        // entry descriptor at ENTRY cursor.
-        abi::load_u64(&v14, abi::stack_pointer(), ENTRY_OFFSET),
-        abi::move_immediate(&v13, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8(&v13, &v14, COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, &v14, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, &v14, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::store_u64(&v11, &v14, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::move_immediate(&v13, "Integer", "16"),
-        abi::store_u64(&v13, &v14, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        abi::add_immediate(&v14, &v14, COLLECTION_ENTRY_SIZE),
-        abi::store_u64(&v14, abi::stack_pointer(), ENTRY_OFFSET),
-        // bug-599: the record the builder allocated is garbage from here on — its
-        // two words now live in the list's data region, and the host `String` it
-        // points at is owned through that copy. Free the 16-byte record itself
-        // (the size `emit_address_host_and_record` allocated it with); every read
-        // below reloads from the stack.
-        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ADDRREC_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", "16"),
-    ]);
-    emit_arena_free(symbol, &mut instructions, &mut relocations);
-    instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), INDEX_OFFSET),
         abi::add_immediate(&v9, &v9, 1),
         abi::store_u64(&v9, abi::stack_pointer(), INDEX_OFFSET),
@@ -247,8 +227,23 @@ pub(crate) fn lower_net_lookup_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    emit_build_record_list(
+        symbol,
+        "lookup",
+        PAIRS_OFFSET,
+        COUNT_OFFSET,
+        &RecordListScratch {
+            cursor: LCURSOR_OFFSET,
+            index: LINDEX_OFFSET,
+            list: LLIST_OFFSET,
+        },
+        &MarshalRegs::fresh(&mut vregs),
+        RESULT_VALUE_REGISTER,
+        &alloc_fail,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
-        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), LIST_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&resolve_fail),

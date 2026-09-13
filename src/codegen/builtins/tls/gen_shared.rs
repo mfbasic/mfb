@@ -621,7 +621,10 @@ pub(crate) fn connect_arg_prologue(
 ) -> Vec<CodeInstruction> {
     if address {
         vec![
+            // x0 = the flat `net::Address` (plan-132): slot 0 holds the host
+            // `String`'s block-relative offset, so the host is `x0 + [x0]`.
             abi::load_u64(scratch, abi::return_register(), 0),
+            abi::add_registers(scratch, abi::return_register(), scratch),
             abi::store_u64(scratch, abi::stack_pointer(), host_off),
             abi::load_u64(scratch, abi::return_register(), 8),
             abi::store_u64(scratch, abi::stack_pointer(), port_off),

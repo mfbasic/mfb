@@ -5807,3 +5807,114 @@ fn every_address_reads_back_after_its_builder_scratch_is_freed() {
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------- bug-599 / plan-132
+
+/// plan-132 (bug-599): once `net::Address` and `udp::Datagram` use the ordinary flat
+/// record layout, a `List OF net::Address`, a lone `net::Address`, a `Datagram` and
+/// the host `String` inside each have an owner and are freed. Peak RSS on the
+/// compiler before plan-132 (macOS, 200k -> 400k iterations): `net::lookup`
+/// 99.8 -> 198.3 MB, `tcp::localAddress` 38.0 -> 74.9 MB, a user-built list of two
+/// copies 196.4 -> 391.8 MB.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const SHAPE_599_LOOKUP_LOOP: &str = "IMPORT io\nIMPORT net\n\
+FUNC main AS Integer\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET xs = net::lookup(\"127.0.0.1\")\n\
+    n = n + len(xs)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n \" & toString(n))\n\
+  RETURN 0\n\
+END FUNC\n";
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const SHAPE_599_LOCAL_ADDRESS_LOOP: &str = "IMPORT io\nIMPORT net\nIMPORT tcp\n\
+FUNC main AS Integer\n\
+  RES server = tcp::listen(\"127.0.0.1\", 0)\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET b = tcp::localAddress(server)\n\
+    n = n + len(b.host)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n \" & toString(n))\n\
+  RETURN 0\n\
+END FUNC\n";
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const SHAPE_599_USER_BUILT_LIST_LOOP: &str = "IMPORT io\nIMPORT net\nIMPORT collections\n\
+FUNC main AS Integer\n\
+  LET a = collections::get(net::lookup(\"127.0.0.1\"), 0)\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    MUT ys AS List OF net::Address = []\n\
+    ys = collections::append(ys, a)\n\
+    ys = collections::append(ys, a)\n\
+    n = n + len(ys)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n \" & toString(n))\n\
+  RETURN 0\n\
+END FUNC\n";
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const SHAPE_599_DATAGRAM_LOOP: &str = "IMPORT io\nIMPORT net\nIMPORT udp\n\
+FUNC main AS Integer\n\
+  RES sock = udp::bind(\"127.0.0.1\", 0)\n\
+  LET at = udp::localAddress(sock)\n\
+  RES peer = udp::bind(\"127.0.0.1\", 0)\n\
+  MUT n AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    udp::send(peer, at, \"ping\")\n\
+    LET dg = udp::receive(sock, 64)\n\
+    n = n + len(dg.bytes) + len(dg.from.host)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"n \" & toString(n))\n\
+  RETURN 0\n\
+END FUNC\n";
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_net_lookup_runs_at_constant_rss() {
+    assert_flat("b599_lookup_loop", SHAPE_599_LOOKUP_LOOP, 200_000, 400_000);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_local_address_runs_at_constant_rss() {
+    assert_flat(
+        "b599_local_address_loop",
+        SHAPE_599_LOCAL_ADDRESS_LOOP,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_user_built_address_list_runs_at_constant_rss() {
+    assert_flat(
+        "b599_user_built_list_loop",
+        SHAPE_599_USER_BUILT_LIST_LOOP,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_udp_receive_runs_at_constant_rss() {
+    assert_flat(
+        "b599_datagram_loop",
+        SHAPE_599_DATAGRAM_LOOP,
+        200_000,
+        400_000,
+    );
+}

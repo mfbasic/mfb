@@ -126,10 +126,10 @@ pub(crate) const PING_RESULT_TYPE: &str = "PingResult";
 /// `*_TYPE` / `*_TYPE_ID` split plan-97 established for resources. The bare
 /// constant stays the registry row's member id.
 ///
-/// `cfg(test)`: the qualifier reaches `net::ping`'s signature through the
-/// registry's post-build `qualify_value_type_references` pass, not through a
-/// call site, so the only reader is `gen_ping`'s test asserting that pass ran.
-#[cfg(test)]
+/// The qualifier reaches `net::ping`'s signature through the registry's post-build
+/// `qualify_value_type_references` pass, and `gen_ping::emit_ping_result` builds the
+/// result as this type through the record marshaller (plan-132), so its layout is
+/// looked up under exactly the key every program's type model holds.
 pub(crate) const PING_RESULT_TYPE_ID: &str = "net.PingResult";
 /// The `Url` value record's name — registry-modeled (`add_record`, DOC
 /// round-tripped via `description`).
