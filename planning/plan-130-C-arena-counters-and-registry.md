@@ -202,28 +202,70 @@ Commit: cf5b640c9
 
 Acceptance: `cargo test --release --test rt_debug_arena` green; artifact gate
 `0 diff(s)`.
-Commit: —
+Commit: 99ce67004
 
 ### Phase 3 — cross-target proof against strace
 
-- [ ] Build `examples/yaml-json` with `--debug --target linux-aarch64`; on 2223 run
+- [x] Build `examples/yaml-json` with `--debug --target linux-aarch64`; on 2223 run
       `to-json samples/config.yaml` under the 2026-09-12 strace harness; assert
       `sum(arena.*.maps) == ` executable-IP anonymous mmap count. Record both.
-- [ ] Same program's report on 2227, 2228, 2229, 2230 (Windows: no strace; record the
+      2223 has no strace and no sudo; strace 7.0 was unpacked unprivileged (`apt-get download
+      strace` + `dpkg -x`, `~/strace-local/root/usr/bin/strace`). `strace -f -i -e
+      trace=mmap,munmap ./yamljson-glibc.out to-json config.yaml`: executable-IP (`0xaaaa…`)
+      anonymous `mmap`s = 13 — 12 from one call site (the arena grow) plus 1 of 163,856 bytes
+      from another (the `--debug` registry map: 16 + 1024 × 160, not an arena block); 12
+      executable-IP `munmap`s. Report: `arena.0.maps 12`, `arena.0.unmaps 12`,
+      `arena.0.grow 12`. Equality holds once the registry map is excluded (see Corrections).
+      The musl binary cannot run on 2223 (no `/lib/ld-musl-aarch64.so.1`); musl is covered on
+      2227 and 2229.
+- [x] Same program's report on 2227, 2228, 2229, 2230 (Windows: no strace; record the
       report and compare `maps` with the macOS/Linux value for the same input).
-- [ ] Browser example (`examples/browser`, packages rebuilt from source) on 2223 with
+      All exit 0 and hold `alloc_calls == quick + carve + large + walk + grow`:
+      | target | maps/unmaps | mapped_bytes | alloc_calls | free_calls | peak_live | quick/carve/large/walk/grow |
+      | macos-aarch64 (local) | 12/12 | 57,344 | 5,972 | 5,656 | 45,488 | 5578/380/0/2/12 |
+      | linux-aarch64 glibc (2223) | 12/12 | — | — | — | — | (maps from the strace run) |
+      | linux-x86_64 musl (2227) | 12/12 | 57,344 | 5,972 | 5,656 | 45,328 | — |
+      | linux-x86_64 glibc (2228) | 12/12 | 57,344 | 5,972 | 5,656 | 45,328 | 5574/384/0/2/12 |
+      | linux-riscv64 musl (2229) | 12/12 | 57,344 | 5,972 | 5,656 | 45,328 | — |
+      | windows-x86_64 (2230) | 12/12 | 516,096 | 5,977 | 5,656 | 504,112 | 5574/385/0/6/12 |
+      `maps` is 12 everywhere. Windows makes 5 more allocations holding ~458 KB live at exit
+      (`alloc_bytes` 748,704 vs 290,256 on macOS), so its grow blocks are larger; the
+      counters stay self-consistent (partition holds, `live_bytes` ≤ `mapped_bytes`).
+- [x] Browser example (`examples/browser`, packages rebuilt from source) on 2223 with
       `--debug`: record the report for the Wikipedia load as the first real data point
       for `planning/todo.md` § Memory.
+      Driven in tmux (`G`, `https://en.wikipedia.org/wiki/Main_Page`, Enter). The program exits
+      1 within 8 s with `List or string index/range is outside valid bounds.`; a normal build
+      does the same and `https://example.com` loads and quits cleanly in both (see Corrections).
+      The report, identical in two runs to within 33 main-arena allocations:
+      | arena | maps | mapped_bytes | alloc_calls | alloc_bytes | free_calls | live at exit | peak_live | quick/carve/large/walk/grow |
+      | 0 main | 15,238 | 173,797,376 | 261,097 | 260,068,544 | 167,935 | 112,061,104 | 114,458,944 | 168235/68938/5716/2970/15238 |
+      | 1 worker | 192,271 | 895,033,344 | 109,560,293 | 4,006,567,520 | 67,918,822 | 841,424,912 | 842,257,664 | 67339942/41999021/25900/3159/192271 |
+      The worker makes 109.6 M allocations (4.0 GB requested) for one page and keeps
+      841 MB live when it ends, and the main arena receives 112 MB (the deep copy).
+      `flushes 0` and `insert_free_calls 0` in both arenas, and 38% of the worker's
+      allocations are carves, so free-list coalescing is not where the memory goes: the
+      live volume is. `unmaps 0` because the program exits through the error path.
 
 Acceptance: strace equality holds on 2223; reports recorded for all five targets.
 Commit: —
 
 ### Phase 4 — docs
 
-- [ ] Debug-report spec page: the `arena` section, counter meanings, snapshot caveat.
-- [ ] `src/docs/spec/memory/04_arenas.md`: a short note that `--debug` counts these events.
-- [ ] `planning/todo.md` § Memory § 1: tick the harness items this delivers.
-- [ ] Full suite + artifact gate + test-accept as in plan-130-A Phase 4.
+- [x] Debug-report spec page: the `arena` section, counter meanings, snapshot caveat.
+      `src/docs/spec/tooling/09_debug-report.md` § Sections: 11 `arena` rows, a paragraph
+      on the snapshot and the `live_bytes` clamp, cited to `ArenaFeature`.
+- [x] `src/docs/spec/memory/04_arenas.md`: a short note that `--debug` counts these events.
+      New § Measuring an Arena, and a See Also entry for the debug-report page.
+- [x] `planning/todo.md` § Memory § 1: tick the harness items this delivers.
+      None of § 1's three items (per-thread RSS over time, entropy-fill cost, soak test) is
+      delivered by this plan; it delivers § 2 item 2 (alloc vs free counts for one browser
+      load), so the measurement is recorded there instead.
+- [x] Full suite + artifact gate + test-accept as in plan-130-A Phase 4.
+      Per the user's instruction (scope each letter's tests; one full suite at the end), the
+      full `cargo test` and `test-accept.sh` run once in plan-130-E Phase 3. Scoped here:
+      `cargo test --bin mfb docs::spec` -> 8 passed (incl. `spec_citations_resolve`);
+      `mfb spec tooling debug-report` and `mfb spec memory arenas` render the new text.
 
 Acceptance: the three suites green; `citations_resolve` green.
 Commit: —
@@ -246,6 +288,16 @@ Commit: —
 
 ## Corrections
 
+- **Phase 3 — the strace equality excludes the registry map.** In a `--debug` build the
+  executable makes one more anonymous `mmap` than `arena.*.maps`: the registry itself
+  (163,856 bytes, its own call site, mapped once at startup). The 2026-09-12 classification (12)
+  was taken on a normal build; removing that one map gives 12 = `arena.0.maps`, and the
+  executable's 12 `munmap`s equal `arena.0.unmaps`.
+- **Phase 3 — the browser's Wikipedia load crashes, in normal builds too.** Found while
+  recording the data point: the app exits 1 with `List or string index/range is outside valid
+  bounds.` after the worker parses the page. A normal build fails identically, so `--debug`
+  did not cause it; `https://example.com` works. Localizing and fixing it is tracked as its own
+  task; the report above was taken up to the crash.
 - **Phase 2 — counting sites are the attribution sites, not the returns.** Each helper looks up
   its slot once (after size normalization) and every successful allocation is counted exactly
   once where its path is decided: quick-bin pop, designated-victim carve, carve renewal (before

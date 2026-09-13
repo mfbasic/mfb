@@ -477,6 +477,12 @@ wrong.
 2. **Alloc vs free call counts** during one browser page load (gdb breakpoint counts on
    box 2223, or the plan-67-F perf rows on macOS). A free count near the alloc count means
    reuse is the problem; a tiny free count means values are never freed.
+   **Measured (plan-130-C, `mfb build --debug`, 2223, Wikipedia Main_Page):**
+   - The worker arena made 109.6 M allocations and 67.9 M frees (62%). It kept 841 MB live
+     at the end, peaking at 842 MB, over 192,271 maps. The worker made 0 flushes.
+   - The main arena kept 112 MB live.
+   - Values are freed but volume stays live; see plan-130-C Phase 3 for the full report.
+   - The load then crashed with an index-bounds error (normal builds too).
 
 If values are never freed, allocator changes will not move the browser's numbers: judge the
 A/B tests in section 3 on the other workloads and treat the browser as a separate problem.
