@@ -14,7 +14,19 @@ r#"FUNC __canvas_surfaceSize() AS Size
   RETURN Size[width := canvas::surfaceWidth(), height := canvas::surfaceHeight()]
 END FUNC"#;
 
-/// Hand a finished frame to the surface.
+/// Hand a finished frame to the surface: the platform window blit.
+///
+/// A normal build's body. The reporting hooks — the frame dump and the stats line —
+/// exist only in the `--debug` build's [`PRESENT_SURFACE_DEBUG`] (plan-130-E), so
+/// nothing here reads an environment variable or writes a file.
+#[rustfmt::skip]
+const PRESENT_SURFACE: &str =
+r#"FUNC __canvas_presentSurface(buffer AS List OF Byte, width AS Integer, height AS Integer) AS Nothing
+  canvas::blitSurface(buffer, width, height)
+END FUNC"#;
+
+/// A `--debug` build's `__canvas_presentSurface` (plan-130-E): the window blit, plus
+/// the two reporting hooks.
 ///
 /// Two destinations, and both are real paths rather than one path and a placeholder:
 ///
@@ -64,7 +76,7 @@ END FUNC"#;
 /// reporting `metalReady=TRUE` is evidence the whole setup ran on the graphics
 /// thread, not merely that a device was found.
 #[rustfmt::skip]
-const PRESENT_SURFACE: &str =
+const PRESENT_SURFACE_DEBUG: &str =
 r#"FUNC __canvas_presentSurface(buffer AS List OF Byte, width AS Integer, height AS Integer) AS Nothing
   __canvas_writeStats()
   canvas::blitSurface(buffer, width, height)
@@ -124,8 +136,11 @@ END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_surfaceSize", SURFACE_SIZE));
-    pkg.add_helper(RegistryHelper::always(
+    for helper in RegistryHelper::debug_split(
         "canvas_presentSurface",
         PRESENT_SURFACE,
-    ));
+        PRESENT_SURFACE_DEBUG,
+    ) {
+        pkg.add_helper(helper);
+    }
 }

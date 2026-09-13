@@ -265,6 +265,10 @@ name = "rt_canvas_graphics_thread"
 path = "tests/canvas/rt_canvas_graphics_thread.rs"
 
 [[test]]
+name = "rt_canvas_debug_hooks"
+path = "tests/canvas/rt_canvas_debug_hooks.rs"
+
+[[test]]
 name = "rt_canvas_group_ownership"
 path = "tests/canvas/rt_canvas_group_ownership.rs"
 

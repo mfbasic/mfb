@@ -472,7 +472,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // mangled to private symbols like a user overload, not collided at codegen).
     let augmented = {
         let _span = crate::trace::span("augment_project");
-        resolver::augment_project(&ast)?
+        resolver::augment_project(&ast, options.debug)?
     };
     // plan-102-D3: elaborate ABOVE monomorph, then monomorphize the generic HIR
     // into concrete HIR, which `ir::lower_augmented_project` consumes directly.

@@ -173,10 +173,11 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         super::tls::block_trampolines(server)
     }
 
-    fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
+    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
         // The AppKit bootstrap's strings are all class/selector names and fixed
-        // markers; the bundle carries the per-project identity in `Info.plist`.
-        let _ = project_name;
+        // markers; the bundle carries the per-project identity in `Info.plist`. It has
+        // no reporting hook of its own.
+        let _ = (project_name, debug_hooks);
         app::app_mode_data_objects()
     }
 

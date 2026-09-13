@@ -69,7 +69,7 @@ fn stats_for(name: &str, source: &str) -> String {
     std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
         .expect("write the font fixture");
     let stats_path = project.join("stats.txt");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let run = Command::new(&binary)
         // The project directory, so `loadFont("fixture.ttf")` resolves against it.
         .current_dir(&project)
@@ -108,7 +108,7 @@ fn run_for(name: &str, source: &str, with_font: bool) -> (String, Vec<String>) {
             .expect("write the font fixture");
     }
     let stats_path = project.join("stats.txt");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let run = Command::new(&binary)
         .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")

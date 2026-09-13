@@ -206,7 +206,7 @@ pub fn concrete_hir_from_src(source: &str) -> crate::hir::HirProject {
     // `collections::zip` returns is a `Pair` -- monomorphizes to `Unknown` and
     // dies far downstream with "native len does not accept argument type
     // 'Unknown'", which reads as a codegen bug rather than a missing prelude.
-    let augmented = crate::resolver::augment_project(&project_from_src(source))
+    let augmented = crate::resolver::augment_project(&project_from_src(source), false)
         .expect("builtin augmentation must succeed");
     crate::monomorph::monomorphize_project(Path::new("."), &crate::hir::elaborate(&augmented))
         .expect("test source must monomorphize")
@@ -1028,7 +1028,7 @@ pub fn fixture_project(name: &str) -> Result<FixtureProject, String> {
         .map_err(|()| format!("{name}: the project does not parse"))?;
     crate::resolver::resolve_project(&dir, &manifest, &ast)
         .map_err(|()| format!("{name}: the project does not resolve"))?;
-    let augmented = crate::resolver::augment_project(&ast)
+    let augmented = crate::resolver::augment_project(&ast, false)
         .map_err(|()| format!("{name}: builtin augmentation failed"))?;
     let concrete = crate::monomorph::monomorphize_project(&dir, &crate::hir::elaborate(&augmented))
         .map_err(|()| format!("{name}: the project does not monomorphize"))?;

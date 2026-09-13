@@ -838,42 +838,12 @@ FUNC __canvas_ensureGraphics() AS Nothing
   END IF
 END FUNC"#;
 
-/// The graphics thread's whole life: wait, render, repeat — and the renderer seam.
-///
-/// `__canvas_renderFrame` is the one place that will choose a renderer (plan-98-E).
-/// It is deliberately a runtime branch rather than a build-time one, because the
-/// choice is a runtime fact: whether a Metal device exists, and whether the program
-/// asked for it (`canvas::metalAvailable` and `canvas::useGpu` answer those).
-///
-/// There are two GPU arms — Metal on macOS, Vulkan on Linux — and each is taken only
-/// when all three of its conditions hold: the program asked for a GPU
-/// (`canvas::useGpu`, which despite its name is the one renderer-selection flag and
-/// is set by `MFB_CANVAS_GPU`), a pipeline exists (`canvas::metalReady` /
-/// `canvas::vulkanReady`), and the *scene* is one that renderer draws correctly.
-///
-/// The two are mutually exclusive in practice — `metalReady` is FALSE off macOS and
-/// `vulkanReady` FALSE off Linux — so the order between them never decides anything;
-/// they are written as separate `IF`s rather than an `ELSE` so a future platform with
-/// both is a matter of which is listed first, not a restructure.
-///
-/// That third condition is what keeps `MFB_CANVAS_GPU=1` honest: a backend that
-/// drew a circle as its bounding box would still *report* success, which is exactly
-/// the lie Correction 3 rejected. Since Phase 2 the shader reproduces every
-/// primitive, so the only scene still declined is one carrying a polygon with more
-/// edges than a `setFragmentBytes:` payload holds.
-///
-/// The software path stays the default regardless: it is the oracle the GPU path is
-/// measured against, so it cannot become the thing being measured.
-///
-/// It never returns. The wait is a real condition wait, so a static scene costs
-/// nothing — no timer, no poll, no spin (`.ai/canvas-threading.md` §4: time is
-/// deliberately not a redraw trigger).
-///
-/// It renders the *installed* scene rather than being handed one, which is what lets
-/// a repaint no `present` caused — a resize, an expose — draw the right picture.
-#[rustfmt::skip]
-const RENDER_LOOP: &str =
-r#"FUNC __canvas_renderLoop() AS Nothing
+// `__canvas_renderLoop`/`__canvas_renderFrame` are one body in both builds except for
+// one line: a skipped frame writes the stats line only in a `--debug` build
+// (plan-130-E). The shared text is split at that line so it exists once.
+macro_rules! render_loop_head {
+    () => {
+        r#"FUNC __canvas_renderLoop() AS Nothing
   WHILE canvas::waitForRedraw()
     __canvas_renderFrame()
     canvas::frameDone()
@@ -927,8 +897,13 @@ FUNC __canvas_renderFrame() AS Nothing
     ' `present` waiting under MFB_CANVAS_SYNC is released -- a skipped frame is a frame
     ' that finished, not one that was lost.
     __CANVAS_SKIPPED = __CANVAS_SKIPPED + 1
-    __canvas_writeStats()
-    RETURN
+"#
+    };
+}
+
+macro_rules! render_loop_tail {
+    () => {
+        r#"    RETURN
   END IF
   __CANVAS_FRAMES = __CANVAS_FRAMES + 1
   IF NOT __canvas_damageIsFull(damage, size.width, size.height) THEN
@@ -953,7 +928,52 @@ FUNC __canvas_renderFrame() AS Nothing
     END IF
   END IF
   __canvas_renderScene(offsets, damage, size.width, size.height)
-END FUNC"#;
+END FUNC"#
+    };
+}
+
+/// The graphics thread's whole life: wait, render, repeat — and the renderer seam.
+///
+/// `__canvas_renderFrame` is the one place that will choose a renderer (plan-98-E).
+/// It is deliberately a runtime branch rather than a build-time one, because the
+/// choice is a runtime fact: whether a Metal device exists, and whether the program
+/// asked for it (`canvas::metalAvailable` and `canvas::useGpu` answer those).
+///
+/// There are two GPU arms — Metal on macOS, Vulkan on Linux — and each is taken only
+/// when all three of its conditions hold: the program asked for a GPU
+/// (`canvas::useGpu`, which despite its name is the one renderer-selection flag and
+/// is set by `MFB_CANVAS_GPU`), a pipeline exists (`canvas::metalReady` /
+/// `canvas::vulkanReady`), and the *scene* is one that renderer draws correctly.
+///
+/// The two are mutually exclusive in practice — `metalReady` is FALSE off macOS and
+/// `vulkanReady` FALSE off Linux — so the order between them never decides anything;
+/// they are written as separate `IF`s rather than an `ELSE` so a future platform with
+/// both is a matter of which is listed first, not a restructure.
+///
+/// That third condition is what keeps `MFB_CANVAS_GPU=1` honest: a backend that
+/// drew a circle as its bounding box would still *report* success, which is exactly
+/// the lie Correction 3 rejected. Since Phase 2 the shader reproduces every
+/// primitive, so the only scene still declined is one carrying a polygon with more
+/// edges than a `setFragmentBytes:` payload holds.
+///
+/// The software path stays the default regardless: it is the oracle the GPU path is
+/// measured against, so it cannot become the thing being measured.
+///
+/// It never returns. The wait is a real condition wait, so a static scene costs
+/// nothing — no timer, no poll, no spin (`.ai/canvas-threading.md` §4: time is
+/// deliberately not a redraw trigger).
+///
+/// It renders the *installed* scene rather than being handed one, which is what lets
+/// a repaint no `present` caused — a resize, an expose — draw the right picture.
+const RENDER_LOOP: &str = concat!(render_loop_head!(), render_loop_tail!());
+
+/// [`RENDER_LOOP`] for a `--debug` build: a skipped frame also writes the
+/// `MFB_CANVAS_STATS` line.
+const RENDER_LOOP_DEBUG: &str = concat!(
+    render_loop_head!(),
+    "    __canvas_writeStats()\n",
+    render_loop_tail!()
+);
 
 /// plan-116-J: close the resources a retired group buffer owned.
 ///
@@ -1064,7 +1084,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "canvas_ensureGraphics",
         ENSURE_GRAPHICS,
     ));
-    pkg.add_helper(RegistryHelper::always("canvas_renderLoop", RENDER_LOOP));
+    for helper in RegistryHelper::debug_split("canvas_renderLoop", RENDER_LOOP, RENDER_LOOP_DEBUG) {
+        pkg.add_helper(helper);
+    }
     pkg.add_helper(RegistryHelper::always("canvas_hashScene", HASH_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderScene", RENDER_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderMetal", RENDER_METAL));

@@ -3453,8 +3453,8 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
-    fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
-        app::app_mode_data_objects(project_name)
+    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
+        app::app_mode_data_objects(project_name, debug_hooks)
     }
 }
 

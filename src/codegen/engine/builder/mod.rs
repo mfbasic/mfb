@@ -1539,6 +1539,7 @@ pub(crate) fn lower_module_for_platform(
                 initial_mode,
                 uses_canvas: module_uses_canvas(module)
                     || module_uses_call(module, "canvas.blitSurface"),
+                debug_hooks: module.debug.enabled,
             };
             let app_entry = platform
                 .emit_app_program_entry(&app_spec, &platform_imports)
@@ -1580,7 +1581,8 @@ pub(crate) fn lower_module_for_platform(
                 &platform_imports,
             )?);
             code_functions.extend(app_entry);
-            data_objects.extend(platform.app_mode_data_objects(&module.project));
+            data_objects
+                .extend(platform.app_mode_data_objects(&module.project, module.debug.enabled));
             // plan-62-C Phase 2: the reconcile's selector/key data objects, for a
             // program that can change mode (static default `None`) — matching where
             // its reconcile helpers are emitted, so a Console-default program that

@@ -119,9 +119,21 @@ pub const APP_BUILD_FLAG: &str = if cfg!(target_os = "linux") {
 /// Every headless canvas suite wants exactly this: `--app` (or its Linux
 /// equivalent above), then the one runnable artifact it produced.
 pub fn build_app(project: &Path, name: &str) -> PathBuf {
+    build_app_with(project, name, &[])
+}
+
+/// [`build_app`] with `--debug` (plan-130-E): the build a suite needs when its run sets
+/// `MFB_CANVAS_STATS` or `MFB_CANVAS_DUMP`, whose readers exist only in a `--debug`
+/// build. A normal build ignores both variables.
+pub fn build_app_debug(project: &Path, name: &str) -> PathBuf {
+    build_app_with(project, name, &["--debug"])
+}
+
+fn build_app_with(project: &Path, name: &str, extra: &[&str]) -> PathBuf {
     let output = Command::new(mfb_exe())
         .arg("build")
         .arg(APP_BUILD_FLAG)
+        .args(extra)
         .arg(project)
         .output()
         .unwrap_or_else(|err| panic!("run mfb build {APP_BUILD_FLAG}: {err}"));

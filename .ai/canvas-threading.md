@@ -486,7 +486,9 @@ Three environment variables, all off by default and none on the production path:
   ends at `present` loses the race every time.
 
 * `MFB_CANVAS_DUMP` — write each rendered frame's raw RGBA to a file. How a headless
-  run is observed at all, and what the golden harness reads.
+  run is observed at all, and what the golden harness reads. **A `--debug` build only**
+  (plan-130-E): a normal build contains no reader, so the variable does nothing there —
+  a suite builds with `common::build_app_debug`, a box script with `--debug`.
 
   **Always pair it with `MFB_CANVAS_SYNC=1`.** Without the wait, `present` returns at
   once and `main` returns behind it, and the process tears down while the graphics
@@ -505,7 +507,8 @@ Three environment variables, all off by default and none on the production path:
 
   A scene with no font shows nothing — `smiley.png` and `blendmodes.png` are
   byte-identical with and without the flag, which is why the gap survived two letters.
-* `MFB_CANVAS_STATS` — **append** one line per rendered frame with the geometry-cache
+* `MFB_CANVAS_STATS` — **a `--debug` build only**, like `MFB_CANVAS_DUMP` (plan-130-E).
+  **Append** one line per rendered frame with the geometry-cache
   and glyph-cache counters (`entries=`, `floats=`, `glyphs=`, `glyphBytes=`,
   `glyphEvictions=`). Appends rather than overwrites because the interesting quantity is
   the delta between frames. It is also the **only** window onto either cache: both live

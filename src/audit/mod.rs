@@ -96,7 +96,7 @@ pub fn run(options: &AuditOptions) -> i32 {
     if crate::resolver::resolve_project(&options.location, &manifest, &ast).is_err() {
         return 3;
     }
-    let Ok(augmented) = crate::resolver::augment_project(&ast) else {
+    let Ok(augmented) = crate::resolver::augment_project(&ast, false) else {
         return 3;
     };
     // plan-102-D3: monomorph consumes/produces HIR; audit's downstream passes

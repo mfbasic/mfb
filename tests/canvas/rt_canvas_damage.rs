@@ -24,7 +24,7 @@ const WIDTH: usize = 900;
 /// Render headless and return the frame plus every stats line.
 fn render(name: &str, source: &str, damage: bool) -> (Vec<u8>, Vec<String>) {
     let project = common::temp_project(name, source);
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let frame = project.join("frame.rgba");
     let stats = project.join("stats.txt");
     let mut command = Command::new(&binary);

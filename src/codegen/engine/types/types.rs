@@ -1073,8 +1073,11 @@ pub(crate) trait CodegenPlatform {
     /// the GApplication id and the window title from it (plan-51-A §4.5), so every
     /// MFBASIC app no longer shares one D-Bus name and one window class; the macOS
     /// backend has no per-project string here and ignores it.
-    fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
-        let _ = project_name;
+    ///
+    /// `debug_hooks` is a `--debug` build (plan-130-E): a reporting hook's data is
+    /// emitted only then.
+    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
+        let _ = (project_name, debug_hooks);
         Vec::new()
     }
 
@@ -1337,6 +1340,9 @@ pub(crate) struct AppEntrySpec {
     /// emitted ("internal relocation target '_mfb_macapp_canvas_blit' is not
     /// defined").
     pub(crate) uses_canvas: bool,
+    /// A `--debug` build (plan-130-E): the backend emits its reporting hooks (the Windows
+    /// `MFB_WINAPP_DUMP` transcript readback). A normal build contains none of them.
+    pub(crate) debug_hooks: bool,
 }
 
 /// Everything the per-backend program-entry emitter needs (plan-00-G). Program

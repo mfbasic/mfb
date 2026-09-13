@@ -27,7 +27,7 @@ See plan-130-A § Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-130-D complete | `ls planning/completed/plan-130-D-*` → one match | NOT MET |
+| plan-130-D complete | `ls planning/completed/plan-130-D-*` → one match | MET (2026-09-12) |
 | The helper-source gating mechanism (Open Decision 1) is decided by the user and recorded in this file | the Open Decisions entry reads `DECIDED:` | MET (2026-09-12: the user chose option 1; `grep -n "DECIDED:" planning/plan-130-E-*.md` → the recorded decision) |
 | Canvas suites green at the base | `cargo test --release --test 'rt_canvas_*'` → all pass | MET (2026-09-12, base `b0899e778`, run with `--no-fail-fast`: `EXIT=0`, 9 binaries, 153 passed, 0 failed) |
 
@@ -75,9 +75,10 @@ See plan-130-A § Prerequisites. Additionally:
 
 ### Verified properties
 
-- UNVERIFIED — that no *non-test* user program depends on `MFB_CANVAS_STATS`/`DUMP`
-  (they are undocumented in `mfb man canvas`); Phase 1 greps the man descriptors and
-  `examples/`.
+- VERIFIED (2026-09-12) — no *non-test* user program depends on `MFB_CANVAS_STATS`/`DUMP`/
+  `MFB_WINAPP_DUMP`: grepping `src` and `examples` for the three names finds nothing under
+  `examples/`; under `src` only the two hook readers (`helper_surface.rs`), the Windows app's
+  `DUMP_ENV_SYM` and its reader, and comments.
 
 ## 3. Design Overview
 
@@ -103,36 +104,67 @@ task.
 
 ### Phase 1 — mechanism (after the decision)
 
-- [ ] Implement the decided mechanism (Open Decision 1) with a unit test that a
+- [x] Implement the decided mechanism (Open Decision 1) with a unit test that a
       debug-split helper emits `normal_body` without `--debug` and `debug_body` with it.
-- [ ] Grep `src/codegen/builtins/canvas/**` descriptors and `examples/` for the three
+      `RegistryHelper::debug_split` → two helpers gated `HelperGate::NormalBuildOnly` /
+      `DebugBuildOnly`, rendered inline by `RegistryPackage::get_mfb_for(debug)`; the flag
+      rides `Registry::augment_project(ast, debug)` ← `resolver::augment_project(ast, debug)` ←
+      `options.debug` in `cli/build`; every other caller passes `false`. Unit test
+      `a_debug_split_helper_renders_the_half_matching_the_build`.
+- [x] Grep `src/codegen/builtins/canvas/**` descriptors and `examples/` for the three
       variables; record the result under Verified properties.
 
 Acceptance: unit test green; artifact gate `0 diff(s)`.
+Measured: `cargo test --bin mfb -- codegen::registry codegen::builtins::canvas` green (with
+Phase 2's split in place); artifact gate `1437 tests, 1603 build(s), 2013 golden(s) checked,
+0 diff(s)` — no golden holds canvas source.
 Commit: —
 
 ### Phase 2 — canvas hooks
 
-- [ ] Split `__canvas_presentSurface` and the skipped-frame path; make
+- [x] Split `__canvas_presentSurface` and the skipped-frame path; make
       `__canvas_writeStats` debug-only.
-- [ ] `tests/common/mod.rs::build_app_debug`; switch the 7 STATS / 5 DUMP suites
+      `helper_surface.rs`: `PRESENT_SURFACE` (blit only) / `PRESENT_SURFACE_DEBUG` (today's text,
+      with `__canvas_writeStats`, `__canvas_drawsText`, `__canvas_damageText`).
+      `helper_render.rs`: `RENDER_LOOP` / `RENDER_LOOP_DEBUG` built with `concat!` from two
+      literal macros split at the skipped-frame line, so the long body exists once. Unit tests
+      `reassembled_source_parses` (both halves) and `the_normal_source_has_no_reporting_hook`.
+- [x] `tests/common/mod.rs::build_app_debug`; switch the 7 STATS / 5 DUMP suites
       (union: 7 files) to it where they set a moved variable.
-- [ ] New `tests/canvas/rt_canvas_debug_hooks.rs`: normal build + `MFB_CANVAS_STATS`
+      11 build sites switched, each checked to feed a run that sets a moved variable:
+      damage 1, group_ownership 2, graphics_thread 1, golden 1, font 3, rasteriser 3, metal 1;
+      the 6 builds whose runs set neither stay normal builds.
+- [x] New `tests/canvas/rt_canvas_debug_hooks.rs`: normal build + `MFB_CANVAS_STATS`
       set → no file; `--debug` build → one stats line per frame.
-- [ ] `scripts/test-canvas-vulkan.sh` lines 250 and 544: add `--debug`.
+      Both variables set in both cases: the normal build writes neither file; the `--debug`
+      build writes one `frames=1` line and a non-empty RGBA dump.
+- [x] `scripts/test-canvas-vulkan.sh` lines 250 and 544: add `--debug`.
 
 Acceptance: `cargo test --release --test 'rt_canvas_*'` green on macOS;
 `scripts/test-canvas-vulkan.sh target/release/mfb --box 2228 --libc glibc` and
 `--box 2227 --libc musl` report `ok`.
+Measured: `cargo test --release --no-fail-fast --test 'rt_canvas_*'` — damage 6, debug_hooks 2,
+font 19, golden 19, graphics_thread 8 (2 ignored), group_ownership 11, image_decode 15, metal 7,
+present_deep_copy 8, rasteriser 60 (2 ignored): all passed. 2228 glibc: `EXIT=0`, `canvas Vulkan
+runtime tests passed` (Vulkan render matches the software oracle, groups match
+`tests/golden/canvas/groups.png`). 2227 musl: `EXIT=0` with `skip: box 2227 built no Vulkan
+device (loader present, no usable ICD)` — the `--debug` program ran and wrote its stats line
+(`vulkanReady=FALSE`); the box has no usable Vulkan driver (see Corrections).
 Commit: —
 
 ### Phase 3 — Windows app hook and docs
 
-- [ ] `win_x86_64/app/mod.rs`: `DUMP_ENV_SYM` + reader behind `module.debug.enabled`.
-- [ ] `scripts/test-winapp.sh` line 170: add `--debug`; run it against 2230.
-- [ ] `.ai/canvas-threading.md`, `.ai/testing-gates.md`: the variables need a `--debug`
+- [x] `win_x86_64/app/mod.rs`: `DUMP_ENV_SYM` + reader behind `module.debug.enabled`.
+      `AppEntrySpec.debug_hooks` (from `module.debug.enabled`) gates the reader in `emit_main`;
+      `app_mode_data_objects(project, debug_hooks)` emits `MFB_WINAPP_DUMP` and
+      `_mfb_winapp_testbuf` only then. Unit test `the_dump_readback_exists_only_in_a_debug_build`.
+- [x] `scripts/test-winapp.sh` line 170: add `--debug`; run it against 2230.
+      `scripts/test-winapp.sh target/release/mfb` → `EXIT=0`, 32 `ok` lines, `windows app-mode,
+      canvas and Vulkan runtime tests passed`.
+- [x] `.ai/canvas-threading.md`, `.ai/testing-gates.md`: the variables need a `--debug`
       build.
-- [ ] Debug-report spec page: a "hooks" section listing the three variables.
+- [x] Debug-report spec page: a "hooks" section listing the three variables.
+      `09_debug-report.md` § Reporting hooks; `cargo test --bin mfb -- docs::spec` green.
 - [ ] Full suite + artifact gate + test-accept as in plan-130-A Phase 4.
 
 Acceptance: `scripts/test-winapp.sh target/release/mfb` passes on 2230; the three
@@ -171,6 +203,35 @@ Commit: —
    ir/shape ×2, testutil ×2).
 
 ## Corrections
+
+- **Phase 1 — `debug_split` is two helpers, not a new field.** A `debug_body` field on
+  `RegistryHelper` would have broken its 20 struct-literal constructions (crypto, strings,
+  term helpers). Two new inline gates carry the halves instead; every `HelperGate` match lists
+  all variants, so a future gate cannot fall through silently.
+- **Phase 1 — resolution sees the normal sources.** `resolver::resolve_project` augments to
+  check the program, not a build flavor, so it passes `false`; only the build's own
+  augmentation (the one lowering consumes) passes `options.debug`.
+- **Phase 2 — the box scripts had rotted before this plan.** Their embedded programs no longer
+  built: `canvas::Color`/`rgb`/`rgba` (gone since `0b3fc656f`, plan-122-D), `canvas::fontRef`
+  (a `Text` holds its `RES canvas::Font` directly), bare `Mode`/`DrawItem`/`Rectangle`/
+  `Size`/`TermSize`, and `tests/rt_canvas_golden.rs` (now `tests/canvas/`). All fixed; every
+  embedded program in `test-canvas-vulkan.sh`, `test-winapp.sh` and `test-macapp.sh` (22 quoted
+  heredocs, 3 unquoted with `$proj` substituted) compiles with the current compiler.
+  `test-macapp.sh` was compiled, not run: its GUI cases drive the desktop.
+- **Phase 2 — 2227 has no usable Vulkan ICD today.** The acceptance's `ok` on 2227 is a `skip`
+  from the script's own device probe, not a failure of this change: the `--debug` program ran
+  headless and wrote its stats line. The Vulkan path is proven on 2228.
+- **Phase 2 — the normal-source check looks for code, not words.** Comments in the canvas
+  source still name `MFB_CANVAS_STATS`; the unit test asserts the quoted variable names and
+  `__canvas_writeStats` are absent.
+- **Phase 3 — three Windows app ncode goldens change, by exactly the removed hook.** The gate
+  reported `3 diff(s)`: `syntax/app/macos-app-mode-{io,plumbing,term}` `.windows-x86_64.app.ncodesum`.
+  A compiler built from `HEAD` (`bddb8632c`, `git archive` + `cargo build --release`) reproduces
+  the committed hash for `macos_app_mode_io`; the new compiler's dump differs only in `_main`
+  (210 → 179 instructions; relocations to `GetStdHandle`, `SendMessageW`, `WriteFile`,
+  `_mfb_winapp_dump_env`, `_mfb_winapp_testbuf` gone) and in `dataObjects` (exactly
+  `_mfb_winapp_dump_env` and `_mfb_winapp_testbuf` gone; every shared object identical). The
+  three hashes were regenerated with `scripts/sync-goldens.sh`.
 
 ## Summary
 

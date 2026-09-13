@@ -106,6 +106,30 @@ The `perf` section maps its own timing region at program entry (never the arena)
 and prints each line with a single `write`; it is emitted only for a `macos-aarch64`
 `--debug` build. [[src/codegen/debug/perf.rs:PerfFeature]]
 
+## Reporting hooks
+
+Three environment variables make a program write diagnostic output while it runs.
+They are reporting hooks, not program behavior, so only a `--debug` build contains
+the code that reads them; a normal build ignores them.
+
+| Variable | Build | What the program writes |
+| --- | --- | --- |
+| `MFB_CANVAS_STATS` | canvas program | appends one line of renderer counters (`generations=`, `frames=`, `skipped=`, `damage=`, …) to the named file for every rendered or skipped frame |
+| `MFB_CANVAS_DUMP` | canvas program | writes each presented frame's raw RGBA8 bytes to the named file, overwriting it |
+| `MFB_WINAPP_DUMP` | Windows app | when set, the UI thread reads the window transcript back at exit and writes it to stdout as raw UTF-16 |
+
+The canvas hooks live in the canvas package's source, which carries a normal and a
+`--debug` body for `__canvas_presentSurface` and the render loop
+(`RegistryHelper::debug_split`); the build injects the body matching its flag.
+[[src/codegen/registry/mod.rs:debug_split]]
+The Windows hook's variable name, buffer and reader are emitted only when the app
+entry is built with `--debug`. [[src/target/win_x86_64/app/mod.rs:app_mode_data_objects]]
+
+The switches tests use to drive a program — `MFB_MACAPP_HEADLESS`,
+`MFB_WINAPP_HEADLESS`, `MFB_GTKAPP_HEADLESS`, `MFB_CANVAS_SYNC`, `MFB_CANVAS_GPU`,
+`MFB_CANVAS_RESIZE_W`/`_H`, `MFB_WINAPP_INPUT` — are not reporting hooks and work in
+every build.
+
 ## See Also
 
 * ./mfb spec tooling cli-reference — the `build` and `test` flags
