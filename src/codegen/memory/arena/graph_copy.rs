@@ -60,18 +60,19 @@ pub(crate) const GRAPH_COPY_SYMBOL: &str = "_mfb_rt_graph_copy";
 /// exhausted (the old block kept, so the caller's raise leaves nothing dangling).
 pub(crate) const GRAPH_STACK_GROW_SYMBOL: &str = "_mfb_rt_graph_stack_grow";
 
-const STACK_OFFSET_COUNT: usize = 0;
-const STACK_OFFSET_CAPACITY: usize = 8;
-const STACK_HEADER_SIZE: usize = 16;
-const STACK_ENTRY_SIZE: usize = 24;
-const STACK_ENTRY_OFFSET_KIND: usize = 0;
-const STACK_ENTRY_OFFSET_SOURCE: usize = 8;
+// The work stack's layout, shared with the drop walker (`graph_drop.rs`).
+pub(super) const STACK_OFFSET_COUNT: usize = 0;
+pub(super) const STACK_OFFSET_CAPACITY: usize = 8;
+pub(super) const STACK_HEADER_SIZE: usize = 16;
+pub(super) const STACK_ENTRY_SIZE: usize = 24;
+pub(super) const STACK_ENTRY_OFFSET_KIND: usize = 0;
+pub(super) const STACK_ENTRY_OFFSET_SOURCE: usize = 8;
 const STACK_ENTRY_OFFSET_DESTINATION: usize = 16;
-const STACK_INITIAL_CAPACITY: usize = 64;
+pub(super) const STACK_INITIAL_CAPACITY: usize = 64;
 
 /// The label a push site defines, followed by the pushed kind's index. A label emits no
-/// bytes, so the edge-table test can read the walker's edges out of its instructions.
-const PUSH_LABEL_PREFIX: &str = "graph_copy_push_k";
+/// bytes, so the edge-table tests can read a walker's edges out of its instructions.
+pub(super) const PUSH_LABEL_PREFIX: &str = "graph_copy_push_k";
 
 /// The walker's state while its body is being emitted (`CodeBuilder::graph_copy_walker`).
 #[derive(Clone, Debug)]
@@ -82,6 +83,20 @@ pub(crate) struct GraphCopyWalker {
     kinds: HashMap<String, usize>,
     /// The frame slot holding the work stack's block pointer (it changes when it grows).
     stack_slot: usize,
+}
+
+impl GraphCopyWalker {
+    /// `kinds` in `recursive_transfer_types` order; `stack_slot` holds the work stack.
+    pub(crate) fn new(kinds: &[String], stack_slot: usize) -> Self {
+        GraphCopyWalker {
+            kinds: kinds
+                .iter()
+                .enumerate()
+                .map(|(index, name)| (name.clone(), index))
+                .collect(),
+            stack_slot,
+        }
+    }
 }
 
 impl CodeBuilder<'_> {
@@ -110,12 +125,12 @@ impl CodeBuilder<'_> {
     /// Push `{kind, child, *destination_base_slot + offset}` onto the walker's work stack,
     /// growing it first when it is full. `child` is the source edge's pointer; the
     /// destination is the word of the already-allocated new block the copy belongs in.
+    /// The drop walker (plan-134-F) pushes with no destination, recorded as `0`.
     pub(crate) fn emit_graph_copy_push(
         &mut self,
         kind: usize,
         child: impl Into<Operand>,
-        destination_base_slot: usize,
-        offset: usize,
+        destination: Option<(usize, usize)>,
     ) -> Result<(), String> {
         let stack_slot = self
             .graph_copy_walker
@@ -162,12 +177,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch, &entry, STACK_ENTRY_OFFSET_KIND));
         self.emit(abi::load_u64(&scratch, abi::stack_pointer(), child_slot));
         self.emit(abi::store_u64(&scratch, &entry, STACK_ENTRY_OFFSET_SOURCE));
-        self.emit(abi::load_u64(
-            &scratch,
-            abi::stack_pointer(),
-            destination_base_slot,
-        ));
-        self.emit(abi::add_immediate(&scratch, &scratch, offset));
+        match destination {
+            Some((destination_base_slot, offset)) => {
+                self.emit(abi::load_u64(
+                    &scratch,
+                    abi::stack_pointer(),
+                    destination_base_slot,
+                ));
+                self.emit(abi::add_immediate(&scratch, &scratch, offset));
+            }
+            None => self.emit(abi::move_immediate(&scratch, "Integer", "0")),
+        }
         self.emit(abi::store_u64(
             &scratch,
             &entry,
@@ -262,14 +282,7 @@ pub(crate) fn lower_graph_copy_walker(
     ));
     builder.emit(abi::store_u64(&scratch, &block, STACK_OFFSET_CAPACITY));
 
-    builder.graph_copy_walker = Some(GraphCopyWalker {
-        kinds: kinds
-            .iter()
-            .enumerate()
-            .map(|(index, name)| (name.clone(), index))
-            .collect(),
-        stack_slot,
-    });
+    builder.graph_copy_walker = Some(GraphCopyWalker::new(kinds, stack_slot));
 
     // Take one entry: a null edge copies to null; otherwise dispatch on the kind.
     builder.emit(abi::label(&take));
@@ -462,7 +475,7 @@ pub(crate) fn lower_graph_stack_grow(
 
 /// Register allocation, the two peephole passes and the frame — the tail every
 /// synthesized runtime helper runs (`lower_drop_owned_collection_helper`).
-fn finish_helper(
+pub(super) fn finish_helper(
     mut builder: CodeBuilder<'_>,
     name: &str,
     symbol: &str,
@@ -498,14 +511,14 @@ fn finish_helper(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::arch::ops::CodeOp;
     use crate::codegen::collection::layout::{recursive_transfer_types, thread_copy_symbol};
     use crate::codegen::engine::tests::test_support::{BuilderHarness, TestPlatform};
     use crate::target::shared::nir::{NirField, NirModule, NirType, NirVariant};
 
-    fn field(name: &str, type_: &str) -> NirField {
+    pub(crate) fn field(name: &str, type_: &str) -> NirField {
         NirField {
             visibility: None,
             name: name.to_string(),
@@ -513,7 +526,7 @@ mod tests {
         }
     }
 
-    fn record(name: &str, fields: Vec<NirField>) -> NirType {
+    pub(crate) fn record(name: &str, fields: Vec<NirField>) -> NirType {
         NirType {
             kind: "record".to_string(),
             visibility: "private".to_string(),
@@ -525,7 +538,7 @@ mod tests {
         }
     }
 
-    fn union(name: &str, variants: Vec<(&str, Vec<NirField>)>) -> NirType {
+    pub(crate) fn union(name: &str, variants: Vec<(&str, Vec<NirField>)>) -> NirType {
         NirType {
             kind: "union".to_string(),
             visibility: "private".to_string(),
@@ -543,7 +556,7 @@ mod tests {
         }
     }
 
-    fn model(types: Vec<NirType>) -> TypeModel {
+    pub(crate) fn model(types: Vec<NirType>) -> TypeModel {
         let module = NirModule {
             target: "test".to_string(),
             build_mode: crate::target::NativeBuildMode::Console,
@@ -567,7 +580,7 @@ mod tests {
 
     /// `json::Json`'s shape: a data union whose array and object variants hold
     /// collections of the union itself.
-    fn json_like_types() -> Vec<NirType> {
+    pub(crate) fn json_like_types() -> Vec<NirType> {
         let arr = || vec![field("items", "List OF J")];
         let obj = || vec![field("fields", "Map OF String TO J")];
         let text = || vec![field("s", "String")];
@@ -581,7 +594,43 @@ mod tests {
 
     /// For kind `name`, as rendered type names: the per-type copy functions the ordinary
     /// copy CALLS, and the kinds the walker body PUSHES. Both sorted.
-    fn calls_and_pushes(model: &TypeModel, name: &str) -> (Vec<String>, Vec<String>) {
+    /// A harness over `model` whose builders can emit a shape copy or drop. Every shape
+    /// raises `ErrOutOfMemory` when an `arena_alloc` fails, and the raise loads its message
+    /// as a string literal.
+    pub(crate) fn harness(model: &TypeModel) -> BuilderHarness<'_> {
+        let (_, out_of_memory) = crate::codegen::registry::runtime_error("ErrOutOfMemory")
+            .expect("ErrOutOfMemory is a runtime error");
+        BuilderHarness {
+            type_model: model.clone(),
+            string_symbols: HashMap::from([(
+                out_of_memory.to_string(),
+                "_mfb_str_out_of_memory".to_string(),
+            )]),
+            ..BuilderHarness::default()
+        }
+    }
+
+    /// The kinds a walker body pushed, as rendered type names, sorted — read from the
+    /// push sites' labels.
+    pub(crate) fn pushed_kinds(builder: &CodeBuilder<'_>, kinds: &[String]) -> Vec<String> {
+        let mut pushes: Vec<String> = builder
+            .instructions
+            .iter()
+            .filter(|instruction| instruction.op == CodeOp::Label)
+            .filter_map(|instruction| instruction.get("name"))
+            .filter_map(|label| {
+                let rest = label.strip_prefix(PUSH_LABEL_PREFIX)?;
+                rest.split('_').next()?.parse::<usize>().ok()
+            })
+            .map(|index| kinds[index].clone())
+            .collect();
+        pushes.sort();
+        pushes
+    }
+
+    /// For kind `name`, as rendered type names: the per-type copy functions the ordinary
+    /// copy CALLS, and the kinds the walker body PUSHES. Both sorted.
+    pub(crate) fn calls_and_pushes(model: &TypeModel, name: &str) -> (Vec<String>, Vec<String>) {
         let kinds: Vec<String> = recursive_transfer_types(model).into_iter().collect();
         let by_symbol: HashMap<String, String> = kinds
             .iter()
@@ -589,18 +638,7 @@ mod tests {
             .collect();
         let type_ = ParameterType::declared(name);
         let platform = TestPlatform;
-        // Every shape copy raises `ErrOutOfMemory` when `arena_alloc` fails, and the
-        // raise loads its message as a string literal.
-        let (_, out_of_memory) = crate::codegen::registry::runtime_error("ErrOutOfMemory")
-            .expect("ErrOutOfMemory is a runtime error");
-        let harness = BuilderHarness {
-            type_model: model.clone(),
-            string_symbols: HashMap::from([(
-                out_of_memory.to_string(),
-                "_mfb_str_out_of_memory".to_string(),
-            )]),
-            ..BuilderHarness::default()
-        };
+        let harness = harness(model);
 
         let mut plain = harness.builder("plain", &platform);
         let source = plain.allocate_register();
@@ -615,14 +653,7 @@ mod tests {
 
         let mut walker = harness.builder("walker", &platform);
         let stack_slot = walker.allocate_stack_object("stack", 8);
-        walker.graph_copy_walker = Some(GraphCopyWalker {
-            kinds: kinds
-                .iter()
-                .enumerate()
-                .map(|(index, kind)| (kind.clone(), index))
-                .collect(),
-            stack_slot,
-        });
+        walker.graph_copy_walker = Some(GraphCopyWalker::new(&kinds, stack_slot));
         let source = walker.allocate_register();
         walker
             .emit_thread_copy_real(&type_, &source)
@@ -638,19 +669,8 @@ mod tests {
             "{name}: the walker body still calls per-type copies (native recursion): \
              {still_calling:?}"
         );
-        let mut pushes: Vec<String> = walker
-            .instructions
-            .iter()
-            .filter(|instruction| instruction.op == CodeOp::Label)
-            .filter_map(|instruction| instruction.get("name"))
-            .filter_map(|label| {
-                let rest = label.strip_prefix(PUSH_LABEL_PREFIX)?;
-                rest.split('_').next()?.parse::<usize>().ok()
-            })
-            .map(|index| kinds[index].clone())
-            .collect();
+        let pushes = pushed_kinds(&walker, &kinds);
         calls.sort();
-        pushes.sort();
         (calls, pushes)
     }
 

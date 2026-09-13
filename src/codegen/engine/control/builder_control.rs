@@ -1683,6 +1683,11 @@ impl CodeBuilder<'_> {
             crate::codegen::engine::expansion::exit(self.instructions.len());
             self.current_op_key = enclosing_op_key;
             result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
+            // plan-134-F: the drop walker's symmetry probe — emits nothing unless the
+            // build's environment names this local (`graph_drop.rs`).
+            if let NirOp::Bind { name, .. } | NirOp::Assign { name, .. } = op {
+                self.emit_test_graph_drop_hook(name)?;
+            }
             // plan-39 I1: after lowering the op, invalidate range facts. A `Bind`/
             // `Assign` drops just the reassigned local's bounds (its RHS, already
             // lowered above, used the valid pre-assignment bound). A loop / Match /

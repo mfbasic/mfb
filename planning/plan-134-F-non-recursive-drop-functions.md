@@ -17,14 +17,16 @@ References: plan-134-A; plan-134-B (walker, edge enumeration); `mfb spec memory 
 (block sizes), `mfb spec tooling debug-report` (`arena.live_bytes`); `src/codegen/debug/arena.rs`;
 `tests/runtime/rt_debug_arena.rs` (how a test reads the counters).
 
-Prerequisites: see plan-134-A; plan-134-E complete (`ls planning/completed/plan-134-E-*`).
+Prerequisites: see plan-134-A; plan-134-E complete (`ls planning/completed/plan-134-E-*`). — MET
+2026-09-13 (`planning/completed/plan-134-E-deep-copy-at-construction-stores.md`).
 
 ## 1. Goal
 
 - `_mfb_rt_graph_drop(kind, ptr)` is emitted beside `_mfb_rt_graph_copy` for every module with a
   recursive type.
 - The symmetry test (Phase 2) passes for `json::Json`, `__regex_Node`, `__regex_Cont`,
-  `__regex_Choices`, a user `TYPE Node`, a user recursive `UNION`, and `dom::Node`.
+  `__regex_Choices`, a user `TYPE Node`, a user recursive `UNION`, and ~~`dom::Node`~~ (no such
+  type — see Corrections).
 
 ### Non-goals
 
@@ -73,14 +75,27 @@ freed chunks are scrubbed, so a use-after-free reads garbage).
 
 ### Phase 1 — the walker
 
-- [ ] `src/codegen/engine/builder/mod.rs` / `builder_arena_transfer.rs` (or a new
+- [x] `src/codegen/engine/builder/mod.rs` / `builder_arena_transfer.rs` (or a new
       `src/codegen/cleanup/owned/graph_drop.rs`): emit `_mfb_rt_graph_drop` using the shared
-      edge enumeration and the per-shape size functions.
-- [ ] Unit test: the drop walker visits exactly the edges the copy walker visits, per kind
-      (table over the builtin recursive types and a hand-built model).
+      edge enumeration and the per-shape size functions. — `src/codegen/memory/arena/graph_drop.rs`
+      (beside `graph_copy.rs`, whose work-stack layout, grow helper and `GraphCopyWalker` it
+      reuses), emitted after `_mfb_rt_graph_stack_grow` for every module with a recursive type.
+      Shared lists extracted from the copy's edge sites: `record_pointer_edges`,
+      `union_variants_by_tag`, `collection_payload_edges`, `payload_edge_shape`; block sizes from
+      `emit_inlined_block_size_from_ptr_slot` (the sizer the copy allocates with).
+- [x] Unit test: the drop walker visits exactly the edges the copy walker visits, per kind
+      (table over the builtin recursive types and a hand-built model). —
+      `graph_drop_edges_match_the_copy_edges` (Node, Json-shaped union, bridged second cycle,
+      a `Tree` union whose variant holds two `Tree` fields) and
+      `..._for_the_builtin_types` (`#regex_Node`/`#regex_Cont`/`#regex_Choices` and `json::Json`
+      from the regex/json bench programs lowered to NIR); each also asserts the drop body calls
+      no per-type copy and neither walker.
 
 Acceptance: the edge tables match for every recursive type.
   Check: `cargo test --release --bin mfb -- graph_drop` → passed (est. 3 min).
+  Result: `cargo test --release --bin mfb -- graph_drop graph_copy` → `3 passed; 0 failed`
+  (`graph_copy_edges_match_the_copy_calls` still green after the copy's edge sites moved onto
+  the shared lists).
 Commit: —
 
 ### Phase 2 — symmetry, depth and churn
@@ -124,7 +139,39 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Prerequisite re-run** (2026-09-13): `ls planning/completed/plan-134-E-*` → one file — MET.
+- **Test hook: an inert-unless-set environment variable, not a test-build-only option.** The
+  recommended hook is "a test-build-only compiler option ... compiled out of release builds",
+  but the integration tests run the RELEASE `mfb` binary (`tests/common/mod.rs::mfb_exe`, the
+  binary every `rt_*` test builds programs with), so an option compiled out of release could
+  never be exercised by the test that needs it. The compiler already carries inert-unless-set
+  environment hooks read at codegen (`MFB_BENCH_LOWERING` in `engine/regalloc/mod.rs`,
+  `MFB_BUG387_SELFMOVE` in `arch/aarch64/select.rs`), so the hook follows that precedent: unset,
+  the emitted code is byte-identical; set by the symmetry test, it makes the program drop a named
+  copy through `_mfb_rt_graph_drop`. The alternative (defer the proof to letter G) is still
+  rejected for the plan's own reason — the first run of the drop would be a user program's.
+  Built as: `MFB_TEST_GRAPH_DROP=<local>[,<local>…]` at build time makes every `LET` or
+  assignment of a named local whose type is a resource-free cycle member deep-copy the value
+  and immediately `_mfb_rt_graph_drop` the copy (`graph_drop.rs::emit_test_graph_drop_hook`,
+  called from `lower_ops_inner`). The symmetry test compares a plain `--debug` build with a
+  hooked one: equal stdout, equal final `live_bytes`, extra bytes freed == extra bytes
+  allocated, `double_free_skips` 0, and more `alloc_calls` hooked (non-vacuous). Because the
+  hook copies a live value rather than dropping the program's own, it also reaches the regex
+  engine's private types through its locals (`stack`, `cont`, `node`), which no user program
+  can name.
+- **`dom::Node` does not exist.** §1 lists it, but `grep -rn "dom::Node" src tests` → 3 hits,
+  all in comments (`builder_collection_layout.rs`, `builder_arena_transfer.rs`,
+  `engine/builder/mod.rs`), and `ls src/codegen/builtins` has no `dom` package. It is dropped
+  from the symmetry list; the user recursive `UNION` case adds a variant whose record fields are
+  the union itself (`Couple`), the shape a DOM node's parent/child fields would have.
+- **"One generator" is the per-block edge lists.** The copy's edge sites interleave writes to
+  the destination block, so the instruction stream cannot be shared. What is shared is every
+  decision about which words are edges: `record_pointer_edges`, `union_variants_by_tag`,
+  `collection_payload_edges` and `payload_edge_shape` were extracted from the copy's three edge
+  sites (`builder_arena_transfer.rs`), which now iterate them, and the drop iterates the same
+  lists and asks the copy's `graph_copy_edge_kind` whether to push. The edge-table test pins
+  the result on the hand-built models and on the builtin types' real models (the json and regex
+  bench programs lowered to NIR).
 
 ## Summary
 

@@ -1783,6 +1783,21 @@ pub(crate) fn lower_module_for_platform(
                 type_model.clone(),
             )?,
         );
+        // plan-134-F: the walker's inverse, over the same kinds and work stack.
+        code_functions.push(
+            crate::codegen::memory::arena::graph_drop::lower_graph_drop_walker(
+                &kinds,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?,
+        );
     }
     // plan-130-B: the arena hot path times itself exactly when the `--debug` perf
     // section is active for this module.
