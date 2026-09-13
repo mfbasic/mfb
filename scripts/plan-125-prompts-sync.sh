@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# plan-125-prompts-sync.sh — keep §5 of plan-125-A identical to the eight
-# prompt files the harness actually runs.
+# plan-125-prompts-sync.sh — keep §5 of plan-125-A identical to the prompt
+# files the harness actually runs.
 #
-# plan-125-A Phase 4 requires the eight reviewer prompts to exist BOTH as files
+# plan-125-A Phase 4 requires the reviewer prompts to exist BOTH as files
 # (so `doc-review-fanout.sh --prompt` can pass them) AND verbatim in §5 of the
 # plan (so a reader can see what every one of ~900 runs was asked, without
 # leaving the plan), with a diff proving the two match.
@@ -30,9 +30,10 @@ PROMPTS="$REPO/planning/plan-125-prompts"
 BEGIN='<!-- BEGIN GENERATED PROMPTS -- edit planning/plan-125-prompts/*.txt, then scripts/plan-125-prompts-sync.sh --write -->'
 END='<!-- END GENERATED PROMPTS -->'
 
-# The eight, in the order §5 presents them: the man surface's three iterations
-# and its final sweep, then the spec surface's.
-ORDER='man-iter1-package man-iter2-page man-iter3-package man-final-lens spec-iter1-package spec-iter2-file spec-iter3-package spec-final-lens'
+# The nine, in the order §5 presents them: the man surface's three iterations
+# and its final sweep, then the spec surface's, then the cross-package
+# consistency prompt plan-125-B Phase 4 added (plan-125-B C-6).
+ORDER='man-iter1-package man-iter2-page man-iter3-package man-final-lens spec-iter1-package spec-iter2-file spec-iter3-package spec-final-lens man-consistency'
 
 TITLES_man_iter1_package='5.1 Man, iteration 1 — the package or topic as a whole'
 TITLES_man_iter2_page='5.2 Man, iteration 2 — one page, every sentence verified'
@@ -42,6 +43,7 @@ TITLES_spec_iter1_package='5.5 Spec, iteration 1 — the package as a whole'
 TITLES_spec_iter2_file='5.6 Spec, iteration 2 — one file, every claim verified'
 TITLES_spec_iter3_package='5.7 Spec, iteration 3 — re-integration after the file pass'
 TITLES_spec_final_lens='5.8 Spec, final sweep — one lens over the whole spec'
+TITLES_man_consistency='5.9 Man, cross-package consistency — one dimension over the condensed manual'
 
 title_of() {
 	local key
@@ -51,7 +53,7 @@ title_of() {
 
 render() {
 	printf '%s\n\n' "$BEGIN"
-	printf 'The eight prompts every one of plan-125'"'"'s reviewer runs uses, verbatim.\n'
+	printf 'The prompts every one of plan-125'"'"'s reviewer runs uses, verbatim.\n'
 	printf 'They are generated from `planning/plan-125-prompts/*.txt`, which is what\n'
 	printf '`doc-review-fanout.sh --prompt` actually passes to `codex exec`; run\n'
 	printf '`./scripts/plan-125-prompts-sync.sh --check` to prove this section matches.\n\n'

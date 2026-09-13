@@ -113,8 +113,40 @@ mode_count() {
 	[ "$sum" -eq "$((pages - pkgsum))" ]
 }
 
+# ---------------------------------------------------------------------------
+# --condensed: the artifact plan-125-B Phase 4's cross-package consistency
+# review reads. The whole manual is ~61,000 lines and cannot be read with useful
+# attention; the part where vocabulary is ESTABLISHED is much smaller — every
+# package overview, every package `types` page, and every guide-topic overview.
+# Function pages borrow that vocabulary, so a consistency defect shows here
+# first.
+#
+# Fixed order, no timestamps: the packages in `ls` order (the same denominator
+# man-census.sh and --count use), each overview followed by its types page when
+# it has one, then the ten guide-topic overviews. A package with no types page
+# prints an error from `mfb man <pkg> types`; that error is discarded and the
+# page simply omitted.
+mode_condensed() {
+	local pkg topic types
+	# Directories only: `ls` also lists loose files such as `float_result.rs`,
+	# which `mfb man` rejects as an unknown package.
+	for pkg in $(cd "$BUILTINS" && ls -d */ | tr -d / | grep -vE '^(perf|tests)$' | sed 's/^errorcode$/errorCode/'); do
+		"$MFB" man "$pkg"
+		rule
+		if types=$("$MFB" man "$pkg" types 2>/dev/null); then
+			printf '%s\n' "$types"
+			rule
+		fi
+	done
+	for topic in errors flow lambda link optimizations tooling tour types unicode variable; do
+		"$MFB" man "$topic"
+		rule
+	done
+}
+
 case "${1:-}" in
-	'')       emit ;;
-	--count)  mode_count ;;
+	'')          emit ;;
+	--count)     mode_count ;;
+	--condensed) mode_condensed ;;
 	*)        printf 'man-manual: unknown option: %s\n' "$1" >&2; exit 2 ;;
 esac

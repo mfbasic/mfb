@@ -961,7 +961,7 @@ Commit: `21087f18c` (closure), preceded by `8ba8f8c5a` (iteration 1),
 
 <!-- BEGIN GENERATED PROMPTS -- edit planning/plan-125-prompts/*.txt, then scripts/plan-125-prompts-sync.sh --write -->
 
-The eight prompts every one of plan-125's reviewer runs uses, verbatim.
+The prompts every one of plan-125's reviewer runs uses, verbatim.
 They are generated from `planning/plan-125-prompts/*.txt`, which is what
 `doc-review-fanout.sh --prompt` actually passes to `codex exec`; run
 `./scripts/plan-125-prompts-sync.sh --check` to prove this section matches.
@@ -1814,6 +1814,110 @@ Reply with findings only, one block each, in this exact shape:
     SUGGESTED: <the text to add or change, with its citation>
 
 Order your findings by how many topics each affects, most first.
+
+If you find nothing, reply with exactly:
+
+    NO FINDINGS for {{UNIT}}
+
+followed by one paragraph naming the commands you ran across the artifact.
+
+## Rules
+
+- **Make no edits to any file in the repository.** Your output is text.
+- Scratch files go under {{SCRATCH}} only.
+- Do not commit anything.
+```
+
+### 5.9 Man, cross-package consistency — one dimension over the condensed manual
+
+`planning/plan-125-prompts/man-consistency.txt`
+
+```
+You are reviewing MFBASIC's developer manual for cross-package consistency, as
+an independent second opinion. You are not the author. Be specific and be hard
+to please.
+
+UNIT: {{UNIT}}
+DIMENSION: {{TARGET}}
+
+## Who this documentation is for
+
+`mfb man` is written for **the MFBASIC developer at the terminal** — someone
+using and learning the language. It is NOT written for a compiler contributor.
+
+Read the standard before you start:
+
+    cat .ai/man-content.md
+
+## The artifact
+
+Generate the condensed manual — every package overview, every package `types`
+page, and every guide-topic overview. That is the part of the surface where
+vocabulary is *established*; function pages borrow it:
+
+    MFB={{MFB}} ./scripts/man-manual.sh --condensed > {{SCRATCH}}/condensed.txt
+    wc -l {{SCRATCH}}/condensed.txt
+
+Read it with attention. You may also render any single page it points to
+(`{{MFB}} man <pkg> <function>`) when a function page is needed to settle a
+disagreement, but the artifact is what you are reviewing.
+
+You have been given exactly ONE dimension. Answer that one question across the
+whole artifact and ignore everything else — three other runs are asking the
+other three.
+
+## Your dimension
+
+**{{TARGET}}** — the question you are answering:
+
+- **vocabulary** — Is one concept called one thing? Check at least: handle vs
+  resource; fails vs errors vs raises; index vs position vs offset; byte vs
+  character vs scalar vs grapheme; empty vs blank vs missing. Report each
+  concept with more than one spelling, a count of each (`grep -c` over the
+  artifact), and the packages using the minority form.
+
+- **overview-shape** — Do the package overviews answer the same questions in
+  the same order, so a developer learns to read them? For example: what the
+  package is for, what to import, its main types, how failure is reported, and
+  where to go next. Report each overview that is missing a question the
+  majority answers, or answers them in a different order.
+
+- **guide-package** — Do the guide topics (`types`, `errors`, `flow`,
+  `variable`, `lambda`, `unicode`, `link`, `tooling`, `optimizations`, `tour`)
+  and the package pages agree? Report every place where a package overview
+  states a language rule (copying, closing, error propagation, string indexing,
+  iteration order) differently from the guide topic that owns it, quoting both.
+
+- **handles** — The packages with `RES` handles (`fs`, `io`, `tcp`, `udp`,
+  `tls`, `net`, `process`, `audio`, `canvas`, `term`) must state the open/close
+  contract the same way: what closes a handle when its scope ends, what an
+  explicit close does, what a second close does, what using a closed handle
+  raises, and whether a handle may be handed to another thread. Report each
+  package whose statement differs from the others or omits one of those five,
+  quoting it.
+
+## Verification duty
+
+- Evidence is a command and its output: `grep -c` over the artifact, a rendered
+  page, or a probe program under {{SCRATCH}} compiled with {{MFB}}.
+- When two pages disagree about behavior, say which one is right and how you
+  know. If you cannot tell, say so; do not guess.
+- **Do not attempt to bind or connect a socket.** Mark such a finding
+  `NEEDS-NETWORK-PROBE`; the main thread will run it.
+
+## Output format
+
+Reply with findings only, one block each, in this exact shape:
+
+    ### <n>. <short title>
+    DIMENSION: {{TARGET}}
+    SCOPE:     <the packages or topics involved>
+    CLAIM:     <the inconsistency or gap, with quotes from each side>
+    VERDICT:   <which form should win, and why>
+    EVIDENCE:  <the command you ran and what it printed>
+    SUGGESTED: <the single form to standardize on, or the text to add>
+
+Order your findings by how many packages each affects, most first.
 
 If you find nothing, reply with exactly:
 

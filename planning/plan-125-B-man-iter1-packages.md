@@ -463,6 +463,34 @@ re-dispatched, from `planning/plan-125-units/B-phase2-retry.txt` under the same
 letter. `--reconcile` reads each unit's last manifest row. The user stopped
 the session at the limit and resumed it after the reset.
 
+### C-6 — Phase 4 had no prompt and no artifact; both added
+
+§3.2 specifies four dimension-scoped runs over a condensed artifact, and plan-A
+§3.4 says B runs them, but plan-A §5 defined only the eight iteration and
+final-lens prompts. `man-final-lens.txt` is the nearest one, and it is the wrong
+instrument: its six lenses read the whole 61,000-line manual, while §3.2's four
+dimensions read only the overviews, `types` pages and topic overviews. Neither
+`scripts/man-manual.sh` nor anything else produced that condensed artifact.
+
+Added:
+- `planning/plan-125-prompts/man-consistency.txt`: the four §3.2 dimensions
+  (`vocabulary`, `overview-shape`, `guide-package`, `handles`) as
+  `{{TARGET}}`, same output shape as the final-lens prompt.
+- `scripts/plan-125-prompts-sync.sh`: now keeps nine prompts, the new one as
+  §5.9.
+- `scripts/man-manual.sh --condensed`: the 31 package overviews, each followed by
+  its `types` page where one exists, then the 10 topic overviews. Measured:
+  7,205 lines, 62 `═` pages (31 + 21 + 10; §2 said 20 types pages, and there
+  are 21). Two runs are byte-identical, with nothing on stderr.
+  - The first version listed packages with `ls`, the same way `--count` does,
+    and printed `unknown package 'float_result.rs'`: a loose `.rs` file inside
+    `src/codegen/builtins`.
+  - `--condensed` now lists directories only. `--count` hides the same error
+    behind `2>/dev/null`, and the stray file adds 0 to its page count.
+
+The iteration prompts are unchanged, so B's findings remain comparable with
+every other letter's.
+
 ## Summary
 
 The yield concentrates in Phase 1: `canvas` and the nine guide topics are the
