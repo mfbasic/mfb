@@ -114,7 +114,20 @@ trampoline**, on the dispatch queue. bug-483 parks
 both `SEND_INVOKE` and `STATE_INVOKE` record the domain into `CTX_EDOM` while the
 object is alive; `tls::write` then classifies from that integer.
 
-Three things that design has to get right, all of them load-bearing:
+Three things that design has to get right, all of them load-bearing. A fourth is
+known BROKEN and open (bug-564, second sighting):
+
+- **OPEN: the trampolines publish the gate BEFORE the domain.** `tls::write` reads
+  a gate (`CTX_STATE >= 4`, or `CTX_ERROR != 0` after its wait) and then
+  `CTX_EDOM`, from another thread, with no lock. `STATE_INVOKE` and `SEND_INVOKE`
+  store the gate first and `CTX_EDOM` only after the `nw_error_get_error_domain`
+  call, so a writer inside that window raises `ErrTlsFailed` for a departed peer.
+  This was reproduced, and the numbers are in the bug doc. **Swapping the stores
+  is not a fix on AArch64.** ARMv8's memory model lets another core observe plain
+  `STR`s out of program order; only a barrier (`DMB`) or a release store (`STLR`)
+  fences that (Chong, Sorensen & Wickerson, PLDI'18 §6). clang emits `STLR`/`LDAR`
+  for C11 `atomic_store`/`atomic_load`. This ABI layer can emit none of those
+  instructions. Do not land the reorder alone.
 
 - **`CTX_EDOM` is sticky.** `emit_fresh_sem` clears `CTX_ERROR` before every
   operation and must NOT clear the domain: the terminal-state guard on a *later*

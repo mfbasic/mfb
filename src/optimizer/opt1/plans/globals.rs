@@ -28,8 +28,18 @@ use crate::target::shared::nir::{NirModule, NirOp, NirValue};
 pub(crate) struct GlobalUse {
     /// Total read occurrences (`NirValue::Global`).
     pub(crate) reads: usize,
-    /// Total write occurrences (`NirOp::StoreGlobal`).
+    /// Write occurrences (`NirOp::StoreGlobal`) that are NOT the global's own
+    /// initializer store. bug-552: the synthetic `__mfb_init_globals_*` SUB
+    /// stores every module-level binding exactly once, so counting its stores
+    /// here made `writes >= 1` for every global in the language and both proofs
+    /// below permanently false.
     pub(crate) writes: usize,
+    /// Write occurrences inside the synthetic global-initializer SUB. Kept
+    /// separate rather than discarded: the dead-global row must REMOVE these
+    /// ops when it removes the global, or it leaves the initializer storing to
+    /// a name that no longer exists and the NIR validator refuses the module
+    /// ("NIR global store targets unknown global").
+    pub(crate) initializer_writes: usize,
     /// Functions that mention it at all, by index into `module.functions`.
     /// Recorded because the *localization* half of the constification row —
     /// sinking a global used by exactly one function into that function —
@@ -39,12 +49,23 @@ pub(crate) struct GlobalUse {
 }
 
 impl GlobalUse {
-    /// Nothing in the module names it.
+    /// Nothing in the module names it — its own initializer store aside.
+    ///
+    /// bug-552: the initializer store is deliberately NOT disqualifying. Every
+    /// global has one, so counting it here meant no global was ever untouched
+    /// and the dead-global row could not fire for any program. A global that
+    /// only its own initializer writes, and nothing reads, is exactly the dead
+    /// storage this row exists to remove.
     pub(crate) fn untouched(&self) -> bool {
         self.reads == 0 && self.writes == 0
     }
 
     /// Never written after its initializer — the read-only question.
+    ///
+    /// `writes` excludes the initializer store, so this now answers the
+    /// question the row's name asks. Before bug-552 it asked "is this global
+    /// never written at all, including the store that gives it its value?",
+    /// which is false for every global in the language.
     pub(crate) fn never_written(&self) -> bool {
         self.writes == 0
     }
@@ -58,12 +79,19 @@ pub(crate) fn census(module: &NirModule) -> Census {
     struct Walk<'a> {
         census: &'a mut Census,
         function: usize,
+        /// Whether the function being walked is the synthetic
+        /// `__mfb_init_globals_*` SUB (bug-552).
+        in_initializer: bool,
     }
     impl NirVisitor for Walk<'_> {
         fn visit_op(&mut self, op: &NirOp) {
             if let NirOp::StoreGlobal { name, .. } = op {
                 let entry = self.census.entry(name.clone()).or_default();
-                entry.writes += 1;
+                if self.in_initializer {
+                    entry.initializer_writes += 1;
+                } else {
+                    entry.writes += 1;
+                }
                 entry.functions.insert(self.function);
             }
             walk_op(self, op);
@@ -79,10 +107,12 @@ pub(crate) fn census(module: &NirModule) -> Census {
     }
 
     let mut census = Census::new();
+    let initializer = crate::target::shared::nir::global_initializer_name(&module.project);
     for (index, function) in module.functions.iter().enumerate() {
         let mut walk = Walk {
             census: &mut census,
             function: index,
+            in_initializer: function.name == initializer,
         };
         walk.visit_ops(&function.body);
     }

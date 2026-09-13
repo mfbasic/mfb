@@ -170,3 +170,57 @@ remaining gaps — `builder_values.rs` is the largest one left (373 lines short,
 80.17%) and these two paths are about half of it. Both probes are described
 above; both were reverted, and
 `src/codegen/engine/value/builder_values.rs` is byte-identical to HEAD.
+
+## Archived — and independently re-confirmed
+
+Both halves landed before this doc was archived; the Status above was stale.
+
+**The deletion was independently re-checked at HEAD (2026-09-12)**, because the
+doc itself said the risk pointed the other way: "if some shape DOES reach it — a
+variant declared in an imported `.mfp` package, say, where `record_fields` is
+populated from the importing module's own types — then deleting it turns a
+working construction into `native code union variant '...' does not resolve`."
+
+That is the shape that was built and run, end to end, against a compiler with
+the union half already gone:
+
+```basic
+' package shapespkg
+EXPORT TYPE Dot
+  x AS Integer
+END TYPE
+```
+```basic
+' consumer
+IMPORT shapespkg
+UNION Shape
+  shapespkg::Dot
+END UNION
+SUB main()
+  LET a AS Shape = shapespkg::Dot[7]
+  MATCH a
+    CASE shapespkg::Dot(d)
+      io::print("dot=" & toString(d.x))
+  END MATCH
+END SUB
+```
+
+Built clean and printed `dot=7`, exit 0. So a LOCAL union over an IMPORTED
+record variant lowers through the **record** path — `record_fields` does contain
+the imported variant — and the deleted half was genuinely unreachable.
+
+Two static facts that explain why, both checkable:
+
+- `expanded_nir_union_variants` (`function_lowering.rs:19`) walks only
+  `module.types` and returns `Vec::new()` for an `include` it cannot find, so an
+  imported union contributes no variants to `union_variant_tags` at all.
+- A union variant is a bare NAME referencing a separately declared
+  `TYPE ... END TYPE`; there is no inline-variant syntax. So every variant of a
+  locally declared union is also a `"type"` entry in `module.types`, which is
+  exactly what populates `record_fields`.
+
+The transferable part: **"no committed program reaches it" and "no valid program
+can reach it" are different claims, and only the second licenses a deletion.**
+Four sweeps plus a deliberately constructed adversarial shape is what moved this
+from the first claim to the second. A coverage gap is a reason to go looking,
+not a reason to delete.

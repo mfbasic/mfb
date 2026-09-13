@@ -3199,6 +3199,94 @@ pub(crate) fn agreed_argument_type(qualified: &str, index: usize) -> Option<Para
     agreed.cloned()
 }
 
+/// The expected type of argument `index` for a call to `qualified` whose actual
+/// argument types are `arg_types` — the *generic* case neither
+/// [`argument_types_typed`] nor [`agreed_argument_type`] can answer.
+///
+/// bug-550 (`collections::append([], x)` type-checks and then fails to build —
+/// NOT the archived bug-550 about `debug_assert!`). Both of those decline the
+/// moment a parameter mentions a
+/// [`ParameterType::Var`], because a generic parameter has no expected type
+/// independent of the call. It does have one *given* the call: overload selection
+/// already unifies every parameter against every actual argument and records the
+/// variable bindings, so `collections::append([], 1)` binds `T := Unknown` from the
+/// empty literal and then REFINES it to `Integer` from the item. Substituting that
+/// back into parameter 0 yields `List OF Integer` — the expected type the empty
+/// literal needs to lower as, instead of the `List OF Unknown` that reaches
+/// `collection_argument_as_list_slot` and fails the item-type check with an
+/// internal "must be Unknown, got Integer".
+///
+/// `expected_return`, when the call sits somewhere with a declared type (a `LET`
+/// annotation, a parameter, a `RETURN`), SEEDS the unification: an `Arg(n)` return
+/// is the n-th parameter's pattern, so `LET xs AS List OF String =
+/// collections::append([], ["a", "b"])` binds `T := String` from the annotation
+/// before any argument is looked at. Without that seed both `append` overloads
+/// unify with `([], List OF String)` — the element form binding `T := List OF
+/// String`, the concatenating form `T := String` — and the position has no single
+/// answer; with it only the concatenating form survives.
+///
+/// Deliberately LENIENT: this feeds type propagation, not validation, so a
+/// not-yet-resolved argument must not reject an overload. It also answers only when
+/// the surviving overloads AGREE, mirroring [`agreed_argument_type`] — an ambiguous
+/// position yields `None` and lowers exactly as it did before, never a guess.
+/// Returns `None` too when no overload selects, when the position has no parameter,
+/// when that parameter is not generic, or when its variables are not all bound.
+pub(crate) fn resolved_parameter_type(
+    qualified: &str,
+    index: usize,
+    arg_types: &[ParameterType],
+    expected_return: Option<&ParameterType>,
+) -> Option<ParameterType> {
+    let function = registry().resolve_func(qualified)?.function;
+    let mut agreed: Option<ParameterType> = None;
+    for implementation in &function.implementations {
+        let required = implementation
+            .params
+            .iter()
+            .filter(|param| matches!(param.default, DefaultValue::None))
+            .count();
+        if arg_types.len() < required || arg_types.len() > implementation.params.len() {
+            continue;
+        }
+        let mut bindings = BTreeMap::new();
+        if let Some(expected) = expected_return {
+            let pattern = match &implementation.return_type {
+                ParameterType::Arg(n) => implementation.params.get(*n).map(|param| &param.ty),
+                other => Some(other),
+            };
+            if let Some(pattern) = pattern {
+                if !unify(pattern, expected, &mut bindings, false) {
+                    continue;
+                }
+            }
+        }
+        if !implementation
+            .params
+            .iter()
+            .zip(arg_types.iter())
+            .all(|(param, arg)| unify(&param.ty, arg, &mut bindings, false))
+        {
+            continue;
+        }
+        // Only the GENERIC positions are this function's business. A monomorphic
+        // parameter is already answered by `argument_types_typed` /
+        // `agreed_argument_type`, and a position those two deliberately decline
+        // (overloads that DISAGREE on a concrete type — `json::stringify`'s
+        // `indent`) must keep going through the existing selection path.
+        let param = implementation.params.get(index)?;
+        if !contains_var(&param.ty) {
+            return None;
+        }
+        let resolved = substitute(&param.ty, &bindings)?;
+        match &agreed {
+            None => agreed = Some(resolved),
+            Some(seen) if seen == &resolved => {}
+            Some(_) => return None,
+        }
+    }
+    agreed
+}
+
 pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
     let function = &registry().resolve_func(qualified)?.function;
     // A hand-authored phrasing on the descriptor wins — the union/range/generic-`or`
@@ -3335,6 +3423,31 @@ pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>
 /// front-dropping constructor's named arguments bind to the right slot. Replaces
 /// the per-package `call_param_name_overloads`. Only the three constructor families
 /// qualify, and only at a call site that mixes named arguments.
+/// For each overload in [`call_param_name_overloads`]'s table (same order), how
+/// many LEADING parameters a call must supply: the position just past the last
+/// parameter with no default (`DefaultValue::None`). A `Fill` or `Optional` tail
+/// may be left out; anything before it may not (bug-596). `None` exactly when the
+/// name table is `None`.
+pub(crate) fn call_param_name_overload_required(qualified: &str) -> Option<Vec<usize>> {
+    let function = &registry().resolve_func(qualified)?.function;
+    if !overloads_disagree_on_layout(function) {
+        return None;
+    }
+    Some(
+        function
+            .implementations
+            .iter()
+            .map(|implementation| {
+                implementation
+                    .params
+                    .iter()
+                    .rposition(|param| matches!(param.default, DefaultValue::None))
+                    .map_or(0, |index| index + 1)
+            })
+            .collect(),
+    )
+}
+
 pub(crate) fn call_param_name_overloads(qualified: &str) -> Option<Vec<Vec<&'static str>>> {
     let function = &registry().resolve_func(qualified)?.function;
     if !overloads_disagree_on_layout(function) {
@@ -5224,6 +5337,69 @@ mod tests {
         );
     }
 
+    /// bug-550 (`append([], x)` does not build): a GENERIC parameter's expected
+    /// type, resolved from the call.
+    ///
+    /// `collections::append`'s parameter 0 is `List OF T`, which has no expected
+    /// type on its own — so `argument_types_typed`/`agreed_argument_type` both
+    /// decline and an inline `[]` written there used to lower as `List OF Unknown`.
+    /// Given the call's actual argument types the position DOES have an answer:
+    /// unification binds `T := Unknown` from the empty literal and refines it to
+    /// `Integer` from the item.
+    #[test]
+    fn resolved_parameter_type_infers_a_generic_position_from_the_call() {
+        let unknown_list = list_of(ParameterType::Unknown);
+        assert_eq!(
+            resolved_parameter_type(
+                "collections.append",
+                0,
+                &[unknown_list.clone(), ParameterType::Integer],
+                None,
+            ),
+            Some(list_of(ParameterType::Integer)),
+            "T refines Unknown -> Integer, so parameter 0 is List OF Integer"
+        );
+
+        // Both `append` overloads unify with `([], List OF String)` — the element
+        // form binding `T := List OF String`, the concatenating form `T := String` —
+        // and they disagree about parameter 0. With nothing to break the tie the
+        // answer is NONE, never a guess: the call keeps lowering exactly as before.
+        let string_list = list_of(ParameterType::String);
+        assert_eq!(
+            resolved_parameter_type(
+                "collections.append",
+                0,
+                &[unknown_list.clone(), string_list.clone()],
+                None,
+            ),
+            None,
+            "an ambiguous generic position declines"
+        );
+
+        // The declared type of what the call feeds breaks that tie. `append`
+        // returns `Arg(0)`, so the expected return IS parameter 0's pattern:
+        // seeding `T := String` leaves only the concatenating overload.
+        assert_eq!(
+            resolved_parameter_type(
+                "collections.append",
+                0,
+                &[unknown_list.clone(), string_list.clone()],
+                Some(&string_list),
+            ),
+            Some(string_list.clone()),
+            "the expected return type seeds the unification"
+        );
+
+        // A MONOMORPHIC position is not this function's business — the two
+        // existing providers answer it, and a position they deliberately decline
+        // must keep going through the existing selection path.
+        assert_eq!(
+            resolved_parameter_type("strings.upper", 0, &[ParameterType::String], None),
+            None,
+            "a non-generic parameter declines"
+        );
+    }
+
     #[test]
     fn select_rejects_inconsistent_variable_binding() {
         // set(List OF T, T) AS List OF T — the element must match the list's element.
@@ -6035,7 +6211,7 @@ mod tests {
 #[cfg(test)]
 mod raw_result_block_ownership {
     //! bug-566: the per-helper ownership audit behind
-    //! [`CodeBuilder::raw_runtime_result_is_caller_owned`](crate::codegen::engine::builder::CodeBuilder::raw_runtime_result_is_caller_owned).
+    //! [`CodeBuilder::runtime_result_is_caller_owned`](crate::codegen::engine::builder::CodeBuilder::runtime_result_is_caller_owned).
     //!
     //! A runtime helper called under an inline `TRAP` has its result copied into a
     //! `Result` block, after which the helper's ORIGINAL block is dead. Freeing it
@@ -6254,6 +6430,84 @@ mod raw_result_block_ownership {
                 .len(),
             "the three classes must cover the whole runtime-call catalog"
         );
+    }
+
+    /// bug-576: the `String` slice of `CALLER_ARENA_BLOCK_RESULTS` — the helpers
+    /// whose result needs the bug-536 shape B freshness MARK before an UNBOUND
+    /// result is freed at statement scope.
+    ///
+    /// A composite result (`List OF Byte`, `net.Address`, …) is freed by
+    /// `register_pending_temp` with no provenance at all, so only these rows
+    /// changed behaviour: before bug-576 `LET s AS String = os::arch()` was flat
+    /// while `len(os::arch())` leaked its block for the life of the process.
+    ///
+    /// It is a derived list, not a second source of truth — the test below scrapes
+    /// the catalog and asserts this IS the scrape — so a new `String`-returning
+    /// helper reds here and forces the same caller's-arena confirmation
+    /// `CALLER_ARENA_BLOCK_RESULTS` demands.
+    const STRING_RESULT_HELPERS: &[&str] = &[
+        "fs.canonicalPath",
+        "fs.currentDirectory",
+        "fs.readAll",
+        "fs.readLine",
+        "fs.readText",
+        "fs.tempDirectory",
+        "io.input",
+        "io.readChar",
+        "io.readLine",
+        "os.arch",
+        "os.executablePath",
+        "os.getEnv",
+        "os.getEnvOr",
+        "os.hostName",
+        "os.name",
+        "os.prog",
+        "os.resourcePath",
+        "os.userName",
+        "os.version",
+        "process.receive",
+        "process.receiveFrom",
+    ];
+
+    /// bug-576: every `String`-returning runtime helper is one the calling thread
+    /// may free, and every one is already catalogued as caller-arena.
+    ///
+    /// The emitter consults no list — `mark_runtime_helper_result_fresh` asks
+    /// `runtime_result_is_caller_owned`, the `Bind` gate — so this is the audit that
+    /// the ANSWERS are the intended ones for the type the mark exists for. A new
+    /// `String` helper whose block is NOT this thread's would be a wild free at
+    /// every unbound call site (SIGBUS on rodata, free-list corruption on a view),
+    /// so it must red here rather than inherit the verdict.
+    #[test]
+    fn every_string_returning_runtime_helper_is_marked_fresh() {
+        let mut string_results: Vec<&str> = runtime_specs()
+            .iter()
+            .filter(|call| call.return_type == ParameterType::String)
+            .map(|call| call.name)
+            .collect();
+        string_results.sort();
+        string_results.dedup();
+        assert_eq!(
+            string_results, STRING_RESULT_HELPERS,
+            "the set of runtime calls returning a bare `String` changed. Each one \
+             has its result block freed at statement scope when nothing binds it \
+             (bug-576). Add it here only after confirming the helper allocates the \
+             result with `_mfb_arena_alloc` in the CALLER's arena and hands back the \
+             only pointer — a rodata pointer or a view into an argument freed here \
+             is SIGBUS or free-list corruption, not a leak"
+        );
+        for name in STRING_RESULT_HELPERS {
+            assert!(
+                CALLER_ARENA_BLOCK_RESULTS.contains(name),
+                "{name} returns a `String` but is not catalogued as caller-arena, \
+                 so the two audits disagree about the same block"
+            );
+            assert!(
+                !CodeBuilder::runtime_call_result_is_foreign_arena(name),
+                "{name} is catalogued as caller-owned but the emitter declines it, \
+                 so its block keeps leaking at every unbound call site"
+            );
+        }
     }
 
     /// The whole `thread` family is declined, not just the seven above: a thread

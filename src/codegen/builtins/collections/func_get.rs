@@ -112,7 +112,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 ],
                 return_type: ParameterType::var("T"),
-                errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
+                // bug-563: derived from THIS overload's lowering, not shared
+                // with the map form. `lower_get` branches by shape, and the
+                // list path (`lower_list_get`, gen_list.rs) raises exactly
+                // `ErrIndexOutOfRange` — it has no key to fail to find.
+                errors: vec!["ErrIndexOutOfRange"],
                 body: Body::abi_inline(lower_get),
             },
             Implementation {
@@ -126,14 +130,17 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "index",
-                        desc: "The list index, zero-based. Out of range raises — use `collections::getOr` to supply a fallback instead.",
+                        desc: "The key to look up. Absent raises — use `collections::getOr` to supply a fallback instead.",
                         aliases: &["key"],
                         ty: ParameterType::var("K"),
                         default: DefaultValue::None,
                     },
                 ],
                 return_type: ParameterType::var("V"),
-                errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
+                // bug-563: the map path (`lower_map_get`, gen_map.rs) raises
+                // exactly `ErrNotFound`. A map key is not an index and cannot
+                // be out of range.
+                errors: vec!["ErrNotFound"],
                 body: Body::abi_inline(lower_get),
             },
         ],

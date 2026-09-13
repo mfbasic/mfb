@@ -62,14 +62,42 @@ pub(crate) fn simplify(module: &mut NirModule) {
     // its own literal is now unmentioned and collectible in this same pass.
     let after = globals::census(module);
     let before = module.globals.len();
+    let mut removed: std::collections::HashSet<String> = std::collections::HashSet::new();
     module.globals.retain(|global| {
-        escapes(global)
+        let keep = escapes(global)
             || !after
                 .get(&global.name)
                 .cloned()
                 .unwrap_or_default()
-                .untouched()
+                .untouched();
+        if !keep {
+            removed.insert(global.name.clone());
+        }
+        keep
     });
+    // bug-552: removing the global is only half of it. Every module-level
+    // binding is stored once by the synthetic `__mfb_init_globals_*` SUB, so a
+    // removed global leaves that SUB storing to a name that no longer exists —
+    // which `target/shared/validate/body.rs` refuses outright ("NIR global
+    // store targets unknown global"). The deadness of this row was hiding that;
+    // the store has to go in the same change.
+    //
+    // Only the initializer's own stores are dropped. A store from anywhere else
+    // would have made the global non-`untouched` and kept it alive, so there is
+    // no live write to lose here.
+    if !removed.is_empty() {
+        let initializer =
+            crate::target::shared::nir::global_initializer_name(&module.project);
+        for function in &mut module.functions {
+            if function.name != initializer {
+                continue;
+            }
+            function.body.retain(|op| match op {
+                NirOp::StoreGlobal { name, .. } => !removed.contains(name),
+                _ => true,
+            });
+        }
+    }
     crate::optimizer::stats::count_globals_eliminated((before - module.globals.len()) as u64);
 }
 

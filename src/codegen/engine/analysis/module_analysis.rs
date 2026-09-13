@@ -502,10 +502,22 @@ fn value_may_emit_float_arithmetic_error(
                 || value_may_emit_float_arithmetic_error(left, locals, fields)
                 || value_may_emit_float_arithmetic_error(right, locals, fields)
         }
-        NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::RuntimeCall { args, .. }
-        | NirValue::Constructor { args, .. } => args
+        NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
+        | NirValue::RuntimeCall { target, args, .. } => {
+            // bug-590: a boundary re-checks the `Float` result of a builtin whose
+            // callee does not constrain it (`collections::sum`), so a module that
+            // calls one emits the finiteness error message strings. This recogniser
+            // and the emitter (`float_arith_node`) are two lists and must agree — a
+            // miss here is not a silent under-report but a hard build failure,
+            // "native code string literal '…' has no data object".
+            (crate::codegen::builtins::float_result::builtin_float_result_may_be_nonfinite(target)
+                && static_nir_value_type(value, locals, fields) == Some(ParameterType::Float))
+                || args
+                    .iter()
+                    .any(|arg| value_may_emit_float_arithmetic_error(arg, locals, fields))
+        }
+        NirValue::Constructor { args, .. } => args
             .iter()
             .any(|arg| value_may_emit_float_arithmetic_error(arg, locals, fields)),
         NirValue::UnionWrap { value, .. }

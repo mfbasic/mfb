@@ -1360,12 +1360,62 @@ impl CodeBuilder<'_> {
     }
 }
 
-/// Whether lowering `value` can yield a non-finite `Float`. Only the float
-/// arithmetic operators produce `NaN`/`Inf`, so a `Binary` (any operator — the
-/// `observe_float` type guard skips the Boolean-result comparisons) or a
-/// `Unary` (negation propagates a non-finite operand) is the only node a
-/// boundary must re-check; every other node is finite by construction
-/// (plan-17).
+/// Whether lowering `value` can yield a non-finite `Float`, i.e. whether an
+/// observation boundary must re-check its result (`mfb spec language types`, the
+/// `Float` bullet).
+///
+/// The float arithmetic operators are the obvious producers: a `Binary` (any
+/// operator — the `observe_float` type guard skips the Boolean-result
+/// comparisons) or a `Unary` (negation propagates a non-finite operand).
+///
+/// **A builtin `Call` is the other one (bug-590).** This predicate used to answer
+/// `false` for every non-operator node, on the premise that "every other node is
+/// finite by construction" — but `collections::sum`'s `Float` arm accumulates with
+/// a bare `abi::float_add_d` and raises nothing, so `LET total AS Float =
+/// collections::sum(xs)` bound an `+Inf` to a named local and printed `f64::MAX`'s
+/// digits. Which builtin results are constrained and which are not is a TOTAL,
+/// registry-checked enumeration in
+/// [`float_result`](crate::codegen::builtins::float_result).
+///
+/// The match is deliberately **wildcard-free**: a new `NirValue` variant is a
+/// build error here rather than a node that silently declines to be observed.
 pub(crate) fn float_arith_node(value: &NirValue) -> bool {
-    matches!(value, NirValue::Binary { .. } | NirValue::Unary { .. })
+    match value {
+        // The float arithmetic operators — the original plan-17 producers.
+        NirValue::Binary { .. } | NirValue::Unary { .. } => true,
+        // A call result is finite only if the callee constrains it. `Call`,
+        // `CallResult` (the `TRAP` twin) and `RuntimeCall` (a `Body::abi_function`
+        // call site) all spell a builtin member as `"<package>.<member>"`.
+        NirValue::Call { target, .. }
+        | NirValue::CallResult { target, .. }
+        | NirValue::RuntimeCall { target, .. } => {
+            crate::codegen::builtins::float_result::builtin_float_result_may_be_nonfinite(target)
+        }
+        // `Checked` yields a `Result OF T`, never a bare `Float`, and
+        // `lower_checked_value` already calls `observe_float` on the wrapped node
+        // INSIDE the capture (`.ai/codegen-invariants.md`) — observing it again
+        // out here would trap where the program asked to catch.
+        NirValue::Checked { .. } => false,
+        // Finite by construction: a literal, a read of an already-observed
+        // binding / capture / element / field, or a value built out of operands
+        // that were each observed as they were stored.
+        NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
+        | NirValue::Global { .. }
+        | NirValue::FunctionRef { .. }
+        | NirValue::Closure { .. }
+        | NirValue::Capture { .. }
+        | NirValue::Constructor { .. }
+        | NirValue::UnionWrap { .. }
+        | NirValue::UnionExtract { .. }
+        | NirValue::ResultIsOk { .. }
+        | NirValue::ResultValue { .. }
+        | NirValue::ResultError { .. }
+        | NirValue::WithUpdate { .. }
+        | NirValue::ListLiteral { .. }
+        | NirValue::SetLiteral { .. }
+        | NirValue::MapLiteral { .. }
+        | NirValue::MemberAccess { .. } => false,
+    }
 }

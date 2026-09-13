@@ -14,6 +14,7 @@ pub(crate) mod csv;
 pub(crate) mod datetime;
 pub(crate) mod encoding;
 pub(crate) mod errorcode;
+pub(crate) mod float_result;
 pub(crate) mod fs;
 pub(crate) mod general;
 pub(crate) mod http;
@@ -680,6 +681,19 @@ pub(crate) fn agreed_argument_type(
     crate::codegen::registry::agreed_argument_type(callee, index)
 }
 
+/// The expected type of argument `index` at a call to `callee` whose actual argument
+/// types are `arg_types`, for a GENERIC parameter the two functions above decline
+/// (bug-550, `collections::append([], x)` does not build). See
+/// [`crate::codegen::registry::resolved_parameter_type`].
+pub(crate) fn resolved_argument_type(
+    callee: &str,
+    index: usize,
+    arg_types: &[crate::types::ParameterType],
+    expected_return: Option<&crate::types::ParameterType>,
+) -> Option<crate::types::ParameterType> {
+    crate::codegen::registry::resolved_parameter_type(callee, index, arg_types, expected_return)
+}
+
 /// Whether parameter `index` of the built-in `callee` is a compiler-known
 /// *non-escaping* callback position: the callee is
 /// guaranteed to invoke the callback only synchronously during the call, never
@@ -818,28 +832,64 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<Vec<Vec<&'static s
     crate::codegen::registry::call_param_name_overloads(name)
 }
 
+/// The per-overload required-leading-parameter counts matching
+/// [`call_param_name_overloads`] (same order); see
+/// `registry::call_param_name_overload_required`.
+pub(crate) fn call_param_name_overload_required(name: &str) -> Option<Vec<usize>> {
+    crate::codegen::registry::call_param_name_overload_required(name)
+}
+
 /// Pick the overload a call selects, given how many arguments were passed
 /// positionally and the names of the rest.
 ///
-/// The chosen overload takes exactly this many arguments, names every supplied
-/// name, and places none of those names in a slot a positional argument already
-/// filled. Both the type checker and IR lowering resolve named arguments through
-/// this, so they cannot disagree about which parameter a name binds to.
+/// The chosen overload names every supplied name, places none of those names in
+/// a slot a positional argument already filled, and is filled as a contiguous
+/// prefix: the supplied arguments occupy exactly its first
+/// `positional_count + names.len()` slots. An overload taking exactly that many
+/// arguments wins. Failing one, a longer overload is chosen only when every slot
+/// the call leaves out is DEFAULTED — `required[i]` is how many leading
+/// parameters overload `i` needs — and those trailing slots then get the same
+/// default fill a positional call gets (bug-596: `tls::connect`'s
+/// `allowSelfSigned` is a trailing default of each overload, and requiring an
+/// exact arity rejected every named call that left it out). This fails CLOSED:
+/// an overload with no `required` entry never takes the fallback, so
+/// `datetime::instant(days := 5)` — whose 5-arg form defaults nothing — still
+/// selects nothing rather than binding `days` onto the 1-arg `seconds` slot
+/// (bug-349). A gap before a later supplied name is never selected either; that
+/// stays the "omits parameter" diagnostic. Both the type checker and IR lowering
+/// resolve named arguments through this, so they cannot disagree about which
+/// parameter a name binds to.
 pub(crate) fn select_param_name_overload<'a>(
     overloads: &'a [Vec<&'a str>],
+    required: &[usize],
     positional_count: usize,
     names: &[&str],
 ) -> Option<&'a [&'a str]> {
+    let supplied = positional_count + names.len();
+    let binds_prefix = |params: &Vec<&str>| {
+        params.len() >= supplied
+            && names.iter().all(|name| {
+                params
+                    .iter()
+                    .position(|param| param == name)
+                    .is_some_and(|index| index >= positional_count && index < supplied)
+            })
+    };
     overloads
         .iter()
-        .find(|params| {
-            params.len() == positional_count + names.len()
-                && names.iter().all(|name| {
-                    params
-                        .iter()
-                        .position(|param| param == name)
-                        .is_some_and(|index| index >= positional_count)
+        .find(|params| params.len() == supplied && binds_prefix(params))
+        .or_else(|| {
+            overloads
+                .iter()
+                .enumerate()
+                .filter(|(index, params)| {
+                    binds_prefix(params)
+                        && required
+                            .get(*index)
+                            .is_some_and(|needed| supplied >= *needed)
                 })
+                .map(|(_, params)| params)
+                .min_by_key(|params| params.len())
         })
         .map(|params| params.as_slice())
 }
@@ -961,6 +1011,126 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// bug-596: a named call may leave out an overloaded builtin's TRAILING
+    /// optional parameters. `tls::connect`'s overloads each end in a defaulted
+    /// `allowSelfSigned`; exact-arity selection rejected every named call that
+    /// omitted it, including the documented `timeoutMs :=, serverName :=` form.
+    #[test]
+    fn a_named_call_may_omit_an_overloaded_builtins_trailing_optionals() {
+        let overloads = call_param_name_overloads("tls.connect")
+            .expect("tls.connect's overloads disagree on layout, so it has a per-overload table");
+        let required = call_param_name_overload_required("tls.connect").expect("required counts");
+        assert_eq!(
+            required,
+            vec![2, 1],
+            "host/port are required; address is required"
+        );
+        let host_form = ["host", "port", "timeoutMs", "serverName", "allowSelfSigned"];
+        let address_form = ["address", "timeoutMs", "serverName", "allowSelfSigned"];
+        assert_eq!(
+            select_param_name_overload(&overloads, &required, 2, &["timeoutMs", "serverName"]),
+            Some(&host_form[..]),
+            "positional host/port, then named timeoutMs and serverName"
+        );
+        assert_eq!(
+            select_param_name_overload(&overloads, &required, 2, &["timeoutMs"]),
+            Some(&host_form[..])
+        );
+        assert_eq!(
+            select_param_name_overload(&overloads, &required, 1, &["timeoutMs", "serverName"]),
+            Some(&address_form[..]),
+            "the same names bind one slot earlier on the Address form"
+        );
+        // POSITIVE: a call naming every parameter still selects by exact arity.
+        assert_eq!(
+            select_param_name_overload(
+                &overloads,
+                &required,
+                2,
+                &["timeoutMs", "serverName", "allowSelfSigned"]
+            ),
+            Some(&host_form[..])
+        );
+    }
+
+    /// bug-596's guard for bug-349: the fallback may only leave out DEFAULTED
+    /// slots. `datetime::instant`'s five overloads drop REQUIRED components off
+    /// the front, so `instant(days := 5)` must select nothing — prefix-filling the
+    /// 5-arg form would type-check its one argument against the 1-arg `seconds`
+    /// form and bind 5 days as 5 seconds. Found when the first cut of this fix
+    /// turned `bug349_instant_named_arg_arity_invalid`'s three errors into an
+    /// accepted program.
+    #[test]
+    fn the_fallback_never_leaves_out_a_required_parameter() {
+        for (name, calls) in [
+            (
+                "datetime.instant",
+                &[&["days"][..], &["days", "hours"][..]][..],
+            ),
+            ("datetime.duration", &[&["hours"][..]][..]),
+        ] {
+            let overloads = call_param_name_overloads(name).expect("per-overload table");
+            let required = call_param_name_overload_required(name).expect("required counts");
+            for names in calls {
+                assert_eq!(
+                    select_param_name_overload(&overloads, &required, 0, names),
+                    None,
+                    "`{name}` with {names:?} must select no overload"
+                );
+            }
+        }
+        // Fail closed: with no required counts, no fallback at all.
+        let table = vec![vec!["a", "b", "c"]];
+        assert_eq!(select_param_name_overload(&table, &[], 0, &["a"]), None);
+        assert_eq!(
+            select_param_name_overload(&table, &[1], 0, &["a"]),
+            Some(&["a", "b", "c"][..])
+        );
+    }
+
+    /// bug-596's negative half: the prefix rule fills only TRAILING slots, so a
+    /// gap before a later supplied name is still not selected (it stays the
+    /// located "omits parameter" diagnostic), and exact arity still wins.
+    #[test]
+    fn a_named_call_never_selects_an_overload_with_a_gap_before_a_supplied_name() {
+        let overloads = call_param_name_overloads("tls.connect").expect("per-overload table");
+        let required = call_param_name_overload_required("tls.connect").expect("required counts");
+        // Two positionals then `serverName`: on the host form that leaves a gap at
+        // `timeoutMs`, so the host form is NOT selected. The Address form takes it
+        // structurally — its second positional IS `timeoutMs`, which makes
+        // `tls::connect(addr, 5000, serverName := "x")` legal — and the type check
+        // then rejects a host/port call against it. Names alone cannot tell the
+        // two apart; what matters is that the gapped host form is never chosen.
+        let address_form = ["address", "timeoutMs", "serverName", "allowSelfSigned"];
+        assert_eq!(
+            select_param_name_overload(&overloads, &required, 2, &["serverName"]),
+            Some(&address_form[..])
+        );
+        assert_eq!(
+            select_param_name_overload(&overloads, &required, 2, &["allowSelfSigned"]),
+            None
+        );
+        // Synthetic table: an exact-arity overload is preferred over a longer
+        // one the same names would also prefix-fill.
+        let table = vec![vec!["a", "b", "c"], vec!["a", "b"]];
+        assert_eq!(
+            select_param_name_overload(&table, &[1, 1], 1, &["b"]),
+            Some(&["a", "b"][..])
+        );
+        // `tcp::connect(host := "h", timeoutMs := 5000)` omits `port`: still no
+        // overload, so `func_tcp_invalid`'s pinned diagnostic is unchanged.
+        let tcp = vec![
+            vec!["host", "port"],
+            vec!["host", "port", "timeoutMs"],
+            vec!["address"],
+            vec!["address", "timeoutMs"],
+        ];
+        assert_eq!(
+            select_param_name_overload(&tcp, &[2, 3, 1, 2], 0, &["host", "timeoutMs"]),
+            None
+        );
     }
 
     #[test]

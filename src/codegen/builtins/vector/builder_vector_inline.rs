@@ -484,7 +484,19 @@ impl CodeBuilder<'_> {
                 for f in &fields[1..] {
                     sum = bin(BinaryOp::Add, sum, product(f));
                 }
-                self.lower_value(&sum)?
+                // bug-590: `dot` is the one inlined op whose scalar result is NOT
+                // already at a boundary — `length`/`distance` hand their sum to
+                // `math::sqrt` as an ARGUMENT (a boundary) and the vector-returning
+                // ops observe each lane through `Constructor`. Out of line, the
+                // `__vector_dot_*` FUNC observes this same expression at its
+                // `RETURN`; inlining elided that, so `vector::dot` over
+                // `Float3[1e200, 1e200, 1e200]` returned `+Inf` and printed
+                // `f64::MAX`'s digits. Observe it here, reproducing the `RETURN`
+                // boundary the inline replaced. `observe_float` is a no-op for the
+                // `Integer`/`Fixed` element types (its own `Float` type guard).
+                let summed = self.lower_value(&sum)?;
+                self.observe_float(&sum, &summed)?;
+                summed
             }
             // lerp_unclamped: Float_N[ a.f + (b.f - a.f) * t ] — pure arithmetic.
             ("lerp_unclamped", 3) => {

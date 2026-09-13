@@ -1,11 +1,11 @@
 # bug-559: the DST behaviour `civil` and `addDays` document is never demonstrated — every published example picks a zone or date where it cannot happen
 
-Last updated: 2026-09-06
+Last updated: 2026-09-12
 Effort: small (<1h) for the examples; medium if a portable oracle is required (see Open Decisions)
 Severity: LOW
 Class: Documentation (worked-example coverage gap)
 
-Status: Open
+Status: **FIXED** (`3173773c4`).
 Regression Test: `scripts/man-run-examples.sh datetime --run` (once bug-472 makes
 man examples executable), plus a new `tests/rt-behavior/datetime/` fixture pinning
 the gap/overlap policy under a fixed `TZ`.
@@ -210,3 +210,51 @@ late June. The fix is two worked examples plus an `rt-behavior` fixture so the
 claims are executable rather than asserted. Constrained by bug-520 (no named
 zones, so the example must state its `TZ`) and by bug-472 (examples are not
 compiled today).
+
+## Outcome
+
+Fixed. `datetime::civil` and `datetime::addDays` each carry one worked example
+that crosses a real transition.
+
+### Phase 1 first — the policy was verified before an example was written
+
+The bug required this, and it mattered: if any value had disagreed, this would
+have been a correctness bug and not a doc gap. Measured under
+`TZ=America/New_York`:
+
+| case | measured | policy |
+|---|---|---|
+| `civil(2026-03-08, 02:30, local())` — a gap | `2026-03-08 03:30:00 -04:00` | forward onto the post-transition offset ✓ |
+| `civil(2026-11-01, 01:30, local())` — an overlap | `2026-11-01 01:30:00 -04:00` | the earlier, pre-transition offset ✓ |
+| `addDays(civil(2026-03-07, 12:00, local()), 1)` | `2026-03-08 12:00:00 -04:00`, delta **82800** | wall clock preserved, 23-hour day ✓ |
+
+All three match the prose exactly. **The documentation was right; only the
+demonstration was missing.**
+
+### The examples were compiled and RUN, not written
+
+bug-559's own root cause is that an example is `&'static str` the compiler never
+reads. Writing another unchecked example would have repeated the mistake, so the
+exact code in both blocks was built and executed under `TZ=America/New_York`, and
+every inline expected value — including the bare `82800` — is its measured
+output.
+
+This is still behind an instrument gap: `mfb man` rendering is the only check
+these get, because **bug-472 (man examples are never compiled) remains open**.
+That is precisely why they were run by hand.
+
+### A prediction in this doc that did not hold
+
+The Blast Radius said "Prose-field edits shift embedded source lines, so importer
+`.ir` goldens drift … Regenerate, do not revert." They did not drift: artifact
+gate **1428 tests, 1594 builds, 2003 goldens, 0 diffs**. `EX` is a separate
+descriptor field from `BODY`, so editing it moves no embedded source line. The
+note it cited applies to `BODY`/package-source edits, not to `EX`.
+
+### Still open, and it constrains any follow-up
+
+Both examples have to name `TZ=America/New_York` as a premise in prose rather
+than in code, because `datetime::local()` reads the host zone and **bug-520 (no
+named zones) means there is no way to name a zone in the language**. When bug-520
+lands, these examples should be rewritten to name the zone directly and stop
+depending on the reader's environment.

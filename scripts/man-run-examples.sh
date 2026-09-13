@@ -260,6 +260,7 @@ built=0
 ran=0
 failed=0
 failed_list=""
+not_run=0
 
 for fn in $(functions "$@"); do
 	page=$("$MFB" man "$pkg" "$fn" 2>/dev/null)
@@ -318,11 +319,59 @@ for fn in $(functions "$@"); do
 		case $pkg in app|canvas) build_flags="--app" ;; esac
 		if out=$("$MFB" build "$SCRATCH" $build_flags 2>&1); then
 			built=$((built + 1))
-			if [ "$run" = 1 ]; then
-				bin=$(find "$SCRATCH/build" -name '*.out' -type f 2>/dev/null | head -1)
+			# NOT_RUN_FILE lists examples that cannot run on this host, one
+			# `pkg::fn#N  reason` per line. A listed example must still BUILD;
+			# only the run is skipped, and it is reported with its reason so a
+			# skip is never silent.
+			not_run_reason=""
+			if [ "$run" = 1 ] && [ -n "${NOT_RUN_FILE:-}" ]; then
+				not_run_reason=$(awk -v id="$pkg::$fn#$i" \
+					'$1 == id { $1 = ""; sub(/^ +/, ""); print; exit }' "$NOT_RUN_FILE")
+			fi
+			# A reason starting `serves:` marks a server example whose accept loop
+			# never returns by design. It is not skipped: it runs for SERVE_SECONDS
+			# and passes only if it is STILL RUNNING when killed, so a server that
+			# fails to bind or dies on start is still caught.
+			serves=0
+			case $not_run_reason in serves:*) serves=1 ;; esac
+			if [ -n "$not_run_reason" ] && [ "$serves" = 0 ]; then
+				not_run=$((not_run + 1))
+				echo "=== $pkg::$fn example $i — compiled; not run: $not_run_reason ==="
+			elif [ "$serves" = 1 ]; then
+				bin=$(find "$SCRATCH/build" -name '*-glibc.out' -type f 2>/dev/null | head -1)
+				[ -z "$bin" ] && bin=$(find "$SCRATCH/build" -name '*.out' -type f 2>/dev/null | head -1)
+				rc=1
+				result="<no console binary>"
+				if [ -n "$bin" ]; then
+					result=$(cd "$SCRATCH" && RUN_TIMEOUT=${SERVE_SECONDS:-3} run_bounded "$bin" </dev/null 2>&1) && rc=0 || rc=$?
+				fi
+				if [ "$rc" = 124 ]; then
+					ran=$((ran + 1))
+					echo "=== $pkg::$fn example $i — serves (still running after ${SERVE_SECONDS:-3}s): ${not_run_reason#serves:} ==="
+				else
+					failed=$((failed + 1))
+					failed_list="$failed_list $pkg::$fn#$i(serve)"
+					echo "=== $pkg::$fn example $i — SERVE FAILED (exited $rc before ${SERVE_SECONDS:-3}s) ==="
+					printf '%s\n' "${result:-<no output>}"
+				fi
+			elif [ "$run" = 1 ]; then
+				# A Linux console build emits BOTH `<name>-glibc.out` and
+				# `<name>-musl.out`; run the glibc one so every Linux run is
+				# the same libc world rather than whichever `find` lists first.
+				run_args=""
+				bin=$(find "$SCRATCH/build" -name '*-glibc.out' -type f 2>/dev/null | head -1)
+				[ -z "$bin" ] && bin=$(find "$SCRATCH/build" -name '*.out' -type f 2>/dev/null | head -1)
 				if [ -z "$bin" ]; then
+					# `-perm -u+x`, not `-perm +111`: GNU find rejects the `+`
+					# form outright ("invalid file mode"), BSD find takes both.
 					bin=$(find "$SCRATCH/build" -path '*.app/Contents/MacOS/*' \
-						-type f -perm +111 2>/dev/null | head -1)
+						-type f -perm -u+x 2>/dev/null | head -1)
+					# A Linux `--app` build seals `<name>-glibc.AppImage` (plus a
+					# musl one). A CI runner has no FUSE, so extract-and-run it.
+					if [ -z "$bin" ]; then
+						bin=$(find "$SCRATCH/build" -name '*-glibc.AppImage' -type f 2>/dev/null | head -1)
+						[ -n "$bin" ] && run_args="--appimage-extract-and-run"
+					fi
 					# An app-mode program has no stdout: io::print goes to the
 					# application transcript. Running still proves it starts.
 					export MFB_MACAPP_HEADLESS=1 MFB_GTKAPP_HEADLESS=1
@@ -337,9 +386,9 @@ for fn in $(functions "$@"); do
 				if [ -z "$bin" ]; then
 					rc=1
 				elif [ -n "$STDIN_FILE" ]; then
-					result=$(cd "$SCRATCH" && run_bounded "$bin" <"$STDIN_FILE" 2>&1) && rc=0 || rc=$?
+					result=$(cd "$SCRATCH" && run_bounded "$bin" ${run_args:+"$run_args"} <"$STDIN_FILE" 2>&1) && rc=0 || rc=$?
 				else
-					result=$(cd "$SCRATCH" && run_bounded "$bin" 2>&1) && rc=0 || rc=$?
+					result=$(cd "$SCRATCH" && run_bounded "$bin" ${run_args:+"$run_args"} 2>&1) && rc=0 || rc=$?
 				fi
 				if [ "$rc" = 124 ]; then
 					result="TIMED OUT after ${RUN_TIMEOUT}s — an example must terminate.
@@ -391,6 +440,6 @@ $result"
 done
 
 echo
-echo "examples: $total   built: $built   ran: $ran   failed: $failed"
+echo "examples: $total   built: $built   ran: $ran   not run: $not_run   failed: $failed"
 [ -n "$failed_list" ] && echo "failures:$failed_list"
 [ "$failed" -eq 0 ]

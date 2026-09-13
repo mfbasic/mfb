@@ -635,6 +635,34 @@ fn close_listener_drains_to_cancelled() {
     );
 }
 
+// bug-564: `tls::close` cancels the connection (`nw_connection_cancel` is
+// asynchronous) and used to return immediately. The connection's state handler
+// (STATE_INVOKE) runs over the arena-allocated ctx on the `mfb.tls` queue and
+// still fires the `cancelled` transition; a process exit before it runs
+// dereferences the ctx after `_mfb_shutdown`'s `arena_destroy` has munmapped it
+// — EXC_BAD_ACCESS / KERN_INVALID_ADDRESS on an unmapped page, after the program
+// has already printed all of its output.
+//
+// Every other cancel site in this backend already drains: connect's failure exit
+// (bug-380), accept's two failure exits and `closeListener` (bug-412). The
+// ordinary `tls::close` — the most-executed of the five — was the one left out.
+#[test]
+fn close_drains_to_cancelled() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (ins, rel, _s) =
+        lower_tls_close_macos("t_cl", &imports, &TlsReadTestPlatform).expect("lower");
+    assert!(
+        has_cancel_drain(&ins, "t_cl_cancel_drain", "5"),
+        "close must drain to the connection `cancelled` state (5) before returning, \
+         so a queued state handler cannot run against the ctx after arena_destroy"
+    );
+    assert!(
+        rel.iter().any(|r| r.to.contains("dispatch_semaphore_wait")),
+        "the close drain must resolve dispatch_semaphore_wait to block on ctx->sem"
+    );
+}
+
 // bug-55: closeListener releases the listener, its queue, and the listener
 // ctx semaphore; before the fix it only cancelled the listener.
 #[test]

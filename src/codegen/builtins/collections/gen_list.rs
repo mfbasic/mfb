@@ -123,6 +123,7 @@ impl CodeBuilder<'_> {
             }
         };
         self.emit(abi::label(&done));
+        self.mark_fresh_element_result(element_type, &result);
 
         Ok(ValueResult {
             origin: None,
@@ -130,6 +131,46 @@ impl CodeBuilder<'_> {
             location: Operand::from(result.render()),
             text,
         })
+    }
+
+    /// bug-592: `collections::get`/`getOr` hand back an OWNED element (`mfb spec
+    /// language memory-semantics` §14.6: "Reads produce owned values, not aliases
+    /// into the buffer"), so an element nothing binds must be freed at statement
+    /// scope. A bare `String` is freed there only with freshness provenance
+    /// (bug-536 shape B), and this is the one place that can state it.
+    ///
+    /// Call it at the JOIN point of a get/getOr lowering, after every path has
+    /// written `result`. For a `String` element every path that reaches the join
+    /// put a block THIS lowering allocated into `result`:
+    ///
+    /// * found — `emit_load_payload_with_stride`'s `String` arm, the only arm
+    ///   that allocates (`emit_materialize_string_from_bytes`);
+    /// * `getOr` miss — `emit_copy_owned_string` of the caller's default, moved
+    ///   into `result` (the default itself stays the caller's);
+    /// * `get` miss — `raise_error` branches away and never reaches the join.
+    ///
+    /// The producers' own marks cannot carry this: `getOr`'s miss-path copy runs
+    /// AFTER the found-path materialization and overwrites the mark with its own
+    /// register, which is not `result`, so `lower_value`'s identity test rejected
+    /// it and the found String leaked 64 B per call. Re-marking at the join makes
+    /// the proof local to this emitter instead of depending on emission order.
+    ///
+    /// A non-`String` element is never marked: its aliasing arms (an inline
+    /// record/union slot, a nested collection) are copied or borrowed by
+    /// `materialize_owned_element`, and `register_pending_temp` never consults the
+    /// mark for a non-`String` type. The plan-86 E `borrow_get_result` alias is
+    /// only ever taken for a non-`String` element (`is_borrow_get` excludes it),
+    /// and `register_pending_temp` early-returns while that flag is set, so a
+    /// `String` read nested inside such an initializer keeps leaking rather than
+    /// being freed — the fail-closed direction.
+    pub(crate) fn mark_fresh_element_result(
+        &mut self,
+        element_type: &ParameterType,
+        result: &VirtualRegister,
+    ) {
+        if *element_type == ParameterType::String {
+            self.mark_fresh_string(Operand::from(result.render()));
+        }
     }
 
     pub(crate) fn lower_list_get_or(

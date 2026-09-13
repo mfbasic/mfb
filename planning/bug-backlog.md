@@ -1,7 +1,127 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-12
-Open bugs: **14** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **9** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+
+## 2026-09-12 — integration rounds and what they taught
+
+### Landed
+
+| Bug | Sev | On main | Outcome |
+|---|---|---|---|
+| 593 | MED | `8413676c0` | an inline `TRAP`'s `Result` wrapper over a non-flat `T` has an owner (RSS pins 17 → 313 MB and 13 → 313 MB on base, flat fixed); residual closed-record growth is plan-52-B by design; the `List OF net::Address` leak it uncovered is bug-599 |
+| 472 | MED | `17c424988` | the man-example gate is its own CI job (`man-examples`); merged-tree Linux sweep 1029 examples / 0 failed / exit 0; it found bugs 595, 596 and 597 on its first run |
+| 596 | MED | `3b8e0f31c` | a named call may omit an overloaded builtin's trailing DEFAULTED parameters (`tls::connect`'s documented form built again); the first cut re-opened bug-349 and was reworked to fail closed before landing |
+| 597 | MED | `e633cefff` | `tls::listen("")` binds every interface on Linux and Windows (bug-113's `getaddrinfo(NULL, NULL)` defect in the TLS helpers); runtime-proven on boxes 2223 and 2230 |
+| 594 | MED | round 4 `b5c8757a4` | macOS `term::drawText` advances the column for a control character |
+| 592 | MED | round 3 `6ca7e8b8e` | an unbound `collections::get`/`getOr` `String` element has an owner (`os.prog` joined the fresh-result census after a lowering audit) |
+| 540 | MED | round 3 `6ca7e8b8e` | WIN-04 only: Windows `term::drawText` shares `io::write`'s cluster walk — **stays OPEN** (WIN-02/03 decision; Windows smoke run owed) |
+| 564 | MED | docs `77038ccc0` | sighting 2 reproduced (6/600 → 0/600 with a store reorder) and root-caused; the reorder is not landable until the AArch64 encoder can emit `STLR` — an agent is adding it |
+| 576 | MED | round 2 `2f40cf6b4` | an unbound runtime-helper `String` result has an owner |
+| 590 | HIGH | round 2 `2f40cf6b4` | a non-finite `Float` from a builtin call no longer escapes the observation boundary |
+| 575 | MED | round 2 `2f40cf6b4` | the `String` argument every `tls::` call marshals is released |
+| 591 | MED | `8361ec0c6` | a multi-overload man page renders each overload's own parameters |
+| — | — | `5c1e09c33` | cleared the four deny-level clippy errors on main (CI never runs clippy) |
+| 552 | LOW | `d83714554` | all three Level-2 global optimizer rows fire; full suite on main 161 targets, 0 failed |
+
+Round 2 was verified on the merged tree, not per branch: artifact gate 1431 / 1597 /
+2009, 0 diffs; merged `rt_scope_drop_leaks` 98 passed; merged release unit suite
+4132 passed, 0 failed.
+
+Round 3 was verified the same way: artifact gate 1431 / 1597 / 2009, 0 diffs; merged
+release unit suite 4137 passed, 0 failed; merged `rt_scope_drop_leaks` 110 passed.
+
+Round 4 (594) was verified the same way: artifact gate 0 diffs; merged release unit suite
+4137 passed; `cli_macos_app_term_draw_text` 3 passed (the gate is blind to app mode).
+
+**In flight:** 472 (the man-example CI gate) integrated with 596 on main — merged-tree
+artifact gate 0 diffs, Linux whole-corpus sweep 1029 examples / 0 failed, and the merged
+unit suite and a clean re-sweep are running; 593 with an agent (fix committed on its
+branch); 564's `STLR`/`LDAR` store-release ops with an agent (fix committed on its branch).
+
+**Filed this stretch:** 597 and 596 (both found by the 472 gate's first sweep — a Linux/
+Windows `tls::listen("")` runtime defect and a bug-477 named-argument regression), 595
+(found by the same sweep: a `STATE` type name is never resolved — unlocated
+`TYPE_STATE_INVALID`, internal `pkg.Name` spelling in a mismatch message), 593 (a
+failing runtime-helper call grows a flat block per call — two bugs measured it and
+neither filed it), 594 (macOS `drawText` column), 592.
+
+### Open decisions — these need the owner, not an agent
+
+- **bug-581 Phase 2**: what a client does when `snapshot.json` carries no per-package
+  commitment. Fail closed breaks every deployed registry; fail open makes the fix a no-op.
+- **`collections::sum` (bug-590) and `set` (bug-563) declared errors**: whether an error
+  raised at the CALLER's observation boundary belongs in the callee's `errors` list. The
+  list drives inline-`TRAP` fallibility, so it moves more than a man page.
+- **bug-540 WIN-02/03**: proving a Windows resize needs a test-only `term::` resize hook —
+  product surface. WIN-04 did not need it.
+- **A clippy CI job**: four deny-level errors reached main because nothing runs clippy.
+
+### What the integration rounds taught
+
+- **Integrate stale-base branches in rounds.** Each agent branch regenerated goldens on its
+  own old base; every merge then conflicted on goldens a later commit also moved. One
+  integration worktree per round — merge the batch, rebuild once, regenerate once under
+  bash, gate once — resolved it. Both rounds changed EXACTLY the conflicted placeholder
+  goldens and nothing else, which is the containment proof a post-merge regen can give.
+- **Verify where you can still land.** A long suite in the shared main checkout made main
+  un-advanceable for hours: landing writes goldens under it. Run long verification in a
+  worktree.
+- **The merged unit suite catches what per-branch suites cannot.** bug-576's census was
+  correct on its branch and failed on the merged tree, because `os.prog` reached main from a
+  peer after 576 branched. The fix was an AUDIT (does `os.prog` really allocate in the
+  caller's arena?) before touching the list, not adding the name to make it green.
+- **A landing gate must fail closed on the unexpected.** It aborted once on a peer's
+  spec-markdown commit it had not anticipated; inspecting it before landing is the point.
+- **zsh does not word-split an unquoted variable.** It silently broke a multi-path
+  `git checkout` and a file loop this session. Run multi-path shell under bash.
+
+## 2026-09-12 — compiler pass (after the repository intake)
+
+| Bug | Sev | Commit | Outcome |
+|---|---|---|---|
+| 550 | MED | `2203554bb` | a generic builtin parameter now gets an expected type, so `append([], x)` builds |
+| 564 | MED | `d77c3ced0` | `tls::close` drains to `cancelled` — a real use-after-munmap; bug stays OPEN for sighting 2 |
+| 563 | MED | `ceeefcf24` | `collections::get`'s merged error union split per overload |
+| 552 | LOW | `d83714554` | all three Level-2 global rows fire for the first time |
+| 559 | LOW | `3173773c4` | `civil`/`addDays` finally demonstrate a DST transition |
+| 576 | MED | branch ready | an unbound runtime-helper `String` now has an owner |
+| 548 | LOW | archived | both paths settled; deletion independently re-confirmed |
+
+**Filed after reproducing** (see the duplicate-filing lesson below): **590 HIGH**
+(a non-finite `Float` from a builtin call escapes every observation boundary),
+**591 MED** (a multi-overload man page renders only overload 1's parameters),
+**592 MED** (an unbound `collections::getOr` `String` element has no owner).
+
+### Findings worth carrying forward
+
+- **Search for the DEFECT, not the number, before filing.** Three bugs
+  (587/588/589) were filed as "new" out of bug-536's "recorded rather than filed"
+  list. That note was six days stale — the defects had been filed as 560/561/562
+  the next day and all three were fixed. Every number check passed, because they
+  answer *"is this number free?"*. `git grep -il "self.append" bugs/` would have
+  found bug-560 in one command. Withdrawn in `fdad98ccc`. **And when you DO file
+  items recorded elsewhere, go back and edit the originating document** — the
+  un-updated list is what produced the duplicates.
+- **When a bug is already fixed, a RED is impossible — use a NEGATIVE CONTROL.**
+  Re-adding only the `callback_referenced` arm restored `exit 139` on bug-589's
+  verbatim program (5/5 runs) while main gave `c=n0` across 50. That is what
+  distinguishes "fixed" from "never reproduced here".
+- **Ancestry does not prove a binary contains a commit.** A build that STARTS
+  before a peer's commit lands passes `git merge-base --is-ancestor` while
+  emitting the old code — measured at 89 seconds of overlap. It presents as gate
+  diffs that exactly match a recent commit's blast radius and nothing else.
+  **That signature means suspect your binary, not your change**, and never
+  "resolve" it by re-summing: that writes a stale compiler's hashes over goldens
+  belonging to a landed change.
+- **"No committed program reaches it" and "no valid program can reach it" are
+  different claims**, and only the second licenses a deletion (bug-548).
+- **To test a cache, find an input the cache cannot see.** Ed25519 is
+  deterministic, so "the same bytes came back" is equally true of a full
+  recompute — that assertion passed against unfixed code (bug-579).
+- **An example is a `&'static str` the compiler never reads.** bug-559's examples
+  were compiled and RUN before shipping. bug-472 (man examples are never
+  compiled) is still the instrument gap behind every one of them.
 
 ## 2026-09-12 — repository security intake, worked
 
@@ -261,13 +381,54 @@ Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
 539 and 545. **Do not re-dispatch these** — the table that used to sit here said
 "agent running" for all three and was stale for a full session.
 
-## Tier 2 — the one remaining HIGH
+## Tier 2 — there is NO open HIGH
 
-| Bug | Sev | Effort | Title | Note |
-|---|---|---|---|---|
-| 536 | HIGH | large | scope drop leaks: shapes **B-2** and **C** remain | **memory gate** |
+bug-536 has **no actionable work**: shapes A, B and B-2 are fixed (B-2 landed
+`b845db0de`, 2026-09-06) and shape C is a design decision, not a bug fix. **Do
+not dispatch 536.**
 
-**536 is the only open HIGH.** Three of its four parts are done:
+### A correction, because this section was wrong twice in one day
+
+It first said "536 is the only open HIGH" with shape B-2 listed as remaining —
+stale by six days. Correcting that, I then made it worse: I filed three "new"
+HIGHs (587/588/589) out of bug-536's list of defects "recorded rather than filed
+so the numbering does not race with a peer session", and promoted them here as
+"the real HIGHs".
+
+**All three were duplicates of bugs that were already fixed.** That note in
+bug-536 was stale: the defects were filed the next day as **560, 561 and 562**
+(`8c57683f3`), and all three were fixed on 2026-09-07. 587/588/589 are withdrawn
+(`fdad98ccc`) and moved to `bugs/completed/`.
+
+**The lesson is about which question gets asked.** The number checks
+(`ls bugs/ bugs/completed/`, `git log --all --grep=bug-NNN`) all passed, because
+they answer *"is this NUMBER free?"* — it was. Nobody asked *"is this DEFECT
+already tracked?"*. `git grep -il "self.append" bugs/` would have found bug-560
+in one command.
+
+**Two durable rules:**
+- **Before filing, search for the DEFECT, not the number** — grep
+  `bugs/completed/` for the symptom, the function name and the idiom.
+- **A "recorded but not filed" note is a dated claim about the past.** Check
+  whether it is still true before acting on it, and when you DO file such items,
+  go back and edit the originating document — the un-updated list is what
+  produced the duplicate six days later.
+
+The proximate enabler was also a stale doc: `.ai/codegen-invariants.md` still
+described `function_returns_fresh_string` as excluding callback-referenced
+functions and said "dropping the arm is the fix; it wants its own callback-ABI
+audit" — five days after the arm was dropped. Corrected in `7faff2d3b`, with the
+live guards named inline so it cannot be silently re-added.
+
+That fix was additionally proven load-bearing by **negative control**: re-adding
+only the `callback_referenced` arm restores `exit 139` on the filed program (5/5
+runs), while current main prints `c=n0` and exits 0 across 50 runs. Worth copying
+as a technique — when a bug is already fixed, a RED is impossible, and the
+negative control is what distinguishes "fixed" from "never reproduced here".
+
+### bug-536 itself — closed out except for a design question
+
+Three of its four parts are done:
 
 - **Shape A** — `RETURN <constructor>` abandoned the fresh block. Fixed
   `f9be6e128`, merged `c210cc67d`.
@@ -279,7 +440,7 @@ Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
   Golden delta was 142 `.ncodesum` + 4 `.ncode` + 1 `.mir` and **zero**
   `.run`/`build.log`.
 - **Shape B-2, callee half** — a `String` returned by a user / `.mfb`-bodied
-  function. **Open**, and it is what still costs the decoders: `csv::parse` is
+  function. **FIXED `b845db0de`** (2026-09-06). It was what had cost the decoders: `csv::parse` is
   byte-identically unchanged by the native fix. The bug doc's old claim that "csv
   has a SECOND leak that is NOT shape B" is **wrong** and now corrected there — it
   is shape B one level up (`row = append(row, __csv_fieldValue(...))`). Needs a

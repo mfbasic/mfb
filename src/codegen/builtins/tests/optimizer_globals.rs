@@ -199,51 +199,86 @@ END FUNC
 
 /// The module the program lowers to, with the global rows applied at `level`.
 ///
-/// **The synthetic global-initializer function is dropped first, and that is
-/// bug-552.** `lower_functions` prepends a private SUB whose body is one
-/// `StoreGlobal` per binding, and `census` counts every `StoreGlobal` as a
-/// write — so `never_written()` (`writes == 0`) and `untouched()` are false for
-/// every global that has an initializer, which in MFBASIC is every global.
-/// Measured: over this program the census reports
-/// `LIMIT reads=7 writes=1 / NEVER_NAMED reads=0 writes=1 /
-/// SETTLED reads=1 writes=1 / TALLY reads=4 writes=2`, all four writes in
-/// `__mfb_init_globals_test`, and `simplify` at `-O2` changes nothing at all.
+/// The REAL module, initializer and all (bug-552). This suite used to drop the
+/// synthetic `__mfb_init_globals_*` SUB first, because `census` counted its
+/// stores as writes — so `never_written()` and `untouched()` were false for
+/// every global that has an initializer, which in MFBASIC is every global, and
+/// `simplify` changed nothing at all on a real program. Now that the census
+/// separates an initializer store from a real write, the rows fire on the module
+/// a program actually produces and the workaround is gone.
 ///
-/// So this drives the pass with the input it is WRITTEN for rather than the one
-/// a program produces. That is a compromise and it is deliberate: the rows'
-/// contracts and both their guards are worth pinning now, and the bug report
-/// records that nothing reaches them. When the census answers the question its
-/// own doc comment asks — "never written AFTER ITS INITIALIZER" — this should
-/// lower the real module and [`drop_the_global_initializer`] should go.
+/// Keeping the initializer is also what exercises the other half of the fix: the
+/// dead row must REMOVE the store it orphans, or the module it hands back is one
+/// the NIR validator refuses. [`the_initializer_does_not_store_to_a_removed_global`]
+/// asserts exactly that, and it could not have been written against the dropped
+/// module.
 fn module_at(level: u8, source: &str) -> NirModule {
     let mut module = nir_for_src(source, CodeTarget::LinuxX86_64, Console)
         .unwrap_or_else(|err| panic!("the program must lower to NIR: {err}"));
-    drop_the_global_initializer(&mut module);
+    let initializer = crate::target::shared::nir::global_initializer_name(&module.project);
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.name == initializer),
+        "the program declares globals, so lowering must have prepended \
+         `{initializer}` -- without it this suite is asserting against an input \
+         no program produces, which is the bug-552 compromise it just stopped making"
+    );
     with_opt_level(OptLevel(level), || {
         crate::optimizer::opt1::globals::simplify(&mut module)
     });
     module
 }
 
-/// Remove the synthetic `__mfb_init_globals_*` SUB. See [`module_at`].
+/// bug-552's latent hazard, now a pin: removing a global must remove the
+/// initializer store that writes it.
 ///
-/// The whole function rather than its stores: leaving a store to a global the
-/// dead row is about to remove would make the module one the NIR validator
-/// refuses ("global store targets unknown global"), which is bug-552's latent
-/// hazard and not this suite's subject.
-fn drop_the_global_initializer(module: &mut NirModule) {
+/// `module.globals.retain(...)` drops the storage; the synthetic
+/// `__mfb_init_globals_*` SUB still holds one `StoreGlobal` per declared
+/// binding. Leaving it produces a module whose initializer stores to a name that
+/// no longer exists, which `target/shared/validate/body.rs` refuses outright
+/// ("NIR global store targets unknown global"). The deadness of the row was
+/// hiding that: the first time it ever fired, it would have emitted an invalid
+/// module.
+///
+/// Asserted structurally — every `StoreGlobal` left in the initializer names a
+/// global that is still present — rather than by listing the names, so it holds
+/// however the rows' verdicts change.
+#[test]
+fn the_initializer_does_not_store_to_a_removed_global() {
+    use crate::target::shared::nir::NirOp;
+
+    let module = module_at(2, SRC);
     let initializer = crate::target::shared::nir::global_initializer_name(&module.project);
-    let before = module.functions.len();
-    module
+    let live: std::collections::HashSet<&str> = module
+        .globals
+        .iter()
+        .map(|global| global.name.as_str())
+        .collect();
+
+    let body = module
         .functions
-        .retain(|function| function.name != initializer);
-    assert_eq!(
-        module.functions.len() + 1,
-        before,
-        "the program declares globals, so lowering must have prepended \
-         `{initializer}` -- if it stopped doing that, this helper is removing \
-         nothing and every row below is being asserted against an input it \
-         already handles"
+        .iter()
+        .find(|function| function.name == initializer)
+        .map(|function| function.body.as_slice())
+        .expect("the initializer survives the pass");
+
+    for op in body {
+        if let NirOp::StoreGlobal { name, .. } = op {
+            assert!(
+                live.contains(name.as_str()),
+                "the initializer still stores to `{name}`, which the dead-global \
+                 row removed -- the NIR validator refuses this module"
+            );
+        }
+    }
+
+    // And the row really did remove something, so the assertion above is not
+    // vacuously true over an untouched module.
+    assert!(
+        !live.contains("NEVER_NAMED"),
+        "NEVER_NAMED is named by nothing and must have been collected"
     );
 }
 

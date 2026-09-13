@@ -534,20 +534,84 @@ fn is_return_type_overload_set(function: &RegistryFunction) -> bool {
     any_other
 }
 
-/// The union of every parameter across all overloads, de-duplicated by name (first
-/// occurrence wins, declaration order preserved), so the Parameters table covers every
-/// argument any overload accepts.
-fn union_parameters(function: &RegistryFunction) -> Vec<&Parameter> {
-    let mut seen = std::collections::HashSet::new();
-    let mut params = Vec::new();
-    for implementation in &function.implementations {
+/// One row of a function page's Parameters table (bug-591).
+struct ParameterRow<'a> {
+    param: &'a Parameter,
+    /// The 1-based overload numbers — matching the Overloads section — that declare
+    /// exactly this rendered parameter.
+    overloads: Vec<usize>,
+}
+
+/// The rows of a function page's Parameters table (bug-591).
+///
+/// This used to be the union of every overload's parameters de-duplicated by NAME,
+/// first occurrence winning. That is right when overloads only ADD parameters
+/// (`process::spawn`'s `cwd`, `env`, `envReplace`) and silently wrong when two
+/// overloads declare the SAME name with a different type or description:
+/// `collections::get`'s map overload takes `index AS K`, "the key to look up", and
+/// the page showed overload 1's `index AS Integer`, "the list index, zero-based", as
+/// if it described both. bug-563 corrected that description in the descriptor and
+/// the correction was invisible, because this table never rendered it.
+///
+/// Rows are grouped by how a parameter RENDERS — name, type, description, aliases
+/// and whether it is optional — because those are exactly the cells a reader sees.
+/// Order is each name's first appearance across the overloads, then each distinct
+/// form's first appearance, so a member whose overloads never disagree gets the
+/// same rows in the same order as before.
+fn parameter_rows(function: &RegistryFunction) -> Vec<ParameterRow<'_>> {
+    let mut names: Vec<&'static str> = Vec::new();
+    let mut rows: Vec<ParameterRow<'_>> = Vec::new();
+    for (index, implementation) in function.implementations.iter().enumerate() {
+        let number = index + 1;
         for param in &implementation.params {
-            if seen.insert(param.name) {
-                params.push(param);
+            if !names.contains(&param.name) {
+                names.push(param.name);
+            }
+            match rows
+                .iter_mut()
+                .find(|row| renders_identically(row.param, param))
+            {
+                Some(row) => {
+                    if !row.overloads.contains(&number) {
+                        row.overloads.push(number);
+                    }
+                }
+                None => rows.push(ParameterRow {
+                    param,
+                    overloads: vec![number],
+                }),
             }
         }
     }
-    params
+    // Stable, so distinct forms of one name keep their first-appearance order.
+    rows.sort_by_key(|row| names.iter().position(|name| *name == row.param.name));
+    rows
+}
+
+/// Whether two parameters produce the same Parameters-table cells.
+fn renders_identically(a: &Parameter, b: &Parameter) -> bool {
+    a.name == b.name
+        && public_type_name(&a.ty) == public_type_name(&b.ty)
+        && a.desc == b.desc
+        && a.aliases == b.aliases
+        && is_optional_parameter(a) == is_optional_parameter(b)
+}
+
+fn is_optional_parameter(param: &Parameter) -> bool {
+    matches!(
+        param.default,
+        DefaultValue::Fill { .. } | DefaultValue::Optional
+    )
+}
+
+/// Whether any name has more than one rendered form, i.e. whether a reader needs
+/// to be told which overload each row belongs to.
+fn parameters_differ_by_overload(rows: &[ParameterRow<'_>]) -> bool {
+    rows.iter().enumerate().any(|(i, row)| {
+        rows[..i]
+            .iter()
+            .any(|earlier| earlier.param.name == row.param.name)
+    })
 }
 
 /// Build a Markdown man page for one function purely from its descriptor.
@@ -667,22 +731,27 @@ fn referenced_functions(text: &str, current: &str) -> Vec<String> {
     refs
 }
 
-/// The parameter table, taken from the first implementation's parameters. Optional
-/// (defaulted) parameters are flagged, alias spellings are listed if present, and the fixed
-/// return type is shown.
+/// The Parameters table. Optional (defaulted) parameters are flagged, alias spellings are
+/// listed if present, and a single-overload member gets a trailing Returns line.
+///
+/// When two overloads declare the same parameter name in different forms, the table gains
+/// an **Overloads** column naming which numbered signature each row belongs to — the same
+/// remedy bug-558 applied to the Errors table (bug-591). When no name differs, the column
+/// is omitted and the table is exactly the one it has always been, so single-overload pages
+/// and overload sets that only add parameters render byte for byte as before.
 fn render_parameters(md: &mut String, function: &RegistryFunction) {
-    // The Parameters table is the UNION of every overload's parameters (§man). The
-    // return type(s) are shown in the Overloads/Declaration section above; a single
+    // Return type(s) are shown in the Overloads/Declaration section above; a single
     // trailing "Returns" line is added only when there is exactly one overload (with
     // multiple overloads the returns can differ, so one line would be misleading).
-    let params = union_parameters(function);
+    let rows = parameter_rows(function);
+    let per_overload = parameters_differ_by_overload(&rows);
     let single = function.implementations.len() == 1;
     let return_type = function
         .implementations
         .first()
         .map(|implementation| public_type_name(&implementation.return_type));
 
-    if params.is_empty() {
+    if rows.is_empty() {
         if single {
             if let Some(return_type) = &return_type {
                 md.push_str(&format!(
@@ -693,26 +762,32 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
         return;
     }
 
-    let has_aliases = params.iter().any(|p| !p.aliases.is_empty());
+    let has_aliases = rows.iter().any(|row| !row.param.aliases.is_empty());
 
     md.push_str("## Parameters\n\n");
+    let mut header = String::from("| Parameter | Type |");
+    let mut rule = String::from("| --- | --- |");
     if has_aliases {
-        md.push_str("| Parameter | Type | Alternate | Description |\n| --- | --- | --- | --- |\n");
-    } else {
-        md.push_str("| Parameter | Type | Description |\n| --- | --- | --- |\n");
+        header.push_str(" Alternate |");
+        rule.push_str(" --- |");
     }
+    if per_overload {
+        header.push_str(" Overloads |");
+        rule.push_str(" --- |");
+    }
+    header.push_str(" Description |\n");
+    rule.push_str(" --- |\n");
+    md.push_str(&header);
+    md.push_str(&rule);
 
-    for param in &params {
-        let optional = matches!(
-            param.default,
-            DefaultValue::Fill { .. } | DefaultValue::Optional
-        );
-        let name = if optional {
+    for row in &rows {
+        let param = row.param;
+        let name = if is_optional_parameter(param) {
             format!("`{}` (opt)", param.name)
         } else {
             format!("`{}`", param.name)
         };
-
+        let mut line = format!("| {name} | `{}` |", public_type_name(&param.ty));
         if has_aliases {
             let aliases = if param.aliases.is_empty() {
                 "—".to_string()
@@ -724,18 +799,19 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
                     .collect::<Vec<_>>()
                     .join(", ")
             };
-            md.push_str(&format!(
-                "| {name} | `{}` | {aliases} | {} |\n",
-                public_type_name(&param.ty),
-                param.desc
-            ));
-        } else {
-            md.push_str(&format!(
-                "| {name} | `{}` | {} |\n",
-                public_type_name(&param.ty),
-                param.desc
-            ));
+            line.push_str(&format!(" {aliases} |"));
         }
+        if per_overload {
+            let numbers = row
+                .overloads
+                .iter()
+                .map(|number| number.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            line.push_str(&format!(" {numbers} |"));
+        }
+        line.push_str(&format!(" {} |\n", param.desc));
+        md.push_str(&line);
     }
     md.push('\n');
 
@@ -1257,6 +1333,154 @@ mod tests {
         assert!(md.contains("`cwd`"));
         assert!(md.contains("`env`"));
         assert!(md.contains("`envReplace`"));
+    }
+
+    /// The lines of a rendered page's Parameters table, header and rule included.
+    fn parameters_table(md: &str) -> Vec<&str> {
+        let Some(start) = md.find("## Parameters\n\n") else {
+            return Vec::new();
+        };
+        md[start + "## Parameters\n\n".len()..]
+            .lines()
+            .take_while(|line| line.starts_with('|'))
+            .collect()
+    }
+
+    /// bug-591, TOTAL over the registry: every overload's every parameter must appear
+    /// on one Parameters row with its OWN name and its OWN rendered type.
+    ///
+    /// The table used to de-duplicate by name, so a second overload's same-named
+    /// parameter vanished — `collections::get`'s map overload showed overload 1's
+    /// `index AS Integer` in place of its own `index AS K`. Asserted for every
+    /// multi-overload member rather than for `get` alone, so the next member to reuse
+    /// a parameter name in a new form is caught without anyone listing it here.
+    #[test]
+    fn every_overloads_parameters_appear_in_its_parameters_table() {
+        let mut checked = 0;
+        for package in registry().packages() {
+            for function in package.functions() {
+                if function.implementations.len() < 2 {
+                    continue;
+                }
+                let md = render_function_markdown(package, function);
+                let table = parameters_table(&md);
+                for (index, implementation) in function.implementations.iter().enumerate() {
+                    for param in &implementation.params {
+                        let name = format!("| `{}`", param.name);
+                        let ty = format!("`{}`", public_type_name(&param.ty));
+                        assert!(
+                            table
+                                .iter()
+                                .any(|line| line.starts_with(&name) && line.contains(&ty)),
+                            "{}::{} overload {}: parameter `{}` AS {} is missing from its \
+                             Parameters table:\n{}",
+                            package.import_name(),
+                            function.name,
+                            index + 1,
+                            param.name,
+                            public_type_name(&param.ty),
+                            table.join("\n")
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            checked > 0,
+            "the registry has multi-overload members to check"
+        );
+    }
+
+    /// bug-591: `collections::get`, the page that surfaced it, now shows the map
+    /// overload's key as its own row, with its own type and its own description, and
+    /// tells the reader which overload each row belongs to.
+    #[test]
+    fn collections_get_shows_the_map_key_as_its_own_parameter_row() {
+        let package = registry().resolve_package("collections").unwrap();
+        let function = package.function("get").unwrap();
+        let md = render_function_markdown(package, function);
+        let table = parameters_table(&md);
+        assert!(
+            table[0].contains(" Overloads |"),
+            "same-named parameters differ, so the column is required:\n{}",
+            table.join("\n")
+        );
+        assert!(
+            table.iter().any(|line| line.starts_with("| `index`")
+                && line.contains("`Integer`")
+                && line.contains("zero-based")),
+            "the list overload's index row:\n{}",
+            table.join("\n")
+        );
+        assert!(
+            table.iter().any(|line| line.starts_with("| `index`")
+                && line.contains("`K`")
+                && line.contains("The key to look up")),
+            "the map overload's key row, with its own prose:\n{}",
+            table.join("\n")
+        );
+    }
+
+    /// bug-591 containment: a member whose overloads never disagree about a parameter
+    /// keeps its table exactly as it was — no Overloads column. Every single-overload
+    /// member qualifies by construction; asserted over the whole registry.
+    #[test]
+    fn a_parameters_table_with_no_disagreement_has_no_overloads_column() {
+        for package in registry().packages() {
+            for function in package.functions() {
+                if function.implementations.len() != 1 {
+                    continue;
+                }
+                let md = render_function_markdown(package, function);
+                if let Some(header) = parameters_table(&md).first() {
+                    assert!(
+                        !header.contains("Overloads"),
+                        "{}::{} has one overload and must not grow an Overloads column",
+                        package.import_name(),
+                        function.name
+                    );
+                }
+            }
+        }
+    }
+
+    /// bug-591: every overload number named in a Parameters table must be a signature
+    /// the page actually renders — the Parameters twin of bug-558's
+    /// `every_errors_overload_number_names_a_rendered_signature`.
+    #[test]
+    fn every_parameters_overload_number_names_a_rendered_signature() {
+        for package in registry().packages() {
+            for function in package.functions() {
+                let md = render_function_markdown(package, function);
+                let table = parameters_table(&md);
+                let Some(header) = table.first() else {
+                    continue;
+                };
+                let columns: Vec<&str> = header.split('|').map(str::trim).collect();
+                let Some(column) = columns.iter().position(|c| *c == "Overloads") else {
+                    continue;
+                };
+                for line in table.iter().skip(2) {
+                    let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+                    for number in cells[column].split(", ") {
+                        let n: usize = number.parse().unwrap_or_else(|_| {
+                            panic!(
+                                "{}::{}: not an overload number: {number:?}",
+                                package.import_name(),
+                                function.name
+                            )
+                        });
+                        assert!(
+                            (1..=function.implementations.len()).contains(&n),
+                            "{}::{}: overload {n} is not a rendered signature",
+                            package.import_name(),
+                            function.name
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

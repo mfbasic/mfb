@@ -1,4 +1,5 @@
 // --- codegen tier imports (migration) ---
+use super::server::emit_cancel_drain;
 use super::*;
 use crate::codegen::engine::builder::emit_arena_free;
 use crate::target::shared::abi;
@@ -69,6 +70,15 @@ pub(crate) fn lower_tls_connect_macos(
     const _: () = assert!(VNAME + 8 <= FRAME_SIZE);
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
+    // bug-575: the host C-string `nw_endpoint_create_host` reads, and the SNI copy
+    // `sec_protocol_options_set_tls_server_name` reads, are this helper's own
+    // scratch — handed to Network.framework and never returned to MFBASIC, so no
+    // caller-side ownership analysis could reach them and every `tls::connect`
+    // leaked its host name. Declared here, ahead of every branch that can reach
+    // `done`: the `conn_invalid` timeout rejection returns before marshalling
+    // anything, and the SNI copy only happens on the `have_sname` arm.
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut ins);
+    let sni_scratch = HelperScratch::declare(&mut vregs, &mut ins);
     // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName; x4 = allowSelfSigned.
     // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName; x3 = allowSelfSigned.
     ins.extend(
@@ -125,6 +135,7 @@ pub(crate) fn lower_tls_connect_macos(
         HOST,
         HOSTCSTR,
         &alloc_fail,
+        &host_scratch,
         &mut ins,
         &mut rel,
         &mut vregs,
@@ -244,6 +255,7 @@ pub(crate) fn lower_tls_connect_macos(
         SNAME,
         SNICSTR,
         &alloc_fail,
+        &sni_scratch,
         &mut ins,
         &mut rel,
         &mut vregs,
@@ -919,7 +931,15 @@ pub(crate) fn lower_tls_connect_macos(
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
-    ins.extend([abi::label(&done), abi::return_()]);
+    ins.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[host_scratch, sni_scratch],
+        &mut vregs,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::return_());
     {
         Ok((ins, rel, FRAME_SIZE))
     }
@@ -2060,6 +2080,11 @@ pub(crate) fn lower_tls_close_macos(
     const REC: usize = 8;
     const HANDLE: usize = 16;
     const FNPTR: usize = 24;
+    // bug-564: the cancel drain needs a resolved `dispatch_semaphore_wait` and
+    // the ctx pointer in stack slots of their own.
+    const WAITFN: usize = 32;
+    const CTX: usize = 40;
+    let cancel_drain = format!("{symbol}_cancel_drain");
     let already = format!("{symbol}_already");
     let load_fail = format!("{symbol}_load_fail");
     let done = format!("{symbol}_done");
@@ -2106,6 +2131,53 @@ pub(crate) fn lower_tls_close_macos(
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::branch_link_register(&v9),
     ]);
+    // bug-564: `nw_connection_cancel` is ASYNCHRONOUS. The connection's
+    // state-changed handler (STATE_INVOKE) runs on the `mfb.tls` queue and
+    // dereferences the arena-allocated ctx on *every* invocation, including the
+    // final `cancelled` transition this cancel produces. Returning before that
+    // transition fires leaves the handler queued — and if the program then
+    // exits, `_mfb_shutdown` calls `arena_destroy`, which **munmaps** the block
+    // holding the ctx. The handler runs afterwards, during libc `exit`, and
+    // faults on an unmapped page: EXC_BAD_ACCESS / KERN_INVALID_ADDRESS, signal
+    // 11, *after* the program has printed all of its output.
+    //
+    // The comment on the releases below used to be the whole story — "the
+    // arena-allocated ctx block is reclaimed with the arena" — and it is only
+    // true while the arena still exists. `skip_entry_arena_destroy`
+    // (`codegen::engine::builder`) skips the teardown free only for a program
+    // embedding a `thread.` runtime call, on the premise that nothing else can
+    // outlive `main`; a Network.framework dispatch queue with a pending handler
+    // is exactly such a thing, and that gate cannot see it.
+    //
+    // `cancelled` (connection state 5) is terminal, so waiting for it
+    // guarantees no handler runs afterwards. Draining HERE — before the
+    // releases below — keeps the connection, its queue and the semaphore all
+    // retained for the handler that is about to run. This is the same drain
+    // `closeListener` already does for the listener (bug-412) and the
+    // connect-failure exit does for a half-open connection (bug-380); ordinary
+    // `tls::close` was the one cancel site of the five that did not.
+    dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        HANDLE,
+        "dispatch_semaphore_wait",
+        FNPTR,
+        &load_fail,
+    )?;
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
+        abi::store_u64(&v9, abi::stack_pointer(), WAITFN),
+        // The ctx pointer is never NULL for an open (non-closed) socket.
+        abi::load_u64(&v9, abi::stack_pointer(), REC),
+        abi::load_u64(&v10, &v9, REC_CTX),
+        abi::store_u64(&v10, abi::stack_pointer(), CTX),
+    ]);
+    emit_cancel_drain(&mut ins, CTX, WAITFN, &cancel_drain, "5", &mut vregs);
     // Release the connection, its dispatch queue, and the ctx semaphore that
     // this socket owns; cancelling alone leaves them all leaked on every
     // connect+close (bug-55). The arena-allocated ctx block is reclaimed with

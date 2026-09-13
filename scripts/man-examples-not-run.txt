@@ -1,0 +1,42 @@
+# Man-page examples that BUILD but cannot RUN under scripts/man-examples-gate.sh.
+#
+# One `pkg::fn#N  reason` per line; N is the example's 1-based position on the
+# rendered page. A listed example is still built — only the run is skipped — and
+# an entry naming an example that no longer exists fails the gate, so this list
+# cannot outlive what it excuses. A run failure that is a defect belongs in a bug,
+# never here.
+#
+# A reason starting `serves:` is NOT skipped: it is a server whose accept loop
+# never returns by design, so it runs for SERVE_SECONDS and passes only if it is
+# still running then (a server that fails to bind or dies on start still fails).
+
+# term — the gate has no controlling terminal. `term::terminalSize`'s own page
+# documents the raise (ErrUnsupported) when standard output is not a terminal.
+term::drawBox#2  needs a controlling terminal (raises ErrUnsupported without one, as documented)
+term::drawGlyph#1  needs a controlling terminal (raises ErrUnsupported without one, as documented)
+term::drawHLine#1  needs a controlling terminal (raises ErrUnsupported without one, as documented)
+term::drawText#1  needs a controlling terminal (raises ErrUnsupported without one, as documented)
+term::drawVLine#1  needs a controlling terminal (raises ErrUnsupported without one, as documented)
+term::fillRect#2  needs a controlling terminal (raises ErrUnsupported without one, as documented)
+term::moveTo#2  needs a controlling terminal (raises ErrUnsupported without one, as documented)
+term::terminalSize#1  needs a controlling terminal (raises ErrUnsupported without one, as documented)
+term::terminalSize#2  needs a controlling terminal (raises ErrUnsupported without one, as documented)
+term::sync#2  an interactive loop that reads keys until `q` from a terminal
+
+# tls servers — each needs a certificate and key on disk and then blocks in
+# tls::accept for a client the gate does not provide.
+tls::accept#1  needs cert.pem/key.pem and a connecting TLS client
+tls::listen#1  needs cert.pem/key.pem and a connecting TLS client
+tls::localAddress#2  needs cert.pem/key.pem and a connecting TLS client
+tls::remoteAddress#1  needs cert.pem/key.pem and a connecting TLS client
+tls::connect#3  needs a development TLS server with a self-signed certificate on 127.0.0.1:7413
+
+# http servers
+http::handleRequest#1  serves: a plaintext accept loop on port 8080
+http::respondPath#1  serves: a static-file accept loop on port 8080
+http::respondPath#2  serves: a static-file accept loop on port 8080
+http::respondPath#3  serves: a static-file accept loop on port 8080
+http::server#1  serves: a minimal accept loop on port 8080
+http::handleRequest#2  needs cert.pem/key.pem (http::serverSSL) and serves forever
+http::serverSSL#1  needs cert.pem/key.pem and serves forever
+http::serverSSL#2  needs cert.pem/key.pem and serves forever

@@ -2197,6 +2197,25 @@ impl<'a> Monomorphizer<'a> {
     }
 }
 
+/// The element type a `List`/`Set` literal's members are expected to have, given the
+/// literal's own expected type — or `None` when the context expects something that is
+/// not that container.
+///
+/// plan-105-B: routed through the canonical grammar rather than a
+/// `strip_prefix("List OF ")` / `strip_prefix("Set OF ")` pair. `set` picks which
+/// container the caller is lowering, so a `List` literal in a `Set`-typed context
+/// still (correctly) gets no expected element type.
+fn expected_element_type(
+    expected_type: Option<&ParameterType>,
+    set: bool,
+) -> Option<ParameterType> {
+    match expected_type? {
+        ParameterType::SetOf(element) if set => Some((**element).clone()),
+        ParameterType::ListOf(element) if !set => Some((**element).clone()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{ImportedOverload, Monomorphizer};
@@ -3539,24 +3558,5 @@ END SUB
         let project = monomorphize(src).expect("monomorphizes");
         let names = function_names(&project);
         assert!(names.iter().any(|n| n == "wrap$Integer"), "{names:?}");
-    }
-}
-
-/// The element type a `List`/`Set` literal's members are expected to have, given the
-/// literal's own expected type — or `None` when the context expects something that is
-/// not that container.
-///
-/// plan-105-B: routed through the canonical grammar rather than a
-/// `strip_prefix("List OF ")` / `strip_prefix("Set OF ")` pair. `set` picks which
-/// container the caller is lowering, so a `List` literal in a `Set`-typed context
-/// still (correctly) gets no expected element type.
-fn expected_element_type(
-    expected_type: Option<&ParameterType>,
-    set: bool,
-) -> Option<ParameterType> {
-    match expected_type? {
-        ParameterType::SetOf(element) if set => Some((**element).clone()),
-        ParameterType::ListOf(element) if !set => Some((**element).clone()),
-        _ => None,
     }
 }

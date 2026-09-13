@@ -13,6 +13,10 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::emit_data_address;
+// bug-575: `tls::connect`/`tls::listen` marshal their host name and PEM paths
+// into arena C-strings for OpenSSL; those blocks are helper scratch and are
+// released at the single `ret`.
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::marshal::push_write_payload_view;
 use crate::codegen::os::socket::shared::{emit_accept_call, emit_socket_type_cloexec};
 use crate::target::shared::abi;
@@ -74,6 +78,18 @@ pub(crate) fn lower_tls_connect_openssl(
     let addr_off = platform.addrinfo_addr_offset();
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
+
+    // bug-575: the two C-string copies this body marshals — the host for
+    // `getaddrinfo`, and the SNI/validation name for `SSL_set1_host` — are the
+    // helper's own scratch: handed to OpenSSL and never returned to MFBASIC, so
+    // nothing on the caller side could see them and every `tls::connect` leaked its
+    // host name twice. Declared HERE, ahead of every branch that can reach `done`,
+    // so the release at `done` reads a null on the paths that never marshalled (the
+    // `connect_invalid` timeout rejection, the `alloc_fail` tail itself).
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
+    // `snihost` and `sni` are the two exclusive arms of one choice writing one
+    // slot, so they share one scratch.
+    let sni_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
 
     // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName; x4 = allowSelfSigned.
     // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName; x3 = allowSelfSigned.
@@ -146,6 +162,7 @@ pub(crate) fn lower_tls_connect_openssl(
         HOST_OFFSET,
         HOSTCSTR_OFFSET,
         &alloc_fail,
+        &host_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -408,6 +425,7 @@ pub(crate) fn lower_tls_connect_openssl(
         HOST_OFFSET,
         SNICSTR_OFFSET,
         &alloc_fail,
+        &sni_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -420,6 +438,7 @@ pub(crate) fn lower_tls_connect_openssl(
         SNAME_OFFSET,
         SNICSTR_OFFSET,
         &alloc_fail,
+        &sni_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1088,7 +1107,15 @@ pub(crate) fn lower_tls_connect_openssl(
         &done,
     );
 
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[host_scratch, sni_scratch],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     {
         Ok((instructions, relocations, FRAME_SIZE))
     }
@@ -1123,6 +1150,8 @@ pub(crate) fn lower_tls_listen_openssl(
     const FNPTR_OFFSET: usize = 104;
     const CTX_OFFSET: usize = 112;
     const HINTS_OFFSET: usize = 128; // 128..176
+    const SERVICE_OFFSET: usize = 176; // getaddrinfo service: NULL, or &SERVICE_STR
+    const SERVICE_STR_OFFSET: usize = 184; // the C string "0" for the bind-all path
 
     let null_host = format!("{symbol}_null_host");
     let resolved = format!("{symbol}_resolved");
@@ -1139,6 +1168,16 @@ pub(crate) fn lower_tls_listen_openssl(
     let addr_off = platform.addrinfo_addr_offset();
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
+
+    // bug-575: the host, the certificate path and the key path are all copied into
+    // arena C-strings for `getaddrinfo` / `SSL_CTX_use_*_file`, and none of them is
+    // handed back — `tls::listen` leaked all three. The host scratch in particular
+    // MUST be declared here rather than at its `emit_cstring`: the empty-host
+    // bind-all path branches to `null_host` and jumps straight past the marshalling,
+    // so the release at `done` would otherwise free an undefined vreg.
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
+    let cert_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
+    let key_scratch = HelperScratch::declare(&mut vregs, &mut instructions);
 
     // x0 = host; x1 = port; x2 = certPath; x3 = keyPath; x4 = backlog.
     instructions.extend([
@@ -1163,6 +1202,8 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::store_u64(&v9, abi::stack_pointer(), HINTS_OFFSET),
         abi::move_immediate(&v9, "Integer", SOCK_STREAM),
         abi::store_u64(&v9, abi::stack_pointer(), HINTS_OFFSET + 8),
+        // A named host resolves with a NULL service; only bind-all sets one.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SERVICE_OFFSET),
         // Empty host => NULL node (all interfaces).
         abi::load_u64(&v9, abi::stack_pointer(), HOST_OFFSET),
         abi::load_u64(&v9, &v9, 0),
@@ -1175,6 +1216,7 @@ pub(crate) fn lower_tls_listen_openssl(
         HOST_OFFSET,
         HOSTCSTR_OFFSET,
         &alloc_fail,
+        &host_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1183,14 +1225,25 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::branch(&resolved),
         abi::label(&null_host),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HOSTCSTR_OFFSET),
+        // bug-597: bind-all passes a NULL node, so the service must be non-NULL —
+        // getaddrinfo(NULL, NULL, …) is EAI_NONAME on glibc and musl, which made
+        // `tls::listen("", …)` raise ErrInvalidAddress on Linux while the page
+        // documents it as binding every interface. Stage the C string "0" (0x30
+        // then a zero terminator) and point service at it, exactly as the shared
+        // socket helpers do for `tcp::listen` (bug-113). The real port overwrites
+        // sin_port afterward.
+        abi::move_immediate(&v9, "Integer", "48"),
+        abi::store_u64(&v9, abi::stack_pointer(), SERVICE_STR_OFFSET),
+        abi::add_immediate(&v9, abi::stack_pointer(), SERVICE_STR_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), SERVICE_OFFSET),
         abi::label(&resolved),
-        // getaddrinfo(host, NULL, &hints, &res)
+        // getaddrinfo(host, service, &hints, &res)
         abi::load_u64(
             abi::return_register(),
             abi::stack_pointer(),
             HOSTCSTR_OFFSET,
         ),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SERVICE_OFFSET),
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS_OFFSET),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES_OFFSET),
     ]);
@@ -1299,6 +1352,7 @@ pub(crate) fn lower_tls_listen_openssl(
         CERT_OFFSET,
         CERTCSTR_OFFSET,
         &alloc_fail_fd,
+        &cert_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1309,6 +1363,7 @@ pub(crate) fn lower_tls_listen_openssl(
         KEY_OFFSET,
         KEYCSTR_OFFSET,
         &alloc_fail_fd,
+        &key_scratch,
         &mut instructions,
         &mut relocations,
         &mut vregs,
@@ -1619,7 +1674,15 @@ pub(crate) fn lower_tls_listen_openssl(
         &done,
     );
 
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    emit_helper_scratch_release(
+        symbol,
+        &[host_scratch, cert_scratch, key_scratch],
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::return_());
     {
         Ok((instructions, relocations, FRAME_SIZE))
     }
@@ -3070,6 +3133,41 @@ mod error_path_release_tests {
         assert!(
             reloc_count(&rel, "sym_SSL_CTX_free") >= 1,
             "connect must free the SSL_CTX on OOM"
+        );
+    }
+
+    /// bug-597: `tls::listen("")` must hand `getaddrinfo` a non-NULL service.
+    /// `getaddrinfo(NULL, NULL, …)` is `EAI_NONAME` on glibc and musl, so a
+    /// literal-0 service made the documented bind-all form raise
+    /// `ErrInvalidAddress` on Linux. The bind-all path stages the C string "0"
+    /// (0x30); nothing between `resolved` and the call may zero the service.
+    #[test]
+    fn listen_bind_all_passes_a_non_null_service() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (ins, _rel, _s) =
+            lower_tls_listen_openssl("l", &imports, &TestPlatform).expect("lower listen");
+        let at = |label: &str| {
+            ins.iter()
+                .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("missing label {label}"))
+        };
+        let (null_host, resolved) = (at("l_null_host"), at("l_resolved"));
+        assert!(
+            ins[null_host..resolved]
+                .iter()
+                .any(|i| i.op == CodeOp::MovImm && i.get("value").as_deref() == Some("48")),
+            "bug-597: the bind-all path must stage the service string \"0\""
+        );
+        let service_reg = abi::c_arg(1).to_string();
+        let zeroed_service = ins[resolved..].iter().take(8).any(|i| {
+            i.op == CodeOp::MovImm
+                && i.get("dst").as_deref() == Some(service_reg.as_str())
+                && i.get("value").as_deref() == Some("0")
+        });
+        assert!(
+            !zeroed_service,
+            "bug-597: getaddrinfo's service argument must not be a literal NULL"
         );
     }
 
