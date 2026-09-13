@@ -89,3 +89,7 @@ Deviations and additions beyond the doc:
   "Allocation failed."; whole surface: 0 unclassified, carve-out 2 40 → 41.
   `.ai/man-content.md` §0 lists Constants as derived and §4.4 documents this
   carve-out, which §9.2 already referenced.
+- Fallout caught by the full suite: `tests/guards/no_type_strings.rs` (plan-111)
+  flagged the first version's `constant_type_name(…, type_name: &str)` helper
+  (`str_type_params / cli: 1 > budget 0`). The helper now takes the
+  `RegistryConstant` (5372f1211); the guard is green with its budget unchanged.
