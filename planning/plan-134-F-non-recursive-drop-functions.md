@@ -96,19 +96,36 @@ Acceptance: the edge tables match for every recursive type.
   Result: `cargo test --release --bin mfb -- graph_drop graph_copy` → `3 passed; 0 failed`
   (`graph_copy_edges_match_the_copy_calls` still green after the copy's edge sites moved onto
   the shared lists).
-Commit: —
+Commit: 62292f3af
 
 ### Phase 2 — symmetry, depth and churn
 
-- [ ] Resolve the test-hook Open Decision and build it.
-- [ ] `tests/runtime/rt_recursive_value_drop_symmetry.rs` (register in `Cargo.toml`): for each
+- [x] Resolve the test-hook Open Decision and build it. — `MFB_TEST_GRAPH_DROP` build-time
+      environment hook (Corrections: test hook), landed with Phase 1 in `62292f3af`.
+- [x] `tests/runtime/rt_recursive_value_drop_symmetry.rs` (register in `Cargo.toml`): for each
       type in §1, build a value, record `arena.live_bytes`, copy, drop the copy, assert
       `live_bytes` equals the recorded value and `double_free_skips` is 0; repeat at depth
       1 000 000 (chain) and 20 000 iterations (churn), reading the result of the source after
-      each drop to prove the drop freed only the copy.
+      each drop to prove the drop freed only the copy. — Six cases, each a plain vs a hooked
+      `--debug` build: user `TYPE Node` (hook `probe,side,cur`), user `UNION Tree` with a
+      list-of-self variant and a two-`Tree`-field variant (`probeTree,leaf,branch,t`),
+      `json::Json` (`probeJson`), the regex engine's `stack`/`cont`/`node` locals (one build
+      each), a 1 000 000-deep chain, and a 20 000-iteration churn whose hooked peak must stay
+      within 64 KiB of the plain peak. Each asserts equal stdout, equal `live_bytes`, extra
+      `free_bytes` == extra `alloc_bytes`, `double_free_skips` 0, and more `alloc_calls` hooked.
+- [x] Added: runtime proof on box 2223, and a check that the test can fail. —
+      `bash /tmp/p134-f-linux.sh` (plain/hooked `-target linux-aarch64 --debug` builds run on
+      2223): deep chain `top=1000000 1000000` both, `live_bytes` 208000128 both, extra
+      alloc 96003168 = extra free 96003168; churn `total=300000` both, `live_bytes` 60162208
+      both, peaks 60163760 / 60164016; `double_free_skips` 0; `status=0`. Mutation (every drop
+      frees 16 bytes too many): `churn_frees_every_copy_as_it_goes` FAILED (hooked program
+      crashed), `a_million_deep_chain_drops_exactly_its_copy` FAILED ("freed 3248 bytes of the
+      96003168"); reverted. A +8 mutation is equivalent for blocks ≡ 8 mod 16 (`arena_free`
+      rounds sizes up to 16), which is why only the union case failed under it.
 
 Acceptance: copy-then-drop is exact for every recursive type, at depth and under churn.
   Check: `cargo test --release --test rt_recursive_value_drop_symmetry` → passed (est. 4 min).
+  Result: `6 passed; 0 failed` (196.6 s) on macOS; box 2223 as above.
 Commit: —
 
 ### Phase 3 — goldens
