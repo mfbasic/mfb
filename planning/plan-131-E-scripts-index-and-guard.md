@@ -114,7 +114,7 @@ See plan-131-A. In addition:
 
 Acceptance: the Phase 2 census passes against this README (run it locally before committing Phase 1).
 (Met: `cargo test --test scripts_index_is_complete` → 2 passed, exit 0.)
-Commit: —
+Commit: cca7e6683
 
 ### Phase 2 — Guards
 
@@ -157,7 +157,7 @@ Acceptance:
   (Met: `cargo test --test scripts_index_is_complete --test script_selftests --test gate_lock_covers_every_writer`
   → 2 + 2 + 1 passed, exit 0; five mutations each exit 101 by name.)
 
-Commit: —
+Commit: cca7e6683
 
 ### Phase 3 — Network harnesses in CI (user decision, 2026-09-12)
 
@@ -197,7 +197,7 @@ Acceptance:
   exit non-zero.
   (Met: exit 0 on glibc Linux 2223; the selftest's own four sabotaged copies each FAIL for their injected reason.)
 
-Commit: —
+Commit: 642d9c8fd
 
 ## Validation Plan
 
