@@ -151,7 +151,7 @@ Commit: 24ef14b88
 Acceptance: diffs confined to modules with a recursive type.
   Check: the gate (est. 15 min).
   Result: confined to json and regex, exactly one added function each module, re-gated clean.
-Commit: —
+Commit: 2282580ba
 
 ## Validation Plan
 
