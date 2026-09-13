@@ -211,9 +211,8 @@ jobs:
       # an ordinary desktop Linux ships with (box 2228 reads `0 2147483647`), and
       # with it the fixture reproduces its golden line for line on Linux. The
       # denied path is not lost — `scripts/check-icmp-permission.sh` manufactures
-      # the denial in a throwaway netns and asserts the raise. No step in this
-      # workflow runs it yet; it is run by hand through
-      # `scripts/check-net-harness-selftest.sh` until plan-131-E adds its CI job.
+      # the denial in a throwaway netns and asserts the raise; the `net-harness` job
+      # below runs it (through `scripts/check-net-harness-selftest.sh`) on every push.
       - name: Permit unprivileged ICMP sockets
         run: |
           cat /proc/sys/net/ipv4/ping_group_range
@@ -228,6 +227,33 @@ jobs:
         env:
           MFB_ACCEPT_RUN_TIMEOUT: "600"
         run: bash scripts/test-accept.sh target/release/mfb target/accept-actual
+
+  # Networking harnesses (plan-110-F, plan-131-E): each real-peer check — TCP connect
+  # deadline, UDP echo, TLS loopback, ICMP denial — runs as shipped and against an
+  # injected wrong expectation, so a check that cannot fail is caught. Reuses the
+  # compiled binary. Two sysctls make every leg RUN rather than SKIP (a SKIP would also
+  # make the sabotaged copy pass, which the selftest reports as a broken harness):
+  #   - ping_group_range: the ICMP baseline needs unprivileged ICMP sockets permitted,
+  #     so that denying them in a namespace is a real change;
+  #   - apparmor_restrict_unprivileged_userns: Ubuntu 24.04 blocks the unprivileged
+  #     user namespace `unshare -Urn` needs to build the ICMP-denied netns.
+  net-harness:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mfb-bin
+          path: target/release
+      - run: chmod +x target/release/mfb
+      - name: Permit unprivileged ICMP sockets and user namespaces
+        run: |
+          sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Networking harness selftest
+        run: bash scripts/check-net-harness-selftest.sh target/release/mfb
 
   # Golden/artifact byte-identity gate: execution-free codegen-dump diff. Reuses
   # the compiled binary; `all` sweeps every fixture under tests/. Also bash-only.

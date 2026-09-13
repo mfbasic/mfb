@@ -161,23 +161,41 @@ Commit: —
 
 ### Phase 3 — Network harnesses in CI (user decision, 2026-09-12)
 
-- [ ] Read `check-net-harness-selftest.sh` and the four harnesses for their host needs (python3,
+- [x] Read `check-net-harness-selftest.sh` and the four harnesses for their host needs (python3,
       openssl, `unshare -Urn` / `sandbox-exec`, loopback). Choose the runner where every leg runs
       rather than SKIPs, and record what each leg needs.
-- [ ] Add a job (or a step in an existing job) to `.github/workflows/` that builds the release
+      tcp: python3 (blackhole server). udp: python3 (echo peer). tls: openssl (identity + `s_client`), and on
+      Linux the MFBASIC client leg too. icmp: on Linux `unshare -Urn` plus a permitted baseline — the
+      harness SKIPs if ICMP is already denied or user namespaces are unavailable, and a SKIP also passes the
+      sabotaged copy, which the selftest reports as a broken harness. Runner: `ubuntu-latest`, with
+      `net.ipv4.ping_group_range` opened and `kernel.apparmor_restrict_unprivileged_userns=0` (Ubuntu 24.04
+      blocks unprivileged user namespaces).
+- [x] Add a job (or a step in an existing job) to `.github/workflows/` that builds the release
       binary and runs `bash scripts/check-net-harness-selftest.sh target/release/mfb`, failing the
       job on non-zero exit.
-- [ ] Update the `coverage.yml` comment near the ICMP-denied note, and the `scripts/README.md`
+      `net-harness` in `.github/workflows/coverage.yml`: needs `build`, downloads the `mfb-bin` artifact, sets
+      the two sysctls, runs the selftest.
+- [x] Update the `coverage.yml` comment near the ICMP-denied note, and the `scripts/README.md`
       "Run by" fields for the five network files, to name the CI job.
-- [ ] Prove the job locally as far as possible: run the exact step commands on the runner's OS
+      The acceptance job's comment now says the `net-harness` job runs the check; `scripts/README.md` names
+      CI `net-harness` for the selftest and the four harnesses it drives.
+- [x] Prove the job locally as far as possible: run the exact step commands on the runner's OS
       class (Linux box 2227/2228, or locally for macOS) → exit 0; and push nothing without asking.
       Box: 2223 (native aarch64 Linux), not the emulated 2227/2228; `bash scripts/check-net-harness-selftest.sh
       <mfb>` (est. <5 min) → exit 0.
+      First run on 2223 FAILED 7 of 8 legs: every harness ran `<name>-musl.out` on a glibc host (exit 127,
+      "required file not found"), because each took the LAST `Wrote executable to` line and a Linux build writes
+      both flavors. Fixed in all four harnesses (a `host_exe` filter keeps the flavor the host's `ldd` reports;
+      macOS writes one `.out` and passes through). After the fix: 2223 (`Linux aarch64`, `GLIBC 2.43`) →
+      8/8 `ok`, `PASS: every networking harness …`, exit 0, 5 s; macOS → 8/8 `ok`, exit 0. The CI job would
+      have been red on its first run without the fix. Nothing was pushed.
 
 Acceptance:
 - The workflow YAML parses (`python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))' <file>`).
+  (Met: `yaml.safe_load` of `coverage.yml` succeeded after the edit.)
 - The step's command exits 0 on a host of the runner's OS class, and a sabotaged harness makes it
   exit non-zero.
+  (Met: exit 0 on glibc Linux 2223; the selftest's own four sabotaged copies each FAIL for their injected reason.)
 
 Commit: —
 
@@ -197,6 +215,16 @@ Commit: —
 See plan-131-A (network harnesses in CI).
 
 ## Corrections
+
+- **2026-09-12: `scripts/` holds 43 files, not 42.** D added `remote-common-selftest.sh` beside the two
+  helpers plan-131-A §3 counted. Measured: `git ls-files scripts` after D → 43 (including `README.md`).
+- **2026-09-12: the networking harnesses never worked on Linux glibc.** Each ran the last executable a build
+  wrote, which on Linux is the musl flavor. Found by the Phase 3 proof on native box 2223 (7 of 8 legs failed
+  with exit 127); fixed with a libc-aware `host_exe` filter in all four harnesses and re-proved on 2223 and
+  macOS. The new CI job depends on this fix.
+- **2026-09-12: the 2223 proof could not set the CI job's sysctls** (`sudo: a password is required`). It did
+  not need to: 2223 already reads `ping_group_range = 0 2147483647` and has no AppArmor user-namespace
+  restriction, so every leg ran and none SKIPped.
 
 - **2026-09-12: the network-harness CI decision reverses a non-goal.** The user chose "add a CI job"
   over run-by-hand. Added Phase 3 (below) to wire `check-net-harness-selftest.sh` into CI. Plan-131-A

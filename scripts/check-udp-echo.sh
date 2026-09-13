@@ -102,13 +102,28 @@ FUNC main AS Integer
 END FUNC
 EOF
 
+# A Linux console build writes BOTH `<name>-glibc.out` and `<name>-musl.out`, and a
+# glibc host's loader cannot start the musl one (exit 127, "required file not found").
+# Keep the executable this host can run; macOS writes a single `<name>.out`.
+host_exe() {
+  if [ "$(uname -s)" = Linux ]; then
+    if ldd --version 2>&1 | head -1 | grep -qi musl; then
+      grep -- '-musl\.out$'
+    else
+      grep -- '-glibc\.out$'
+    fi
+  else
+    cat
+  fi
+}
+
 build_output=$("$MFB_EXE" build "$work" 2>&1)
 if [ $? -ne 0 ]; then
   echo "FAIL: build error" >&2
   printf '%s\n' "$build_output" >&2
   exit 1
 fi
-exe=$(printf '%s\n' "$build_output" | sed -n 's/^Wrote executable to //p' | tail -n 1)
+exe=$(printf '%s\n' "$build_output" | sed -n 's/^Wrote executable to //p' | host_exe | tail -n 1)
 
 actual=$("$exe" 2>&1)
 status=$?
