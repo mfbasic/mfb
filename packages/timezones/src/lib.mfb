@@ -26,6 +26,87 @@ DOC
   DESC the `TZ` variable, or a platform time zone API, so every host and every
   DESC target returns the same answer for the same question.
   DESC
+  DESC Zone names match ignoring case, and a link such as `US/Eastern` answers
+  DESC exactly as its target does.
+  DESC
   DESC To ask what the machine running the program considers local time, use
   DESC `datetime::local()` instead. That answer is host-scoped by design.
 END DOC
+
+' ---------------------------------------------------------------------------
+' Error codes. Every failure has a registry code (`mfb spec diagnostics
+' error-codes`), so the package defines no user codes of its own.
+' ---------------------------------------------------------------------------
+
+' 7-705-0004 errorCode::ErrNotFound — the zone name is not in the tzdb release
+' this package carries. The message names the name and the release.
+PUBLIC LET ERR_UNKNOWN_ZONE AS Integer = 77050004
+
+' ---------------------------------------------------------------------------
+' Offsets at an instant
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC offsetAt
+  GROUP Offsets
+  DESC The UTC offset, in seconds east of Greenwich, that the named zone
+  DESC applies at `at`.
+  DESC
+  DESC The answer follows RFC 8536: the zone's stored transitions up to its
+  DESC last one, and its footer rule from then on. So an instant before 1883
+  DESC in New York gets local mean time, and an instant in 2100 still gets
+  DESC daylight saving time. `at.nanos` does not matter, because every
+  DESC transition falls on a whole second.
+  ARG name A tzdb zone name, such as `America/New_York`; case is ignored.
+  ARG at The instant to ask about.
+  RET The offset in seconds, positive east of UTC.
+  ERROR 77050004 `name` is not a zone in the package's tzdb release.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT datetime
+    IMPORT io
+
+    SUB main()
+      LET winter AS datetime::Instant = datetime::instant(1768485600, 0)
+      LET summer AS datetime::Instant = datetime::instant(1784120400, 0)
+      io::print(toString(timezones::offsetAt("America/New_York", winter)))
+      io::print(toString(timezones::offsetAt("America/New_York", summer)))
+    END SUB
+  END EXAMPLE
+END DOC
+EXPORT FUNC offsetAt(name AS String, at AS datetime::Instant) AS Integer
+  RETURN localTypeAt(name, at.seconds).utoff
+END FUNC
+
+DOC
+  FUNC toZone
+  GROUP Offsets
+  DESC The named zone's rules at `at`, as a fixed-offset `datetime::Zone`:
+  DESC the offset from `timezones::offsetAt`, labelled with the tzdb
+  DESC abbreviation in force, such as `EST`, `EDT`, `LMT` or `-03`.
+  DESC
+  DESC The result is a snapshot for that instant. Its kind is
+  DESC `datetime::ZoneKind.FixedOffset`, so it keeps the same offset for
+  DESC every instant it is later applied to, including one on the other side
+  DESC of a daylight saving change. Call `toZone` again for another instant.
+  ARG name A tzdb zone name, such as `America/New_York`; case is ignored.
+  ARG at The instant whose rules to capture.
+  RET A fixed-offset zone holding the offset and abbreviation at `at`.
+  ERROR 77050004 `name` is not a zone in the package's tzdb release.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT datetime
+    IMPORT io
+
+    SUB main()
+      LET at AS datetime::Instant = datetime::instant(1784120400, 0)
+      LET zone AS datetime::Zone = timezones::toZone("America/New_York", at)
+      io::print(zone.label & " " & toString(zone.offsetSeconds))
+      io::print(datetime::toIso(datetime::inZone(at, zone)))
+    END SUB
+  END EXAMPLE
+END DOC
+EXPORT FUNC toZone(name AS String, at AS datetime::Instant) AS datetime::Zone
+  LET t AS LocalType = localTypeAt(name, at.seconds)
+  RETURN datetime::Zone[t.utoff, 1, t.abbreviation]
+END FUNC

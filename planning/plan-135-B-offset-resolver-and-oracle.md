@@ -333,29 +333,39 @@ behavior, and it concentrates the letter's risk behind its own tests.
 
 Acceptance: every evaluator case passes with values independently produced by `zoneinfo`.
   Check: `target/release/mfb test packages/timezones` → the `posix` group all `[P]`, `Fail: 0` (est. 1 min).
-Commit: —
+Commit: 28b6af197
 
 ### Phase 2 — lookup and the public members
 
-- [ ] `packages/timezones/src/zone.mfb`: `localTypeAt` per § 4.2.
-- [ ] `packages/timezones/src/lib.mfb`: `ERR_UNKNOWN_ZONE`, `offsetAt` and `toZone`, with
+- [x] `packages/timezones/src/zone.mfb`: `localTypeAt` per § 4.2. (Also holds the shared
+      `unknownZone(name) AS Error`, so the 77050004 message has one spelling.)
+- [x] `packages/timezones/src/lib.mfb`: `ERR_UNKNOWN_ZONE`, `offsetAt` and `toZone`, with
       `DOC` blocks (§ 4.3). Build each `EXAMPLE` in a scratch project that imports the
-      built `.mfp`, and record the command.
-- [ ] `packages/timezones/src/test_offsets.mfb`. Every expected value comes from a
-      `zoneinfo` one-liner pasted above the case. Cases:
-  - [ ] New York 2026-01-15 09:00 local and 2026-07-15 09:00 local: −18000 / −14400,
-        labels `EST` / `EDT`. This is the original bug-520 case.
-  - [ ] New York 1850-07-01: −17762 `LMT`, before the first transition.
-  - [ ] New York 2100-07-01: −14400, on the footer path.
-  - [ ] `Etc/GMT+5` at 0 and at 4102444800: −18000, a zone with no transitions.
-  - [ ] `US/Eastern` equals `America/New_York` at three instants.
-  - [ ] `Asia/Kolkata` 2026: 19800.
-  - [ ] Exactly at a zone's last stored transition, and one second before it.
-  - [ ] `offsetAt("Nowhere/Bogus", …)` and `offsetAt("", …)` trap `77050004`, and the
-        message contains `2026d`.
-  - [ ] Ordinal pin: `toZone("UTC", instant(0,0)).kind = 1` and
+      built `.mfp`, and record the command. (`bash /tmp/p135ex/build.sh offsetat tozone`:
+      `mfb build -q packages/timezones`, copy `timezones.mfp` into each scratch project's
+      `packages/`, `mfb build -q`, run → `offsetat` prints `-18000` / `-14400`; `tozone`
+      prints `EDT -14400` / `2026-07-15T09:00:00.000-04:00`)
+- [x] `packages/timezones/src/test_offsets.mfb`. Every expected value comes from a
+      `zoneinfo` one-liner pasted above the case. Cases (`mfb test packages/timezones` →
+      `* offsets`, 9 `[P]`, `Tests: 25  Pass: 25  Fail: 0`):
+  - [x] New York 2026-01-15 09:00 local and 2026-07-15 09:00 local: −18000 / −14400,
+        labels `EST` / `EDT`. This is the original bug-520 case. (1768485600 /
+        1784120400)
+  - [x] New York 1850-07-01: −17762 `LMT`, before the first transition. (−3771169438;
+        first stored transition −2717650800)
+  - [x] New York 2100-07-01: −14400, on the footer path. (4118097600 → `EDT`)
+  - [x] `Etc/GMT+5` at 0 and at 4102444800: −18000, a zone with no transitions.
+  - [x] `US/Eastern` equals `America/New_York` at three instants. (−3771144000,
+        1784106000, 4118083200)
+  - [x] `Asia/Kolkata` 2026: 19800. (1782844200 → `IST`)
+  - [x] Exactly at a zone's last stored transition, and one second before it. (New York's
+        last stored transition is 1173596400: 1173596399 → −18000 `EST` from the table,
+        1173596400 → −14400 `EDT` from the footer)
+  - [x] `offsetAt("Nowhere/Bogus", …)` and `offsetAt("", …)` trap `77050004`, and the
+        message contains `2026d`. (`toZone` too; the message also names the zone)
+  - [x] Ordinal pin: `toZone("UTC", instant(0,0)).kind = 1` and
         `datetime::fixedOffset(1, 0).kind = 1`.
-- [ ] README section "Offsets at an instant": `offsetAt`/`toZone` with the New York
+- [x] README section "Offsets at an instant": `offsetAt`/`toZone` with the New York
       example, and the rule that a `datetime::Zone` from `toZone` is a snapshot for that
       instant.
 

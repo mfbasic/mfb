@@ -1,0 +1,100 @@
+' ---------------------------------------------------------------------------
+' Tests: offsetAt and toZone over the zone table.
+'
+' Every expected value comes from Python zoneinfo, never from this package, run
+' in the oracle venv (tzdata==2026.4, IANA 2026d) with the host search path
+' disabled:
+'
+'   packages/timezones/oracle/.venv/bin/python -c 'import zoneinfo; zoneinfo.reset_tzpath([]);
+'     from zoneinfo import ZoneInfo; from datetime import datetime, timezone, timedelta;
+'     E = datetime(1970,1,1,tzinfo=timezone.utc);
+'     at = lambda n, s: (lambda d: (int(d.utcoffset().total_seconds()), d.tzname()))(
+'       (E + timedelta(seconds=s)).astimezone(ZoneInfo(n)));
+'     local = lambda n, *f: int((datetime(*f, tzinfo=ZoneInfo(n)) - E).total_seconds());
+'     print(...)'
+'
+' Each case's comment gives the expression and its answer.
+' ---------------------------------------------------------------------------
+
+IMPORT datetime
+IMPORT strings
+
+PRIVATE FUNC zoneShows(name AS String, seconds AS Integer) AS String
+  LET zone AS datetime::Zone = toZone(name, datetime::instant(seconds, 0))
+  RETURN toString(zone.offsetSeconds) & " " & zone.label
+END FUNC
+
+' The message offsetAt raises for `name`, or "" if it answers.
+PRIVATE FUNC unknownZoneMessage(name AS String) AS String
+  LET ignored AS Integer = offsetAt(name, datetime::instant(0, 0))
+  RETURN ""
+
+  TRAP(problem)
+    RETURN problem.message
+  END TRAP
+END FUNC
+
+TESTING
+  TGROUP "offsets"
+    ' local(NY, 2026,1,15,9) -> 1768485600, at(NY, 1768485600) -> (-18000, 'EST');
+    ' local(NY, 2026,7,15,9) -> 1784120400, at(NY, 1784120400) -> (-14400, 'EDT').
+    TCASE "New York at 09:00 in January and July 2026"
+      expectInteger(offsetAt("America/New_York", datetime::instant(1768485600, 0)), -18000)
+      expectInteger(offsetAt("America/New_York", datetime::instant(1784120400, 0)), -14400)
+      expectString(zoneShows("America/New_York", 1768485600), "-18000 EST")
+      expectString(zoneShows("America/New_York", 1784120400), "-14400 EDT")
+    END TCASE
+
+    ' local(NY, 1850,7,1) -> -3771169438, at(NY, -3771169438) -> (-17762, 'LMT').
+    ' The first stored transition is -2717650800.
+    TCASE "New York in 1850 is local mean time, before the first transition"
+      expectString(zoneShows("America/New_York", -3771169438), "-17762 LMT")
+    END TCASE
+
+    ' local(NY, 2100,7,1) -> 4118097600, at(NY, 4118097600) -> (-14400, 'EDT').
+    TCASE "New York in 2100 comes from the footer"
+      expectString(zoneShows("America/New_York", 4118097600), "-14400 EDT")
+    END TCASE
+
+    ' at('Etc/GMT+5', 0) -> (-18000, '-05'); at('Etc/GMT+5', 4102444800) -> (-18000, '-05').
+    TCASE "a zone with no transitions"
+      expectString(zoneShows("Etc/GMT+5", 0), "-18000 -05")
+      expectString(zoneShows("Etc/GMT+5", 4102444800), "-18000 -05")
+    END TCASE
+
+    ' at('US/Eastern', s) = at(NY, s) for s in -3771144000 -> (-17762, 'LMT'),
+    ' 1784106000 -> (-14400, 'EDT'), 4118083200 -> (-14400, 'EDT').
+    TCASE "a link answers exactly as its target"
+      expectString(zoneShows("US/Eastern", -3771144000), "-17762 LMT")
+      expectString(zoneShows("US/Eastern", 1784106000), "-14400 EDT")
+      expectString(zoneShows("US/Eastern", 4118083200), "-14400 EDT")
+      expectString(zoneShows("US/Eastern", 1784106000), zoneShows("America/New_York", 1784106000))
+    END TCASE
+
+    ' local('Asia/Kolkata', 2026,7,1) -> 1782844200, at(..., 1782844200) -> (19800, 'IST').
+    TCASE "Asia/Kolkata in 2026"
+      expectString(zoneShows("Asia/Kolkata", 1782844200), "19800 IST")
+    END TCASE
+
+    ' New York's last stored transition (data.mfb) is 1173596400, 2007-03-11T07:00Z.
+    ' at(NY, 1173596399) -> (-18000, 'EST'); at(NY, 1173596400) -> (-14400, 'EDT').
+    TCASE "one second before, and exactly at, the last stored transition"
+      expectString(zoneShows("America/New_York", 1173596399), "-18000 EST")
+      expectString(zoneShows("America/New_York", 1173596400), "-14400 EDT")
+    END TCASE
+
+    TCASE "an unknown or empty name raises ErrNotFound naming the release"
+      expectTrap(offsetAt("Nowhere/Bogus", datetime::instant(0, 0)), 77050004)
+      expectTrap(offsetAt("", datetime::instant(0, 0)), 77050004)
+      expectTrap(toZone("Nowhere/Bogus", datetime::instant(0, 0)), 77050004)
+      LET message AS String = unknownZoneMessage("Nowhere/Bogus")
+      expectEqual(strings::contains(message, "2026d"), TRUE)
+      expectEqual(strings::contains(message, "Nowhere/Bogus"), TRUE)
+    END TCASE
+
+    TCASE "toZone builds a FixedOffset zone, ordinal 1"
+      expectInteger(toZone("UTC", datetime::instant(0, 0)).kind, 1)
+      expectInteger(datetime::fixedOffset(1, 0).kind, 1)
+    END TCASE
+  END TGROUP
+END TESTING

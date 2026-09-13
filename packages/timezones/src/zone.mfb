@@ -1,0 +1,73 @@
+' ---------------------------------------------------------------------------
+' timezones/zone.mfb — decode a zone string and apply RFC 8536 section 3.2.
+'
+' RFC 8536 section 3.2, verbatim:
+'
+'   Local time for timestamps before the first transition is specified by the
+'   first time type (time type 0). Local time for timestamps on or after the
+'   last transition is specified by the TZ string in the footer (Section 3.3)
+'   if present and nonempty; otherwise, it is unspecified. If there are no
+'   transitions, local time for all timestamps is specified by the TZ string in
+'   the footer if present and nonempty; otherwise, it is specified by time
+'   type 0.
+'
+' A zone is decoded on every call and never cached. Arena state is per thread,
+' and the measured worst case (Asia/Hebron, 310 transitions) is about 50 us
+' per lookup.
+' ---------------------------------------------------------------------------
+
+IMPORT strings
+IMPORT collections
+
+' The local time type the named zone applies at `seconds` since the epoch.
+FUNC localTypeAt(name AS String, seconds AS Integer) AS LocalType
+  LET data AS String = zoneData(name)
+  IF data = "" THEN FAIL unknownZone(name)
+  LET fields AS List OF String = strings::split(data, "|")
+  LET types AS String = collections::get(fields, 0)
+  LET transitions AS String = collections::get(fields, 1)
+  LET footer AS String = collections::get(fields, 2)
+
+  IF transitions = "" THEN
+    IF footer <> "" THEN RETURN footerType(footer, seconds)
+    RETURN typeAt(types, 0)
+  END IF
+
+  LET records AS List OF String = strings::split(transitions, ";")
+  ' Binary search for the last transition at or before `seconds`.
+  MUT low AS Integer = 0
+  MUT high AS Integer = len(records) - 1
+  MUT found AS Integer = -1
+  WHILE low <= high
+    LET middle AS Integer = (low + high) / 2
+    IF transitionTime(collections::get(records, middle)) <= seconds THEN
+      found = middle
+      low = middle + 1
+    ELSE
+      high = middle - 1
+    END IF
+  END WHILE
+
+  IF found < 0 THEN RETURN typeAt(types, 0)
+  IF found = len(records) - 1 AND footer <> "" THEN RETURN footerType(footer, seconds)
+  RETURN typeAt(types, transitionType(collections::get(records, found)))
+END FUNC
+
+' The error an unknown zone name raises: 7-705-0004 errorCode::ErrNotFound.
+FUNC unknownZone(name AS String) AS Error
+  RETURN error(77050004, "timezones: unknown zone name \"" & name & "\" (tzdb " & tzdbVersion() & ")")
+END FUNC
+
+PRIVATE FUNC transitionTime(record AS String) AS Integer
+  RETURN toInt(collections::get(strings::split(record, ","), 0))
+END FUNC
+
+PRIVATE FUNC transitionType(record AS String) AS Integer
+  RETURN toInt(collections::get(strings::split(record, ","), 1))
+END FUNC
+
+' Time type `index` of a `utoff,isdst,abbr;...` list.
+PRIVATE FUNC typeAt(types AS String, index AS Integer) AS LocalType
+  LET parts AS List OF String = strings::split(collections::get(strings::split(types, ";"), index), ",")
+  RETURN LocalType[toInt(collections::get(parts, 0)), collections::get(parts, 1) = "1", collections::get(parts, 2)]
+END FUNC
