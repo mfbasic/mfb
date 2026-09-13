@@ -232,21 +232,38 @@ values and a reader will assume the other one.
 
 Acceptance: both members declare an empty registry `errors` vector (plan-127-A Corrections C1); the carry and
 borrow chain tests pass; the negative-zero case yields canonical zero.
-Commit: —
+Commit: 0eab11d07
 
 ### Phase 2 — multiplication and the aggregates
 
-- [ ] `gen_big.rs`: `emit_mul_magnitude` per §4.1.
-- [ ] `func_multiply.rs`, `func_sum.rs`, `func_product.rs` — all total. `sum`/`product`
+- [x] `gen_big.rs`: `emit_mul_magnitude` per §4.1. (Landed with `emit_mul_int` and
+      `emit_fold_list`, B-C3; `cargo build --release -p mfb --all-targets 2>&1 | grep -cE
+      '^(warning|error)'` → `0`.)
+- [x] `func_multiply.rs`, `func_sum.rs`, `func_product.rs` — all total. `sum`/`product`
       over an empty list return the identity (`0` and `1` respectively); state this in
-      the descriptors.
-- [ ] Tests: `multiply` against hand-computed products at 8, 64, 512 and 4096 bits;
+      the descriptors. (All three `errors: vec![]`; `func_sum.rs` DESC "An empty list sums to
+      zero", `func_product.rs` DESC "empty list multiplies to one", plus both `values` param
+      descs; `cargo test --release -p mfb --bin mfb big` → `19 passed; 0 failed`.)
+- [x] Tests: `multiply` against hand-computed products at 8, 64, 512 and 4096 bits;
       sign combinations across all four quadrants; `multiply(x, 0)` is canonical zero;
       `sum`/`product` agree with folding `add`/`multiply` over the same list;
-      empty-list identities.
-- [ ] Measure and record: one 4096-bit × 4096-bit `multiply`, and 1e4 iterations of a
+      empty-list identities. (`multiply_matches_an_independent_oracle`: operands of 1, 8, 64
+      and 512 bytes = 8/64/512/4096 bits against Python-computed products committed as byte
+      literals — re-derived by `python3 /tmp/p127-verify-mul.py` → `True` at all four sizes —
+      printing `1: TRUE 1`, `8: TRUE 16`, `64: TRUE 128`, `512: TRUE 1024`, quadrants `TRUE TRUE
+      TRUE`, zero `0 FALSE`, sum/product vs folds `TRUE TRUE`, empty `0 FALSE 1`, zero inside a
+      product `0 FALSE`; `cargo test --release --test rt_big_int` → `8 passed; 0 failed`.)
+- [x] Measure and record: one 4096-bit × 4096-bit `multiply`, and 1e4 iterations of a
       512-bit `multiply`, with the commands. Resolve Open Decision 1 against these.
-- [ ] Admit `multiply`/`sum`/`product` in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`mfb build /tmp/p127-rt-b/perf_mul && perf_mul.out`, timed by
+      `datetime::monotonicNanos` → `4096x4096: 1024 bytes in 236 us`, `512x512 x10000: 128
+      bytes, 31 ms`, macOS aarch64 release, load average 24.41. Open Decision 1 resolved: keep
+      byte limbs.)
+- [x] Admit `multiply`/`sum`/`product` in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `15` in each backend list.)
+- [x] Doc: `man-census --fill big` → `15 15 15 15 23/23 11 4/4`; `man-run-examples big --run` →
+      `examples: 21 built: 21 ran: 21 failed: 0`; `--memory-scope` → `unclassified
+      memory-vocabulary hits: 0`.
 
 Acceptance: the 4096-bit product matches an independently computed expectation
 (computed outside MFB and committed as a test constant, not produced by this code);
@@ -315,6 +332,10 @@ Commit: —
    two full passes per operation. Phase 2's measurement decides; do not switch on
    intuition. If it switches, the storage form does **not** change — only the
    emitter's internal working representation.
+   **RESOLVED (Phase 2): keep byte limbs.** Measured `4096x4096: 1024 bytes in 236 us` and
+   `512x512 x10000: 128 bytes, 31 ms` (macOS aarch64 release, load average 24.41). A 4096-bit
+   product at a quarter of a millisecond does not justify unpacking to 32-bit limbs and
+   repacking every operation.
 2. **Whether `parse` accepts a leading `+`.** **Recommend: reject it**, so that
    `toString` is the exact inverse of `parse` and there is one spelling per value.
    Alternative: accept it as a convenience, which makes `parse` non-injective on text.
@@ -334,6 +355,16 @@ Commit: —
 - **B-C6 — the "Tests" location.** The Validation Plan says `tests/rt_big_int.rs`; the file is
   `tests/runtime/rt_big_int.rs` (plan-127-A C3), built through `common::build_project` against the
   release `mfb`. Registry facts stay in-crate (`src/codegen/builtins/big/mod.rs` tests).
+- **B-C2 — `sum`/`product` release intermediate accumulators.** Not in §4.3. A fold makes a new
+  accumulator per element; `emit_fold_list` (`gen_big.rs`) releases each replaced one — the
+  identity included — at the size it was made with (`INT_DATA_OFFSET + dataCapacity`), so a
+  long fold does not pile up blocks. B-C3 applies: Phase 2 lands
+  `emit_mul_magnitude`/`emit_mul_int`/`emit_fold_list` with `multiply`/`sum`/`product`.
+- **B-C7 — "hand-computed" products are Python-computed.** Phase 2's expectation at each size is
+  Python's exact integer product of the same operands, committed as byte literals in
+  `multiply_matches_an_independent_oracle` — independent of this code, which is what the
+  acceptance criterion requires. The §2 "UNMEASURED" note says Phase 1 measures the multiply
+  cost; Phase 2 does, since `multiply` lands there.
 
 ## Summary
 

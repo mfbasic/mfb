@@ -643,3 +643,250 @@ pub(crate) fn emit_add_int(
     );
     builder.instructions.push(abi::label(&joined));
 }
+
+// ---------------------------------------------------------------------------
+// Multiplication (plan-127-B Phase 2).
+// ---------------------------------------------------------------------------
+
+/// `|a| * |b|` into a fresh result sized `countA + countB`, schoolbook over byte limbs.
+/// Returns the result's slots and the slot holding the written byte count (the full
+/// capacity; `emit_build_int` trims the top). Branches to `alloc_fail` when the result
+/// cannot be made.
+///
+/// Every partial step is `dst[i + j] + a[i] * b[j] + carry <= 255 + 255 * 255 + 255 =
+/// 65535`, so no widening multiply is needed and nothing can overflow. Row `i` writes
+/// positions `i .. i + countB`; its final carry lands in `i + countB`, which no earlier
+/// row has written (row `i - 1` stops at `i - 1 + countB`), so the carry is at most 255
+/// and needs no further propagation. The result region starts zeroed
+/// (`emit_alloc_magnitude`), which is what the accumulation reads.
+pub(crate) fn emit_mul_magnitude(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    a: &IntSlots,
+    b: &IntSlots,
+    tag: &str,
+    alloc_fail: &str,
+) -> (ResultSlots, usize) {
+    let symbol = builder.current_symbol.clone();
+    let capacity = builder.allocate_stack_object(&format!("big_{tag}_capacity"), 8);
+    let row_slot = builder.allocate_stack_object(&format!("big_{tag}_row"), 8);
+    let total = vregs.next();
+    let count_b = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&total, abi::stack_pointer(), a.count),
+        abi::load_u64(&count_b, abi::stack_pointer(), b.count),
+        abi::add_registers(&total, &total, &count_b),
+        abi::store_u64(&total, abi::stack_pointer(), capacity),
+    ]);
+    let result = emit_alloc_magnitude(builder, vregs, capacity, tag, alloc_fail);
+
+    let row_loop = format!("{symbol}_{tag}_row");
+    let row_next = format!("{symbol}_{tag}_row_next");
+    let rows_done = format!("{symbol}_{tag}_rows_done");
+    let column_loop = format!("{symbol}_{tag}_column");
+    let columns_done = format!("{symbol}_{tag}_columns_done");
+    let row = vregs.next();
+    let count_a = vregs.next();
+    builder.instructions.extend([
+        abi::move_immediate(&row, "Integer", "0"),
+        abi::store_u64(&row, abi::stack_pointer(), row_slot),
+        abi::label(&row_loop),
+        abi::load_u64(&row, abi::stack_pointer(), row_slot),
+        abi::load_u64(&count_a, abi::stack_pointer(), a.count),
+        abi::compare_registers(&row, &count_a),
+        abi::branch_eq(&rows_done),
+    ]);
+    // One row: a[row] times every byte of b, accumulated into dst[row ..].
+    let multiplier = vregs.next();
+    let data = vregs.next();
+    let row_base = vregs.next();
+    let column = vregs.next();
+    let count_b = vregs.next();
+    let data_b = vregs.next();
+    let acc = vregs.next();
+    let cursor = vregs.next();
+    let byte = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&data, abi::stack_pointer(), a.data),
+        abi::add_registers(&data, &data, &row),
+        abi::load_u8(&multiplier, &data, 0),
+        // A zero byte contributes nothing; the region is already zero there.
+        abi::compare_immediate(&multiplier, "0"),
+        abi::branch_eq(&row_next),
+        abi::load_u64(&row_base, abi::stack_pointer(), result.data),
+        abi::add_registers(&row_base, &row_base, &row),
+        abi::load_u64(&data_b, abi::stack_pointer(), b.data),
+        abi::load_u64(&count_b, abi::stack_pointer(), b.count),
+        abi::move_immediate(&column, "Integer", "0"),
+        abi::move_immediate(&acc, "Integer", "0"),
+        abi::label(&column_loop),
+        abi::compare_registers(&column, &count_b),
+        abi::branch_eq(&columns_done),
+        // acc = carry + a[row] * b[column] + dst[row + column]
+        abi::add_registers(&cursor, &data_b, &column),
+        abi::load_u8(&byte, &cursor, 0),
+        abi::multiply_registers(&byte, &byte, &multiplier),
+        abi::add_registers(&acc, &acc, &byte),
+        abi::add_registers(&cursor, &row_base, &column),
+        abi::load_u8(&byte, &cursor, 0),
+        abi::add_registers(&acc, &acc, &byte),
+        abi::store_u8(&acc, &cursor, 0),
+        abi::shift_right_immediate(&acc, &acc, 8),
+        abi::add_immediate(&column, &column, 1),
+        abi::branch(&column_loop),
+        abi::label(&columns_done),
+        // The row's carry: position row + countB, untouched by any earlier row.
+        abi::add_registers(&cursor, &row_base, &column),
+        abi::store_u8(&acc, &cursor, 0),
+        abi::label(&row_next),
+        abi::add_immediate(&row, &row, 1),
+        abi::store_u64(&row, abi::stack_pointer(), row_slot),
+        abi::branch(&row_loop),
+        abi::label(&rows_done),
+    ]);
+    (result, capacity)
+}
+
+/// `a * b` as signed numbers, normalized, in `RESULT_VALUE_REGISTER`: the magnitudes
+/// multiply and the sign is negative exactly when the operand signs differ.
+/// `emit_build_int` clears it for a zero product. Branches to `alloc_fail` when the
+/// result cannot be made.
+pub(crate) fn emit_mul_int(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    a: &IntSlots,
+    b: &IntSlots,
+    tag: &str,
+    alloc_fail: &str,
+) {
+    let sign = builder.allocate_stack_object(&format!("big_{tag}_sign"), 8);
+    let flag_a = vregs.next();
+    let flag_b = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&flag_a, abi::stack_pointer(), a.negative),
+        abi::load_u64(&flag_b, abi::stack_pointer(), b.negative),
+        abi::exclusive_or_registers(&flag_a, &flag_a, &flag_b),
+        abi::store_u64(&flag_a, abi::stack_pointer(), sign),
+    ]);
+    let (product, product_count) = emit_mul_magnitude(builder, vregs, a, b, tag, alloc_fail);
+    emit_build_int(builder, vregs, &product, product_count, sign, tag);
+}
+
+// ---------------------------------------------------------------------------
+// Aggregates (plan-127-B Phase 2).
+// ---------------------------------------------------------------------------
+
+/// Fold the `List OF big::Int` whose address is in `list_slot` into one value — a sum,
+/// or a product when `multiply` — normalized, in `RESULT_VALUE_REGISTER`. An empty list
+/// gives the identity: zero for a sum, one for a product.
+///
+/// One native call covers the whole list, which is the point of `big::sum` and
+/// `big::product`. Each step makes a fresh accumulator through `emit_add_int` /
+/// `emit_mul_int`, and the previous accumulator — this helper's own intermediate, never
+/// seen by the caller — is released at the size it was made with
+/// (`INT_DATA_OFFSET + dataCapacity`), so a long fold does not pile up blocks.
+/// Branches to `alloc_fail` when a step cannot be made.
+pub(crate) fn emit_fold_list(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    list_slot: usize,
+    multiply: bool,
+    tag: &str,
+    alloc_fail: &str,
+) {
+    let symbol = builder.current_symbol.clone();
+    let identity = if multiply { "1" } else { "0" };
+    let capacity = builder.allocate_stack_object(&format!("big_{tag}_identity_capacity"), 8);
+    let negative = builder.allocate_stack_object(&format!("big_{tag}_identity_negative"), 8);
+    let acc_slot = builder.allocate_stack_object(&format!("big_{tag}_acc"), 8);
+    let element_slot = builder.allocate_stack_object(&format!("big_{tag}_element"), 8);
+    let next_slot = builder.allocate_stack_object(&format!("big_{tag}_next"), 8);
+    let index_slot = builder.allocate_stack_object(&format!("big_{tag}_index"), 8);
+
+    // The identity: an empty magnitude (zero) or the single byte 1 (one).
+    let scratch = vregs.next();
+    builder.instructions.extend([
+        abi::move_immediate(&scratch, "Integer", identity),
+        abi::store_u64(&scratch, abi::stack_pointer(), capacity),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), negative),
+    ]);
+    let start = emit_alloc_magnitude(builder, vregs, capacity, &format!("{tag}_identity"), alloc_fail);
+    if multiply {
+        let data = vregs.next();
+        let one = vregs.next();
+        builder.instructions.extend([
+            abi::load_u64(&data, abi::stack_pointer(), start.data),
+            abi::move_immediate(&one, "Integer", "1"),
+            abi::store_u8(&one, &data, 0),
+        ]);
+    }
+    emit_build_int(builder, vregs, &start, capacity, negative, &format!("{tag}_identity"));
+
+    let fold_loop = format!("{symbol}_{tag}_fold");
+    let fold_done = format!("{symbol}_{tag}_fold_done");
+    let index = vregs.next();
+    builder.instructions.extend([
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), acc_slot),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), index_slot),
+        abi::label(&fold_loop),
+    ]);
+    // Element `index`: the lookup entry's value offset, from the data region base
+    // `list + HEADER + capacity * ENTRY` (capacity, never count).
+    let list = vregs.next();
+    let count = vregs.next();
+    let list_capacity = vregs.next();
+    let entry = vregs.next();
+    let offset = vregs.next();
+    let base = vregs.next();
+    let stride = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&index, abi::stack_pointer(), index_slot),
+        abi::load_u64(&list, abi::stack_pointer(), list_slot),
+        abi::load_u64(&count, &list, COLLECTION_OFFSET_COUNT),
+        abi::compare_registers(&index, &count),
+        abi::branch_eq(&fold_done),
+        abi::move_immediate(&stride, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&entry, &index, &stride),
+        abi::add_immediate(&entry, &entry, COLLECTION_HEADER_SIZE),
+        abi::add_registers(&entry, &list, &entry),
+        abi::load_u64(&offset, &entry, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::load_u64(&list_capacity, &list, COLLECTION_OFFSET_CAPACITY),
+        abi::multiply_registers(&base, &list_capacity, &stride),
+        abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE),
+        abi::add_registers(&base, &list, &base),
+        abi::add_registers(&base, &base, &offset),
+        abi::store_u64(&base, abi::stack_pointer(), element_slot),
+    ]);
+    let acc = emit_load_int(builder, vregs, acc_slot, &format!("{tag}_acc"));
+    let element = emit_load_int(builder, vregs, element_slot, &format!("{tag}_element"));
+    if multiply {
+        emit_mul_int(builder, vregs, &acc, &element, &format!("{tag}_step"), alloc_fail);
+    } else {
+        emit_add_int(builder, vregs, &acc, &element, false, &format!("{tag}_step"), alloc_fail);
+    }
+    // Release the accumulator this step replaced, at the size it was made with.
+    let old = vregs.next();
+    let size = vregs.next();
+    builder.instructions.extend([
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), next_slot),
+        abi::load_u64(&old, abi::stack_pointer(), acc_slot),
+        abi::add_immediate(&size, &old, INT_MAGNITUDE_BLOCK),
+        abi::load_u64(&size, &size, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate(&size, &size, INT_DATA_OFFSET),
+        abi::move_register(abi::c_arg(0), &old),
+        abi::move_register(abi::c_arg(1), &size),
+    ]);
+    emit_arena_free(&symbol, &mut builder.instructions, &mut builder.relocations);
+    let bump = vregs.next();
+    let moved = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&moved, abi::stack_pointer(), next_slot),
+        abi::store_u64(&moved, abi::stack_pointer(), acc_slot),
+        abi::load_u64(&bump, abi::stack_pointer(), index_slot),
+        abi::add_immediate(&bump, &bump, 1),
+        abi::store_u64(&bump, abi::stack_pointer(), index_slot),
+        abi::branch(&fold_loop),
+        abi::label(&fold_done),
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), acc_slot),
+    ]);
+}

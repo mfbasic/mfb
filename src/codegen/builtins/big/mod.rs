@@ -19,9 +19,12 @@ mod func_equals;
 mod func_from_bytes;
 mod func_from_integer;
 mod func_is_zero;
+mod func_multiply;
 mod func_negate;
+mod func_product;
 mod func_sign;
 mod func_subtract;
+mod func_sum;
 mod func_to_bytes;
 mod func_to_integer;
 
@@ -124,6 +127,10 @@ pub(crate) fn register(r: &mut Registry) {
     // Additive arithmetic (plan-127-B Phase 1).
     func_add::register(&mut pkg);
     func_subtract::register(&mut pkg);
+    // Multiplication and the aggregates (plan-127-B Phase 2).
+    func_multiply::register(&mut pkg);
+    func_sum::register(&mut pkg);
+    func_product::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -198,6 +205,9 @@ mod tests {
         ("big.negate", &[]),
         ("big.add", &[]),
         ("big.subtract", &[]),
+        ("big.multiply", &[]),
+        ("big.sum", &[]),
+        ("big.product", &[]),
     ];
 
     #[test]
@@ -298,6 +308,11 @@ SUB main()
   LET s AS big::Int = big::add(a, b)
   LET t AS big::Int = big::subtract(a, b)
   io::print(toString(big::sign(s)) & toString(big::sign(t)))
+  LET values AS List OF big::Int = [a, b, c]
+  LET p AS big::Int = big::multiply(a, b)
+  LET total AS big::Int = big::sum(values)
+  LET prod AS big::Int = big::product(values)
+  io::print(toString(big::sign(p)) & toString(big::sign(total)) & toString(big::sign(prod)))
 END SUB
 "#;
         for target in crate::testutil::CodeTarget::ALL {
