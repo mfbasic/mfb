@@ -314,10 +314,19 @@ const OS_HELPERS: &[(&str, Counts)] = &[
 /// `net`'s three resolvers each marshal the host name for `getaddrinfo`; the rest
 /// of their allocations build the `List OF net::Address` / `net::PingResult` they
 /// return.
+///
+/// bug-599: every helper that builds a `net::Address` through
+/// `emit_address_from_sockaddr` also frees that builder's 64-byte `inet_ntop`
+/// buffer, inline and right after the host `String` is copied out of it — one
+/// UNGUARDED free per address built, sound without a null guard because it is
+/// reached only past the buffer's own successful allocation (`alloc_fail` branches
+/// away first), never from `done`. `lookup` adds a second: the 16-byte record whose
+/// two words it copies into the list. Neither is a block any helper returns: the
+/// host `String` and the list stay allocated.
 const NET_HELPERS: &[(&str, Counts)] = &[
-    ("_mfb_rt_net_net_lookup", (5, 1, 1)),
-    ("_mfb_rt_net_net_ping", (7, 1, 1)),
-    ("_mfb_rt_net_net_pingAddr", (7, 1, 1)),
+    ("_mfb_rt_net_net_lookup", (5, 3, 1)),
+    ("_mfb_rt_net_net_ping", (7, 2, 1)),
+    ("_mfb_rt_net_net_pingAddr", (7, 2, 1)),
 ];
 
 /// `tcp::connect`/`connectAddr`/`listen` all route through the shared endpoint
@@ -330,11 +339,11 @@ const TCP_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_tcp_tcp_connect", (2, 1, 1)),
     ("_mfb_rt_tcp_tcp_connectAddr", (2, 1, 1)),
     ("_mfb_rt_tcp_tcp_listen", (2, 1, 1)),
-    ("_mfb_rt_tcp_tcp_localAddress", (3, 0, 0)),
+    ("_mfb_rt_tcp_tcp_localAddress", (3, 1, 0)),
     ("_mfb_rt_tcp_tcp_poll", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_pollList", (1, 3, 0)),
     ("_mfb_rt_tcp_tcp_read", (2, 0, 0)),
-    ("_mfb_rt_tcp_tcp_remoteAddress", (3, 0, 0)),
+    ("_mfb_rt_tcp_tcp_remoteAddress", (3, 1, 0)),
     ("_mfb_rt_tcp_tcp_setReadTimeout", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_setWriteTimeout", (0, 0, 0)),
     ("_mfb_rt_tcp_tcp_write", (0, 0, 0)),
@@ -347,10 +356,10 @@ const TCP_HELPERS: &[(&str, Counts)] = &[
 const UDP_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_udp_udp_bind", (2, 1, 1)),
     ("_mfb_rt_udp_udp_close", (0, 0, 0)),
-    ("_mfb_rt_udp_udp_localAddress", (3, 0, 0)),
+    ("_mfb_rt_udp_udp_localAddress", (3, 1, 0)),
     ("_mfb_rt_udp_udp_poll", (0, 0, 0)),
     ("_mfb_rt_udp_udp_pollList", (1, 3, 0)),
-    ("_mfb_rt_udp_udp_receive", (6, 0, 0)),
+    ("_mfb_rt_udp_udp_receive", (6, 1, 0)),
     ("_mfb_rt_udp_udp_send", (1, 1, 1)),
     ("_mfb_rt_udp_udp_sendText", (1, 1, 1)),
     ("_mfb_rt_udp_udp_setReadTimeout", (0, 0, 0)),
@@ -406,8 +415,8 @@ const TLS_HELPERS_OPENSSL: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_connect", (4, 2, 2)),
     ("_mfb_rt_tls_tls_connectAddr", (4, 2, 2)),
     ("_mfb_rt_tls_tls_listen", (4, 3, 3)),
-    ("_mfb_rt_tls_tls_localAddress", (3, 0, 0)),
-    ("_mfb_rt_tls_tls_localAddressListener", (3, 0, 0)),
+    ("_mfb_rt_tls_tls_localAddress", (3, 1, 0)),
+    ("_mfb_rt_tls_tls_localAddressListener", (3, 1, 0)),
     ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
     ("_mfb_rt_tls_tls_read", (2, 0, 0)),
@@ -442,7 +451,7 @@ const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_connect", (4, 2, 2)),
     ("_mfb_rt_tls_tls_connectAddr", (4, 2, 2)),
     ("_mfb_rt_tls_tls_listen", (7, 2, 2)),
-    ("_mfb_rt_tls_tls_localAddress", (3, 0, 0)),
+    ("_mfb_rt_tls_tls_localAddress", (3, 1, 0)),
     ("_mfb_rt_tls_tls_localAddressListener", (2, 0, 0)),
     ("_mfb_rt_tls_tls_poll", (1, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
@@ -464,8 +473,8 @@ const TLS_HELPERS_SCHANNEL: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_connect", (5, 1, 1)),
     ("_mfb_rt_tls_tls_connectAddr", (5, 1, 1)),
     ("_mfb_rt_tls_tls_listen", (9, 1, 1)),
-    ("_mfb_rt_tls_tls_localAddress", (3, 0, 0)),
-    ("_mfb_rt_tls_tls_localAddressListener", (3, 0, 0)),
+    ("_mfb_rt_tls_tls_localAddress", (3, 1, 0)),
+    ("_mfb_rt_tls_tls_localAddressListener", (3, 1, 0)),
     ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
     ("_mfb_rt_tls_tls_read", (2, 0, 0)),

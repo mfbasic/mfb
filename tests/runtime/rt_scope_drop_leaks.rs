@@ -5437,3 +5437,129 @@ fn a_borrowed_get_with_a_fresh_key_operand_runs_at_constant_rss() {
         400_000,
     );
 }
+
+// ---------------------------------------------------------------- bug-599
+
+/// bug-599 positive pin. The `net::Address` builder now frees its `inet_ntop`
+/// scratch buffer, and `net::lookup` frees the temporary record whose two words it
+/// copies into the list, so the failure direction is a block freed while an
+/// `Address` still points at it: a host that reads back empty or garbled, or a
+/// port read from a clobbered record. The builder parks the record pointer across
+/// the free and writes the PORT after it, so the port is the sharpest witness.
+///
+/// Every value is read back after churn that would recycle a freed block:
+///
+/// * `kept` — an element copied out of a list that was the callee's local, read
+///   after 500 further lookups;
+/// * `total` — each element read both by iteration and by index inside the loop;
+/// * `iter` — the plain `FOR EACH` output;
+/// * `tcp`/`datagram` — the builder's other callers (`localAddress`,
+///   `udp::receive`'s nested `from`);
+/// * `trapped`/`propagated` — bug-593's error shapes on a failing lookup, which
+///   must still report their code and origin line.
+///
+/// The error MESSAGE is not asserted: resolver wording is the platform's. Measured
+/// identical, line for line, against the compiler before the change.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const SHAPE_599_ADDRESS_VALUES: &str = "IMPORT io\n\
+IMPORT net\n\
+IMPORT tcp\n\
+IMPORT udp\n\
+IMPORT collections\n\
+FUNC firstOf(host AS String, port AS Integer) AS net::Address\n\
+  LET found = net::lookup(host, port)\n\
+  RETURN collections::get(found, 0)\n\
+END FUNC\n\
+FUNC failing(host AS String) AS Integer\n\
+  LET xs = net::lookup(host)\n\
+  RETURN len(xs)\n\
+END FUNC\n\
+FUNC main AS Integer\n\
+  LET kept = firstOf(\"127.0.0.1\", 8080)\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < 500\n\
+    LET xs = net::lookup(\"127.0.0.1\", 443)\n\
+    FOR EACH a IN xs\n\
+      total = total + len(a.host) + a.port\n\
+    NEXT\n\
+    LET e0 = collections::get(xs, 0)\n\
+    total = total + e0.port\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"kept \" & kept.host & \":\" & toString(kept.port))\n\
+  io::print(\"total \" & toString(total))\n\
+  FOR EACH a IN net::lookup(\"127.0.0.1\", 53)\n\
+    io::print(\"iter \" & a.host & \":\" & toString(a.port))\n\
+  NEXT\n\
+  RES server = tcp::listen(\"127.0.0.1\", 0)\n\
+  MUT stable AS Boolean = TRUE\n\
+  LET first = tcp::localAddress(server)\n\
+  MUT j AS Integer = 0\n\
+  WHILE j < 500\n\
+    LET b = tcp::localAddress(server)\n\
+    IF b.port <> first.port OR b.host <> \"127.0.0.1\" THEN\n\
+      stable = FALSE\n\
+    END IF\n\
+    j = j + 1\n\
+  END WHILE\n\
+  io::print(\"tcp \" & first.host & \" stable=\" & toString(stable) & \" portOk=\" & toString(first.port > 0))\n\
+  RES sock = udp::bind(\"127.0.0.1\", 0)\n\
+  LET at = udp::localAddress(sock)\n\
+  RES peer = udp::bind(\"127.0.0.1\", 0)\n\
+  udp::send(peer, at, \"ping\")\n\
+  LET dg = udp::receive(sock, 5000)\n\
+  io::print(\"datagram \" & dg.from.host & \" \" & toString(len(dg.bytes)) & \" portOk=\" & toString(dg.from.port > 0))\n\
+  LET bad = net::lookup(\"no-such-host.invalid\") TRAP(e)\n\
+    io::print(\"trapped code=\" & toString(e.code))\n\
+    RECOVER []\n\
+  END TRAP\n\
+  io::print(\"bad \" & toString(len(bad)))\n\
+  LET n = failing(\"no-such-host.invalid\") TRAP(e2)\n\
+    io::print(\"propagated code=\" & toString(e2.code) & \" line=\" & toString(e2.source.line))\n\
+    RECOVER -1\n\
+  END TRAP\n\
+  io::print(\"n \" & toString(n))\n\
+  RETURN 0\n\
+END FUNC\n";
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn every_address_reads_back_after_its_builder_scratch_is_freed() {
+    let expected = [
+        "kept 127.0.0.1:8080".to_string(),
+        // 500 iterations x (len("127.0.0.1") + 443 iterated + 443 indexed).
+        format!("total {}", 500 * (9 + 443 + 443)),
+        "iter 127.0.0.1:53".to_string(),
+        "tcp 127.0.0.1 stable=TRUE portOk=TRUE".to_string(),
+        "datagram 127.0.0.1 4 portOk=TRUE".to_string(),
+        "trapped code=77070002".to_string(),
+        "bad 0".to_string(),
+        "propagated code=77070002 line=11".to_string(),
+        "n -1".to_string(),
+    ]
+    .join("\n");
+    let project = common::temp_project("b599_address_values", SHAPE_599_ADDRESS_VALUES);
+    let exe = common::build_project(&project);
+    for run in 1..=5 {
+        let output = std::process::Command::new(&exe)
+            .current_dir(&project)
+            .output()
+            .expect("run the net::Address read-back probe");
+        assert!(
+            output.status.success(),
+            "run {run}: {}\n{}",
+            common::exit_description(&output.status),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected,
+            "run {run}: a net::Address read back wrong. bug-599 frees the address \
+             builder's scratch buffer and lookup's temporary record — a wrong \
+             `host` means a freed block was still referenced, a wrong `port` that \
+             the record pointer was not restored across the free"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&project);
+}
