@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-12
-Open bugs: **9** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **8** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — integration rounds and what they taught
 
@@ -19,8 +19,7 @@ Open bugs: **9** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 | 597 | MED | `e633cefff` | `tls::listen("")` binds every interface on Linux and Windows (bug-113's `getaddrinfo(NULL, NULL)` defect in the TLS helpers); runtime-proven on boxes 2223 and 2230 |
 | 594 | MED | round 4 `b5c8757a4` | macOS `term::drawText` advances the column for a control character |
 | 592 | MED | round 3 `6ca7e8b8e` | an unbound `collections::get`/`getOr` `String` element has an owner (`os.prog` joined the fresh-result census after a lowering audit) |
-| 540 | MED | round 3 `6ca7e8b8e` | WIN-04 only: Windows `term::drawText` shares `io::write`'s cluster walk — **stays OPEN** (WIN-02/03 decision; Windows smoke run owed) |
-| 564 | MED | docs `77038ccc0` | sighting 2 reproduced (6/600 → 0/600 with a store reorder) and root-caused; the reorder is not landable until the AArch64 encoder can emit `STLR` — an agent is adding it |
+| 540 | MED | round 3 `6ca7e8b8e` | WIN-04 only: Windows `term::drawText` shares `io::write`'s cluster walk — **stays OPEN** (WIN-02/03 decision); the Windows smoke run on box 2230 passed (`e791bc158`) |
 | 576 | MED | round 2 `2f40cf6b4` | an unbound runtime-helper `String` result has an owner |
 | 590 | HIGH | round 2 `2f40cf6b4` | a non-finite `Float` from a builtin call no longer escapes the observation boundary |
 | 575 | MED | round 2 `2f40cf6b4` | the `String` argument every `tls::` call marshals is released |
@@ -38,12 +37,14 @@ release unit suite 4137 passed, 0 failed; merged `rt_scope_drop_leaks` 110 passe
 Round 4 (594) was verified the same way: artifact gate 0 diffs; merged release unit suite
 4137 passed; `cli_macos_app_term_draw_text` 3 passed (the gate is blind to app mode).
 
-**In flight:** 472 (the man-example CI gate) integrated with 596 on main — merged-tree
-artifact gate 0 diffs, Linux whole-corpus sweep 1029 examples / 0 failed, and the merged
-unit suite and a clean re-sweep are running; 593 with an agent (fix committed on its
-branch); 564's `STLR`/`LDAR` store-release ops with an agent (fix committed on its branch).
+**In flight:** nothing. No agents are running. Every bug worked this stretch has landed;
+the ones that stay open (540, 564, 599, 601, 581) are blocked only on the owner decisions
+below. The remaining open docs (484, 520, 536) are large planned work, not quick fixes.
 
-**Filed this stretch:** 597 and 596 (both found by the 472 gate's first sweep — a Linux/
+**Filed this stretch:** 601 (HIGH — a `MUT` copy of a non-flat list aliases its source and
+an in-place `append` then segfaults; found while fixing 599), 600 (a timed-out test run
+orphaned its program's children — two probes spun ~5 days), 599 (a `List OF net::Address` is
+never freed; found while fixing 593), 597 and 596 (both found by the 472 gate's first sweep — a Linux/
 Windows `tls::listen("")` runtime defect and a bug-477 named-argument regression), 595
 (found by the same sweep: a `STATE` type name is never resolved — unlocated
 `TYPE_STATE_INVALID`, internal `pkg.Name` spelling in a mismatch message), 593 (a
