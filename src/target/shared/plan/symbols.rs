@@ -195,6 +195,20 @@ pub(super) fn platform_imports(
             }
         }
     }
+    // plan-130-D: OS calls a `--debug` report section makes directly (the `process`
+    // section's `getrusage` / `K32GetProcessMemoryInfo`). Attributed to the program
+    // entry for the same reason as the lock imports below.
+    if let Some(entry) = platform
+        .entry_imports(module)
+        .first()
+        .map(|import| import.required_by.clone())
+    {
+        for feature in crate::codegen::debug::active_features(module) {
+            for import in feature.os_imports(platform, &entry) {
+                push_platform_import(&mut imports, import);
+            }
+        }
+    }
     // plan-130-C: a `--debug` report helper that takes a process-global lock (the arena
     // registry's register helper) calls the platform mutex through the thread seam, so
     // the program needs the lock/unlock imports (matching the Win32 SRW names as well as

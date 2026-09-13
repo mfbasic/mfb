@@ -731,6 +731,13 @@ impl NativePlanPlatform for Platform {
         }
     }
 
+    fn peak_rss_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![
+            import("GetCurrentProcess", KERNEL32, required_by),
+            import("K32GetProcessMemoryInfo", KERNEL32, required_by),
+        ]
+    }
+
     fn native_call_imports(&self, _target: &str, _required_by: &str) -> Vec<PlatformImport> {
         Vec::new()
     }

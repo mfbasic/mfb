@@ -723,6 +723,14 @@ impl DebugFeature for ArenaFeature {
         &[]
     }
 
+    fn os_imports(
+        &self,
+        _platform: &dyn crate::target::shared::plan::NativePlanPlatform,
+        _required_by: &str,
+    ) -> Vec<crate::target::shared::plan::PlatformImport> {
+        Vec::new()
+    }
+
     fn lock_helpers(&self) -> &'static [&'static str] {
         &[DEBUG_ARENA_REGISTER_SYMBOL]
     }

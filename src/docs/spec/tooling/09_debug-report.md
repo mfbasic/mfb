@@ -89,6 +89,7 @@ Sections print in the order of the compiler's feature registry,
 | | `arena.<n>.double_free_skips` | frees skipped because the chunk was already free |
 | | `arena.<n>.live_bytes`, `.peak_live_bytes` | bytes allocated and not yet freed when the report ran, and the most ever held at once |
 | | `arena.<n>.flushes`, `.insert_free_calls` | free-list coalescing passes, and chunks inserted into the coalescing free list |
+| `process` | `process.peak_rss_bytes` | the most physical memory the process has held at once, in bytes, as the operating system counts it when the report runs: `ru_maxrss` from `getrusage` on macOS and Linux (Linux's KiB scaled to bytes), `PeakWorkingSetSize` from `K32GetProcessMemoryInfo` on Windows; `0` if the call fails |
 
 The `arena` section is emitted for every target. Every arena registers in a
 shared table when it is created, and each allocator helper adds to its own

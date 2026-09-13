@@ -35,9 +35,10 @@ fn host_target() -> &'static str {
 }
 
 /// Assert a report block's shape: the core section for `build`, then each registered
-/// section's `<key> <value>` lines (the `arena` section everywhere; the `perf` section
-/// only on macOS, plan-130-B, where its lines must include the six statistics of the
-/// whole-program span), then the end line. Returns the `perf.` lines (none off macOS).
+/// section's `<key> <value>` lines (the `arena` and `process` sections everywhere, with
+/// exactly one positive `process.peak_rss_bytes`; the `perf` section only on macOS,
+/// plan-130-B, where its lines must include the six statistics of the whole-program
+/// span), then the end line. Returns the `perf.` lines (none off macOS).
 fn assert_block(case: &str, block: &[String], build: &str) -> Vec<String> {
     let head = [
         "mfb.debug.begin 1".to_string(),
@@ -60,14 +61,22 @@ fn assert_block(case: &str, block: &[String], build: &str) -> Vec<String> {
             .split_once(' ')
             .unwrap_or_else(|| panic!("{case}: `{line}` is not `<key> <value>`"));
         assert!(
-            ["perf.", "arena."]
+            ["perf.", "arena.", "process."]
                 .iter()
                 .any(|prefix| key.starts_with(prefix))
                 && !value.is_empty()
                 && !value.contains(' '),
-            "{case}: `{line}` is not a `perf.`/`arena.` section line"
+            "{case}: `{line}` is not a `perf.`/`arena.`/`process.` section line"
         );
     }
+    let peak_rss = body
+        .iter()
+        .filter_map(|line| line.strip_prefix("process.peak_rss_bytes "))
+        .collect::<Vec<_>>();
+    assert!(
+        peak_rss.len() == 1 && peak_rss[0].parse::<u64>().is_ok_and(|bytes| bytes > 0),
+        "{case}: expected one positive `process.peak_rss_bytes <n>` line in {body:?}"
+    );
     let perf: Vec<String> = body
         .iter()
         .filter(|line| line.starts_with("perf."))
@@ -347,6 +356,67 @@ fn build_ncode(name: &str, source: &str, target: &str, debug: bool) -> serde_jso
 
 fn functions(plan: &serde_json::Value) -> &Vec<serde_json::Value> {
     plan["functions"].as_array().expect("functions array")
+}
+
+/// The report's value of `key` (`<key> <u64>`), from a `--debug` run's stderr.
+fn report_value(case: &str, stderr: &str, key: &str) -> u64 {
+    let (_, block) = split_report(case, stderr);
+    let prefix = format!("{key} ");
+    block
+        .iter()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_else(|| panic!("{case}: no `{key} <n>` in {block:?}"))
+}
+
+/// plan-130-D: a program that builds a 64 MiB string reports a peak resident set
+/// size of at least 64 MiB — the value is bytes on every target (Linux's KiB are
+/// scaled) and counts memory the process touched.
+#[test]
+fn a_64_mib_string_reports_at_least_64_mib_peak_rss() {
+    let source = "IMPORT io\n\nFUNC main AS Integer\n  MUT s AS String = \"x\"\n  FOR i = 1 TO 26\n    s = s & s\n  NEXT\n  io::print(toString(len(s)))\n  RETURN 0\nEND FUNC\n";
+    let run = run(&build("dbg_peak_rss", source, true));
+    assert!(run.status.success(), "dbg_peak_rss failed: {}", run.stderr);
+    assert_eq!(run.stdout.trim(), "67108864");
+    let (_, block) = split_report("dbg_peak_rss", &run.stderr);
+    assert_block("dbg_peak_rss", &block, "console");
+    let peak = report_value("dbg_peak_rss", &run.stderr, "process.peak_rss_bytes");
+    assert!(
+        peak >= 64 * 1024 * 1024,
+        "dbg_peak_rss: process.peak_rss_bytes {peak} is below 64 MiB"
+    );
+}
+
+/// plan-130-D: only a `--debug` build references the peak-RSS call, on every
+/// target — a normal build's import table gains nothing.
+#[test]
+fn only_a_debug_build_imports_the_peak_rss_call() {
+    let source = "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n";
+    for (target, calls) in [
+        ("macos-aarch64", &["_getrusage"][..]),
+        ("linux-aarch64", &["getrusage"][..]),
+        ("linux-x86_64", &["getrusage"][..]),
+        ("linux-riscv64", &["getrusage"][..]),
+        (
+            "windows-x86_64",
+            &["GetCurrentProcess\"", "K32GetProcessMemoryInfo"][..],
+        ),
+    ] {
+        let slug = target.replace('-', "_");
+        let normal =
+            build_ncode(&format!("dbgrss_{slug}_normal"), source, target, false).to_string();
+        let debug = build_ncode(&format!("dbgrss_{slug}_debug"), source, target, true).to_string();
+        for call in calls {
+            assert!(
+                !normal.contains(call),
+                "{target}: a build without --debug references {call}"
+            );
+            assert!(
+                debug.contains(call),
+                "{target}: a --debug build does not reference {call}"
+            );
+        }
+    }
 }
 
 /// plan-130-A Phase 3: the call site on the four targets this host cannot run.

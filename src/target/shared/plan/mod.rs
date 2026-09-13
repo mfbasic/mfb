@@ -193,6 +193,9 @@ pub(crate) trait NativePlanPlatform {
     fn program_exit_imports(&self, required_by: &str) -> Vec<PlatformImport>;
     fn runtime_imports(&self, spec: &runtime::RuntimeHelperSpec) -> Vec<PlatformImport>;
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport>;
+    /// The imports a `--debug` report's `process` section calls to read the peak
+    /// resident set size (plan-130-D), attributed to `required_by`.
+    fn peak_rss_imports(&self, required_by: &str) -> Vec<PlatformImport>;
     /// The libc imports (`dlopen`/`dlsym`) the per-library `LINK` initializer
     /// needs to resolve user binding symbols at load time (plan-linker.md §12.1).
     fn link_imports(&self, required_by: &str) -> Vec<PlatformImport>;
@@ -462,6 +465,14 @@ mod tests {
             vec![PlatformImport {
                 library: "testRuntime".to_string(),
                 symbol: "test_program_exit".to_string(),
+                required_by: required_by.to_string(),
+            }]
+        }
+
+        fn peak_rss_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+            vec![PlatformImport {
+                library: "testRuntime".to_string(),
+                symbol: "test_peak_rss".to_string(),
                 required_by: required_by.to_string(),
             }]
         }

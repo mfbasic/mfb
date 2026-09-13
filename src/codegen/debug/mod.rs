@@ -17,6 +17,7 @@
 
 pub(crate) mod arena;
 mod perf;
+pub(crate) mod process;
 mod shutdown;
 #[cfg(test)]
 mod tests;
@@ -95,6 +96,14 @@ pub(crate) trait DebugFeature: Sync {
     fn runtime_calls(&self) -> &'static [&'static str];
     /// Runtime calls whose platform imports this feature's code needs.
     fn import_calls(&self) -> &'static [&'static str];
+    /// Operating-system imports this feature's code calls directly, not through a
+    /// runtime call (e.g. `getrusage`). Each backend names its own symbols and
+    /// libraries; the plan attributes them to `required_by`, the program entry.
+    fn os_imports(
+        &self,
+        platform: &dyn crate::target::shared::plan::NativePlanPlatform,
+        required_by: &str,
+    ) -> Vec<crate::target::shared::plan::PlatformImport>;
     /// Helper symbols of this feature that take the platform mutex (`pthread_mutex_lock`
     /// / `unlock`, an SRWLOCK on Windows) and so need exactly those imports.
     fn lock_helpers(&self) -> &'static [&'static str];
@@ -106,8 +115,12 @@ pub(crate) trait DebugFeature: Sync {
 }
 
 /// The report's sections, in the order they print.
-pub(crate) static DEBUG_FEATURES: &[&dyn DebugFeature] =
-    &[&CoreSection, &perf::PerfFeature, &arena::ArenaFeature];
+pub(crate) static DEBUG_FEATURES: &[&dyn DebugFeature] = &[
+    &CoreSection,
+    &perf::PerfFeature,
+    &arena::ArenaFeature,
+    &process::ProcessFeature,
+];
 
 /// Whether `module` carries the report: a `--debug` build of a program with an
 /// entry (a package or entry-less module has no `_mfb_shutdown` to report from).
@@ -248,6 +261,14 @@ impl DebugFeature for CoreSection {
 
     fn import_calls(&self) -> &'static [&'static str] {
         &[]
+    }
+
+    fn os_imports(
+        &self,
+        _platform: &dyn crate::target::shared::plan::NativePlanPlatform,
+        _required_by: &str,
+    ) -> Vec<crate::target::shared::plan::PlatformImport> {
+        Vec::new()
     }
 
     fn lock_helpers(&self) -> &'static [&'static str] {

@@ -23,10 +23,15 @@ const SOURCE: &str = "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n";
 /// arena registry's register helper takes (a real plan attributes those to it through
 /// `DebugFeature::lock_helpers`, `plan::symbols::platform_imports`).
 fn imports() -> HashMap<String, String> {
-    ["_write", "_pthread_mutex_lock", "_pthread_mutex_unlock"]
-        .into_iter()
-        .map(|symbol| (symbol.to_string(), "libSystem".to_string()))
-        .collect()
+    [
+        "_write",
+        "_pthread_mutex_lock",
+        "_pthread_mutex_unlock",
+        "_getrusage",
+    ]
+    .into_iter()
+    .map(|symbol| (symbol.to_string(), "libSystem".to_string()))
+    .collect()
 }
 
 fn module(debug: bool) -> NirModule {

@@ -248,7 +248,7 @@ Commit: 99ce67004
       live volume is. `unmaps 0` because the program exits through the error path.
 
 Acceptance: strace equality holds on 2223; reports recorded for all five targets.
-Commit: —
+Commit: abb7246a3
 
 ### Phase 4 — docs
 
@@ -268,7 +268,7 @@ Commit: —
       `mfb spec tooling debug-report` and `mfb spec memory arenas` render the new text.
 
 Acceptance: the three suites green; `citations_resolve` green.
-Commit: —
+Commit: abb7246a3
 
 ## Validation Plan
 
