@@ -268,20 +268,32 @@ Commit: 0eab11d07
 Acceptance: the 4096-bit product matches an independently computed expectation
 (computed outside MFB and committed as a test constant, not produced by this code);
 all three members declare an empty registry `errors` vector (plan-127-A C1).
-Commit: —
+Commit: bbbcdb322
 
 ### Phase 3 — bit operations
 
-- [ ] `func_bit_length.rs`, `func_shift_left.rs`, `func_shift_right.rs`,
-      `func_test_bit.rs`.
-- [ ] Tests: `bitLength` of zero is `0`, of `1` is `1`, of `255` is `8`, of `256` is `9`;
+- [x] `func_bit_length.rs`, `func_shift_left.rs`, `func_shift_right.rs`,
+      `func_test_bit.rs`. (With `emit_reject_negative`, `emit_shift_left_magnitude`,
+      `emit_shift_right_magnitude`, B-C3; build `grep -cE '^(warning|error)'` → `0`; `errors`:
+      `bitLength` `vec![]`, the other three `vec!["ErrInvalidArgument"]`; `cargo test --release -p
+      mfb --bin mfb big` → `19 passed; 0 failed`.)
+- [x] Tests: `bitLength` of zero is `0`, of `1` is `1`, of `255` is `8`, of `256` is `9`;
       `shiftLeft(x, 8)` equals `multiply(x, fromInteger(256))`;
       `shiftRight(shiftLeft(x, n), n) = x`;
       `shiftRight` of a negative truncates toward zero and preserves sign;
       `testBit` agrees with `shiftRight`+`isZero` across a spread;
       each of the three fallible members raises `ErrInvalidArgument` on a negative
-      count/index.
-- [ ] Admit the four bit members in all three backend `runtime_calls` lists (plan-127-A C2).
+      count/index. (`bit_operations` in `tests/runtime/rt_big_int.rs` → `0 1 8 9 9` (0, 1, 255,
+      256, -256), `shiftLeft 8 = multiply 256: 0 mismatches`, `shiftLeft n = multiply 2^n: 0 of
+      384` (n in 1..64 over six magnitudes of both signs), `shiftRight(shiftLeft): 0 of 384`,
+      `testBit: 0 of 282`, `-3 3` for ±7 >> 1, shift-out and zero-shift `0 FALSE`, `raised
+      77050002 | raised 77050002 | raised 77050002`, count 0 `1 | 1 | TRUE`; `cargo test --release
+      --test rt_big_int` → `9 passed; 0 failed`.)
+- [x] Admit the four bit members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `19` in each backend list.)
+- [x] Doc: `man-census --fill big` → `19 19 19 19 30/30 11 4/4`; `man-run-examples big --run` →
+      `examples: 25 built: 25 ran: 25 failed: 0`; `--memory-scope` → `unclassified
+      memory-vocabulary hits: 0`.
 
 Acceptance: the shift/multiply equivalence holds for `n` in 1..64 across several
 magnitudes, and the three negative-argument cases each raise `ErrInvalidArgument`.
@@ -365,6 +377,14 @@ Commit: —
   `multiply_matches_an_independent_oracle` — independent of this code, which is what the
   acceptance criterion requires. The §2 "UNMEASURED" note says Phase 1 measures the multiply
   cost; Phase 2 does, since `multiply` lands there.
+- **B-C5 — a test-program defect, not a plan defect, found on the way:** the first `bitLength`
+  draft read the byte one past the magnitude's top (`0 0 0 8 8` for 0/1/255/256/-256); the
+  Phase 3 program caught it before any commit, and the shipped emitter reads `data + count - 1`.
+- **B-C8 — the `testBit` reference isolates bit `i` without `AND`.** There is no `and` on
+  `big::Int` (§1 non-goal), so `bit_operations` derives the expectation as
+  `NOT isZero(shiftRight(|x|, i) - shiftLeft(shiftRight(|x|, i + 1), 1))` — `shiftRight` plus
+  `isZero` as the task names, with the higher bits removed. It runs to `bitLength(x) + 8`, so
+  the bits above the top are checked to be clear.
 
 ## Summary
 

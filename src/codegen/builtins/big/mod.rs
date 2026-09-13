@@ -14,6 +14,7 @@ use crate::types::ParameterType;
 
 mod func_abs;
 mod func_add;
+mod func_bit_length;
 mod func_compare;
 mod func_equals;
 mod func_from_bytes;
@@ -22,9 +23,12 @@ mod func_is_zero;
 mod func_multiply;
 mod func_negate;
 mod func_product;
+mod func_shift_left;
+mod func_shift_right;
 mod func_sign;
 mod func_subtract;
 mod func_sum;
+mod func_test_bit;
 mod func_to_bytes;
 mod func_to_integer;
 
@@ -131,6 +135,11 @@ pub(crate) fn register(r: &mut Registry) {
     func_multiply::register(&mut pkg);
     func_sum::register(&mut pkg);
     func_product::register(&mut pkg);
+    // Bit operations (plan-127-B Phase 3).
+    func_bit_length::register(&mut pkg);
+    func_shift_left::register(&mut pkg);
+    func_shift_right::register(&mut pkg);
+    func_test_bit::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -208,6 +217,10 @@ mod tests {
         ("big.multiply", &[]),
         ("big.sum", &[]),
         ("big.product", &[]),
+        ("big.bitLength", &[]),
+        ("big.shiftLeft", &["ErrInvalidArgument"]),
+        ("big.shiftRight", &["ErrInvalidArgument"]),
+        ("big.testBit", &["ErrInvalidArgument"]),
     ];
 
     #[test]
@@ -313,6 +326,10 @@ SUB main()
   LET total AS big::Int = big::sum(values)
   LET prod AS big::Int = big::product(values)
   io::print(toString(big::sign(p)) & toString(big::sign(total)) & toString(big::sign(prod)))
+  io::print(toString(big::bitLength(s)) & toString(big::testBit(t, 3)))
+  LET left AS big::Int = big::shiftLeft(p, 9)
+  LET right AS big::Int = big::shiftRight(total, 2)
+  io::print(toString(big::sign(left)) & toString(big::sign(right)))
 END SUB
 "#;
         for target in crate::testutil::CodeTarget::ALL {

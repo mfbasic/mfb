@@ -508,3 +508,118 @@ END SUB
         ]
     );
 }
+
+/// plan-127-B Phase 3: `bitLength` at the byte boundaries; `shiftLeft` against `multiply`
+/// by 256 and by 2^n for n in 1..64; `shiftRight(shiftLeft(x, n), n) = x`; truncation
+/// toward zero; `testBit` against a subtraction; each negative argument raising
+/// `ErrInvalidArgument`.
+#[test]
+fn bit_operations() {
+    let lines = run(
+        "big_b_bits",
+        r#"IMPORT io
+IMPORT big
+IMPORT collections
+
+FUNC tryShiftLeft(a AS big::Int, n AS Integer) AS String
+  RETURN toString(big::bitLength(big::shiftLeft(a, n)))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC tryShiftRight(a AS big::Int, n AS Integer) AS String
+  RETURN toString(big::bitLength(big::shiftRight(a, n)))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC tryTestBit(a AS big::Int, index AS Integer) AS String
+  RETURN toString(big::testBit(a, index))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+SUB main()
+  io::print(toString(big::bitLength(big::fromInteger(0))) & " " & toString(big::bitLength(big::fromInteger(1))) & " " & toString(big::bitLength(big::fromInteger(255))) & " " & toString(big::bitLength(big::fromInteger(256))) & " " & toString(big::bitLength(big::fromInteger(-256))))
+
+  LET twoTo64 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 0, 1]
+  LET ones AS List OF Byte = [255, 255, 255, 255, 255, 255, 255, 255, 255, 255]
+  LET spread AS List OF big::Int = [big::fromInteger(1), big::fromInteger(255), big::fromInteger(-70000), big::fromBytes(twoTo64, FALSE), big::fromBytes(ones, TRUE), big::fromInteger(9223372036854775807)]
+  LET two AS big::Int = big::fromInteger(2)
+  LET oneHundredFiftySix AS big::Int = big::fromInteger(256)
+
+  MUT byteShiftMismatches AS Integer = 0
+  MUT shiftMismatches AS Integer = 0
+  MUT roundTripMismatches AS Integer = 0
+  MUT shiftChecks AS Integer = 0
+  MUT bitMismatches AS Integer = 0
+  MUT bitChecks AS Integer = 0
+  MUT v AS Integer = 0
+  WHILE v < len(spread)
+    LET x AS big::Int = collections::get(spread, v)
+    IF NOT big::equals(big::shiftLeft(x, 8), big::multiply(x, oneHundredFiftySix)) THEN
+      byteShiftMismatches = byteShiftMismatches + 1
+    END IF
+    MUT power AS big::Int = big::fromInteger(1)
+    MUT n AS Integer = 1
+    WHILE n <= 64
+      power = big::multiply(power, two)
+      IF NOT big::equals(big::shiftLeft(x, n), big::multiply(x, power)) THEN
+        shiftMismatches = shiftMismatches + 1
+      END IF
+      IF NOT big::equals(big::shiftRight(big::shiftLeft(x, n), n), x) THEN
+        roundTripMismatches = roundTripMismatches + 1
+      END IF
+      shiftChecks = shiftChecks + 1
+      n = n + 1
+    END WHILE
+    LET magnitude AS big::Int = big::abs(x)
+    MUT i AS Integer = 0
+    WHILE i < big::bitLength(x) + 8
+      LET upper AS big::Int = big::shiftRight(magnitude, i)
+      LET bit AS big::Int = big::subtract(upper, big::shiftLeft(big::shiftRight(magnitude, i + 1), 1))
+      LET expected AS Boolean = NOT big::isZero(bit)
+      IF big::testBit(x, i) <> expected THEN
+        bitMismatches = bitMismatches + 1
+      END IF
+      bitChecks = bitChecks + 1
+      i = i + 1
+    END WHILE
+    v = v + 1
+  END WHILE
+  io::print("shiftLeft 8 = multiply 256: " & toString(byteShiftMismatches) & " mismatches")
+  io::print("shiftLeft n = multiply 2^n: " & toString(shiftMismatches) & " of " & toString(shiftChecks))
+  io::print("shiftRight(shiftLeft): " & toString(roundTripMismatches) & " of " & toString(shiftChecks))
+  io::print("testBit: " & toString(bitMismatches) & " of " & toString(bitChecks))
+
+  io::print(toString(big::toInteger(big::shiftRight(big::fromInteger(-7), 1))) & " " & toString(big::toInteger(big::shiftRight(big::fromInteger(7), 1))))
+  LET gone AS big::Int = big::shiftRight(big::fromInteger(-7), 1000)
+  io::print(toString(len(gone.magnitude)) & " " & toString(gone.negative))
+  LET zeroShifted AS big::Int = big::shiftLeft(big::fromInteger(0), 1000000)
+  io::print(toString(len(zeroShifted.magnitude)) & " " & toString(zeroShifted.negative))
+
+  LET one AS big::Int = big::fromInteger(1)
+  io::print(tryShiftLeft(one, -1) & " | " & tryShiftRight(one, -1) & " | " & tryTestBit(one, -1))
+  io::print(tryShiftLeft(one, 0) & " | " & tryShiftRight(one, 0) & " | " & tryTestBit(one, 0))
+END SUB
+"#,
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "0 1 8 9 9",
+            "shiftLeft 8 = multiply 256: 0 mismatches",
+            "shiftLeft n = multiply 2^n: 0 of 384",
+            "shiftRight(shiftLeft): 0 of 384",
+            "testBit: 0 of 282",
+            "-3 3",
+            "0 FALSE",
+            "0 FALSE",
+            "raised 77050002 | raised 77050002 | raised 77050002",
+            "1 | 1 | TRUE"
+        ]
+    );
+}
