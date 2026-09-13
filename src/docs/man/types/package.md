@@ -96,7 +96,8 @@ user code. See `mfb man errors`.
   element appears at most once, and adding a present element is a no-op. `T`
   must be comparable, exactly as a `Map` key must be. See `mfb man types set`.
 - **`MapEntry OF K TO V`** — the built-in record produced by `FOR EACH`
-  over a map, with public read-only `key AS K` and `value AS V` fields.
+  over a map, with public read-only `key AS K` and `value AS V` fields. See
+  `mfb man flow forEach`.
 - **`Pair OF A, B`** — a built-in two-value record used by
   `collections::zip`, with fields `first AS A` and `second AS B` and no
   comparability constraint on `A` or `B`. See `mfb man types pair`.
@@ -124,6 +125,64 @@ user code. See `mfb man errors`.
 - **`TermSize`** — the `term` record returned by `term::terminalSize`, with
   `columns` and `rows` (`Integer`) fields for terminal width and height in
   character cells.
+
+## Defining types
+
+A program adds its own types with declarations. `TYPE` declares a record of named
+fields, built with square brackets; `UNION` groups existing record types into one
+closed choice, taken apart with `MATCH`; `ENUM` names a fixed set of members,
+written `Color.Green`:
+
+```
+IMPORT io
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+TYPE Circle
+  center AS Point
+  radius AS Integer
+END TYPE
+
+TYPE Square
+  corner AS Point
+  side   AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Square
+END UNION
+
+ENUM Color
+  Red, Green, Blue
+END ENUM
+
+SUB main()
+  LET origin = Point[x := 0, y := 0]
+  LET s AS Shape = Square[corner := origin, side := 3]
+  LET c = Color.Green
+  MATCH s
+    CASE Circle(ci)
+      io::print("circle " & toString(ci.radius))
+    CASE Square(sq)
+      io::print("square " & toString(sq.side))
+  END MATCH
+  IF c = Color.Green THEN io::print("green")
+END SUB
+```
+
+Output:
+
+```
+square 3
+green
+```
+
+`WITH` builds a changed copy of a record (`mfb man variable`). `RESOURCE … CLOSE BY`
+declares a handle type for a native library binding (`mfb man link`).
 
 ## Comparability and copying
 
@@ -161,6 +220,10 @@ No errors.
 - `mfb man types partition`
 - `mfb man types set`
 - `mfb man types string`
+- `mfb man flow forEach`
+- `mfb man flow match`
+- `mfb man variable`
+- `mfb man link`
 - `mfb man errors`
 - `mfb man general`
 - `mfb man thread`

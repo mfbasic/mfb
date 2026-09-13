@@ -51,7 +51,7 @@ and then renamed over it, so an interrupted run never leaves a file truncated.
 | Option | Description |
 | --- | --- |
 | `--check` | Report whether files are already formatted without writing changes; exit non-zero if any file would change. |
-| `--indent <N>` | Number of spaces per indentation level (default: `2`). |
+| `--indent <N>` | Number of spaces per indentation level, from `0` through `256` (default: `2`). `0` removes computed indentation. |
 
 ## Parameters
 

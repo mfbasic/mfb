@@ -6,7 +6,9 @@ The `-O` optimization dial and the passes it enables
 
 ```
 mfb build -O <level> [path]     ' 0 off, 1 default, 2-3 enable more passes
+mfb test -O <level> [path]      ' the same dial for a test run
 mfb build -v ...                ' verbose: how often each pass fired
+mfb test -v ...                 ' the same count for a test run
 mfb man optimizations
 ```
 
@@ -38,14 +40,14 @@ does not run at any dial level.
 `-O0` turns every dial pass off (a correct but unoptimized build); `-O1` is the
 default. Higher levels are cumulative: `-O3` enables everything below it.
 
-With `-v`, `mfb build` prints one `<pass>: <count>` line per enabled pass once the
-build finishes, reporting how many times it actually fired.
+With `-v`, `mfb build` and `mfb test` print one `<pass>: <count>` line per enabled
+pass once the build finishes, reporting how many times it actually fired.
 
 ## Passes
 
-Passes on the dial, in the order they run. *Stage* says how early in the build each
-pass runs; the stages appear in the table from earliest to latest, and the last
-one works on finished machine instructions.
+Passes on the dial. *Stage* names the part of the build each pass works on. The
+rows are not in running order: every pass of an earlier stage runs before any
+pass of a later one, wherever its row sits.
 
 {{optimizer-catalog}}
 
@@ -78,6 +80,7 @@ raises — that is the point.
 ## See also
 
 - `mfb build --help` — the `-O` and `-v` flags
+- `mfb test --help` — the same flags for a test run
 - `mfb man errors` — the runtime error model the optimizer must preserve
 - `mfb spec language types` — checked arithmetic and Float observation
   boundaries (§4.1), the semantics the dial's contract is built on

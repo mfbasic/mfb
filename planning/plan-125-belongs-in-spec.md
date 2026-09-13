@@ -53,6 +53,7 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 17 | `mfb man lambda` | `Such a lambda may borrow an outer `MUT` binding and mutate it: the binding is loaned to the callback for the duration of the synchronous call — a borrow of the live binding, not a copy — and is the outer binding's again once the call returns.` | `memory-vocab` | language | OPEN | — |
 | 18 | `mfb man lambda` | `This is an internal call-bound borrow, not a general source-level capability: non-escaping closures are not part of the v1 source language, so there are no `NONESCAPING`, `BORROW`, or lifetime annotations.` | `internals` | language | OPEN | — |
 | 19 | `mfb man optimizations` | `*Stage* says where the pass runs: `NIR` (the structured native IR, before storage planning), `MIR` (the selected machine-neutral stream, before register allocation), or `machine` (after register allocation, on physical registers).` | `internals` | architecture | OPEN | — |
+| 20 | `canvas::destroyFont` | `A scene carries the id, not the font, so it cannot dangle;` | `internals` | app | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused

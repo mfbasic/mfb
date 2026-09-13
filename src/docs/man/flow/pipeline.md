@@ -36,9 +36,10 @@ pipeline right-hand side.
 The placeholder may appear anywhere the left-hand value is wanted — not
 only as the first argument. It works inside nested calls, named arguments,
 list and map literals, lambda bodies, `WITH` updates, and other expression
-forms. Only one substitution per `|>` is performed, so writing `_` more
-than once on a single right-hand side inlines the left expression at each
-site (evaluating it once, at the position of substitution).
+forms. Each `_` receives its own copy of the left-hand expression, so
+writing `_` more than once evaluates that expression once per occurrence:
+`mark() |> pair(_, _)` calls `mark` twice. Bind the value to a name first
+when the expression has effects or is expensive.
 
 ## Errors
 

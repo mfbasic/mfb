@@ -18,7 +18,8 @@ shell as `mfb <command>`.
 
 The `mfb` executable bundles the compiler together with source and project
 tooling. This topic documents the developer-facing commands that read or rewrite
-source rather than produce a build artifact. Each command is deterministic and
+source rather than produce a build artifact: `mfb fmt` and `mfb audit`. Each
+command is deterministic and
 operates on files or directories given on the command line, defaulting to the
 current directory when no path is supplied.
 
@@ -28,6 +29,8 @@ spec under `mfb spec tooling`; this man topic is the quick command reference.
 ## Topics
 
 - `fmt` — reformat source for consistent indentation and keyword capitalization.
+- `audit` — report a project's error handling, host capabilities, and dependency
+  status without running it.
 
 ## Errors
 
@@ -37,4 +40,6 @@ they do not raise MFBASIC runtime errors.
 ## See also
 
 - `mfb man tooling fmt`
+- `mfb man tooling audit`
 - `mfb spec tooling fmt`
+- `mfb spec tooling audit-format`

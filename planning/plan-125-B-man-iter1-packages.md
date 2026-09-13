@@ -171,26 +171,25 @@ is usually a class, not an instance.*
 The never-reviewed material, and the material that sets vocabulary for
 everything after it.
 
-- [~] `canvas` (19 function pages + overview + a 106-description types page).
-      **My pass done:** `--memory-scope canvas` 0 unclassified, `--scope canvas`
-      0, 22/22 examples compile (compile-only: app-mode programs take over the
-      desktop). **Remaining: its Codex iteration-1 review, triage and apply.**
-- [~] `tour`, `types`, `flow`, `errors`, `lambda`, `link`, `optimizations`,
+- [x] `canvas` (19 function pages + overview + a 106-description types page).
+      My pass: `--memory-scope canvas` 0 unclassified, `--scope canvas` 0,
+      22/22 examples compile (compile-only: app-mode programs take over the
+      desktop). Codex review: 1 finding, confirmed and applied (ledger below).
+- [x] `tour`, `types`, `flow`, `errors`, `lambda`, `link`, `optimizations`,
       `tooling`, `unicode` — each as a whole topic including its subtopic
-      pages. **My pass done** (C-2, C-3, C-4): whole-surface `--memory-scope`
-      109 unclassified → 0, `--scope` 9 → 0; 38 citation markers removed; every
-      standalone topic program builds and runs; one broken example fixed
-      (`flow pipeline`) and one renderer-dropped syntax block fixed
-      (`types string`). **Remaining: the nine Codex iteration-1 reviews, triage
-      and apply.**
-- [~] Record every terminology decision made here in a running table in this
-      file; later phases conform to it rather than re-deciding. **Table below,
-      from my pass; the Codex reviews may add rows.**
-- [~] Append every "belongs in spec" cut to
-      `planning/plan-125-belongs-in-spec.md`. **Rows 4–19 from my pass**
+      pages. My pass (C-2, C-3, C-4): whole-surface `--memory-scope`
+      109 unclassified → 0, `--scope` 9 → 0; 38 citation markers removed; one
+      broken example fixed (`flow pipeline`) and one renderer-dropped syntax
+      block fixed (`types string`). Codex reviews: 23 findings, 22 confirmed and
+      applied, 1 rejected (ledger below).
+- [x] Record every terminology decision made here in a running table in this
+      file; later phases conform to it rather than re-deciding. Table below;
+      the reviews added none (the applied prose uses the table's words).
+- [x] Append every "belongs in spec" cut to
+      `planning/plan-125-belongs-in-spec.md`. Rows 4–19 from my pass
       (`types` storage layout ×10, `types` monomorphization, `lambda` ×2,
-      `optimizations` stage legend, `link` resolver and loader). **Remaining:
-      any cut the Codex reviews produce.**
+      `optimizations` stage legend, `link` resolver and loader); row 20 from
+      the reviews (`canvas::destroyFont`'s scene-id sentence).
 
 #### Terminology table (conform to this; do not re-decide)
 
@@ -206,6 +205,48 @@ everything after it.
 | a close function's parameter | **takes … and closes it** | "consumes" | `link` |
 | a closure's captured `LET` | **gets its own copy** | "by value", "deep-copies" | `lambda` |
 | a `forEach` lambda changing an outer `MUT` | **changes the outer binding itself** | "borrow", "loaned" | `lambda` |
+
+#### Phase 1 ledger — Codex iteration 1 (`planning/plan-125-findings/B-phase1/`)
+
+Manifest: 10/10 units `exit 0`, all `clean`, 60–217 s each (C-1: 10 units, not
+11). 24 findings: 23 confirmed and applied, 1 rejected.
+
+| Unit | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| canvas | 1 | CONFIRMED | `func_measure_text.rs:lower_font_bytes` raises `ErrResourceClosed` before measuring; `gen_font_table.rs` "text still naming a released font draws empty" | `measureText` and `destroyFont` DESC: a closed font draws as nothing but raises on measure; scene-id sentence cut (belongs-in-spec row 20) |
+| errors | 1 | CONFIRMED | spec 08 §8.3/§8.4; probe `/tmp/p125-ex/baretrap` printed `8080` for a bare `TRAP` | bare-`TRAP` paragraph + example after Trap outcomes |
+| errors | 2 | CONFIRMED | spec 08 §8.4 and §8.6 rule 11; same probe printed `caught 77050002` for `divide(total, 1 / count) TRAP(e)` | inline-TRAP operator coverage and `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` |
+| errors | 3 | REJECTED | `mfb man general error` exit 0 and `mfb man flow match` exit 0 at HEAD (`/tmp/p125-ex/facts.sh`); the reviewer's worktree binary predated guide-topic sub-pages | — |
+| flow | 1 | CONFIRMED | `/tmp/p125-pr1` printed `set loop: 3 1 2`; spec 12 "yields each element `T` once, in insertion order" | `flow` Topics, `forEach` (Set loop), `tour` (lists, sets, and maps; `Set OF T` in the collections list) |
+| flow | 2 | CONFIRMED | `/tmp/p125-pr1` printed `pipeline twice: 1:2 calls=2` | `pipeline`: each `_` gets its own copy; evaluated per occurrence |
+| flow | 3 | CONFIRMED | `/tmp/p125-pr1` printed `zero step passes before exit: 3` | `for`: a non-constant zero `STEP` never advances |
+| lambda | 1 | CONFIRMED | `mfb man thread start`; reviewer probe ran a non-`EXPORT` `ISOLATED FUNC` | `lambda` entry-point sentence; the same wrong "exported" claim fixed in `tour`, `tour c`, `tour java`, `tour typescript` |
+| lambda | 2 | CONFIRMED | `/tmp/p125-ex/adder` built and printed `12` | `makeAdder` example with output |
+| lambda | 3 | CONFIRMED | `.ai/man-content.md` §4.5 | `mfb man variable` inline and in See also (+ `thread start`) |
+| link | 1 | CONFIRMED | spec 17 CSTRUCT / BIND IN / BIND STATE / CBuffer sections | new *Structs and buffers* section, forms list, `NATIVE_BUFFER_INVALID` and `ErrNativeBufferOverrun` rows |
+| link | 2 | CONFIRMED | `src/ast/link_items.rs:parse_link_function` (plan-50-H); `tests/rt-behavior/native/native-link-free-rt/src/main.mfb` uses `db OUT CPtr` + `RETURN db` | `RETURN <expression>` paragraph; the page's own sqlite example used `return OUT CPtr`, which no longer parses — now `db OUT CPtr` + `RETURN db`; four Diagnostics rows that said "result marker"/`return` |
+| optimizations | 1 | CONFIRMED | `src/optimizer/catalog.rs:rows` interleaves NIR and MIR rows | legend: rows are not in running order |
+| optimizations | 2 | CONFIRMED | `mfb test --help` lists `-O` and `-v` | Synopsis, `-v` paragraph, See also |
+| tooling | 1 | CONFIRMED | `mfb --help` lists `audit`; `mfb man tooling audit` was unknown | new `tooling/audit.md` (auto-discovered); overview names both commands. Writing it found bug-604 (`mfb audit --help` misdescribes `--locked`) — filed, not fixed |
+| tooling | 2 | CONFIRMED | `src/cli/fmt.rs:parse_indent` accepts 0..=256 | `fmt` `--indent` row |
+| tour | 1 | CONFIRMED, suggestion corrected | there is no `mfb run` (`mfb --help`); `mfb init` writes a hello-world `src/main.mfb` | route to `mfb init` / `mfb build` / `mfb test`, `mfb man tooling` |
+| tour | 2 | CONFIRMED | `01_c`/`02_java`/`03_go` link `mfb man variable` | added to `04_typescript`, `05_python` |
+| types | 1 | CONFIRMED | `mfb man flow forEach` renders the MapEntry contract | MapEntry bullet + See also |
+| types | 2 | CONFIRMED | `/tmp/p125-ex/deftypes` built and printed `square 3`, `green` | *Defining types* section (TYPE/UNION/ENUM program, WITH → `variable`, RESOURCE → `link`) |
+| unicode | 1 | CONFIRMED | `strings::displayWidth` DESC; reviewer probe `displayWidth("日本語")` = 6 | terminal-columns paragraph |
+| unicode | 2 | CONFIRMED | all seven targets exit 0 (`/tmp/p125-ex/verify.sh`) | See also: `types string` + six `strings` pages |
+
+Handed to the spec letters (spec defects seen while verifying; not man work):
+spec 17's opening `sqlite3_open` example has no `RETURN db`, which its own rule
+(`NATIVE_ABI_NO_RESULT`) requires; its `readFrames` example binds parameter
+`file` to ABI slot `sndfile`; and its `CBuffer` implementation-status note says
+`BUFFER`/`LENGTH` do not ride the `.mfp`, but plan-58-C is in
+`planning/completed/` and spec package 08 documents BR version 6 carrying them.
+
+After apply (release build of this commit): whole-surface `--memory-scope` 0
+unclassified, `--scope` 0; leak check 0 rendered, 0 source spans; topic programs
+lambda 2/2, types 2/2, flow 10/10, tour 1/1 built and ran; canvas 22/22 compile;
+13/13 new cross-references exit 0.
 
 Acceptance: 11 units in the manifest with `exit 0`, no `FAILED`, no `DIRTY`;
 each has a ledger in this file with a verdict per finding and a disproving

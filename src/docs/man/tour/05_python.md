@@ -247,4 +247,5 @@ Python doesn't need but 64-bit values do.
 
 - `mfb man tour` — the one-page language tour.
 - `mfb man errors`, `mfb man thread`, `mfb man collections` — the models above in full.
+- `mfb man variable` — values, copies and handles; `mfb spec language memory-semantics`
 - `mfb spec language type-inference` — how far inference goes without annotations.

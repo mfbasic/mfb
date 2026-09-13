@@ -19,8 +19,9 @@ scope is long — a font file is measured in hundreds of kilobytes, so this is a
 useful call than its image twin.
 
 **It is safe at any time, including while a presented scene still draws text in the
-font.** A scene carries the id, not the font, so it cannot dangle; text naming a
-released font measures and draws as empty rather than faulting.
+font.** Text in a presented scene that names a released font draws as nothing
+rather than faulting. Measuring a released font with `canvas::measureText` raises
+`ErrResourceClosed`.
 
 Closing twice is the defined no-op, and using a closed font afterwards raises the
 universal `ErrResourceClosed` — the same contract every resource has.

@@ -35,6 +35,13 @@ SUB main()
 END SUB
 ```
 
+To run it, create a project with `mfb init hello` — its `src/main.mfb` is a
+program just like this one — then `mfb build hello` and run the executable it
+writes under `hello/build/`. `mfb test` builds and runs a project's `TESTING`
+blocks.
+
+More: `mfb man tooling`, `mfb build --help`.
+
 ## Bindings
 
 Three binding forms on two axes: `LET` and `MUT` choose mutability, `RES`
@@ -84,7 +91,8 @@ LET r = Rect[w := 3.0, h := 4.0]
 LET wider = WITH r { w := 10.0 }     ' r is unchanged
 ```
 
-Collections are the built-in templates `List OF T` and `Map OF K TO V`. List
+Collections are the built-in templates `List OF T`, `Set OF T`, and
+`Map OF K TO V`. List
 literals use bare brackets: `[1, 2, 3]`. All collection access goes through
 free functions — there is no index-bracket syntax.
 
@@ -93,7 +101,7 @@ More: `mfb man types`, `mfb man collections`.
 ## Control flow
 
 The classic BASIC forms, structured: `IF`/`ELSEIF`/`ELSE`, counted `FOR`,
-`FOR EACH` over lists and maps, `WHILE`/`END WHILE`, and `DO` loops. Loops leave
+`FOR EACH` over lists, sets, and maps, `WHILE`/`END WHILE`, and `DO` loops. Loops leave
 and skip with `EXIT FOR`/`EXIT WHILE`/`EXIT DO` and the matching `CONTINUE`
 forms. There is no `GOTO` and no `SELECT CASE`.
 
@@ -210,7 +218,7 @@ More: `mfb man variable`, `mfb man fs`.
 
 ## Threads
 
-Threads are isolated workers started from exported `ISOLATED FUNC` entry
+Threads are isolated workers started from top-level `ISOLATED FUNC` entry
 points. They share nothing with their parent — no lexical scope, no mutable
 collections, no resources — and communicate over bounded, typed message
 queues: `thread::start`, `thread::send`, `thread::receive`, and

@@ -12,9 +12,10 @@ NEXT
 
 ## Description
 
-`FOR EACH` iterates a `List OF T` or `Map OF K TO V` source; any other source
-type is a compile error (`TYPE_FOR_EACH_REQUIRES_COLLECTION`). A list loop binds
-the loop variable as `T`, visited in index order. A map loop binds the loop
+`FOR EACH` iterates a `List OF T`, `Set OF T`, or `Map OF K TO V` source; any
+other source type is a compile error (`TYPE_FOR_EACH_REQUIRES_COLLECTION`). A list
+loop binds the loop variable as `T`, visited in index order. A set loop also binds
+it as `T`, visiting each element once, in insertion order. A map loop binds the loop
 variable as `MapEntry OF K TO V`, whose `entry.key` has type `K` and
 `entry.value` has type `V`; any other field access is `TYPE_UNKNOWN_FIELD`. Map
 loop order is implementation-defined but stable for a given unchanged map value,
@@ -54,3 +55,4 @@ END SUB
 
 - `mfb man flow for`
 - `mfb man types map`
+- `mfb man types set`

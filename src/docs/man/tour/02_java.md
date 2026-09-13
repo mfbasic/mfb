@@ -30,7 +30,7 @@ synchronized (lock) {          // forget this once and it still compiles
 ```
 
 MFBASIC threads are isolated: no shared statics, no shared collections, no
-shared anything. A worker is an `ISOLATED FUNC` exported from a package, and
+shared anything. A worker is a top-level `ISOLATED FUNC`, and
 the only way in or out is a bounded, typed message queue.
 
 ```

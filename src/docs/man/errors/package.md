@@ -97,8 +97,14 @@ END TRAP
 ```
 
 An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an
-assignment, or a bare expression statement, and traps exactly one expression.
-Every path through the handler must `RECOVER` or diverge; falling through to
+assignment, or a bare expression statement, and traps exactly one expression —
+every call and every raising operator inside it. In
+`LET d = divide(total, 1 / count) TRAP(e)` a division by zero runs the handler
+just as a failure of `divide` would. The one exception is the right operand of
+`AND` or `OR`, which runs only when the left side does not already decide the
+result: a call or raising operator there is rejected
+(`TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`), so give it its own statement and trap it
+there. Every path through the handler must `RECOVER` or diverge; falling through to
 `END TRAP` is a compile error. For a value-less trapped call (a `SUB` or a
 fallible effect-only built-in) `RECOVER` takes no operand. Use it for ordinary
 absence too — `RECOVER` the recoverable case and bail on the rest:
@@ -151,6 +157,16 @@ never by fall-through. Every body path before it must end with `RETURN` (in a
 error (`TYPE_PROPAGATE_REQUIRES_TRAP`). `RECOVER` is valid only inside an inline
 `TRAP` (`TYPE_RECOVER_OUTSIDE_INLINE_TRAP`). Once control enters a function-level
 `TRAP`, the failed expression is abandoned — there is no resume.
+
+The `(e)` name is optional in both forms. Write a bare `TRAP` when the handler
+does not need to look at the `Error`; `PROPAGATE` still passes the caught error
+on:
+
+```
+LET port = toInt(text) TRAP
+  RECOVER 8080
+END TRAP
+```
 
 ## MATCH versus TRAP
 

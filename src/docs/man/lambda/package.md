@@ -26,8 +26,9 @@ Each parameter must declare an `AS` type; parameter types are not inferred and
 parameters cannot declare default values. The result type is inferred from the
 body expression. Lambdas are ordinary values that can be bound to a `LET`, passed
 as an argument, returned from a function, and stored in records and collections —
-all subject to the capture rules below. A lambda cannot be marked `ISOLATED`;
-only an exported top-level `FUNC` may be a thread entry point.
+all subject to the capture rules below. A lambda cannot be marked `ISOLATED`, so
+it cannot be a thread entry point: an entry point is a top-level `ISOLATED FUNC`
+(see `mfb man thread start`).
 
 ## Function types
 
@@ -53,7 +54,8 @@ A function with no parameters or no result is written `FUNC() AS T` and
 A lambda may reference bindings from the enclosing scope; these are its captures.
 An ordinary closure captures a copyable `LET` binding **as a copy**: the closure
 keeps its own copy, which stays usable after the capturing scope ends, so it sees
-a frozen snapshot, never the original binding's later changes.
+a frozen snapshot, never the original binding's later changes. `mfb man variable`
+explains copies in full.
 
 - Copyable `LET` bindings may be captured; the closure gets its own copy.
 - Capturing a `MUT` binding is a compile error
@@ -101,6 +103,28 @@ No errors.
 
 ## Examples
 
+Return a closure that keeps its own copy of a `LET` value, and call it after the
+function that built it has returned:
+
+```
+IMPORT io
+
+FUNC makeAdder(base AS Integer) AS FUNC(Integer) AS Integer
+  RETURN LAMBDA(x AS Integer) -> x + base
+END FUNC
+
+SUB main()
+  LET addTen = makeAdder(10)
+  io::print(toString(addTen(2)))
+END SUB
+```
+
+Output:
+
+```
+12
+```
+
 Accumulate into an outer `MUT` through `forEach` (allowed):
 
 ```
@@ -131,4 +155,6 @@ not change the live binding, and the capture is rejected as
 - `mfb man collections forEach`
 - `mfb man collections transform`
 - `mfb man collections reduce`
+- `mfb man variable`
+- `mfb man thread start`
 - `mfb man errors`

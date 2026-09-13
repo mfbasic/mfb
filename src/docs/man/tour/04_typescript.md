@@ -30,7 +30,7 @@ worker.postMessage(line);                    // structured clone, untyped
 worker.onmessage = (e) => { /* any */ };     // hope both sides agree
 ```
 
-An MFBASIC worker is an `ISOLATED FUNC` exported from a package. It shares
+An MFBASIC worker is a top-level `ISOLATED FUNC`. It shares
 nothing with its parent, and both directions of the conversation are typed in
 the thread handle itself.
 
@@ -236,4 +236,5 @@ never a partial parse.
 
 - `mfb man tour` — the one-page language tour.
 - `mfb man errors`, `mfb man thread`, `mfb man types` — the models above in full.
+- `mfb man variable` — values, copies and handles; `mfb spec language memory-semantics`
 - `mfb spec language type-inference` — how far inference goes without annotations.
