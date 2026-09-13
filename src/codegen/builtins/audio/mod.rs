@@ -749,4 +749,82 @@ mod tests {
         )
         .expect("reassembled audio source parses");
     }
+
+    /// The first three instructions of a device-specific open's `id` read rebase the
+    /// flat `audio::AudioDevice` record (plan-132): load the record from
+    /// `record_slot`, load its `id` slot's block-relative offset from it, and add
+    /// the two. Before plan-132 the second load WAS the `String` pointer.
+    fn assert_reads_the_inlined_id(
+        instructions: &[crate::codegen::engine::types::CodeInstruction],
+        record_slot: usize,
+    ) {
+        use crate::arch::ops::CodeOp;
+        let record_slot = record_slot.to_string();
+        let id_field = super::gen_shared::DEVICE_FIELD_ID.to_string();
+
+        assert_eq!(instructions[0].op, CodeOp::LdrU64, "load the record");
+        assert_eq!(
+            instructions[0].get("base").as_deref(),
+            Some(crate::target::shared::abi::stack_pointer())
+        );
+        assert_eq!(
+            instructions[0].get("offset").as_deref(),
+            Some(record_slot.as_str())
+        );
+        let record = instructions[0].get("dst");
+        assert!(record.is_some());
+
+        assert_eq!(instructions[1].op, CodeOp::LdrU64, "load the id's offset");
+        assert_eq!(instructions[1].get("base").as_deref(), record.as_deref());
+        assert_eq!(
+            instructions[1].get("offset").as_deref(),
+            Some(id_field.as_str())
+        );
+        let offset = instructions[1].get("dst");
+
+        assert_eq!(instructions[2].op, CodeOp::Add, "record + offset is the id");
+        assert_eq!(instructions[2].get("lhs").as_deref(), record.as_deref());
+        assert_eq!(instructions[2].get("rhs").as_deref(), offset.as_deref());
+    }
+
+    /// plan-132: Core Audio's `emit_select_device` reads the device UID from the flat
+    /// record. No host running this suite has an audio device, so this is the
+    /// reader's standing proof.
+    #[test]
+    fn core_audio_device_open_reads_the_inlined_id() {
+        crate::codegen::engine::mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = std::collections::HashMap::new();
+        let mut instructions = Vec::new();
+        let mut relocations = Vec::new();
+        let mut vregs = crate::codegen::engine::util::Vregs::new();
+        super::gen_macos_shared::emit_select_device(
+            &mut crate::codegen::engine::builder::EmitCtx {
+                symbol: "t_select_device",
+                platform_imports: &imports,
+                platform: &crate::codegen::engine::tests::TestPlatform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            "t_select_device_fail",
+            &mut vregs,
+        )
+        .expect("lower the Core Audio device selection");
+        assert_reads_the_inlined_id(&instructions, super::gen_macos_shared::DEVID_OFF);
+    }
+
+    /// plan-132: ALSA's `emit_device_cstring` reads the device name hint from the flat
+    /// record, for the same reason as the Core Audio pin above.
+    #[test]
+    fn alsa_device_open_reads_the_inlined_id() {
+        crate::codegen::engine::mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let mut instructions = Vec::new();
+        let mut vregs = crate::codegen::engine::util::Vregs::new();
+        super::gen_alsa_shared::emit_device_cstring(
+            super::gen_alsa_shared::DEVID_OFF,
+            &mut instructions,
+            "t_device_cstring",
+            &mut vregs,
+        );
+        assert_reads_the_inlined_id(&instructions, super::gen_alsa_shared::DEVID_OFF);
+    }
 }

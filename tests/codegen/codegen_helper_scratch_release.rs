@@ -497,6 +497,89 @@ const TLS_HELPERS_SCHANNEL: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_writeText", (1, 0, 0)),
 ];
 
+/// `audio` on its three backends — Core Audio, ALSA and WASAPI each have their own
+/// device enumerator. No host running this suite has an audio device, so these
+/// cross-built counts are the device builders' standing proof (plan-132 Phase 2).
+///
+/// `devices` builds every `audio::AudioDevice` through the record marshaller: per
+/// call it allocates the `(pointer, size)` pair array, the scratch `id` and `name`
+/// `String`s, the record and the list — 5 allocation sites — and frees `name` and
+/// `id` once the record holds them, each element block once the list holds it, and
+/// the pair array: 4 free sites. Before plan-132 it was `(3, 0, 0)` everywhere — the
+/// list and the two `String`s the list's records pointed at. The other members did
+/// not move; `openInputDevice`/`openOutputDevice` only rebased their `id` read.
+const AUDIO_HELPERS_MACOS: &[(&str, Counts)] = &[
+    ("_mfb_rt_audio_audio_available", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_closeInput", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_closeOutput", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_devices", (5, 4, 0)),
+    ("_mfb_rt_audio_audio_openInput", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_openInputDevice", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_openOutput", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_openOutputDevice", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_poll", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_pollTimeout", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_read", (2, 1, 0)),
+    ("_mfb_rt_audio_audio_readTimeout", (2, 1, 0)),
+    ("_mfb_rt_audio_audio_write", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_xruns", (0, 0, 0)),
+    ("_mfb_rt_audio_input_callback", (0, 0, 0)),
+    ("_mfb_rt_audio_output_callback", (0, 0, 0)),
+];
+
+/// ALSA (`gen_alsa_*`). `devices` as described on `AUDIO_HELPERS_MACOS`.
+const AUDIO_HELPERS_ALSA: &[(&str, Counts)] = &[
+    ("_mfb_rt_audio_audio_available", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_closeInput", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_closeOutput", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_devices", (5, 4, 0)),
+    ("_mfb_rt_audio_audio_openInput", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_openInputDevice", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_openOutput", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_openOutputDevice", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_poll", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_pollTimeout", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_read", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_readTimeout", (2, 1, 0)),
+    ("_mfb_rt_audio_audio_write", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_xruns", (0, 0, 0)),
+];
+
+/// WASAPI (`gen_windows_*`). `devices` as described on `AUDIO_HELPERS_MACOS`; a
+/// device whose friendly name falls back to its id frees that one block once, so
+/// the free-site count does not change with the fallback.
+const AUDIO_HELPERS_WASAPI: &[(&str, Counts)] = &[
+    ("_mfb_rt_audio_audio_available", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_closeInput", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_closeOutput", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_devices", (5, 4, 0)),
+    ("_mfb_rt_audio_audio_openInput", (3, 0, 0)),
+    ("_mfb_rt_audio_audio_openInputDevice", (3, 0, 0)),
+    ("_mfb_rt_audio_audio_openOutput", (2, 0, 0)),
+    ("_mfb_rt_audio_audio_openOutputDevice", (2, 0, 0)),
+    ("_mfb_rt_audio_audio_poll", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_pollTimeout", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_read", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_readTimeout", (2, 1, 0)),
+    ("_mfb_rt_audio_audio_write", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_xruns", (0, 0, 0)),
+];
+
+#[test]
+fn every_core_audio_helper_frees_its_device_scratch() {
+    assert_package_for("audio", TARGET_MACOS, AUDIO_HELPERS_MACOS);
+}
+
+#[test]
+fn every_alsa_audio_helper_frees_its_device_scratch() {
+    assert_package_for("audio", TARGET, AUDIO_HELPERS_ALSA);
+}
+
+#[test]
+fn every_wasapi_audio_helper_frees_its_device_scratch() {
+    assert_package_for("audio", TARGET_WINDOWS, AUDIO_HELPERS_WASAPI);
+}
+
 #[test]
 fn every_openssl_tls_helper_releases_what_it_marshalled() {
     assert_package_for("tls", TARGET, TLS_HELPERS_OPENSSL);

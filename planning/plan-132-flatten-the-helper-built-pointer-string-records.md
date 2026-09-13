@@ -146,7 +146,7 @@ emitters, each hit read):
   `bash scripts/test-accept.sh target/release/mfb /tmp/p132/accept_d1_json
   net_address_read_only_invalid device_literal_invalid func_term_terminalSize_invalid …` →
   15 passed, EXIT=0 (the three read-only fixtures' goldens unchanged).
-Commit:
+Commit: `e04ecae8f` (task 1), `4379352ef` (C5 tag pin + json sums), `2e0e2e6d1` (D1), `510a361ad` (tasks 2–3 and C8, with Phase 1)
 
 ### Phase 1 — `net::Address`, `udp::Datagram`, `net::PingResult`
 
@@ -196,13 +196,29 @@ Commit:
 
 ### Phase 2 — `audio::AudioDevice`
 
-- [ ] macOS, ALSA and Windows `lower_devices` build each `AudioDevice` through the
-  marshaller and the list through the record-list builder.
-- [ ] Readers rebased: `emit_select_device`, `emit_device_cstring`, `emit_widen_device_id`
+- [x] macOS, ALSA and Windows `lower_devices` build each `AudioDevice` through the
+  marshaller and the list through the record-list builder — via the shared
+  `audio/gen_shared.rs` `emit_device_record` / `emit_alloc_device_pairs`, which free the
+  scratch `id`/`name` `String`s (once, when Windows names a device by its id). Counts per
+  backend from cross-built `audio_codegen_cover_rt` dumps (`/tmp/p132/audiocounts.sh`),
+  predicted by hand first: `devices` `(3, 0, 0)` → `(5, 4, 0)` on `macos-aarch64`,
+  `linux-x86_64` and `windows-x86_64`; every other audio helper unchanged.
+- [x] Readers rebased: `emit_select_device`, `emit_device_cstring`, `emit_widen_device_id`
   (C4: the Windows reader also stops reading the record pointer as the id `String`).
-- [ ] `audio::AudioDevice` removed from `is_pointer_string_record`.
-- [ ] Emitted-code pins for the builders and readers (no audio device exists on any host, so
-  there is no runtime proof; recorded in the landing record).
+- [x] `audio::AudioDevice` removed from `is_pointer_string_record` (the predicate now answers
+  `false`; its test table is empty until Phase 3 deletes both).
+- [x] Emitted-code pins for the builders and readers (no audio device exists on any host, so
+  there is no runtime proof; recorded in the landing record). Builders: new
+  `AUDIO_HELPERS_MACOS` / `_ALSA` / `_WASAPI` tables in `codegen_helper_scratch_release`
+  (`cargo test --release --test codegen_helper_scratch_release` → 12 passed). Readers:
+  `core_audio_device_open_reads_the_inlined_id`, `alsa_device_open_reads_the_inlined_id`
+  (`audio/mod.rs`) and `widen_device_id_reads_the_id_inlined_in_the_device_record`
+  (`gen_windows_tests.rs`) assert load-record / load-offset / add
+  (`cargo test --release --bin mfb -- audio::` → 18 passed). Gate on the Phase 2 binary:
+  `2013 golden(s) checked, 5 diff(s)`, all `audio_codegen_cover_rt`; changed functions
+  exactly `audio.devices`, `audio.openInputDevice`, `audio.openOutputDevice` and `main`
+  (`main`: `_mfb_arena_free` 10 → 31, owned-collection drops 78 → 100, one flat-copy
+  allocation).
 Commit:
 
 ### Phase 3 — delete the leftovers
@@ -211,8 +227,26 @@ Commit:
   `pointer_string_record_tests` deleted; any code path reachable only through the class
   found by census and deleted.
 - [ ] Spec §Record "excluded" note removed; `mfb spec` renders it.
-- [ ] Stale comments corrected: the `Error`/`ErrorLoc` doc comment, `record.rs` module doc,
-  `tests/net/rt_net_address_record_layout.rs` header, `src/target/shared/validate/mod.rs`.
+- [ ] Stale comments corrected. Census (`grep -rni "pointer-\`string\`\|pointer-string\|pointer
+  string record\|pointer_string\|is_pointer_string_record\|pointer strings" src tests .ai`,
+  each hit read), after Phase 2:
+  - the `CodeBuilder::is_pointer_string_record` doc listing `Error`/`ErrorLoc` (deleted
+    with the wrapper) and the `type_is_memcpy_copyable` doc that repeats the claim
+    (`builder_collection_layout.rs`);
+  - `memory/marshal/record.rs` module doc;
+  - `memory/arena/builder_arena_transfer.rs` `record_field_is_pointer_in` doc, and its
+    `*field_type == ParameterType::String` arm, unreachable once every `String` field is
+    inlined (`record_field_is_inlined` returns first);
+  - `link/thunk/link_thunk.rs` comment ("Address/Datagram/DatagramText/AudioDevice keep
+    pointer strings");
+  - `engine/builder/mod.rs` doc ("a collection of a pointer-`String` record");
+  - `tests/net/rt_net_address_record_layout.rs` header and its program comment
+    ("which is itself pointer-string");
+  - `tests/runtime/rt_scope_drop_leaks.rs` comment near the bug-593 cases.
+  - [x] ~~`src/target/shared/validate/mod.rs`~~ — moot: its comment names
+    `record_field_is_inlined` only for resource fields (`validate_resource_rules` doc) and
+    says nothing about the pointer-string class; the census does not hit it.
+  - [x] `audio/gen_shared.rs` module doc — corrected in Phase 2.
 - [ ] `.ai/collections.md` and `.ai/codegen-invariants.md` updated.
 - [ ] bug-599 and bug-601 docs and the backlog updated.
 Commit:
@@ -232,11 +266,16 @@ Commit:
   (`_mfb_arena_free` 9 → 123 behind owned-value guards, owned-collection drops 4 → 6, one
   flat-copy allocation — the bug-601 copy). Crypto did not move (fixed marshaller regs).
   `bash scripts/regen-ncodesum.sh /tmp/p132/mfb-p1` → `144 refreshed`, and exactly those
-  30 sums changed. Remaining: Phase 2's `audio` movement.
+  30 sums changed. Phase 2 done: gate on `/tmp/p132/mfb-p2` → `5 diff(s)`, all
+  `audio_codegen_cover_rt`, localized to `audio.devices`, the two device opens and `main`
+  (see Phase 2); `regen-ncodesum.sh /tmp/p132/mfb-p2` → exactly those 5 sums changed.
+  Remaining: one gate after Phase 3 (the `record_field_is_pointer_in` arm deletion is
+  predicted codegen-neutral; the gate is what proves it).
 - [~] Acceptance over the `net`/`tcp`/`udp`/`tls`/`http`/`audio` fixtures. Phase 1:
   `bash scripts/test-accept.sh /tmp/p132/mfb-p1 /tmp/p132/accept_p1 <the 122 fixtures under
   those package directories>` → `acceptance tests passed (123 test(s) ran)`, EXIT=0.
-  Remaining: rerun after Phase 2.
+  Phase 2: the same run on `/tmp/p132/mfb-p2` → `acceptance tests passed (123 test(s)
+  ran)`, EXIT=0. Remaining: the final run after Phase 3.
 - [x] Runtime on Linux (box 2223) and Windows (box 2230) for the socket packages.
   Cross-built the probe set with the Phase 1 compiler (`/tmp/p132/xbuild.sh`, targets
   `linux-aarch64` and `windows-x86_64`) and ran it on each box: every program exits 0;

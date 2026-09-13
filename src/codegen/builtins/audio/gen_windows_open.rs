@@ -457,9 +457,14 @@ pub(crate) fn lower_open(
     Ok((ins, rel, FRAME))
 }
 
-/// Widen the UTF-8 device id at `DEVID_OFF` into a NUL-terminated UTF-16 buffer at
-/// `WIDEID_OFF` (endpoint ids are ASCII, so a byte->wchar zero-extend is exact).
-/// Clamps to 255 wchars.
+/// Widen the UTF-8 `id` of the `audio::AudioDevice` record at `DEVID_OFF` (the open's
+/// first argument) into a NUL-terminated UTF-16 buffer at `WIDEID_OFF` (endpoint ids
+/// are ASCII, so a byte->wchar zero-extend is exact). Clamps to 255 wchars.
+///
+/// plan-132 C4: this used to take `DEVID_OFF` itself as the id `String`, reading the
+/// record's first word as the length and the next as bytes, so a device-specific
+/// open handed WASAPI a garbage endpoint id. The `id` is the `String` inlined at
+/// `record + [record + DEVICE_FIELD_ID]`.
 fn emit_widen_device_id(ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
     let n = ins.len();
     let copy = format!("widen_dev_copy_{n}");
@@ -473,6 +478,8 @@ fn emit_widen_device_id(ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
     let v14 = vregs.next();
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), DEVID_OFF),
+        abi::load_u64(&v10, &v9, DEVICE_FIELD_ID),
+        abi::add_registers(&v9, &v9, &v10), // the inlined `id` String
         abi::load_u64(&v10, &v9, 0),      // len
         abi::add_immediate(&v11, &v9, 8), // src bytes
         abi::move_immediate(&v9, "Integer", "255"),

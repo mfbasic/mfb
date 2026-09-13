@@ -2816,23 +2816,14 @@ pub(crate) fn byte_list_block_kind() -> usize {
 // and can never drift.
 // ---------------------------------------------------------------------------
 
-/// The built-in helper-constructed record whose `String` fields are still kept as
-/// **pointers** to separate allocations rather than inlined into the data region
-/// (spec §Record "excluded"): `audio::AudioDevice`, which the three device
-/// enumerators build that way. plan-132 moved `net::Address` and `udp::Datagram`
-/// onto the ordinary layout — their builders go through the record marshaller —
-/// and moves `audio::AudioDevice` in its Phase 2.
-///
-/// The membership question goes through `is_builtin_named`, which accepts both
-/// the bare leaf and the package-qualified id, and **both are load-bearing**
-/// (bug-483): a *signature* type arrives package-qualified, while a registry
-/// record prop naming its own package's type stays bare. Matching one spelling
-/// silently reclassified the other as an ordinary inlined-`String` record, and its
-/// readers then took the slot a helper had written an absolute pointer into as a
-/// block-relative offset — a wild pointer, and a `SIGSEGV` the moment anything
-/// touched the field.
-pub(crate) fn is_pointer_string_record(type_: &ParameterType) -> bool {
-    type_.is_builtin_named("audio", "AudioDevice")
+/// The built-in helper-constructed records whose `String` fields were kept as
+/// **pointers** to separate allocations rather than inlined into the data region.
+/// None remain: plan-132 moved `net::Address`, `udp::Datagram` (Phase 1) and
+/// `audio::AudioDevice` (Phase 2) onto the ordinary layout — every builder goes
+/// through the record marshaller and every native reader rebases. plan-132 Phase 3
+/// deletes this predicate and its call sites.
+pub(crate) fn is_pointer_string_record(_type: &ParameterType) -> bool {
+    false
 }
 
 /// True when `field_type` occupies a record slot as a pointer to a separate
@@ -3396,18 +3387,12 @@ mod pointer_string_record_tests {
     use crate::codegen::registry::registry;
 
     /// The helper-built records still on the pointer layout, in both spellings the
-    /// compiler can hand this predicate. plan-132 Phase 1 moved `net::Address` and
-    /// `udp::Datagram` off it; `no_other_declared_record_is_pointer_string` is what
-    /// holds them off.
-    ///
-    /// bug-483: a *signature* type (a member's parameter or return) is rewritten
-    /// to the package-qualified id by `Registry::qualify_value_type_references`,
-    /// while a registry record prop naming its own package's type stays bare. Both
-    /// spellings therefore reach `is_pointer_string_record` for the same record,
-    /// and both must answer the same — a disagreement silently reclassifies the
-    /// record's layout, and its readers then dereference an absolute pointer as a
-    /// block-relative offset.
-    const POINTER_STRING: &[(&str, &str)] = &[("audio", "AudioDevice")];
+    /// compiler can hand this predicate. plan-132 moved `net::Address`,
+    /// `udp::Datagram` (Phase 1) and `audio::AudioDevice` (Phase 2) off it, so the
+    /// list is empty and `no_other_declared_record_is_pointer_string` asserts no
+    /// registry record classifies as one. Phase 3 deletes the predicate and these
+    /// tests.
+    const POINTER_STRING: &[(&str, &str)] = &[];
 
     #[test]
     fn both_spellings_of_a_pointer_string_record_agree() {
