@@ -332,7 +332,7 @@ Commit: 31384318f
 
 Acceptance: the same answers on every executed target.
   Check: `cmp` per box → exit 0; `target/release/mfb build --target windows-x86_64 packages/timezones/oracle/probe` → `Wrote executable` (est. UNMEASURED on the emulated boxes; the per-zone sample is the smallest input that still reaches every footer and transition).
-Commit: —
+Commit: 1a542d248
 
 ### Phase 4 — docs and family close
 
@@ -366,7 +366,7 @@ Commit: —
 
 Acceptance: the package docs render and every example builds.
   Check: `target/release/mfb pkg doc packages/timezones/timezones.mfp | grep -c "timezones::"` → at least 6 (est. 1 min).
-Commit: —
+Commit: 1a542d248
 
 ## Validation Plan
 
