@@ -268,11 +268,11 @@ Commit: `da7f876d5`
   `a_mut_copy_of_an_address_list_is_independent_of_its_source` named as the regression
   test for the fixed half. `planning/bug-backlog.md`: the decision entry, Tier 2 row and
   open count (8 → 7).
-Commit:
+Commit: `301c27462`
 
 ### Verification (plan end)
 
-- [~] Artifact gate: goldens regenerated; every package that moves is explained. Phase 1
+- [x] Artifact gate: goldens regenerated; every package that moves is explained. Phase 1
   done: `bash scripts/artifact-gate.sh /tmp/p132/mfb-p1 all` → `2013 golden(s) checked,
   30 diff(s)` = `http`, `net`, `resource-xfer-slots`, `tcp`, `tls`, `udp` × 5 targets.
   Each localized by building its host `-ncode` with the Phase-0 and Phase-1 compilers
@@ -288,8 +288,9 @@ Commit:
   30 sums changed. Phase 2 done: gate on `/tmp/p132/mfb-p2` → `5 diff(s)`, all
   `audio_codegen_cover_rt`, localized to `audio.devices`, the two device opens and `main`
   (see Phase 2); `regen-ncodesum.sh /tmp/p132/mfb-p2` → exactly those 5 sums changed.
-  Remaining: one gate after Phase 3 (the `record_field_is_pointer_in` arm deletion is
-  predicted codegen-neutral; the gate is what proves it).
+  Phase 3 (predicted codegen-neutral: the predicate was already constant `false`, and C9
+  is a signature change): `bash scripts/artifact-gate.sh /tmp/p132/mfb-p3 all` (binary of
+  the `301c27462` tree) → `1437 tests, 1603 build(s), 2013 golden(s) checked, 0 diff(s)`.
 - [~] Acceptance over the `net`/`tcp`/`udp`/`tls`/`http`/`audio` fixtures. Phase 1:
   `bash scripts/test-accept.sh /tmp/p132/mfb-p1 /tmp/p132/accept_p1 <the 122 fixtures under
   those package directories>` → `acceptance tests passed (123 test(s) ran)`, EXIT=0.
