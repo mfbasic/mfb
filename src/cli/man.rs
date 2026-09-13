@@ -17,7 +17,8 @@ use std::io::IsTerminal;
 
 use crate::cli::spec::detect_terminal_width;
 use crate::codegen::registry::{
-    self, registry, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    self, registry, DefaultValue, Implementation, Parameter, RegistryConstant, RegistryFunction,
+    RegistryPackage,
 };
 use crate::docs::man::{self, ManTopic};
 use crate::docs::render;
@@ -91,9 +92,7 @@ pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
                 }
                 // A constant is a value, not a function, and has no page of its
                 // own; its row is on the package overview.
-                if function.is_none()
-                    && package.constants().iter().any(|c| c.name == *page_name)
-                {
+                if function.is_none() && package.constants().iter().any(|c| c.name == *page_name) {
                     return Err(format!(
                         "`{}::{page_name}` is a constant, not a function, and has no page of its own\n\nRun `mfb man {}` to see its value.",
                         package.import_name(),
@@ -403,13 +402,16 @@ fn render_constants(md: &mut String, package: &RegistryPackage) {
         md.push_str("| Constant | Type | Value |\n| --- | --- | --- |\n");
     }
     for constant in constants {
-        let ty = constant_type_name(package, constant.type_name);
+        let ty = constant_type_name(package, constant);
         let value = match (constant.value, constant.components) {
             (Some(value), _) => value.to_string(),
             (None, Some(components)) => format!("{ty}[{}]", components.join(", ")),
             (None, None) => String::new(),
         };
-        md.push_str(&format!("| `{pkg}::{}` | `{ty}` | `{value}` |", constant.name));
+        md.push_str(&format!(
+            "| `{pkg}::{}` | `{ty}` | `{value}` |",
+            constant.name
+        ));
         if described {
             md.push_str(&format!(" {} |", constant.message.unwrap_or("")));
         }
@@ -420,11 +422,15 @@ fn render_constants(md: &mut String, package: &RegistryPackage) {
 
 /// A constant's type as source spells it: a record the package declares is
 /// qualified (`vector::Float3`); a scalar type (`Integer`, `Float`) is not.
-fn constant_type_name(package: &RegistryPackage, type_name: &str) -> String {
-    if package.records().iter().any(|record| record.name == type_name) {
-        format!("{}::{type_name}", package.import_name())
+fn constant_type_name(package: &RegistryPackage, constant: &RegistryConstant) -> String {
+    let declared = package
+        .records()
+        .iter()
+        .any(|record| record.name == constant.type_name);
+    if declared {
+        format!("{}::{}", package.import_name(), constant.type_name)
     } else {
-        type_name.to_string()
+        constant.type_name.to_string()
     }
 }
 
