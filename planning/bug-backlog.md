@@ -40,7 +40,8 @@ Round 4 (594) was verified the same way: artifact gate 0 diffs; merged release u
 **In flight:** nothing. No agents are running. Every bug worked this stretch has landed;
 the ones that stay open (540, 564, 601) are blocked only on the owner decisions below
 (599 was fixed by plan-132; 602 was tested and closed as not a defect). The remaining
-open docs (484, 520, 536) are large planned work, not quick fixes.
+open docs (484, 536) are large planned work, not quick fixes. 520 was re-scoped on
+2026-09-13 — see **datetime** below.
 
 **Filed this stretch:** 601 (HIGH — a `MUT` copy of a non-flat list aliases its source and
 an in-place `append` then segfaults; found while fixing 599), 600 (a timed-out test run
@@ -591,8 +592,19 @@ two fields; this script covered one of two halves of itself. None FAILED. Each
 passed while checking less. When a rename lands, grep `scripts/` for the old
 spelling — nothing else will tell you.
 
-**datetime**: 520 (no named zones — huge; carries interaction notes from the
-three landed siblings). 518, 519 and 521 are landed.
+**datetime**: 520 — **re-scoped 2026-09-13** by owner ruling: `datetime` must be correct on
+its own, without a zone database. A standalone audit found host-zone resolution correct
+(macOS + box 2223 vs Python `zoneinfo`) but ten defects remain, so 520 stays open (large):
+S1 the offset writer drops seconds (`-04:56:02` → `-04:56`, reachable from `toLocal`);
+S2–S5 `parseIso`/`parse` accept an offset's `:SS`, trailing text, `+05:75`, and raise the
+wrong code for `+24:00`; S6 `addDays(dt, 0)` moves a repeated hour; S7–S9 page claims
+("pure", missing error lists, the `fixedOffset` formula); S10 no fixture sets `TZ`.
+Owner decisions: S1 **write seconds**; S6 **keep the offset** when it is still valid.
+The file is now `bugs/bug-520-datetime-is-not-correct-standalone.md`. **bug-603** was
+filed the same day for S1–S3 and merged into 520 — the number is used, no file exists.
+**Named zones moved out of 520** into **plan-135-A–D** (`packages/timezones`, a source
+package over vendored IANA tzdb 2026d, never the host's zone data; zone names match
+ignoring case). plan-135-D cannot start until 520 closes. 518, 519 and 521 are landed.
 
 **crypto**: the cluster is **complete**. **515 is landed (`b399e3363`)**, as are
 **511 (`e24914d5d`)** and **517 (`5c2024f71`)**.
@@ -643,7 +655,7 @@ so adding a curve fails until it is covered.
 - 488: CLOSED after its clean period (`e5f705c13`)
 
 **Still open:** only 484 (`picture::drawItem` never renders — x-large, sequenced AFTER
-plan-116-I) and 520 (named zones, huge).
+plan-116-I) and 520 (named zones, huge — re-scoped 2026-09-13, see **datetime**).
 
 **Filed that day, all found while fixing something else — none is a regression — and
 all since landed:** 550 (55 `debug_assert!`s that never run, because CI builds release;
