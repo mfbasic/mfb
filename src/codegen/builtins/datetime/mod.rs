@@ -28,11 +28,13 @@ const MODULE_INTRO: &str =
     r#"Instants, civil dates and times, durations, zones, formatting, and parsing"#;
 const MODULE_DESC: &str = r#"The `datetime` package models time around a single source of truth: a `datetime::Instant`,
 an absolute point on the UTC timeline (Unix epoch, leap-second-free) carrying
-whole seconds and a nanosecond field in the range `0 .. 999_999_999`. Everything
-civil — `datetime::Date`, `datetime::Time`, and `datetime::DateTime` — that this package *produces* is a
-projection of an instant through a `datetime::Zone`, and every projection records the
-resolved UTC offset, so a `datetime::DateTime` always knows its offset and round-trips
-back to its `datetime::Instant` without re-consulting the zone. (A `datetime::DateTime` you build
+whole seconds and a nanosecond field in the range `0 .. 999_999_999`. A
+`datetime::DateTime` that this package *produces* is a projection of an instant through a
+`datetime::Zone`, and every projection records the resolved UTC offset, so a
+`datetime::DateTime` always knows its offset and round-trips back to its
+`datetime::Instant` without re-consulting the zone. `datetime::Date` and `datetime::Time`
+are standalone civil components: `datetime::date` and `datetime::time` build them from
+their fields alone, with no instant or zone. (A `datetime::DateTime` you build
 yourself with the record constructor is not checked: if you supply an `offset`
 that does not match the civil fields, `datetime::resolve` believes the offset.) `datetime` is a built-in package: `IMPORT datetime` needs
 no manifest dependency.
@@ -40,7 +42,8 @@ no manifest dependency.
 All public types are flat, copyable value records and enums — `datetime::Instant`,
 `datetime::Duration`, `datetime::Date`, `datetime::Time`, `datetime::Zone`, `datetime::DateTime`, and the enums `datetime::ZoneKind`,
 `datetime::Weekday`, and `datetime::Month`. There are no resources and no hidden global state, and the
-types are referenced bare (`datetime::Instant`, `datetime::Date`, …), not package-qualified. Calendar
+types are always written package-qualified (`datetime::Instant`, `datetime::Date`, …); a bare
+`Instant` is `SYMBOL_UNKNOWN_TYPE`. Calendar
 arithmetic produces identical results on every target. The operations that read
 host state are the wall clock (`now` and `nowNanos`), the monotonic counter
 (`monotonic` and `monotonicNanos`), and local-zone offset resolution (`local`,

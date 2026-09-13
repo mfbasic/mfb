@@ -256,11 +256,38 @@ Commit: 425093122 (my pass), 83e4199d2 (Codex reviews applied)
 
 ### Phase 2 — the eight most-changed packages (8 units)
 
-- [ ] `datetime`, `http`, `process`, `json`, `tls`, `term`, `astrings`,
+- [~] `datetime`, `http`, `process`, `json`, `tls`, `term`, `astrings`,
       `crypto` — the packages with the most commits since plan-108 closed.
-- [ ] For each: reconcile the page against what actually changed
+      My pass done for all eight (sweeps 0, examples as measured, commit
+      history read). Codex: `datetime`, `http`, `process`, `json`, `tls` ran
+      (exit 0, clean) and their 9 findings are applied. **Remaining: `term`,
+      `astrings`, `crypto`** — each exited `FAILED` in 3 s with "You've hit
+      your usage limit … try again at Sep 13th, 2026 3:16 AM" (their `.log`
+      files). A fresh quota probe failed the same way (C-5).
+- [~] For each: reconcile the page against what actually changed
       (`git log --since=2026-08-31 -- src/codegen/builtins/<pkg>`) — a prose
       field that was not touched by a behavior change is the likely defect.
+      Done through the five reviews above; the same three remain.
+
+#### Phase 2 ledger — Codex iteration 1 (`planning/plan-125-findings/B-phase2/`)
+
+Manifest: 5 units `exit 0`, `clean` (52–105 s); 3 `FAILED` on quota
+(`--reconcile`: `unaccounted=3`). 9 findings: 9 confirmed and applied, 0 rejected.
+
+| Unit | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| datetime | 1 | CONFIRMED | the overview contradicts itself ("referenced bare (`datetime::Instant`…)"); reviewer probe: bare `Instant` is `SYMBOL_UNKNOWN_TYPE` | "always written package-qualified" |
+| datetime | 2 | CONFIRMED | `func_date.rs`/`func_time.rs` build from fields alone; reviewer probe printed `2026 9` | `DateTime` is the projection; `Date`/`Time` are standalone |
+| http | 1 | CONFIRMED | `mfb man http startRead`: "The whole request is written before `startRead` returns", with a 30-second connect deadline | overview: `startRead` connects and sends; the other four don't block |
+| http | 2 | CONFIRMED | `func_response_default.rs` DESC | `responseDefault` added to the constructor list |
+| json | 1 | CONFIRMED | `mfb man json stringify` documents Integer and String `indent` overloads | "compact by default, indented when given an indent" (twice) |
+| json | 2 | CONFIRMED | the same overview later says a step is an array index on a `JsonArr` | "object keys and array indexes" |
+| process | 1 | CONFIRMED | `func_did_signal.rs` DESC: a Windows NTSTATUS error severity maps to `Signal.Error` | overview's Windows sentence |
+| tls | 1 | CONFIRMED | `tls/func_close.rs` declares `ErrResourceClosed` — "a second close raises"; `tcp/func_close.rs:34` also raises, so the overview's "unlike `tcp::close`" contrast was wrong too | "As with `tcp::close`, calling it again … raises `ErrResourceClosed`" |
+| tls | 2 | CONFIRMED | `tls::close` and `tls::poll` already say "`tls::connect` or `tls::accept`"; reviewer probe compiled `tls::read`/`write` on an accepted socket | `read` ×1 and `write` ×2 `sock` descriptions |
+
+After apply (release build): whole-surface `--memory-scope` 0 unclassified,
+`--scope` 0; `mfb man <pkg> --all` exit 0 for all five.
 
 Acceptance: 8 units reconciled in the manifest; ledgers recorded; sweeps clean
 for all eight.
@@ -403,6 +430,19 @@ renderer strips them, so **no rendered sweep has ever seen one.**
 found them in `link` (13), `types` subpages (20: `numeric` 14, `set` 4, `list`
 1, `map` 1), `types` overview (4) and `lambda` (1). All removed; the check is
 now recorded in `.ai/man-content.md` §9.2b.
+
+### C-5 — Codex quota ran out mid-batch; three Phase 2 units re-dispatched
+
+The Phase 2 batch passed its quota probe (A C-11) at dispatch. Five units then
+ran and three — `term`, `astrings`, `crypto` — exited `FAILED` in 3 s with
+"You've hit your usage limit … try again at Sep 13th, 2026 3:16 AM" in their
+`.log` files. The probe row guards the *start* of a batch, not its end, so a
+batch can straddle the limit. The harness recorded each failure honestly
+(`manifest.tsv` `FAILED`, `--reconcile` `unaccounted=3`), so nothing was lost:
+after the reset the probe answered `PONG` and only those three units were
+re-dispatched, from `planning/plan-125-units/B-phase2-retry.txt` under the same
+letter. `--reconcile` reads each unit's last manifest row. The user stopped
+the session at the limit and resumed it after the reset.
 
 ## Summary
 

@@ -54,6 +54,8 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 18 | `mfb man lambda` | `This is an internal call-bound borrow, not a general source-level capability: non-escaping closures are not part of the v1 source language, so there are no `NONESCAPING`, `BORROW`, or lifetime annotations.` | `internals` | language | OPEN | — |
 | 19 | `mfb man optimizations` | `*Stage* says where the pass runs: `NIR` (the structured native IR, before storage planning), `MIR` (the selected machine-neutral stream, before register allocation), or `machine` (after register allocation, on physical registers).` | `internals` | architecture | OPEN | — |
 | 20 | `canvas::destroyFont` | `A scene carries the id, not the font, so it cannot dangle;` | `internals` | app | OPEN | — |
+| 21 | `collections::distinct` | `Building the result needs memory, but running out of it is not a trappable domain error, and the `append` it uses is classified infallible for exactly that reason.` | `internals` | stdlib | OPEN | — |
+| 22 | `collections::distinct` | `A call whose element type is not comparable is rejected at compile time with `TYPE_REQUIRES_COMPARABLE`, reported against the internal `collections.contains` call.` (the diagnostic's location clause) | `internals` | diagnostics | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused

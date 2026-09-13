@@ -142,7 +142,9 @@ child died with `process::didSignal`:
 | `process::Signal.Error` | `SIGABRT` | `TerminateProcess` | `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS` |
 
 Windows has no signals, so every delivered signal is the same forced
-termination there and `didSignal` reports `process::Signal.None` for every child. On
+termination there, and `didSignal` can report only `process::Signal.Error` (for a
+child that ended with an error-severity exit status, such as an access violation)
+or `process::Signal.None` (every other outcome). On
 Unix the buckets are lossy in the read direction: several signals map to one
 bucket, so `didSignal` tells you the *kind* of death, not which signal caused
 it.

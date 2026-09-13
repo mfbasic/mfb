@@ -65,8 +65,9 @@ const INTRO: &str = r#"Parse, build, serialize, and read JSON values as a `json:
 const DESC: &str = r#"The `json` package converts between JSON text and a `json::Json` value tree and reads
 members out of that tree. `json::parse` turns a UTF-8 `String` holding one
 complete JSON document into a `json::Json` value, `json::stringify` renders a `json::Json`
-value back into compact JSON text, and `json::get` and `json::getOr` walk a path
-of object keys to a nested member. `json` is a built-in package written in
+value back into JSON text — compact by default, indented when given an indent —
+and `json::get` and `json::getOr` walk a path of object keys and array indexes to
+a nested member. `json` is a built-in package written in
 MFBASIC source over the `collections`, `strings`, and `encoding` packages, so
 `IMPORT json` needs no manifest dependency.
 
@@ -92,7 +93,8 @@ the shortest digits that read back as the same `Float`, placed plainly while
 `1e-6 <= |value| < 1e21` and exponentially outside — so a document written here
 and read there, or the reverse, carries the same numbers with the same text.
 
-Serialization is compact: `json::stringify` emits no insignificant whitespace,
+Serialization is compact by default (see `json::stringify` for indented output):
+without an indent, `json::stringify` emits no insignificant whitespace,
 preserves array item order, emits object members in the order the object holds
 them — document order, for anything `json::parse` produced — and applies the
 standard JSON string escapes, leaving `/` unescaped. Parsing reads one complete

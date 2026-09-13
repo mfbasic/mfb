@@ -29,11 +29,9 @@ and then byte-for-byte over its UTF-8 bytes; a record compares field by field.
 
 Two consequences of that equality deserve care:
 
-- **`Float` is compared bitwise**, not with IEEE-754 numeric equality. `0.0` and
-  `-0.0` are therefore treated as *distinct* values and both survive, while two
-  `NaN` values with identical bit patterns are treated as *equal* and the second
-  is dropped. This matches the packed-payload comparison used for `contains` and
-  for map-literal keys.
+- **`Float` is compared by exact bit pattern**, not with `=`. `0.0` and `-0.0`
+  are therefore *distinct* here and both survive, even though `0.0 = -0.0` is
+  `TRUE`. This is the same comparison `contains` uses.
 - **String comparison is byte equality**, not Unicode-aware. Two strings that
   are canonically equivalent but differently normalized are distinct here; run
   `strings::normalizeNfc` (or `strings::caseFold` for case-insensitive
@@ -46,18 +44,17 @@ For large inputs of a comparable key type, building a `Map` keyed by the element
 and reading `collections::keys` is asymptotically cheaper, at the cost of losing
 first-occurrence order.
 
-`distinct` raises no user-trappable error of its own. Building the result needs
-memory, but running out of it is not a trappable domain error, and
-the `append` it uses is classified infallible for exactly that reason.`T` is inferred from the element type of `value` and **must be comparable**,
-because `distinct` is implemented in terms of `collections::contains`. A call
-whose element type is not comparable is rejected at compile time with
-`TYPE_REQUIRES_COMPARABLE`, reported against the internal `collections.contains`
-call.
+`distinct` raises no errors.
+
+`T` is inferred from the element type of `value` and **must be comparable**,
+because membership is tested with `collections::contains`. A call whose element
+type is not comparable is rejected at compile time with
+`TYPE_REQUIRES_COMPARABLE`.
 
 Comparable types are `Integer`, `Float`, `Fixed`, `Money`, `Boolean`, `String`,
 `Byte`, `Scalar`, `Nothing`, the built-in `Error` and `ErrorLoc` record shapes,
 enum types, and records whose fields are all comparable. `List`, `Map`, `UNION`
-types, `Result`, function values, threads, and resource handles are **not**
+types, function values, threads, and resource handles are **not**
 comparable, so `distinct` cannot be applied to a `List OF List OF T`, a list of
 maps, or a list of resource handles."#;
 
