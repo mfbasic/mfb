@@ -194,11 +194,11 @@ The Phase 0 baseline is `planning/coverage-baseline.txt` (423 lines, the
 one commit each; the live per-file ranking is not a committed file but a
 command, because a committed one goes stale between measurements:
 
-    sh scripts/coverage-bins.sh                       # refresh the profile
-    python3 scripts/coverage-src-gaps.py <report>     # which FILE, by lines short
-    python3 scripts/coverage-src-lines.py <report> F  # which LINES in it (--source)
-    python3 scripts/coverage-src-shapes.py <report>   # what KIND they are
-    python3 scripts/coverage-src-dead-functions.py <report>   # whole functions
+    sh scripts/coverage.sh --bins                          # refresh the profile
+    python3 scripts/coverage-report.py gaps <report>       # which FILE, by lines short
+    python3 scripts/coverage-report.py lines <report> F    # which LINES in it (--source)
+    python3 scripts/coverage-report.py shapes <report>     # what KIND they are
+    python3 scripts/coverage-report.py dead <report>       # whole functions
 
 (An earlier draft of this line pointed at `planning/coverage-ledger.md`, which
 has never existed in this repository; a log over all refs for that path is
@@ -208,7 +208,7 @@ empty.)
 not just the total.** The total moving proves something happened somewhere; it
 does not prove the test asserts what its name says. C10 is a test that claimed a
 line, passed, and left that exact line at zero executions, and the only thing
-that caught it was reading `coverage-src-lines.py` for the file afterwards. A
+that caught it was reading `coverage-report.py lines` for the file afterwards. A
 test asserting a line is covered and the report saying it is not cannot both be
 right, and the report is the one that is not guessing.
 
@@ -344,17 +344,17 @@ right, and the report is the one that is not guessing.
       scalar `thread::send`, the vector-promotion path and the `CSTRUCT` tail
       zeroing.
 - [ ] The remaining `src/**` files below the floor, worst first. Regenerate
-      the ranking with `python3 scripts/coverage-src-gaps.py <report.json>`,
+      the ranking with `python3 scripts/coverage-report.py gaps <report.json>`,
       which sorts by LINES SHORT rather than by percentage,
-      `scripts/coverage-src-delta.py` to diff two reports, and
-      `scripts/coverage-src-lines.py <report.json> <file>` for the uncovered
+      `scripts/coverage-report.py delta` to diff two reports, and
+      `scripts/coverage-report.py lines <report.json> <file>` for the uncovered
       RANGES of one file (`--source` interleaves the text). Ranking by file said
       which file; nothing said which lines, and reconstructing that by eye from
       a 3,000-line file is where the time went.
 
 ### What the remaining 7,077 lines ARE
 
-Re-measured with `scripts/coverage-src-shapes.py`, which reads the source text of
+Re-measured with `scripts/coverage-report.py shapes`, which reads the source text of
 every uncovered region-entry line. 5,369 region-entry lines across the 223 files
 — fewer than the 7,077 the summary counts, because one region can span several
 lines.
@@ -389,7 +389,7 @@ refusals; the NIR-validator sweep is closing it.
 
 ### Where the count stands
 
-Measured with `scripts/coverage-bins.sh` + `scripts/coverage-src-gaps.py`,
+Measured with `scripts/coverage.sh --bins` + `scripts/coverage-report.py gaps`,
 `src/**` only (Findings F1: that is the same measurement as the full run for
 these files, and is not for `repository/src/**`).
 
@@ -476,7 +476,7 @@ and the difference is worth knowing before picking the next one:
   reaching them through the `p121d-state-*` fixtures.
 
 Both are worth having and only the first closes the gate, so check
-`coverage-src-dead-functions.py` and the per-file uncovered RANGES before
+`coverage-report.py dead` and the per-file uncovered RANGES before
 writing, not after.
 
 **What is left is branches, not functions.** With the dead-function ranking
@@ -616,7 +616,7 @@ starts from an observation rather than from the same wrong guess.
 
 ### F6 — rank the DEAD FUNCTIONS, not the uncovered lines
 
-`scripts/coverage-src-dead-functions.py` reads the 33,325 function records the
+`scripts/coverage-report.py dead` reads the 33,325 function records the
 llvm-cov JSON already carries and reports the ones never called, ranked by span.
 It reframes the work: not "which lines are uncovered" but "which whole functions
 does no program reach", and one program usually reaches a whole function.
@@ -845,7 +845,8 @@ Two things make this a defect rather than a tradeoff:
    written from (405 files, 89.09%) is that number.
 
 **Changed.** `drop_never_executed_binaries` in `scripts/coverage-common.sh`,
-called from `coverage.sh`, `coverage-bins.sh` and `coverage-check.sh` before the
+called from both modes of `coverage.sh` (with and without `--bins`) and from
+`coverage-check.sh` before the
 first report pass. Nothing is lost: `grep -rn "cfg(not(test))" src/
 repository/src/` (discounting `cfg_attr`) is 0, so no line exists only in a plain
 build.
@@ -1189,7 +1190,7 @@ claim attached to it.
 
 **The rule this session keeps re-learning, stated once:** a claim of the form
 "X had never run" is a claim about a NUMBER, and the number is available before
-the commit — `coverage-src-lines.py` for the file, or an `eprintln!` at the line.
+the commit — `coverage-report.py lines` for the file, or an `eprintln!` at the line.
 C10 was a test that passed for the wrong reason; C12 was two files that did not
 move; this is a third, and the difference between the ones I caught early
 (`default-values-rt`, probed before committing, claim dropped) and the ones I did
@@ -1349,11 +1350,11 @@ artifact nothing regenerates is green exactly as long as nobody cleans, and CI
 runs `cargo test` on a fresh checkout in a job that never runs the acceptance
 harness — so this would have been red there and green on every developer machine
 that had run `test-accept.sh` once. The coverage loop caught it only because
-`coverage-bins.sh` happens to run after acceptance in this session's order.
+`coverage.sh --bins` happens to run after acceptance in this session's order.
 
 ### C17 — two commits improved files the gate already excuses, and the delta said so
 
-`scripts/coverage-src-gaps.py` applies `scripts/coverage-exceptions.txt` exactly
+`scripts/coverage-report.py gaps` applies `scripts/coverage-exceptions.txt` exactly
 as `coverage-check.sh` does, so the "N files below 98%" number this plan tracks
 has always been the GATE's number. What I did not do before choosing two
 commits' worth of work is read that file. `src/cli/dispatch.rs`,
@@ -1379,7 +1380,7 @@ reachable and tested — so the entry is NARROWED in place to name what is
 actually left: `run()` (the `process::exit`) and the six registry-command
 success arms.
 
-**The rule for the rest of the plan.** Rank with `coverage-src-gaps.py` and
+**The rule for the rest of the plan.** Rank with `coverage-report.py gaps` and
 believe the `below 98%:` line rather than a per-directory census of the raw JSON;
 an ad-hoc census over `pcov-*.json` does not apply the exceptions and will point
 at `src/cli` as the biggest remaining block when the gate does not count a line

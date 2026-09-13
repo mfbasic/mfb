@@ -657,7 +657,8 @@ fixture lines (`cert`, `empty`, `deadline`) held in all 1,200 runs.
   `_mfb_rt_tls_tls_write` and `_mfb_rt_tls_tls_writeText` changed because of
   the `ldar` gate loads. `linux-*` and `windows-x86_64` did not move: those
   backends do not emit these functions.
-* **Regen.** `bash scripts/regen-ncodesum.sh target/release/mfb` refreshed 144
+* **Regen.** The `.ncodesum` regen script (since merged into
+  `scripts/regen-native-goldens.sh`, plan-131-B) refreshed 144
   goldens; `git status` changed only those 3. No `.run` golden moved, and no
   `.ir`/`.ast`/`build.log` moved.
 * **Branch, after regen.** Same command: 2009 goldens, **0 diffs**, exit 0.

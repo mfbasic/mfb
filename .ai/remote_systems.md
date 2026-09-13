@@ -93,6 +93,6 @@ scalar (`v=false`) path of the one-binary RVV dual-path. To get the `v=true`
 (native-RVV) path, run under **qemu-user**, which emulates `V` and sets
 `AT_HWCAP` bit 21: it is fetched without root on 2232 via `apt-get download
 qemu-user` → `dpkg -x qemu-user_*.deb ~/qemuroot` (→ `~/qemuroot/usr/bin/qemu-riscv64`,
-Linux-host only, so it cannot run on the Mac). `scripts/rvv-qemu-runner.sh` ships a
+Linux-host only, so it cannot run on the Mac). `tools/math-kernels/rvv-qemu-runner.sh` ships a
 build to 2232 and runs it under `qemu-riscv64 -cpu rv64,v=true,vlen=128` / `v=false`;
-`scripts/rvv-ulp-two-profile.sh` drives the ULP harness across both profiles.
+`tools/math-kernels/rvv-ulp-two-profile.sh` drives the ULP harness across both profiles.

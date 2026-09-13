@@ -120,7 +120,7 @@ a second package. `Codepage` is an `EXPORT ENUM` of the WHATWG Encoding Standard
 
 The table data is the standard's own: each codepage is one of the 27 distinct
 `index-<label>.txt` files vendored under `tools/codepage-index/`, generated into
-`helper_codepage_table.rs` by `scripts/gen_codepage_tables.py` and checked back
+`helper_codepage_table.rs` by `tools/codepage-index/gen_codepage_tables.py` and checked back
 against those files at test time. ISO-8859-8-I has no index of its own and shares
 ISO-8859-8's mapping — the two differ only in bidi display direction, not in the
 byte↔code-point mapping.

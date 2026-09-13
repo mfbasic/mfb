@@ -16,25 +16,16 @@
 # the program's own output is what is checked. That is deliberate — it is what makes
 # this runnable at all on a headless VM.
 set -euo pipefail
+. "$(dirname "$0")/remote-common.sh"
 
 MFB_EXE="${1:?usage: test-winapp.sh <mfb-exe> [--box <port>]}"
 shift || true
 PORT=2230
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --box) PORT="$2"; shift 2 ;;
-    *) echo "test-winapp: unknown argument $1" >&2; exit 2 ;;
-  esac
-done
+rc_parse_box test-winapp "$@"
 
 host="test@127.0.0.1"
 remote='C:\mfbwin'
-fails=0
-pass() { echo "ok: $1"; }
-fail() { echo "FAIL: $1"; fails=$((fails + 1)); }
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+rc_workdir
 
 # One program that exercises the three seams the four fixed defects lived in: the
 # worker thread runs at all (CreateThread's handle), the entry reaches its first
@@ -44,11 +35,7 @@ trap 'rm -rf "$work"' EXIT
 # success.
 proj="$work/winapp"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "winapp", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" winapp
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT fs
@@ -86,11 +73,9 @@ type winapp.out
 BAT
 
 echo "--- running on box $PORT ---"
-ssh -p "$PORT" "$host" "if not exist $remote mkdir $remote" >/dev/null
-ssh -p "$PORT" "$host" "del /q $remote\\winapp.txt $remote\\winapp.out 2>nul" >/dev/null 2>&1 || true
-scp -P "$PORT" "$proj/build/winapp.exe" "$host:C:/mfbwin/winapp.exe" >/dev/null
-scp -P "$PORT" "$work/runner.bat" "$host:C:/mfbwin/runner.bat" >/dev/null
-out="$(ssh -p "$PORT" "$host" "$remote\\runner.bat" 2>&1 || true)"
+remote_ssh "$PORT" "$host" "del /q $remote\\winapp.txt $remote\\winapp.out 2>nul" >/dev/null 2>&1 || true
+win_ship "$PORT" "$host" "$remote" "$proj/build/winapp.exe" "$work/runner.bat"
+out="$(remote_ssh "$PORT" "$host" "$remote\\runner.bat" 2>&1 || true)"
 echo "$out" | sed 's/^/    /'
 
 case "$out" in
@@ -135,11 +120,7 @@ esac
 # against.
 cproj="$work/wincanvas"
 mkdir -p "$cproj/src"
-cat > "$cproj/project.json" <<'JSON'
-{ "name": "wincanvas", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$cproj" wincanvas
 cat > "$cproj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
@@ -181,10 +162,10 @@ echo rc=%errorlevel%
 type wincanvas.out
 BAT
 
-ssh -p "$PORT" "$host" "del /q $remote\\wincanvas.raw $remote\\wincanvas.out 2>nul" >/dev/null 2>&1 || true
-scp -P "$PORT" "$cproj/build/wincanvas.exe" "$host:C:/mfbwin/wincanvas.exe" >/dev/null
-scp -P "$PORT" "$work/canvas.bat" "$host:C:/mfbwin/canvas.bat" >/dev/null
-cout="$(ssh -p "$PORT" "$host" "$remote\\canvas.bat" 2>&1 || true)"
+remote_ssh "$PORT" "$host" "del /q $remote\\wincanvas.raw $remote\\wincanvas.out 2>nul" >/dev/null 2>&1 || true
+remote_scp "$PORT" "$cproj/build/wincanvas.exe" "$host:C:/mfbwin/wincanvas.exe" >/dev/null
+remote_scp "$PORT" "$work/canvas.bat" "$host:C:/mfbwin/canvas.bat" >/dev/null
+cout="$(remote_ssh "$PORT" "$host" "$remote\\canvas.bat" 2>&1 || true)"
 echo "$cout" | sed 's/^/    /'
 
 case "$cout" in
@@ -197,7 +178,7 @@ case "$cout" in
 esac
 
 # The frame itself. 900x640 BGRA/RGBA, 4 bytes a pixel.
-scp -P "$PORT" "$host:C:/mfbwin/wincanvas.raw" "$work/wincanvas.raw" >/dev/null 2>&1 || true
+remote_scp "$PORT" "$host:C:/mfbwin/wincanvas.raw" "$work/wincanvas.raw" >/dev/null 2>&1 || true
 if [ -f "$work/wincanvas.raw" ]; then
   size="$(wc -c < "$work/wincanvas.raw" | tr -d ' ')"
   if [ "$size" = "2304000" ]; then
@@ -246,9 +227,9 @@ type wincanvas.gpu.out
 type C:\mfbwin\wincanvas.stats
 BAT
 
-ssh -p "$PORT" "$host" "del /q $remote\\wincanvas.gpu.raw $remote\\wincanvas.stats 2>nul" >/dev/null 2>&1 || true
-scp -P "$PORT" "$work/canvasgpu.bat" "$host:C:/mfbwin/canvasgpu.bat" >/dev/null
-gout="$(ssh -p "$PORT" "$host" "$remote\\canvasgpu.bat" 2>&1 || true)"
+remote_ssh "$PORT" "$host" "del /q $remote\\wincanvas.gpu.raw $remote\\wincanvas.stats 2>nul" >/dev/null 2>&1 || true
+remote_scp "$PORT" "$work/canvasgpu.bat" "$host:C:/mfbwin/canvasgpu.bat" >/dev/null
+gout="$(remote_ssh "$PORT" "$host" "$remote\\canvasgpu.bat" 2>&1 || true)"
 echo "$gout" | sed 's/^/    /'
 
 case "$gout" in
@@ -264,7 +245,7 @@ case "$gout" in
   *) fail "the Vulkan canvas program did not exit 0" ;;
 esac
 
-scp -P "$PORT" "$host:C:/mfbwin/wincanvas.gpu.raw" "$work/wincanvas.gpu.raw" >/dev/null 2>&1 || true
+remote_scp "$PORT" "$host:C:/mfbwin/wincanvas.gpu.raw" "$work/wincanvas.gpu.raw" >/dev/null 2>&1 || true
 if [ -f "$work/wincanvas.gpu.raw" ] && [ -f "$work/wincanvas.raw" ]; then
   # The GPU frame must contain the scene in its own right — two blank frames agree.
   gprobe() { od -An -tu1 -j "$1" -N 4 "$work/wincanvas.gpu.raw" | tr -s ' ' | sed 's/^ //;s/ $//'; }
@@ -274,28 +255,7 @@ if [ -f "$work/wincanvas.gpu.raw" ] && [ -f "$work/wincanvas.raw" ]; then
   [ "$gcirc" = "40 200 120 255" ] && pass "the Vulkan frame drew the circle" \
     || fail "the Vulkan circle pixel is [$gcirc], expected [40 200 120 255]"
 
-  verdict="$(python3 - "$work/wincanvas.raw" "$work/wincanvas.gpu.raw" <<'PY'
-import sys
-a = open(sys.argv[1], "rb").read()
-b = open(sys.argv[2], "rb").read()
-if len(a) != len(b) or not a:
-    print(f"frame sizes differ ({len(a)} vs {len(b)}) — a harness bug")
-    raise SystemExit
-# Tolerance::GPU_DEFAULT, the same bound test-canvas-vulkan.sh applies on Linux.
-worst = 0
-differing = 0
-total = len(a) // 4
-for i in range(0, len(a), 4):
-    pa, pb = a[i:i + 4], b[i:i + 4]
-    if pa == pb:
-        continue
-    differing += 1
-    worst = max(worst, max(abs(x - y) for x, y in zip(pa, pb)))
-fraction = differing / total
-verdict = "ok" if worst <= 2 and fraction <= 0.02 else "BEYOND"
-print(f"{verdict} worst={worst} differing={fraction * 100:.4f}%")
-PY
-)"
+  verdict="$(python3 "$(dirname "$0")/rgba_compare.py" "$work/wincanvas.raw" "$work/wincanvas.gpu.raw" 900)"
   case "$verdict" in
     ok*) pass "the Vulkan frame matches the software reference within tolerance ($verdict)" ;;
     *) fail "the Vulkan frame is outside Tolerance::GPU_DEFAULT — $verdict" ;;
@@ -340,9 +300,9 @@ wincanvas.exe > $1.out 2>&1
 echo rc=%errorlevel%
 type $stats_path
 BAT
-  ssh -p "$PORT" "$host" "del /q $remote\\$1.raw $remote\\$1.stats 2>nul" >/dev/null 2>&1 || true
-  scp -P "$PORT" "$work/rs.bat" "$host:C:/mfbwin/rs.bat" >/dev/null
-  ssh -p "$PORT" "$host" "$remote\\rs.bat" 2>&1 || true
+  remote_ssh "$PORT" "$host" "del /q $remote\\$1.raw $remote\\$1.stats 2>nul" >/dev/null 2>&1 || true
+  remote_scp "$PORT" "$work/rs.bat" "$host:C:/mfbwin/rs.bat" >/dev/null
+  remote_ssh "$PORT" "$host" "$remote\\rs.bat" 2>&1 || true
 }
 
 rsw="$(resize_run rssw '')"
@@ -359,7 +319,7 @@ case "$rsg" in
 esac
 
 for tag in rssw rsgpu; do
-  scp -P "$PORT" "$host:C:/mfbwin/$tag.raw" "$work/$tag.raw" >/dev/null 2>&1 || true
+  remote_scp "$PORT" "$host:C:/mfbwin/$tag.raw" "$work/$tag.raw" >/dev/null 2>&1 || true
   if [ -f "$work/$tag.raw" ]; then
     size="$(wc -c < "$work/$tag.raw" | tr -d ' ')"
     [ "$size" = "1228800" ] && pass "$tag repainted at 640x480 (1228800 bytes)" \
@@ -370,27 +330,7 @@ for tag in rssw rsgpu; do
 done
 
 if [ -f "$work/rssw.raw" ] && [ -f "$work/rsgpu.raw" ]; then
-  verdict="$(python3 - "$work/rssw.raw" "$work/rsgpu.raw" <<'PY'
-import sys
-a = open(sys.argv[1], "rb").read()
-b = open(sys.argv[2], "rb").read()
-if len(a) != len(b) or not a:
-    print(f"frame sizes differ ({len(a)} vs {len(b)}) — a harness bug")
-    raise SystemExit
-worst = 0
-differing = 0
-total = len(a) // 4
-for i in range(0, len(a), 4):
-    pa, pb = a[i:i + 4], b[i:i + 4]
-    if pa == pb:
-        continue
-    differing += 1
-    worst = max(worst, max(abs(x - y) for x, y in zip(pa, pb)))
-fraction = differing / total
-verdict = "ok" if worst <= 2 and fraction <= 0.02 else "BEYOND"
-print(f"{verdict} worst={worst} differing={fraction * 100:.4f}%")
-PY
-)"
+  verdict="$(python3 "$(dirname "$0")/rgba_compare.py" "$work/rssw.raw" "$work/rsgpu.raw" 640)"
   case "$verdict" in
     ok*) pass "the resized Vulkan frame matches the resized software reference ($verdict)" ;;
     *) fail "the resized Vulkan frame is outside Tolerance::GPU_DEFAULT — $verdict" ;;
@@ -419,11 +359,7 @@ fi
 # makes it a test rather than a screenshot somebody looks at once.
 tproj="$work/winterm"
 mkdir -p "$tproj/src"
-cat > "$tproj/project.json" <<'JSON'
-{ "name": "winterm", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$tproj" winterm
 cat > "$tproj/src/main.mfb" <<'MFB'
 IMPORT term
 IMPORT io
@@ -496,10 +432,10 @@ echo rc=%errorlevel%
 type winterm.out
 BAT
 
-ssh -p "$PORT" "$host" "del /q $remote\\winterm.out 2>nul" >/dev/null 2>&1 || true
-scp -P "$PORT" "$tproj/build/winterm.exe" "$host:C:/mfbwin/winterm.exe" >/dev/null
-scp -P "$PORT" "$work/winterm.bat" "$host:C:/mfbwin/winterm.bat" >/dev/null
-tout="$(ssh -p "$PORT" "$host" "$remote\\winterm.bat" 2>&1 || true)"
+remote_ssh "$PORT" "$host" "del /q $remote\\winterm.out 2>nul" >/dev/null 2>&1 || true
+remote_scp "$PORT" "$tproj/build/winterm.exe" "$host:C:/mfbwin/winterm.exe" >/dev/null
+remote_scp "$PORT" "$work/winterm.bat" "$host:C:/mfbwin/winterm.bat" >/dev/null
+tout="$(remote_ssh "$PORT" "$host" "$remote\\winterm.bat" 2>&1 || true)"
 echo "$tout" | sed 's/^/    /'
 
 case "$tout" in
@@ -542,11 +478,7 @@ esac
 # pending-resize survived `term::off` + `term::on` on Windows alone.
 sproj="$work/winstyle"
 mkdir -p "$sproj/src"
-cat > "$sproj/project.json" <<'JSON'
-{ "name": "winstyle", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$sproj" winstyle
 cat > "$sproj/src/main.mfb" <<'MFB'
 IMPORT term
 IMPORT io
@@ -595,10 +527,10 @@ echo rc=%errorlevel%
 type winstyle.out
 BAT
 
-ssh -p "$PORT" "$host" "del /q $remote\\winstyle.out 2>nul" >/dev/null 2>&1 || true
-scp -P "$PORT" "$sproj/build/winstyle.exe" "$host:C:/mfbwin/winstyle.exe" >/dev/null
-scp -P "$PORT" "$work/winstyle.bat" "$host:C:/mfbwin/winstyle.bat" >/dev/null
-sout="$(ssh -p "$PORT" "$host" "$remote\\winstyle.bat" 2>&1 || true)"
+remote_ssh "$PORT" "$host" "del /q $remote\\winstyle.out 2>nul" >/dev/null 2>&1 || true
+remote_scp "$PORT" "$sproj/build/winstyle.exe" "$host:C:/mfbwin/winstyle.exe" >/dev/null
+remote_scp "$PORT" "$work/winstyle.bat" "$host:C:/mfbwin/winstyle.bat" >/dev/null
+sout="$(remote_ssh "$PORT" "$host" "$remote\\winstyle.bat" 2>&1 || true)"
 echo "$sout" | sed 's/^/    /'
 
 case "$sout" in
@@ -629,11 +561,7 @@ esac
 # and that the shared walk still serves io::print while TUI mode is on.
 wcproj="$work/wincluster"
 mkdir -p "$wcproj/src"
-cat > "$wcproj/project.json" <<'JSON'
-{ "name": "wincluster", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$wcproj" wincluster
 cat > "$wcproj/src/main.mfb" <<'MFB'
 IMPORT term
 IMPORT io
@@ -676,10 +604,10 @@ echo rc=%errorlevel%
 type wincluster.out
 BAT
 
-ssh -p "$PORT" "$host" "del /q $remote\\wincluster.out 2>nul" >/dev/null 2>&1 || true
-scp -P "$PORT" "$wcproj/build/wincluster.exe" "$host:C:/mfbwin/wincluster.exe" >/dev/null
-scp -P "$PORT" "$work/wincluster.bat" "$host:C:/mfbwin/wincluster.bat" >/dev/null
-cout="$(ssh -p "$PORT" "$host" "$remote\\wincluster.bat" 2>&1 || true)"
+remote_ssh "$PORT" "$host" "del /q $remote\\wincluster.out 2>nul" >/dev/null 2>&1 || true
+remote_scp "$PORT" "$wcproj/build/wincluster.exe" "$host:C:/mfbwin/wincluster.exe" >/dev/null
+remote_scp "$PORT" "$work/wincluster.bat" "$host:C:/mfbwin/wincluster.bat" >/dev/null
+cout="$(remote_ssh "$PORT" "$host" "$remote\\wincluster.bat" 2>&1 || true)"
 echo "$cout" | sed 's/^/    /'
 
 case "$cout" in
@@ -691,9 +619,9 @@ case "$cout" in
   *) fail "the term cluster program never reached its final print (bug-540 WIN-04)" ;;
 esac
 
-if [ "$fails" -eq 0 ]; then
+if [ "$rc_failures" -eq 0 ]; then
   echo "windows app-mode, canvas and Vulkan runtime tests passed"
 else
-  echo "$fails failure(s)"
+  echo "$rc_failures failure(s)"
   exit 1
 fi

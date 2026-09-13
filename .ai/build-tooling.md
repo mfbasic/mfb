@@ -61,13 +61,15 @@ Single-core boxes exist — keep JOBS low there.
 
 Some boxes have known pre-existing failures unrelated to your change (e.g. a glibc 2.42 box: 21 `rt-behavior` fixtures — the `resources/*` cluster plus fs tempfile/buffered ones — segfault at teardown after printing correct output; proven pre-existing since byte-identical binaries from the pre-refactor compiler fail identically).
 
-### linux-artifact-baseline.sh: RELEASE binary + JOBS=10, always
+### artifact-baseline.sh: RELEASE binary + JOBS=10, always
 It cross-builds ~1014 fixtures × 3 Linux targets. With a **debug** `mfb` and no parallelism it produces roughly **6 manifest lines per minute** — a ~66-hour run that never finishes inside a session (measured, not estimated). Release + `JOBS=10` finishes the full corpus in minutes:
 ```
-JOBS=10 scripts/linux-artifact-baseline.sh target/release/mfb capture <manifest>
+JOBS=10 scripts/artifact-baseline.sh target/release/mfb capture <manifest>
 ```
 
 To baseline against pre-change output, build the old compiler in a **separate worktree** (`git worktree add /tmp/base <commit>`) rather than stashing — this repo forbids tree-wide git restore and other clients share the tree.
+
+The default is the three Linux targets; `--targets macos-aarch64` (or any comma-separated list) baselines other targets, including the host's linked executables.
 
 Corollary easy to miss: the baseline builds **console mode only**. Linux **app-mode** codegen is not covered by it and has no committed goldens — diff it separately with `--app` if a change touches the app path.
 

@@ -15,7 +15,7 @@
 # `golden/build.log` — the same bytes `test-accept.sh` compares locally.
 #
 # This is the behavioral half of bug-321's proof. The artifact half
-# (`scripts/linux-artifact-baseline.sh`) shows the emitted bytes did not change;
+# (`scripts/artifact-baseline.sh`) shows the emitted bytes did not change;
 # this shows those bytes still execute correctly on aarch64, x86-64, and riscv64.
 #
 # Usage:
@@ -24,6 +24,7 @@
 #   FILTER=<substring> ... restrict to fixtures whose path contains it
 #   JOBS=<n>           ... fixtures built+run concurrently (default 4)
 set -u
+. "$(dirname "$0")/remote-common.sh"
 
 # Repo root. Overridable so the script can be run from a copy outside the tree
 # (handy when a long run must not be disturbed by edits to the original — bash
@@ -48,7 +49,7 @@ JOBS=${JOBS:-4}
 # discount its output, which is exactly how the last four failures sat
 # unexplained across three sessions.
 RUN_TIMEOUT=${RUN_TIMEOUT:-300}
-SSH="ssh -o ConnectTimeout=10 -o BatchMode=yes -p $PORT test@127.0.0.1"
+SSH="ssh $RC_SSH_OPTS -p $PORT test@127.0.0.1"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -151,7 +152,7 @@ run_fixture() {
   remote_rel="tests/$rel/build/$name.out"
   remote_exe="$remote_dir/$name.out"
   $SSH "mkdir -p '$remote_dir'" 2>/dev/null || { echo "SCP-FAIL|$rel" > "$part"; return 0; }
-  if ! scp -q -o ConnectTimeout=10 -o BatchMode=yes -P "$PORT" \
+  if ! scp -q $RC_SCP_OPTS -P "$PORT" \
         "$exe" "test@127.0.0.1:$remote_exe" 2>/dev/null; then
     echo "SCP-FAIL|$rel" > "$part"
     return 0
@@ -180,7 +181,7 @@ export -f run_fixture 2>/dev/null || true
 # `timeout <exe>`, which busybox parses as a missing DURATION and answers with
 # its usage text — so every fixture "failed" with no output. Caught because a
 # fixture that had just passed in isolation started failing at JOBS=1.
-export WORKDIR=$work MFB ROOT TARGET FLAVOR PORT SSH REMOTE RUN_TIMEOUT
+export WORKDIR=$work MFB ROOT TARGET FLAVOR PORT SSH REMOTE RUN_TIMEOUT RC_SCP_OPTS
 
 : > "$work/projects"
 find "$ROOT/tests" -name project.json | sort | while IFS= read -r project; do

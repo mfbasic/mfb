@@ -42,7 +42,7 @@ The gate checks CODEGEN; it cannot see the error message of an *invalid* program
 - Never run `cargo` (even `cargo check`) while the gate/acceptance is using `target/debug/mfb`: macOS invalidates the in-place-modified Mach-O's signature, so every subsequent harness exec is SIGKILLed and the suite silently stops producing actuals (looks like a pile of "missing actual"). If the binary's mtime changed mid-run (`stat -f "%m" target/debug/mfb`), discard that run's actuals.
 
 ### A/B two artifact baselines (Linux)
-To show a codegen fix changed only what it should: `scripts/linux-artifact-baseline.sh <old-mfb> capture /tmp/a.manifest` with the OLD compiler *before* rebuilding, again with the new, then `diff` the files yourself (`verify` mode only prints `head -80` and deletes its temp manifest). 11,154 hashes across all three Linux targets, fully local — replaces hours of emulated-hardware runtime proof (e.g. exactly 19 of 1014 fixtures, all reaching `fs::tempDirectory`). Note the `JOBS=10` + release-binary caveat for the Linux boxes (only one box has a Rust toolchain; cross-compile and ship).
+To show a codegen fix changed only what it should: `scripts/artifact-baseline.sh <old-mfb> capture /tmp/a.manifest` with the OLD compiler *before* rebuilding, again with the new, then `diff` the files yourself (`verify` mode only prints `head -80` and deletes its temp manifest). 11,154 hashes across all three Linux targets, fully local — replaces hours of emulated-hardware runtime proof (e.g. exactly 19 of 1014 fixtures, all reaching `fs::tempDirectory`). Note the `JOBS=10` + release-binary caveat for the Linux boxes (only one box has a Rust toolchain; cross-compile and ship).
 
 ### Scope: execution-free BY DESIGN
 `artifact-gate.sh` and `test-accept.sh` both source `scripts/artifact-kinds.sh` (one table of dump kinds: host `ast ir hex`, native `nir nplan nobj ncode mir`, app `nir nplan ncode`; `hex`→`-br`, else `-<kind>`). Add a new codegen-dump kind = edit ONE file. The 11 kinds NOT in the gate (`mfp`, `info`, `audit`, `testrun`, `covmap.json`, `covdata`, `covfail`) each need a link / `pkg info` / `audit` / `test` RUN step, so they're deliberately out of scope — do NOT "bring the gate to 19 kinds"; its `checked` count is correct. Baseline is literal `diffs=0`.
@@ -94,7 +94,7 @@ The `-ncode` output is a **textual JSON instruction dump** that contains label n
 
 ### Regenerating the goldens
 - The committed `.ncode`/`.ncodesum` are **RELEASE**-generated. Debug and release `mfb` from the SAME source emit identical `.ncode` (verified), but always run `scripts/artifact-gate.sh target/release/mfb all` for a true 0-diff.
-- **Two regen scripts, and `regen-ncodesum.sh` alone is NOT enough** (plan-99). It sweeps only `tests/byte-identity/*/golden/*.ncodesum`; the `.ncode`/`.ncodesum` goldens that live elsewhere — `rt-behavior/crypto/crypto-ec-valid` (4 targets) and `syntax/app/macos-app-mode-{io,plumbing,term}` (incl. `--app` targets) — stay stale and keep `artifact-gate all` red after a "full" regen. Run `scripts/regen-outside-ncode.sh target/release/mfb` for those (same contract, decodes the `.app` target suffix), then re-run the gate to 0.
+- **One regen script.** `scripts/regen-native-goldens.sh target/release/mfb [fixture-dir…]` rewrites every existing per-target native golden — raw `.ncode/.nir/.nplan/.nobj/.mir` and their `…sum` forms, `.app` variants included, anywhere under `tests/` — for the target named in its filename, with the host taken from `uname`. It never creates a golden and never writes one whose build failed, and it exits non-zero if any build failed. It replaced three overlapping scripts (plan-131-B). Run it, then re-run the gate to 0.
 - **Classify before you regenerate.** Run `artifact-gate.sh <exe> all` from a detached main-tip worktree FIRST (`git worktree add --detach /tmp/<x> main`, release build). If that baseline is `0 diff(s)`, every diff on your branch is yours and regenerating is correct; a baseline diff is a pre-existing stale golden and must be classified separately. A one-instruction change in the program entry (e.g. the `entry_error_code_write` staging) churns EVERY fixture on EVERY target — 125 goldens in plan-99 — because the entry stub is in every binary; that is expected, not a red flag.
 - `artifact-gate.sh` has **no accept/write mode**. Regenerate a `.ncodesum` by building the target's dump and writing its sha256: for each target token `t` in `golden/<pkg>.<t>.ncodesum`, `mfb build -q -ncode [-target <t>] [--app if t ends .app] <fixtureDir>` writes `<fixtureDir>/<pkg>.ncode`; then `shasum -a 256 … | cut -d' ' -f1 > golden/<pkg>.<t>.ncodesum`. Host target = `macos-aarch64` (no `-target`). Raw `.ncode` goldens (small backends) are `cp`'d instead of summed.
 
@@ -179,7 +179,7 @@ Note also that a `repository/`-only change CAN turn the main acceptance suite re
 
 `tests/golden/canvas/*.png` are **not** instances of the `tests/byte-identity/`
 codegen drift gate above, and `artifact-gate.sh` does not touch them. They are
-rendered *pictures*, gated by `tests/rt_canvas_golden.rs`, and the rule is the
+rendered *pictures*, gated by `tests/canvas/rt_canvas_golden.rs`, and the rule is the
 opposite of the drift-sentinel rule: a mismatch is a **bug hunt**, not a
 regeneration.
 
@@ -229,7 +229,7 @@ reference was regenerated from it, and the suite was green. With `SYNC` — or w
 it but with an `os::sleep(1500)` after `present`, which is what identifies teardown
 rather than the font path as the mechanism — the same scene gives 840.
 
-`tests/rt_canvas_golden.rs` was the one canvas suite missing the flag, and nothing
+`tests/canvas/rt_canvas_golden.rs` was the one canvas suite missing the flag, and nothing
 caught it for two letters because `smiley.png` and `blendmodes.png` load no font and
 are byte-identical either way. **A scene with no font is not evidence that a harness
 waits.**
@@ -393,7 +393,7 @@ When splitting/moving a file, OR removing/renaming a stdlib symbol, sweep `[[pat
 - `spec_citations_resolve` (src/docs/spec/mod.rs) is **file-level only** — it passes as long as the cited file exists, even if the symbol moved out of it.
 - `man_citations_resolve` (src/docs/man/mod.rs) **was** symbol-level and failed the whole `cargo test`. It is gone with the tree it guarded; `src/docs/man/mod.rs` now only tests topic discovery. Verified 2026-08-31: `grep -rn citations_resolve src/ --include='*.rs'` returns one hit, `src/docs/spec/mod.rs:226`.
 
-So a split that only sweeps spec/ leaves man/ citations broken, and the file-level spec test won't warn you. The tooling `scripts/fix_citations.py` is **broken** (its `SPEC_DIR` resolves to `src/spec`, but the spec lives at `src/docs/spec`), so it finds zero citations — do the repoint by hand.
+So a split that only sweeps spec/ leaves man/ citations broken, and the file-level spec test won't warn you. There is no citation-repoint tool (the old `fix_citations.py` script never worked against `src/docs/spec` and was deleted in `4b693b6fa`, bug-344), so do the repoint by hand.
 
 **How to apply:** after a move, `grep -rn "\[\[.*<oldfile>" src/docs/spec src/docs/man`, map each symbol to its new file (grep the actual definition — a symbol can land in a different file than the doc's suggested name, e.g. crypto `ed25519Sign` ended up in `crypto_ecdsa.mfb`), repoint, rebuild (docs are embedded), run both tests. Citations are stripped at render time so repointing them changes no golden.
 
@@ -443,13 +443,23 @@ When hand-validating a fixture's runtime output, do NOT diff against `golden/<pk
 
 Diffing riscv64 output against the empty `.run` once produced ~11 wrongly-reported "failures" that were actually correct (identical to build.log). Also: riscv64 runtime is NOT exercised by the acceptance suite (rv64 fixtures carry only compile-only `.ncodesum` goldens), so to validate rv64 behavior you must build `-target linux-riscv64`, ship to 2229, run, and diff against the build.log run output yourself — and beware host-path/thread-timing fixtures that differ for environmental reasons (confirm with an arena-vs-HEAD output diff, not vs golden).
 
-## exe-oracle concurrent clobber
+## A corpus sweep that builds IN-TREE clobbers a concurrent one
 
-`scripts/exe-oracle.sh <exe> <target> record` builds every fixture into the fixture's own `tests/<fixture>/build` dir, which is **NOT namespaced by target**. So running two `record` (or the `bug387-gate` compare, or any sweep) for DIFFERENT targets at the same time makes them build the same fixture into the same `build/` dir simultaneously — they clobber each other's `.out`, and `shasum` then hits "No such file", silently DROPPING entries from the baseline (e.g. 1315 lines instead of 1320, missing 5 glibc variants).
+A sweep that builds every fixture into the fixture's own `tests/<fixture>/build` dir (the old
+full-executable oracle script did; `diag-set-diff.sh` and `test-accept.sh` still build in-tree) is **NOT namespaced
+by target**. Two such sweeps for DIFFERENT targets at the same time build the same fixture into the
+same `build/` dir simultaneously — they clobber each other's `.out`, and `shasum` then hits "No such
+file", silently DROPPING entries from the baseline (e.g. 1315 lines instead of 1320, missing 5 glibc
+variants).
 
-**Why:** a corrupt baseline makes the very next `bug387-gate.sh full` show a false DIFF (missing/wrong hashes) that looks like a real byte-identity regression but isn't.
+**Why:** a corrupt baseline makes the very next compare show a false DIFF (missing/wrong hashes)
+that looks like a real byte-identity regression but isn't.
 
-**How to apply:** run every corpus sweep/record/compare **SERIALLY**, one target at a time (a driver script looping `for t in …; do exe-oracle … record …; done`). Also: do NOT `nohup … &` inside a `run_in_background` Bash call — the double-background orphans the real work to PPID 1 and the harness reports premature "completed" for the launcher shell.
+**How to apply:** for a full-executable baseline use `scripts/artifact-baseline.sh … --targets <t>`,
+which builds every fixture in a private scratch copy and so cannot clobber or be clobbered. Run any
+in-tree sweep **SERIALLY**, one target at a time. Also: do NOT `nohup … &` inside a
+`run_in_background` Bash call — the double-background orphans the real work to PPID 1 and the
+harness reports premature "completed" for the launcher shell.
 
 ## Acceptance pre-existing reds baseline
 

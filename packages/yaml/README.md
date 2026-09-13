@@ -163,7 +163,7 @@ scalar; `%YAML 1.2#` read as 1.2; and a lone carriage return treated as text
 rather than as the line break YAML 1.2 says it is. `oracle/README.md` has the
 table.
 
-**`scripts/yaml_oracle_diff.py` — the second opinion.** The same idea against
+**`oracle/pyyaml_diff.py` — the second opinion.** The same idea against
 **PyYAML**, which is YAML **1.1**. Its disagreements are mostly spec-version noise
 (listed and checked in that script's `EXPECTED` table), but having a second,
 differently-wrong reference is what made the carriage-return question decidable

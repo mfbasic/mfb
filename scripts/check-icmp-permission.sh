@@ -52,13 +52,13 @@ IMPORT net
 FUNC probe AS String
   LET r AS net::PingResult = net::ping("127.0.0.1", 1000)
   MATCH r.status
-    CASE PingStatus.Ok
+    CASE net::PingStatus.Ok
       RETURN "status:Ok"
-    CASE PingStatus.Timeout
+    CASE net::PingStatus.Timeout
       RETURN "status:Timeout"
-    CASE PingStatus.Unreachable
+    CASE net::PingStatus.Unreachable
       RETURN "status:Unreachable"
-    CASE PingStatus.TtlExceeded
+    CASE net::PingStatus.TtlExceeded
       RETURN "status:TtlExceeded"
   END MATCH
   RETURN "status:?"
@@ -73,9 +73,24 @@ FUNC main AS Integer
 END FUNC
 EOF
 
+# A Linux console build writes BOTH `<name>-glibc.out` and `<name>-musl.out`, and a
+# glibc host's loader cannot start the musl one (exit 127, "required file not found").
+# Keep the executable this host can run; macOS writes a single `<name>.out`.
+host_exe() {
+  if [ "$(uname -s)" = Linux ]; then
+    if ldd --version 2>&1 | head -1 | grep -qi musl; then
+      grep -- '-musl\.out$'
+    else
+      grep -- '-glibc\.out$'
+    fi
+  else
+    cat
+  fi
+}
+
 build_output=$("$MFB_EXE" build "$work" 2>&1) || {
   echo "FAIL: build error" >&2; printf '%s\n' "$build_output" >&2; exit 1; }
-exe=$(printf '%s\n' "$build_output" | sed -n 's/^Wrote executable to //p' | tail -n 1)
+exe=$(printf '%s\n' "$build_output" | sed -n 's/^Wrote executable to //p' | host_exe | tail -n 1)
 
 # Sanity: with ICMP permitted the same program must NOT raise. Without this the
 # check would pass on a build where ping raises unconditionally.

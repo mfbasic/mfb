@@ -1,10 +1,10 @@
 //! `Codepage` and `__encoding_codepageTable` -- GENERATED, DO NOT EDIT BY HAND.
 //!
-//! Written by `scripts/gen_codepage_tables.py` from the vendored WHATWG legacy
+//! Written by `tools/codepage-index/gen_codepage_tables.py` from the vendored WHATWG legacy
 //! single-byte index files under `tools/codepage-index/`:
 //!
 //! ```text
-//! python3 scripts/gen_codepage_tables.py > src/codegen/builtins/encoding/helper_codepage_table.rs
+//! python3 tools/codepage-index/gen_codepage_tables.py > src/codegen/builtins/encoding/helper_codepage_table.rs
 //! ```
 //!
 //! `scripts/check-generated.sh` re-runs the generator and fails on drift, so a hand
@@ -20,7 +20,7 @@
 //! Each table is one 128-scalar MFBASIC `String` literal: scalar `i` is the code
 //! point for byte `128 + i`, and `\u{FFFD}` marks a byte the codepage leaves
 //! unmapped. U+FFFD is an unambiguous sentinel because the highest code point
-//! across all 27 index files is U+FB02 (`scripts/audit_codepage_index.py`).
+//! across all 27 index files is U+FB02 (`tools/codepage-index/audit_codepage_index.py`).
 //!
 //! The enum renders ahead of the helpers (records -> unions -> enums -> helpers ->
 //! member bodies), so the body below can `MATCH` on it. Variant ORDER fixes each

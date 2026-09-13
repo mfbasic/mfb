@@ -768,9 +768,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &ir,
                 &target,
                 &packages,
-                signing
-                    .as_ref()
-                    .map(|signing| &signing.executable_signing),
+                signing.as_ref().map(|signing| &signing.executable_signing),
                 build_mode,
                 app_icon.as_deref(),
                 // bug-248: the macOS `.app` bundle publishes the manifest `version`

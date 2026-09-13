@@ -6,8 +6,9 @@
 //! plus `sync-goldens.sh`. But the contended resource named in the bug doc is
 //! not those scripts — it is
 //! `tests/<fixture>/<pkg>.{ast,ir,hex,nir,nplan,nobj,ncode,mir}`, "written by
-//! both and deleted by one". Three MORE scripts write and delete those same
-//! paths: `regen-ncodesum.sh`, `regen-outside-ncode.sh` and `bug387-gate.sh`.
+//! both and deleted by one". Three MORE scripts wrote and deleted those same
+//! paths: two golden-regeneration scripts (merged by plan-131-B into
+//! `regen-native-goldens.sh`) and the since-deleted bug-387 byte-identity gate.
 //!
 //! Regenerate-then-gate is the normal workflow after an intended codegen change,
 //! so a `regen-*` running beside an `artifact-gate` in one tree is a realistic
@@ -33,10 +34,12 @@ fn repo_root() -> PathBuf {
 /// A CLASSIFICATION, not a recogniser. The first two attempts at this test used
 /// a heuristic ("does it `rm -f` a dump beside a fixture?") and both were wrong
 /// in the same direction — they under-reported, which is the direction that
-/// silently ships the bug. The first missed `regen-rt-goldens.sh`; the second
+/// silently ships the bug. The first missed the raw-golden regeneration script
+/// (since merged into `regen-native-goldens.sh`); the second
 /// missed `bench-lowering.sh`, which clears its dumps with `find … -delete`
 /// rather than `rm -f`. And the exemption list written alongside them was wrong
-/// too: `ncode-determinism.sh` looked temp-only because it opens a `mktemp`, but
+/// too: the host-only `ncode-determinism` script (since folded into
+/// `ncode-determinism-alltargets.sh`) looked temp-only because it opens a `mktemp`, but
 /// that file is only its hash accumulator — the build itself writes to
 /// `$REPO/$td`, beside the fixture.
 ///
@@ -44,55 +47,35 @@ fn repo_root() -> PathBuf {
 /// a dump and is absent from this table fails the test, and whoever adds it has
 /// to state which side it is on.
 const CLASSIFICATION: &[(&str, bool, &str)] = &[
-    ("artifact-gate.sh", true, "the gate itself"),
-    ("test-accept.sh", true, "the acceptance harness"),
+    ("scripts/artifact-gate.sh", true, "the gate itself"),
+    ("scripts/test-accept.sh", true, "the acceptance harness"),
     (
-        "sync-goldens.sh",
+        "scripts/sync-goldens.sh",
         true,
         "spawns test-accept.sh, then copies goldens; holds across both",
     ),
     (
-        "regen-ncodesum.sh",
+        "scripts/regen-native-goldens.sh",
         true,
-        "rebuilds `$fixturedir/$name.ncode`",
+        "rm -f \"$td/$pkg\".{nir,nplan,nobj,ncode,mir}, then rebuilds them beside the fixture",
     ),
     (
-        "regen-outside-ncode.sh",
-        true,
-        "rebuilds `$fixturedir/$name.ncode`",
-    ),
-    (
-        "regen-rt-goldens.sh",
-        true,
-        "rm -f \"$td/$pkg\".{nir,nplan,nobj,ncode,mir}",
-    ),
-    (
-        "bug387-gate.sh",
-        true,
-        "rm -f \"$d/$pkg\".ncode, then rebuilds it",
-    ),
-    (
-        "ncode-determinism.sh",
-        true,
-        "builds -ncode into $REPO/$td, N times",
-    ),
-    (
-        "ncode-determinism-alltargets.sh",
+        "scripts/ncode-determinism-alltargets.sh",
         true,
         "builds -ncode into $REPO/$td for every target",
     ),
     (
-        "bench-lowering.sh",
+        "tools/bench-lowering/bench-lowering.sh",
         true,
         "deletes the probe's *.ncode with `find -delete`, then cold-builds it",
     ),
     (
-        "diag-set-diff.sh",
+        "scripts/diag-set-diff.sh",
         true,
         "replays each golden's own `mfb build` against the fixture dir",
     ),
     (
-        "linux-artifact-baseline.sh",
+        "scripts/artifact-baseline.sh",
         false,
         "copies each fixture to $WORKDIR/w$slot and builds THERE, never in-tree",
     ),
@@ -116,18 +99,39 @@ fn takes_the_lock(text: &str) -> bool {
 
 #[test]
 fn every_dump_emitting_script_is_classified_and_matches_its_classification() {
-    let scripts = repo_root().join("scripts");
+    let root = repo_root();
     let mut unclassified = Vec::new();
     let mut wrong = Vec::new();
     let mut seen = Vec::new();
 
-    for entry in std::fs::read_dir(&scripts).expect("read scripts/") {
-        let path = entry.expect("dir entry").path();
+    // `scripts/*.sh` and `tools/*/*.sh` (plan-131-C moved benchmark and generator
+    // tooling under `tools/`): a script cannot leave the census by moving there.
+    let mut candidates: Vec<PathBuf> = std::fs::read_dir(root.join("scripts"))
+        .expect("read scripts/")
+        .map(|e| e.expect("dir entry").path())
+        .collect();
+    for dir in std::fs::read_dir(root.join("tools")).expect("read tools/") {
+        let dir = dir.expect("dir entry").path();
+        if dir.is_dir() {
+            candidates.extend(
+                std::fs::read_dir(&dir)
+                    .expect("read tools/<dir>")
+                    .map(|e| e.expect("dir entry").path()),
+            );
+        }
+    }
+    candidates.sort();
+
+    for path in candidates {
         if path.extension().and_then(|e| e.to_str()) != Some("sh") {
             continue;
         }
-        let name = path.file_name().unwrap().to_string_lossy().to_string();
-        if name == "gate-lock.sh" || name == "artifact-kinds.sh" {
+        let name = path
+            .strip_prefix(&root)
+            .expect("under the repo root")
+            .to_string_lossy()
+            .replace('\\', "/");
+        if name == "scripts/gate-lock.sh" || name == "scripts/artifact-kinds.sh" {
             continue;
         }
         let text = std::fs::read_to_string(&path).expect("read script");
@@ -159,12 +163,12 @@ fn every_dump_emitting_script_is_classified_and_matches_its_classification() {
 
     // Every classified script is checked, INCLUDING the ones the flag scan
     // cannot see. Three contend without naming a dump flag themselves:
-    // `sync-goldens.sh` spawns `test-accept.sh`, `regen-rt-goldens.sh` takes its
-    // kinds from `artifact-kinds.sh`, and `diag-set-diff.sh` replays the argv
+    // `sync-goldens.sh` spawns `test-accept.sh`, `regen-native-goldens.sh` builds
+    // `-$ext` from `artifact-kinds.sh`, and `diag-set-diff.sh` replays the argv
     // recorded in each golden's own `$ mfb build …` line. A scan-only test would
     // silently skip all three.
     for (name, should_lock, why) in CLASSIFICATION {
-        let text = std::fs::read_to_string(scripts.join(name))
+        let text = std::fs::read_to_string(root.join(name))
             .unwrap_or_else(|e| panic!("classified script {name} is missing: {e}"));
         if takes_the_lock(&text) != *should_lock {
             wrong.push(format!(
@@ -179,9 +183,14 @@ fn every_dump_emitting_script_is_classified_and_matches_its_classification() {
 
     // Guard against the scan going blind: if `emits_a_codegen_dump` stops
     // matching, `unclassified` is trivially empty and this test reports a clean
-    // sweep over nothing. Nine of the twelve classified scripts name a dump flag
-    // directly; the other three are listed in the comment above.
-    const SCAN_FLOOR: usize = 9;
+    // sweep over nothing. Five of the eight classified scripts name a dump flag
+    // directly; the other three are listed in the comment above. (plan-131-A
+    // deleted two flag-naming scripts, the bug-387 gate and the host-only
+    // ncode-determinism, so the measured count fell from nine to seven;
+    // plan-131-B merged the two flag-naming `.ncode` regeneration scripts into
+    // `regen-native-goldens.sh`, which builds `-$ext` and so names none, and the
+    // measured count fell to 5.)
+    const SCAN_FLOOR: usize = 5;
     assert!(
         seen.len() >= SCAN_FLOOR,
         "the dump-flag scan found only {} script(s), below the known floor of \

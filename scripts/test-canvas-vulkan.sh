@@ -30,6 +30,7 @@
 # renderer itself gates on, so the test and the runtime can never disagree about
 # whether the GPU path was taken.
 set -euo pipefail
+. "$(dirname "$0")/remote-common.sh"
 
 MFB_EXE="${1:?usage: test-canvas-vulkan.sh <mfb-exe> [--box <port>]}"
 shift || true
@@ -59,19 +60,14 @@ done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MFB_EXE="$(cd "$(dirname "$MFB_EXE")" && pwd)/$(basename "$MFB_EXE")"
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
-fails=0
-pass() { echo "ok: $1"; }
-fail() { echo "FAIL: $1"; fails=$((fails + 1)); }
+# Every relative path below (the GROUPS extraction included) is repo-relative, so the
+# script runs from any cwd. After MFB_EXE is made absolute, which needs the caller cwd.
+cd "$ROOT"
+rc_workdir
 
 proj="$work/vkcanvas"
 mkdir -p "$proj/src"
-cat > "$proj/project.json" <<'JSON'
-{ "name": "vkcanvas", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-JSON
+scaffold_project "$proj" vkcanvas
 
 # The fixture font, so the scene can contain text.
 #
@@ -252,16 +248,16 @@ echo "--- building for linux-x86_64 ---"
 
 host="test@127.0.0.1"
 remote="/tmp/mfb-vkcanvas-$$"
-ssh -p "$PORT" "$host" "rm -rf $remote && mkdir -p $remote"
-scp -P "$PORT" "$proj/build/vkcanvas-$LIBC.AppImage" "$host:$remote/app.AppImage" >/dev/null
-scp -P "$PORT" "$proj/fixture.ttf" "$host:$remote/fixture.ttf" >/dev/null
+remote_ssh "$PORT" "$host" "rm -rf $remote && mkdir -p $remote"
+remote_scp "$PORT" "$proj/build/vkcanvas-$LIBC.AppImage" "$host:$remote/app.AppImage" >/dev/null
+remote_scp "$PORT" "$proj/fixture.ttf" "$host:$remote/fixture.ttf" >/dev/null
 
 # Provision the driver before anything measures with it.
 icd_env=""
 if [ -n "$ICD" ]; then
   if [ "$ICD" = auto ]; then
     echo "--- provisioning a software Vulkan driver on box $PORT ---"
-    ssh -p "$PORT" "$host" '
+    remote_ssh "$PORT" "$host" '
       set -e
       dir=/tmp/mfb-vulkan-icd
       manifest=$dir/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
@@ -287,7 +283,7 @@ if [ -n "$ICD" ]; then
 fi
 
 echo "--- running on box $PORT ---"
-ssh -p "$PORT" "$host" "
+remote_ssh "$PORT" "$host" "
   set -e
   cd $remote
   ./app.AppImage --appimage-extract >/dev/null 2>&1
@@ -311,16 +307,16 @@ ssh -p "$PORT" "$host" "
     MFB_CANVAS_RESIZE_W=900 MFB_CANVAS_RESIZE_H=640 MFB_CANVAS_STATS=$remote/dmg.txt \
     MFB_CANVAS_DUMP=$remote/dmg.rgba timeout 180 \$bin >/dev/null 2>&1
 "
-scp -P "$PORT" "$host:$remote/sw.rgba" "$work/sw.rgba" >/dev/null
-scp -P "$PORT" "$host:$remote/gpu.rgba" "$work/gpu.rgba" >/dev/null
-scp -P "$PORT" "$host:$remote/gpu.txt" "$work/gpu.txt" >/dev/null
-scp -P "$PORT" "$host:$remote/sw2.rgba" "$work/sw2.rgba" >/dev/null
-scp -P "$PORT" "$host:$remote/sw2.out" "$work/sw2.out" >/dev/null
-scp -P "$PORT" "$host:$remote/gpu2.rgba" "$work/gpu2.rgba" >/dev/null
-scp -P "$PORT" "$host:$remote/gpu2.txt" "$work/gpu2.txt" >/dev/null
-scp -P "$PORT" "$host:$remote/dmg.rgba" "$work/dmg.rgba" >/dev/null
-scp -P "$PORT" "$host:$remote/dmg.txt" "$work/dmg.txt" >/dev/null
-ssh -p "$PORT" "$host" "rm -rf $remote"
+remote_scp "$PORT" "$host:$remote/sw.rgba" "$work/sw.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remote/gpu.rgba" "$work/gpu.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remote/gpu.txt" "$work/gpu.txt" >/dev/null
+remote_scp "$PORT" "$host:$remote/sw2.rgba" "$work/sw2.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remote/sw2.out" "$work/sw2.out" >/dev/null
+remote_scp "$PORT" "$host:$remote/gpu2.rgba" "$work/gpu2.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remote/gpu2.txt" "$work/gpu2.txt" >/dev/null
+remote_scp "$PORT" "$host:$remote/dmg.rgba" "$work/dmg.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remote/dmg.txt" "$work/dmg.txt" >/dev/null
+remote_ssh "$PORT" "$host" "rm -rf $remote"
 
 if [ ! -s "$work/gpu.txt" ]; then
   fail "the program wrote no stats line — it did not reach a rendered frame (wrong --libc for this box?)"
@@ -344,41 +340,8 @@ case "$stats" in
 esac
 
 compare() {
-python3 - "$1" "$2" "$3" <<'PY'
-import sys
-
-software = open(sys.argv[1], "rb").read()
-gpu = open(sys.argv[2], "rb").read()
-# The width only names the coordinate a beyond-tolerance pixel is reported at, so the
-# resized case has to pass its own rather than inherit the default surface's.
-width = int(sys.argv[3])
-if len(software) != len(gpu) or not software:
-    print(f"frame sizes differ ({len(software)} vs {len(gpu)}) — a harness bug")
-    raise SystemExit
-# Tolerance::GPU_DEFAULT: no pixel may differ by more than 2 steps in any channel,
-# and no more than 2% of pixels may differ at all.
-worst = 0
-differing = 0
-first = None
-total = len(software) // 4
-for i in range(0, len(software), 4):
-    a = software[i:i + 4]
-    b = gpu[i:i + 4]
-    if a == b:
-        continue
-    differing += 1
-    delta = max(abs(x - y) for x, y in zip(a, b))
-    if delta > worst:
-        worst = delta
-    if first is None and delta > 2:
-        pixel = i // 4
-        first = (pixel % width, pixel // width, a.hex(), b.hex())
-fraction = differing / total
-if worst <= 2 and fraction <= 0.02:
-    print(f"ok worst={worst} differing={fraction * 100:.4f}%")
-else:
-    print(f"worst={worst} differing={fraction * 100:.4f}% first-beyond-tolerance={first}")
-PY
+  # Tolerance::GPU_DEFAULT, shared with test-winapp.sh (scripts/rgba_compare.py).
+  python3 "$ROOT/scripts/rgba_compare.py" "$1" "$2" "$3"
 }
 
 # Agreement is only meaningful if both frames actually contain the text. Two backends
@@ -592,16 +555,16 @@ open(sys.argv[2], "wb").write(bytes(out))
 PY
 
 remoteg="$remote/groups"
-ssh -p "$PORT" "$host" "mkdir -p $remoteg"
-scp -P "$PORT" "$projg/build/vkgroups-$LIBC.AppImage" "$host:$remoteg/app.AppImage" >/dev/null
-scp -P "$PORT" "$projg/fixture.ttf" "$host:$remoteg/fixture.ttf" >/dev/null
+remote_ssh "$PORT" "$host" "mkdir -p $remoteg"
+remote_scp "$PORT" "$projg/build/vkgroups-$LIBC.AppImage" "$host:$remoteg/app.AppImage" >/dev/null
+remote_scp "$PORT" "$projg/fixture.ttf" "$host:$remoteg/fixture.ttf" >/dev/null
 
 echo "--- groups: running on box $PORT ---"
-ssh -p "$PORT" "$host" "
+remote_ssh "$PORT" "$host" "
   set -e
   cd $remoteg
   ./app.AppImage --appimage-extract >/dev/null 2>&1
-  # `loadFont` resolves against the working directory, so the fixture has to sit beside
+  # loadFont resolves against the working directory, so the fixture has to sit beside
   # the extracted tree and the run has to happen from there.
   cp fixture.ttf squashfs-root/fixture.ttf
   cd squashfs-root
@@ -611,9 +574,9 @@ ssh -p "$PORT" "$host" "
   $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remoteg/gpu.txt \
     MFB_CANVAS_DUMP=$remoteg/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
 "
-scp -P "$PORT" "$host:$remoteg/sw.rgba" "$work/gsw.rgba" >/dev/null
-scp -P "$PORT" "$host:$remoteg/gpu.rgba" "$work/ggpu.rgba" >/dev/null
-scp -P "$PORT" "$host:$remoteg/gpu.txt" "$work/ggpu.txt" >/dev/null
+remote_scp "$PORT" "$host:$remoteg/sw.rgba" "$work/gsw.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remoteg/gpu.rgba" "$work/ggpu.rgba" >/dev/null
+remote_scp "$PORT" "$host:$remoteg/gpu.txt" "$work/ggpu.txt" >/dev/null
 
 gstats="$(tail -1 "$work/ggpu.txt")"
 echo "    $gstats"
@@ -654,9 +617,9 @@ case "$verdict" in
     group." ;;
 esac
 
-if [ "$fails" -eq 0 ]; then
+if [ "$rc_failures" -eq 0 ]; then
   echo "canvas Vulkan runtime tests passed"
 else
-  echo "$fails failure(s)"
+  echo "$rc_failures failure(s)"
   exit 1
 fi

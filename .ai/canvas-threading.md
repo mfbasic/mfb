@@ -500,7 +500,7 @@ Three environment variables, all off by default and none on the production path:
   What makes this dangerous is that it is not a race. Measured on plan-116-C's
   transform scene: five consecutive runs without `SYNC` produced 0 text pixels *every
   time*, so the truncated frame is perfectly reproducible and `compare_exact` reports
-  it as a match. `tests/rt_canvas_golden.rs` was regenerated from one and the suite was
+  it as a match. `tests/canvas/rt_canvas_golden.rs` was regenerated from one and the suite was
   green. The third measurement is what names the mechanism: no `SYNC` but an
   `os::sleep(1500)` after `present` gives the full 840 text pixels, so it is the
   teardown and not the font path.

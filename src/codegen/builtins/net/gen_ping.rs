@@ -1,6 +1,6 @@
 //! The `net.ping` OS seam — real ICMP echo (plan-110-A).
 //!
-//! Three backends, not the two the plan first assumed. `scripts/icmp-capability-probe.c`
+//! Three backends, not the two the plan first assumed. `tools/net-probes/icmp-capability-probe.c`
 //! was run on macOS AArch64, Alpine x86_64/riscv64 (musl), Debian x86_64 and Kali
 //! AArch64 (glibc); macOS and Linux disagree on every fact the parser depends on
 //! (plan-110-A §Corrections C1):

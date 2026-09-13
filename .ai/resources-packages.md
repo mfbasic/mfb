@@ -360,7 +360,7 @@ Known instances:
 - **bug-361B** — the pass started each function with an EMPTY local-type map while the builder records every parameter with its declared type, so `"type=" & typeName(param)` folded to a literal the pass never saw. Fixed by seeding from `function.params`.
 - **bug-363** (filed, NOT fixed) — `module_may_emit_float_numeric_error` cannot type a `MemberAccess`, so `3.14159 * c.radius` on a record field emits no `ERR_FLOAT_*` object. Narrow only because the flag is per-module.
 
-**Finding them:** `python3 scripts/check-man-examples.py` compiles all ~1010 man-page example blocks. It uses `target/release/mfb` — a stale release build will report already-fixed failures, so build release first. It wraps a block with no `main` in a synthetic empty `SUB main()`, so reproduce that wrapping by hand when checking a single block.
+**Finding them:** `bash scripts/man-examples-gate.sh target/release/mfb` compiles every man-page example block (it drives `scripts/man-run-examples.sh <pkg>` per package). It uses `target/release/mfb` — a stale release build will report already-fixed failures, so build release first. Blocks are lifted from the RENDERED page, each starting at an `IMPORT` line; check one member with `scripts/man-run-examples.sh <pkg> <fn>`.
 
 Fixture note: a `<name>.run` golden may be empty and still load-bearing — its *presence* is what makes `test-accept.sh` build and execute the program (output lands in `build.log`). New fixtures also need seeded empty `.ast`/`.ir` goldens or the harness reports "unexpected actual".
 

@@ -38,19 +38,19 @@ Nineteen files are complete (128 mappings); eight leave some bytes undefined:
 | `index-windows-1257.txt` | 126 |
 
 Total mappings across all 27 files: **3,342**
-(`python3 scripts/audit-codepage-index.py`).
+(`python3 tools/codepage-index/audit_codepage_index.py`).
 
 ## Regenerating the compiler tables
 
-`scripts/gen-codepage-tables.py` reads these files and writes
+`tools/codepage-index/gen_codepage_tables.py` reads these files and writes
 `src/codegen/builtins/encoding/helper_codepage_table.rs`. Its output is committed;
 re-running it must reproduce that file byte-for-byte
-(`codepage_tables_are_regenerable` in `src/codegen/builtins/encoding/mod.rs` pins
+(`codepage_tables_match_the_vendored_index_files` in `src/codegen/builtins/encoding/mod.rs` pins
 this).
 
 ## Updating
 
-Re-fetch with `python3 scripts/fetch-codepage-index.py`, `git diff` these files to
+Re-fetch with `python3 tools/codepage-index/fetch_codepage_index.py`, `git diff` these files to
 review what upstream changed, then re-run the generator. Note that the enum's
 variant order is a compatibility surface: variants may be **appended**, never
 reordered or removed.
