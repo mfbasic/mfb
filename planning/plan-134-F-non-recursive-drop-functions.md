@@ -126,15 +126,31 @@ Commit: 62292f3af
 Acceptance: copy-then-drop is exact for every recursive type, at depth and under churn.
   Check: `cargo test --release --test rt_recursive_value_drop_symmetry` → passed (est. 4 min).
   Result: `6 passed; 0 failed` (196.6 s) on macOS; box 2223 as above.
-Commit: —
+Commit: 24ef14b88
 
 ### Phase 3 — goldens
 
-- [ ] Artifact gate; expected diffs: the modules that emit the new drop walker (json, regex,
-      recursive-user-type fixtures). Regenerate.
+- [x] Artifact gate; expected diffs: the modules that emit the new drop walker (json, regex,
+      recursive-user-type fixtures). Regenerate. — `bash scripts/artifact-gate.sh
+      target/release/mfb all` → `2013 golden(s) checked, 10 diff(s)`, all
+      `json_codegen_cover_rt` and `regex_codegen_cover_rt` `.ncode` on the five targets (no
+      recursive-user-type fixture carries a native golden). Localized:
+      - With the walker's emission compiled out (temporary `#[cfg(any())]` on its push), the
+        json and regex gates → `7 golden(s) checked, 0 diff(s)` each. The shared-edge-list
+        refactor and the unset hook are therefore byte-neutral.
+      - `mfb build -ncode` on json, before vs after, via `/tmp/p134-ncode-diff.py` →
+        `added: ['_mfb_rt_graph_drop']`, removed none, changed none.
+      Regenerated: `scripts/regen-native-goldens.sh target/release/mfb tests/byte-identity/json
+      tests/byte-identity/regex` → `10 golden(s) rewritten, 0 failure(s)`. Re-gated → json and
+      regex `7 golden(s) checked, 0 diff(s)` each.
+- [x] Added: resolve the Emit-only-if-referenced Open Decision. — Took the recommendation:
+      emit unconditionally beside the copy walker. Letter G references it at every scope drop,
+      so a reference census would be deleted one letter later. The cost is the one added
+      function per recursive-type module shown above.
 
 Acceptance: diffs confined to modules with a recursive type.
   Check: the gate (est. 15 min).
+  Result: confined to json and regex, exactly one added function each module, re-gated clean.
 Commit: —
 
 ## Validation Plan
