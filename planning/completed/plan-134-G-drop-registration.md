@@ -173,7 +173,7 @@ Acceptance: the table is total; the new leak cases fail on main.
   Check: `cargo test --release --test rt_scope_drop_leaks -- recursive` → the new cases failed
   (est. 4 min).
   Result: §2.1 total (32 rows); `0 passed; 7 failed` (each "peak RSS grew … — the loop leaks").
-Commit: —
+Commit: ad602369b
 
 ### Phase 2 — registration
 
@@ -280,7 +280,7 @@ diffs confined.
   - macOS bench flat: 1.08 / 1.08 MB and 1.03 / 1.03 MB.
   - Linux and Windows 20 / 20 identical.
   - Gate diffs confined to json/regex, explained per function, regenerated, re-gated clean.
-Commit: —
+Commit: 699b63b11
 
 ## Validation Plan
 
