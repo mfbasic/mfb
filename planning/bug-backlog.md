@@ -9,6 +9,7 @@ Open bugs: **9** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 | Bug | Sev | On main | Outcome |
 |---|---|---|---|
+| 595 | LOW | `4dbf42c03` | a `STATE` type name resolves like every other type position: binding, parameter, return and `LINK` STATE clauses were never resolved (unlocated `TYPE_STATE_INVALID`, a mismatch printing `pkg.Name`, or no diagnostic at all); four RED/GREEN fixtures + a qualified-import positive |
 | 599 | MED | `c70c6d5d8` | PARTIAL: the address builders free their `inet_ntop` buffer and `net::lookup` its temp record (−38% growth per lookup, −57% per `tcp::localAddress`) — **stays OPEN**: the list/record/host `String` still have no owner (decision below); filed bug-601 (HIGH, the aliasing crash that blocks a drop) |
 | 564 | MED | `8dbefee94` | sighting 2 fixed: macOS tls handlers publish the error domain before the gate with `stlr`, `tls::write` loads its gates with `ldar` (matched pair 19/600 → 0/600) — **stays OPEN** for the half-close write decision below |
 | 600 | MED | `7bb602d1d` | a timed-out test run kills its program's whole process group, not just the program — a hung RED run's pipeline had orphaned and spun ~5 days (found when the user spotted two leftover probes, since killed) |

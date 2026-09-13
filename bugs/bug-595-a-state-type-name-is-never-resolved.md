@@ -5,7 +5,7 @@ Effort: small-to-medium
 Severity: LOW — every shape is rejected (no miscompile found), but the diagnostic is unlocated or names the wrong problem
 Class: Diagnostics
 
-Status: Open
+Status: **FIXED** — landed on main in `4dbf42c03` (fix `ee4d8b011`): every STATE position is now a located SYMBOL_UNKNOWN_TYPE
 Regression Test: — (a `tests/syntax/resources/` invalid fixture per shape, once fixed)
 
 ## How it was found
