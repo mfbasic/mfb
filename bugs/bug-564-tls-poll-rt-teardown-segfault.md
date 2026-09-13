@@ -11,9 +11,10 @@ Status: **Sighting 1 FIXED. Sighting 2 FIXED — landed on main in `8dbefee94`**
 suite 4145 passed, both macOS tls runtime tests passed). The encoder gained store-release and load-acquire. The handlers
 publish the domain before the gate with `stlr`, and `tls::write` loads the gate
 with `ldar`. See "Sighting 2: FIXED". **One finding stays OPEN**, and it is not
-the ordering race: on macOS a `tls::write` after the peer's clean
-`close_notify` never raises. It fails the same way on the pre-fix compiler.
-See "OPEN: a write after a clean close_notify never raises".
+the ordering race: on macOS a `tls::write` after `tls::read` has reported the peer's
+close never raises. It fails the same way on the pre-fix compiler. **Decided 2026-09-12:**
+it must raise `ErrConnectionClosed` like every other platform (not started). See
+"OPEN: a write after `tls::read` has already reported the close never raises".
 Regression Test: `codegen::builtins::tls::gen_macos::tests::close_drains_to_cancelled`
 (sighting 1). For sighting 2:
 `codegen::builtins::tls::gen_macos::tests::{trampolines_publish_the_error_domain_before_the_gate,
@@ -688,9 +689,18 @@ building the positive pin and was measured on BOTH compilers.
 So Network.framework completes `nw_connection_send` with a null error once the
 receive side has delivered the peer's close, and the macOS `tls::write` never
 learns the peer is gone. That breaks `mfb spec stdlib transports` §17 for this
-sequence. A fix needs a decision this bug does not own: whether a received
-close_notify alone should fail later writes, given that TLS 1.3 permits
-half-close. It also needs a probe of what Network.framework exposes. Commit
+sequence.
+
+**DECIDED 2026-09-12 (owner): raise like every other platform.** "All functions work the
+same on all platforms." After the peer's close has been observed, a later `tls::write` on
+macOS must fail with `ErrConnectionClosed`, as §17 already requires "on `tcp` and on `tls`
+alike, and on every target". A first write may still be accepted locally; a later one
+raises. TLS 1.3 half-close is **not** exposed as a platform difference. What the fix still
+needs:
+* a probe of what Network.framework exposes once the receive side has delivered the close,
+  since `nw_connection_send` reports no error;
+* the same read-then-write sequence measured on Linux (OpenSSL) and Windows (Schannel),
+  which nobody has run yet, so that all three are pinned to one outcome. Commit
 `c39e7177a`'s message overstates this as "never raises" after close_notify in
 general. The shape above is the correct statement, and `rt_macos_tls_write_after_clean_close`
 pins the holding shape.

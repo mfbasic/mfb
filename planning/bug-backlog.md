@@ -53,10 +53,15 @@ neither filed it), 594 (macOS `drawText` column), 592.
 
 ### Open decisions — these need the owner, not an agent
 
-- **bug-564, the one open finding**: on macOS, once `tls::read` has reported the peer
-  closed, later `tls::write` calls never raise (20 000 × 64 KiB "complete" in under a
-  second; main behaves the same). Whether a received close_notify alone should fail later
-  writes is a semantics call — TLS 1.3 permits half-close. Sighting 2 itself is fixed
+- **bug-564, the one open finding — DECIDED 2026-09-12: raise like every other platform.**
+  On macOS, once `tls::read` has reported the peer closed, later `tls::write` calls never
+  raise (20 000 × 64 KiB "complete" in under a second; main behaves the same). The owner's
+  ruling: every function works the same on every platform, so that write must fail with
+  `ErrConnectionClosed`, exactly as `mfb spec stdlib transports` §17 already requires
+  ("on `tcp` and on `tls` alike, and on every target"; a first write may still be accepted
+  locally, a later one raises). Half-close is not exposed. Not started; the fix is on the
+  macOS Network.framework side. Linux and Windows have not been measured on this exact
+  sequence, so the fix should confirm them too. Sighting 2 itself is fixed
   (`stlr`/`ldar`, matched pair 19/600 → 0/600).
 - **bug-599 / bug-601 — DECIDED 2026-09-12: FLATTEN.** The owner chose to finish the
   inline-`String` layout migration for `net::Address`, `udp::Datagram` and
