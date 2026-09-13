@@ -60,6 +60,11 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
 * Git. Never create/switch/rename a branch unless asked;
   Never tree-wide `checkout`/`reset`/`restore`/`stash`;
   touch+commit only files you changed. Itemized commits.
+* `scripts/` holds reusable gates, harnesses and maintenance actions, plus the files they source;
+  every file there has one entry in `scripts/README.md` (`cargo test --test scripts_index_is_complete`).
+  Generators, probes, oracles and benchmarks go under `tools/<name>/` with a README. A one-off probe
+  for one bug or plan goes in `/tmp` or the bug doc, never `scripts/`. Deleting a script: grep its
+  name and update every live caller in the same commit.
 * No compound background jobs — one command each. Don't wait on completion notices;
   poll the effect (`pgrep -f` ERE `"a|b"`). No-completion-record job = dead; re-derive.
 

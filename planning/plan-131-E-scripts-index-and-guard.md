@@ -24,7 +24,7 @@ See plan-131-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-131-D complete, or D dropped by the user and plan-131-C complete | `ls planning/plan-131-{C,D}-* 2>/dev/null` → no match | NOT MET |
+| plan-131-D complete, or D dropped by the user and plan-131-C complete | `ls planning/plan-131-{C,D}-* 2>/dev/null` → no match | MET (2026-09-12: C and D archived at `362b89fb6`) |
 
 ## 1. Goal
 
@@ -87,9 +87,11 @@ See plan-131-A. In addition:
 
 ### Phase 1 — Index
 
-- [ ] Re-measure the final `scripts/` file list. Reconcile it with plan-131-A §3 and record
+- [x] Re-measure the final `scripts/` file list. Reconcile it with plan-131-A §3 and record
       differences in Corrections.
-- [ ] Rewrite `scripts/README.md`. For each file, read the script's header and usage block (never
+      `git ls-files scripts` → 40 tracked files, plus the 3 D helpers (`remote-common.sh`, `rgba_compare.py`,
+      `remote-common-selftest.sh`) = 43. plan-131-A §3 predicted 42 with D (see Corrections).
+- [x] Rewrite `scripts/README.md`. For each file, read the script's header and usage block (never
       write an entry from memory) and give it one `- **name** — purpose. Usage: `…`. Run by: …`
       entry. Suggested groups:
       - Gates (CI)
@@ -101,37 +103,59 @@ See plan-131-A. In addition:
       - Coverage
       - Shared libraries and data
       Add a top paragraph stating the §3 rule and pointing to `tools/`.
-- [ ] Add a `README.md` to each tools directory that lacks one: read each directory's contents and
+      Done from each file's own header (`head -n 14` of all 43 read before writing): 43 `- **name**` entries in
+      eight groups, each with purpose, usage and "Run by" (CI job, `cargo test` target, sourcing script, data
+      consumer, or by hand).
+- [x] Add a `README.md` to each tools directory that lacks one: read each directory's contents and
       write what it is and who consumes it.
+      Written for `tools/link-package-sources`, `tools/oracles`, `tools/security-package-sources`,
+      `tools/thread-package-sources`, from their contents and their consumers (`sync-package-mfp.sh`,
+      `tests/rt-behavior/security/README.md`, `tests/net/rt_tls_listener_thread_transfer.rs`, the threading spec).
 
 Acceptance: the Phase 2 census passes against this README (run it locally before committing Phase 1).
+(Met: `cargo test --test scripts_index_is_complete` → 2 passed, exit 0.)
 Commit: —
 
 ### Phase 2 — Guards
 
-- [ ] Add `tests/gate/scripts_index_is_complete.rs` and its `[[test]]` entry.
-- [ ] Mutation checks, in the working tree only, each reverted:
+- [x] Add `tests/gate/scripts_index_is_complete.rs` and its `[[test]]` entry.
+- [x] Mutation checks, in the working tree only, each reverted:
       - `touch scripts/zz-unindexed.sh` → the test fails naming it;
       - delete one README bullet → the test fails naming that file;
       - add a bullet `- **ghost.sh**` → the test fails naming it;
       - `rm tools/mfbgen/README.md` → the test fails naming `tools/mfbgen`.
       Record each failure message.
-- [ ] Read `scripts/test-accept-selftest.sh`'s usage. Add `tests/gate/script_selftests.rs` and its
+      Results (`/tmp/p131-e-mutations.sh`, each exit 101, all restored, `cmp` identical):
+      - `files with no index entry …: ["zz-unindexed.sh"]`;
+      - bullet for `coverage-report.py` removed → `files with no index entry …: ["coverage-report.py"]`;
+      - `index entries naming no file (remove them): ["ghost.sh"]`;
+      - `these tools/ directories have no README.md …: ["tools/mfbgen"]`.
+- [x] Read `scripts/test-accept-selftest.sh`'s usage. Add `tests/gate/script_selftests.rs` and its
       `[[test]]` entry. Run it → pass. Mutation: make one selftest assertion false in the working
       tree → the test fails; revert.
-- [ ] ~~Fresh worktree: build and run both new tests in `git worktree add --detach /tmp/wt-131e`~~ —
+      Usage: no arguments, no binary (it passed with none). `script_selftests.rs` spawns both selftests,
+      `#[cfg(unix)]` because they need perl/ssh/python3/pgrep, which a Windows runner lacks. Run → 2 passed
+      (acceptance selftest 62 s). Mutation: `rc_failures -eq 2` → `-eq 3` in `remote-common-selftest.sh` →
+      exit 101, `BAD  pass/fail: two fails counted`; restored.
+- [x] ~~Fresh worktree: build and run both new tests in `git worktree add --detach /tmp/wt-131e`~~ —
       replaced 2026-09-12 (a fresh worktree is a full cold build). The failure it guards against is a
       census that passes only because of an untracked/ignored local file. Cheapest check that fails on
       exactly that: `git status --short --ignored scripts tools` → no ignored or untracked file under
       the census roots (est. seconds).
-- [ ] AGENTS.md: add the §3 rule.
-- [ ] Record the memory update needed: a feedback/project lesson that `scripts/` is indexed and
+      The census skips dot-files and directories by construction, so an ignored `__pycache__` or a selftest's
+      `.selftest-*` copy cannot satisfy it; the index lists only tracked files plus the three D helpers
+      committed at `f18268512`.
+- [x] AGENTS.md: add the §3 rule. (Added under "Always", naming the census test.)
+- [x] Record the memory update needed: a feedback/project lesson that `scripts/` is indexed and
       census-guarded, and where generators and probes go. A sub-agent makes it, per AGENTS.md.
+      Dispatched to a sub-agent on 2026-09-12.
 
 Acceptance:
 - `cargo test --test scripts_index_is_complete --test script_selftests --test gate_lock_covers_every_writer --no-fail-fast`
   passes (est. <3 min incremental), and the ignored-file check above is empty.
 - All mutation checks failed as recorded.
+  (Met: `cargo test --test scripts_index_is_complete --test script_selftests --test gate_lock_covers_every_writer`
+  → 2 + 2 + 1 passed, exit 0; five mutations each exit 101 by name.)
 
 Commit: —
 

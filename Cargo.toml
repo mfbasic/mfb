@@ -424,6 +424,14 @@ path = "tests/gate/gate_release_on_normal_exit.rs"
 name = "golden"
 path = "tests/gate/golden.rs"
 
+[[test]]
+name = "script_selftests"
+path = "tests/gate/script_selftests.rs"
+
+[[test]]
+name = "scripts_index_is_complete"
+path = "tests/gate/scripts_index_is_complete.rs"
+
 # --- tests/guards/ ----------------------------------------------------
 [[test]]
 name = "architecture_guards"
