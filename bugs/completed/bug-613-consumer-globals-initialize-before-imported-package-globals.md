@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (silent wrong value)
 
-Status: Open
+Status: Closed
 Regression Test: `tests/runtime/rt_top_level_initializer_globals.rs`, `src/ir/tests.rs:package_bindings_initialize_dependencies_first`
 
 A program's top-level `LET`/`MUT` initializer that calls a package function reading
@@ -20,6 +20,10 @@ It is silent: nothing marks the value as uninitialized, and the same call made f
 **The single correct behavior a fix produces:** an imported package's top-level
 bindings are initialized before any binding of a project that imports it, so `top`
 prints `200`.
+
+## STATUS: FIXED (53f10b1fe)
+
+Deviation from the recommended site: ordering runs in `target/shared/nir/lower.rs:merge_packages` (`ir::order_bindings_dependencies_first`) after every package is merged, because a topological order needs the whole package set. It still runs before semantic verification, so the IR every backend lowers carries the order. The expected order-only golden drift did not occur: 0 diffs over 2019 goldens, and test-accept is clean.
 
 References:
 
@@ -164,13 +168,25 @@ Commit: 53f10b1fe
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `scripts/test-accept.sh`, `artifact-gate.sh all`; every drifted golden checked to be
+- [x] `scripts/test-accept.sh`, `artifact-gate.sh all`; every drifted golden checked to be
       an order-only change.
-- [ ] `cargo test --release --no-fail-fast`.
-- [ ] Re-run the reproduction on macOS and the Linux boxes.
+- [x] `cargo test --release --no-fail-fast`.
+- [x] Re-run the reproduction on macOS and the Linux boxes.
+
+- `cargo test --release --no-fail-fast` (worktree, `53f10b1fe`): `exit=0`, 173
+  `test result: ok`, no failures.
+- `scripts/artifact-gate.sh <exe> all`: `1440 tests, 1606 build(s), 2019 golden(s)
+  checked, 0 diff(s)`. No golden moved, so nothing was regenerated.
+- `scripts/test-accept.sh`: `acceptance tests passed (1463 test(s) ran)`.
+- Linux: the five test programs were cross-built `-target linux-aarch64` and run on
+  box 2223 (Kali aarch64 glibc). Output: `7 80`, `42 42 7 43`, `1`, `7`,
+  `201 202 403`, each exit 0. macOS: the runtime tests above.
+- Doc sync: `mfb spec language modules-and-packages` §13 now states that packages
+  initialize before their importers and that bindings within a project keep
+  declaration order. Spec tests pass (8, citation guard included).
 
 Acceptance: full suite green; golden delta is init order only.
-Commit: —
+Commit: 53f10b1fe (spec: this archive commit)
 
 ## Validation Plan
 
