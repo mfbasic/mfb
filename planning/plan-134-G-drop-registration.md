@@ -19,7 +19,8 @@ References: plan-134-A; plan-134-F; `mfb spec memory arenas` "Scope-Drop Frees";
 `src/codegen/cleanup/owned/builder_owned_cleanup.rs::emit_owned_value_drop`;
 `tests/runtime/rt_scope_drop_leaks.rs` (`assert_flat`, `peak_rss`).
 
-Prerequisites: see plan-134-A; plan-134-F complete (`ls planning/completed/plan-134-F-*`).
+Prerequisites: see plan-134-A; plan-134-F complete (`ls planning/completed/plan-134-F-*`). — MET
+2026-09-13 (`planning/completed/plan-134-F-non-recursive-drop-functions.md`).
 
 ## 1. Goal
 
@@ -54,6 +55,68 @@ Prerequisites: see plan-134-A; plan-134-F complete (`ls planning/completed/plan-
   `by_ref` / `by_ref_capture_slot`, `FOR EACH` element (alias; `for_each_iterable_locals`),
   parameters (no `OwnedValue` at their slot).
 
+### 2.1 The `is_freeable_flat_value` references, classified (Phase 1)
+
+Census: `grep -rn 'is_freeable_flat_value' --include='*.rs' src/codegen | grep -v 'fn
+is_freeable_flat_value' | wc -l` → **32** (2026-09-13, after letter F; matches plan-134-A). Every
+row is one reference. **Ownership gate** = the reference decides whether this frame frees a
+block, so it gains `|| owns_graph`. **Layout/copy** = it decides how a value is copied or
+aliased, and stays flat-only (the recursive answer to the same question is already its own
+branch: `needs_graph_copy`, plan-134-D/E). **Class** = the recursive class's own definition.
+
+| # | file::symbol | kind | verdict |
+|---|---|---|---|
+| 1 | `engine/control/builder_control.rs::lower_ops_inner` `Bind` → `owns_freeable_value` (:594) | code | **ownership gate** — registers `ActiveCleanup::OwnedValue` |
+| 2 | `engine/control/builder_control.rs::lower_ops_inner` `Assign` old-value free (:1195) | code | **ownership gate** — `emit_owned_value_drop` of the slot before overwrite |
+| 3 | `engine/control/builder_control.rs::lower_ops_inner` `StoreGlobal` old-value free (:994) | code | **ownership gate** — both branches store; only the free differs |
+| 4 | `engine/value/builder_values.rs::pending_temp_is_freeable` (:397) | code | **ownership gate** — statement-scope free of an unbound temp |
+| 5 | `engine/value/builder_values.rs::runtime_result_is_caller_owned` (:1009) | code | **ownership gate** — frees a trapped runtime call's result (bug-566/576) |
+| 6 | `cleanup/owned/builder_owned_cleanup.rs::emit_closure_drop` capture loop (:481) | code | **ownership gate** — captures are stored through `lower_value_owned`, so a recursive capture owns its graph |
+| 7 | `collection/buffer/collection_buffer.rs::free_intermediate_collection` (:19) | code | **ownership gate** — frees a consumed intermediate collection block |
+| 8 | `engine/control/builder_control.rs::lower_ops_inner` `is_borrow_get` (:587) | code | **layout/copy** — borrow eligibility; must stay flat-only (a recursive element is never borrowed) |
+| 9 | `memory/owned.rs::materialize_owned_element` (:64) | code | **layout/copy** — `copy_flat_block`; the recursive copy is the `needs_graph_copy` branch above it |
+| 10 | `engine/value/builder_values.rs::lower_value_owned` (:749) | code | **layout/copy** — `copy_flat_block`; the graph copy is the plan-134-D branch below it |
+| 11 | `engine/control/builder_exits.rs::lower_returned_value` (:207) | code | **layout/copy** — `copy_flat_block` on return; plan-134-D's graph branch covers recursive |
+| 12 | `engine/value/operand_snapshot.rs::snapshot_aliased_operand` (:157) | code | **layout/copy** — `copy_flat_block` of an in-place-mutated operand; a recursive operand takes no snapshot today and gains no free |
+| 13 | `engine/value/builder_values.rs::needs_graph_copy` (:1184) | code | **class** — `!is_freeable_flat_value && reaches_cycle && !resource` |
+| 14–19 | `collection/layout/builder_collection_layout.rs` :3110, :3249, :3572, :3600, :3739, :3786 | comment | none |
+| 20–22 | `collection/layout/builder_collection_layout.rs` :3614, :3797, :3808 | test assertion message | none |
+| 23 | `memory/owned.rs` :33 | comment | none |
+| 24 | `builtins/canvas/gen_group.rs` :167 | comment | none |
+| 25 | `engine/builder/mod.rs` :798 | comment | none |
+| 26–28 | `registry/mod.rs` :6400, :6507, :6512 (`carries_a_block` is its own predicate and does not call it) | comment | none |
+| 29 | `engine/builder/builder_emit_helpers.rs` :507 | comment | none |
+| 30–32 | `engine/value/builder_values.rs` :995, :1001, :1598 | comment | none |
+
+Totals: 7 ownership gates, 5 layout/copy, 1 class, 19 comment/test text = 32.
+
+### 2.2 Non-owner verdicts (Phase 1)
+
+- **plan-86 E borrow-`get`** — VERIFIED never a recursive element: `is_borrow_get` requires
+  `is_freeable_flat_value(type_)` (`builder_control.rs::lower_ops_inner`, row 8), and
+  `register_pending_temp` returns early under `borrow_get_result`. Row 8 stays flat-only.
+- **`MATCH` scrutinee** — VERIFIED: lowered with `lower_value` and spilled to `match_value`, no
+  cleanup (`builder_control.rs` `NirOp::Match`). A fresh call scrutinee becomes a pending temp
+  only through `register_pending_temp`. The statement watermark is taken before the op
+  (`let temp_watermark`, `lower_ops_inner`), and its `drop_pending_temps_to` runs after the op's
+  closure returns (`TransferTemps::StatementScope`), i.e. after `END MATCH`. Each arm's
+  statements drop only above their own watermark. The temp therefore already outlives every
+  `UnionExtract` alias into it; nothing to move.
+- **`UnionExtract`** — VERIFIED: `aliases_union_variant` excludes it from
+  `owns_freeable_value`, and its cleanup branch is "Non-owning — no cleanup".
+- **`by_ref` / `by_ref_capture_slot`** — VERIFIED: excluded from `owns_freeable_value` and
+  non-owning at registration; the `Assign` free requires `!by_ref`.
+- **`FOR EACH` element** — VERIFIED an alias for every non-`String` payload: bug-571's
+  `owned_item_slots` is filled only by the `String` arms. The iterable local is excluded from
+  the `Assign` free by `for_each_iterable_locals`, and a `name.field` iterable base by
+  `for_each_iterable_record_fields`.
+- **Parameters** — VERIFIED: no `OwnedValue` at their slot. `plan_returned_move` uses exactly
+  that as its ownership test ("parameters and aliases have none").
+- **Closure captures** — an OWNER, not a non-owner: the env stores each capture through
+  `lower_value_owned` (`NirValue::Closure` arm), which for a recursive aliasing capture is
+  plan-134-D's graph copy — or a move when it is the source's last use, which is exactly what
+  the Phase 2 move-site deactivation must cover.
+
 ## 3. Design
 
 - **One ownership predicate.** `CodeBuilder::owns_graph(type_)` = `needs_graph_copy(type_)`
@@ -84,17 +147,32 @@ entropy fill (freed chunks scrubbed) so a use-after-free reads garbage rather th
 
 ### Phase 1 — classification and RED
 
-- [ ] Classify all 32 `is_freeable_flat_value` references (plan-134-A §2.1 command) as
-      ownership gate / layout question, with file::symbol; add the table to §2.
-- [ ] Verify each non-owner in §2 by reading its code path for a recursive type (borrow-`get`
+- [x] Classify all 32 `is_freeable_flat_value` references (plan-134-A §2.1 command) as
+      ownership gate / layout question, with file::symbol; add the table to §2. — §2.1: census
+      re-run → 32; 7 ownership gates, 5 layout/copy, 1 class definition, 19 comment/test text.
+- [x] Verify each non-owner in §2 by reading its code path for a recursive type (borrow-`get`
       eligibility, `MATCH` temp lifetime, `UnionExtract`, `by_ref`, `FOR EACH`, params); record
-      each verdict.
-- [ ] Add the shape-C cases of §1 to `tests/runtime/rt_scope_drop_leaks.rs` using `assert_flat`;
-      confirm they fail today.
+      each verdict. — §2.2: all six verified non-owners. The `MATCH` fresh temp already lives
+      past `END MATCH` (statement-scope drop after the op). Closure captures are owners.
+- [x] Add the shape-C cases of §1 to `tests/runtime/rt_scope_drop_leaks.rs` using `assert_flat`;
+      confirm they fail today. — Seven cases (`a_looped_recursive_*`, `a_looped_unbound_recursive_temp_*`),
+      400 000 vs 800 000 iterations, run against the letter-F build (no plan-134-G code). Peak
+      RSS growth per case:
+
+      | case | growth | peak at 400k → 800k |
+      |---|---|---|
+      | union bind | 49 MB | 50 → 99 MB |
+      | record bind | 99 MB | 100 → 199 MB |
+      | reassignment | 99 MB | 100 → 199 MB |
+      | global overwrite | 99 MB | 100 → 199 MB |
+      | `get` result | 99 MB | 100 → 199 MB |
+      | closure capture | 297 MB | 298 → 596 MB |
+      | unbound temp | 3125 MB | 3126 → 6251 MB |
 
 Acceptance: the table is total; the new leak cases fail on main.
   Check: `cargo test --release --test rt_scope_drop_leaks -- recursive` → the new cases failed
   (est. 4 min).
+  Result: §2.1 total (32 rows); `0 passed; 7 failed` (each "peak RSS grew … — the loop leaks").
 Commit: —
 
 ### Phase 2 — registration
@@ -144,7 +222,12 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Prerequisite re-run** (2026-09-13): `ls planning/completed/plan-134-F-*` → one file — MET.
+- **The `MATCH` fresh-temp task needs no lifetime change.** §3 says the temp "must stay alive
+  through the whole `MATCH` … Phase 1 verifies where today's flat-union MATCH frees it". The
+  read (§2.2) finds the statement-scope free already runs after the whole op. Phase 2's task
+  is therefore a test that a fresh recursive scrutinee is read correctly in every arm under
+  churn, not a code change.
 
 ## Summary
 

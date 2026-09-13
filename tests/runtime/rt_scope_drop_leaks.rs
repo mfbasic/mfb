@@ -5920,3 +5920,170 @@ fn a_looped_udp_receive_runs_at_constant_rss() {
         400_000,
     );
 }
+
+// ---------------------------------------------------------------- shape C / plan-134-G
+
+/// bug-536 shape C, union form: a recursive-union value bound each iteration. Before
+/// plan-134-G nothing freed a value whose type reaches a type cycle — 52.7 MB at 400k
+/// iterations, 104.3 MB at 800k (plan-134-A §2.2, `c_union_rss`).
+const SHAPE_C_UNION_BIND: &str = r#"IMPORT io
+IMPORT json
+SUB main()
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET v AS json::Json = json::JsonNull[NOTHING]
+    i = i + 1
+  END WHILE
+  io::print("done")
+END SUB
+"#;
+
+/// bug-536 shape C, record form (`c_record_rss`: 105.1 MB at 400k, 209.1 MB at 800k).
+const SHAPE_C_RECORD_BIND: &str = r#"IMPORT io
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+SUB main()
+  MUT i AS Integer = 0
+  MUT acc AS Integer = 0
+  WHILE i < {N}
+    LET nd AS Node = Node[kids := [], tag := i]
+    acc = acc + nd.tag
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// A recursive local overwritten each iteration: the old graph is the `Assign` free's.
+const SHAPE_C_REASSIGN: &str = r#"IMPORT io
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+SUB main()
+  MUT cur AS Node = Node[kids := [], tag := 0]
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    cur = Node[kids := [], tag := i]
+    i = i + 1
+  END WHILE
+  io::print("tag=" & toString(cur.tag))
+END SUB
+"#;
+
+/// A recursive global overwritten each iteration: the `StoreGlobal` old-value free.
+const SHAPE_C_GLOBAL: &str = r#"IMPORT io
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+MUT GN AS Node = Node[kids := [], tag := 0]
+SUB main()
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    GN = Node[kids := [], tag := i]
+    i = i + 1
+  END WHILE
+  io::print("tag=" & toString(GN.tag))
+END SUB
+"#;
+
+/// An unbound recursive temporary: `json::parse`'s result consumed by `stringify` inside
+/// one expression, freed at the end of the statement.
+const SHAPE_C_UNBOUND_TEMP: &str = r#"IMPORT io
+IMPORT json
+SUB main()
+  LET t AS String = "[1,{\u{22}a\u{22}:[2,3]}]"
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    acc = acc + len(json::stringify(json::parse(t)))
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// A recursive value captured by a non-escaping closure: the closure drop frees the
+/// captured graph, and the capture's source is either copied or moved out of.
+const SHAPE_C_CLOSURE: &str = r#"IMPORT io
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+SUB main()
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET cap AS Node = Node[kids := [], tag := i]
+    LET f AS FUNC(Integer) AS Integer = LAMBDA(k AS Integer) -> k + cap.tag
+    acc = acc + f(1)
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// bug-538's owned copy out of a container: `collections::get` of a recursive element.
+const SHAPE_C_GET: &str = r#"IMPORT io
+IMPORT collections
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+SUB main()
+  LET xs AS List OF Node = [Node[kids := [], tag := 7]]
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET e AS Node = collections::get(xs, 0)
+    acc = acc + e.tag
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_union_bind_runs_at_constant_rss() {
+    assert_flat("c_recursive_union_bind", SHAPE_C_UNION_BIND, 400_000, 800_000);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_record_bind_runs_at_constant_rss() {
+    assert_flat("c_recursive_record_bind", SHAPE_C_RECORD_BIND, 400_000, 800_000);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_reassignment_runs_at_constant_rss() {
+    assert_flat("c_recursive_reassign", SHAPE_C_REASSIGN, 400_000, 800_000);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_global_overwrite_runs_at_constant_rss() {
+    assert_flat("c_recursive_global", SHAPE_C_GLOBAL, 400_000, 800_000);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_unbound_recursive_temp_runs_at_constant_rss() {
+    assert_flat("c_recursive_unbound_temp", SHAPE_C_UNBOUND_TEMP, 400_000, 800_000);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_closure_capture_runs_at_constant_rss() {
+    assert_flat("c_recursive_closure", SHAPE_C_CLOSURE, 400_000, 800_000);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_get_result_runs_at_constant_rss() {
+    assert_flat("c_recursive_get", SHAPE_C_GET, 400_000, 800_000);
+}
