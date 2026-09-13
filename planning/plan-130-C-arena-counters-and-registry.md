@@ -174,22 +174,31 @@ Commit: cf5b640c9
 
 ### Phase 2 — counters at every allocator event
 
-- [ ] (moved here from Phase 1) `emit_debug_arena_slot(dst)`: linear scan of the registered
+- [x] (moved here from Phase 1) `emit_debug_arena_slot(dst)`: linear scan of the registered
       slots comparing `state_ptr` with the arena register — the lookup every counter uses.
-- [ ] `lower_arena_alloc`: `alloc_calls`/`alloc_bytes` (normalized size) at entry of the
+- [x] `lower_arena_alloc`: `alloc_calls`/`alloc_bytes` (normalized size) at entry of the
       valid path; one `hit_*` per return path; `grow`, `maps`, `mapped_bytes` in the grow
       path; `live_bytes += size` and `peak_live_bytes = max(...)` on success.
-- [ ] `lower_arena_free`: `free_calls`/`free_bytes`, `live_bytes -= size` (not on the
+- [x] `lower_arena_free`: `free_calls`/`free_bytes`, `live_bytes -= size` (not on the
       double-free early exits — count those as `double_free_skips`).
-- [ ] `lower_arena_flush_coalesce`: `flushes`; `lower_arena_insert_free`:
+- [x] `lower_arena_flush_coalesce`: `flushes`; `lower_arena_insert_free`:
       `insert_free_calls`; `lower_arena_destroy`: `unmaps`/`unmapped_bytes` per block.
-- [ ] Report section writes every counter per slot.
-- [ ] `tests/runtime/rt_debug_arena.rs` exact-count cases: (a) a loop allocating and
+- [x] Report section writes every counter per slot (`arena.<n>.<counter> <value>`, 18 per
+      arena, after its `kind`).
+- [x] `tests/runtime/rt_debug_arena.rs` exact-count cases: (a) a loop allocating and
       freeing one 24-byte record N=1000 times → `alloc_calls == free_calls`,
       `hit_quick_bin >= 999`, `maps` unchanged between N=1000 and N=2000; (b) a single
       1 MiB `List OF Byte` → one `grow` and `mapped_bytes >= 1 MiB`; (c) the control
       required by memory `a-leak-counter-must-cover-everything-it-guards`: a program
       that drops a value without freeing (a known leak shape) → `live_bytes` grows with N.
+      Implemented as (see Corrections): `churn_counts_scale_with_iterations_and_partition_by_path`
+      (N=1000 vs N=2000: +>=1000 allocations and frees, +>=999 quick-bin hits, `maps` equal,
+      and `alloc_calls == hit_quick_bin + hit_carve + hit_large_bin + hit_walk + grow` in both);
+      `a_mebibyte_read_grows_the_arena` (`grow >= 1`, `mapped_bytes >= 1 MiB`, `maps == unmaps`);
+      `retained_values_raise_peak_live_bytes_and_churn_does_not` (the control).
+      `cargo test --release --no-fail-fast --test rt_debug_arena` -> 5 passed;
+      `rt_debug_report` -> 7 passed; `cargo test --bin mfb -- codegen::debug perf arena` -> 27
+      passed; artifact gate `0 diff(s)` (2011 goldens).
 
 Acceptance: `cargo test --release --test rt_debug_arena` green; artifact gate
 `0 diff(s)`.
@@ -237,6 +246,32 @@ Commit: —
 
 ## Corrections
 
+- **Phase 2 — counting sites are the attribution sites, not the returns.** Each helper looks up
+  its slot once (after size normalization) and every successful allocation is counted exactly
+  once where its path is decided: quick-bin pop, designated-victim carve, carve renewal (before
+  the shared `arena_alloc_dv_serve` label, which the walk's whole-chunk take also enters), large
+  bin, walk fit (at the walk, not `arena_alloc_found`, which the grow path also enters), and grow
+  (`arena_alloc_mapped`, plus `maps`/`mapped_bytes`). That makes
+  `alloc_calls == quick + carve + large + walk + grow` an invariant, checked in the tests and in a
+  `--debug` run of the whole `benchmark/mfb` suite (`/tmp/p130-c2-invariants.py`): every one of 5
+  arenas held it, the main arena with 22,014,381 allocations (quick 21,772,047, carve 120,398,
+  large 111,234, walk 3,564, grow 7,138). Counter code is emitted only under `debug_arena`, with
+  its vregs allocated inside that branch, so a normal build's instruction stream and vreg
+  numbering are unchanged (artifact gate `0 diff(s)`).
+- **Phase 2 — double-free skips need a stub; `live_bytes` clamps at zero.** The two early exits
+  branch to `arena_free_done` in a normal build and to an `arena_free_double` stub (emitted after
+  the return: bump `double_free_skips`, branch to done) in a `--debug` build. A chunk freed that
+  was allocated before its arena registered was never added to `live_bytes`, so the subtraction
+  saturates at zero instead of wrapping.
+- **Phase 2 — test (a) could not assert `alloc_calls == free_calls` for a whole program.** A
+  program's startup, printing and end-of-run values allocate outside the loop; the exact claim is
+  about the loop, so the test compares N=1000 with N=2000 and asserts the deltas, and uses a short
+  string per iteration (a record may be held inline and allocate nothing).
+- **Phase 2 — `three_workers_register_four_arenas`'s worker allocated nothing.** The added check
+  that each worker counts an allocation failed: arenas 1–3 reported `alloc_calls 0`, `maps 0`,
+  because `RETURN len(seed)` allocates nothing in the worker's arena (the benchmark suite's workers
+  counted 212 each, so worker counting is live). The worker now builds `seed & "!"`, so the check
+  proves counts land in the worker's own slot.
 - **Phase 1 — lookup-cost measurement (recorded as the task requires).** Method: the whole
   `benchmark/mfb` suite (it has no row filter) built four ways and run `--run 3`, back to back per
   pair: `--debug` and `--debug` + a THROWAWAY patch inserting a no-op registry slot scan (load

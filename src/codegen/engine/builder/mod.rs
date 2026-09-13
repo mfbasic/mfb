@@ -1740,19 +1740,23 @@ pub(crate) fn lower_module_for_platform(
     // section is active for this module.
     let perf_arena =
         crate::codegen::debug::feature_active(module, crate::codegen::debug::PERF_SECTION);
-    code_functions.push(lower_arena_alloc(platform, perf_arena)?);
+    // plan-130-C: the allocator counts its events exactly when the `--debug` arena
+    // section is active for this module.
+    let debug_arena =
+        crate::codegen::debug::feature_active(module, crate::codegen::debug::ARENA_SECTION);
+    code_functions.push(lower_arena_alloc(platform, perf_arena, debug_arena)?);
     code_functions.push(lower_build_error_loc());
     code_functions.push(lower_make_error_result());
     code_functions.push(lower_simd_alloc_list());
-    code_functions.push(lower_arena_insert_free());
-    code_functions.push(lower_arena_flush_coalesce());
-    code_functions.push(lower_arena_free(perf_arena));
+    code_functions.push(lower_arena_insert_free(debug_arena));
+    code_functions.push(lower_arena_flush_coalesce(debug_arena));
+    code_functions.push(lower_arena_free(perf_arena, debug_arena));
     // Entropy fill is always on (plan-01 §6.5): scrub freed chunks and poison
     // fresh blocks. The fill RNG/seed helpers ship with every arena.
     code_functions.push(lower_arena_fill_random());
     code_functions.push(lower_arena_fill_seed());
     code_functions.push(lower_arena_fill_next());
-    code_functions.push(lower_arena_destroy(platform)?);
+    code_functions.push(lower_arena_destroy(platform, debug_arena)?);
     // Opt-in stdout buffering (plan-14-A): the shared `_mfb_rt_io_stdout_drain`
     // helper is emitted whenever any stdout writer, stdin reader, or buffering
     // control is present — every point that references the drain. App mode has no

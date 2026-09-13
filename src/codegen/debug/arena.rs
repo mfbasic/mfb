@@ -1,18 +1,21 @@
 //! The `arena` report section (plan-130-C): a process-global registry of every arena
 //! state — the main thread's, each `thread::start` worker's, and the canvas graphics
-//! thread's — reported per arena.
+//! thread's — with a set of allocator event counters per arena.
 //!
 //! The registry is a region mapped on first registration through the platform's
 //! `emit_arena_map` seam (system memory, never an arena), holding a
 //! `{count, overflow}` header and [`ARENA_DEBUG_SLOTS`] fixed-size slots
-//! `{state_ptr, kind, counters…}`; its base lives in a writable global. Registration
+//! `{state_ptr, kind, counters[18]}`; its base lives in a writable global. Registration
 //! is the only locked operation (a statically initialized process-global mutex, so it
-//! exists before the region does). The report reads the header and slots unlocked: a
-//! still-running worker's slot is a word-sized snapshot.
+//! exists before the region does). Counters are written only by the thread that owns
+//! the arena — the allocator helpers find their slot by the arena register — so they
+//! need no lock. The report reads the header and slots unlocked: a still-running
+//! worker's slot is a word-sized snapshot.
 //!
-//! Report lines: `arena.count <n>`, `arena.registry_overflow <n>`, and
-//! `arena.<n>.kind <main|worker|graphics>` for each registered arena, in registration
-//! order (the main arena is `0`).
+//! Report lines: `arena.count <n>`, `arena.registry_overflow <n>`, then for each
+//! registered arena in registration order (the main arena is `0`):
+//! `arena.<n>.kind <main|worker|graphics>` and one `arena.<n>.<counter> <value>` line
+//! per [`ARENA_COUNTERS`] entry.
 
 use std::collections::HashMap;
 
@@ -23,7 +26,7 @@ use super::write::{
 use super::{DebugEmitCtx, DebugFeature};
 use crate::codegen::engine::builder::{internal_branch, EmitCtx};
 use crate::codegen::engine::types::{
-    CodeDataObject, CodeFunction, CodeInstruction, CodegenPlatform, PlatformFamily,
+    CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, CodegenPlatform, PlatformFamily,
 };
 use crate::codegen::engine::util::{finalize_vreg_body_with_locals, finalize_vreg_helper, Vregs};
 use crate::codegen::error::constants::ARENA_STATE_REGISTER;
@@ -33,7 +36,7 @@ use crate::target::shared::abi;
 use crate::target::shared::nir::NirModule;
 
 /// The section's name; `feature_active(module, ARENA_SECTION)` decides whether the
-/// thread and canvas start paths register their arenas.
+/// thread and canvas start paths register their arenas and the allocator counts.
 pub(crate) const ARENA_SECTION: &str = "arena";
 
 /// `_mfb_debug_arena_register(state, kind)`: record one arena state in the registry.
@@ -61,10 +64,61 @@ const ARENA_DEBUG_SLOTS: usize = 1024;
 const REGION_COUNT_OFFSET: usize = 0;
 const REGION_OVERFLOW_OFFSET: usize = 8;
 const REGION_HEADER_SIZE: usize = 16;
-/// One slot: `state_ptr` (+0), `kind` (+8), and eighteen counter words (+16..160).
-const SLOT_SIZE: usize = 160;
 const SLOT_KIND_OFFSET: usize = 8;
+
+/// Counter words of a slot, after `state_ptr` (+0) and `kind` (+8).
+pub(crate) const COUNTER_MAPS: usize = 16;
+pub(crate) const COUNTER_MAPPED_BYTES: usize = 24;
+pub(crate) const COUNTER_UNMAPS: usize = 32;
+pub(crate) const COUNTER_UNMAPPED_BYTES: usize = 40;
+pub(crate) const COUNTER_ALLOC_CALLS: usize = 48;
+pub(crate) const COUNTER_ALLOC_BYTES: usize = 56;
+pub(crate) const COUNTER_FREE_CALLS: usize = 64;
+pub(crate) const COUNTER_FREE_BYTES: usize = 72;
+pub(crate) const COUNTER_LIVE_BYTES: usize = 80;
+pub(crate) const COUNTER_PEAK_LIVE_BYTES: usize = 88;
+pub(crate) const COUNTER_HIT_QUICK_BIN: usize = 96;
+pub(crate) const COUNTER_HIT_CARVE: usize = 104;
+pub(crate) const COUNTER_HIT_LARGE_BIN: usize = 112;
+pub(crate) const COUNTER_HIT_WALK: usize = 120;
+pub(crate) const COUNTER_GROW: usize = 128;
+pub(crate) const COUNTER_FLUSHES: usize = 136;
+pub(crate) const COUNTER_INSERT_FREE_CALLS: usize = 144;
+pub(crate) const COUNTER_DOUBLE_FREE_SKIPS: usize = 152;
+
+/// Every counter, in slot and report order: `(report name, slot offset)`.
+const ARENA_COUNTERS: [(&str, usize); 18] = [
+    ("maps", COUNTER_MAPS),
+    ("mapped_bytes", COUNTER_MAPPED_BYTES),
+    ("unmaps", COUNTER_UNMAPS),
+    ("unmapped_bytes", COUNTER_UNMAPPED_BYTES),
+    ("alloc_calls", COUNTER_ALLOC_CALLS),
+    ("alloc_bytes", COUNTER_ALLOC_BYTES),
+    ("free_calls", COUNTER_FREE_CALLS),
+    ("free_bytes", COUNTER_FREE_BYTES),
+    ("live_bytes", COUNTER_LIVE_BYTES),
+    ("peak_live_bytes", COUNTER_PEAK_LIVE_BYTES),
+    ("hit_quick_bin", COUNTER_HIT_QUICK_BIN),
+    ("hit_carve", COUNTER_HIT_CARVE),
+    ("hit_large_bin", COUNTER_HIT_LARGE_BIN),
+    ("hit_walk", COUNTER_HIT_WALK),
+    ("grow", COUNTER_GROW),
+    ("flushes", COUNTER_FLUSHES),
+    ("insert_free_calls", COUNTER_INSERT_FREE_CALLS),
+    ("double_free_skips", COUNTER_DOUBLE_FREE_SKIPS),
+];
+
+/// One slot: `state_ptr`, `kind`, and the counters.
+const SLOT_SIZE: usize = 16 + ARENA_COUNTERS.len() * 8;
 const REGION_SIZE: usize = REGION_HEADER_SIZE + ARENA_DEBUG_SLOTS * SLOT_SIZE;
+
+// The counter offsets are contiguous words ending exactly at the slot's end.
+const _: () = assert!(COUNTER_DOUBLE_FREE_SKIPS + 8 == SLOT_SIZE && SLOT_SIZE == 160);
+
+/// The key-suffix data object of a counter's report line (`.maps ` …).
+fn counter_suffix_symbol(name: &str) -> String {
+    format!("_mfb_rt_debug_arena_key_{name}")
+}
 
 pub(super) struct ArenaFeature;
 
@@ -79,6 +133,152 @@ fn family_of(module: &NirModule) -> PlatformFamily {
     }
 }
 
+/// `dst` = this thread's registry slot (the slot whose `state_ptr` is the arena
+/// register), or 0 when the registry is unmapped or the arena is not registered.
+///
+/// Emitted once per allocator-helper call. Arena-free and call-free: it reads only
+/// the registry and clobbers only fresh vregs, so the allocator's live values
+/// survive it. `from` is the emitting helper's symbol (labels and relocation).
+pub(crate) fn emit_debug_arena_slot(
+    from: &str,
+    dst: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) {
+    let global = vregs.next();
+    let base = vregs.next();
+    let count = vregs.next();
+    let index = vregs.next();
+    let state = vregs.next();
+    let scan = format!("{from}_dbg_slot_scan");
+    let missing = format!("{from}_dbg_slot_missing");
+    let done = format!("{from}_dbg_slot_done");
+    push_symbol_address(from, ARENA_BASE_SYMBOL, &global, instructions, relocations);
+    instructions.extend([
+        abi::move_immediate(dst, "Integer", "0"),
+        abi::load_u64(&base, &global, 0),
+        abi::compare_immediate(&base, "0"),
+        abi::branch_eq(&done),
+        abi::load_u64(&count, &base, REGION_COUNT_OFFSET),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::add_immediate(dst, &base, REGION_HEADER_SIZE),
+        abi::label(&scan),
+        abi::compare_registers(&index, &count),
+        abi::branch_ge(&missing),
+        abi::load_u64(&state, dst, 0),
+        abi::compare_registers(&state, ARENA_STATE_REGISTER),
+        abi::branch_eq(&done),
+        abi::add_immediate(dst, dst, SLOT_SIZE),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&scan),
+        abi::label(&missing),
+        abi::move_immediate(dst, "Integer", "0"),
+        abi::label(&done),
+    ]);
+}
+
+/// `[slot + counter] += 1` when `slot` is non-zero. `tag` keeps labels distinct.
+pub(crate) fn emit_debug_arena_bump(
+    from: &str,
+    slot: &str,
+    counter: usize,
+    tag: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let value = vregs.next();
+    let skip = format!("{from}_dbg_{tag}_skip");
+    instructions.extend([
+        abi::compare_immediate(slot, "0"),
+        abi::branch_eq(&skip),
+        abi::load_u64(&value, slot, counter),
+        abi::add_immediate(&value, &value, 1),
+        abi::store_u64(&value, slot, counter),
+        abi::label(&skip),
+    ]);
+}
+
+/// `[slot + counter] += amount` when `slot` is non-zero; `amount` is read, not changed.
+pub(crate) fn emit_debug_arena_add(
+    from: &str,
+    slot: &str,
+    counter: usize,
+    amount: &str,
+    tag: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let value = vregs.next();
+    let skip = format!("{from}_dbg_{tag}_skip");
+    instructions.extend([
+        abi::compare_immediate(slot, "0"),
+        abi::branch_eq(&skip),
+        abi::load_u64(&value, slot, counter),
+        abi::add_registers(&value, &value, amount),
+        abi::store_u64(&value, slot, counter),
+        abi::label(&skip),
+    ]);
+}
+
+/// A successful allocation of `size` bytes: `live_bytes += size`, and
+/// `peak_live_bytes` follows it up. No-op when `slot` is zero.
+pub(crate) fn emit_debug_arena_live_add(
+    from: &str,
+    slot: &str,
+    size: &str,
+    tag: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let live = vregs.next();
+    let peak = vregs.next();
+    let skip = format!("{from}_dbg_{tag}_skip");
+    instructions.extend([
+        abi::compare_immediate(slot, "0"),
+        abi::branch_eq(&skip),
+        abi::load_u64(&live, slot, COUNTER_LIVE_BYTES),
+        abi::add_registers(&live, &live, size),
+        abi::store_u64(&live, slot, COUNTER_LIVE_BYTES),
+        abi::load_u64(&peak, slot, COUNTER_PEAK_LIVE_BYTES),
+        abi::compare_registers(&live, &peak),
+        abi::branch_lo(&skip),
+        abi::store_u64(&live, slot, COUNTER_PEAK_LIVE_BYTES),
+        abi::label(&skip),
+    ]);
+}
+
+/// A freed chunk of `size` bytes: `live_bytes -= size`, clamped at zero — a chunk the
+/// thread allocated before its arena was registered was never added. No-op when
+/// `slot` is zero.
+pub(crate) fn emit_debug_arena_live_sub(
+    from: &str,
+    slot: &str,
+    size: &str,
+    tag: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let live = vregs.next();
+    let skip = format!("{from}_dbg_{tag}_skip");
+    let floor = format!("{from}_dbg_{tag}_floor");
+    let store = format!("{from}_dbg_{tag}_store");
+    instructions.extend([
+        abi::compare_immediate(slot, "0"),
+        abi::branch_eq(&skip),
+        abi::load_u64(&live, slot, COUNTER_LIVE_BYTES),
+        abi::compare_registers(&live, size),
+        abi::branch_lo(&floor),
+        abi::subtract_registers(&live, &live, size),
+        abi::branch(&store),
+        abi::label(&floor),
+        abi::move_immediate(&live, "Integer", "0"),
+        abi::label(&store),
+        abi::store_u64(&live, slot, COUNTER_LIVE_BYTES),
+        abi::label(&skip),
+    ]);
+}
+
 /// `pthread_mutex_lock`/`unlock(&_mfb_rt_debug_arena_lock)` through the thread seam
 /// (an SRWLOCK on Windows).
 fn emit_registry_lock(
@@ -86,7 +286,7 @@ fn emit_registry_lock(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<crate::codegen::engine::types::CodeRelocation>,
+    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     push_symbol_address(
         DEBUG_ARENA_REGISTER_SYMBOL,
@@ -197,6 +397,78 @@ fn lower_register(
     ))
 }
 
+/// `arena.<index><suffix><value>\n` in the helper's window: right to left, the value
+/// digits, the suffix object (`.maps ` …), the index digits, `arena.`.
+#[allow(clippy::too_many_arguments)]
+fn emit_slot_line(
+    symbol: &str,
+    index: &str,
+    suffix_symbol: &str,
+    value: &str,
+    tag: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let cursor = vregs.next();
+    let newline = vregs.next();
+    let suffix = vregs.next();
+    let prefix = vregs.next();
+    instructions.extend([
+        abi::add_immediate(&cursor, abi::stack_pointer(), DEBUG_LINE_BUFFER_SIZE),
+        abi::subtract_immediate(&cursor, &cursor, 1),
+        abi::move_immediate(&newline, "Integer", "10"),
+        abi::store_u8(&newline, &cursor, 0),
+    ]);
+    emit_prepend_decimal(
+        value,
+        &cursor,
+        &format!("debug_arena_{tag}_val"),
+        instructions,
+        vregs,
+    );
+    push_symbol_address(symbol, suffix_symbol, &suffix, instructions, relocations);
+    emit_prepend_object(
+        &suffix,
+        &cursor,
+        &format!("debug_arena_{tag}_sfx"),
+        instructions,
+        vregs,
+    );
+    emit_prepend_decimal(
+        index,
+        &cursor,
+        &format!("debug_arena_{tag}_idx"),
+        instructions,
+        vregs,
+    );
+    push_symbol_address(
+        symbol,
+        ARENA_PREFIX_SYMBOL,
+        &prefix,
+        instructions,
+        relocations,
+    );
+    emit_prepend_object(
+        &prefix,
+        &cursor,
+        &format!("debug_arena_{tag}_pfx"),
+        instructions,
+        vregs,
+    );
+    emit_write_window(
+        symbol,
+        &cursor,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )
+}
+
 fn lower_report(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -256,7 +528,7 @@ fn lower_report(
             &mut vregs,
         )?;
     }
-    // One `arena.<n>.kind <token>` line per registered arena.
+    // Per registered arena: `arena.<n>.kind <token>`, then each counter.
     instructions.extend([
         abi::move_immediate(&index, "Integer", "0"),
         abi::move_immediate(&slot_size, "Integer", &SLOT_SIZE.to_string()),
@@ -351,6 +623,22 @@ fn lower_report(
         &mut relocations,
         &mut vregs,
     )?;
+    for (name, offset) in ARENA_COUNTERS {
+        let value = vregs.next();
+        instructions.push(abi::load_u64(&value, &slot, offset));
+        emit_slot_line(
+            symbol,
+            &index,
+            &counter_suffix_symbol(name),
+            &value,
+            name,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        )?;
+    }
     instructions.extend([
         abi::add_immediate(&index, &index, 1),
         abi::branch(rows),
@@ -382,7 +670,7 @@ impl DebugFeature for ArenaFeature {
 
     fn data_objects(&self, module: &NirModule) -> Vec<CodeDataObject> {
         let text = |symbol: &str, value: &str| string_data_object(symbol, value.to_string());
-        vec![
+        let mut objects = vec![
             CodeDataObject {
                 symbol: ARENA_BASE_SYMBOL.to_string(),
                 kind: "raw".to_string(),
@@ -408,7 +696,11 @@ impl DebugFeature for ArenaFeature {
             text(ARENA_TOKEN_MAIN_SYMBOL, "main\n"),
             text(ARENA_TOKEN_WORKER_SYMBOL, "worker\n"),
             text(ARENA_TOKEN_GRAPHICS_SYMBOL, "graphics\n"),
-        ]
+        ];
+        for (name, _) in ARENA_COUNTERS {
+            objects.push(text(&counter_suffix_symbol(name), &format!(".{name} ")));
+        }
+        objects
     }
 
     fn code_functions(

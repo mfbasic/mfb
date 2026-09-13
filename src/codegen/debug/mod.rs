@@ -15,7 +15,7 @@
 //! bracketed by `mfb.debug.begin 1` … `mfb.debug.end 1`. A consumer takes the last
 //! `mfb.debug.begin` block in stderr.
 
-mod arena;
+pub(crate) mod arena;
 mod perf;
 mod shutdown;
 #[cfg(test)]
