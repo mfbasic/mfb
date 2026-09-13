@@ -140,12 +140,13 @@ are in §2.2; this letter moves them into `tools/recursive-value-bench/`.
 | `json::parse` of one 480 KB document, K = 1 / 2 / 4 times | 204.3 / 402.4 / 798.7 MB; 0.25 / 0.18 / 0.37 s | `json_repeat` |
 | `regex::findAll` over a 100 000-char subject, K = 1 / 2 / 4 | 345.4 / 673.1 / 1328.6 MB; 0.25 / 0.19 / 0.39 s | `regex_repeat` |
 | `_mfb_thread_copy_*` calls from `main` for a `Node` stored four ways (bind, list literal, `append`, `LET c = a`) | 0 (6 `arena_alloc`, 1 `arena_free`, 2 copy functions emitted) | `node_copies`, `mfb build --ncode`, count relocations `from _mfb_fn_main` |
-| bug-601 recursive row: `MUT ys = xs` over `List OF Tree`, 5 in-place appends | `ys=6 xs=240` (correct: `xs=1`) | `tree_alias` |
+| bug-601 recursive row: `MUT ys = xs` over `List OF Tree`, 5 in-place appends | `ys=6 xs=112` at `cc1012bdc` (a read of freed storage, so the wrong number is not stable — `xs=240` when this row was first written; correct: `xs=1`) | `tree_alias` |
 | Depth at which today's runtime deep copy crashes | 50 000 exits 0; **70 000, 100 000, 1 000 000 exit 139** | `deep_chain` (copy forced by `collections::get`) |
 | Control: building and holding the same chain without a copy | 1 000 000 exits 0 | `deep_build_only` |
 | Stack every thread runs on | 8 MiB (worker: `pthread_attr_setstacksize` / `CreateThread`, `runtime/thread/runtime_helpers.rs`); Windows main: 8 MiB reserve, 1 MiB commit (`.ai/arch-abi.md` "Win64 stack growth") | read |
 | Nesting limits on decoder input | `json` 256 (`__JSON_DEPTH_LIMIT`), `regex` parse 200 (`__REGEX_PARSE_DEPTH_LIMIT`) | `grep -rn "DEPTH_LIMIT AS Integer" src/codegen/builtins` |
-| `__regex_Cont` chain length during a match | **UNMEASURED** — Phase 1 task | — |
+| `__regex_Cont` chain length during a match | **Bounded by the pattern, not the subject**: at most 2 + the Concat/Group/Repeat nesting on the path to the current node (`__REGEX_PARSE_DEPTH_LIMIT` 200 caps it); 3 for `[a-c]+[0-9]+`. Read: `__regex_run` (`regex/helper_run.rs`) pushes `ContSeq`/`ContCap`/`ContRep` only on entering a node and pops each when it completes; a repeat iteration pops its `ContRep` before pushing the next, so iterations do not deepen it. Measured: `arena.0.alloc_calls` 2 068 at 1 hit, 482 081 at 10 000 hits — (482 081 − 2 068) / 9 999 = 48 per hit at both sizes, so nothing per-match grows with the subject | `run.sh … regex_chain` rows `simple:1` / `simple:10000`, built `--debug` |
+| `__regex_Choices` chain length during a match (the data-dependent recursive chain) | **Up to 500 000** (`__REGEX_PENDING_LIMIT`): one `__regex_Choice` per greedy non-simple repeat iteration. `(a)+` over 499 999 × `a` exits 0 (peak RSS 991 MB); 500 001 raises `backtracking limit exceeded` (exit 3). The step budget (2 000 000 per search, ~2 steps per iteration) is not what fires. So letter B's walker must handle a 500 000-deep `__regex_Choices` chain, 7× the depth today's native-recursive copy dies at | `run.sh … regex_chain` rows `group:499999` / `group:500001` |
 
 ### 2.2 Probe programs (moved into `tools/recursive-value-bench/` by Phase 1)
 
@@ -237,24 +238,35 @@ A diff anywhere else is a bug to localize (objdump one fixture), never a verdict
 
 Lands measurement only; no compiler change.
 
-- [ ] Create `tools/recursive-value-bench/` with the seven programs of §2.2 as
+- [x] Create `tools/recursive-value-bench/` with the seven programs of §2.2 as
       `programs/<name>/{project.json,src/main.mfb}`, a `run.sh <mfb> [program…]` that builds
       each and prints `name size maxrss_bytes real_s exit` per run (macOS `/usr/bin/time -l`,
       Linux `/usr/bin/time -v` or `ru_maxrss` via the program's `--debug` peak-RSS section),
       and a README stating what each program measures and which letter gates on it.
       (`tools/`, not `scripts/`: AGENTS.md — benchmarks and probes go in `tools/<name>/` with a
-      README.)
-- [ ] Run it on main and record the table in §2.1 if any row moved by more than 10 %.
-- [ ] Measure the `__regex_Cont` chain length: add a temporary counter program (in the tool's
+      README.) — 9 programs (`deep_build_only` is its own project; `regex_chain` added by the
+      third task); rows also carry a `stdout` column, and `node_copies` adds an `-ncode`
+      call-count row.
+- [x] Run it on main and record the table in §2.1 if any row moved by more than 10 %. — no RSS
+      row moved more than 0.1 %: `c_union_rss` 52 658 176 / 104 267 776, `c_record_rss`
+      105 054 208 / 209 076 224, `json_repeat` 204 259 328 / 402 423 808 / 798 736 384,
+      `regex_repeat` 345 391 104 / 673 103 872 / 1 328 578 560 bytes; `node_copies` 0 copy
+      calls, 6 allocs, 1 free, 2 copy functions; `deep_chain` exit 0 / 139 / 139 / 139;
+      `deep_build_only` exit 0. Only `tree_alias`'s garbage value moved (240 → 112; §2.1 row
+      corrected).
+- [x] Measure the `__regex_Cont` chain length: add a temporary counter program (in the tool's
       `programs/`, not in the compiler) that walks the continuation a `regex::findAll` builds,
       or read it from the `--debug` arena report (`alloc_calls` per match on a 1-hit subject
-      vs a 10 000-hit subject). Record the number and command in §2.1.
+      vs a 10 000-hit subject). Record the number and command in §2.1. — `programs/regex_chain`;
+      the `__regex_Cont` chain is pattern-bounded, and the data-dependent chain is
+      `__regex_Choices`, up to 500 000 deep (§2.1, two rows).
 
-Acceptance: `bash tools/recursive-value-bench/run.sh target/release/mfb` prints all seven
+Acceptance: `bash tools/recursive-value-bench/run.sh target/release/mfb` prints all nine
 programs, and its union / record / json / regex rows match §2.1 within 10 %; §2.1 has no
 UNMEASURED row.
-  Check: that command → 7 programs, exit 0 for all but `deep_chain` at n ≥ 70 000 (exit 139)
-  (est. 3 min).
+  Check: that command → 9 programs, exit 0 for all but `deep_chain` at n ≥ 70 000 (exit 139)
+  and `regex_chain group:500001` (exit 3, the pending limit) (est. 3 min).
+  Result: met — 9 programs; RSS rows within 0.1 %; exits exactly as stated.
 Commit: —
 
 ## Validation Plan (this letter)
@@ -281,7 +293,22 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **2026-09-13, Prerequisites re-run** (all three commands): `planning/completed/plan-132-flatten-the-helper-built-pointer-string-records.md`,
+  `planning/completed/plan-130-C-arena-counters-and-registry.md`, `grep -n "bug-538"
+  src/codegen/memory/owned.rs` → line 31 inside `materialize_owned_element` — all MET.
+- **Seven programs → nine.** §2.2 names `deep_build_only` as a variant of `deep_chain`; it
+  needs its own project, and Phase 1's third task added `regex_chain`. The acceptance text
+  now says nine.
+- **`tree_alias` is `xs=112`, not `xs=240`** (measured at `cc1012bdc`). The value is a length
+  read from freed storage, so it is not stable across builds; the defect (≠ 1) is what the row
+  records.
+- **The regex chain that grows with the input is `__regex_Choices`, not `__regex_Cont`.** The
+  plan assumed the continuation chain was the data-dependent depth. Reading `__regex_run` and
+  measuring (`regex_chain`) shows `__regex_Cont` is bounded by pattern nesting, while
+  `__regex_Choices` reaches 500 000 (`__REGEX_PENDING_LIMIT`). The sizing conclusion for letter B
+  is stronger, not weaker: its walker must copy/drop a 500 000-deep chain, far past the 70 000
+  where today's recursive copy dies. `__regex_Choices` is a member of
+  `recursive_transfer_types`, so it is in the walker's kind set already.
 
 ## Summary
 

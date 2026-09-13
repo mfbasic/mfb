@@ -1,0 +1,23 @@
+' Parse one 480 003-byte JSON document K times (K = first argument). Every parse builds
+' a fresh json::Json tree; peak RSS should cost the tree once, not K times.
+IMPORT io
+IMPORT json
+IMPORT collections
+IMPORT os
+
+SUB main()
+  LET k AS Integer = toInt(collections::get(os::args(), 0))
+  MUT text AS String = "["
+  MUT j AS Integer = 0
+  WHILE j < 20000
+    text = text & "{\u{22}a\u{22}:[1,2,3],\u{22}b\u{22}:\u{22}xyz\u{22}},"
+    j = j + 1
+  END WHILE
+  text = text & "0]"
+  MUT i AS Integer = 0
+  WHILE i < k
+    LET v AS json::Json = json::parse(text)
+    i = i + 1
+  END WHILE
+  io::print("bytes=" & toString(len(text)))
+END SUB

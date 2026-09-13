@@ -1,0 +1,17 @@
+' bug-536 Shape C, record form: bind a recursive-record value n times (n = first argument).
+IMPORT collections
+IMPORT os
+
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+
+SUB main()
+  LET n AS Integer = toInt(collections::get(os::args(), 0))
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET nd AS Node = Node[kids := [], tag := i]
+    i = i + 1
+  END WHILE
+END SUB

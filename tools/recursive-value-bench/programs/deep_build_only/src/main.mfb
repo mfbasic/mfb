@@ -1,0 +1,22 @@
+' Control for deep_chain: the same n-deep chain, stored in a list, never copied.
+IMPORT io
+IMPORT collections
+IMPORT os
+
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+
+SUB main()
+  LET n AS Integer = toInt(collections::get(os::args(), 0))
+  MUT cur AS Node = Node[kids := [], tag := 0]
+  MUT i AS Integer = 1
+  WHILE i <= n
+    cur = Node[kids := [cur], tag := i]
+    i = i + 1
+  END WHILE
+  MUT xs AS List OF Node = []
+  xs = collections::append(xs, cur)
+  io::print("top=" & toString(cur.tag) & " len=" & toString(len(xs)))
+END SUB
