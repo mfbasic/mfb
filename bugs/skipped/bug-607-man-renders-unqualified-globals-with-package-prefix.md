@@ -5,8 +5,24 @@ Effort: small–medium
 Severity: LOW
 Class: Documentation (renderer)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: **CLOSED 2026-09-13 — NOT A BUG.**
+Regression Test: none — nothing to fix.
+
+## Ruling (user, 2026-09-13)
+
+`testing::` and `general::` are the **globals holders**. `testing` holds the globals for
+testing, and `general` holds the globals for the language. A program never needs to
+write `testing::` or `general::`, because these members *are* the globals. The package
+name is their home in the registry and their grouping in the documentation, so the
+`testing::expectEqual` / `general::len` spelling on those packages' own man pages is
+intended.
+
+To stop this being re-filed, the code now says so where the report pointed:
+`RegistryPackage::unqualified_global` (`src/codegen/registry/mod.rs`), the member
+signature renderer in `src/cli/man.rs`, and the `mark_unqualified_global()` calls in
+`src/codegen/builtins/general/mod.rs` and `src/codegen/builtins/testing/mod.rs`.
+
+The report below is kept as it was filed.
 
 `testing` and `general` are *unqualified-global* packages: their members are
 written as bare names (`expectEqual(a, b)`, `len(s)`), and a package-qualified
