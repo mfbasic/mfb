@@ -703,6 +703,10 @@ name = "rt_recursive_thread_transfer"
 path = "tests/runtime/rt_recursive_thread_transfer.rs"
 
 [[test]]
+name = "rt_recursive_value_copy_depth"
+path = "tests/runtime/rt_recursive_value_copy_depth.rs"
+
+[[test]]
 name = "rt_reexport_union_transitive_field_types"
 path = "tests/runtime/rt_reexport_union_transitive_field_types.rs"
 

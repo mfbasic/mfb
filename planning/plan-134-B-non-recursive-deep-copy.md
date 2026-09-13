@@ -90,14 +90,17 @@ walker (two paths to prove). See also plan-134-A §3.
 
 ### Phase 1 — RED: the depth tests
 
-- [ ] `tests/runtime/rt_recursive_value_copy_depth.rs` (register in `Cargo.toml`; the
+- [x] `tests/runtime/rt_recursive_value_copy_depth.rs` (register in `Cargo.toml`; the
       `test_targets_registered` guard prints the stanza): builds `deep_chain` and asserts exit 0
       and `top=100000` at n = 100 000; a second case copies through a thread send
-      (`thread::transfer` of a `List OF Node` holding the chain) at the same depth. Confirm both
-      fail today (exit 139).
+      (a worker returning a `List OF Node` holding the chain, read back with `thread::waitFor`
+      — see Corrections) at the same depth. Confirm both fail today (exit 139). — both fail,
+      killed by signal 11.
 
 Acceptance: both cases fail on main with exit 139.
   Check: `cargo test --release --test rt_recursive_value_copy_depth` → 2 failed (est. 2 min).
+  Result: `cargo test --release --no-fail-fast --test rt_recursive_value_copy_depth` → `0 passed;
+  2 failed`, both "killed by signal 11 (SIGSEGV)".
 Commit: —
 
 ### Phase 2 — the walker
@@ -154,7 +157,20 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Prerequisite re-run** (2026-09-13): `ls planning/completed/plan-134-A-*` → one file — MET.
+- **`thread::transfer` cannot carry a value.** It takes a resource only (`mfb man thread
+  transfer`: `res AS Res`). The thread case copies a worker's `List OF Node` result back with
+  `thread::start` / `thread::waitFor` (the path `rt_recursive_thread_transfer.rs` covers) and
+  reads it with `FOR EACH`, which borrows, so the transfer copy is the only deep copy.
+- **The kind set is not "2 per recursive record".** A module importing `regex` emits 12 per-type
+  copy functions (`mfb build -ncode` of `tools/recursive-value-bench/programs/regex_repeat`,
+  `grep -oE '"symbol": "_mfb_thread_copy_[A-Za-z0-9_]+"'`): `__regex_Node`, its six
+  variants/containers, `__regex_Cont` and three variants, `__regex_Choices`, `__regex_Choice`.
+  A compare chain over 12 is still fine.
+- **`TypeModel::builtin_records()` holds records only**, not `json::Json` (a union that enters a
+  model through the importing module's NIR). The edge-table unit test therefore uses
+  hand-built models: a user `TYPE Node`, a Json-shaped recursive union, and a cycle member with a
+  non-cycle field that reaches a second cycle.
 
 ## Summary
 
