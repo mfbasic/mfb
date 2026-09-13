@@ -384,12 +384,17 @@ and concatenate. Record which happened in Corrections.
 
 Data files only. Safe alone: nothing reads them yet.
 
-- [ ] Download the four release files into `third_party/tzdb/2026d/`, then write
-      `SHA256SUMS`.
-- [ ] Verify both signatures with `gpg --verify` against the tz maintainers' key. Record
+- [x] Download the four release files into `third_party/tzdb/2026d/`, then write
+      `SHA256SUMS`. (`curl -sSfLO https://data.iana.org/time-zones/releases/<file>` ×4 →
+      tzdata 479,409 B, tzcode 328,712 B, both `.asc` 833 B; `shasum -a 256 -c SHA256SUMS`
+      → `tzdata2026d.tar.gz: OK`, `tzcode2026d.tar.gz: OK`)
+- [x] Verify both signatures with `gpg --verify` against the tz maintainers' key. Record
       the exact output lines in `third_party/tzdb/README.md`. If the key cannot be
       fetched on this host, that is a blocker to report. Never skip verification.
-- [ ] Write `third_party/tzdb/README.md` (§ 4.1).
+      (Key `7E3792A9D8ACF7D633BC1588ED97E90E62AA7E34`, Paul Eggert, imported over HTTPS from
+      keys.openpgp.org → `gpg --verify` both pairs → `Good signature from "Paul Eggert
+      <eggert@cs.ucla.edu>"`. See Corrections for the HKP port and the stale-expiry copy.)
+- [x] Write `third_party/tzdb/README.md` (§ 4.1).
 
 Acceptance: the committed bytes are the signed IANA release.
   Check: `cd third_party/tzdb/2026d && shasum -a 256 -c SHA256SUMS` → two `OK` lines; `gpg --verify tzdata2026d.tar.gz.asc tzdata2026d.tar.gz` and the tzcode pair → `Good signature` each (est. 2 min).
@@ -467,6 +472,21 @@ Commit: —
   roughly 800 KB of committed binary at the cost of that verification.
 
 ## Corrections
+
+- **2026-09-13, follow-plan start: the gate is letter-scoped.** The first
+  `/follow-plan 135` stopped the whole family on the "Gates D only" bug-520 row. That was
+  wrong: the owner ruled that A–C proceed while bug-520 is being worked on. The row gates
+  D and is re-checked before D starts.
+- **Phase 1: the key fetch needed HTTPS.** `gpg --keyserver hkps://keyserver.ubuntu.com
+  --recv-keys ED97E90E62AA7E34` → `keyserver receive failed: No route to host`. The HKP
+  port is unreachable from this host. Fetching the same key over HTTPS worked:
+  `curl https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x7E37…7E34 | gpg --import`.
+  That copy was stale: `gpg --fingerprint` → `[expired: 2026-09-01]`, and `gpg --verify`
+  printed `Good signature … [expired]` for signatures made 2026-09-11. Importing from
+  `https://keys.openpgp.org/vks/v1/by-fingerprint/7E3792A9D8ACF7D633BC1588ED97E90E62AA7E34`
+  added 2 new signatures → `[expires: 2031-07-24]`, and both `gpg --verify` →
+  `Good signature from "Paul Eggert <eggert@cs.ucla.edu>"` with no expiry note.
+  `third_party/tzdb/README.md` records keys.openpgp.org as the source to use.
 
 ## Summary
 
