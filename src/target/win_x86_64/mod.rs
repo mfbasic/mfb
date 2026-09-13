@@ -265,6 +265,10 @@ const RUNTIME_CALLS: &[&str] = &[
     "crypto.sign",
     "crypto.verify",
     "crypto.hash",
+    "big.fromInteger",
+    "big.toInteger",
+    "big.fromBytes",
+    "big.toBytes",
     "crypto.seal",
     "crypto.open",
     // TLS client + server over Schannel (plan-47-J).

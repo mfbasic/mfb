@@ -426,41 +426,68 @@ the HEAD binary and with this phase's binary, `cmp` of the five checksums → id
 (`macos-aarch64` `4138faa7…`, `linux-aarch64` `2b15ff24…`, `linux-x86_64` `45f8affd…`,
 `linux-riscv64` `18991bfe…`, `windows-x86_64` `c5332835…`). The defaulted binding is `MUT`
 (Corrections C4).
-Commit: —
+Commit: ed55277cb
 
 ### Phase 3 — the native access foundation
 
 The three shared emitters, with no public member yet depending on them.
 
-- [ ] `src/codegen/builtins/big/gen_big.rs` — `emit_load_int`, `emit_alloc_magnitude`,
+- [x] `src/codegen/builtins/big/gen_big.rs` — `emit_load_int`, `emit_alloc_magnitude`,
       `emit_build_int` per §4.3, using the Phase 1 offsets.
-- [ ] Unit tests: `emit_build_int` normalizes trailing zero bytes; maps `{[], TRUE}` to
+      Done, with two helpers the three need: `emit_spill_args` (argument registers to frame
+      slots before any scratch use) and `emit_trim` (the one canonical-form rule, shared by
+      load and build). Lands in the Phase 3+4 commit (Corrections C6).
+- [x] Unit tests: `emit_build_int` normalizes trailing zero bytes; maps `{[], TRUE}` to
       `{[], FALSE}`; leaves a canonical input unchanged. Per Corrections C3 these run as
       programs (`tests/runtime/rt_big_int.rs` and the Phase 3 shim), with the in-crate
       every-backend lowering test covering the emitters in process.
+      Shim: `[9] FALSE`, `[] FALSE`, `[] FALSE`, `[1,2,3] TRUE`. `rt_big_int`: trailing zeros
+      read as `[5]`, `fromBytes([0, 0], TRUE)` as `0 FALSE` (3 passed). In process:
+      `every_member_lowers_on_every_backend` over all five `CodeTarget`s, in the 35-test run.
 
 Acceptance: a temporary public shim calling load→build round-trips a `big::Int` through
 the foundation, normalizing three non-canonical inputs (trailing zeros, negative zero,
 all-zero magnitude) to their canonical forms; the shim is removed before commit.
+Evidence (worktree-P-127, the Phase 3+4 tree plus a temporary `big.probeRoundTrip` built only
+from the Phase 3 emitters; `cargo build --release` exit 0, 0 warnings): `[9] FALSE`, `[] FALSE`,
+`[] FALSE`, `[1,2,3] TRUE` for `big::Int[[9, 0, 0], FALSE]`, `big::Int[[], TRUE]`,
+`big::Int[[0, 0, 0], TRUE]` and the canonical `big::Int[[1, 2, 3], TRUE]`. The shim was then
+removed (`func_probe_round_trip.rs` deleted, its declaration, registration and macOS admission
+row taken out; anchor counts `0`) and never committed.
 Commit: —
 
 ### Phase 4 — the conversion seams
 
-- [ ] `func_from_integer.rs`, `func_to_integer.rs` — `abi_function` lowerings.
+- [x] `func_from_integer.rs`, `func_to_integer.rs` — `abi_function` lowerings.
       `toInteger` declares `ErrOverflow` and nothing else.
-- [ ] `func_from_bytes.rs`, `func_to_bytes.rs` — both total, both taking
+      Done; `mfb man big fromInteger|toInteger` examples run: `-42`, `0`, `9000`, `does not fit`.
+- [x] `func_from_bytes.rs`, `func_to_bytes.rs` — both total, both taking
       `endian AS big::Endian = Little` as a defaulted parameter.
-- [ ] Tests: `toInteger(fromInteger(x)) = x` for `0`, `1`, `-1`, `Integer` max,
+      Done (the default is `DefaultValue::Fill { big.Endian, "0" }` — Open Decision 2
+      resolution); examples run: `256`, `FALSE`, `1 2`, `0`.
+- [x] Tests: `toInteger(fromInteger(x)) = x` for `0`, `1`, `-1`, `Integer` max,
       `Integer` min; `toInteger` raises `ErrOverflow` one past `Integer` max;
       `toBytes(fromBytes(b, n, e), e) = b` for canonical `b` in both byte orders; a
       non-canonical input (trailing zero bytes) normalizes rather than failing.
-- [ ] Admit the four members in all three backend `runtime_calls` lists
+      `cargo test --release --test rt_big_int` → `integer_round_trip_and_overflow_edges ... ok`
+      (also `-(2^63 + 1)` and `2^64` raise `77050010`, `-2^63` converts),
+      `byte_round_trips_in_both_orders ... ok` (also the `Little` default and a 32-byte value).
+- [x] Admit the four members in all three backend `runtime_calls` lists
       (`src/target/macos_aarch64/mod.rs`, `src/target/linux_common/mod.rs`,
       `src/target/win_x86_64/mod.rs`) — Corrections C2.
+      Done: `grep -c '"big\.'` → `4` in each of the three lists.
 
 Acceptance: the round-trip and overflow tests pass, and (per Corrections C1) the
 registry `errors` vector is exactly `["ErrOverflow"]` for `toInteger` and empty for the
 other three, with `native_member_declares_error` → `None` for all four.
+Evidence (worktree-P-127, 0 warnings): `cargo test --release -p mfb --bin mfb --
+codegen::builtins::big target::tests::every_big_member codegen::builtins::tests` → `35 passed;
+0 failed`, including `every_member_declares_exactly_its_errors_and_lowers_natively` (exact
+vectors, `None`, an `abi_function` lowering each), `member_signatures`,
+`endian_defaults_to_little`, `every_big_member_is_admitted_on_every_backend`;
+`cargo test --release --test rt_big_int` → `3 passed; 0 failed`. Non-disturbance still holds
+(five-target `.ncode` identical to the HEAD baseline); `man-census --fill big` 4/4/4, params 7/7;
+memory-scope 0; the eight examples ran.
 Commit: —
 
 ### Phase 5 — comparison and sign
