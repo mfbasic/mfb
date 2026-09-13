@@ -941,7 +941,10 @@ plan-125's own review instruments under `scripts/`, each recorded with its reaso
   seven pilot commits is inside a prose string (scanned, no code-shaped line),
   and the only other changes are to plan-125's own instruments under `scripts/`,
   each recorded with its reason.
-Commit: —
+Commit: `21087f18c` (closure), preceded by `8ba8f8c5a` (iteration 1),
+`2726278d1` + `2324a6662` (the quota stand-down), `17872c5d1` (iteration 2),
+`ecb35180d` (merge of main), `acbcde691` (iteration 3 + spec iteration 1),
+`d7dcb93a1` and `b405c3049` (spec iteration 2)
 
 ## 5. The reviewer prompts
 
