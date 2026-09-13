@@ -22,9 +22,9 @@ verbatim, whichever form was typed.
 
 Help is **per command**, not two-tier. The top-level screen groups the commands
 and advertises only the common `pkg` (`add`/`update`/`install`/`verify`) and
-`repo` (`register`/`auth`) members, and eleven commands then carry a `--help`
+`repo` (`register`/`auth`) members, and twelve commands then carry a `--help`
 screen of their own: `init`, `init-pkg`, `pkg`, `repo`, `build`, `test`, `fmt`,
-`audit`, `doc`, `man`, and `spec`. A usage error in one of those prints that
+`audit`, `info`, `doc`, `man`, and `spec`. A usage error in one of those prints that
 command's screen rather than the top-level one.
 [[src/main.rs:PKG_HELP]] [[src/main.rs:BUILD_HELP]] [[src/main.rs:USAGE]]
 
@@ -65,6 +65,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `machine revoke` | `mfb machine revoke <owner_name> <auth-fingerprint>` | 0 ok; 2 usage; 1 failed |
 | `key rotate` | `mfb key rotate <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `audit` | `mfb audit [--format text\|json] [--locked] [path]` | 0 clean; 1 error findings; 2 bad flags; 3 validation failed |
+| `info` | `mfb info <binary>` | 0 every inspection outcome (incl. not an MFBasic binary, an unverified chain, an unreadable file); 2 missing/extra arg |
 | `man` | `mfb man [package] [function] [--all]` | 0 ok; 2 unknown package/function, `--all` with a function, or >2 positionals |
 | `spec` | `mfb spec [topic] [subtopic] [--all] [--width N] [--color\|--no-color]` | 0 ok; 2 unknown topic, bad flag, or >2 positionals |
 
@@ -640,6 +641,109 @@ kinds are mapped by `package_export_kind_name`: `FUNC`, `SUB`, `TYPE`, `UNION`,
 `ENUM`.[[src/cli/pkg.rs:package_export_kind_name]] The `.mfp` header format
 (magic, container version, signature header, length-prefixed strings) is
 `./mfb spec package container-format`.
+
+## `info` Output
+
+`mfb info <binary>` inspects one executable file and reads nothing else. It
+recognizes the file by magic — ELF (`\x7fELF`, 64-bit little-endian), Mach-O
+(`0xfeedfacf`), PE (`MZ` + `PE\0\0`) — and locates the provenance marker through
+that format: the `MFBasic\0` `PT_NOTE`, `LC_NOTE`, or `.mfbnote` section
+(`./mfb spec linker provenance-marker`).[[src/os/inspect.rs:inspect]] A file in no
+known format, a header that does not fit the file, or no marker whose descriptor
+starts `MFB1` prints exactly one line:
+
+```text
+Not a MFBasic binary
+```
+
+Otherwise the report is:
+
+```text
+File: <path as given>
+Format: <ELF|Mach-O|PE>
+Architecture: <x86-64|aarch64|riscv64|unknown (…)>
+Linking: <static|dynamic (interpreter <path>)>   ; ELF only
+Libraries: none                                 ; or "Libraries:" and one
+  <library>                                     ;   indented name per line
+Search paths:                                   ; only when there are any
+  <path>
+Compiler: mfb <major>.<minor>.<patch>
+Signed: no
+```
+
+`Architecture` comes from ELF `e_machine`, Mach-O `cputype`, or PE `Machine`.
+`Linking` is `dynamic` when the ELF carries a `PT_INTERP`. `Libraries` lists, in
+file order, the ELF `DT_NEEDED` names (resolved through `DT_STRTAB`), the Mach-O
+`LC_LOAD_DYLIB`/`LC_LOAD_WEAK_DYLIB`/`LC_REEXPORT_DYLIB`/`LC_LOAD_UPWARD_DYLIB`
+install names, or the PE import-directory DLL names. `Search paths` lists ELF
+`DT_RUNPATH`/`DT_RPATH` and Mach-O `LC_RPATH` strings. `Compiler` reads the
+descriptor; a descriptor version other than 1 prints `unknown (marker descriptor
+version N)`.[[src/os/inspect.rs:compiler]][[src/os/inspect.rs:elf_dynamic_names]][[src/os/inspect.rs:pe_import_dlls]]
+
+A binary with a `.mfbsign` section (ELF section, Mach-O `__MFB,.mfbsign`, PE
+section) prints `Signed: yes` followed by the `mfb-signing-v1` blob's claims and
+three verdicts:[[src/cli/info.rs:signing_lines]]
+
+```text
+Signed: yes
+  owner: <owner>
+  author: <author>
+  registry: <registry URL | <none>>
+  ident: <proof ident>
+  version: <proof version>
+  issued: <YYYY-MM-DD HH:MM:SS UTC>
+  ident fingerprint: <hex>
+  signing fingerprint: <hex>
+  contents: intact
+  ident key: current
+  trust chain: verified (repoFingerprint <hex>)
+```
+
+`contents` is `intact` when the `contentSignature` verifies under `signingKey`
+over this file's content digest; `MODIFIED (content signature does not match the
+file)` when it does not — any byte changed outside the blob, or a blob copied
+from another binary; `not signed (no contentSignature)`; or `unverified
+(<reason>)` when the signing key or the blob's placement cannot support the
+check. It is independent of the trust chain.[[src/cli/info.rs:contents_status]]
+
+Below the verdicts, after one blank line, a signed report ends with a fixed
+plain-language note: a verified trust chain means the named owner signed the
+build with their own key and the named registry confirms that key belongs to the
+owner's account; `contents: intact` means the file is unchanged since signing;
+together they mean the file is exactly what the owner built, not that the
+program is safe or correct or that the registry reviewed or approved it;
+anything signed with the key comes from the same account, including whoever may
+have stolen the key; and the result is only as trustworthy as the named registry.
+[[src/cli/info.rs:SIGNED_NOTE]]
+
+`ident key` is where the owner's ident stands at the registry today:
+`current`; `rotated since signing (current identFingerprint <hex>)` when a chain
+of links, each signed by the key it retires, leads from the signing ident to the
+current one; `REPLACED without a rotation link (current identFingerprint <hex>)`
+when none does; `unknown (<reason>)` when the registry cannot answer; `not
+checked` when the chain failed before reaching the registry.
+
+The chain is walked in order, and the first failure is printed as `trust chain:
+NOT VERIFIED (<reason>)`:[[src/cli/info.rs:verify_chain]] `identFingerprint` and
+`signingFingerprint` are the fingerprints of `identKey` and `signingKey`;
+`author` equals `owner`; the proof verifies under `identKey` and names this
+owner and both fingerprints, and its ident belongs to the owner; the blob names a
+`registry` (else `no registry in the signing metadata`); that registry answers
+`GET /ident` (else `registry <url> is unreachable: <error>`) with the key whose
+fingerprint the attestation's signed `repoFingerprint` names (else `registry <url>
+holds a key other than the one that signed the attestation`); the attestation
+verifies under it and names the proof's owner, ident, version and fingerprints;
+and the owner's ident key was not `REPLACED without a rotation link`. A blob that
+is not a `mfb-signing-v1` JSON object prints only `trust chain: NOT VERIFIED
+(malformed signing metadata: <reason>)`.
+
+The check reads no local state: no `~/.mfb`, no pinned `server.pub`, no
+`MFB_REPO_URL`. The registry URL comes from the binary, is reached over https
+(plain http only for a loopback host), and is trusted only as far as the signed
+`repoFingerprint` binds the key it serves. Signing keys and attestations cannot
+be revoked at the registry, and release state applies only to published
+packages, so neither is reported. Every string from the file, the registry URL
+included, is terminal-sanitized.
 
 ## `spec` and `man` Terminal Rendering
 

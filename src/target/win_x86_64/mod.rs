@@ -362,7 +362,7 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
-        signing_metadata: Option<&[u8]>,
+        signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
         app_version: Option<&str>,
@@ -389,7 +389,7 @@ impl NativeBackend for Backend {
         native_code.validate()?;
         progress("encoding image");
         let mut image = crate::arch::x86_64::encode::encode(&native_code)?;
-        image.signing_metadata = signing_metadata.map(|m| m.to_vec());
+        image.signing_metadata = signing_metadata.cloned();
         progress("linking executable");
         // plan-66-I: app mode emits a GUI-subsystem PE; icon/version are threaded
         // toward the writer for the plan-66-K `.rsrc` resource section.

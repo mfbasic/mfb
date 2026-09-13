@@ -102,6 +102,7 @@ The domain prefix plus the embedded role-specific separator prevent a signature 
 | `MFP-PROOF-v1\0` | ident key | the build proof JSON |
 | `MFP-ATTEST-v1\0` | server key | the attestation JSON |
 | `MFP-PACKAGE-v2\0` | one-off signing key | `SHA-256(header signed prefix)` — see container-format |
+| `MFB-EXECUTABLE-v1\0` | one-off signing key | `SHA-256(executable image with the .mfbsign body zeroed)` — see the content signature below |
 
 [[repository/src/crypto.rs:proof_signing_input]]
 
@@ -195,7 +196,7 @@ Field order and the trailing newline are fixed by the formatter; string values
 are JSON-escaped. [[src/cli/build/signing.rs:executable_signing_metadata_json]]
 
 ```json
-{"format":"mfb-signing-v1","owner":"<owner>","author":"<owner>","identKey":"ed25519:<base64>","identFingerprint":"<hex>","signingKey":"ed25519:<base64>","signingFingerprint":"<hex>","proof":"<proof JSON>","proofSignature":"<base64url>","attestation":"<attestation JSON>","attestationSignature":"<base64url>","signatureType":"Ed25519"}
+{"format":"mfb-signing-v1","owner":"<owner>","author":"<owner>","registry":"<registry URL>","identKey":"ed25519:<base64>","identFingerprint":"<hex>","signingKey":"ed25519:<base64>","signingFingerprint":"<hex>","proof":"<proof JSON>","proofSignature":"<base64url>","attestation":"<attestation JSON>","attestationSignature":"<base64url>","contentSignature":"<base64url>","signatureType":"Ed25519"}
 ```
 
 | Field | Value |
@@ -203,6 +204,7 @@ are JSON-escaped. [[src/cli/build/signing.rs:executable_signing_metadata_json]]
 | `format` | constant `mfb-signing-v1` |
 | `owner` | the signing owner name |
 | `author` | same as `owner` |
+| `registry` | the URL of the registry that issued the attestation (the build's `MFB_REPO_URL`, else the default registry) |
 | `identKey` | `ed25519:` + base64 ident public key |
 | `identFingerprint` | hex SHA-256 fingerprint of the ident key |
 | `signingKey` | `ed25519:` + base64 one-off signing public key |
@@ -211,9 +213,56 @@ are JSON-escaped. [[src/cli/build/signing.rs:executable_signing_metadata_json]]
 | `proofSignature` | base64url 64-byte ident signature over the proof |
 | `attestation` | the server-signed attestation JSON |
 | `attestationSignature` | base64url 64-byte server signature over the attestation |
+| `contentSignature` | base64url 64-byte one-off signing key signature over the executable's contents (below) |
 | `signatureType` | constant `Ed25519` |
 
-The blob is UTF-8 bytes (`.into_bytes()`) and threaded to `target::write_executable` as the executable signing metadata. [[src/cli/build/signing.rs:load_build_signing_info]]
+The blob is UTF-8 bytes (`.into_bytes()`) and threaded to `target::write_executable`, together with the one-off signing private key, as the executable signing metadata. [[src/cli/build/signing.rs:load_build_signing_info]][[src/arch/image.rs:ExecutableSigning]]
+
+### The content signature
+
+`contentSignature` binds the blob to the file that carries it. The one-off
+signing key signs
+
+```text
+"MFB-EXECUTABLE-v1\0" || SHA-256(covered bytes)
+```
+
+where the covered bytes are the executable image from offset 0 up to the covered
+end, with the `.mfbsign` section body read as zeros. The covered end is the file
+length on ELF and PE; on Mach-O it is the `LC_CODE_SIGNATURE` data offset, since
+the ad-hoc code signature is computed after the seal. Everything else — headers,
+entry point, load commands, interpreter, import tables, code, data, the
+provenance note, and padding — is covered. [[repository/src/crypto.rs:executable_signing_input]][[src/os/content_signature.rs:content_digest]]
+
+The blob is written with a placeholder in the signature's place: the base64url
+encoding of 64 zero bytes (86 `A`s), exactly a real signature's length, so filling
+it moves no byte of the layout. Every linker — ELF (console and AppDir), Mach-O
+(console and `.app`), and PE (console and GUI) — seals its finished image by
+locating the `.mfbsign` section, computing the digest, and overwriting the one
+unescaped `"contentSignature":"<placeholder>"` field; on Mach-O this runs before
+the ad-hoc code signature hashes the pages, so `codesign -v` still passes. The
+section is located by the same reader `mfb info` verifies with.
+[[src/os/content_signature.rs:seal]][[src/os/inspect.rs:inspect]]
+
+The chain is then: the registry key signs the attestation naming the ident key and
+the `signingFingerprint`; the ident key signs the proof naming the same
+fingerprint; the one-off key signs the file's contents. The one-off private key
+is never written anywhere.
+
+`mfb info <binary>` reads the blob back and checks it with no local state — no
+pinned `server.pub`, no `~/.mfb`. The content signature is checked under
+`signingKey` over the file it reads. The chain is checked online against the
+blob's `registry`: the key fingerprints, the proof under `identKey`, the key the
+registry serves at `GET /ident` (which must be the key the attestation's signed
+`repoFingerprint` names — the URL itself is unsigned, so this is what binds it),
+the attestation under that key, and then the owner's current ident from the
+registry's signed name binding (`GET /index/<owner>#<package>`) and rotation chain
+(`GET /idents/<owner>`): still the signing ident, rotated away from it through
+signed links, or replaced with no link. The registry is reached over https
+(plain http only for loopback). It keeps no revocation for signing keys or
+attestations, and release state (yanked/deprecated) exists only for published
+packages, so neither is reported for an executable (`./mfb spec tooling
+cli-reference`). [[src/cli/info.rs:verify_chain]][[repository/src/client.rs:fetch_server_key]][[repository/src/client.rs:fetch_index_with_key]]
 
 ## Trust boundary
 

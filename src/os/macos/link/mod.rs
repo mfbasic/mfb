@@ -178,7 +178,7 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
         .filter(|symbol| symbol.section == EncodedSection::Text)
         .map(|symbol| symbol.offset)
         .ok_or_else(|| format!("entry symbol '{}' does not resolve to text", image.entry))?;
-    Ok(encode_mach_o(
+    encode_mach_o(
         project_name,
         code_offset,
         entry_offset,
@@ -186,7 +186,7 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
         &image.data,
         &libraries,
         image,
-    ))
+    )
 }
 
 /// Write executable bytes to `path` and mark the file executable (0o755).

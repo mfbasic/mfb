@@ -176,6 +176,10 @@ name = "cli_init_symlink"
 path = "tests/cli/cli_init_symlink.rs"
 
 [[test]]
+name = "cli_info"
+path = "tests/cli/cli_info.rs"
+
+[[test]]
 name = "cli_json_depth_limit"
 path = "tests/cli/cli_json_depth_limit.rs"
 

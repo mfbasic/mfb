@@ -35,7 +35,10 @@ The backend's executable writer runs the stages in order:
    vectors, internal `symbols`, `relocations`, the import table, the entry
    symbol, an `initializers` list, and optional `signing_metadata`.
 7. The backend attaches executable signing metadata and calls the platform
-   linker (or the app-bundle / per-flavor variants).
+   linker (or the app-bundle / per-flavor variants). A signed build's metadata
+   carries the one-off signing key too, and every linker seals the blob's
+   content signature over its finished image
+   (`./mfb spec package-manager signing`).
 
 [[src/target/shared/lower.rs:lower_project]] [[src/arch/aarch64/encode/mod.rs:encode]]
 

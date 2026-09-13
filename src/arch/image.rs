@@ -35,7 +35,9 @@ pub(crate) struct EncodedImage {
     /// the program entry (plan-linker.md §5.3). Materialized as ELF
     /// `DT_INIT_ARRAY` / Mach-O `S_MOD_INIT_FUNC_POINTERS`.
     pub(crate) initializers: Vec<String>,
-    pub(crate) signing_metadata: Option<Vec<u8>>,
+    /// A `--sign` build's `.mfbsign` blob, and the key that seals its content
+    /// signature.
+    pub(crate) signing_metadata: Option<ExecutableSigning>,
     /// Loader search paths for `dlopen`ing vendored native libraries
     /// (plan-46-D §4.2/§4.3), materialized as ELF `DT_RUNPATH` / Mach-O
     /// `LC_RPATH`.
@@ -50,6 +52,31 @@ pub(crate) struct EncodedImage {
     /// the encoder — which is what keeps the vendor directory's *location* out of
     /// the codegen and the `dlopen` call a bare-filename one.
     pub(crate) rpaths: Vec<String>,
+}
+
+/// What a signed build hands the linker (`./mfb spec package-manager signing`).
+#[derive(Clone)]
+pub(crate) struct ExecutableSigning {
+    /// The `mfb-signing-v1` blob, carried verbatim in the `.mfbsign` section. A
+    /// `--sign` build's blob holds the `contentSignature` placeholder.
+    pub(crate) metadata: Vec<u8>,
+    /// The build's one-off signing private key. When present, the linker fills
+    /// the placeholder with the content signature over the finished image
+    /// (`crate::os::content_signature::seal`); when absent, the blob is carried
+    /// as given.
+    pub(crate) signing_private: Option<Vec<u8>>,
+}
+
+#[cfg(test)]
+impl ExecutableSigning {
+    /// A blob carried verbatim, with no key to seal it — the linker tests that
+    /// only check where the section lands.
+    pub(crate) fn unsealed(metadata: &[u8]) -> Self {
+        ExecutableSigning {
+            metadata: metadata.to_vec(),
+            signing_private: None,
+        }
+    }
 }
 
 /// Whether an imported symbol names a function (called through a stub) or a data

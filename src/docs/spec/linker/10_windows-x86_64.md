@@ -96,8 +96,10 @@ verbatim in a read-only `.mfbsign` section — the same 8-character section name
 Linux ELF and macOS Mach-O backends use, so one reader can locate the blob across
 every format. It is placed last of all (after `.mfbnote`, so the two trailing
 sections never overlap), so its size shifts no other section's RVA, and it gets no
-data directory: this is MFBASIC's own `mfb-signing-v1` blob, not Authenticode. An
-unsigned build (the common case) omits it entirely.
+data directory: this is MFBASIC's own `mfb-signing-v1` blob, not Authenticode. On
+a signed build the finished image is then sealed: the blob's `contentSignature`
+placeholder is filled over the whole file (`./mfb spec package-manager signing`).
+An unsigned build (the common case) omits the section entirely.
 [[src/os/windows/link/mod.rs:write_executable]]
 
 ## Imports: `.idata` and the IAT thunk

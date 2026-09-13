@@ -601,7 +601,9 @@ fn dynamic_build_rejects_missing_initializer_symbol() {
 #[test]
 fn dynamic_elf_appends_signing_section() {
     let mut image = glob_dat_image("libc.so.6");
-    image.signing_metadata = Some(br#"{"k":"v"}"#.to_vec());
+    image.signing_metadata = Some(crate::arch::image::ExecutableSigning::unsealed(
+        br#"{"k":"v"}"#,
+    ));
     let bytes = encode_dynamic_elf(
         "aarch64",
         LinuxFlavor::Glibc,
@@ -901,7 +903,9 @@ fn writes_mfb_sign_section_to_static_elf() {
         imports: Vec::new(),
         entry: "_main".to_string(),
         initializers: Vec::new(),
-        signing_metadata: Some(br#"{"owner":"alice"}"#.to_vec()),
+        signing_metadata: Some(crate::arch::image::ExecutableSigning::unsealed(
+            br#"{"owner":"alice"}"#,
+        )),
         rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
@@ -1281,7 +1285,9 @@ fn dynamic_elf_carries_the_mfbasic_provenance_note_past_the_interpreter() {
 #[test]
 fn provenance_note_coexists_with_the_signing_section() {
     let mut image = glob_dat_image("libc.so.6");
-    image.signing_metadata = Some(br#"{"k":"v"}"#.to_vec());
+    image.signing_metadata = Some(crate::arch::image::ExecutableSigning::unsealed(
+        br#"{"k":"v"}"#,
+    ));
     let dynamic = encode_dynamic_elf(
         "aarch64",
         LinuxFlavor::Glibc,

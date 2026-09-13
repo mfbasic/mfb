@@ -770,7 +770,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &packages,
                 signing
                     .as_ref()
-                    .map(|signing| signing.executable_metadata.as_slice()),
+                    .map(|signing| &signing.executable_signing),
                 build_mode,
                 app_icon.as_deref(),
                 // bug-248: the macOS `.app` bundle publishes the manifest `version`
@@ -1943,7 +1943,10 @@ mod tests {
                 attestation: String::new(),
                 attestation_sig: Vec::new(),
             },
-            executable_metadata: Vec::new(),
+            executable_signing: crate::arch::image::ExecutableSigning {
+                metadata: Vec::new(),
+                signing_private: None,
+            },
         };
         apply_signing_metadata(&mut metadata, &signing);
         assert_eq!(metadata.ident, "ada#pkg");
@@ -1956,7 +1959,16 @@ mod tests {
     #[test]
     fn executable_signing_metadata_json_is_valid_json() {
         let json = executable_signing_metadata_json(
-            "ada", "ik", "if", "sk", "sf", "{}", "psig", "att", "asig",
+            "ada",
+            "https://registry.example",
+            "ik",
+            "if",
+            "sk",
+            "sf",
+            "{}",
+            "psig",
+            "att",
+            "asig",
         );
         let parsed: tinyjson::JsonValue = json.parse().expect("valid JSON");
         let object = parsed
@@ -1975,6 +1987,21 @@ mod tests {
                 .and_then(|v| v.get::<String>())
                 .map(String::as_str),
             Some("ada")
+        );
+        assert_eq!(
+            object
+                .get("registry")
+                .and_then(|v| v.get::<String>())
+                .map(String::as_str),
+            Some("https://registry.example")
+        );
+        // The linker's seal fills exactly this placeholder.
+        assert_eq!(
+            object
+                .get("contentSignature")
+                .and_then(|v| v.get::<String>())
+                .map(String::as_str),
+            Some(crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER)
         );
     }
 

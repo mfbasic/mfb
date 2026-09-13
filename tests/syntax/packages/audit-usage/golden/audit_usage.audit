@@ -25,6 +25,7 @@ Build & Development:
   test [options] [path]   Build and run the project's TESTING blocks
   fmt [options] [path]    Format project source (indentation/capitalization)
   audit [options] [path]  Report security and code audit findings
+  info <binary>           Inspect an MFBASIC executable: libraries, signer, integrity
 
 Documentation & Reference:
   doc [options] [path]    Render HTML docs from package or file source
@@ -63,6 +64,7 @@ Build & Development:
   test [options] [path]   Build and run the project's TESTING blocks
   fmt [options] [path]    Format project source (indentation/capitalization)
   audit [options] [path]  Report security and code audit findings
+  info <binary>           Inspect an MFBASIC executable: libraries, signer, integrity
 
 Documentation & Reference:
   doc [options] [path]    Render HTML docs from package or file source

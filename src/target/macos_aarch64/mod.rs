@@ -294,7 +294,7 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
-        signing_metadata: Option<&[u8]>,
+        signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
         app_version: Option<&str>,
@@ -381,7 +381,7 @@ fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
-    signing_metadata: Option<&[u8]>,
+    signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
     app_version: Option<&str>,
@@ -417,7 +417,7 @@ fn write_executable(
     arch::aarch64::encode::relax_conditional_branches(&mut native_code)?;
     progress("encoding image");
     let mut image = arch::aarch64::encode::encode(&native_code)?;
-    image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
+    image.signing_metadata = signing_metadata.cloned();
     // plan-46-D §4.4: point the loader at wherever this output shape puts its
     // vendored dylibs — `build/vendor/` beside a console `.out`, or the
     // platform-standard `Contents/Frameworks/` inside a `.app`. This one string is

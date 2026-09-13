@@ -116,7 +116,7 @@ pub(crate) trait NativeBackend: Sync {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
-        signing_metadata: Option<&[u8]>,
+        signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
         // bug-248: the manifest `version`, published as the macOS app bundle's
@@ -289,7 +289,7 @@ pub fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
-    signing_metadata: Option<&[u8]>,
+    signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
     app_version: Option<&str>,
