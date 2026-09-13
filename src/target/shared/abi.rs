@@ -1108,6 +1108,49 @@ pub(crate) fn store_u32(
         .field("offset", &offset.to_string())
 }
 
+/// Store-release: `stlr Xt, [Xn]` (bug-564). AArch64 only, base register only.
+///
+/// Under the ARMv8 memory model a plain `str` may become visible to another core
+/// out of program order. A store-release becomes visible only after every store
+/// that precedes it in program order. So a thread that publishes a payload with
+/// any store and THEN the gate with this one never shows a reader the gate
+/// without the payload. The address must already be in `base`; A64 has no offset
+/// form.
+#[track_caller]
+pub(crate) fn store_release_u64(
+    src: impl Into<Operand>,
+    base: impl Into<Operand>,
+) -> CodeInstruction {
+    CodeInstruction::new("stlr_u64")
+        .field("src", src)
+        .field("base", base)
+}
+
+/// Load-acquire: `ldar Xt, [Xn]` (bug-564). AArch64 only, base register only.
+/// A load-acquire executes before every load that follows it in program order,
+/// so a reader that loads a gate with it and the payload afterwards cannot have
+/// the payload load run early, against older memory.
+#[track_caller]
+pub(crate) fn load_acquire_u64(
+    dst: impl Into<Operand>,
+    base: impl Into<Operand>,
+) -> CodeInstruction {
+    CodeInstruction::new("ldar_u64")
+        .field("dst", dst)
+        .field("base", base)
+}
+
+/// Load-acquire of 32 bits: `ldar Wt, [Xn]` (bug-564). See [`load_acquire_u64`].
+#[track_caller]
+pub(crate) fn load_acquire_u32(
+    dst: impl Into<Operand>,
+    base: impl Into<Operand>,
+) -> CodeInstruction {
+    CodeInstruction::new("ldar_u32")
+        .field("dst", dst)
+        .field("base", base)
+}
+
 /// 16-bit store (plan-50-D). Needed by struct-field marshaling for a
 /// `CInt16`/`CUInt16` member; `ldr_u16` has always been encodable, this is its
 /// missing counterpart.

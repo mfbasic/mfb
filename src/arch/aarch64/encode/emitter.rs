@@ -8,6 +8,14 @@ use super::sizing::{
 use super::*;
 use crate::codegen::engine::types::RelocIntent;
 
+// Load-Acquire / Store-Release, the "exclusive" encoding class
+// `size 0010000 L 0 Rs=11111 o0=1 Rt2=11111 Rn Rt` (bug-564). `STLR` is L=0 and
+// `LDAR` L=1; size 11 is the X form and 10 the W form. `Rn` is the base and 31
+// there is SP. Pinned against clang's assembler in `encodes_load_acquire_store_release`.
+const STLR_X: u32 = 0xc89f_fc00;
+const LDAR_X: u32 = 0xc8df_fc00;
+const LDAR_W: u32 = 0x88df_fc00;
+
 pub(super) struct Encoder {
     pub(super) text: Vec<u8>,
     pub(super) data: Vec<u8>,
@@ -258,6 +266,23 @@ impl Encoder {
                 reg(field(instruction, "src")?)?,
                 reg(field(instruction, "base")?)?,
                 immediate(field(instruction, "offset")?)?,
+            ),
+            // bug-564: load-acquire / store-release. No offset form exists in
+            // A64, so the address is materialised by the caller.
+            "stlr_u64" => self.emit_word(
+                STLR_X
+                    | (u32::from(reg(field(instruction, "base")?)?) << 5)
+                    | u32::from(reg(field(instruction, "src")?)?),
+            ),
+            "ldar_u64" => self.emit_word(
+                LDAR_X
+                    | (u32::from(reg(field(instruction, "base")?)?) << 5)
+                    | u32::from(reg(field(instruction, "dst")?)?),
+            ),
+            "ldar_u32" => self.emit_word(
+                LDAR_W
+                    | (u32::from(reg(field(instruction, "base")?)?) << 5)
+                    | u32::from(reg(field(instruction, "dst")?)?),
             ),
             "ldr_d" => self.emit_ldr_d(
                 reg(field(instruction, "dst")?)?,

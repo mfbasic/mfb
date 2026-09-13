@@ -486,6 +486,10 @@ name = "rt_macos_tls_write_capacity"
 path = "tests/net/rt_macos_tls_write_capacity.rs"
 
 [[test]]
+name = "rt_macos_tls_write_after_clean_close"
+path = "tests/net/rt_macos_tls_write_after_clean_close.rs"
+
+[[test]]
 name = "rt_net_address_overload_form"
 path = "tests/net/rt_net_address_overload_form.rs"
 
