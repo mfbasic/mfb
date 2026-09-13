@@ -5,7 +5,7 @@ Effort: small
 Severity: MEDIUM — a hung RED run leaves processes spinning on the host indefinitely, silently starving every later suite and gate
 Class: Test infrastructure
 
-Status: Open
+Status: **FIXED** — landed on main in `7bb602d1d` (fix `bba16923d`); full suite 5367 passed / 0 failed
 Regression Test: `tests/runtime/rt_process_spawn_ambient_fds.rs::a_timed_out_run_leaves_no_descendant_behind`
 
 ## How it was found
