@@ -213,7 +213,8 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "hue",
                 ty: ParameterType::Float,
-                description: "The hue in degrees around the colour wheel, `0.0`..`360.0`. \
+                description: "The hue in degrees around the colour wheel, from `0.0` up to \
+                              but not including `360.0`. \
                               Reported as `0.0` for a colour with no saturation.",
             },
             RecordProp {

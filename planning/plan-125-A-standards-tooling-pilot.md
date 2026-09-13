@@ -850,9 +850,11 @@ mistake.
       whole-surface sweeps. Rendering the changed pages also turned up a
       pre-existing leak — `rotateHue` printed literal backticks from a bold span
       containing code — fixed in the same pass.
-- [ ] Iteration 3 on `color` and `variable` (2 units): the re-integration
+- [x] Iteration 3 on `color` and `variable` (2 units): the re-integration
       lens. Record whether its findings are seams or facts (§3.2's success
-      test for iteration 2).
+      test for iteration 2). **Seams, 3 of 4** — §5.12. `--reconcile` →
+      `units=2 unaccounted=0 orphans=0`. 2 applied, 2 handed forward to the
+      letters that own `mfb man types` (F/G), `fs types` (D) and `tcp types` (F).
 - [ ] The same three iterations on the `unicode` spec package (1 + 3 + 1 = 5
       units), including `--citations` before and after. **My own pass is done**
       and already produced one finding (C-10, a tooling defect, fixed); the
@@ -1929,6 +1931,56 @@ A non-finite hue is a separate, correct case: the language raises
 reach `color` (`mfb spec language`, numeric edge cases; probe: `big^9` →
 `Error: 7-705-0015`).
 
+### 5.12 Pilot ledger — man iteration 3
+
+2 units (`man-pkg:color` 104s, `man-topic:variable`), both `exit 0`, `clean`;
+`--reconcile` over `planning/plan-125-units/A-iter3.txt` → `units=2
+unaccounted=0 orphans=0`. **4 findings, 4 confirmed, 0 rejected; 2 applied, 2
+handed forward.**
+
+| Unit | Category | Finding | Evidence (mine) | Disposition |
+|---|---|---|---|---|
+| `color` #1 | divergence | `toHsl` says hue is "from `0.0` up to but not including `360.0`"; the `color::Hsl` type page still said "`0.0`..`360.0`" | both quotes; the divergence was **introduced by my own iteration-2 edit** to `toHsl` | applied — `mod.rs` `Hsl.hue` description |
+| `color` #2 | fact-escaped-iter2 | `nameOf` "Six colours have two CSS spellings"; `fromName` "CSS spells four greys both ways" | probe `/tmp/p125-pr1`: all nine pairs resolve identically — `gray`, `darkgray`, `darkslategray`, `dimgray`, `lightgray`, `lightslategray`, `slategray` (seven grey pairs) plus `aqua`/`cyan`, `fuchsia`/`magenta` — and `nameOf` returns the alphabetically first for each. **The reviewer's own correction ("eight") was also wrong**; the measured count is nine | applied to both pages |
+| `variable` #1 | divergence | `variable`: a record with a `RES` field is assignable and the field stays an alias; `mfb man types`: "records whose fields are all copyable" are copyable | the reviewer's scratch program assigning such a record built | **handed forward** — the seam is on `mfb man types`, a guide topic outside the pilot's units (letter F's page pass, G's re-integration) |
+| `variable` #2 | redundancy | `mfb man fs types` and `mfb man tcp types` restate four value-model rules that `variable` says it alone owns | the quoted sentence on both pages | **handed forward** — `fs` belongs to letter D, `tcp` to letter F; `.ai/man-content.md` §4.5 is the rule they apply |
+
+**§3.2's success test for iteration 2 — MET:** three of the four findings are
+seams, one is a fact that escaped iteration 2. Iteration 3 did the re-integration
+job it exists for, and one of its seams was created by iteration 2's own edits,
+which is exactly the failure mode it was designed to catch.
+
+### 5.13 Pilot ledger — spec, `unicode`
+
+**Citation census, before and after:** `./scripts/spec-census.sh --citations
+unicode` → before `MISS-SYMBOL 1` (the comment-only
+`static_strings_package_string`, C-10); after `MISS-SYMBOL 0`, `MISS-PATH 0`,
+`MISS-LINE 0` over 54 unique citations. `--links unicode` → 17/17 before and
+after.
+
+#### My pass (before Codex)
+
+| Site | Finding | Evidence | Applied |
+|---|---|---|---|
+| `01` intro and two-stage lookup | "emits hand-written AArch64 routines" / "reproduces this exactly in AArch64" | `src/codegen/string/unicode_props.rs:emit_unicode_property_lookup` emits `abi::shift_right_immediate`, `abi::load_u16`, … — architecture-neutral ops; `load_u16` is lowered under `src/target/shared`, `linux_common`, `macos_aarch64`, `win_x86_64` | reworded to architecture-neutral ops lowered by each native backend |
+| `01` compile-time folding | the claim is **true** but its citation is stale-by-deletion (comment-only) | the folds live at `src/target/shared/nir/constfold.rs:native_strings_package_static_string_value` and `src/codegen/engine/types/type_utils.rs:strings_package_static_string_value` (`upper`, `lower`, `caseFold`, `normalizeNfc`) and `src/codegen/builtins/strings/func_graphemes.rs:lower` | re-cited; the folded members are now named |
+| `02` indexing-unit table | lists `scalar_count` as a member | `mfb man strings` has no such member; `len` counts scalars (`mfb man general len`: "For a String it counts Unicode scalar values") | `toScalars`, `len` |
+| `02` trim table | `trim_start`, `trim_end` | the members are `strings::trimStart` / `strings::trimEnd` (`mfb man strings`) | renamed |
+| `01` | `(plan-77 U1)`, `(plan-70-A)`, `(plan-77 U5)` | `.ai/spec-content.md` §3 bans plan numbers | removed |
+
+#### Iteration 1 (`spec-pkg:unicode`, 131s, exit 0, clean) — 5 findings, 4 confirmed, 1 rejected
+
+| # | Finding | Verdict | Evidence (mine) |
+|---|---|---|---|
+| 1 | dead constant-fold provenance | **CONFIRMED** — already fixed by my pass | as above |
+| 2 | no topic says general category and Script are pinned to Unicode 16.0.0 in separate range tables while the rest uses newer utf8proc data | **CONFIRMED**, section added | `src/unicode/range_tables.rs` module doc: utf8proc's UCD "differ[s] on 4,804 scalars"; consumers `strings/func_gen_cat.rs`, `regex/func_gen_cat.rs`, `regex/func_script_of.rs`, `memory/data/data_objects.rs`, `string/unicode_props.rs` (`grep -rln 'range_tables::' src`) |
+| 3 | lone zero-width grapheme width: `01` says it "still occupies a cell", `02` says a grapheme "is 1 or 2 columns" | **CONFIRMED — both were wrong** | probe `/tmp/p125-pr2`: lone combining mark → `0`, lone ZWSP → `0`, lone ZWJ → `0`, `e`+mark → `1`, `日` → `2`; `mfb man strings displayWidth` says the same. `02` now owns the rule and `01` links it |
+| 4 | reading order should put `strings-model` first | **REJECTED** | plan-125-A §1 Non-goals: "Plan-125 does not renumber, reorder, or add spec packages/topics." Topic order is the `NN` filename prefix, and `01` already links `strings-model` for the string model |
+| 5 | per-table emission is not labelled guarantee vs implementation detail | **CONFIRMED**, labelled | `.ai/spec-content.md` §2 requires the distinction; `src/codegen/memory/data/data_objects.rs:unicode_runtime_data_objects` includes a fallback that emits every table, so the selection is plainly not a contract |
+
+No sentence was cut for being too internal (this is the contributor surface), so
+the belongs-in-spec ledger gains no rows from `unicode`.
+
 ## Validation Plan
 
 - **Tests**: none for man prose (Non-goals). For any spec letter:
@@ -2162,6 +2214,20 @@ runs long, round-robin still hands the next unit to its worktree, so two
 each sees the other's files in `git status`. The `DIRTY` check would report
 noise and the reset would wipe a live run's scratch. Slots are now released by
 PID.
+
+### C-13 (Phase 5) — merging main moved the parameter-description denominator 903 → 1278
+
+Merged `main` (192 commits, `ecb35180d`) before iteration 3. `./scripts/man-census.sh
+--fill` on the merged tree: function pages still **544**, but the PARAM-DESC total
+is **1278/1278**, not 903. Cause: main's bug-591 fix renders **each overload's
+own parameter rows** (`src/cli/man.rs:parameter_rows`), where the page previously
+rendered only the first overload's — so the census, which counts rendered rows,
+now sees parameters it could not see before. Fill is still 100%.
+
+Not a scope change for any letter: units are pages, and the page count is
+unchanged (`./scripts/man-manual.sh --count` → 596 registry + 32 guide = 628). It
+does mean every multi-overload page has more parameter prose for iteration 2 to
+verify than the 2026-09-12 Phase 1 census showed.
 
 ### C-12 (Phase 5) — found compiler bugs are FILED, never fixed
 

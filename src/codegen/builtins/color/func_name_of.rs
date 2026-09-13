@@ -20,9 +20,11 @@ measure that people reasonably disagree about, so `nameOf` does not guess.
 translucent colour has no name even when its red, green and blue match one
 exactly — `nameOf` raises rather than quietly dropping the alpha.
 
-Six colours have two CSS spellings, and `nameOf` returns the **alphabetically
-first** of them — so `nameOf(fromName("grey"))` is `"gray"`, not `"grey"`. That
-rule gives `gray`, `darkgray`, `lightgray`, `slategray`, `aqua` and `fuchsia`.
+Nine colours have two CSS spellings — seven gray/grey pairs, plus `aqua`/`cyan`
+and `fuchsia`/`magenta` — and `nameOf` returns the **alphabetically first** of
+them, so `nameOf(fromName("grey"))` is `"gray"`, not `"grey"`. That rule gives
+`gray`, `darkgray`, `darkslategray`, `dimgray`, `lightgray`, `lightslategray`,
+`slategray`, `aqua` and `fuchsia`.
 Both spellings still resolve through `color::fromName`; only the reverse
 direction has to choose, and choosing by name rather than by table order means the
 answer cannot change if the table is ever reordered.

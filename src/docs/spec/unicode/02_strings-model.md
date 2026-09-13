@@ -13,7 +13,7 @@ semantics* a faithful reimplementation must reproduce.
 
 | Unit | Definition | Backing | Used by |
 | --- | --- | --- | --- |
-| Scalar | One Unicode scalar value (Rust `char`, a single code point) | `char_indices` / `chars().count()` | `mid` (start + length), `find` (start + return), `scalar_count` |
+| Scalar | One Unicode scalar value (Rust `char`, a single code point) | `char_indices` / `chars().count()` | `mid` (start + length), `find` (start + return), `toScalars`, `len` |
 | Grapheme | One user-perceived character (extended grapheme cluster) | `unicode-segmentation` | `graphemes`, `graphemesCount`, `graphemeAt` |
 | Byte | One UTF-8 code unit | `&str` length | `byteLen`, raw slice bounds |
 
@@ -30,11 +30,12 @@ terminal cells a string occupies, not an addressable index (you cannot slice by
 column). Each scalar's column width comes from the embedded utf8proc property
 table's `charwidth` field (`(flags >> 4) & 0b11`, see
 `01_tables-and-algorithms.md`): East-Asian-Wide and Wide scalars are 2 columns,
-most scalars are 1, and a zero-width scalar (a combining mark, folded into its
-base grapheme) contributes 0. `strings::displayWidth(s)` sums the per-grapheme
-width (the base scalar's width; combining marks add nothing), so a grapheme is 1
-or 2 columns regardless of its scalar count — `"café"` (NFD) is 4, `"日本語"` is 6,
-`"👨‍👩‍👧‍👦"` is 2. The `term::` backends lay one grapheme per cell at this width; a
+most scalars are 1, and a zero-width scalar (a combining mark, ZWSP, ZWJ) is 0.
+`strings::displayWidth(s)` sums the per-grapheme width, and a grapheme's width is
+the width of its **first non-zero-width scalar**, so it is 0, 1 or 2 columns
+regardless of its scalar count: a grapheme made only of zero-width scalars — a
+lone combining mark, ZWSP, or ZWJ — is `0`. `"café"` (NFD) is 4, `"日本語"` is 6,
+`"👨‍👩‍👧‍👦"` is 2. [[src/codegen/builtins/strings/func_display_width.rs:lower]] The `term::` backends lay one grapheme per cell at this width; a
 wide grapheme reserves a trailing cell and wraps at the right edge.
 [[src/codegen/builtins/strings/func_display_width.rs:displayWidth]]
 [[src/unicode/runtime_tables.rs:charwidth]]
@@ -152,8 +153,8 @@ space `U+3000`, among others. [[src/codegen/string/unicode_props.rs:emit_unicode
 | Function | Strips from | Backing |
 | --- | --- | --- |
 | `trim` | both ends | `str::trim_matches(is_whitespace)` |
-| `trim_start` | leading | `str::trim_start_matches(is_whitespace)` |
-| `trim_end` | trailing | `str::trim_end_matches(is_whitespace)` |
+| `trimStart` | leading | `str::trim_start_matches(is_whitespace)` |
+| `trimEnd` | trailing | `str::trim_end_matches(is_whitespace)` |
 
 Trimming operates scalar by scalar from the end(s); it is not grapheme-aware (it
 cannot strip a whitespace scalar buried inside a cluster, but no standard cluster

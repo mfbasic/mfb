@@ -1,0 +1,2 @@
+man-pkg:color
+man-topic:variable
