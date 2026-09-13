@@ -457,7 +457,7 @@ Acceptance: four consistency runs in the manifest; every finding has a verdict
 and, if confirmed, a list of the units it was applied to; `--reconcile` exits
 0; the terminology table in this file is complete and is what letters C–G
 conform to.
-Commit: —
+Commit: 29da2a4ef (C-6 prompt + artifact), 1bcd9d803 (findings applied)
 
 ## Validation Plan
 
