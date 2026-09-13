@@ -376,17 +376,28 @@ Commit: bd0c5a22b
 
 ### Phase 3 — the oracle, and proof that it can fail
 
-- [ ] Add `oracle/README.md`, `requirements.txt`, `corpus.py`, `oracle.py`, `probe/`,
+- [x] Add `oracle/README.md`, `requirements.txt`, `corpus.py`, `oracle.py`, `probe/`,
       `diff.py`, `divergences.json` (`[]`), `run.sh` and `.gitignore`, per § 4.4.
-- [ ] Record the corpus size. It is UNMEASURED until `corpus.py` runs. Put the line
+      (`run.sh /Users/…/mfb/target/release/mfb offsets civil` → `offsets: 498303 jobs,
+      0 declared divergences, 0 mismatches`, `EXIT=0`)
+- [x] Record the corpus size. It is UNMEASURED until `corpus.py` runs. Put the line
       count and the `run.sh` wall time in the oracle README, and in this plan's
-      Corrections if they change an estimate.
-- [ ] Mutation proof: temporarily make `footerType` return the standard type
+      Corrections if they change an estimate. (`wc -l jobs/offsets.txt` → 498303;
+      `corpus.py offsets` alone takes 10.3 s; the whole mode, including corpus, oracle,
+      probe and diff, takes 18 s. That is under the 10-minute bound, so no sampling
+      question arises.)
+- [x] Mutation proof: temporarily make `footerType` return the standard type
       unconditionally, run `run.sh '' offsets`, confirm a non-zero mismatch count, and
       revert. Record the count in the README. Without this, a probe that never reaches
-      the evaluator would pass.
-- [ ] `.ai/testing-gates.md` § oracle homes: add `packages/timezones/oracle` (Python
-      `zoneinfo`, `tzdata` pinned to the vendored release) to the package row.
+      the evaluator would pass. (`python3 /tmp/p135mut.py footer-std` copied the
+      package to `/tmp/p135mut-footer-std`, rewrote the no-DST early return to
+      `IF f.hasDst = FALSE OR f.hasDst THEN …`, and ran `run.sh <mfb> offsets` →
+      `offsets: 498303 jobs, 0 declared divergences, 61559 mismatches`, `EXIT=1`. The
+      first mismatch was `America/Chicago 1173600000`: oracle `-18000 CDT`, probe
+      `-21600 CST`. The live worktree was never edited, so there was nothing to revert.)
+- [x] `.ai/testing-gates.md` § oracle homes: add `packages/timezones/oracle` (Python
+      `zoneinfo`, `tzdata` pinned to the vendored release) to the package row. (line 721,
+      "Where an oracle lives")
 
 Acceptance: the package agrees with `zoneinfo` on the whole corpus, and a broken
 evaluator is caught.
@@ -430,6 +441,19 @@ Commit: —
   allows a DST footer without rules, but plan-135-A's generator rejects one. The
   evaluator therefore FAILs `77050003` on it (a test covers `EST5EDT`), rather than
   guessing POSIX's implementation-defined default rules.
+- **Phase 3: −2^40 is outside what the oracle can represent.** § 4.4 item 4 asked for
+  `−2^40` for every name, and item 5 caps the corpus at Python's years 1..9999. The two
+  conflict: −2^40 s is about year −32,873, and `datetime(1970,1,1) + timedelta(seconds=
+  -2**40)` raises `OverflowError`. The corpus therefore uses the earliest instant Python
+  can convert in every zone, 0001-01-03T00:00Z (−62135424000). The package's own
+  test still reaches −2^40 on the footer path (`test_posix.mfb`, Lima).
+- **Phase 3: the worktree has no compiler.** `run.sh ''` looks for
+  `<root>/target/release/mfb`, and a plan worktree has no `target/`. The first background
+  run printed `FAIL: no compiler at …/P-135/target/release/mfb`. Every run from the
+  worktree passes the main checkout's compiler as `$1`. From the main checkout, `''`
+  works as written.
+- **Phase 3: the offsets corpus measured 498,303 jobs, and the mode runs in 18 s.**
+  The estimate was UNMEASURED. `civil` (plan-135-C) adds 263,558 jobs and 37 s.
 
 ## Summary
 

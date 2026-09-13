@@ -1,0 +1,82 @@
+' ---------------------------------------------------------------------------
+' tzprobe — the MFBASIC side of the timezones zoneinfo oracle.
+'
+' It reads one job file and writes one answer line per job line, in order:
+'
+'   offset <name> <unixSeconds>  ->  <offsetSeconds> <label>        (timezones::toZone)
+'   civil <name> Y M D h m s     ->  <utcSeconds> <offset> <label> <wall>
+'                                                                    (timezones::civil)
+'
+' `wall` is the returned DateTime's own date and time, YYYY-MM-DDTHH:MM:SS, so
+' a skipped reading shows the later wall clock it became.
+'
+' A package refusal is an answer (`error <code>`), not a crash, and the probe
+' still exits 0. A non-zero exit therefore means exactly one thing: the probe
+' itself broke, on an unreadable file or a job it does not know.
+' ---------------------------------------------------------------------------
+
+IMPORT timezones
+IMPORT datetime
+IMPORT strings
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC main() AS Integer
+  LET args AS List OF String = os::args()
+  IF len(args) <> 1 THEN
+    io::printError("usage: tzprobe <jobs.txt>")
+    RETURN 2
+  END IF
+  LET text AS String = fs::readText(collections::get(args, 0))
+  FOR EACH line IN strings::split(text, "\n")
+    IF line <> "" THEN io::print(answer(line))
+  NEXT
+  RETURN 0
+
+  TRAP(problem)
+    io::printError("tzprobe: " & problem.message)
+    RETURN 1
+  END TRAP
+END FUNC
+
+PRIVATE FUNC answer(line AS String) AS String
+  LET fields AS List OF String = strings::split(line, " ")
+  LET kind AS String = collections::get(fields, 0)
+  IF kind = "offset" THEN RETURN offsetAnswer(collections::get(fields, 1), field(fields, 2))
+  IF kind = "civil" THEN RETURN civilAnswer(collections::get(fields, 1), fields)
+  FAIL error(77050002, "tzprobe: unknown job: " & line)
+END FUNC
+
+PRIVATE FUNC field(fields AS List OF String, index AS Integer) AS Integer
+  RETURN toInt(collections::get(fields, index))
+END FUNC
+
+PRIVATE FUNC offsetAnswer(name AS String, seconds AS Integer) AS String
+  LET zone AS datetime::Zone = timezones::toZone(name, datetime::instant(seconds, 0))
+  RETURN toString(zone.offsetSeconds) & " " & zone.label
+
+  TRAP(problem)
+    RETURN "error " & toString(problem.code)
+  END TRAP
+END FUNC
+
+PRIVATE FUNC civilAnswer(name AS String, fields AS List OF String) AS String
+  LET date AS datetime::Date = datetime::date(field(fields, 2), field(fields, 3), field(fields, 4))
+  LET time AS datetime::Time = datetime::time(field(fields, 5), field(fields, 6), field(fields, 7), 0)
+  LET dt AS datetime::DateTime = timezones::civil(date, time, name)
+  RETURN toString(datetime::resolve(dt).seconds) & " " & toString(dt.offset) & " " & dt.zone.label & " " & wall(dt)
+
+  TRAP(problem)
+    RETURN "error " & toString(problem.code)
+  END TRAP
+END FUNC
+
+PRIVATE FUNC wall(dt AS datetime::DateTime) AS String
+  RETURN pad(dt.date.year, 4) & "-" & pad(dt.date.month, 2) & "-" & pad(dt.date.day, 2) & "T" & pad(dt.time.hour, 2) & ":" & pad(dt.time.minute, 2) & ":" & pad(dt.time.second, 2)
+END FUNC
+
+PRIVATE FUNC pad(value AS Integer, width AS Integer) AS String
+  RETURN strings::padLeft(toString(value), width, "0")
+END FUNC

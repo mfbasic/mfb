@@ -190,16 +190,24 @@ Add a section "A clock reading in a zone":
 Acceptance: `civil` gives `zoneinfo`'s `fold=0` answer on each hand case, including both
 New York transitions and the 24-hour Apia gap.
   Check: `target/release/mfb test packages/timezones` → `Fail: 0`, with the `civil` group present (est. 1 min).
-Commit: —
+Commit: ec6178ce1
 
 ### Phase 2 — oracle `civil` mode, and proof that it can fail
 
-- [ ] `corpus.py`, `oracle.py` and the probe gain the `civil` mode of § 4.2. `run.sh`
-      runs it.
-- [ ] Record the `jobs/civil.txt` line count and wall time in the oracle README.
-- [ ] Mutation proof: swap the overlap choice to `max(c1, c2)`, run `run.sh '' civil`,
+- [x] `corpus.py`, `oracle.py` and the probe gain the `civil` mode of § 4.2. `run.sh`
+      runs it. (`run.sh <mfb> offsets civil` → `civil: 263558 jobs, 0 declared
+      divergences, 0 mismatches`, `EXIT=0`; `civil` is in `run.sh`'s default modes)
+- [x] Record the `jobs/civil.txt` line count and wall time in the oracle README.
+      (263,558 jobs, 37 s, in the "Measured" table)
+- [x] Mutation proof: swap the overlap choice to `max(c1, c2)`, run `run.sh '' civil`,
       confirm mismatches > 0, and revert. Then change the gap choice to `c2`, confirm
-      mismatches > 0, and revert. Record both counts.
+      mismatches > 0, and revert. Record both counts. (Throwaway copies via
+      `/tmp/p135mut.py`, so there was nothing to revert. `overlap-max`, with
+      `second > first`, gave `civil: 263558 jobs, 0 declared divergences, 67773
+      mismatches`, `EXIT=1`; first mismatch Africa/Addis_Ababa 1930-01-04 23:59:59.
+      `gap-c2`, with `IF firstFits = FALSE AND secondFits = FALSE THEN chosen = second`,
+      gave `68457 mismatches`, `EXIT=1`; first mismatch Africa/Abidjan 1912-01-01
+      00:00:00. Both counts are in the oracle README.)
 
 Acceptance: `civil` agrees with `zoneinfo` on every transition edge of every zone, and
 each of the two disambiguation branches is shown to be exercised.
@@ -222,6 +230,24 @@ Commit: —
   one that cannot be composed from `offsetAt` today.
 
 ## Corrections
+
+- **Phase 1: § 4.1's `chosen = ok1 AND ok2 ? min(c1, c2) : …` could not be written as
+  nested `IF`s.** A one-line `IF second < first THEN chosen = second` directly before a
+  block `ELSE` fails to parse: `civil.mfb:43 error[1-102-0001
+  MFB_PARSE_EXPECTED_EXPRESSION]`. It is written as two flat one-line `IF`s over
+  `firstFits`/`secondFits`, which select the same instant in all four cases.
+- **Phase 1: the returned zone is built from one lookup.** § 4.1 ends with
+  `inZone(at, toZone(name, at))`. `zonedCivil` makes a single `localTypeAt(name, chosen)`
+  call and builds the same `datetime::Zone[utoff, 1, abbreviation]` that `toZone` would.
+  `toZone` lives in `lib.mfb` and takes an `Instant`, so this avoids calling back into
+  the export layer.
+- **Phase 2: the corpus measured 263,558 jobs, and the mode runs in 37 s.** The estimate
+  was UNMEASURED. Each mutation run took 39–40 s.
+- **Phase 2: the mutations ran on copies, not by edit-and-revert.** `/tmp/p135mut.py
+  <mutation>` copies `packages/timezones` and the generator to
+  `/tmp/p135mut-<mutation>`. It asserts that the original text occurs exactly once,
+  applies the edit, and runs `run.sh`. That let both mutations run in parallel with
+  plan-135-B's, and the live tree was never edited.
 
 ## Summary
 
