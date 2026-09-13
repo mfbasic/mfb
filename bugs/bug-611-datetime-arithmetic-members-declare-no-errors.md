@@ -5,8 +5,38 @@ Effort: small (<1h)
 Severity: LOW
 Class: Documentation (registry error declaration)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: `datetime::tests::members_declare_the_errors_they_raise`
+(`src/codegen/builtins/datetime/mod.rs`) and `tests/rt-behavior/datetime/datetime-arith-errors-rt`
+
+## STATUS: FIXED (81bd5400f)
+
+Landed in three commits: 81bd5400f (declarations + unit test), e59527195 (runtime
+fixture), e48d30463 (prose and spec corrections).
+
+Deviations from the doc:
+
+- **Wider than listed.** `format` (`ErrInvalidFormat`, `ErrOverflow`) and
+  `formatDuration` raise too. `dayOfYear`, `weekday`, `resolve` and `toIso` raise
+  `ErrOverflow` on a directly built `datetime::DateTime` record. `fromMillis` was on the
+  list but never raised, and keeps `vec![]`.
+- **Three no-failure claims corrected:** the `toIso` and `resolve` pages, and the spec's
+  `fromMillis` sentence.
+- **No golden drift.** The Fix Design expected `.ir` goldens to move. None did.
+
+Verification (macOS aarch64, worktree `target/release/mfb`):
+
+- `cargo test --no-fail-fast` → 172 `test result: ok.` lines, 5540 passed, 0 failed,
+  6 ignored.
+- `bash scripts/test-accept.sh target/release/mfb /tmp/b611-accept-actual` →
+  `acceptance tests passed (1464 test(s) ran)`.
+- `man-census.sh --memory-scope datetime` → 0 unclassified; `--scope datetime` → 0.
+- `spec-census.sh --links` → 0 unresolved; the new citations are not among the
+  `--citations` misses, and the 61/2 misses there are plan-125-N's recorded baseline.
+- `cargo fmt --all -- --check` clean in the root and `repository/` workspaces.
+- Linux and Windows were not run. The change is descriptor metadata and doc text only,
+  and emits no code. The new fixture's program exercises the existing datetime bodies,
+  and the per-backend corpus runs it in CI.
 
 Found while fixing bug-520 (S8). Every `datetime` descriptor declared `errors: vec![]`.
 bug-520 probed and filled in the members that raise on bad arguments or out-of-range
@@ -81,10 +111,25 @@ pinned by `tests/rt-behavior/datetime/datetime-arith-errors-rt`, and the declara
 
 ### Phase 1 — probe and declare
 
-- [ ] Probe each member above and record its raising inputs and codes here.
-- [ ] Fill in `errors` for every member that raises; leave `vec![]` only where the probe
+- [x] Probe each member above and record its raising inputs and codes here.
+      Recorded under Probe findings. Beyond the list above: `format` and
+      `formatDuration` raise too, and `dayOfYear`/`weekday`/`resolve`/`toIso` raise
+      on a directly built record. Two pages claimed no failure outright (`toIso`: "emits
+      a result for every `datetime::DateTime`"; `resolve`: "The computation is total"),
+      and `mfb spec stdlib datetime` said `fromMillis` can raise `ErrOverflow`, which
+      the probe disproves. All three are corrected.
+      The Fix Design expected the new `errors` lists to drift `.ir` goldens. They
+      did not: `bash scripts/test-accept.sh target/release/mfb /tmp/b611-accept-actual`
+      → `acceptance tests passed (1464 test(s) ran)`, no `mismatch` or `unexpected` lines.
+      The only new goldens belong to the new fixture.
+- [x] Fill in `errors` for every member that raises; leave `vec![]` only where the probe
       shows none.
 
 Acceptance: `mfb man datetime <member>` shows an Errors table for every member that
 raises, and nothing else changes.
-Commit: —
+Measured: `mfb man datetime add|instant|toIso|format|resolve` render the new tables
+(`instant`: "Overload 1 raises no errors."); `mfb man datetime fromMillis` renders none.
+`datetime::tests::members_declare_the_errors_they_raise` was RED at `9423d8d22`
+(`datetime.add` declared `[[]]`) and is GREEN.
+Commit: 81bd5400f (declarations + unit test), e59527195 (`datetime-arith-errors-rt`),
+e48d30463 (`toIso`/`resolve` prose, spec `fromMillis` claim)
