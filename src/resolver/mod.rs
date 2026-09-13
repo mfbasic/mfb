@@ -97,7 +97,8 @@ pub fn resolve_project_with(
     ast: &AstProject,
     validate_docs: bool,
 ) -> Result<(), ()> {
-    let augmented = augment_project(ast)?;
+    // Resolution checks the program, not a build flavor: the normal sources.
+    let augmented = augment_project(ast, false)?;
     resolve_augmented(
         project_dir,
         manifest,
@@ -156,9 +157,13 @@ pub fn resolve_augmented(
 /// monomorphizer sees the injected sources — in particular so a builtin's native
 /// overload set (`encoding`'s `__encoding_utf8Encode`/`utf8Decode`) is mangled to
 /// private `$`-symbols like any user overload, instead of colliding at codegen.
-pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
+///
+/// `debug` is the build's `--debug` flag: it selects the half of each
+/// `RegistryHelper::debug_split` helper that is injected (plan-130-E). Every caller
+/// that is not building a program passes `false`.
+pub fn augment_project(ast: &AstProject, debug: bool) -> Result<AstProject, ()> {
     // registry-driven augmentation.
-    let augmented = crate::codegen::registry::registry().augment_project(ast)?;
+    let augmented = crate::codegen::registry::registry().augment_project(ast, debug)?;
 
     // `term`'s injected source (the registry-modeled `LineStyle`/`FillStyle` enums)
     // and the `term`↔`astrings` `drawText(AttributedString)` bridge are injected by

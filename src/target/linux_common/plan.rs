@@ -87,6 +87,14 @@ impl LinuxPlan<'_> {
         }
     }
 
+    /// `getrusage` for the `--debug` report's peak resident set size. Every Linux
+    /// target calls it through libc: a `--debug` entry already links libc
+    /// (`clock_gettime`, the arena registry's mutex), so no static-ELF property is at
+    /// stake.
+    pub(crate) fn peak_rss_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![self.libc_import("getrusage", required_by)]
+    }
+
     pub(crate) fn entry_imports(&self, module: &NirModule) -> Vec<PlatformImport> {
         if module.entry.is_none() {
             return Vec::new();

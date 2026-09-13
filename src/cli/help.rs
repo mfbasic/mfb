@@ -27,6 +27,7 @@ Build & Development:
   test [options] [path]   Build and run the project's TESTING blocks
   fmt [options] [path]    Format project source (indentation/capitalization)
   audit [options] [path]  Report security and code audit findings
+  info <binary>           Inspect an MFBASIC executable: libraries, signer, integrity
 
 Documentation & Reference:
   doc [options] [path]    Render HTML docs from package or file source
@@ -45,6 +46,29 @@ Create a new MFBASIC executable project at the specified path.
 
 Arguments:
   <path>      The directory where the project will be initialized.";
+
+pub(crate) const INFO_HELP: &str = "\
+Usage: mfb info <binary>
+
+Inspect an executable and report what the MFBASIC linker recorded in it: the
+format, architecture, linking (ELF), the shared libraries it loads and their
+search paths, and the compiler version. A file without the MFBASIC provenance
+marker reports \"Not a MFBasic binary\".
+
+A build made with `mfb build --sign` also reports its signer and the registry
+that attested it, and three verdicts:
+  contents     intact, or MODIFIED when any byte of the file changed after
+               signing
+  ident key    current, rotated since signing, or REPLACED without a
+               rotation link
+  trust chain  verified, or NOT VERIFIED with the reason
+
+The trust chain and ident key are checked online against the registry named
+inside the binary; nothing on this machine (such as ~/.mfb) is consulted. An
+unreachable registry reports NOT VERIFIED. Every result exits 0.
+
+Arguments:
+  <binary>    The executable to inspect.";
 
 pub(crate) const INIT_PKG_HELP: &str = "\
 Usage: mfb init-pkg <path>
@@ -140,6 +164,8 @@ Options:
   --app               Build as a standalone application instead of a library
   --app-debug         Like --app, but keep the intermediate build/<name>.AppDir
                       beside the AppImage (Linux; inert on macOS)
+  --debug             Build a program that prints a measurement report to stderr
+                      at exit
   --unsigned          Allow unsigned dependencies from a non-local source
   -q, --quiet         Print only the artifact line and any diagnostics
   -v, --verbose       Also print a per-phase timing line for each build stage
@@ -172,6 +198,8 @@ Options:
   --target <os-arch>  Build for a specific target (only host targets are run)
   -O <level>          Optimization level: 0 off, 1 default, 2-3 enable more
                       passes (also -O0..-O3, --optimize <level>)
+  --debug             Build test programs that print a measurement report to
+                      stderr at exit
   -v, --verbose       Also print the build summary, a per-phase timing line for
                       each build stage, and a per-pass optimizer fire count
   -vv                 Also print the compile profiler: a nested span tree of

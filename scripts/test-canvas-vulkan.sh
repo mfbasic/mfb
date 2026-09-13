@@ -74,7 +74,7 @@ scaffold_project "$proj" vkcanvas
 # Synthesized rather than borrowed from the box: a system font would make the
 # comparison depend on which fonts the box happens to have, and the point of this test
 # is that the two *backends* agree — not that a particular typeface renders. This is
-# the same twelve-glyph file `tests/rt_canvas_font.rs` builds: `unitsPerEm` 1000, one
+# the same twelve-glyph file `tests/canvas/rt_canvas_font.rs` builds: `unitsPerEm` 1000, one
 # square glyph at (100,0)-(400,300), so a `Text` item is a row of squares whose pixels
 # are easy to reason about and whose bitmaps are far inside both backends' caps.
 base64 -d > "$proj/fixture.ttf" <<'TTF'
@@ -223,7 +223,7 @@ SUB main()
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can
-  ' only ever check the "not yet" half (`tests/rt_canvas_damage.rs`).
+  ' only ever check the "not yet" half (`tests/canvas/rt_canvas_damage.rs`).
   io::print("didResize-before:" & toString(canvas::didResize()))
   MUT edges AS Integer = 0
   MUT polls AS Integer = 0
@@ -244,7 +244,7 @@ END SUB
 MFB
 
 echo "--- building for linux-x86_64 ---"
-"$MFB_EXE" build --app --target linux-x86_64 "$proj" >/dev/null
+"$MFB_EXE" build --app --debug --target linux-x86_64 "$proj" >/dev/null
 
 host="test@127.0.0.1"
 remote="/tmp/mfb-vkcanvas-$$"
@@ -417,7 +417,7 @@ esac
 #
 # This box is the only place the TRUE half can be checked at all — `MFB_CANVAS_RESIZE_W`
 # drives the production resize path and macOS has no equivalent affordance, so
-# `tests/rt_canvas_damage.rs` can only assert the "not yet" half. Both halves matter:
+# `tests/canvas/rt_canvas_damage.rs` can only assert the "not yet" half. Both halves matter:
 # a `didResize` stuck FALSE never tells a program to lay out again, and one stuck TRUE
 # makes it lay out every frame while looking correct.
 if [ ! -s "$work/sw2.out" ]; then
@@ -505,7 +505,7 @@ if ! grep -q "canvas::setGroup" "$projg/src/main.mfb"; then
   exit 1
 fi
 
-"$MFB_EXE" build --app --target linux-x86_64 "$projg" >/dev/null
+"$MFB_EXE" build --app --debug --target linux-x86_64 "$projg" >/dev/null
 
 # The reference, decoded to raw RGBA here so the box needs no PNG library. Same bytes
 # `Frame::load_png` would hand the Rust comparators.

@@ -49,6 +49,7 @@ pub(crate) fn lower_start(
         &symbol,
         ctx.uses_rng,
         ctx.arena_global_slots,
+        ctx.debug_arena_registry,
         ctx.platform_imports,
         ctx.platform,
     )?;

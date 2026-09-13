@@ -65,19 +65,14 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
             }
         }
     }
-    // plan-67-B: the perf-tracking helpers are injected by the code layer at
-    // program entry/exit (and, from plan-67-F, around arena regions), so they
-    // never appear as NIR calls the scan above would catch. Force their emitted
-    // symbols in for a `--cfg perf`-built macOS entry module — the same gate as
-    // the entry/exit injection and the perf data objects — so their bodies exist
-    // for the injected `bl`s to resolve. Perf-free / non-macOS / non-entry plans
-    // are untouched, staying byte-identical to pre-plan-67 HEAD. `perf.start` /
-    // `perf.end` are added by plan-67-C / plan-67-D when their injection lands.
-    if crate::codegen::engine::builder::perf_injection_enabled()
-        && module.entry.is_some()
-        && module.target == "macos-aarch64"
-    {
-        for call in ["perf.init", "perf.start", "perf.end", "perf.done"] {
+    // plan-130: a `--debug` report section that branches to a spec-dispatched
+    // runtime helper does so from code, invisible to the NIR scan above, so its
+    // helper symbols are forced in here. `_mfb_debug_shutdown` itself is NOT a
+    // runtime-helper symbol: the code layer pushes it directly, the way it pushes
+    // `_mfb_shutdown`, and a symbol with no spec here would fail
+    // `lower_runtime_helper`.
+    for feature in crate::codegen::debug::active_features(module) {
+        for call in feature.runtime_calls() {
             if let Some(spec) = runtime::spec_for_call(call) {
                 push_unique(
                     &mut symbols,
@@ -190,18 +185,71 @@ pub(super) fn platform_imports(
             }
         }
     }
-    // plan-67-C: the injected `perf_start` reads the monotonic clock inline via
-    // `_clock_gettime` (`perf.end`, plan-67-D, reuses the same import). These perf
-    // calls are code-injected, so they are invisible to the function-body scan
-    // above; force the import under the same perf-macOS-entry gate as the perf
-    // symbols and injection. `perf_init`/`perf_done` need no libc import (their
-    // mmap / write ride syscalls).
-    if crate::codegen::engine::builder::perf_injection_enabled()
-        && module.entry.is_some()
-        && module.target == "macos-aarch64"
+    // plan-130: imports a `--debug` report section's code needs. The report's own
+    // stderr writes need none: every entry module already imports its platform's
+    // write seam (`entry_error_imports`).
+    for feature in crate::codegen::debug::active_features(module) {
+        for call in feature.import_calls() {
+            for import in platform_imports_for_runtime_call(platform, call) {
+                push_platform_import(&mut imports, import);
+            }
+        }
+    }
+    // plan-130-D: OS calls a `--debug` report section makes directly (the `process`
+    // section's `getrusage` / `K32GetProcessMemoryInfo`). Attributed to the program
+    // entry for the same reason as the lock imports below.
+    if let Some(entry) = platform
+        .entry_imports(module)
+        .first()
+        .map(|import| import.required_by.clone())
     {
-        for import in platform_imports_for_runtime_call(platform, "perf.start") {
-            push_platform_import(&mut imports, import);
+        for feature in crate::codegen::debug::active_features(module) {
+            for import in feature.os_imports(platform, &entry) {
+                push_platform_import(&mut imports, import);
+            }
+        }
+    }
+    // plan-130-C: a `--debug` report helper that takes a process-global lock (the arena
+    // registry's register helper) calls the platform mutex through the thread seam, so
+    // the program needs the lock/unlock imports (matching the Win32 SRW names as well as
+    // the pthread ones). They are attributed to the program ENTRY, not the helper: every
+    // native object plan turns an import's `required_by` into a relocation source and
+    // accepts only plan-defined symbols (entry, functions, runtime and link symbols,
+    // data), and a code-layer debug helper is none of those — the report's own `_write`
+    // rides the entry's attribution the same way.
+    for feature in crate::codegen::debug::active_features(module) {
+        if feature.lock_helpers().is_empty() {
+            continue;
+        }
+        let Some(entry) = platform
+            .entry_imports(module)
+            .first()
+            .map(|import| import.required_by.clone())
+        else {
+            continue;
+        };
+        let lock_imports: Vec<PlatformImport> =
+            platform_imports_for_runtime_call(platform, "thread.drop")
+                .into_iter()
+                .filter(|import| {
+                    [
+                        "pthread_mutex_lock",
+                        "pthread_mutex_unlock",
+                        "AcquireSRWLockExclusive",
+                        "ReleaseSRWLockExclusive",
+                    ]
+                    .contains(&import.symbol.trim_start_matches('_'))
+                })
+                .collect();
+        for import in &lock_imports {
+            push_platform_import(
+                &mut imports,
+                PlatformImport {
+                    library: import.library.clone(),
+                    symbol: import.symbol.clone(),
+                    required_by: entry.clone(),
+                },
+            );
         }
     }
     // The `os::` env/pwd helpers serialize their libc-global access behind a

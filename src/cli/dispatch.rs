@@ -11,9 +11,10 @@ use crate::cli::build::{build_project, parse_build_options, parse_test_options};
 use crate::cli::doc::run_doc_command;
 use crate::cli::fmt::run_fmt_command;
 use crate::cli::help::{
-    AUDIT_HELP, BUILD_HELP, DOC_HELP, FMT_HELP, INIT_HELP, INIT_PKG_HELP, PKG_HELP, REPO_HELP,
-    SPEC_HELP, TEST_HELP, USAGE,
+    AUDIT_HELP, BUILD_HELP, DOC_HELP, FMT_HELP, INFO_HELP, INIT_HELP, INIT_PKG_HELP, PKG_HELP,
+    REPO_HELP, SPEC_HELP, TEST_HELP, USAGE,
 };
+use crate::cli::info::run_info_command;
 use crate::cli::init::{init_package_project, init_project};
 use crate::cli::man::show_man;
 use crate::cli::pkg::run_pkg_command;
@@ -222,6 +223,16 @@ pub(crate) fn dispatch(args: Vec<String>) -> i32 {
                 }
             };
             return close_diagnostics(audit::run(&options));
+        }
+        Some("info") => {
+            let info_args = args.collect::<Vec<_>>();
+            if info_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{INFO_HELP}");
+                return 0;
+            }
+            if let Err(err) = run_info_command(&info_args) {
+                return crate::cli::dispatch_command_error(err);
+            }
         }
         Some("man") => {
             // Registry-driven man page: renders any package/function from its

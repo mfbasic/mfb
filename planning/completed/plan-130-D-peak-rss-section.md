@@ -24,7 +24,7 @@ See plan-130-A § Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-130-C complete | `ls planning/completed/plan-130-C-*` → one match | NOT MET |
+| plan-130-C complete | `ls planning/completed/plan-130-C-*` → one match | MET (2026-09-12) |
 
 ## 1. Goal
 
@@ -86,28 +86,55 @@ already gives the peak).
 
 ### Phase 1 — Unix targets
 
-- [ ] Prove the four Unix UNVERIFIED rows with a throwaway C probe per box (2223, 2227,
+- [x] Prove the four Unix UNVERIFIED rows with a throwaway C probe per box (2223, 2227,
       2228, 2229, and macOS): print `offsetof(struct rusage, ru_maxrss)`, `sizeof`, and a
       64 MiB-touch value. Record results in Corrections.
-- [ ] `emit_peak_rss_bytes` for macOS, linux-aarch64, linux-riscv64 (libc `getrusage`),
+      `/tmp/p130-d-rusage.c` (malloc + memset 64 MiB between two `getrusage` calls):
+      | target | offsetof ru_maxrss | sizeof rusage | maxrss before → after | SYS_getrusage |
+      | macOS aarch64 | 32 | 144 | 1,032,192 → 68,141,056 (bytes) | — |
+      | 2223 aarch64 glibc | 32 | 144 | 4,404 → 66,596 (KiB) | 165 |
+      | 2227 x86_64 musl | 32 | 272 | 2,476 → 65,972 (KiB) | 98 |
+      | 2228 x86_64 glibc | 32 | 144 | 4,392 → 66,732 (KiB) | 98 |
+      | 2229 riscv64 musl | 32 | 272 | 2,400 → 65,928 (KiB) | 165 |
+- [x] `emit_peak_rss_bytes` for macOS, linux-aarch64, linux-riscv64 (libc `getrusage`),
       linux-x86_64 (raw syscall 98); scale KiB → bytes on Linux.
-- [ ] `ProcessFeature` + `_mfb_debug_report_process`; imports only in debug builds.
-- [ ] `tests/runtime/rt_debug_report.rs`: host case — a program filling a 64 MiB
+      Landed as one emitter in `src/codegen/debug/process.rs` (`lower_report`) branching on
+      `platform.family()`, with libc `getrusage` on every Linux target (see Corrections).
+- [x] `ProcessFeature` + `_mfb_debug_report_process`; imports only in debug builds.
+      `DebugFeature::os_imports` → `NativePlanPlatform::peak_rss_imports` (a required method on
+      all five backends), pushed by `plan::symbols::platform_imports` with the entry's
+      attribution. `cargo test --bin mfb -- codegen::debug target::shared::plan` → 5 passed.
+- [x] `tests/runtime/rt_debug_report.rs`: host case — a program filling a 64 MiB
       `List OF Byte` reports `process.peak_rss_bytes >= 67108864`; a normal build's
       import table has no `getrusage`.
+      `a_64_mib_string_reports_at_least_64_mib_peak_rss` (a string doubled 26 times, see
+      Corrections) and `only_a_debug_build_imports_the_peak_rss_call` (all five targets' ncode
+      dumps); `assert_block` now requires one positive `process.peak_rss_bytes` line in every
+      report. `cargo test --release --no-fail-fast --test rt_debug_report --test
+      rt_debug_arena` → 9 passed, 5 passed.
 
 Acceptance: host test green; the same program's report on 2223, 2227 (musl), 2228
 (glibc), 2229 shows `process.peak_rss_bytes >= 67108864` (recorded here); artifact
 gate `0 diff(s)`.
+Measured: every box prints `67108864` and reports 2223 aarch64 glibc `135360512`, 2227 x86_64
+musl `134791168`, 2228 x86_64 glibc `135622656`, 2229 riscv64 musl `134569984` (the final
+`s & s` holds the old and new string, ~128 MiB). Artifact gate: `1436 tests, 1602 build(s),
+2011 golden(s) checked, 0 diff(s)`.
 Commit: —
 
 ### Phase 2 — Windows
 
-- [ ] Prove the Windows UNVERIFIED row on 2230 (a PowerShell `Get-Process` peak
+- [x] Prove the Windows UNVERIFIED row on 2230 (a PowerShell `Get-Process` peak
       working set alongside the program's report for the same 64 MiB program).
-- [ ] `win_x86_64` `emit_peak_rss_bytes`: `GetCurrentProcess`, `K32GetProcessMemoryInfo`
+      Layout proven before coding (Corrections). Same-run comparison: the program holds its
+      64 MiB string for 2 s (`os::sleep(2000)`) while `/tmp/p130-d-win.ps1` samples
+      `Process.PeakWorkingSet64` every 50 ms: PowerShell `138399744`, report
+      `process.peak_rss_bytes 138399744` (identical); exit 0, stdout `67108864`.
+- [x] `win_x86_64` `emit_peak_rss_bytes`: `GetCurrentProcess`, `K32GetProcessMemoryInfo`
       with `cb = sizeof(PROCESS_MEMORY_COUNTERS)` (72 on x64 — verify), result read via
       `c_return(0)`; imports in the debug import table only.
+      The Windows branch of `process.rs` `lower_report` (landed with Phase 1's emitter);
+      `only_a_debug_build_imports_the_peak_rss_call` covers `windows-x86_64`.
 
 Acceptance: 2230 report shows `process.peak_rss_bytes >= 67108864` and within 10% of
 PowerShell's `PeakWorkingSet64` for the same run (both recorded); artifact gate
@@ -116,7 +143,8 @@ Commit: —
 
 ### Phase 3 — docs
 
-- [ ] Debug-report spec page (plan-130-A Phase 4): `process` section, units, when read.
+- [x] Debug-report spec page (plan-130-A Phase 4): `process` section, units, when read.
+      `src/docs/spec/tooling/09_debug-report.md` § Sections: the `process` row.
 
 Acceptance: `cargo test -p mfb --bins citations_resolve` green; full suite green.
 Commit: —
@@ -136,6 +164,31 @@ Commit: —
   lines (costs a thread and a timer per target).
 
 ## Corrections
+
+- **Phase 1 — no raw syscall on linux-x86_64.** A `--debug` entry already links libc there
+  (`clock_gettime` for the arena seed, the arena registry's `pthread_mutex_*`), so a raw
+  `getrusage` syscall would protect no static-ELF property; every Linux target calls libc
+  `getrusage`, one emitter for all Unix targets.
+- **Phase 1 — imports are per backend, not a runtime-call spec.** `DebugFeature::import_calls`
+  only resolves catalogued runtime calls; a peak-RSS spec would have added a catalog family
+  row for a call no program makes. Instead each backend names its symbols in the required
+  `NativePlanPlatform::peak_rss_imports`, and the plan attributes them to the entry (a
+  code-layer helper is not a valid relocation source, as for the arena lock imports).
+- **Phase 1 — the buffer is sized for musl (272 bytes) and the peak word is zeroed first,** so a
+  failed call prints 0 rather than stack contents.
+- **Phase 1 — the test program doubles a string instead of filling a `List OF Byte`:** 26
+  doublings reach exactly 67,108,864 bytes (printed and asserted), with no collection API.
+- **Phase 2 layout, proven before coding (2230, no C compiler: a PowerShell `Add-Type` P/Invoke
+  probe, `/tmp/p130-d-pmc.ps1`).** `K32GetProcessMemoryInfo(GetCurrentProcess(), buf, cb)`
+  succeeds with `cb = 72` and fails with `cb = 64`, so `sizeof(PROCESS_MEMORY_COUNTERS)` is 72.
+  The SIZE_T at offset 8 is the peak working set: 80,699,392 before touching 64 MiB and
+  143,589,376 after (+62.9 MB); `Get-Process` `PeakWorkingSet64` read just after was
+  148,934,656. Offset 16 is the current working set.
+- **Phase 1 — musl's `struct rusage` is 272 bytes, not 144.** The offset of `ru_maxrss` is 32
+  on every Unix target (verified rows 1–3 hold), but musl reserves 16 `long`s where glibc and
+  Darwin reserve fewer, so the stack buffer for the call must be at least 272 bytes; the
+  kernel's own struct is 144. Linux units are KiB (66,596 after touching 64 MiB = 65 MiB) and
+  Darwin's are bytes. `getrusage` is syscall 98 on x86_64 and 165 on aarch64/riscv64.
 
 ## Summary
 

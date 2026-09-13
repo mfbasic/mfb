@@ -894,6 +894,7 @@ mod union_tag_tests {
             target: "test".to_string(),
             build_mode: crate::target::NativeBuildMode::Console,
             stdin_log_cap: crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT,
+            debug: crate::codegen::debug::DebugOptions::OFF,
             project: "test".to_string(),
             entry: None,
             globals: Vec::new(),

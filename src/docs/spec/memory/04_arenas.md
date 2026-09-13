@@ -345,7 +345,18 @@ an interior pointer into an argument return an owned block instead (`collections
 materialize the element; `strings::replace`'s no-op path returns a fresh copy), so a
 call result is always safe for the caller to own and free.
 
+## Measuring an Arena
+
+A program built with `mfb build --debug` counts the events described on this page
+for every arena: blocks mapped and unmapped, allocation and free calls and bytes,
+which `arena_alloc` path served each request, double-free skips, coalescing
+flushes and inserts, and live and peak live bytes. It prints them in the `arena`
+section of the debug report at exit. A normal build contains none of the counting
+code. [[src/codegen/debug/arena.rs:ArenaFeature]]
+
 ## See Also
+
+* ./mfb spec tooling debug-report — the `arena` report section and its counters
 
 * ./mfb spec threading — per-worker arenas and thread isolation
 * ./mfb spec language memory-semantics — the source-level ownership model

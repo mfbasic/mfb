@@ -24,6 +24,10 @@ pub(crate) struct NirModule {
     /// `stdinLogCap` on the executable path; defaults to `STDIN_LOG_CAP_DEFAULT`
     /// (4 MiB) everywhere else. Read by `lower_stdin_next_byte`.
     pub(crate) stdin_log_cap: u64,
+    /// `--debug` (plan-130): whether this build carries the stderr debug report
+    /// `_mfb_shutdown` writes as its last act. `DebugOptions::OFF` everywhere
+    /// but a `mfb build --debug` / `mfb test --debug` executable or dump.
+    pub(crate) debug: crate::codegen::debug::DebugOptions,
     pub(crate) project: String,
     pub(crate) entry: Option<NirEntryPoint>,
     pub(crate) globals: Vec<NirGlobal>,

@@ -28,7 +28,7 @@ fn render(name: &str, source: &str) -> (Vec<u8>, Vec<String>) {
     let project = common::temp_project(name, source);
     let frame = project.join("frame.rgba");
     let stats = project.join("stats.txt");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let run = Command::new(&binary)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
@@ -3069,7 +3069,7 @@ fn removing_a_group_mid_frame_lets_the_frame_finish() {
         .replace("IMPORT collections", "IMPORT collections\nIMPORT os"),
     );
     let frame_path = project.join("frame.rgba");
-    let binary = common::build_app(&project, "canvas_group_race");
+    let binary = common::build_app_debug(&project, "canvas_group_race");
     let run = Command::new(&binary)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
@@ -3564,7 +3564,7 @@ fn destroying_a_font_mid_frame_is_clean() {
     std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
         .expect("write the font fixture");
     let frame_path = project.join("frame.rgba");
-    let binary = common::build_app(&project, "canvas_font_destroy_race");
+    let binary = common::build_app_debug(&project, "canvas_font_destroy_race");
     let run = Command::new(&binary)
         .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")

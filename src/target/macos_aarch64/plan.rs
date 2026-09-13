@@ -1080,6 +1080,14 @@ impl plan::NativePlanPlatform for Platform {
         imports
     }
 
+    fn peak_rss_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![PlatformImport {
+            library: "libSystem".to_string(),
+            symbol: "_getrusage".to_string(),
+            required_by: required_by.to_string(),
+        }]
+    }
+
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {
         // toString needs no import: every formatter (Integer, Fixed, and the
         // Float `%.*f` renderer, `float_format.rs`) is in-tree.

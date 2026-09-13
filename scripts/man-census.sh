@@ -96,7 +96,7 @@ usage() {
 #     `mfb man errorcode` errors out and the directory name censuses as 0
 #     pages. It exports constants only (no callables), so 0 FUNCTION pages is
 #     correct for it; its overview and description are real and in scope.
-#   * `perf/` is not an MFB package at all. It is the `--cfg perf`
+#   * `perf/` is not an MFB package at all. It is the `--debug`
 #     compiler-injected timing helpers (perf/perf.rs:1-6: "These are NOT an MFB
 #     `perf::` package — there is no language surface"), so `mfb man perf`
 #     correctly errors. It is excluded here and owned by no letter.

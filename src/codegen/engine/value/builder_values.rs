@@ -38,6 +38,7 @@ impl<'a> CodeBuilder<'a> {
             // the inline path never lowers `thread.start`.
             arena_global_slots: 0,
             uses_rng: false,
+            debug_arena_registry: false,
         }
     }
 }

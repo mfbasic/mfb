@@ -1,9 +1,9 @@
 //! Native code generation for the internal runtime performance-tracking helpers
 //! (plan-67). These are NOT an MFB `perf::` package — there is no language
 //! surface; the four helpers are invoked only by compiler-injected calls in a
-//! **`--cfg perf`-built, macOS-entry** program (`perf_injection_enabled()` gates
-//! every injection site). A compiler built without `--cfg perf` emits none of
-//! this, so ordinary output is byte-identical to pre-plan-67 HEAD.
+//! **`mfb build --debug`, macOS-entry** program (the `perf` section of the debug
+//! report, `codegen::debug::perf`, owns every injection site). A build without
+//! `--debug` emits none of this, so ordinary output is unchanged.
 //!
 //! - `perf.init` — `emit_arena_map` a private-anon region and store its base in
 //!   the writable global `_mfb_rt_perf_state`. Injected at program entry.
@@ -91,10 +91,11 @@ const PERF_LOG_LIMIT: usize = PERF_LOG_TABLE_OFFSET + (PERF_LOG_CAPACITY - 1) * 
 // and insertion-sorts them.
 const PERF_SORT_OFFSET: usize = PERF_LOG_TABLE_OFFSET + PERF_LOG_CAPACITY * PERF_LOG_ENTRY_SIZE;
 
-// Stack locals. perf_start needs a 16-byte `timespec`; perf_done formats each
-// numeric column into a scratch window. One frame size covers both (each lowering
-// emits exactly one arm).
-const PERF_LOCALS_SIZE: usize = 32;
+// Stack locals. perf_start/perf_end need a 16-byte `timespec`; perf_done assembles
+// each `perf.<name>.<stat> <value>` report line in a scratch window (the longest,
+// `perf.mfb_alloc.median ` + 20 digits + newline, is 43 bytes). One frame size
+// covers every arm (each lowering emits exactly one).
+const PERF_LOCALS_SIZE: usize = 96;
 const PERF_TIMESPEC_OFFSET: usize = 0;
 
 pub(crate) fn lower_perf_helper(
@@ -341,15 +342,14 @@ pub(crate) fn lower_perf_helper(
                 ]);
             }
             "perf.done" => {
-                // Load the region base; a 0 base (never mapped / release) is inert.
-                // Otherwise write the header, then one `name  <count>` row per table
-                // A entry, then the `mismatch`/`overflow` diagnostic rows (only when
-                // non-zero). plan-67-E enriches each row with avg/median/min/max/sum
-                // over the flat sample log. The region is left mapped at exit
+                // Load the region base; a 0 base (never mapped) is inert. Otherwise
+                // write, per table A entry, six debug-report lines
+                // `perf.<name>.count/avg/median/min/max/sum <value>` (plan-67-E's
+                // statistics over the flat sample log), then the `perf.mismatch` /
+                // `perf.overflow` counter lines (only when non-zero, plan-130-B). The region is left mapped at exit
                 // (plan-67-B decision — the process is ending).
                 let state = vregs.next();
                 let base = vregs.next();
-                let header = vregs.next();
                 let count = vregs.next();
                 let index = vregs.next();
                 let entry = vregs.next();
@@ -370,27 +370,7 @@ pub(crate) fn lower_perf_helper(
                     abi::compare_immediate(&base, "0"),
                     abi::branch_eq(&done),
                 ]);
-                // Header (mirrors `emit_write_string_object`: len at [hdr+0], bytes
-                // at hdr+8, fd 2).
-                push_symbol_address(
-                    symbol,
-                    PERF_HEADER_SYMBOL,
-                    &header,
-                    &mut instructions,
-                    &mut relocations,
-                );
-                instructions.extend([
-                    abi::load_u64(abi::string_length_register(), &header, 0),
-                    abi::add_immediate(abi::string_data_register(), &header, 8),
-                    abi::move_immediate(abi::return_register(), "Integer", "2"),
-                ]);
-                platform.emit_write(
-                    symbol,
-                    platform_imports,
-                    &mut instructions,
-                    &mut relocations,
-                )?;
-                // Table A rows: `name  <count>`.
+                // Table A rows: one report line per statistic of each name.
                 instructions.extend([
                     abi::load_u64(&count, &base, PERF_COUNT_A_OFFSET),
                     abi::add_immediate(&entry, &base, PERF_A_TABLE_OFFSET),
@@ -400,14 +380,6 @@ pub(crate) fn lower_perf_helper(
                     abi::branch_ge(&extras),
                     abi::load_u64(&name, &entry, 0),
                 ]);
-                emit_write_name(
-                    &name,
-                    symbol,
-                    platform_imports,
-                    platform,
-                    &mut instructions,
-                    &mut relocations,
-                )?;
                 instructions.push(abi::load_u64(&value, &entry, PERF_A_ENTRY_COUNT_OFFSET));
                 emit_write_stats(
                     &base,
@@ -512,16 +484,53 @@ fn emit_read_monotonic_nanos(
     Ok(())
 }
 
-/// Append instructions that format ` <value>` (leading space, signed decimal) —
-/// optionally with a trailing newline — into the stack scratch window and write it
-/// to stderr (fd 2). Reused for every numeric column in plan-67-C/D/E. `value` is
-/// consumed via a copy, so the caller's register is preserved; `tag` disambiguates
-/// the internal labels when a caller formats more than one column per row.
+/// Prepend the bytes of the `mfb.string.v1` object at `object` (length at `[object+0]`,
+/// bytes from `object+8`) in front of `cursor`, moving `cursor` back by that length.
+/// `label` names this copy loop's labels.
+fn emit_prepend_string(
+    object: &str,
+    cursor: &str,
+    label: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let length = vregs.next();
+    let index = vregs.next();
+    let byte = vregs.next();
+    let source = vregs.next();
+    let target = vregs.next();
+    let copy = format!("{label}_copy");
+    let copied = format!("{label}_copied");
+    instructions.extend([
+        abi::load_u64(&length, object, 0),
+        abi::subtract_registers(cursor, cursor, &length),
+        abi::move_register(&index, &length),
+        abi::label(&copy),
+        abi::compare_immediate(&index, "0"),
+        abi::branch_eq(&copied),
+        abi::subtract_immediate(&index, &index, 1),
+        abi::add_registers(&source, object, &index),
+        abi::load_u8(&byte, &source, 8),
+        abi::add_registers(&target, cursor, &index),
+        abi::store_u8(&byte, &target, 0),
+        abi::branch(&copy),
+        abi::label(&copied),
+    ]);
+}
+
+/// Write one debug-report line `perf.<name><suffix><value>\n` to stderr (fd 2) with a
+/// single `write`, assembled right-to-left in the `PERF_LOCALS_SIZE` stack window so
+/// another thread's stderr output cannot split it. `name` is a register holding a
+/// span-name object (`None` for a header counter, whose `suffix_symbol` is the whole
+/// key, e.g. `mismatch `); `suffix_symbol` is a key-suffix object such as `.count `.
+/// `value` (unsigned) is read through a copy and survives; `tag` keeps this call's
+/// labels distinct.
 #[allow(clippy::too_many_arguments)]
-fn emit_write_i64(
+fn emit_perf_line(
+    name: Option<&str>,
+    suffix_symbol: &str,
     value: &str,
     tag: &str,
-    newline: bool,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -529,98 +538,70 @@ fn emit_write_i64(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
-    let val = vregs.next();
+    let remaining = vregs.next();
     let cursor = vregs.next();
     let ten = vregs.next();
     let quotient = vregs.next();
     let digit = vregs.next();
-    let endp = vregs.next();
-    let dloop = format!("{symbol}_{tag}_dloop");
+    let suffix = vregs.next();
+    let prefix = vregs.next();
+    let end = vregs.next();
+    let digits = format!("{symbol}_{tag}_digits");
     instructions.extend([
-        abi::move_register(&val, value),
-        // cursor starts one past the scratch window; bytes fill right-to-left.
+        abi::move_register(&remaining, value),
         abi::add_immediate(&cursor, abi::stack_pointer(), PERF_LOCALS_SIZE),
-    ]);
-    if newline {
-        instructions.extend([
-            abi::subtract_immediate(&cursor, &cursor, 1),
-            abi::move_immediate(&digit, "Integer", "10"),
-            abi::store_u8(&digit, &cursor, 0),
-        ]);
-    }
-    instructions.extend([
+        abi::subtract_immediate(&cursor, &cursor, 1),
+        abi::move_immediate(&digit, "Integer", "10"),
+        abi::store_u8(&digit, &cursor, 0),
         abi::move_immediate(&ten, "Integer", "10"),
-        abi::label(&dloop),
-        abi::unsigned_divide_registers(&quotient, &val, &ten),
-        abi::multiply_subtract_registers(&digit, &quotient, &ten, &val),
+        abi::label(&digits),
+        abi::unsigned_divide_registers(&quotient, &remaining, &ten),
+        abi::multiply_subtract_registers(&digit, &quotient, &ten, &remaining),
         abi::add_immediate(&digit, &digit, 48),
         abi::subtract_immediate(&cursor, &cursor, 1),
         abi::store_u8(&digit, &cursor, 0),
-        abi::move_register(&val, &quotient),
-        abi::compare_immediate(&val, "0"),
-        abi::branch_ne(&dloop),
-        // leading space
-        abi::subtract_immediate(&cursor, &cursor, 1),
-        abi::move_immediate(&digit, "Integer", "32"),
-        abi::store_u8(&digit, &cursor, 0),
-        // write [cursor, sp+PERF_LOCALS_SIZE) to stderr
-        abi::add_immediate(&endp, abi::stack_pointer(), PERF_LOCALS_SIZE),
-        abi::subtract_registers(abi::string_length_register(), &endp, &cursor),
+        abi::move_register(&remaining, &quotient),
+        abi::compare_immediate(&remaining, "0"),
+        abi::branch_ne(&digits),
+    ]);
+    push_symbol_address(symbol, suffix_symbol, &suffix, instructions, relocations);
+    emit_prepend_string(
+        &suffix,
+        &cursor,
+        &format!("{symbol}_{tag}_sfx"),
+        instructions,
+        vregs,
+    );
+    if let Some(name) = name {
+        emit_prepend_string(
+            name,
+            &cursor,
+            &format!("{symbol}_{tag}_name"),
+            instructions,
+            vregs,
+        );
+    }
+    push_symbol_address(
+        symbol,
+        PERF_KEY_PREFIX_SYMBOL,
+        &prefix,
+        instructions,
+        relocations,
+    );
+    emit_prepend_string(
+        &prefix,
+        &cursor,
+        &format!("{symbol}_{tag}_pfx"),
+        instructions,
+        vregs,
+    );
+    instructions.extend([
+        abi::add_immediate(&end, abi::stack_pointer(), PERF_LOCALS_SIZE),
+        abi::subtract_registers(abi::string_length_register(), &end, &cursor),
         abi::move_register(abi::string_data_register(), &cursor),
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
-    platform.emit_write(symbol, platform_imports, instructions, relocations)?;
-    Ok(())
-}
-
-/// ` <value>\n` — a value in its own row (single-column rows: the counter rows).
-#[allow(clippy::too_many_arguments)]
-fn emit_write_i64_line(
-    value: &str,
-    tag: &str,
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    vregs: &mut Vregs,
-) -> Result<(), String> {
-    emit_write_i64(
-        value,
-        tag,
-        true,
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
-        vregs,
-    )
-}
-
-/// ` <value>` — one column of a multi-column row (no trailing newline).
-#[allow(clippy::too_many_arguments)]
-fn emit_write_i64_field(
-    value: &str,
-    tag: &str,
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    vregs: &mut Vregs,
-) -> Result<(), String> {
-    emit_write_i64(
-        value,
-        tag,
-        false,
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
-        vregs,
-    )
+    platform.emit_write(symbol, platform_imports, instructions, relocations)
 }
 
 /// Load `scratch[idx]` (i64) into `dst`; `idx`/`scratch` are registers, `eight`
@@ -806,91 +787,34 @@ fn emit_write_stats(
     ]);
     emit_load_elem(&median, &scratch, &mid, &eight, instructions, vregs);
     instructions.push(abi::label(&median_done));
-    // Columns after the name: count, avg, median, min, max, sum (sum closes the row).
-    emit_write_i64_field(
-        count,
-        "c",
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
-        vregs,
-    )?;
-    emit_write_i64_field(
-        &avg,
-        "av",
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
-        vregs,
-    )?;
-    emit_write_i64_field(
-        &median,
-        "md",
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
-        vregs,
-    )?;
-    emit_write_i64_field(
-        &min,
-        "mn",
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
-        vregs,
-    )?;
-    emit_write_i64_field(
-        &max,
-        "mx",
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
-        vregs,
-    )?;
-    emit_write_i64_line(
-        &sum,
-        "sm",
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
-        vregs,
-    )?;
+    // One report line per statistic: `perf.<name>.<stat> <value>`.
+    for (suffix, stat, tag) in [
+        (PERF_KEY_COUNT_SYMBOL, count, "c"),
+        (PERF_KEY_AVG_SYMBOL, avg.as_str(), "av"),
+        (PERF_KEY_MEDIAN_SYMBOL, median.as_str(), "md"),
+        (PERF_KEY_MIN_SYMBOL, min.as_str(), "mn"),
+        (PERF_KEY_MAX_SYMBOL, max.as_str(), "mx"),
+        (PERF_KEY_SUM_SYMBOL, sum.as_str(), "sm"),
+    ] {
+        emit_perf_line(
+            Some(name),
+            suffix,
+            stat,
+            tag,
+            symbol,
+            platform_imports,
+            platform,
+            instructions,
+            relocations,
+            vregs,
+        )?;
+    }
     Ok(())
 }
 
-/// Write the `mfb.string.v1` name object pointed to by `name` (len at `[name+0]`,
-/// bytes at `name+8`) to stderr (fd 2).
-fn emit_write_name(
-    name: &str,
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    instructions.extend([
-        abi::load_u64(abi::string_length_register(), name, 0),
-        abi::add_immediate(abi::string_data_register(), name, 8),
-        abi::move_immediate(abi::return_register(), "Integer", "2"),
-    ]);
-    platform.emit_write(symbol, platform_imports, instructions, relocations)
-}
-
-/// Emit a diagnostic `name  <counter>` row for the header counter at
-/// `counter_offset`, but only when it is non-zero (so a clean run prints no
-/// diagnostic rows). `base` holds the region base; `tag` disambiguates labels.
+/// Emit the `perf.<key> <counter>` report line for the header counter at
+/// `counter_offset` (`name_symbol` holds the key, e.g. `mismatch `), but only when
+/// it is non-zero (so a clean run prints no diagnostic lines). `base` holds the region base; `tag` disambiguates labels.
 #[allow(clippy::too_many_arguments)]
 fn emit_counter_row(
     name_symbol: &str,
@@ -905,23 +829,15 @@ fn emit_counter_row(
     vregs: &mut Vregs,
 ) -> Result<(), String> {
     let value = vregs.next();
-    let nameptr = vregs.next();
     let skip = format!("{symbol}_{tag}_skip");
     instructions.extend([
         abi::load_u64(&value, base, counter_offset),
         abi::compare_immediate(&value, "0"),
         abi::branch_eq(&skip),
     ]);
-    push_symbol_address(symbol, name_symbol, &nameptr, instructions, relocations);
-    emit_write_name(
-        &nameptr,
-        symbol,
-        platform_imports,
-        platform,
-        instructions,
-        relocations,
-    )?;
-    emit_write_i64_line(
+    emit_perf_line(
+        None,
+        name_symbol,
         &value,
         tag,
         symbol,

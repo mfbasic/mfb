@@ -47,12 +47,13 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
-        signing_metadata: Option<&[u8]>,
+        signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
         app_version: Option<&str>,
         vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
+        debug: crate::codegen::debug::DebugOptions,
         progress: &dyn Fn(&str),
     ) -> Result<Vec<PathBuf>, String> {
         write_executable(
@@ -66,6 +67,7 @@ impl NativeBackend for Backend {
             app_version,
             vendors_native_libraries,
             stdin_log_cap,
+            debug,
             progress,
         )
     }
@@ -102,6 +104,7 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
         linux_common::write_nir(
             &DUMPS,
@@ -110,6 +113,7 @@ impl NativeBackend for Backend {
             &self.target(),
             packages,
             build_mode,
+            debug,
         )
     }
 
@@ -119,6 +123,7 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
         linux_common::write_native_plan(
             &DUMPS,
@@ -127,6 +132,7 @@ impl NativeBackend for Backend {
             &self.target(),
             packages,
             build_mode,
+            debug,
         )
     }
 
@@ -136,6 +142,7 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
         linux_common::write_native_object_plan(
             &DUMPS,
@@ -144,6 +151,7 @@ impl NativeBackend for Backend {
             &self.target(),
             packages,
             build_mode,
+            debug,
         )
     }
 
@@ -153,6 +161,7 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
         linux_common::write_native_code_plan(
             &DUMPS,
@@ -161,6 +170,7 @@ impl NativeBackend for Backend {
             &self.target(),
             packages,
             build_mode,
+            debug,
         )
     }
 
@@ -170,6 +180,7 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
         linux_common::write_mir(
             &DUMPS,
@@ -178,6 +189,7 @@ impl NativeBackend for Backend {
             &self.target(),
             packages,
             build_mode,
+            debug,
         )
     }
 }
@@ -188,16 +200,17 @@ fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
-    signing_metadata: Option<&[u8]>,
+    signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
     app_version: Option<&str>,
     vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
+    debug: crate::codegen::debug::DebugOptions,
     progress: &dyn Fn(&str),
 ) -> Result<Vec<PathBuf>, String> {
     progress("lowering module");
-    let module = lower_validated_module(ir, target, packages, build_mode, stdin_log_cap)?;
+    let module = lower_validated_module(ir, target, packages, build_mode, stdin_log_cap, debug)?;
     let app_mode = build_mode.is_app();
     // plan-56-B §4.1: app mode is no longer glibc-only. GTK4 exists in the musl
     // world (Alpine's `gtk4.0`), and plan-56-A made the import surface
@@ -222,7 +235,7 @@ fn write_executable(
         arch::aarch64::encode::relax_conditional_branches(&mut native_code)?;
         progress("encoding image");
         let mut image = arch::aarch64::encode::encode(&native_code)?;
-        image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
+        image.signing_metadata = signing_metadata.cloned();
         // plan-46-D §4.2: point the loader at the `vendor/` directory beside the
         // executable, so a bare-filename `dlopen` of a vendored library resolves
         // and keeps resolving after the whole `build/` directory is moved. Emitted
@@ -281,6 +294,7 @@ fn lower_validated_module(
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
     stdin_log_cap: Option<u64>,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
@@ -295,7 +309,14 @@ fn lower_validated_module(
             build_mode.as_str()
         ));
     }
-    let module = lower::lower_project(ir, target.name(), packages, build_mode, stdin_log_cap)?;
+    let module = lower::lower_project(
+        ir,
+        target.name(),
+        packages,
+        build_mode,
+        stdin_log_cap,
+        debug,
+    )?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     Ok(module)

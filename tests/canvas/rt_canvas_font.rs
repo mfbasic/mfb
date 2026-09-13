@@ -341,7 +341,7 @@ fn run_with_font_frame(name: &str, source: &str) -> Vec<u8> {
     let project = common::temp_project(name, source);
     std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
     let frame = project.join("frame.rgba");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let out = Command::new(&binary)
         .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")
@@ -538,7 +538,7 @@ fn render_env(name: &str, source: &str, extra: &[(&str, &str)]) -> (Vec<u8>, Str
     let project = common::temp_project(name, source);
     std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
     let frame = project.join("frame.rgba");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let stats = project.join("stats.txt");
     let mut command = Command::new(&binary);
     command
@@ -1206,7 +1206,7 @@ fn run_fonts_bounded(
         std::fs::write(project.join(file), bytes).expect("write a font fixture");
     }
     let frame = project.join("frame.rgba");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let mut command = Command::new(&binary);
     command
         .current_dir(&project)

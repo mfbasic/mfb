@@ -148,7 +148,7 @@ END SUB
 MFB
 
 echo "--- building the canvas program for windows-x86_64 ---"
-"$MFB_EXE" build --app --target windows-x86_64 "$cproj" >/dev/null
+"$MFB_EXE" build --app --debug --target windows-x86_64 "$cproj" >/dev/null
 
 cat > "$work/canvas.bat" <<'BAT'
 @echo off

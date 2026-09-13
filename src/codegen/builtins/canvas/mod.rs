@@ -1338,14 +1338,40 @@ mod tests {
     /// the developer cannot open. This fails in milliseconds and names the line.
     #[test]
     fn reassembled_source_parses() {
-        let source = registry()
+        let canvas = registry().resolve_package("canvas").expect("canvas");
+        assert_parses(&canvas.get_mfb_for(false));
+        // plan-130-E: the `--debug` build's source, with the reporting hooks.
+        let debug = canvas.get_mfb_for(true);
+        assert!(debug.contains("\"MFB_CANVAS_STATS\"") && debug.contains("\"MFB_CANVAS_DUMP\""));
+        assert_parses(&debug);
+    }
+
+    /// plan-130-E: a normal build's canvas source carries no reporting hook — nothing
+    /// reads the stats or dump variable, and `__canvas_writeStats` does not exist.
+    /// (Comments in the source may still name the variables; the check is for code.)
+    #[test]
+    fn the_normal_source_has_no_reporting_hook() {
+        let normal = registry()
             .resolve_package("canvas")
             .expect("canvas")
-            .get_mfb();
+            .get_mfb_for(false);
+        for hook in [
+            "\"MFB_CANVAS_STATS\"",
+            "\"MFB_CANVAS_DUMP\"",
+            "__canvas_writeStats",
+        ] {
+            assert!(
+                !normal.contains(hook),
+                "normal canvas source contains {hook}"
+            );
+        }
+    }
+
+    fn assert_parses(source: &str) {
         if crate::ast::parse_source_internal(
             std::path::Path::new("<builtin-canvas>"),
             "builtins/canvas.mfb",
-            &source,
+            source,
         )
         .is_err()
         {

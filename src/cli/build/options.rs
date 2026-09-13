@@ -83,6 +83,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     let mut sign_owner = None;
     let mut app_mode = false;
     let mut app_debug = false;
+    let mut debug = false;
     let mut allow_unsigned = false;
     let mut opt = crate::optimizer::active_opt_level();
     let mut verbosity: Option<Verbosity> = None;
@@ -117,6 +118,11 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
                 return Err("mfb build accepts at most one --app-debug option".to_string());
             }
             app_debug = true;
+        } else if arg == "--debug" {
+            if debug {
+                return Err("mfb build accepts at most one --debug option".to_string());
+            }
+            debug = true;
         } else if arg == "--unsigned" {
             allow_unsigned = true;
         } else if arg == "-q" || arg == "--quiet" {
@@ -143,6 +149,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
         // papercut with no upside.
         app_mode: app_mode || app_debug,
         app_debug,
+        debug,
         opt,
         allow_unsigned,
         mode: crate::testing::CompileMode::Build,
@@ -158,12 +165,18 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
     let mut target = None;
     let mut opt = crate::optimizer::active_opt_level();
     let mut coverage = false;
+    let mut debug = false;
     let mut verbose: Option<Verbosity> = None;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
         if arg == "--coverage" {
             coverage = true;
+        } else if arg == "--debug" {
+            if debug {
+                return Err("mfb test accepts at most one --debug option".to_string());
+            }
+            debug = true;
         } else if is_verbose_flag(&arg) {
             raise_verbosity(&arg, &mut verbose, "test")?;
         } else if parse_common_option(&arg, &mut iter, "test", &mut target, &mut opt)? {
@@ -186,6 +199,7 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
         // takes neither `--app` nor `--app-debug`; both land in the
         // `unknown test option` arm above (plan-51-C §4.7).
         app_debug: false,
+        debug,
         opt,
         allow_unsigned: false,
         mode: crate::testing::CompileMode::Test { coverage },

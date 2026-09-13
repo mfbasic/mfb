@@ -3582,8 +3582,8 @@ mod tests {
         };
         // The build's order: registry injection into the AST, then the generic
         // HIR is monomorphized into the concrete program the pass walks.
-        let augmented =
-            crate::resolver::augment_project(&project).expect("builtin augmentation must succeed");
+        let augmented = crate::resolver::augment_project(&project, false)
+            .expect("builtin augmentation must succeed");
         crate::monomorph::monomorphize_project(Path::new("."), &crate::hir::elaborate(&augmented))
             .expect("test source must monomorphize")
     }
@@ -3977,7 +3977,7 @@ mod tests {
             name: "test".to_string(),
             files: vec![file],
         };
-        let augmented = crate::resolver::augment_project(&project).expect("augments");
+        let augmented = crate::resolver::augment_project(&project, false).expect("augments");
         let concrete = crate::monomorph::monomorphize_project(
             Path::new("."),
             &crate::hir::elaborate(&augmented),

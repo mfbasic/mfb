@@ -15,6 +15,8 @@ pub(crate) mod builtins_testing;
 pub(crate) mod cleanup;
 pub(crate) mod collection;
 pub(crate) mod compiler;
+// `--debug` builds: the report switch carried on `NirModule` (plan-130).
+pub(crate) mod debug;
 pub(crate) mod engine;
 pub(crate) mod error;
 pub(crate) mod io;

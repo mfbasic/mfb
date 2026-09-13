@@ -41,6 +41,8 @@ pub fn lower_project(
     // plan-15 D3: stdin broadcast-log backpressure cap from the manifest `"config"`
     // section, or `None` to bake the default (used by every non-executable / dump path).
     stdin_log_cap: Option<u64>,
+    // plan-130: `--debug` report switch; `DebugOptions::OFF` for a normal build.
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<NirModule, String> {
     // Merge imported packages' Binary Representation into the project up front so runtime
     // helper detection and codegen both see the complete, unified function set.
@@ -51,7 +53,14 @@ pub fn lower_project(
     let merged = crate::trace::timed("merge packages", || nir::merge_packages(ir, packages))?;
     let helpers = crate::trace::timed("required helpers", || runtime::required_helpers(&merged));
     let module = crate::trace::timed("IR -> NIR", || {
-        nir::lower_module(&merged, target_name, build_mode, stdin_log_cap, helpers)
+        nir::lower_module(
+            &merged,
+            target_name,
+            build_mode,
+            stdin_log_cap,
+            debug,
+            helpers,
+        )
     })?;
     crate::trace::count("NIR functions", module.functions.len() as u64);
     crate::trace::count(

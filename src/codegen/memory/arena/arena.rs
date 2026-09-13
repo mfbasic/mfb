@@ -1,5 +1,13 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::layout::*;
+use crate::codegen::debug::arena::{
+    emit_debug_arena_add, emit_debug_arena_bump, emit_debug_arena_live_add,
+    emit_debug_arena_live_sub, emit_debug_arena_slot, COUNTER_ALLOC_BYTES, COUNTER_ALLOC_CALLS,
+    COUNTER_DOUBLE_FREE_SKIPS, COUNTER_FLUSHES, COUNTER_FREE_BYTES, COUNTER_FREE_CALLS,
+    COUNTER_GROW, COUNTER_HIT_CARVE, COUNTER_HIT_LARGE_BIN, COUNTER_HIT_QUICK_BIN,
+    COUNTER_HIT_WALK, COUNTER_INSERT_FREE_CALLS, COUNTER_MAPPED_BYTES, COUNTER_MAPS,
+    COUNTER_UNMAPPED_BYTES, COUNTER_UNMAPS,
+};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
@@ -7,13 +15,6 @@ use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
-/// plan-67-F: is arena hot-path perf instrumentation active? `--cfg perf`-built
-/// compiler (`perf_injection_enabled()`) on the macOS backend only, so ordinary
-/// and Linux/Windows arena helpers stay byte-identical to pre-plan-67 HEAD.
-fn perf_arena_enabled(platform: &dyn CodegenPlatform) -> bool {
-    perf_injection_enabled() && platform.family() == PlatformFamily::MacOS
-}
-
 /// Emit `perf_start(name)` / `perf_end(name)` at an arena-region boundary: load the
 /// region's name object into the arg register and `bl` the perf helper. The
 /// register allocator spills any live vreg across the `bl` (perf clobbers x0–x17),
@@ -35,7 +36,39 @@ fn emit_perf_arena_call(
     relocations.push(internal_branch(from, &sym));
 }
 
-pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
+/// plan-130-C: a successful allocation of `size` served by the path whose hit counter
+/// is `counter` — bump it and raise `live_bytes`/`peak_live_bytes`. No-op without a
+/// registry slot (a normal build, or an unregistered arena).
+fn emit_debug_alloc_hit(
+    slot: &Option<String>,
+    counter: usize,
+    size: &str,
+    tag: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    if let Some(slot) = slot {
+        emit_debug_arena_bump(ARENA_ALLOC_SYMBOL, slot, counter, tag, instructions, vregs);
+        emit_debug_arena_live_add(
+            ARENA_ALLOC_SYMBOL,
+            slot,
+            size,
+            &format!("{tag}_live"),
+            instructions,
+            vregs,
+        );
+    }
+}
+
+/// `perf` (plan-130-B): bracket the body with the `mfb_alloc` perf span — true exactly
+/// when the `--debug` perf section is active for the module.
+/// `debug_arena` (plan-130-C): count this helper's events in the `--debug` arena
+/// registry — true exactly when the arena section is active for the module.
+pub(crate) fn lower_arena_alloc(
+    platform: &dyn CodegenPlatform,
+    perf: bool,
+    debug_arena: bool,
+) -> Result<CodeFunction, String> {
     // Vreg-allocated (plan-00-G Phase 2): the body names virtual registers and the
     // shared allocator places them per-ISA; `finalize_vreg_helper` runs the
     // allocator + `finalize_frame` (which builds the frame, saves the link
@@ -114,7 +147,7 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     ];
     // plan-67-F: open the `mfb_alloc` span now that size/eff_align are captured in
     // vregs (spilled across the perf `bl`); the body below re-derives ARG[0]/ARG[1].
-    if perf_arena_enabled(platform) {
+    if perf {
         emit_perf_arena_call(
             "perf.start",
             ARENA_ALLOC_SYMBOL,
@@ -123,6 +156,7 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
             &mut relocations,
         );
     }
+    let mut dbg_slot: Option<String> = None;
     instructions.extend([
         // Reject a raw request within ARENA_MIN_CHUNK of u64::MAX before the
         // +15 granule round-up (allocator-02, audit-1 MEM-07): without this
@@ -144,6 +178,38 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::add_immediate(&size, &size, (ARENA_MIN_CHUNK - 1) as usize),
         abi::move_immediate(&not15, "Integer", &not_15),
         abi::and_registers(&size, &size, &not15),
+    ]);
+    // plan-130-C: find this arena's registry slot once, then count the call and its
+    // normalized size. Invalid requests branched away above and are not counted.
+    if debug_arena {
+        let slot = vregs.next();
+        emit_debug_arena_slot(
+            ARENA_ALLOC_SYMBOL,
+            &slot,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        );
+        emit_debug_arena_bump(
+            ARENA_ALLOC_SYMBOL,
+            &slot,
+            COUNTER_ALLOC_CALLS,
+            "alloc_calls",
+            &mut instructions,
+            &mut vregs,
+        );
+        emit_debug_arena_add(
+            ARENA_ALLOC_SYMBOL,
+            &slot,
+            COUNTER_ALLOC_BYTES,
+            &size,
+            "alloc_bytes",
+            &mut instructions,
+            &mut vregs,
+        );
+        dbg_slot = Some(slot);
+    }
+    instructions.extend([
         // --- Quick-bin pop (allocator-01) ---------------------------------------
         // An exact-class bin hit serves the request in O(1): both sides
         // normalize identically (≥16, 16-multiple) and every chunk ever handed
@@ -163,6 +229,16 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::branch_eq("arena_alloc_bin_scan"),
         abi::load_u64(&bin_next, &bin_head, 0),
         abi::store_u64(&bin_next, &bin_slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
+    ]);
+    emit_debug_alloc_hit(
+        &dbg_slot,
+        COUNTER_HIT_QUICK_BIN,
+        &size,
+        "hit_quick",
+        &mut instructions,
+        &mut vregs,
+    );
+    instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
         abi::move_register(abi::mfb_return(1), &bin_head),
         abi::branch("arena_alloc_ret"),
@@ -184,6 +260,16 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::add_registers(&bin_next, &bin_head, &size),
         abi::store_u64(&bin_next, ARENA_STATE_REGISTER, ARENA_CARVE_PTR_OFFSET),
         abi::store_u64(&bin_rem, ARENA_STATE_REGISTER, ARENA_CARVE_SIZE_OFFSET),
+    ]);
+    emit_debug_alloc_hit(
+        &dbg_slot,
+        COUNTER_HIT_CARVE,
+        &size,
+        "hit_carve",
+        &mut instructions,
+        &mut vregs,
+    );
+    instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
         abi::move_register(abi::mfb_return(1), &bin_head),
         abi::branch("arena_alloc_ret"),
@@ -237,6 +323,19 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::load_u64(&bin_next, &bin_head, 0),
         abi::store_u64(&bin_next, &bin_scan, 0),
         abi::load_u64(&bin_rem, &bin_head, 8),
+    ]);
+    // plan-130-C: a renewed designated victim serves this request — counted here,
+    // before the shared serve label, because the walk's whole-chunk take also jumps
+    // to that label and is already counted as a walk hit.
+    emit_debug_alloc_hit(
+        &dbg_slot,
+        COUNTER_HIT_CARVE,
+        &size,
+        "hit_carve_renew",
+        &mut instructions,
+        &mut vregs,
+    );
+    instructions.extend([
         abi::label("arena_alloc_dv_serve"),
         // Serve `size` from the new DV chunk (bin_head/bin_rem) and store the
         // shrunken DV.
@@ -287,6 +386,16 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::label("arena_alloc_large_hit"),
         abi::load_u64(&lg_next, &lg_cur, 0),
         abi::store_u64(&lg_next, &lg_link, 0),
+    ]);
+    emit_debug_alloc_hit(
+        &dbg_slot,
+        COUNTER_HIT_LARGE_BIN,
+        &size,
+        "hit_large",
+        &mut instructions,
+        &mut vregs,
+    );
+    instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
         abi::move_register(abi::mfb_return(1), &lg_cur),
         abi::branch("arena_alloc_ret"),
@@ -314,6 +423,18 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::add_registers(&cur_end, &cur, &cur_size), // cur_end
         abi::compare_registers(&end_needed, &cur_end),
         abi::branch_hi("arena_alloc_walk_next"), // doesn't fit → next
+    ]);
+    // plan-130-C: the walk found a fit — counted at the walk, not at `found`, which
+    // the grow path also enters (and counts as a grow).
+    emit_debug_alloc_hit(
+        &dbg_slot,
+        COUNTER_HIT_WALK,
+        &size,
+        "hit_walk",
+        &mut instructions,
+        &mut vregs,
+    );
+    instructions.extend([
         abi::branch("arena_alloc_found"),
         abi::label("arena_alloc_walk_next"),
         abi::move_register(&prev, &cur),
@@ -496,6 +617,38 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::branch_ge("arena_alloc_mapped"),
         abi::branch("arena_alloc_oom"),
         abi::label("arena_alloc_mapped"),
+    ]);
+    // plan-130-C: a fresh block serves this request — one grow, one map of
+    // `map_size` bytes. The mapped address stays in the return register; the
+    // counters touch only fresh vregs.
+    if let Some(slot) = &dbg_slot {
+        emit_debug_arena_bump(
+            ARENA_ALLOC_SYMBOL,
+            slot,
+            COUNTER_MAPS,
+            "maps",
+            &mut instructions,
+            &mut vregs,
+        );
+        emit_debug_arena_add(
+            ARENA_ALLOC_SYMBOL,
+            slot,
+            COUNTER_MAPPED_BYTES,
+            &map_size,
+            "mapped_bytes",
+            &mut instructions,
+            &mut vregs,
+        );
+    }
+    emit_debug_alloc_hit(
+        &dbg_slot,
+        COUNTER_GROW,
+        &size,
+        "grow",
+        &mut instructions,
+        &mut vregs,
+    );
+    instructions.extend([
         // Write the block header (prevBlock, blockSize, usableCapacity, bumpOffset)
         // and chain it. bumpOffset is vestigial under the free-list but kept zero
         // so the documented block layout is unchanged.
@@ -572,7 +725,7 @@ pub(crate) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     // plan-67-F: close the `mfb_alloc` span at the single exit. The result (tag in
     // the return register, pointer in RET[1]) is live and the perf `bl` clobbers
     // both, so save them into vregs across the call and restore before returning.
-    if perf_arena_enabled(platform) {
+    if perf {
         let saved_tag = vregs.next();
         let saved_ptr = vregs.next();
         instructions.push(abi::move_register(&saved_tag, abi::return_register()));
@@ -726,7 +879,7 @@ pub(crate) fn lower_simd_alloc_list() -> CodeFunction {
 /// (allocator-03 idempotency guard), so a double-free relinks nothing. Leaf
 /// function; vreg-allocated — treat all caller-saved integer registers as
 /// clobbered.
-pub(crate) fn lower_arena_insert_free() -> CodeFunction {
+pub(crate) fn lower_arena_insert_free(debug_arena: bool) -> CodeFunction {
     let mut vregs = Vregs::new();
     // ptr (x0) / size (x1) are read-only args; this is a leaf, so they stay
     // physical. Everything else is a vreg the allocator places.
@@ -735,8 +888,29 @@ pub(crate) fn lower_arena_insert_free() -> CodeFunction {
     let t1 = vregs.next();
     let t2 = vregs.next();
     let merged = vregs.next();
-    let instructions = vec![
-        abi::label("entry"),
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    // plan-130-C: count the call. The lookup reads only the registry and fresh
+    // vregs, so the argument registers the body reads survive it.
+    if debug_arena {
+        let slot = vregs.next();
+        emit_debug_arena_slot(
+            ARENA_INSERT_FREE_SYMBOL,
+            &slot,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        );
+        emit_debug_arena_bump(
+            ARENA_INSERT_FREE_SYMBOL,
+            &slot,
+            COUNTER_INSERT_FREE_CALLS,
+            "insert_free_calls",
+            &mut instructions,
+            &mut vregs,
+        );
+    }
+    instructions.extend([
         // Walk to the insertion slot: prev = largest node < ptr (or 0),
         // cur = smallest node > ptr (or 0).
         abi::load_u64(&cur, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
@@ -821,13 +995,13 @@ pub(crate) fn lower_arena_insert_free() -> CodeFunction {
         abi::return_(),
         abi::label("insert_already_free"),
         abi::return_(),
-    ];
+    ]);
     finalize_vreg_helper(
         "runtime.arena_insert_free",
         ARENA_INSERT_FREE_SYMBOL,
         "Nothing",
         instructions,
-        Vec::new(),
+        relocations,
     )
 }
 
@@ -849,7 +1023,7 @@ pub(crate) fn lower_arena_insert_free() -> CodeFunction {
 /// shortfall) — it can never fabricate an overlap, so no sort defect can hand the
 /// same bytes to two allocations. Leaf, vreg-allocated: all caller-saved integer
 /// registers are clobbered (the caller spills its live `size`/`eff_align`).
-pub(crate) fn lower_arena_flush_coalesce() -> CodeFunction {
+pub(crate) fn lower_arena_flush_coalesce(debug_arena: bool) -> CodeFunction {
     let mut vregs = Vregs::new();
     // Gather cursors.
     let gathered = vregs.next();
@@ -879,8 +1053,29 @@ pub(crate) fn lower_arena_flush_coalesce() -> CodeFunction {
     let cend = vregs.next();
     let quick_max = ARENA_QUICK_BIN_MAX.to_string();
     let bin_count = ARENA_QUICK_BIN_COUNT.to_string();
-    let instructions = vec![
-        abi::label("entry"),
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    // plan-130-C: count the call. The lookup reads only the registry and fresh
+    // vregs, so the argument registers the body reads survive it.
+    if debug_arena {
+        let slot = vregs.next();
+        emit_debug_arena_slot(
+            ARENA_FLUSH_COALESCE_SYMBOL,
+            &slot,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        );
+        emit_debug_arena_bump(
+            ARENA_FLUSH_COALESCE_SYMBOL,
+            &slot,
+            COUNTER_FLUSHES,
+            "flushes",
+            &mut instructions,
+            &mut vregs,
+        );
+    }
+    instructions.extend([
         // --- Phase 1: gather list + every quick bin into `gathered` ------------
         abi::load_u64(&gathered, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
         abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
@@ -1033,13 +1228,13 @@ pub(crate) fn lower_arena_flush_coalesce() -> CodeFunction {
         abi::branch("fc_coalesce_loop"),
         abi::label("fc_ret"),
         abi::return_(),
-    ];
+    ]);
     finalize_vreg_helper(
         "runtime.arena_flush_coalesce",
         ARENA_FLUSH_COALESCE_SYMBOL,
         "Nothing",
         instructions,
-        Vec::new(),
+        relocations,
     )
 }
 
@@ -1054,7 +1249,9 @@ pub(crate) fn lower_arena_flush_coalesce() -> CodeFunction {
 /// an idempotent no-op inside the insert — must never scrub a live node's
 /// `{next, size}` words). Never unmaps. Vreg-allocated — treat all caller-saved
 /// integer registers as clobbered.
-pub(crate) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
+/// `perf` (plan-130-B): bracket the body with the `mfb_free` perf span — true exactly
+/// when the `--debug` perf section is active for the module.
+pub(crate) fn lower_arena_free(perf: bool, debug_arena: bool) -> CodeFunction {
     let mut vregs = Vregs::new();
     let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
     // ptr/size are live across both helper calls; each tramples every integer
@@ -1079,9 +1276,46 @@ pub(crate) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
         abi::move_immediate(&mask, "Integer", &not_15),
         abi::and_registers(&size, abi::c_arg(1), &mask),
     ];
+    // plan-130-C: find this arena's registry slot once, then count the call and its
+    // normalized size. In a `--debug` build the double-free exits go through a
+    // counting stub emitted after the return.
+    let mut dbg_slot: Option<String> = None;
+    if debug_arena {
+        let slot = vregs.next();
+        emit_debug_arena_slot(
+            ARENA_FREE_SYMBOL,
+            &slot,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        );
+        emit_debug_arena_bump(
+            ARENA_FREE_SYMBOL,
+            &slot,
+            COUNTER_FREE_CALLS,
+            "free_calls",
+            &mut instructions,
+            &mut vregs,
+        );
+        emit_debug_arena_add(
+            ARENA_FREE_SYMBOL,
+            &slot,
+            COUNTER_FREE_BYTES,
+            &size,
+            "free_bytes",
+            &mut instructions,
+            &mut vregs,
+        );
+        dbg_slot = Some(slot);
+    }
+    let double_free = if debug_arena {
+        "arena_free_double"
+    } else {
+        "arena_free_done"
+    };
     // plan-67-F: open the `mfb_free` span now that ptr/size are captured in vregs
     // (spilled across the perf `bl`); the body below re-derives ARG[0]/ARG[1].
-    if perf_arena_enabled(platform) {
+    if perf {
         emit_perf_arena_call(
             "perf.start",
             ARENA_FREE_SYMBOL,
@@ -1108,7 +1342,19 @@ pub(crate) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
         // `ptr.next = ptr` (a self-cycle) and hand `ptr` back to the next two
         // allocations. Skip the push and return, matching `insert_already_free`.
         abi::compare_registers(&ptr, &bin_head),
-        abi::branch_eq("arena_free_done"),
+        abi::branch_eq(double_free),
+    ]);
+    if let Some(slot) = &dbg_slot {
+        emit_debug_arena_live_sub(
+            ARENA_FREE_SYMBOL,
+            slot,
+            &size,
+            "free_quick",
+            &mut instructions,
+            &mut vregs,
+        );
+    }
+    instructions.extend([
         abi::store_u64(&bin_head, &ptr, 0),
         abi::store_u64(&size, &ptr, 8),
         abi::store_u64(&ptr, &bin_slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
@@ -1132,7 +1378,19 @@ pub(crate) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
         // Idempotency guard (allocator-03 parity, bug-266): an immediate double-free
         // of a large chunk already at the bin head would self-cycle it; skip.
         abi::compare_registers(&ptr, &bin_head),
-        abi::branch_eq("arena_free_done"),
+        abi::branch_eq(double_free),
+    ]);
+    if let Some(slot) = &dbg_slot {
+        emit_debug_arena_live_sub(
+            ARENA_FREE_SYMBOL,
+            slot,
+            &size,
+            "free_large",
+            &mut instructions,
+            &mut vregs,
+        );
+    }
+    instructions.extend([
         abi::store_u64(&bin_head, &ptr, 0),
         abi::store_u64(&size, &ptr, 8),
         abi::store_u64(&ptr, &bin_slot, ARENA_LARGE_BIN_BASE_OFFSET),
@@ -1148,7 +1406,7 @@ pub(crate) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
     ]);
     // plan-67-F: close the `mfb_free` span at the single exit. The helper returns
     // Nothing, so there is no result register to preserve across the perf `bl`.
-    if perf_arena_enabled(platform) {
+    if perf {
         emit_perf_arena_call(
             "perf.end",
             ARENA_FREE_SYMBOL,
@@ -1158,6 +1416,20 @@ pub(crate) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
         );
     }
     instructions.push(abi::return_());
+    // plan-130-C: an immediate double-free skipped its push; count it and leave
+    // through the shared exit.
+    if let Some(slot) = &dbg_slot {
+        instructions.push(abi::label("arena_free_double"));
+        emit_debug_arena_bump(
+            ARENA_FREE_SYMBOL,
+            slot,
+            COUNTER_DOUBLE_FREE_SKIPS,
+            "double_free",
+            &mut instructions,
+            &mut vregs,
+        );
+        instructions.push(abi::branch("arena_free_done"));
+    }
     finalize_vreg_helper(
         "runtime.arena_free",
         ARENA_FREE_SYMBOL,
@@ -1167,7 +1439,10 @@ pub(crate) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
     )
 }
 
-pub(crate) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
+pub(crate) fn lower_arena_destroy(
+    platform: &dyn CodegenPlatform,
+    debug_arena: bool,
+) -> Result<CodeFunction, String> {
     // Vreg-allocated (plan-00-G Phase 2): walk the block list and `munmap` each
     // block. `head` (the loop cursor) and `next` are loop-carried across the
     // `munmap` syscall, so the allocator keeps them in callee-saved registers (or
@@ -1179,16 +1454,54 @@ pub(crate) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<Code
     let next = vregs.next();
     let clear_cursor = vregs.next();
     let clear_limit = vregs.next();
-    let mut instructions = vec![
-        abi::label("entry"),
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    // plan-130-C: find this arena's registry slot once; each block it unmaps counts,
+    // read before the unmap's argument registers are loaded.
+    let mut dbg_slot: Option<String> = None;
+    if debug_arena {
+        let slot = vregs.next();
+        emit_debug_arena_slot(
+            ARENA_DESTROY_SYMBOL,
+            &slot,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        );
+        dbg_slot = Some(slot);
+    }
+    instructions.extend([
         abi::load_u64(&head, ARENA_STATE_REGISTER, 0),
         abi::label("arena_destroy_loop"),
         abi::compare_immediate(&head, "0"),
         abi::branch_eq("arena_destroy_done"),
         abi::load_u64(&next, &head, 0),
+    ]);
+    if let Some(slot) = &dbg_slot {
+        let block_size = vregs.next();
+        instructions.push(abi::load_u64(&block_size, &head, 8));
+        emit_debug_arena_bump(
+            ARENA_DESTROY_SYMBOL,
+            slot,
+            COUNTER_UNMAPS,
+            "unmaps",
+            &mut instructions,
+            &mut vregs,
+        );
+        emit_debug_arena_add(
+            ARENA_DESTROY_SYMBOL,
+            slot,
+            COUNTER_UNMAPPED_BYTES,
+            &block_size,
+            "unmapped_bytes",
+            &mut instructions,
+            &mut vregs,
+        );
+    }
+    instructions.extend([
         abi::load_u64(abi::c_arg(1), &head, 8),
         abi::move_register(abi::return_register(), &head),
-    ];
+    ]);
     platform.emit_arena_unmap(&mut instructions)?;
     instructions.extend([
         abi::move_register(&head, &next),
@@ -1219,6 +1532,6 @@ pub(crate) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<Code
         ARENA_DESTROY_SYMBOL,
         "Nothing",
         instructions,
-        Vec::new(),
+        relocations,
     ))
 }

@@ -1371,6 +1371,7 @@ pub(crate) fn lower_abi_function_helper(
     presentation_mode_offset: Option<usize>,
     arena_global_slots: usize,
     uses_rng: bool,
+    debug_arena_registry: bool,
 ) -> Result<
     (
         CodeFrame,
@@ -1490,6 +1491,7 @@ pub(crate) fn lower_abi_function_helper(
         call,
         arena_global_slots,
         uses_rng,
+        debug_arena_registry,
     };
     let result = lower(&mut builder, &args, &ctx)?;
 

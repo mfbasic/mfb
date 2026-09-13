@@ -28,6 +28,8 @@ registry/signing workflow behind `repo publish`/`repo`/`build --sign` is
   and the embedded `spec`/`man` terminal rendering.
 - `auditability` — the rationale and catalogue for surfacing the language's
   implicit fallible control flow, plus the language-server design target.
+- `debug-report` — the `--debug` build's stderr measurement report: when it prints,
+  its line format, and its sections.
 
 ## See Also
 

@@ -580,6 +580,7 @@ pub(crate) fn lower_thread_start_helper(
     symbol: &str,
     uses_rng: bool,
     arena_global_slots: usize,
+    debug_arena_registry: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<ThreadBodyParts, String> {
@@ -720,6 +721,25 @@ pub(crate) fn lower_thread_start_helper(
         abi::load_u64("%v11", abi::ARENA, ARENA_ROUNDING_MODE_OFFSET),
         abi::store_u64("%v11", abi::mfb_return(1), ARENA_ROUNDING_MODE_OFFSET),
     ]);
+    // plan-130-C: register the worker's arena with the `--debug` arena registry. The
+    // parent does it, synchronously, before the worker exists, so workers register in
+    // start order. The call clobbers caller-saved registers; everything below reloads
+    // the child arena from the control block.
+    if debug_arena_registry {
+        instructions.extend([
+            abi::move_register(abi::c_arg(0), abi::mfb_return(1)),
+            abi::move_immediate(
+                abi::c_arg(1),
+                "Integer",
+                crate::codegen::debug::ARENA_KIND_WORKER,
+            ),
+            abi::branch_link(crate::codegen::debug::DEBUG_ARENA_REGISTER_SYMBOL),
+        ]);
+        relocations.push(internal_branch(
+            symbol,
+            crate::codegen::debug::DEBUG_ARENA_REGISTER_SYMBOL,
+        ));
+    }
 
     if uses_rng {
         // Give the new thread its own PCG64 stream by drawing a 64-bit seed from

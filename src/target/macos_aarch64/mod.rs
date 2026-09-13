@@ -294,12 +294,13 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
-        signing_metadata: Option<&[u8]>,
+        signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
         app_version: Option<&str>,
         vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
+        debug: crate::codegen::debug::DebugOptions,
         progress: &dyn Fn(&str),
     ) -> Result<Vec<PathBuf>, String> {
         write_executable(
@@ -313,6 +314,7 @@ impl NativeBackend for Backend {
             app_version,
             vendors_native_libraries,
             stdin_log_cap,
+            debug,
             progress,
         )
     }
@@ -323,8 +325,9 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
-        write_nir(project_dir, ir, &self.target(), packages, build_mode)
+        write_nir(project_dir, ir, &self.target(), packages, build_mode, debug)
     }
 
     fn write_native_plan(
@@ -333,8 +336,9 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
-        write_native_plan(project_dir, ir, &self.target(), packages, build_mode)
+        write_native_plan(project_dir, ir, &self.target(), packages, build_mode, debug)
     }
 
     fn write_native_object_plan(
@@ -343,8 +347,9 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
-        write_native_object_plan(project_dir, ir, &self.target(), packages, build_mode)
+        write_native_object_plan(project_dir, ir, &self.target(), packages, build_mode, debug)
     }
 
     fn write_native_code_plan(
@@ -353,8 +358,9 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
-        write_native_code_plan(project_dir, ir, &self.target(), packages, build_mode)
+        write_native_code_plan(project_dir, ir, &self.target(), packages, build_mode, debug)
     }
 
     fn write_mir(
@@ -363,8 +369,9 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
-        write_mir(project_dir, ir, &self.target(), packages, build_mode)
+        write_mir(project_dir, ir, &self.target(), packages, build_mode, debug)
     }
 }
 
@@ -374,18 +381,26 @@ fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
-    signing_metadata: Option<&[u8]>,
+    signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
     app_version: Option<&str>,
     vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
+    debug: crate::codegen::debug::DebugOptions,
     progress: &dyn Fn(&str),
 ) -> Result<Vec<PathBuf>, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
     progress("lowering module");
-    let module = lower::lower_project(ir, target.name(), packages, build_mode, stdin_log_cap)?;
+    let module = lower::lower_project(
+        ir,
+        target.name(),
+        packages,
+        build_mode,
+        stdin_log_cap,
+        debug,
+    )?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     progress("planning + regalloc");
@@ -402,7 +417,7 @@ fn write_executable(
     arch::aarch64::encode::relax_conditional_branches(&mut native_code)?;
     progress("encoding image");
     let mut image = arch::aarch64::encode::encode(&native_code)?;
-    image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
+    image.signing_metadata = signing_metadata.cloned();
     // plan-46-D §4.4: point the loader at wherever this output shape puts its
     // vendored dylibs — `build/vendor/` beside a console `.out`, or the
     // platform-standard `Contents/Frameworks/` inside a `.app`. This one string is
@@ -451,10 +466,11 @@ fn write_nir(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode, None)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, None, debug)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let nir_path = project_dir.join(format!("{}.nir", ir.name));
@@ -469,10 +485,11 @@ fn write_native_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode, None)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, None, debug)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;
@@ -489,10 +506,11 @@ fn write_native_object_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode, None)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, None, debug)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;
@@ -506,10 +524,11 @@ fn write_native_code_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode, None)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, None, debug)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;
@@ -529,10 +548,11 @@ fn write_mir(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages, build_mode, None)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, None, debug)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;

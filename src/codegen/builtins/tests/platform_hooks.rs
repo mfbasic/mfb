@@ -268,7 +268,7 @@ fn a_backend_that_overrides_nothing_declines_every_optional_hook() {
     // The value-returning defaults, which `optional_hook_answers` cannot reach
     // because they answer with a collection rather than an `Option`.
     assert!(
-        stub.app_mode_data_objects("probe").is_empty(),
+        stub.app_mode_data_objects("probe", false).is_empty(),
         "a backend with no app mode has no app-mode data objects"
     );
     assert!(
@@ -441,6 +441,7 @@ fn optional_hook_answers(platform: &dyn CodegenPlatform) -> Vec<(&'static str, A
                 uses_term: false,
                 initial_mode: PresentationMode::Console,
                 uses_canvas: false,
+                debug_hooks: false,
             },
             &sink.imports,
         )

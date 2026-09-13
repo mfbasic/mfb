@@ -116,7 +116,7 @@ pub(crate) trait NativeBackend: Sync {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
-        signing_metadata: Option<&[u8]>,
+        signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
         // bug-248: the manifest `version`, published as the macOS app bundle's
@@ -133,6 +133,7 @@ pub(crate) trait NativeBackend: Sync {
         // plan-15 D3: stdin broadcast-log backpressure cap from the manifest
         // `"config"` section, or `None` to bake `STDIN_LOG_CAP_DEFAULT`.
         stdin_log_cap: Option<u64>,
+        debug: crate::codegen::debug::DebugOptions,
         // bug-393: a live progress sink called at each codegen sub-stage boundary
         // (lower → plan/regalloc → code emit → encode → link). The CLI passes a
         // closure that prints at Verbose and no-ops otherwise, so the backend
@@ -145,6 +146,7 @@ pub(crate) trait NativeBackend: Sync {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String>;
     fn write_native_plan(
         &self,
@@ -152,6 +154,7 @@ pub(crate) trait NativeBackend: Sync {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String>;
     fn write_native_object_plan(
         &self,
@@ -159,6 +162,7 @@ pub(crate) trait NativeBackend: Sync {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String>;
     fn write_native_code_plan(
         &self,
@@ -166,6 +170,7 @@ pub(crate) trait NativeBackend: Sync {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String>;
     /// Write the target-neutral MIR dump (`-mir`, plan-00-A §12a). Shares the
     /// `native_code_plan` capability (same lowering, captured before register
@@ -176,6 +181,7 @@ pub(crate) trait NativeBackend: Sync {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String>;
     /// Whether this backend supports app mode (`mfb build -app`). macOS backends
     /// advertise the AppKit runtime and Linux backends the GTK4 one; the CLI
@@ -283,12 +289,13 @@ pub fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
-    signing_metadata: Option<&[u8]>,
+    signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
     app_version: Option<&str>,
     vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
+    debug: crate::codegen::debug::DebugOptions,
     progress: &dyn Fn(&str),
 ) -> Result<Vec<PathBuf>, String> {
     let backend = backend_for(target)?;
@@ -313,6 +320,7 @@ pub fn write_executable(
         app_version,
         vendors_native_libraries,
         stdin_log_cap,
+        debug,
         progress,
     )
 }
@@ -347,6 +355,7 @@ pub fn write_nir(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().native_ir {
@@ -357,7 +366,7 @@ pub fn write_nir(
     }
     crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
-    backend.write_nir(project_dir, ir, packages, build_mode)
+    backend.write_nir(project_dir, ir, packages, build_mode, debug)
 }
 
 pub fn write_native_plan(
@@ -366,6 +375,7 @@ pub fn write_native_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().native_plan {
@@ -376,7 +386,7 @@ pub fn write_native_plan(
     }
     crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
-    backend.write_native_plan(project_dir, ir, packages, build_mode)
+    backend.write_native_plan(project_dir, ir, packages, build_mode, debug)
 }
 
 pub fn write_native_object_plan(
@@ -385,6 +395,7 @@ pub fn write_native_object_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().native_object_plan {
@@ -395,7 +406,7 @@ pub fn write_native_object_plan(
     }
     crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
-    backend.write_native_object_plan(project_dir, ir, packages, build_mode)
+    backend.write_native_object_plan(project_dir, ir, packages, build_mode, debug)
 }
 
 pub fn write_native_code_plan(
@@ -404,6 +415,7 @@ pub fn write_native_code_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().native_code_plan {
@@ -414,7 +426,7 @@ pub fn write_native_code_plan(
     }
     crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
-    backend.write_native_code_plan(project_dir, ir, packages, build_mode)
+    backend.write_native_code_plan(project_dir, ir, packages, build_mode, debug)
 }
 
 pub fn write_mir(
@@ -423,6 +435,7 @@ pub fn write_mir(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
     // The MIR dump runs the same lowering as `-ncode`, so it shares that
@@ -432,7 +445,7 @@ pub fn write_mir(
     }
     crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
-    backend.write_mir(project_dir, ir, packages, build_mode)
+    backend.write_mir(project_dir, ir, packages, build_mode, debug)
 }
 
 pub fn write_package(

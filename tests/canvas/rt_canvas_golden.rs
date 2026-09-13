@@ -100,7 +100,7 @@ fn render_inner(name: &str, source: &str, font: bool, extra: &[(&str, &str)]) ->
     }
     let frame_path = project.join("frame.rgba");
     let stats_path = project.join("stats.txt");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let mut command = Command::new(&binary);
     command
         // The project directory, so a scene that opens `fixture.ttf` finds it. Running

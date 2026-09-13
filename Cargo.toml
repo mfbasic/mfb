@@ -40,12 +40,6 @@ icns = "0.3"
 [lints.clippy]
 items_after_test_module = "deny"
 
-[lints.rust]
-# `--cfg perf` opts a build into runtime perf-tracking injection
-# (`perf_injection_enabled()`), independent of debug/release. Register it so the
-# 1.80+ unexpected-cfg lint recognizes the name instead of warning on it.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(perf)'] }
-
 [dev-dependencies]
 tempfile = "3"
 serde_json = "1"
@@ -182,6 +176,10 @@ name = "cli_init_symlink"
 path = "tests/cli/cli_init_symlink.rs"
 
 [[test]]
+name = "cli_info"
+path = "tests/cli/cli_info.rs"
+
+[[test]]
 name = "cli_json_depth_limit"
 path = "tests/cli/cli_json_depth_limit.rs"
 
@@ -269,6 +267,10 @@ path = "tests/canvas/rt_canvas_golden.rs"
 [[test]]
 name = "rt_canvas_graphics_thread"
 path = "tests/canvas/rt_canvas_graphics_thread.rs"
+
+[[test]]
+name = "rt_canvas_debug_hooks"
+path = "tests/canvas/rt_canvas_debug_hooks.rs"
 
 [[test]]
 name = "rt_canvas_group_ownership"
@@ -655,6 +657,14 @@ path = "tests/runtime/rt_operand_snapshot.rs"
 [[test]]
 name = "rt_package_calls_software_curve_builtin"
 path = "tests/runtime/rt_package_calls_software_curve_builtin.rs"
+
+[[test]]
+name = "rt_debug_arena"
+path = "tests/runtime/rt_debug_arena.rs"
+
+[[test]]
+name = "rt_debug_report"
+path = "tests/runtime/rt_debug_report.rs"
 
 [[test]]
 name = "rt_process_detach_preserves_exit_code"

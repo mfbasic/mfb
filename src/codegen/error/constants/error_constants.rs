@@ -215,16 +215,10 @@ pub(crate) const HAS_RVV_GLOBAL_SYMBOL: &str = "_mfb_rt_has_rvv";
 /// plan-67-B: one writable 8-byte global holding the base pointer of the runtime
 /// perf-tracking region (the `emit_arena_map`-mmap'd system memory that holds the
 /// name-keyed timing tables). Mirrors `MAIN_ARENA_GLOBAL_SYMBOL`: a zeroed
-/// `kind:"raw"` object emitted only for a **`--cfg perf` macOS entry** module
-/// (gated by `perf_injection_enabled()`), so ordinary and non-macOS plans never
-/// see it. `perf_init` stores the region base here; every other perf helper loads
+/// `kind:"raw"` object emitted only for a **`--debug` macOS entry** module (the
+/// debug report's `perf` section), so ordinary and non-macOS plans never see it. `perf_init` stores the region base here; every other perf helper loads
 /// it and treats a 0 base as "perf inert" (mmap failed / perf-free build).
 pub(crate) const PERF_STATE_SYMBOL: &str = "_mfb_rt_perf_state";
-
-/// plan-67-B: the `mfb.string.v1` object holding the perf-table header line
-/// (`name count avg median min max sum`), written to stderr by `perf_done`.
-/// Emitted under the same `--cfg perf`-macOS-entry gate as `PERF_STATE_SYMBOL`.
-pub(crate) const PERF_HEADER_SYMBOL: &str = "_mfb_rt_perf_header";
 
 /// plan-67-C: the `mfb.string.v1` name object for the whole-program span. The
 /// entry loads its address as `perf_start`'s `namePtr`; because every injection of
@@ -244,6 +238,18 @@ pub(crate) const PERF_NAME_OVERFLOW_SYMBOL: &str = "_mfb_rt_perf_name_overflow";
 /// macOS backend, so the exit table shows a timing row per region.
 pub(crate) const PERF_NAME_MFB_ALLOC_SYMBOL: &str = "_mfb_rt_perf_name_mfb_alloc";
 pub(crate) const PERF_NAME_MFB_FREE_SYMBOL: &str = "_mfb_rt_perf_name_mfb_free";
+
+/// plan-130-B: the `mfb.string.v1` key pieces `perf.done` assembles each debug-report line
+/// from: `perf.` + a span name + a stat suffix (`.count ` …), or `perf.` + a header
+/// counter key (`PERF_NAME_MISMATCH_SYMBOL` / `PERF_NAME_OVERFLOW_SYMBOL`). Emitted by
+/// the debug report's `perf` section.
+pub(crate) const PERF_KEY_PREFIX_SYMBOL: &str = "_mfb_rt_perf_key_prefix";
+pub(crate) const PERF_KEY_COUNT_SYMBOL: &str = "_mfb_rt_perf_key_count";
+pub(crate) const PERF_KEY_AVG_SYMBOL: &str = "_mfb_rt_perf_key_avg";
+pub(crate) const PERF_KEY_MEDIAN_SYMBOL: &str = "_mfb_rt_perf_key_median";
+pub(crate) const PERF_KEY_MIN_SYMBOL: &str = "_mfb_rt_perf_key_min";
+pub(crate) const PERF_KEY_MAX_SYMBOL: &str = "_mfb_rt_perf_key_max";
+pub(crate) const PERF_KEY_SUM_SYMBOL: &str = "_mfb_rt_perf_key_sum";
 
 // ===========================================================================
 // term:: TUI state slots (reserved in the program-entry frame)

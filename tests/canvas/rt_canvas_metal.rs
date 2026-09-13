@@ -321,7 +321,7 @@ impl Drop for Program {
 
 fn build(name: &str, source: &str) -> Program {
     let project = common::temp_project(name, source);
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     Program { project, binary }
 }
 

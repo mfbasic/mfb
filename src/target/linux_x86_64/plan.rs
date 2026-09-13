@@ -79,6 +79,10 @@ impl NativePlanPlatform for Platform {
         self.common().native_call_imports(target, required_by)
     }
 
+    fn peak_rss_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        self.common().peak_rss_imports(required_by)
+    }
+
     fn app_mode_imports(&self) -> Vec<PlatformImport> {
         // Shared with the sibling Linux backend
         // (src/target/linux_gtk/mod.rs::app_mode_imports). The C-library

@@ -130,13 +130,182 @@ fn repo_signs_package_and_embeds_executable_metadata() {
                 .unwrap_or(false)
         })
         .expect("signed executable");
-    let executable = std::fs::read(executable).unwrap();
+    let executable_path = executable;
+    let executable = std::fs::read(&executable_path).unwrap();
     assert!(executable
         .windows(b"mfb-signing-v1".len())
         .any(|window| window == b"mfb-signing-v1"));
     assert!(executable
         .windows(b"alice".len())
         .any(|window| window == b"alice"));
+
+    // `mfb info` reads the blob back and walks its chain against the registry the
+    // blob names — with NO local state: a HOME holding nothing, and neither
+    // `MFB_HOME` nor `MFB_REPO_URL` set, so no pinned key or configured registry
+    // can stand in for the one inside the binary.
+    let empty_home = tempfile::tempdir().unwrap();
+    let info = |path: &std::path::Path| {
+        let output = Command::new(mfb_exe())
+            .args(["info", path.to_str().unwrap()])
+            .env("HOME", empty_home.path())
+            .env("USERPROFILE", empty_home.path())
+            .env_remove("MFB_HOME")
+            .env_remove("MFB_REPO_URL")
+            .env_remove("MFB_REPO_SERVER_FINGERPRINT")
+            .output()
+            .expect("run mfb info");
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert!(
+            stdout.contains("\nCompiler: "),
+            "mfb info printed no report for {}: stdout {:?}, stderr {:?}",
+            path.display(),
+            stdout,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        stdout
+    };
+    let stdout = info(&executable_path);
+    assert!(stdout.contains("\nSigned: yes\n"), "{stdout}");
+    assert!(stdout.contains("\n  owner: alice\n"), "{stdout}");
+    assert!(
+        stdout.contains(&format!("\n  registry: {}\n", repo.url)),
+        "{stdout}"
+    );
+    assert!(stdout.contains("\n  contents: intact\n"), "{stdout}");
+    assert!(stdout.contains("\n  ident key: current\n"), "{stdout}");
+    assert!(stdout.contains("\n  ident: alice#signed_app\n"), "{stdout}");
+    assert!(stdout.contains("\n  version: 0.1.0\n"), "{stdout}");
+    let server_key = crypto::decode_bytes(
+        std::fs::read_to_string(repo_home.join("server.pub"))
+            .unwrap()
+            .trim(),
+        "server key",
+    )
+    .unwrap();
+    assert!(
+        stdout.contains(&format!(
+            "\n  trust chain: verified (repoFingerprint {})\n",
+            crypto::fingerprint(&server_key)
+        )),
+        "{stdout}"
+    );
+
+    // A signed claim rewritten in place breaks the signatures over it.
+    let forged = executable
+        .windows(b"alice#signed_app".len())
+        .enumerate()
+        .filter(|(_, window)| *window == b"alice#signed_app")
+        .map(|(at, _)| at)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .fold(executable.clone(), |mut bytes, at| {
+            bytes[at + b"alice#signed_".len()] = b'b';
+            bytes
+        });
+    assert_ne!(forged, executable, "the signed ident is in the blob");
+    let forged_path = work.path().join("forged.out");
+    std::fs::write(&forged_path, forged).unwrap();
+    let stdout = info(&forged_path);
+    assert!(
+        stdout.contains("\n  trust chain: NOT VERIFIED (invalid proof signature)\n"),
+        "{stdout}"
+    );
+
+    // A byte of the program changed after signing breaks the content signature.
+    // A third of the way in is past every header and well before the blob, which
+    // every format places after the code and data.
+    let blob_at = executable
+        .windows(b"mfb-signing-v1".len())
+        .position(|window| window == b"mfb-signing-v1")
+        .unwrap();
+    let code_at = executable.len() / 3;
+    assert!(code_at < blob_at, "the patched byte is outside the blob");
+    let mut patched = executable.clone();
+    patched[code_at] ^= 0x01;
+    let patched_path = work.path().join("patched.out");
+    std::fs::write(&patched_path, patched).unwrap();
+    let stdout = info(&patched_path);
+    assert!(
+        stdout.contains("\n  contents: MODIFIED (content signature does not match the file)\n"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("\n  trust chain: verified (repoFingerprint "),
+        "the identity chain does not depend on the file's bytes: {stdout}"
+    );
+
+    // Every target's linker seals the content signature, and `mfb info` verifies it.
+    for (target, files) in [
+        (
+            "linux-x86_64",
+            &["signed_app-glibc.out", "signed_app-musl.out"][..],
+        ),
+        (
+            "linux-aarch64",
+            &["signed_app-glibc.out", "signed_app-musl.out"][..],
+        ),
+        (
+            "linux-riscv64",
+            &["signed_app-glibc.out", "signed_app-musl.out"][..],
+        ),
+        ("macos-aarch64", &["signed_app.out"][..]),
+        ("windows-x86_64", &["signed_app.exe"][..]),
+    ] {
+        let output = run_mfb(
+            &repo,
+            home.path(),
+            &["build", "--sign", "alice", "-target", target, app_dir_arg],
+        );
+        assert!(
+            output.status.success(),
+            "signed {target} build failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        for file in files {
+            let stdout = info(&app_dir.join("build").join(file));
+            assert!(
+                stdout.contains("\n  contents: intact\n")
+                    && stdout.contains("\n  trust chain: verified (repoFingerprint "),
+                "{target} {file}:\n{stdout}"
+            );
+        }
+    }
+
+    // The builds above cleared `build/`, so the checks below read a copy of the
+    // first executable — the content signature covers its bytes, not its name.
+    let executable_path = work.path().join("signed_app-original.out");
+    std::fs::write(&executable_path, &executable).unwrap();
+
+    // The owner rotates their ident: the registry now reports the signing key as
+    // rotated away from — through a signed link — and the build still verifies.
+    let rotate = run_mfb(&repo, home.path(), &["key", "rotate", "alice"]);
+    assert!(
+        rotate.status.success(),
+        "key rotate failed: {}",
+        String::from_utf8_lossy(&rotate.stderr)
+    );
+    let stdout = info(&executable_path);
+    assert!(
+        stdout.contains("\n  ident key: rotated since signing (current identFingerprint "),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("\n  trust chain: verified (repoFingerprint "),
+        "{stdout}"
+    );
+
+    // With the registry gone, nothing local stands in for it.
+    let registry_url = repo.url.clone();
+    drop(repo);
+    let stdout = info(&executable_path);
+    assert!(
+        stdout.contains(&format!(
+            "\n  trust chain: NOT VERIFIED (registry {registry_url} is unreachable: "
+        )),
+        "{stdout}"
+    );
+    assert!(stdout.contains("\n  contents: intact\n"), "{stdout}");
 }
 
 #[test]

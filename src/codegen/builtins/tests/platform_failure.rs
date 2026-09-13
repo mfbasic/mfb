@@ -820,8 +820,8 @@ impl CodegenPlatform for FailAt<'_> {
     fn emit_tls_block_trampolines(&self, server: bool) -> Vec<CodeFunction> {
         self.inner.emit_tls_block_trampolines(server)
     }
-    fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
-        self.inner.app_mode_data_objects(project_name)
+    fn app_mode_data_objects(&self, project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
+        self.inner.app_mode_data_objects(project_name, debug_hooks)
     }
     fn app_mode_reconcile_data_objects(&self) -> Vec<CodeDataObject> {
         self.inner.app_mode_reconcile_data_objects()

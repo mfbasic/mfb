@@ -114,7 +114,12 @@ The image is encoded once unsigned to compute the hashes, then re-encoded with
 the signature in place. [[src/os/macos/link/commands.rs:code_signature]]
 
 This ad-hoc signature is distinct from the optional `__MFB,.mfbsign` segment, which
-carries MFBASIC's own executable signing metadata when the build supplies it.
+carries MFBASIC's own executable signing metadata when the build supplies it. On
+a signed build the second (final-size) unsigned encode is sealed — the blob's
+`contentSignature` placeholder filled over the image up to the
+`LC_CODE_SIGNATURE` offset — before the page hashes are taken, so the ad-hoc
+signature covers the sealed blob and `codesign -v` passes.
+[[src/os/macos/link/macho.rs:encode_mach_o]]
 
 ## App-mode bundle
 
