@@ -49,6 +49,21 @@ neither filed it), 594 (macOS `drawText` column), 592.
 
 ### Open decisions — these need the owner, not an agent
 
+- **bug-564, the one open finding**: on macOS, once `tls::read` has reported the peer
+  closed, later `tls::write` calls never raise (20 000 × 64 KiB "complete" in under a
+  second; main behaves the same). Whether a received close_notify alone should fail later
+  writes is a semantics call — TLS 1.3 permits half-close. Sighting 2 itself is fixed
+  (`stlr`/`ldar`, matched pair 19/600 → 0/600).
+- **bug-599 / bug-601, the non-flat address-record lists**: the list block, record and host
+  `String` still grow, and no drop can be added alone because values of this class share
+  blocks (bug-601: `MUT ys = xs` then an in-place `append` segfaults). Either flatten
+  `net::Address` / `udp::Datagram` / `audio::AudioDevice` onto the inlined-String layout
+  (recommended by the fixer; an internal ABI change over ~13 writers and ~12 readers), or fold
+  both into the bug-536 shape-C plan.
+- **bug-593's residual**: a successful or failing `RES` call still grows by the closed
+  resource record plan-52-B deliberately never frees (aliases read its closed flag).
+  Reclaiming it moves a lifetime.
+
 - **bug-581 Phase 2**: what a client does when `snapshot.json` carries no per-package
   commitment. Fail closed breaks every deployed registry; fail open makes the fix a no-op.
 - **`collections::sum` (bug-590) and `set` (bug-563) declared errors**: whether an error
