@@ -142,15 +142,44 @@ Commit: —
 
 ### Phase 2 — element frees
 
-- [ ] Collection drop through the walker for the class; walker kinds generated from
-      `type_reaches_cycle` if Phase 1 showed a gap.
-- [ ] Each discarding arm from the census drops the old element graph.
-- [ ] `G24` per the Open Decision, with the fetch-remove-grow-read test.
-- [ ] Tests: Phase 1 passes; every plan-134 runtime test passes.
+- [x] Collection drop through the walker for the class; walker kinds generated from
+      `type_reaches_cycle` if Phase 1 showed a gap. — Gap shown, so: `graph_drop_kind_names` →
+      `TypeModel::graph_drop_kinds`, seeded from the model and the module's spelled types
+      (Corrections). `graph_drop_kind` reads it, so every G ownership gate now covers
+      reaching-only types (`Holder`, `Map OF String TO Node`, `List OF Rep`).
+- [x] Each discarding arm from the census drops the old element graph. — Element drops, via
+      `emit_drop_list_element` / `emit_drop_entry_value` and the new
+      `_mfb_rt_graph_drop_edges`, at the four helpers every discarding arm reaches:
+      - `lower_list_set_in_place`;
+      - `lower_list_remove_at_in_place`;
+      - `lower_map_set_in_place`;
+      - `lower_map_remove_key_in_place`.
+
+      Collection blocks:
+      - Intermediate and pre-grow collection blocks of recursive values are freed shallowly
+        (`free_intermediate_collection`).
+      - The three `STATE` arms are outside the class, and the set arms are unreachable
+        (Corrections).
+- [x] `G24` per the Open Decision, with the fetch-remove-grow-read test. — Lifted, as
+      recommended, at all three gates (`builder_inplace_assign.rs`):
+      - `get` returns an owned copy since plan-134-D;
+      - the compaction now frees the removed element.
+
+      Pinned by `a_fetched_recursive_element_survives_an_in_place_remove_and_a_growing_append`
+      → `fetched=2 len=52 first=4`, `double_free_skips 0`.
+- [x] Tests: Phase 1 passes; every plan-134 runtime test passes. — Plus the fix the json leak
+      exposed: a graph moved out by `RETURN` reports `already_standalone` (Corrections;
+      `--debug` bound `json::parse` → 55 003 allocs / 55 003 frees, `live_bytes 0`).
 
 Acceptance: element discards return live_bytes; the decoders are flat.
   Check: `cargo test --release --test rt_recursive_value_collection_drops --test
   rt_scope_drop_leaks` → passed (est. 12 min).
+  Result (one binary):
+  - `rt_recursive_value_collection_drops` 9 / 9;
+  - `rt_scope_drop_leaks` 128 / 128, including `json_repeat` K 1 → 4 and the json unbound
+    temp;
+  - the B–G value suites 17 / 17 (`rt_recursive_value_copies` 3, `…construction_copies` 4,
+    `…drop_symmetry` 6, `…copy_depth` 3, `rt_error_value_copies` 1).
 Commit: —
 
 ### Phase 3 — measurements, docs, close-out
@@ -219,6 +248,50 @@ Commit: —
   resource-bearing: `type_contains_resource` walks the `STATE` clause, so `needs_graph_copy` and
   `owns_graph` are false for it. The three `try_inplace_state_*` discarding arms leak as before
   and get no per-arm case here.
+- **The walker kinds are seeded from the module, not just the type model.** A `List OF Rep` that
+  only a local declares is never a component of a model record or union, so kinds derived from
+  `TypeModel` alone miss it. `graph_drop_kind_names` (`builder_collection_layout.rs`) seeds the
+  walk from the model's records and unions, globals, parameter and return types,
+  `LET`/`FOR`/`FOR EACH` types, and constructor, collection-literal and union-wrap types. The
+  list is stored as `TypeModel::graph_drop_kinds`, filled in `from_module` and
+  `from_module_and_packages`. It puts the copy walker's kinds first, so their indices are shared.
+- **An inlined element needs a drop that frees its edges, not its bytes.** A record or union
+  element lives inside the collection's block. `_mfb_rt_graph_drop_edges` is the same walker with
+  the root entry's block free skipped (a `graph_drop_root` flag cleared at the first pop). A
+  pointer payload still goes through `_mfb_rt_graph_drop`. Used by `emit_drop_list_element` /
+  `emit_drop_entry_value` at four discard sites:
+  - `lower_list_set_in_place`, after the bounds check;
+  - `lower_list_remove_at_in_place`, entry-table branch;
+  - `lower_map_set_in_place`, `found_handle`;
+  - `lower_map_remove_key_in_place`, before the entry shift.
+
+  After this, four of the seven RED arms passed: list `set`, map `set`, the reaching-type list,
+  and the pinned list `removeAt`. The other four still grew by 82 000–256 000 B per 1 000
+  iterations.
+- **Intermediate and pre-grow collection blocks of recursive values are freed shallowly —
+  G's deferred §2.1 row 7.** The remaining growth was blocks, not graphs.
+  `free_intermediate_collection` (and `emit_free_pre_grow_buffer`, which delegates to it)
+  returned early for any non-flat type. None of its blocks owns its elements' children, so
+  none may be graph-dropped:
+  - a grown-over buffer's payloads moved to the new one;
+  - `lower_list_remove_at`'s and `lower_map_remove_key`'s products byte-copy survivors the
+    source still owns;
+  - a singleton byte-copies an item owned by its temp or local.
+
+  They are now freed by `emit_shallow_block_free` when `owns_graph`.
+- **A graph moved out by `RETURN` was re-materialized, leaking its top block — one per
+  `json::parse`.** After the element and intermediate frees, 127 of 128 leak cases passed; the
+  json unbound temp still grew 79 MB (400k → 800k). `--debug`, 1 000 iterations:
+  - `stringify` of a pre-parsed document → `live_bytes 32`, flat;
+  - bound `LET v = json::parse(t)` → `56003` allocs / `55003` frees, `live_bytes 32000`;
+  - the unbound form → `live_bytes 32000`.
+
+  So exactly one 32-byte block per parse. `-nir` shows `#json_parse` ends `return parsed.value`
+  (`parsed AS #json_Node`). plan-134-G's `lower_returned_value` moved that field out
+  (`release_moved_source`) but reported the result `already_standalone = false`.
+  `emit_return_exit_inner` then re-materialized the data union's top block
+  (`materialize_inline_value_in_arena`): the caller got a copy and the moved original leaked. A
+  moved graph is its own block, so the move branch now reports `true`.
 - **A set cannot hold a recursive value, so the set arms need no case.** Measured, not
   assumed. `/tmp/p134-h-set` (`LET s AS Set OF Node = Set OF Node { Node[kids := [], tag := 1] }`)
   → `error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: Set element type requires a comparable type,

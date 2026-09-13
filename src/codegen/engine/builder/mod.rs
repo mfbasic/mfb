@@ -962,6 +962,11 @@ pub(crate) struct TypeModel {
     /// is a routing name resolved through `resolve_closer_symbol`, which is
     /// where bug-374 and bug-377 live, not a type.
     pub(crate) resource_closers: HashMap<ParameterType, String>,
+    /// plan-134-H: the recursive-value drop walker's kinds, as rendered type names —
+    /// `recursive_transfer_types` in its order, then the resource-free record, union and
+    /// collection types that only reach a cycle (`graph_drop_kind_names`). Empty for a model
+    /// built without a module.
+    pub(crate) graph_drop_kinds: Vec<String>,
 }
 
 pub(crate) fn lower_module_for_platform(
@@ -1786,10 +1791,17 @@ pub(crate) fn lower_module_for_platform(
                 type_model.clone(),
             )?,
         );
-        // plan-134-F: the walker's inverse, over the same kinds and work stack.
-        code_functions.push(
-            crate::codegen::memory::arena::graph_drop::lower_graph_drop_walker(
-                &kinds,
+        // plan-134-F: the walker's inverse, over the same work stack. plan-134-H: its kinds
+        // extend the copy walker's with the types that only reach a cycle, and a second
+        // variant drops the graph of an element inlined in a collection's data region.
+        use crate::codegen::memory::arena::graph_drop::{
+            lower_graph_drop_walker, GRAPH_DROP_EDGES_SYMBOL, GRAPH_DROP_SYMBOL,
+        };
+        for (symbol, free_root) in [(GRAPH_DROP_SYMBOL, true), (GRAPH_DROP_EDGES_SYMBOL, false)] {
+            code_functions.push(lower_graph_drop_walker(
+                symbol,
+                free_root,
+                &type_model.graph_drop_kinds,
                 &function_symbols,
                 &functions,
                 &package_return_types,
@@ -1799,8 +1811,8 @@ pub(crate) fn lower_module_for_platform(
                 &globals,
                 &string_symbols,
                 type_model.clone(),
-            )?,
-        );
+            )?);
+        }
     }
     // plan-130-B: the arena hot path times itself exactly when the `--debug` perf
     // section is active for this module.

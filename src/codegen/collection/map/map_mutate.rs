@@ -354,6 +354,8 @@ impl CodeBuilder<'_> {
         // --- Found handling (shared): overwrite the value when it fits, else
         // append-and-repoint. Slot-based so it serves both the probe and scan. ---
         self.emit(abi::label(&found_handle));
+        // plan-134-H: both branches discard the old value, so its graph is freed first.
+        self.emit_drop_entry_value(map_slot, found_entry_slot, value_type)?;
         self.emit(abi::load_u64(
             &scratch8,
             abi::stack_pointer(),
@@ -1193,6 +1195,26 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), flag_slot));
         self.emit(abi::compare_immediate(&s8, "0"));
         self.emit(abi::branch_eq(&done));
+        // plan-134-H: the removed entry's value owns a graph nothing else reaches; free it
+        // before the entry shift overwrites its offset. Every register is reloaded below.
+        if let Some((_, value_type)) = typed_map_type_parts(map_type) {
+            let value_type = value_type.clone();
+            if self.owns_graph(&value_type) {
+                let entry_slot = self.allocate_stack_object("mrk_removed_entry", 8);
+                self.emit(abi::load_u64(&s8, abi::stack_pointer(), map_slot));
+                self.emit(abi::load_u64(&s11, abi::stack_pointer(), found_slot));
+                self.emit(abi::move_immediate(
+                    &s13,
+                    "Integer",
+                    &COLLECTION_ENTRY_SIZE.to_string(),
+                ));
+                self.emit(abi::multiply_registers(&s16, &s11, &s13));
+                self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
+                self.emit(abi::add_registers(&s12, &s12, &s16));
+                self.emit(abi::store_u64(&s12, abi::stack_pointer(), entry_slot));
+                self.emit_drop_entry_value(map_slot, entry_slot, &value_type)?;
+            }
+        }
         // Shift entries [found+1 .. count) down one 40-byte slot.
         // dst = map + HEADER + found*40 ; src = dst + 40 ; words = (count-1-found)*5.
         self.emit(abi::load_u64(&s8, abi::stack_pointer(), map_slot));

@@ -277,8 +277,13 @@ impl CodeBuilder<'_> {
                 ));
             }
             // plan-134-G: a return that is the owning source's last read moves the graph out.
+            // plan-134-H: the moved graph is already its own block — a local's, or a record's
+            // pointer field's — so it is reported standalone. Reporting it `false` made the
+            // exit re-materialize a data union's top block and orphan the moved one: 32 B per
+            // `json::parse` (`return parsed.value`).
             if self.owns_graph(&lowered.type_) && self.store_is_last_use(value) {
                 self.release_moved_source(value, &lowered, false)?;
+                return Ok((lowered, true));
             }
             return Ok((lowered, false));
         }

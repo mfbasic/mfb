@@ -3294,6 +3294,84 @@ pub(crate) fn type_contains_resource(model: &TypeModel, type_: &ParameterType) -
     false
 }
 
+/// plan-134-H: the recursive-value drop walker's kinds (`TypeModel::graph_drop_kinds`), as
+/// rendered names. First every [`recursive_transfer_types`] member in that set's order, so a
+/// kind index names the same type in the copy walker and the drop walker. Then every
+/// resource-free record, union or collection type that only REACHES a cycle — `TYPE Rep /
+/// child AS Node`, a `List OF Rep`, a `Map OF String TO Node` — in rendered-name order.
+///
+/// Such a type is freed by its owner like a cycle member, but it is never a component of the
+/// type model when only a local declares it. So the walk is seeded from the model's records
+/// and unions and also from every type the module spells: global, parameter and return types,
+/// `LET`/`FOR`/`FOR EACH` binding types, and collection-literal, constructor and union-wrap
+/// types. Everything reachable from a seed is visited.
+pub(crate) fn graph_drop_kind_names(
+    model: &TypeModel,
+    module: &crate::target::shared::nir::NirModule,
+) -> Vec<String> {
+    use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
+    use crate::target::shared::nir::{NirOp, NirValue};
+    struct Seeds(Vec<ParameterType>);
+    impl NirVisitor for Seeds {
+        fn visit_op(&mut self, op: &NirOp) {
+            match op {
+                NirOp::Bind { type_, .. }
+                | NirOp::For { type_, .. }
+                | NirOp::ForEach { type_, .. } => self.0.push(type_.clone()),
+                _ => {}
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            match value {
+                NirValue::Constructor { type_, .. }
+                | NirValue::ListLiteral { type_, .. }
+                | NirValue::SetLiteral { type_, .. }
+                | NirValue::MapLiteral { type_, .. } => self.0.push(type_.clone()),
+                NirValue::UnionWrap { union_type, .. } => self.0.push(union_type.clone()),
+                _ => {}
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut seeds = Seeds(Vec::new());
+    for global in &module.globals {
+        seeds.0.push(global.type_.clone());
+    }
+    for function in &module.functions {
+        seeds.0.extend(function.params.iter().map(|param| param.type_.clone()));
+        seeds.0.push(function.returns.clone());
+        seeds.visit_ops(&function.body);
+    }
+    seeds.0.extend(model.record_fields.keys().cloned());
+    seeds.0.extend(model.union_names.iter().cloned());
+
+    let members = recursive_transfer_types(model);
+    let mut reaching: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut visited: std::collections::HashSet<ParameterType> = std::collections::HashSet::new();
+    let mut stack = seeds.0;
+    while let Some(current) = stack.pop() {
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        let is_block_type = model.record_fields.contains_key(&current)
+            || model.union_names.contains(&current)
+            || crate::codegen::engine::types::typed_is_collection_type(&current);
+        if is_block_type
+            && !type_participates_in_cycle(model, &current)
+            && type_reaches_cycle(model, &current)
+            && !type_contains_resource(model, &current)
+        {
+            let rendered = current.name().into_owned();
+            if !members.contains(&rendered) {
+                reaching.insert(rendered);
+            }
+        }
+        stack.extend(type_components(model, &current));
+    }
+    members.into_iter().chain(reaching).collect()
+}
+
 /// Every type in the program that participates in a cycle: the set that needs a
 /// runtime thread-transfer deep-copy function emitted (bug-391).
 pub(crate) fn recursive_transfer_types(model: &TypeModel) -> std::collections::BTreeSet<String> {

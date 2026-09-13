@@ -242,12 +242,15 @@ impl TypeModel {
             resource_names: HashSet::new(),
             sendable_resource_names: HashSet::new(),
             resource_closers: HashMap::new(),
+            graph_drop_kinds: Vec::new(),
         }
     }
 
     pub(crate) fn from_module(module: &NirModule) -> Result<Self, String> {
         let mut model = Self::module_tables(module)?;
         model.finish();
+        model.graph_drop_kinds =
+            crate::codegen::collection::layout::graph_drop_kind_names(&model, module);
         Ok(model)
     }
 
@@ -446,6 +449,7 @@ impl TypeModel {
             resource_names,
             sendable_resource_names,
             resource_closers,
+            graph_drop_kinds: Vec::new(),
         })
     }
 
@@ -633,6 +637,8 @@ impl TypeModel {
         // imported package union), so a variant shared across the boundary gets one
         // globally-consistent tag regardless of registration order (bug-80).
         model.finish();
+        model.graph_drop_kinds =
+            crate::codegen::collection::layout::graph_drop_kind_names(&model, module);
         Ok(model)
     }
 

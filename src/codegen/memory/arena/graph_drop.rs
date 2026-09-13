@@ -53,6 +53,10 @@ use std::sync::OnceLock;
 /// The walker: kind index in argument 0, the pointer to drop in argument 1; returns
 /// nothing.
 pub(crate) const GRAPH_DROP_SYMBOL: &str = "_mfb_rt_graph_drop";
+/// plan-134-H: the same walker for a ROOT that is not a block of its own — a record or union
+/// element inlined in a collection's data region. It frees everything the root's edges own
+/// and leaves the root's bytes, which belong to the collection's block.
+pub(crate) const GRAPH_DROP_EDGES_SYMBOL: &str = "_mfb_rt_graph_drop_edges";
 
 /// The test hook's environment variable (see the module comment).
 const TEST_GRAPH_DROP_ENV: &str = "MFB_TEST_GRAPH_DROP";
@@ -90,19 +94,106 @@ fn test_graph_drop_locals() -> &'static [String] {
 
 impl CodeBuilder<'_> {
     /// The walker kind a value of `type_` is dropped with: its index in
-    /// `recursive_transfer_types`, for a resource-free type that takes part in a cycle.
-    /// `None` for every other type — including a type that only reaches a cycle, which has no
-    /// kind of its own yet (plan-134-H).
+    /// `TypeModel::graph_drop_kinds` — every type of `recursive_transfer_types` (in that order,
+    /// so a kind is the copy walker's index too), then the resource-free types that only reach
+    /// a cycle (plan-134-H). `None` for any other type.
     pub(crate) fn graph_drop_kind(&self, type_: &ParameterType) -> Option<usize> {
-        if !type_participates_in_cycle(&self.type_model, type_)
-            || type_contains_resource(&self.type_model, type_)
-        {
+        // A resource-bearing value is move-only and closed by its own op: never a drop kind.
+        if type_contains_resource(&self.type_model, type_) {
             return None;
         }
         let rendered = type_.name();
-        recursive_transfer_types(&self.type_model)
+        self.type_model
+            .graph_drop_kinds
             .iter()
             .position(|kind| kind.as_str() == rendered.as_ref())
+    }
+
+    /// plan-134-H: before an in-place arm discards list element `index_slot` of the list in
+    /// `buffer_slot`, free the graph that element owns (nothing for a flat element type).
+    pub(crate) fn emit_drop_list_element(
+        &mut self,
+        buffer_slot: usize,
+        index_slot: usize,
+        element_type: &ParameterType,
+    ) -> Result<(), String> {
+        if !self.owns_graph(element_type) {
+            return Ok(());
+        }
+        let entry_slot = self.allocate_stack_object("drop_element_entry", 8);
+        let block = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
+        self.emit(abi::move_immediate(
+            &scratch,
+            "Integer",
+            &list_entry_stride(element_type).to_string(),
+        ));
+        self.emit(abi::multiply_registers(&scratch, &index, &scratch));
+        self.emit(abi::add_immediate(&scratch, &scratch, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&scratch, &block, &scratch));
+        self.emit(abi::store_u64(&scratch, abi::stack_pointer(), entry_slot));
+        self.emit_drop_entry_value(buffer_slot, entry_slot, element_type)
+    }
+
+    /// plan-134-H: free the graph owned by the value payload of the entry whose address is in
+    /// `entry_slot`, in the collection whose block is in `collection_slot` — through
+    /// `_mfb_rt_graph_drop` for a pointer payload, `_mfb_rt_graph_drop_edges` for a record or
+    /// union inlined in the data region (its bytes stay with the collection). Nothing for a flat
+    /// value type.
+    pub(crate) fn emit_drop_entry_value(
+        &mut self,
+        collection_slot: usize,
+        entry_slot: usize,
+        value_type: &ParameterType,
+    ) -> Result<(), String> {
+        if !self.owns_graph(value_type) {
+            return Ok(());
+        }
+        let kind = self
+            .graph_drop_kind(value_type)
+            .ok_or_else(|| format!("the graph drop has no kind for '{value_type}'"))?;
+        let shape = self.payload_edge_shape(value_type);
+        let symbol = match shape {
+            Some(PayloadEdgeShape::Pointer) => GRAPH_DROP_SYMBOL,
+            Some(PayloadEdgeShape::InlineRecord | PayloadEdgeShape::InlineUnion) => {
+                GRAPH_DROP_EDGES_SYMBOL
+            }
+            None => return Ok(()),
+        };
+        let payload_slot = self.allocate_stack_object("drop_element_payload", 8);
+        let block = self.temporary_vreg();
+        let data = self.temporary_vreg();
+        let offset = self.temporary_vreg();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), collection_slot));
+        // Kind-0 stride: a value that owns a graph is never fixed-width, so its collection
+        // has an entry table (as `fix_collection_transfer_payload` assumes).
+        self.emit_collection_data_pointer_for(&data, &block, &ParameterType::named(""));
+        self.emit(abi::load_u64(&offset, abi::stack_pointer(), entry_slot));
+        self.emit(abi::load_u64(
+            &offset,
+            &offset,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::add_registers(&data, &data, &offset));
+        if shape == Some(PayloadEdgeShape::Pointer) {
+            self.emit(abi::load_u64(&data, &data, 0));
+        }
+        self.emit(abi::store_u64(&data, abi::stack_pointer(), payload_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            payload_slot,
+        ));
+        self.emit(abi::move_immediate(
+            abi::c_arg(0),
+            "Integer",
+            &kind.to_string(),
+        ));
+        self.emit_symbol_call(symbol);
+        Ok(())
     }
 
     /// plan-134-G: drop the recursive value whose pointer is in `slot` through the walker, then
@@ -197,6 +288,20 @@ impl CodeBuilder<'_> {
         type_: &ParameterType,
         pointer_slot: usize,
     ) -> Result<(), String> {
+        if self.emit_graph_drop_edges(type_, pointer_slot)? {
+            self.emit_graph_free_block(type_, pointer_slot)?;
+        }
+        Ok(())
+    }
+
+    /// The pointer edges of the one block of `type_` whose non-null pointer is in
+    /// `pointer_slot`, without freeing the block itself. `Ok(true)` when `type_` is a block (so
+    /// its caller frees it), `Ok(false)` for a scalar word.
+    fn emit_graph_drop_edges(
+        &mut self,
+        type_: &ParameterType,
+        pointer_slot: usize,
+    ) -> Result<bool, String> {
         if matches!(
             type_,
             ParameterType::Nothing
@@ -209,7 +314,7 @@ impl CodeBuilder<'_> {
         ) || type_.is_named("Scalar")
         {
             // Not a block: the copy moves the word.
-            return Ok(());
+            return Ok(false);
         }
         if type_contains_resource(&self.type_model, type_) {
             return Err(format!(
@@ -218,13 +323,13 @@ impl CodeBuilder<'_> {
         }
         // A pointer-free block (copied by `copy_flat_block`).
         if self.type_is_memcpy_copyable(type_) {
-            return self.emit_graph_free_block(type_, pointer_slot);
+            return Ok(true);
         }
         if typed_is_collection_type(type_) {
             for (payload_type, key_payload) in self.collection_payload_edges(type_)? {
                 self.emit_graph_drop_collection_payload(pointer_slot, &payload_type, key_payload)?;
             }
-            return self.emit_graph_free_block(type_, pointer_slot);
+            return Ok(true);
         }
         if self
             .type_model
@@ -239,13 +344,13 @@ impl CodeBuilder<'_> {
             let base = self.temporary_vreg();
             self.emit(abi::load_u64(&base, abi::stack_pointer(), pointer_slot));
             self.emit_graph_drop_union_edges(type_, &base)?;
-            return self.emit_graph_free_block(type_, pointer_slot);
+            return Ok(true);
         }
         if self.type_model.record_fields.contains_key(type_) {
             let base = self.temporary_vreg();
             self.emit(abi::load_u64(&base, abi::stack_pointer(), pointer_slot));
             self.emit_graph_drop_record_edges(type_, &base)?;
-            return self.emit_graph_free_block(type_, pointer_slot);
+            return Ok(true);
         }
         Err(format!(
             "the graph drop cannot drop a value of type '{type_}'"
@@ -431,10 +536,15 @@ impl CodeBuilder<'_> {
     }
 }
 
-/// `_mfb_rt_graph_drop(kind, pointer)`: the module's one drop for values of recursive
-/// types. `kinds` is `recursive_transfer_types` in its own order.
+/// `_mfb_rt_graph_drop(kind, pointer)` (`free_root`) or `_mfb_rt_graph_drop_edges(kind,
+/// pointer)` (not `free_root`, plan-134-H): the module's drops for values of recursive types.
+/// `kinds` is `TypeModel::graph_drop_kinds`. The edges variant frees everything the root's
+/// edges own but not the root's own bytes, which belong to the collection block it is inlined
+/// in: its first entry taken skips the block free, every pushed entry frees as usual.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_graph_drop_walker(
+    symbol: &str,
+    free_root: bool,
     kinds: &[String],
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &crate::target::shared::nir::NirFunction>,
@@ -447,7 +557,7 @@ pub(crate) fn lower_graph_drop_walker(
     type_model: TypeModel,
 ) -> Result<CodeFunction, String> {
     let mut builder = CodeBuilder::for_synthetic_function(
-        GRAPH_DROP_SYMBOL,
+        symbol,
         function_symbols,
         functions,
         package_return_types,
@@ -462,6 +572,8 @@ pub(crate) fn lower_graph_drop_walker(
     let kind_slot = builder.allocate_stack_object("graph_drop_kind", 8);
     let pointer_slot = builder.allocate_stack_object("graph_drop_pointer", 8);
     let stack_slot = builder.allocate_stack_object("graph_drop_stack", 8);
+    // The edges variant: 1 until the root entry has been taken.
+    let root_slot = (!free_root).then(|| builder.allocate_stack_object("graph_drop_root", 8));
     let alloc_ok = builder.label("graph_drop_stack_alloc_ok");
     let take = builder.label("graph_drop_take");
     let pop = builder.label("graph_drop_pop");
@@ -483,6 +595,11 @@ pub(crate) fn lower_graph_drop_walker(
     builder.emit(abi::move_register(&pointer_in, abi::c_arg(1)));
     builder.emit(abi::store_u64(&kind_in, sp, kind_slot));
     builder.emit(abi::store_u64(&pointer_in, sp, pointer_slot));
+    if let Some(root_slot) = root_slot {
+        let one = builder.temporary_vreg();
+        builder.emit(abi::move_immediate(&one, "Integer", "1"));
+        builder.emit(abi::store_u64(&one, sp, root_slot));
+    }
 
     // The work stack: header + 64 entries, as the copy walker's.
     builder.emit(abi::move_immediate(
@@ -526,12 +643,30 @@ pub(crate) fn lower_graph_drop_walker(
     builder.emit(abi::branch(&pop));
     for ((_, type_), label) in droppable.iter().zip(&arm_labels) {
         builder.emit(abi::label(label));
-        builder.emit_graph_drop_block(type_, pointer_slot)?;
+        if builder.emit_graph_drop_edges(type_, pointer_slot)? {
+            match root_slot {
+                None => builder.emit_graph_free_block(type_, pointer_slot)?,
+                Some(root_slot) => {
+                    // The root's bytes are the collection's: only a pushed entry is freed.
+                    let root = builder.label("graph_drop_edges_root");
+                    let flag = builder.temporary_vreg();
+                    builder.emit(abi::load_u64(&flag, sp, root_slot));
+                    builder.emit(abi::compare_immediate(&flag, "0"));
+                    builder.emit(abi::branch_ne(&root));
+                    builder.emit_graph_free_block(type_, pointer_slot)?;
+                    builder.emit(abi::label(&root));
+                }
+            }
+        }
         builder.emit(abi::branch(&pop));
     }
 
-    // Pop the next entry into the frame slots, or finish.
+    // Pop the next entry into the frame slots, or finish. Every entry after the first is a
+    // pushed edge, never the root.
     builder.emit(abi::label(&pop));
+    if let Some(root_slot) = root_slot {
+        builder.emit(abi::store_u64(abi::ZERO, sp, root_slot));
+    }
     let block = builder.temporary_vreg();
     let count = builder.temporary_vreg();
     let entry = builder.temporary_vreg();
@@ -576,7 +711,12 @@ pub(crate) fn lower_graph_drop_walker(
     builder.emit_arena_free_call();
     builder.emit(abi::return_());
 
-    finish_helper(builder, "runtime.graphDrop", GRAPH_DROP_SYMBOL)
+    let name = if free_root {
+        "runtime.graphDrop"
+    } else {
+        "runtime.graphDropEdges"
+    };
+    finish_helper(builder, name, symbol)
 }
 
 #[cfg(test)]

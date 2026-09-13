@@ -3264,6 +3264,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&valid));
         self.emit(abi::compare_registers(&scratch10, &scratch11));
         self.emit(abi::branch_ge(&invalid));
+        // plan-134-H: every path below discards the element at `index`, so the graph it owns
+        // is freed first; the call clobbers the buffer and index registers, so reload them.
+        if self.owns_graph(element_type) {
+            self.emit_drop_list_element(buffer_slot, index_slot, element_type)?;
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
+        }
 
         // entry = buffer + HEADER + index * ENTRY; read valueOffset / valueLength.
         self.emit(abi::move_immediate(
@@ -4065,6 +4072,14 @@ impl CodeBuilder<'_> {
                 COLLECTION_OFFSET_DATA_LENGTH,
             ));
         } else {
+            // plan-134-H: the removed element owns a graph nothing else reaches; free it before
+            // its entry is shifted away. The call clobbers every register, so reload them.
+            if self.owns_graph(element_type) {
+                self.emit_drop_list_element(buffer_slot, index_slot, element_type)?;
+                self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+                self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
+                self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+            }
             // --- Lookup table + packed data. ---
             // Read the removed entry's payload span BEFORE the entry shift
             // overwrites it.

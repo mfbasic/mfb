@@ -313,7 +313,10 @@ Commit: c9bcec1ae
   (`_mfb_rt_graph_copy`, `_mfb_rt_graph_drop`) that dispatches on a per-module type index over
   an arena-allocated work stack; alternative: keep one function per type and add an explicit
   stack to each. The single walker keeps one stack and one dispatch table to prove.
-- **`G24` after letter H** — recommended: lift it for recursive element types once `get` owns
+- **`G24` after letter H** — RESOLVED 2026-09-13 in plan-134-H Phase 2: lifted for recursive
+  element types, as recommended. Pinned by
+  `a_fetched_recursive_element_survives_an_in_place_remove_and_a_growing_append`. Was
+  recommended: lift it for recursive element types once `get` owns
   its copy and removal frees the removed graph; alternative: keep declining (safe, slower).
 
 ## Corrections

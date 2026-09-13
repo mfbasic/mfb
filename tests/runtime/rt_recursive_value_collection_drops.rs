@@ -260,6 +260,34 @@ END SUB"#,
     );
 }
 
+/// plan-134-H lifted gate `G24`, which declined the in-place `removeAt` for a recursive element
+/// because a fetched element used to alias the data region the compaction moves. The shape that
+/// broke then (plan-121-B B7): fetch element 0, remove it in place, grow the list until it
+/// reallocates, then read the fetched value. It must still read `mk(1)`'s graph (total 2), the
+/// list must hold 2 + 50 elements, and the new first element is `mk(2)` (total 4).
+#[test]
+fn a_fetched_recursive_element_survives_an_in_place_remove_and_a_growing_append() {
+    let (stdout, _, skips) = run_debug(
+        "h_g24_fetch_remove_grow",
+        &program(
+            r#"SUB main()
+  MUT xs AS List OF Node = [mk(1), mk(2), mk(3)]
+  LET fetched AS Node = collections::get(xs, 0)
+  xs = collections::removeAt(xs, 0)
+  MUT i AS Integer = 0
+  WHILE i < 50
+    xs = collections::append(xs, mk(i))
+    i = i + 1
+  END WHILE
+  io::print("fetched=" & toString(total(fetched)) & " len=" & toString(len(xs)) & " first=" & toString(total(collections::get(xs, 0))))
+END SUB"#,
+        ),
+        1,
+    );
+    assert_eq!(stdout.trim(), "fetched=2 len=52 first=4");
+    assert_eq!(skips, 0, "a block was freed twice");
+}
+
 /// A collection whose element type only reaches a cycle (`Rep` holds a `Node`, but nothing in
 /// `Rep` leads back to `Rep`) has no walker kind before this letter, so binding one per
 /// iteration freed nothing.

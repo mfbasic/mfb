@@ -428,15 +428,7 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        // `G24` — inherited from plan-121-B B7: this arm compacts the data region,
-        // and a recursive element type is a pointer-linked graph whose `get` does
-        // not produce an independent copy. See `try_inplace_remove_at_assign`.
-        if crate::codegen::collection::layout::type_participates_in_cycle(
-            &self.type_model,
-            &element_type,
-        ) {
-            return Ok(false);
-        }
+        // `G24` — lifted by plan-134-H; see `try_inplace_remove_at_assign`.
         // `G18` — removing from exactly this same field.
         if !self.value_is_record_field(&target.args[0], name, target.field) {
             return Ok(false);
@@ -1107,13 +1099,7 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        // `G24` — inherited from plan-121-B B7 via plan-121-C.
-        if crate::codegen::collection::layout::type_participates_in_cycle(
-            &self.type_model,
-            &element_type,
-        ) {
-            return Ok(false);
-        }
+        // `G24` — lifted by plan-134-H; see `try_inplace_remove_at_assign`.
         // `G18` — removing from exactly this same field.
         if !self.value_is_state_field(&target.args[0], resource, target.field) {
             return Ok(false);
@@ -1977,38 +1963,24 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        // G24 — decline for a RECURSIVE element type. Unlike every other arm in
-        // this family, `removeAt` compacts the data region: it moves surviving
-        // payloads *down* inside the live buffer. That is safe only while nothing
-        // else refers into those payloads.
+        // G24 — LIFTED by plan-134-H. `removeAt` compacts the data region: it moves
+        // surviving payloads *down* inside the live buffer, which is safe only while
+        // nothing else refers into those payloads. It used to decline a recursive
+        // element type (`type_participates_in_cycle`) because `collections::get` of
+        // one handed back an ALIAS into the data region: `get(xs, 0)` then
+        // `xs = removeAt(xs, 0)` then `MATCH` on the value read fell to `CASE ELSE` for
+        // every element whose removal moved bytes (plan-121-B B7).
         //
-        // `type_participates_in_cycle` is exactly the class where something does.
-        // Its own doc records why: a recursive value is a **pointer-linked graph**
-        // that inline copy codegen cannot reproduce, so it needs a per-type runtime
-        // copy function — which means an ordinary `collections::get` of such an
-        // element does not produce an independent deep copy the way a `String`,
-        // record or nested-list element does. Relocating the payload under a value
-        // already read out of the list leaves that value reading moved bytes.
-        //
-        // Measured, on `List OF Node` where `ElementNode.children` is `List OF Node`
-        // (the shape `tests/rt_recursive_thread_transfer.rs` builds):
-        // `get(xs, 0)` then `xs = removeAt(xs, 0)` then `MATCH` on the value read
-        // fell to `CASE ELSE` for every element whose removal actually moved bytes,
-        // and was correct only for the last one — where `count == 1` makes the
-        // shift length zero. Dropping `children` from the record (making the union
-        // non-recursive) makes the same program pass, which is what isolates the
-        // predicate.
-        //
-        // The copying path is unaffected because it never disturbs the original
-        // buffer, so declining restores exactly the previous behavior. `insert` and
-        // `prepend` need no such gate: they place the new payload at the data tail
-        // and shift only the 40-byte lookup entries, so no existing payload moves.
-        if crate::codegen::collection::layout::type_participates_in_cycle(
-            &self.type_model,
-            &element_type,
-        ) {
-            return Ok(false);
-        }
+        // Neither half holds any more. `get` of a recursive element returns an owned
+        // deep copy (bug-538, `materialize_owned_element`'s `needs_graph_copy` branch,
+        // plan-134-D), so nothing a program can hold points into the buffer. And the
+        // compaction now frees the removed element's graph before its entry is shifted
+        // away (`lower_list_remove_at_in_place`), so the in-place arm leaks nothing
+        // the rebuild would have freed. Pinned by
+        // `a_fetched_recursive_element_survives_an_in_place_remove_and_a_growing_append`
+        // (`tests/runtime/rt_recursive_value_collection_drops.rs`). `insert` and
+        // `prepend` never needed the gate: they place the new payload at the data tail
+        // and shift only the 40-byte lookup entries.
         let index = self.lower_value(&target.args[1])?;
         // E1 — the index is Integer by construction; a mismatch is a codegen
         // invariant violation, not a program to decline.
