@@ -6,9 +6,9 @@ Severity: **MEDIUM** — use-after-munmap in the `tls::close` path on macOS, rea
 by any program that closes a TLS socket shortly before exiting.
 Class: Runtime / teardown
 
-Status: **Sighting 1 FIXED. Sighting 2 FIXED** (branch
-`bug-564-s2-store-release`: `fd8ba0620`, `d474a4830`, `c60873a7e`,
-`c39e7177a`, `9ab9a10ae`). The encoder gained store-release and load-acquire. The handlers
+Status: **Sighting 1 FIXED. Sighting 2 FIXED — landed on main in `8dbefee94`**
+(`fd8ba0620`, `d474a4830`, `c60873a7e`, `c39e7177a`, `9ab9a10ae`; merged-tree unit
+suite 4145 passed, both macOS tls runtime tests passed). The encoder gained store-release and load-acquire. The handlers
 publish the domain before the gate with `stlr`, and `tls::write` loads the gate
 with `ldar`. See "Sighting 2: FIXED". **One finding stays OPEN**, and it is not
 the ordering race: on macOS a `tls::write` after the peer's clean
