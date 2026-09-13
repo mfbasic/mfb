@@ -297,15 +297,19 @@ Commit: bbbcdb322
 
 Acceptance: the shift/multiply equivalence holds for `n` in 1..64 across several
 magnitudes, and the three negative-argument cases each raise `ErrInvalidArgument`.
-Commit: —
+Commit: e597d3580
 
 ### Phase 4 — text (largest blast radius last: base conversion touches every member)
 
-- [ ] `gen_big.rs`: `emit_div_small` per §4.1.
-- [ ] `func_to_string.rs` (total, base 10), `func_to_radix_string.rs`
+- [x] `gen_big.rs`: `emit_div_small` per §4.1. (Realized inside `emit_int_to_string` — B-C1;
+      build `grep -cE '^(warning|error)'` → `0`.)
+- [x] `func_to_string.rs` (total, base 10), `func_to_radix_string.rs`
       (`ErrInvalidArgument` outside radix 2..36), `func_parse.rs`
       (`ErrInvalidFormat` on malformed text, `ErrInvalidArgument` on a bad radix).
-- [ ] Tests: `parse(toString(x)) = x` across a spread covering zero, negatives, and
+      (`errors`: `toString` `vec![]`, `toRadixString` `vec!["ErrInvalidArgument"]`, `parse`
+      `vec!["ErrInvalidFormat", "ErrInvalidArgument"]`; `cargo test --release -p mfb --bin mfb
+      big` → `19 passed; 0 failed`.)
+- [x] Tests: `parse(toString(x)) = x` across a spread covering zero, negatives, and
       values well past `Integer` range; `toString` of zero is `"0"` with no sign;
       `toString` of a negative carries exactly one leading `-`;
       `parse` rejects `""`, `"-"`, `"12x"`, `"+-1"` with `ErrInvalidFormat`;
@@ -313,7 +317,25 @@ Commit: —
       descriptor either way);
       `toRadixString(x, 16)` agrees with the magnitude bytes for several values;
       radix `1` and radix `37` each raise `ErrInvalidArgument`.
-- [ ] Admit the three text members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`text_matches_an_independent_oracle`, spread of 10 from 0 to a negative 320-bit value,
+      decimal and hex strings from Python — re-derived by `python3 /tmp/p127-verify-text.py` →
+      `True True True` — printing `toString vs Python: 0 of 10`, `toRadixString 16 vs Python: 0
+      of 10`, `parse(toString): 0 of 10`, `parse(toRadixString) radix 2..36: 0 of 350`, `0 -42 ff
+      -101 z`, five `raised 77050003` for `""`/`"-"`/`"12x"`/`"+-1"`/`"+5"`, four `raised
+      77050002` for radix 1 and 37 on both members, `4096-bit product decimal matches Python:
+      TRUE`; `func_parse.rs` DESC "no `+`" and an example "Text with a leading `+` is rejected";
+      `cargo test --release --test rt_big_int` → `10 passed; 0 failed`.)
+- [x] Admit the three text members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `22` in each backend list.)
+- [x] Validation Plan runtime proof — added, not in the phase list: the 4096-bit product's
+      decimal is pinned above; `a_thousand_term_sum_prints_the_independent_total` prints
+      `big::toString(big::sum(terms))` over 1000 mixed-sign 192-bit terms →
+      `1046487506421243044961144144988157756223431887292684862494154`, equal to
+      `python3 /tmp/p127-sum1000.py`, and `TRUE` against folding `add`; `cargo test --release
+      --test rt_big_int a_thousand_term_sum` → `1 passed; 0 failed`.
+- [x] Doc: `man-census --fill big` → `22 22 22 22 35/35 11 4/4`; `man-run-examples big --run` →
+      `examples: 29 built: 29 ran: 29 not run: 0 failed: 0`; `--memory-scope` → `unclassified
+      memory-vocabulary hits: 0`.
 
 Acceptance: the `parse`∘`toString` round trip holds for every value in the test spread,
 and `toString` declares an empty registry `errors` vector (plan-127-A C1).
@@ -352,11 +374,23 @@ Commit: —
    `toString` is the exact inverse of `parse` and there is one spelling per value.
    Alternative: accept it as a convenience, which makes `parse` non-injective on text.
    Either way the descriptor states it explicitly.
+   **RESOLVED (Phase 4): reject it.** `func_parse.rs` DESC: "one optional leading `-` … no `+`";
+   `tryParse("+5", 10)` → `raised 77050003` in `text_matches_an_independent_oracle`.
 
 ## Corrections
 
 <!-- Filled in DURING execution. -->
 
+- **B-C1 — `emit_div_small` is realized inside `emit_int_to_string`.** §4.1 lists a private
+  `emit_div_small(a, divisor) -> (data, count, remainder)` serving `toString`. The shipped form
+  divides a working copy of the magnitude in place, one pass per digit, inside
+  `emit_int_to_string` (`src/codegen/builtins/big/gen_big.rs`), which also writes the digits and
+  builds the `String`, for both `toString` and `toRadixString`. There is still exactly one
+  base-conversion path, which is the property §3's rejected alternative protects; the separate
+  emitter would have had one caller.
+- **B-C9 — the Validation Plan's 1000-term `sum` program was missing from the phase tasks** and is
+  added to Phase 4 (`a_thousand_term_sum_prints_the_independent_total`). The `.ir` golden step in
+  the Validation Plan's Acceptance line runs once at the plan-127 end (§5 of the follow-plan run).
 - **B-C3 — every member's emitters land with that member.** Carried from plan-127-A C6 (the `mfb`
   binary crate warns on an unused `pub(crate)` item): no B phase commits an emitter without its
   caller. Phase 1 lands `emit_add_magnitude`/`emit_sub_magnitude`/`emit_add_int` with

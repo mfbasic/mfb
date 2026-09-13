@@ -22,6 +22,7 @@ mod func_from_integer;
 mod func_is_zero;
 mod func_multiply;
 mod func_negate;
+mod func_parse;
 mod func_product;
 mod func_shift_left;
 mod func_shift_right;
@@ -31,6 +32,8 @@ mod func_sum;
 mod func_test_bit;
 mod func_to_bytes;
 mod func_to_integer;
+mod func_to_radix_string;
+mod func_to_string;
 
 pub(crate) mod gen_big;
 
@@ -140,6 +143,10 @@ pub(crate) fn register(r: &mut Registry) {
     func_shift_left::register(&mut pkg);
     func_shift_right::register(&mut pkg);
     func_test_bit::register(&mut pkg);
+    // Text (plan-127-B Phase 4).
+    func_parse::register(&mut pkg);
+    func_to_string::register(&mut pkg);
+    func_to_radix_string::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -221,6 +228,9 @@ mod tests {
         ("big.shiftLeft", &["ErrInvalidArgument"]),
         ("big.shiftRight", &["ErrInvalidArgument"]),
         ("big.testBit", &["ErrInvalidArgument"]),
+        ("big.parse", &["ErrInvalidFormat", "ErrInvalidArgument"]),
+        ("big.toString", &[]),
+        ("big.toRadixString", &["ErrInvalidArgument"]),
     ];
 
     #[test]
@@ -330,6 +340,8 @@ SUB main()
   LET left AS big::Int = big::shiftLeft(p, 9)
   LET right AS big::Int = big::shiftRight(total, 2)
   io::print(toString(big::sign(left)) & toString(big::sign(right)))
+  LET parsed AS big::Int = big::parse("-1234", 10)
+  io::print(big::toString(prod) & big::toRadixString(left, 16) & big::toString(right) & big::toString(parsed))
 END SUB
 "#;
         for target in crate::testutil::CodeTarget::ALL {

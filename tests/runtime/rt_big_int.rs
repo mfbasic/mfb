@@ -623,3 +623,154 @@ END SUB
         ]
     );
 }
+
+/// plan-127-B Phase 4: `toString`/`toRadixString` against Python's text for a spread past
+/// the `Integer` range; `parse` round trips in every radix; the rejected texts
+/// (`ErrInvalidFormat`) and radixes (`ErrInvalidArgument`); a 4096-bit product's decimal.
+#[test]
+fn text_matches_an_independent_oracle() {
+    let lines = run(
+        "big_b_text",
+        r#"IMPORT io
+IMPORT big
+IMPORT collections
+
+FUNC operand(n AS Integer, mul AS Integer, add AS Integer) AS List OF Byte
+  MUT b AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    b = collections::append(b, toByte((i * mul + add) MOD 256))
+    i = i + 1
+  END WHILE
+  RETURN b
+END FUNC
+
+FUNC tryParse(text AS String, radix AS Integer) AS String
+  RETURN big::toString(big::parse(text, radix))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC tryRadix(value AS big::Int, radix AS Integer) AS String
+  RETURN big::toRadixString(value, radix)
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+SUB main()
+  LET twoTo64 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 0, 1]
+  LET spread AS List OF big::Int = [big::fromInteger(0), big::fromInteger(1), big::fromInteger(-1), big::fromInteger(9), big::fromInteger(10), big::fromInteger(-255), big::fromInteger(9223372036854775807), big::fromInteger(-9223372036854775807 - 1), big::fromBytes(twoTo64, FALSE), big::fromBytes(operand(40, 131, 7), TRUE)]
+  LET decimals AS List OF String = ["0", "1", "-1", "9", "10", "-255", "9223372036854775807", "-9223372036854775808", "18446744073709551616", "-2106587317222212391832297503250513450982309751508901136347145804653738540457117282751973428136455"]
+  LET hexadecimals AS List OF String = ["0", "1", "-1", "9", "a", "-ff", "7fffffffffffffff", "-8000000000000000", "10000000000000000", "-fc79f673f06dea67e461de5bd855d24fcc49c643c03dba37b431ae2ba825a21f9c199613900d8a07"]
+  MUT decimalMismatches AS Integer = 0
+  MUT hexMismatches AS Integer = 0
+  MUT roundTrips AS Integer = 0
+  MUT radixTrips AS Integer = 0
+  MUT checks AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < len(spread)
+    LET x AS big::Int = collections::get(spread, i)
+    LET text AS String = big::toString(x)
+    IF text <> collections::get(decimals, i) THEN
+      decimalMismatches = decimalMismatches + 1
+      io::print("decimal " & toString(i) & ": " & text)
+    END IF
+    IF big::toRadixString(x, 16) <> collections::get(hexadecimals, i) THEN
+      hexMismatches = hexMismatches + 1
+      io::print("hex " & toString(i) & ": " & big::toRadixString(x, 16))
+    END IF
+    IF NOT big::equals(big::parse(text), x) THEN
+      roundTrips = roundTrips + 1
+    END IF
+    MUT radix AS Integer = 2
+    WHILE radix <= 36
+      IF NOT big::equals(big::parse(big::toRadixString(x, radix), radix), x) THEN
+        radixTrips = radixTrips + 1
+      END IF
+      radix = radix + 1
+    END WHILE
+    checks = checks + 1
+    i = i + 1
+  END WHILE
+  io::print("toString vs Python: " & toString(decimalMismatches) & " of " & toString(checks))
+  io::print("toRadixString 16 vs Python: " & toString(hexMismatches) & " of " & toString(checks))
+  io::print("parse(toString): " & toString(roundTrips) & " of " & toString(checks))
+  io::print("parse(toRadixString) radix 2..36: " & toString(radixTrips) & " of " & toString(checks * 35))
+  io::print(big::toString(big::fromInteger(0)) & " " & big::toString(big::fromInteger(-42)) & " " & big::toRadixString(big::fromInteger(255), 16) & " " & big::toRadixString(big::fromInteger(-5), 2) & " " & big::toRadixString(big::fromInteger(35), 36))
+  io::print(tryParse("", 10) & " | " & tryParse("-", 10) & " | " & tryParse("12x", 10) & " | " & tryParse("+-1", 10) & " | " & tryParse("+5", 10))
+  io::print(tryParse("007", 10) & " | " & tryParse("-0", 10) & " | " & tryParse("FF", 16) & " | " & tryParse("zZ", 36) & " | " & tryParse("2", 2))
+  io::print(tryRadix(big::fromInteger(5), 1) & " | " & tryRadix(big::fromInteger(5), 37) & " | " & tryParse("5", 1) & " | " & tryParse("5", 37))
+  LET a4096 AS big::Int = big::fromBytes(operand(512, 131, 7), FALSE)
+  LET b4096 AS big::Int = big::fromBytes(operand(512, 197, 3), FALSE)
+  LET productText AS String = big::toString(big::multiply(a4096, b4096))
+  io::print("4096-bit product decimal matches Python: " & toString(productText = "137260908971024161284171554128698218510424693699068168217209054903607064674892954272753896430108198557065944290285244839606924389661937473320268737691625558143403268237540196126858144944442780116840549191228479297432396251798933009654900977786981538456825059922839483418611485451145946118587790743283146030999966457480128324879132926068052768579695968171344601509218684373885799666259763728197255492399961843097336780809713755935027137563762141236497910319157305052696111977809523325194880485126510328071646415471244067467561847817419868517887359299767048269463175280986639878655556673683898011958816820822864898760917077381202716021714817856723214899969940851153211172661837843242545426336746781874367991959385773838100907291051181680546053601254186248208862736933984952140244654621368450157431401551940894057739902902343662351456216032333961624184915440024267532728091427056600621341662726859211299687224077640493511256435459455897878857422581043724177110035631281128548715863115329372136114919831422336456713853905692220378436428135012622834440474860547806331456784795278021762472857546727686799316885665615194252569528369723504454306670226819832122520928407050631280902149353681216937829533905733322576673538109597974532017975432400965358481758146834147630740467580018160704022333240874040779216662257925342865971950993656953157649465534066829588644079804727174268312775414036584140597622908519122272990414638664698699546328334718294654407218875037577430204548427227995568382335009197353062223468390277664522395911491772227328130947394853178326641174649132820585650622377100285698685821524822211520991868644732644231352034109693732174798793167759515065209508278713223998837930661972631416461806688055723626089399902123291001055124161453170999049179945030126012733836810048458289279947447089161163343843376989324993382827791066080991322730149534006414162483512066638751628048510004732379854699185197325256318626930600275494760236144198303521846953357029179303261607289919506570516343101408318247273694906522076182061872584687906592424787739775518640581626316755535567731160287841756018147793584644300999775422227526739247142051938385670886147271317037320334753902387828870852645001526879095772921519957271245259921498357776968642494480331637022795608239511316855893825742444325514800278640994935075020976732566174306248447234490944158803516919812520006536454685057332258968449275439963331050256845387997786873662530149567027497591447972886923212398716491738453525"))
+  io::print("4096-bit product parses back: " & toString(big::equals(big::parse(productText), big::multiply(a4096, b4096))))
+END SUB
+"#,
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "toString vs Python: 0 of 10",
+            "toRadixString 16 vs Python: 0 of 10",
+            "parse(toString): 0 of 10",
+            "parse(toRadixString) radix 2..36: 0 of 350",
+            "0 -42 ff -101 z",
+            "raised 77050003 | raised 77050003 | raised 77050003 | raised 77050003 | raised 77050003",
+            "7 | 0 | 255 | 1295 | raised 77050003",
+            "raised 77050002 | raised 77050002 | raised 77050002 | raised 77050002",
+            "4096-bit product decimal matches Python: TRUE",
+            "4096-bit product parses back: TRUE"
+        ]
+    );
+}
+
+/// plan-127-B Validation Plan runtime proof: a 1000-term `big::sum` of mixed-sign 192-bit
+/// values, printed through `toString`, against the total Python computes from the same
+/// operand formula, and against folding `add`.
+#[test]
+fn a_thousand_term_sum_prints_the_independent_total() {
+    let lines = run(
+        "big_b_sum_1000",
+        r#"IMPORT io
+IMPORT big
+IMPORT collections
+
+FUNC operand(n AS Integer, mul AS Integer, add AS Integer) AS List OF Byte
+  MUT b AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    b = collections::append(b, toByte((i * mul + add) MOD 256))
+    i = i + 1
+  END WHILE
+  RETURN b
+END FUNC
+
+SUB main()
+  MUT terms AS List OF big::Int = []
+  MUT folded AS big::Int = big::fromInteger(0)
+  MUT k AS Integer = 0
+  WHILE k < 1000
+    LET term AS big::Int = big::fromBytes(operand(24, 131 + k MOD 50, k MOD 256), k MOD 3 = 0)
+    terms = collections::append(terms, term)
+    folded = big::add(folded, term)
+    k = k + 1
+  END WHILE
+  LET total AS big::Int = big::sum(terms)
+  io::print(toString(len(terms)) & " terms")
+  io::print(big::toString(total))
+  io::print(toString(big::equals(total, folded)))
+END SUB
+"#,
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "1000 terms",
+            "1046487506421243044961144144988157756223431887292684862494154",
+            "TRUE"
+        ]
+    );
+}
