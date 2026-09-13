@@ -155,7 +155,7 @@ Acceptance:
 - The yaml corpus output is identical.
 - Only comments changed in `src/`: `git diff -U0 -- src | grep -E '^[+-][^+-]' | grep -vE '^[+-][[:space:]]*(//|\*)'` → no output (est. seconds). ~~artifact-gate all~~ — a comment edit cannot change a dump, and this grep fails on any non-comment change.
 
-Commit: —
+Commit: 61ce4774d
 
 ### Phase 2 — Generators (codepage, unicode)
 
@@ -196,7 +196,7 @@ Acceptance:
 - Generated-file diffs are header-only.
 - The golden grep for the old generator path finds nothing (or the one named fixture passes).
 
-Commit: —
+Commit: 61ce4774d
 
 ### Phase 3 — Vector generator (per the user's decision)
 
@@ -220,7 +220,7 @@ Acceptance:
 - `sh scripts/check-generated.sh` exits 0.
 - In the move case, the mutation makes it fail.
 
-Commit: —
+Commit: 61ce4774d
 
 ### Phase 4 — bench-lowering and the census scan root
 
@@ -261,7 +261,7 @@ Acceptance:
 - The benchmark runs from its new home.
 - `ls scripts` shows none of the 14 files and no `bench-probes`.
 
-Commit: —
+Commit: 61ce4774d
 
 ## Validation Plan
 

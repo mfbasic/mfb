@@ -27,10 +27,10 @@ See plan-131-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-131-C complete | `ls planning/plan-131-C-* 2>/dev/null` → no match | NOT MET |
+| plan-131-C complete | `ls planning/plan-131-C-* 2>/dev/null` → no match | MET (2026-09-12: C committed at `61ce4774d`; archived with D) |
 | User chose to run D (plan-131-A Open Decisions) | recorded there | MET (2026-09-12: run D; test on macOS now, boxes brought up later by the user) |
-| Boxes reachable | `ssh -o BatchMode=yes -o ConnectTimeout=8 -p 2228 test@127.0.0.1 true` (and 2227, 2230) → exit 0 each | NOT MET at plan start (2026-09-12: 2227 exit 0; 2228, 2230 exit 255 connection refused). The user will bring the boxes up; the box legs wait for them |
-| macOS window-server session for `test-macapp.sh` | `bash scripts/test-macapp.sh target/release/mfb` → exit 0 at the start of D | UNMEASURED |
+| Boxes reachable | `ssh -o BatchMode=yes -o ConnectTimeout=8 -p 2228 test@127.0.0.1 true` (and 2227, 2230) → exit 0 each | MET at execution (2026-09-12: 2223 exit 0, 2228 exit 0, 2230 reachable — `true` is not a Windows command, so ssh exit 1 after connecting; 2227 up) |
+| macOS window-server session for `test-macapp.sh` | `bash scripts/test-macapp.sh target/release/mfb` → exit 0 at the start of D | MET (non-GUI run, exit 0; the GUI legs need the user's go-ahead and stay off) |
 
 ## 1. Goal
 
@@ -99,9 +99,19 @@ lines are compared with timings and temp paths normalized away.
 
 ### Phase 1 — Measure and baseline
 
-- [ ] Count the duplicated lines per helper candidate in each script, citing a
+- [x] Count the duplicated lines per helper candidate in each script, citing a
       `grep -c`/`sed -n` per block. Record a table: helper → scripts → lines.
-- [ ] ~~Record each script's baseline PASS/FAIL lines on its box before migrating~~ — replaced
+      Measured 2026-09-12 (`grep -c` per pattern, before migration):
+
+      | script | lines | pass/fail defs | mktemp | trap | `ssh -p` | `scp -P` | perl alarm | RGBA refs | project.json |
+      |---|---|---|---|---|---|---|---|---|---|
+      | test-winprocess | 332 | 2 | 1 | 1 | 2 | 3 | 0 | 0 | 2 |
+      | test-appimage | 426 | 2 | 1 | 1 | 1 | 1 | 1 | 0 | 2 |
+      | linux-runtime-proof | 213 | 0 | 1 | 2 | 1 | 1 | 0 | 0 | 1 |
+      | test-winapp | 699 | 2 | 1 | 1 | 15 | 15 | 0 | 7 | 5 |
+      | test-canvas-vulkan | 665 | 2 | 1 | 1 | 6 | 16 | 0 | 31 | 2 |
+      | test-macapp | 938 | 2 | 1 | 1 | 0 | 0 | 4 | 0 | 19 |
+- [x] ~~Record each script's baseline PASS/FAIL lines on its box before migrating~~ — replaced
       2026-09-12: a before-run doubles every remote proof and cannot fail on anything the after-run
       misses (a migration that breaks a helper produces a FAIL or an error in the after-run). Instead,
       list each script's EXPECTED lines from its own source (`grep -n -E 'pass |fail |ok:|FAIL|SKIP'`
@@ -112,20 +122,25 @@ lines are compared with timings and temp paths normalized away.
       - `test-macapp`: local, non-GUI run only; the GUI legs need the user's explicit go-ahead.
       - `linux-runtime-proof`: `FILTER=<one fixture>` on 2223 `linux-aarch64` (native), not a full sweep
         on 2228 (est. <5 min).
-- [ ] Present the measurement to the user if the Open Decision was conditional on it.
+- [x] ~~Present the measurement to the user if the Open Decision was conditional on it.~~ — moot: the user's
+      decision was unconditional ("do the work", plan-131-A Open Decisions).
 
-Acceptance: the duplication table and six baselines are recorded.
+Acceptance: the duplication table and six baselines are recorded. (Met: table above; the before-baselines were
+replaced by one post-migration run per script, 2026-09-12 revision.)
 Commit: —
 
 ### Phase 2 — Helpers
 
-- [ ] Write `scripts/remote-common.sh` and `scripts/rgba_compare.py` per §3.
-- [ ] Write `scripts/remote-common-selftest.sh`, which covers:
+- [x] Write `scripts/remote-common.sh` and `scripts/rgba_compare.py` per §3.
+- [x] Write `scripts/remote-common-selftest.sh`, which covers:
       - `watchdog` kills a `sleep 30` at 1 s and returns non-zero;
       - `remote_ssh` against an unused port fails within `ConnectTimeout` + 2 s;
       - `pass`/`fail` counting and the summary exit code;
       - `rgba_compare.py` returns equal/unequal on two synthetic RGBA files at and just beyond tolerance.
       Run it → exit 0.
+      Result: 7/7 `ok` — watchdog killed `sleep 30` at 1 s (exit 99); watchdog passed output + exit 3 through;
+      `remote_ssh` to port 1 failed in 0 s (exit 255); two fails counted; `RC_FAIL_TO_STDERR=1` wrote to
+      stderr; `rgba_compare` delta 2 on 2% → `ok worst=2 differing=2.0000%`; delta 3 → beyond. Exit 0.
 
 Acceptance: the selftest exits 0 and every case is shown to run (its output lists each case).
 Commit: —
@@ -134,26 +149,32 @@ Commit: —
 
 For each script, in the §3 order:
 
-- [ ] Replace its local copies with the helpers.
-- [ ] Run it once on its box (Phase 1 list) → every expected PASS line present, 0 FAIL, only the SKIPs its header documents (est. per the Phase 1 list; background the x86_64 ones).
-- [ ] Record `wc -l` before and after.
+- [x] Replace its local copies with the helpers.
+- [x] Run it once on its box (Phase 1 list) → every expected PASS line present, 0 FAIL, only the SKIPs its header documents (est. per the Phase 1 list; background the x86_64 ones).
+- [x] Record `wc -l` before and after.
 
 The rows:
 
-- [ ] `test-winprocess.sh`
-- [ ] `test-appimage.sh`
-- [ ] `linux-runtime-proof.sh`
-- [ ] `test-winapp.sh`
-- [ ] `test-canvas-vulkan.sh`
-- [ ] `test-macapp.sh`
-- [ ] Negative check once, on `test-winapp.sh`: point it at a closed port → it exits non-zero
+- [x] `test-winprocess.sh` — 332 → 312 lines; 2230: every line `ok`, `windows process runtime tests passed`,
+      exit 0 (after the heredoc fix in Corrections).
+- [x] `test-appimage.sh` — 426 → 410 lines; glibc on 2228 (10 `ok`) and musl on 2227 (9 `ok`),
+      `Linux AppImage runtime tests passed`, exit 0.
+- [x] `linux-runtime-proof.sh` — 213 → 214 lines; `FILTER=rt-behavior/control-flow/control-flow-if` on 2223
+      `linux-aarch64/glibc`: `1 passed, 0 failed, 0 not run`, exit 0.
+- [x] `test-winapp.sh` — 699 → 627 lines; 2230: 32 `ok`, 0 FAIL (both Vulkan compares through
+      `rgba_compare.py`: `ok worst=1 differing=0.0042%` and `…0.0059%`), exit 0.
+- [x] `test-canvas-vulkan.sh` — 665 → 625 lines; 2228: 15 `ok`, `canvas Vulkan runtime tests passed`, exit 0.
+- [x] `test-macapp.sh` — 938 → 859 lines; local non-GUI: 11 `ok`, 8 GUI legs skipped as designed,
+      `macOS app mode runtime tests passed`, exit 0.
+- [x] Negative check once, on `test-winapp.sh`: point it at a closed port → it exits non-zero
       within `ConnectTimeout` + 5 s instead of hanging.
+      Result: `MFB_SSH_CONNECT_TIMEOUT=5 … --box 1` → exit 255 after 0 s (`Connection refused`).
 
 Acceptance:
 - Each migrated script's single run: 0 FAIL, expected PASS lines present.
 - The closed-port run fails fast.
 - `grep -nE '\bssh -p|\bscp -P' scripts/test-*.sh scripts/linux-runtime-proof.sh` → 0 (all go
-  through the helpers).
+  through the helpers). (Met: exit 1, no hits; `bash -n` ok on all six.)
 
 Commit: —
 
@@ -170,6 +191,24 @@ Commit: —
 See plan-131-A (whether to run D at all).
 
 ## Corrections
+
+- **2026-09-12: `test-winprocess.sh`'s test program had rotted, not the migration.** Its first run failed at
+  build: `process::close` is no longer exported (`SYMBOL_UNKNOWN_IDENTIFIER`). The program closes the child's
+  stdin before reading its output, which is `process::closeInput` ("the handle itself stays open"). Both calls
+  fixed; the re-run passed.
+- **2026-09-12: `linux-runtime-proof.sh` needed `RC_SCP_OPTS` exported.** Its `scp` runs inside `run_fixture`
+  under `xargs bash -c`, which sees only exported variables; unexported, the options would have expanded to
+  nothing. Added to the `export` line before the run.
+- **2026-09-12: `test-macapp.sh`'s perl watchdogs were not replaced.** `run_headless` prints `code=`/`signal=`
+  and the inline copies read a line or write a file — different contracts from `watchdog` (print output,
+  exit 99). Folding them in would change what each case asserts, a non-goal. `test-appimage.sh`'s
+  `timeout_run` has `watchdog`'s exact contract and now calls it.
+- **2026-09-12: the shared connect timeout is 10 s.** `test-appimage.sh` used 8 s and
+  `linux-runtime-proof.sh` 10 s; both now use `RC_SSH_OPTS` (`MFB_SSH_CONNECT_TIMEOUT` overrides).
+- **2026-09-12: scaffolds converted where the heredoc is the standard form** — 27 blocks (macapp 19,
+  winapp 5, winprocess 2, canvas-vulkan 1). `test-appimage.sh`'s two are unquoted heredocs with interpolated
+  fields and stay as written. `win_ship` replaced the mkdir+copy blocks in winprocess and winapp's first run;
+  the later winapp blocks copy one `.bat` next to an already-created dir and kept their `remote_scp` call.
 
 ## Summary
 
