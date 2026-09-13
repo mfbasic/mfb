@@ -136,7 +136,7 @@ Acceptance: every store in the test yields an independent value.
   rt_error_value_copies --test rt_net_address_record_layout` → 2 + 1 + 2 passed, 0 failed.
   `cargo test --release --bin mfb -- collect_last_use_moves` → 4 passed after the key API change.
   Runtime: `tree_alias` → `ys=6 xs=1` on macOS and on Linux box 2223 (exit 0).
-Commit: —
+Commit: 41f5694d6
 
 ### Phase 3 — the speed gate and goldens
 
@@ -169,7 +169,7 @@ Acceptance: decoders within budget; gate diffs confined and explained.
   budget as recorded above.
   Check: the bench medians (est. 2 min); the gate (est. 15 min — the only check covering every
   target's emitted stores).
-Commit: —
+Commit: 41f5694d6
 
 ## Validation Plan
 
