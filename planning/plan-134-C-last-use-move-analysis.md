@@ -105,17 +105,24 @@ decoder sites.
   Check: `cargo test --release --bin mfb -- collect_last_use_moves` → all passed (est. 3 min).
   Result: met — `4 passed; 0 failed` (first run: 2 failed on test setup only — helper names are
   `#json_…` once lowered, and the builtin resource table is keyed `fs.File`; no analysis change).
-Commit: —
+Commit: dd5b073ce
 
 ### Phase 2 — prove it changes nothing
 
-- [ ] `bash scripts/artifact-gate.sh target/release/mfb all` → 0 diffs (the pass has no callers).
+- [x] `bash scripts/artifact-gate.sh target/release/mfb all` → 0 diffs (the pass has no callers).
+      — run against a snapshot of the release build containing `last_use.rs`
+      (`/tmp/p134-mfb-c`, so a concurrent `cargo test` relink could not swap the binary
+      mid-gate): `artifact-gate [all]: 1437 tests, 1603 build(s), 2013 golden(s) checked, 0
+      diff(s)`.
 
 Acceptance: byte-identical emitted code on every target — this letter is provably neutral, so
 byte-identity IS its gate. A diff is a bug in this letter (the pass must not touch lowering
 state); localize it by building one fixture's `-ncode` before and after.
   Check: that command → `0 diff(s)` (est. 15 min: the gate is the only check that sees every
   target).
+  Result: met — `2013 golden(s) checked, 0 diff(s)`. The release build's only warnings are the
+  20 "never used" warnings in `last_use.rs` (`grep "^  --> " … | grep -vc last_use.rs` → 0),
+  the expected consequence of no callers until letter D.
 Commit: —
 
 ## Validation Plan
