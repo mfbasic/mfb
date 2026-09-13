@@ -12,8 +12,14 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
+mod func_abs;
+mod func_compare;
+mod func_equals;
 mod func_from_bytes;
 mod func_from_integer;
+mod func_is_zero;
+mod func_negate;
+mod func_sign;
 mod func_to_bytes;
 mod func_to_integer;
 
@@ -42,8 +48,9 @@ independent copy, and there is nothing to open or close. A `big::Int` declared w
 `MUT` and no initializer holds zero.
 
 **Operators do not apply.** `+`, `-`, `*`, `/`, `=`, `<>`, `<` and `>` are rejected at
-compile time on a `big::Int`. For the same reason a `big::Int` cannot be a `Map` key
-or a `Set` element.
+compile time on a `big::Int`. Compare two values with `big::compare` or
+`big::equals`, and test for zero with `big::isZero`. For the same reason a `big::Int`
+cannot be a `Map` key or a `Set` element.
 
 **Conversions.** `big::fromInteger` and `big::toInteger` cross to and from `Integer`;
 `toInteger` raises `ErrOverflow` when the value does not fit. `big::fromBytes` and
@@ -105,6 +112,13 @@ pub(crate) fn register(r: &mut Registry) {
     func_to_integer::register(&mut pkg);
     func_from_bytes::register(&mut pkg);
     func_to_bytes::register(&mut pkg);
+    // Comparison and sign (plan-127-A Phase 5).
+    func_compare::register(&mut pkg);
+    func_equals::register(&mut pkg);
+    func_is_zero::register(&mut pkg);
+    func_sign::register(&mut pkg);
+    func_abs::register(&mut pkg);
+    func_negate::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -171,6 +185,12 @@ mod tests {
         ("big.toInteger", &["ErrOverflow"]),
         ("big.fromBytes", &[]),
         ("big.toBytes", &[]),
+        ("big.compare", &[]),
+        ("big.equals", &[]),
+        ("big.isZero", &[]),
+        ("big.sign", &[]),
+        ("big.abs", &[]),
+        ("big.negate", &[]),
     ];
 
     #[test]
@@ -219,6 +239,17 @@ mod tests {
         assert_eq!(ret("big.fromBytes"), int());
         assert_eq!(args("big.toBytes"), vec![int(), "big.Endian".to_string()]);
         assert_eq!(ret("big.toBytes"), "List OF Byte");
+        for name in ["big.compare", "big.equals"] {
+            assert_eq!(args(name), vec![int(), int()], "{name}");
+        }
+        assert_eq!(ret("big.compare"), "Integer");
+        assert_eq!(ret("big.equals"), "Boolean");
+        assert_eq!(ret("big.isZero"), "Boolean");
+        assert_eq!(ret("big.sign"), "Integer");
+        for name in ["big.abs", "big.negate"] {
+            assert_eq!(args(name), vec![int()], "{name}");
+            assert_eq!(ret(name), int(), "{name}");
+        }
     }
 
     /// The `endian` default pads `big::Endian.Little` (ordinal `0`), typed as the enum
@@ -243,14 +274,20 @@ mod tests {
 IMPORT big
 
 SUB main()
-  LET pair AS List OF Byte = [1, 2]
   LET a AS big::Int = big::fromInteger(-5)
+  LET pair AS List OF Byte = [1, 2]
   LET b AS big::Int = big::fromBytes(pair, FALSE)
   LET c AS big::Int = big::fromBytes(pair, TRUE, big::Endian.Big)
   LET little AS List OF Byte = big::toBytes(a)
   LET wire AS List OF Byte = big::toBytes(c, big::Endian.Big)
-  io::print(toString(big::toInteger(b)))
-  io::print(toString(len(little) + len(wire)))
+  io::print(toString(big::compare(a, b)))
+  io::print(toString(big::equals(a, b)))
+  io::print(toString(big::isZero(a)))
+  io::print(toString(big::sign(a)))
+  LET d AS big::Int = big::abs(a)
+  LET e AS big::Int = big::negate(b)
+  io::print(toString(big::toInteger(d)))
+  io::print(toString(len(little) + len(wire) + len(e.magnitude)))
 END SUB
 "#;
         for target in crate::testutil::CodeTarget::ALL {

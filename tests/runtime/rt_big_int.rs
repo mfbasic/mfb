@@ -177,3 +177,109 @@ END SUB
     );
 }
 
+/// plan-127-A Phase 5: `compare` is a total order over a spread covering both signs,
+/// zero, and magnitudes past `Integer`; `equals`, `isZero` and `sign` agree with it.
+#[test]
+fn compare_is_a_total_order_and_the_predicates_agree() {
+    // Ascending. 2^64 and -(2^64) are one byte past an `Integer`.
+    let lines = run(
+        "big_compare_order",
+        r#"IMPORT io
+IMPORT big
+IMPORT collections
+
+SUB main()
+  LET twoTo64 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 0, 1]
+  LET values AS List OF big::Int = [big::fromBytes(twoTo64, TRUE), big::fromInteger(-70000), big::fromInteger(-256), big::fromInteger(-1), big::fromInteger(0), big::fromInteger(1), big::fromInteger(255), big::fromInteger(256), big::fromInteger(70000), big::fromBytes(twoTo64, FALSE)]
+  MUT i AS Integer = 0
+  WHILE i < len(values)
+    MUT j AS Integer = 0
+    MUT row AS String = ""
+    WHILE j < len(values)
+      LET a AS big::Int = collections::get(values, i)
+      LET b AS big::Int = collections::get(values, j)
+      MUT eq AS String = "n"
+      IF big::equals(a, b) THEN
+        eq = "y"
+      END IF
+      row = row & toString(big::compare(a, b)) & eq & " "
+      j = j + 1
+    END WHILE
+    LET v AS big::Int = collections::get(values, i)
+    io::print(row & "| " & toString(big::sign(v)) & " " & toString(big::isZero(v)))
+    i = i + 1
+  END WHILE
+END SUB
+"#,
+    );
+    let n = 10usize;
+    let zero_index = 4usize;
+    let expected: Vec<String> = (0..n)
+        .map(|i| {
+            let row: String = (0..n)
+                .map(|j| {
+                    let (order, eq) = match i.cmp(&j) {
+                        std::cmp::Ordering::Less => ("-1", "n"),
+                        std::cmp::Ordering::Equal => ("0", "y"),
+                        std::cmp::Ordering::Greater => ("1", "n"),
+                    };
+                    format!("{order}{eq} ")
+                })
+                .collect();
+            let sign = match i.cmp(&zero_index) {
+                std::cmp::Ordering::Less => "-1",
+                std::cmp::Ordering::Equal => "0",
+                std::cmp::Ordering::Greater => "1",
+            };
+            let is_zero = if i == zero_index { "TRUE" } else { "FALSE" };
+            format!("{row}| {sign} {is_zero}")
+        })
+        .collect();
+    assert_eq!(lines, expected);
+}
+
+/// plan-127-A Phase 5: `negate`/`abs` never produce a negative zero, and a
+/// hand-built non-canonical record reads as the number it spells.
+#[test]
+fn negate_abs_and_the_total_decoder() {
+    let source = format!(
+        r#"IMPORT io
+IMPORT big
+IMPORT collections
+{SHOW_BYTES}
+SUB main()
+  LET x AS big::Int = big::fromInteger(-70000)
+  io::print(toString(big::equals(big::negate(big::negate(x)), x)))
+  LET negatedZero AS big::Int = big::negate(big::fromInteger(0))
+  io::print(toString(len(negatedZero.magnitude)) & " " & toString(negatedZero.negative))
+  io::print(toString(big::toInteger(big::abs(x))) & " " & toString(big::abs(x).negative))
+  io::print(toString(big::toInteger(big::abs(big::fromInteger(12)))))
+  io::print(toString(big::toInteger(big::negate(big::fromInteger(12)))))
+  LET spelled AS big::Int = big::Int[[7, 0], FALSE]
+  io::print(toString(big::equals(spelled, big::fromInteger(7))) & " " & toString(big::compare(spelled, big::fromInteger(7))))
+  LET minusZero AS big::Int = big::Int[[], TRUE]
+  io::print(toString(big::equals(minusZero, big::fromInteger(0))) & " " & toString(big::isZero(minusZero)) & " " & toString(big::sign(minusZero)))
+  LET zeroBytes AS big::Int = big::Int[[0, 0, 0], TRUE]
+  io::print(toString(big::isZero(zeroBytes)) & " " & toString(big::compare(zeroBytes, big::fromInteger(-1))))
+  LET cleaned AS big::Int = big::negate(big::negate(spelled))
+  io::print(show(cleaned.magnitude) & " " & toString(cleaned.negative))
+END SUB
+"#
+    );
+    let lines = run("big_negate_abs_decoder", &source);
+    assert_eq!(
+        lines,
+        vec![
+            "TRUE",
+            "0 FALSE",
+            "70000 FALSE",
+            "12",
+            "-12",
+            "TRUE 0",
+            "TRUE TRUE 0",
+            "TRUE 1",
+            // A member's result is canonical even from a non-canonical input.
+            "[7] FALSE",
+        ]
+    );
+}

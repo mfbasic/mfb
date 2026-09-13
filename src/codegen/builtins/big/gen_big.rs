@@ -222,6 +222,151 @@ pub(crate) fn emit_build_int(
     ]);
 }
 
+/// Order the magnitudes of two loaded operands, ignoring sign: `-1`, `0` or `1` into
+/// `out`. A longer significant count is larger; equal counts compare byte by byte from
+/// the most significant end. Both operands are already trimmed by [`emit_load_int`], so
+/// the count comparison is exact.
+pub(crate) fn emit_compare_magnitude(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    a: &IntSlots,
+    b: &IntSlots,
+    out: &str,
+    tag: &str,
+) {
+    let symbol = builder.current_symbol.clone();
+    let less = format!("{symbol}_{tag}_less");
+    let greater = format!("{symbol}_{tag}_greater");
+    let equal = format!("{symbol}_{tag}_equal");
+    let walk = format!("{symbol}_{tag}_walk");
+    let finished = format!("{symbol}_{tag}_finished");
+    let count_a = vregs.next();
+    let count_b = vregs.next();
+    let data_a = vregs.next();
+    let data_b = vregs.next();
+    let byte_a = vregs.next();
+    let byte_b = vregs.next();
+    let cursor = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&count_a, abi::stack_pointer(), a.count),
+        abi::load_u64(&count_b, abi::stack_pointer(), b.count),
+        abi::compare_registers(&count_a, &count_b),
+        abi::branch_lo(&less),
+        abi::branch_hi(&greater),
+        abi::load_u64(&data_a, abi::stack_pointer(), a.data),
+        abi::load_u64(&data_b, abi::stack_pointer(), b.data),
+        abi::label(&walk),
+        abi::compare_immediate(&count_a, "0"),
+        abi::branch_eq(&equal),
+        abi::subtract_immediate(&count_a, &count_a, 1),
+        abi::add_registers(&cursor, &data_a, &count_a),
+        abi::load_u8(&byte_a, &cursor, 0),
+        abi::add_registers(&cursor, &data_b, &count_a),
+        abi::load_u8(&byte_b, &cursor, 0),
+        abi::compare_registers(&byte_a, &byte_b),
+        abi::branch_lo(&less),
+        abi::branch_hi(&greater),
+        abi::branch(&walk),
+        abi::label(&less),
+        // `move_immediate` refuses a negative literal: build -1 as 0 - 1.
+        abi::move_immediate(out, "Integer", "0"),
+        abi::subtract_immediate(out, out, 1),
+        abi::branch(&finished),
+        abi::label(&greater),
+        abi::move_immediate(out, "Integer", "1"),
+        abi::branch(&finished),
+        abi::label(&equal),
+        abi::move_immediate(out, "Integer", "0"),
+        abi::label(&finished),
+    ]);
+}
+
+/// Order two loaded operands as signed numbers: `-1`, `0` or `1` into `out`. Differing
+/// signs decide it outright (a trimmed zero is never negative, so zero sorts between
+/// the negatives and the positives); equal signs defer to the magnitudes, reversed when
+/// both are negative.
+pub(crate) fn emit_compare_int(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    a: &IntSlots,
+    b: &IntSlots,
+    out: &str,
+    tag: &str,
+) {
+    let symbol = builder.current_symbol.clone();
+    let same_sign = format!("{symbol}_{tag}_same_sign");
+    let a_negative = format!("{symbol}_{tag}_a_negative");
+    let finished = format!("{symbol}_{tag}_signed_done");
+    let sign_a = vregs.next();
+    let sign_b = vregs.next();
+    let zero = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&sign_a, abi::stack_pointer(), a.negative),
+        abi::load_u64(&sign_b, abi::stack_pointer(), b.negative),
+        abi::compare_registers(&sign_a, &sign_b),
+        abi::branch_eq(&same_sign),
+        abi::compare_immediate(&sign_a, "0"),
+        abi::branch_ne(&a_negative),
+        abi::move_immediate(out, "Integer", "1"),
+        abi::branch(&finished),
+        abi::label(&a_negative),
+        abi::move_immediate(out, "Integer", "0"),
+        abi::subtract_immediate(out, out, 1),
+        abi::branch(&finished),
+        abi::label(&same_sign),
+    ]);
+    emit_compare_magnitude(builder, vregs, a, b, out, tag);
+    let sign = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&sign, abi::stack_pointer(), a.negative),
+        abi::compare_immediate(&sign, "0"),
+        abi::branch_eq(&finished),
+        abi::move_immediate(&zero, "Integer", "0"),
+        abi::subtract_registers(out, &zero, out),
+        abi::label(&finished),
+    ]);
+}
+
+/// A new `big::Int` with `operand`'s magnitude and the sign in `negative_slot`
+/// (`1` = negative), normalized, in `RESULT_VALUE_REGISTER`. Serves `abs` and `negate`.
+/// Branches to `alloc_fail` when the result cannot be made.
+pub(crate) fn emit_copy_int(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    operand: &IntSlots,
+    negative_slot: usize,
+    tag: &str,
+    alloc_fail: &str,
+) {
+    let symbol = builder.current_symbol.clone();
+    let result = emit_alloc_magnitude(builder, vregs, operand.count, tag, alloc_fail);
+    let copy_loop = format!("{symbol}_{tag}_copy");
+    let copy_done = format!("{symbol}_{tag}_copy_done");
+    let src = vregs.next();
+    let dst = vregs.next();
+    let count = vregs.next();
+    let index = vregs.next();
+    let at = vregs.next();
+    let byte = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&src, abi::stack_pointer(), operand.data),
+        abi::load_u64(&dst, abi::stack_pointer(), result.data),
+        abi::load_u64(&count, abi::stack_pointer(), operand.count),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::label(&copy_loop),
+        abi::compare_registers(&index, &count),
+        abi::branch_eq(&copy_done),
+        abi::add_registers(&at, &src, &index),
+        abi::load_u8(&byte, &at, 0),
+        abi::add_registers(&at, &dst, &index),
+        abi::store_u8(&byte, &at, 0),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+    ]);
+    emit_build_int(builder, vregs, &result, operand.count, negative_slot, tag);
+}
+
 /// The canonical-form rule, emitted once for both directions: walk `count` down past
 /// zero high bytes, then clear `negative` when nothing is left. `data` is preserved;
 /// `count` and `negative` are updated in place.

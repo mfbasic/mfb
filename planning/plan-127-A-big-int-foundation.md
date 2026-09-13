@@ -454,7 +454,7 @@ from the Phase 3 emitters; `cargo build --release` exit 0, 0 warnings): `[9] FAL
 `big::Int[[0, 0, 0], TRUE]` and the canonical `big::Int[[1, 2, 3], TRUE]`. The shim was then
 removed (`func_probe_round_trip.rs` deleted, its declaration, registration and macOS admission
 row taken out; anchor counts `0`) and never committed.
-Commit: —
+Commit: 0fdb747eb (shared with Phase 4 — Corrections C6)
 
 ### Phase 4 — the conversion seams
 
@@ -488,24 +488,40 @@ vectors, `None`, an `abi_function` lowering each), `member_signatures`,
 `cargo test --release --test rt_big_int` → `3 passed; 0 failed`. Non-disturbance still holds
 (five-target `.ncode` identical to the HEAD baseline); `man-census --fill big` 4/4/4, params 7/7;
 memory-scope 0; the eight examples ran.
-Commit: —
+Commit: 0fdb747eb (shared with Phase 3 — Corrections C6)
 
 ### Phase 5 — comparison and sign
 
-- [ ] `func_compare.rs`, `func_equals.rs`, `func_is_zero.rs`, `func_sign.rs`,
+- [x] `func_compare.rs`, `func_equals.rs`, `func_is_zero.rs`, `func_sign.rs`,
       `func_abs.rs`, `func_negate.rs` — all total. `compare` orders by sign, then by
       magnitude length, then by descending byte index.
-- [ ] Tests: `compare` is a total order over a spread covering both signs, zero, and
+      Done, over two shared emitters (`emit_compare_magnitude`, `emit_compare_int`) and
+      `emit_copy_int` for `abs`/`negate`; release build 0 warnings; the six pages' examples run
+      (`man-run-examples big --run` → 14 of 14 across the ten members, 0 failed).
+- [x] Tests: `compare` is a total order over a spread covering both signs, zero, and
       differing magnitudes; `equals` agrees with `compare(...) = 0`; `isZero` agrees
       with `equals(x, fromInteger(0))`; `negate(negate(x)) = x`; `negate` of zero is
       canonical zero, not `{[], TRUE}`; `abs` of a negative is its magnitude; `sign`
       returns -1/0/1.
-- [ ] Test: `equals` returns `TRUE` for a canonical value against a hand-constructed
+      `compare_is_a_total_order_and_the_predicates_agree ... ok` (10x10 order over values
+      incl. ±2^64, with `equals`/`sign`/`isZero` agreeing) and `negate_abs_and_the_total_decoder
+      ... ok` (`negate(0)` is `0 FALSE`, `abs(-70000)` is `70000 FALSE`).
+- [x] Test: `equals` returns `TRUE` for a canonical value against a hand-constructed
       **non-canonical** record denoting the same number — the total-decoder contract.
-- [ ] Admit the six members in all three backend `runtime_calls` lists — Corrections C2.
+      Pinned in `negate_abs_and_the_total_decoder`: `big::Int[[7, 0], FALSE]` equals
+      `fromInteger(7)` (`TRUE 0`), `big::Int[[], TRUE]` equals zero (`TRUE TRUE 0`).
+- [x] Admit the six members in all three backend `runtime_calls` lists — Corrections C2.
+      Done: `grep -c '"big\.'` → `10` in each of the three lists.
 
 Acceptance: all six declare an empty registry `errors` vector (Corrections C1), and the comparison
 suite passes including the non-canonical and negative-zero cases.
+Evidence (worktree-P-127, 0 warnings): `cargo test --release -p mfb --bin mfb --
+codegen::builtins::big target::tests::every_big_member codegen::builtins::tests` → `35 passed;
+0 failed` (the ten-member exact error vectors, lowering on all five backends, admission);
+`cargo test --release --test rt_big_int` → `5 passed; 0 failed`, including
+`compare_is_a_total_order_and_the_predicates_agree` and `negate_abs_and_the_total_decoder`;
+`man-census --fill big` 10/10/10, params 15/15, types 4/4; memory-scope 0; `man-run-examples big
+--run` 14 of 14; non-`big` `.ncode` identical to the HEAD baseline on all five targets.
 Commit: —
 
 ## Validation Plan
