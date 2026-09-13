@@ -165,7 +165,7 @@ Acceptance: §2 has no UNMEASURED row; the test fails on main.
   Result: met — §2 carries the measured census; `cargo test --release --no-fail-fast --test
   rt_recursive_value_construction_copies` → `0 passed; 2 failed`, both "status
   ExitStatus(unix_wait_status(11))" (SIGSEGV).
-Commit: —
+Commit: 5e928e828
 
 ### Phase 2 — copy at each store
 
@@ -202,7 +202,7 @@ Acceptance: every construction store yields an independent graph, with no redund
   Result: met — `cargo test --release --no-fail-fast --test rt_recursive_value_construction_copies
   --test rt_recursive_value_copies --test rt_recursive_value_copy_depth` → 4 + 2 + 3 passed, 0
   failed; `rt_scope_drop_leaks` → 118 passed after the operand switch (flat stores unchanged).
-Commit: —
+Commit: d04d2fef7
 
 ### Phase 3 — speed and goldens
 
@@ -224,7 +224,7 @@ Acceptance: within budget; diffs confined and explained.
   Result: diffs confined (regex only) and explained per function; budget partially met — json
   within, regex over, under the owner's 2026-09-13 decision (re-measure and report at plan-134-H).
   Check: bench (est. 2 min); gate (est. 15 min).
-Commit: —
+Commit: d04d2fef7
 
 ## Validation Plan
 
