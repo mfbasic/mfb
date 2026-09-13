@@ -2120,6 +2120,10 @@ pub(crate) fn lower_module_for_platform(
                         term_state_offset,
                         presentation_mode_offset,
                         global_slots: arena_global_slots,
+                        debug_arena_registry: crate::codegen::debug::feature_active(
+                            module,
+                            crate::codegen::debug::ARENA_SECTION,
+                        ),
                     },
                     uses_rng,
                     &type_model,
@@ -2684,6 +2688,7 @@ pub(crate) fn lower_runtime_helper(
                 arena_layout.presentation_mode_offset,
                 arena_layout.global_slots,
                 uses_rng,
+                arena_layout.debug_arena_registry,
             )?
         // (`term.*` members are `Body::abi_function` since the clean-room migration —
         // each member's own per-member body (`func_*.rs::lower_<name>`) calls the shared

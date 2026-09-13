@@ -138,6 +138,10 @@ impl DebugFeature for PerfFeature {
         &["perf.start"]
     }
 
+    fn lock_helpers(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn emit_entry_start(&self, ctx: &mut DebugEmitCtx<'_>) -> Result<(), String> {
         // Map the region (arena-free) and open the whole-program span.
         let perf_init = perf_symbol("perf.init");

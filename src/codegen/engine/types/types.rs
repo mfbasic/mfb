@@ -1297,6 +1297,9 @@ pub(crate) struct ArenaLayout {
     /// `thread::start` sizes a worker's arena block from this so the worker's region
     /// matches the entry frame's (bug-369).
     pub(crate) global_slots: usize,
+    /// plan-130-C: whether the `--debug` arena registry is active, so the thread and
+    /// canvas start paths register the arenas they create.
+    pub(crate) debug_arena_registry: bool,
 }
 
 /// The compiler-internal name for the runtime `app::Mode` presentation mode

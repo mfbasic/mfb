@@ -57,6 +57,7 @@ pub(crate) fn lower_start_graphics(
         &symbol,
         &scratch,
         ctx.arena_global_slots,
+        ctx.debug_arena_registry,
         ctx.platform_imports,
         ctx.platform,
         &mut builder.instructions,

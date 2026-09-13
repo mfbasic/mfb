@@ -78,6 +78,10 @@ pub(crate) struct AbiCtx<'a> {
     /// RNG state). `thread.start` alone consumes it; every other abi body ignores it.
     /// `false` on the inline (`abi_inline`) path.
     pub(crate) uses_rng: bool,
+    /// plan-130-C: whether the `--debug` arena registry is active. `thread.start` and
+    /// `canvas.startGraphics` consume it to register the arena they create; `false` on
+    /// the inline (`abi_inline`) path.
+    pub(crate) debug_arena_registry: bool,
 }
 
 /// A builder-driven **inline** lowering — the single sanctioned inline shape:

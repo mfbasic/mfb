@@ -34,10 +34,10 @@ fn host_target() -> &'static str {
     }
 }
 
-/// Assert a report block's shape: the core section for `build`, then — on macOS,
-/// where the `perf` section applies (plan-130-B) — `perf.<key> <integer>` lines
-/// including the six statistics of the whole-program span, then the end line.
-/// Returns the `perf.` lines (none off macOS).
+/// Assert a report block's shape: the core section for `build`, then each registered
+/// section's `<key> <value>` lines (the `arena` section everywhere; the `perf` section
+/// only on macOS, plan-130-B, where its lines must include the six statistics of the
+/// whole-program span), then the end line. Returns the `perf.` lines (none off macOS).
 fn assert_block(case: &str, block: &[String], build: &str) -> Vec<String> {
     let head = [
         "mfb.debug.begin 1".to_string(),
@@ -54,17 +54,36 @@ fn assert_block(case: &str, block: &[String], build: &str) -> Vec<String> {
         Some("mfb.debug.end 1"),
         "{case}: report block end"
     );
-    let perf: Vec<String> = block[3..block.len() - 1].to_vec();
+    let body = &block[3..block.len() - 1];
+    for line in body {
+        let (key, value) = line
+            .split_once(' ')
+            .unwrap_or_else(|| panic!("{case}: `{line}` is not `<key> <value>`"));
+        assert!(
+            ["perf.", "arena."]
+                .iter()
+                .any(|prefix| key.starts_with(prefix))
+                && !value.is_empty()
+                && !value.contains(' '),
+            "{case}: `{line}` is not a `perf.`/`arena.` section line"
+        );
+    }
+    let perf: Vec<String> = body
+        .iter()
+        .filter(|line| line.starts_with("perf."))
+        .cloned()
+        .collect();
     if !cfg!(target_os = "macos") {
         assert!(perf.is_empty(), "{case}: perf is macOS-only, got {perf:?}");
         return perf;
     }
     for line in &perf {
-        let (key, value) = line
+        let value = line
             .split_once(' ')
-            .unwrap_or_else(|| panic!("{case}: `{line}` is not `<key> <value>`"));
+            .map(|(_, value)| value)
+            .unwrap_or_default();
         assert!(
-            key.starts_with("perf.") && !value.contains(' ') && value.parse::<u64>().is_ok(),
+            value.parse::<u64>().is_ok(),
             "{case}: `{line}` is not a `perf.<key> <integer>` line"
         );
     }

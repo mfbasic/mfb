@@ -138,18 +138,31 @@ full suite run in `--debug` for the arena-heavy rt tests.
 
 ### Phase 1 — registry, registration, and the lookup-cost measurement
 
-- [ ] `src/codegen/debug/arena.rs`: region layout constants, `_mfb_debug_arena_register`
-      helper, `emit_debug_arena_slot`, `ArenaFeature` (report prints `arena.count`,
-      `arena.registry_overflow`, and per-slot `kind`).
-- [ ] Registration calls at the entry, `lower_thread_start_helper`, and the canvas child
-      arena, all behind `module.debug.enabled`.
+- [x] `src/codegen/debug/arena.rs`: region layout constants, `_mfb_debug_arena_register`
+      helper, `ArenaFeature` (report prints `arena.count`, `arena.registry_overflow`, and
+      per-slot `kind`). The registry lock is the static `_mfb_rt_debug_arena_lock` (see
+      Corrections); line assembly reuses new `write.rs` pieces (`emit_prepend_decimal`,
+      `emit_prepend_object`, `emit_write_window`).
+- [x] ~~`emit_debug_arena_slot` in Phase 1~~ — moved to Phase 2 with its first consumer (the
+      counters): an emitter nothing calls fails the warning-free tree (Corrections).
+- [x] Registration calls at the entry, `lower_thread_start_helper`, and the canvas child
+      arena, all behind `module.debug.enabled`. Entry: `ArenaFeature::emit_entry_start` (kind main). Workers: the parent in
+      `lower_thread_start_helper`, after the child arena is zeroed (kind worker). Graphics:
+      `emit_start_graphics`, before the spawn (kind graphics). Both reached through
+      `AbiCtx.debug_arena_registry`; mutex imports attributed to the entry via
+      `DebugFeature::lock_helpers`. All four `--debug` cross-builds link (object plans accept).
 - [ ] Measure: a throwaway build of the benchmark rows cited in the arena.rs comments
       (bignum-modexp, datetime, large-list churn) with a no-op lookup emitted at every
       alloc/free entry vs a normal build; record wall times in Corrections. If the
       debug build exceeds 2×, replace the scan with an open-addressed hash before Phase 2.
-- [ ] Test `tests/runtime/rt_debug_arena.rs`: a program starting 3 workers reports
+- [x] Test `tests/runtime/rt_debug_arena.rs`: a program starting 3 workers reports
       `arena.count 4` with kinds `main worker worker worker`; a canvas headless program
-      reports a `graphics` arena.
+      reports a `graphics` arena. `cargo test --release --no-fail-fast --test rt_debug_arena` -> 2 passed
+      (`three_workers_register_four_arenas`: exactly `arena.count 4`, `registry_overflow 0`,
+      `0 main`, `1-3 worker`; `the_canvas_graphics_thread_registers_a_graphics_arena`: exactly
+      `arena.count 2`, `0 main`, `1 graphics`). `rt_debug_report` -> 7 passed after its block
+      check learned that a report has several sections (Corrections); `codegen::debug` unit
+      tests -> 4 passed; artifact gate 0 diff(s).
 
 Acceptance: test green on macOS; lookup-cost measurement recorded; artifact gate
 `0 diff(s)`.
@@ -157,6 +170,8 @@ Commit: —
 
 ### Phase 2 — counters at every allocator event
 
+- [ ] (moved here from Phase 1) `emit_debug_arena_slot(dst)`: linear scan of the registered
+      slots comparing `state_ptr` with the arena register — the lookup every counter uses.
 - [ ] `lower_arena_alloc`: `alloc_calls`/`alloc_bytes` (normalized size) at entry of the
       valid path; one `hit_*` per return path; `grow`, `maps`, `mapped_bytes` in the grow
       path; `live_bytes += size` and `peak_live_bytes = max(...)` on success.
@@ -218,6 +233,12 @@ Commit: —
 
 ## Corrections
 
+- **Phase 1 — `rt_debug_report`'s block check assumed one section.** Its `assert_block` (plan-130-B) required every macOS body line to be `perf.`; with the arena section registered, every `--debug` report also carries `arena.*` lines and six cases failed with `` `arena.count 1` is not a `perf.<key> <integer>` line``. The report format is sections in registry order (`09_debug-report.md`), so the check now accepts `perf.`/`arena.` `<key> <value>` lines and keeps the perf-specific assertions.
+- **Phase 1 — the registry mutex is a static data object, not a region field.** §3 put `{mutex (64 B), count, overflow}` in the mapped region, but the lock must exist BEFORE the first registration maps the region (it guards the map). It is `_mfb_rt_debug_arena_lock`, statically initialized exactly like the `os::` env lock (`os_env_lock_init_hex`: macOS `_PTHREAD_MUTEX_SIG_init`, Linux/Windows all-zero), so the region header is `{count, overflow}` (16 B) and slots start at +16.
+- **Phase 1 — `emit_debug_arena_slot` moves to Phase 2 with its first consumer (the counters).** Committing an emitter nothing calls fails the warning-free `cargo check --all-targets` (`.ai/build-tooling.md`); the Phase 1 lookup-cost measurement uses a throwaway, uncommitted patch instead.
+- **Phase 1 — lock imports need a registry hook, attributed to the program entry.** `import_calls()` resolves a whole runtime call's import set against its own `required_by`, so the register helper's `pthread_mutex_lock`/`unlock` (SRW on Windows) come from a new `DebugFeature::lock_helpers()`. First attributed to `_mfb_debug_arena_register`, every `--debug` build failed: `native object plan relocation source '_mfb_debug_arena_register' is not defined`. Every object plan (`src/os/{macos,linux,windows}/object.rs` `validate_relocations`) turns an import's `required_by` into a relocation source and accepts only `defined_symbols` = entry + functions + runtime + link symbols + data units; a code-layer helper is none of those. The imports are attributed to the entry (`_main` / Windows `_start`, taken from `entry_imports`), exactly how the report's own `_write` links.
+- **Phase 1 — registration needed plumbing the plan did not list.** `lower_thread_start_helper` and `emit_start_graphics` are reached through `AbiCtx`, which carried no debug information: `ArenaLayout.debug_arena_registry` -> `lower_abi_function_helper` -> `AbiCtx.debug_arena_registry` (false on the inline path), set from `feature_active(module, ARENA_SECTION)`.
+- **Phase 1 — `codegen::debug` tests needed two fixture fixes.** Their import map lacked the mutex pair a real plan attributes (`lower` errored `thread runtime helper requires _pthread_mutex_lock import`), and `debug_helpers_reference_no_arena_symbol` matched the word "arena", which the registry's own debug-owned globals contain. The check now forbids the allocator symbols (every `ARENA_*_SYMBOL` is `_mfb_arena_*`: alloc, destroy, free, insert_free, flush_coalesce, fill_random/seed/next) and `MAIN_ARENA_GLOBAL_SYMBOL` (`_mfb_rt_main_arena`, the one arena pointer the prefix misses), which is the behavior it protects.
 ## Summary
 
 The allocator hot path is the risk; the design keeps the arena layout untouched by

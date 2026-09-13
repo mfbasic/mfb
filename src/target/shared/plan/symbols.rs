@@ -195,6 +195,49 @@ pub(super) fn platform_imports(
             }
         }
     }
+    // plan-130-C: a `--debug` report helper that takes a process-global lock (the arena
+    // registry's register helper) calls the platform mutex through the thread seam, so
+    // the program needs the lock/unlock imports (matching the Win32 SRW names as well as
+    // the pthread ones). They are attributed to the program ENTRY, not the helper: every
+    // native object plan turns an import's `required_by` into a relocation source and
+    // accepts only plan-defined symbols (entry, functions, runtime and link symbols,
+    // data), and a code-layer debug helper is none of those — the report's own `_write`
+    // rides the entry's attribution the same way.
+    for feature in crate::codegen::debug::active_features(module) {
+        if feature.lock_helpers().is_empty() {
+            continue;
+        }
+        let Some(entry) = platform
+            .entry_imports(module)
+            .first()
+            .map(|import| import.required_by.clone())
+        else {
+            continue;
+        };
+        let lock_imports: Vec<PlatformImport> =
+            platform_imports_for_runtime_call(platform, "thread.drop")
+                .into_iter()
+                .filter(|import| {
+                    [
+                        "pthread_mutex_lock",
+                        "pthread_mutex_unlock",
+                        "AcquireSRWLockExclusive",
+                        "ReleaseSRWLockExclusive",
+                    ]
+                    .contains(&import.symbol.trim_start_matches('_'))
+                })
+                .collect();
+        for import in &lock_imports {
+            push_platform_import(
+                &mut imports,
+                PlatformImport {
+                    library: import.library.clone(),
+                    symbol: import.symbol.clone(),
+                    required_by: entry.clone(),
+                },
+            );
+        }
+    }
     // The `os::` env/pwd helpers serialize their libc-global access behind a
     // process-global mutex (bug-64), so a concurrent `os::setEnv` from another
     // MFBASIC thread cannot free/relocate the memory a reader is copying. Pull in

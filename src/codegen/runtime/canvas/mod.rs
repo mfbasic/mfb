@@ -1340,6 +1340,7 @@ pub(crate) fn emit_start_graphics(
     symbol: &str,
     scratch: &GraphicsScratch,
     arena_global_slots: usize,
+    debug_arena_registry: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
@@ -1402,6 +1403,23 @@ pub(crate) fn emit_start_graphics(
     instructions.push(abi::compare_registers(&scratch.cursor, &scratch.end));
     instructions.push(abi::branch_lo(&zero_loop));
 
+    // plan-130-C: register the graphics thread's arena with the `--debug` arena registry,
+    // before the thread that owns it exists.
+    if debug_arena_registry {
+        instructions.push(abi::move_register(abi::c_arg(0), &scratch.arena));
+        instructions.push(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            crate::codegen::debug::ARENA_KIND_GRAPHICS,
+        ));
+        instructions.push(abi::branch_link(
+            crate::codegen::debug::DEBUG_ARENA_REGISTER_SYMBOL,
+        ));
+        relocations.push(crate::codegen::engine::builder::internal_branch(
+            symbol,
+            crate::codegen::debug::DEBUG_ARENA_REGISTER_SYMBOL,
+        ));
+    }
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::store_u64(
         &scratch.arena,

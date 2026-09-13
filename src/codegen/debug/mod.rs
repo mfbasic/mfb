@@ -15,12 +15,16 @@
 //! bracketed by `mfb.debug.begin 1` … `mfb.debug.end 1`. A consumer takes the last
 //! `mfb.debug.begin` block in stderr.
 
+mod arena;
 mod perf;
 mod shutdown;
 #[cfg(test)]
 mod tests;
 mod write;
 
+pub(crate) use arena::{
+    ARENA_KIND_GRAPHICS, ARENA_KIND_WORKER, ARENA_SECTION, DEBUG_ARENA_REGISTER_SYMBOL,
+};
 pub(crate) use perf::PERF_SECTION;
 pub(crate) use shutdown::DEBUG_SHUTDOWN_SYMBOL;
 
@@ -91,6 +95,9 @@ pub(crate) trait DebugFeature: Sync {
     fn runtime_calls(&self) -> &'static [&'static str];
     /// Runtime calls whose platform imports this feature's code needs.
     fn import_calls(&self) -> &'static [&'static str];
+    /// Helper symbols of this feature that take the platform mutex (`pthread_mutex_lock`
+    /// / `unlock`, an SRWLOCK on Windows) and so need exactly those imports.
+    fn lock_helpers(&self) -> &'static [&'static str];
     /// Instructions emitted in the program entry after the main arena address is
     /// published. May emit nothing.
     fn emit_entry_start(&self, ctx: &mut DebugEmitCtx<'_>) -> Result<(), String>;
@@ -99,7 +106,8 @@ pub(crate) trait DebugFeature: Sync {
 }
 
 /// The report's sections, in the order they print.
-pub(crate) static DEBUG_FEATURES: &[&dyn DebugFeature] = &[&CoreSection, &perf::PerfFeature];
+pub(crate) static DEBUG_FEATURES: &[&dyn DebugFeature] =
+    &[&CoreSection, &perf::PerfFeature, &arena::ArenaFeature];
 
 /// Whether `module` carries the report: a `--debug` build of a program with an
 /// entry (a package or entry-less module has no `_mfb_shutdown` to report from).
@@ -239,6 +247,10 @@ impl DebugFeature for CoreSection {
     }
 
     fn import_calls(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn lock_helpers(&self) -> &'static [&'static str] {
         &[]
     }
 

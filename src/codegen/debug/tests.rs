@@ -18,10 +18,15 @@ use crate::testutil::CodeTarget;
 
 const SOURCE: &str = "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n";
 
-/// The only import the report's writes resolve against on macOS; every entry
-/// module already carries it (`entry_error_imports`).
+/// The imports the debug helpers resolve against on macOS: `_write` for every report
+/// line (every entry module carries it, `entry_error_imports`), and the mutex pair the
+/// arena registry's register helper takes (a real plan attributes those to it through
+/// `DebugFeature::lock_helpers`, `plan::symbols::platform_imports`).
 fn imports() -> HashMap<String, String> {
-    HashMap::from([("_write".to_string(), "libSystem".to_string())])
+    ["_write", "_pthread_mutex_lock", "_pthread_mutex_unlock"]
+        .into_iter()
+        .map(|symbol| (symbol.to_string(), "libSystem".to_string()))
+        .collect()
 }
 
 fn module(debug: bool) -> NirModule {
@@ -82,19 +87,23 @@ fn a_debug_module_gets_the_report_helper_and_each_section() {
     }
 }
 
-/// No report helper may reach the arena.
+/// No debug helper may reach the arena.
 ///
 /// `_mfb_shutdown` calls the report after `_mfb_arena_destroy` has unmapped every
 /// block, and a signal can deliver the call with the arena register holding
 /// anything at all. A helper that allocated or read through that register would
-/// fault only in `--debug` builds, and only at exit.
+/// fault only in `--debug` builds, and only at exit. The check is on the allocator's
+/// own symbols (`_mfb_arena_*`) and the main-arena global that points at its state,
+/// not the word "arena": the arena registry's globals
+/// (`_mfb_rt_debug_arena_*`) are debug-owned system memory, never arena blocks.
 #[test]
 fn debug_helpers_reference_no_arena_symbol() {
     for function in report_functions() {
         for relocation in &function.relocations {
             assert!(
-                !relocation.to.contains("arena"),
-                "{} must be arena-free; it relocates against {}",
+                !relocation.to.starts_with("_mfb_arena_")
+                    && relocation.to != crate::codegen::error::constants::MAIN_ARENA_GLOBAL_SYMBOL,
+                "{} must not call the arena allocator; it relocates against {}",
                 function.symbol,
                 relocation.to
             );

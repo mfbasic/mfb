@@ -6,6 +6,11 @@
 //! ([`DEBUG_LINE_BUFFER_SIZE`] bytes at `sp`, reserved with
 //! `finalize_vreg_body_with_locals`). Each line is exactly one `write` to fd 2 so a
 //! concurrently running worker cannot split it.
+//!
+//! A window line is built right to left: the caller starts a cursor at
+//! `sp + DEBUG_LINE_BUFFER_SIZE`, prepends its pieces ([`emit_prepend_decimal`],
+//! [`emit_prepend_object`]), and writes `[cursor, sp + DEBUG_LINE_BUFFER_SIZE)` with
+//! [`emit_write_window`].
 
 use std::collections::HashMap;
 
@@ -16,7 +21,7 @@ use crate::codegen::engine::util::Vregs;
 use crate::codegen::memory::data::{push_symbol_address, string_data_object};
 use crate::target::shared::abi;
 
-/// Stack window a helper calling [`emit_debug_key_value`] must reserve.
+/// Stack window a helper assembling a line in place must reserve.
 pub(super) const DEBUG_LINE_BUFFER_SIZE: usize = 128;
 
 /// Widest `u64` in decimal (20 digits) plus the trailing newline.
@@ -78,14 +83,95 @@ pub(super) fn emit_debug_constant_line(
     platform.emit_write(from, platform_imports, instructions, relocations)
 }
 
+/// Move `cursor` back over the unsigned decimal digits of `value`, writing them
+/// there. `value` is read through a copy and survives; `label` keeps this call's
+/// labels distinct.
+pub(super) fn emit_prepend_decimal(
+    value: &str,
+    cursor: &str,
+    label: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let remaining = vregs.next();
+    let ten = vregs.next();
+    let quotient = vregs.next();
+    let digit = vregs.next();
+    let digits = format!("{label}_digits");
+    instructions.extend([
+        abi::move_register(&remaining, value),
+        abi::move_immediate(&ten, "Integer", "10"),
+        abi::label(&digits),
+        abi::unsigned_divide_registers(&quotient, &remaining, &ten),
+        abi::multiply_subtract_registers(&digit, &quotient, &ten, &remaining),
+        abi::add_immediate(&digit, &digit, 48),
+        abi::subtract_immediate(cursor, cursor, 1),
+        abi::store_u8(&digit, cursor, 0),
+        abi::move_register(&remaining, &quotient),
+        abi::compare_immediate(&remaining, "0"),
+        abi::branch_ne(&digits),
+    ]);
+}
+
+/// Move `cursor` back by the byte length of the `mfb.string.v1` object whose address
+/// is in `object` (length at `[object+0]`, bytes from `object+8`), copying its bytes
+/// there. `label` keeps this call's labels distinct.
+pub(super) fn emit_prepend_object(
+    object: &str,
+    cursor: &str,
+    label: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let length = vregs.next();
+    let index = vregs.next();
+    let byte = vregs.next();
+    let source = vregs.next();
+    let target = vregs.next();
+    let copy = format!("{label}_copy");
+    let copied = format!("{label}_copied");
+    instructions.extend([
+        abi::load_u64(&length, object, 0),
+        abi::subtract_registers(cursor, cursor, &length),
+        abi::move_register(&index, &length),
+        abi::label(&copy),
+        abi::compare_immediate(&index, "0"),
+        abi::branch_eq(&copied),
+        abi::subtract_immediate(&index, &index, 1),
+        abi::add_registers(&source, object, &index),
+        abi::load_u8(&byte, &source, 8),
+        abi::add_registers(&target, cursor, &index),
+        abi::store_u8(&byte, &target, 0),
+        abi::branch(&copy),
+        abi::label(&copied),
+    ]);
+}
+
+/// Write `[cursor, sp + DEBUG_LINE_BUFFER_SIZE)` to stderr with one `write`.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn emit_write_window(
+    from: &str,
+    cursor: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let end = vregs.next();
+    instructions.extend([
+        abi::add_immediate(&end, abi::stack_pointer(), DEBUG_LINE_BUFFER_SIZE),
+        abi::subtract_registers(abi::string_length_register(), &end, cursor),
+        abi::move_register(abi::string_data_register(), cursor),
+        abi::move_immediate(abi::return_register(), "Integer", STDERR_FD),
+    ]);
+    platform.emit_write(from, platform_imports, instructions, relocations)
+}
+
 /// Write `<key> <value>\n` to stderr, where `key_symbol` is a [`key_object`] and
-/// `value` holds an unsigned integer.
-///
-/// The line is assembled right-to-left in the caller's stack window: the decimal
-/// digits and newline first, ending at `sp + DEBUG_LINE_BUFFER_SIZE`, then the key
-/// bytes copied in front of them, so one `write` covers the whole line. `value`
-/// is read through a copy and survives. `tag` keeps this call's labels distinct
-/// from any other in the same function.
+/// `value` holds an unsigned integer, as one line assembled in the caller's window.
+/// `value` is read through a copy and survives. `tag` keeps this call's labels
+/// distinct from any other in the same function.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_debug_key_value(
     from: &str,
@@ -98,57 +184,37 @@ pub(super) fn emit_debug_key_value(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
-    let remaining = vregs.next();
     let cursor = vregs.next();
-    let ten = vregs.next();
-    let quotient = vregs.next();
-    let byte = vregs.next();
+    let newline = vregs.next();
     let key = vregs.next();
-    let key_length = vregs.next();
-    let index = vregs.next();
-    let source = vregs.next();
-    let target = vregs.next();
-    let end = vregs.next();
-    let digits = format!("{from}_{tag}_digits");
-    let copy = format!("{from}_{tag}_copy");
-    let copied = format!("{from}_{tag}_copied");
     instructions.extend([
-        abi::move_register(&remaining, value),
         abi::add_immediate(&cursor, abi::stack_pointer(), DEBUG_LINE_BUFFER_SIZE),
         abi::subtract_immediate(&cursor, &cursor, 1),
-        abi::move_immediate(&byte, "Integer", "10"),
-        abi::store_u8(&byte, &cursor, 0),
-        abi::move_immediate(&ten, "Integer", "10"),
-        abi::label(&digits),
-        abi::unsigned_divide_registers(&quotient, &remaining, &ten),
-        abi::multiply_subtract_registers(&byte, &quotient, &ten, &remaining),
-        abi::add_immediate(&byte, &byte, 48),
-        abi::subtract_immediate(&cursor, &cursor, 1),
-        abi::store_u8(&byte, &cursor, 0),
-        abi::move_register(&remaining, &quotient),
-        abi::compare_immediate(&remaining, "0"),
-        abi::branch_ne(&digits),
+        abi::move_immediate(&newline, "Integer", "10"),
+        abi::store_u8(&newline, &cursor, 0),
     ]);
+    emit_prepend_decimal(
+        value,
+        &cursor,
+        &format!("{from}_{tag}_value"),
+        instructions,
+        vregs,
+    );
     push_symbol_address(from, key_symbol, &key, instructions, relocations);
-    instructions.extend([
-        abi::load_u64(&key_length, &key, 0),
-        abi::add_immediate(&key, &key, 8),
-        abi::subtract_registers(&cursor, &cursor, &key_length),
-        abi::move_register(&index, &key_length),
-        abi::label(&copy),
-        abi::compare_immediate(&index, "0"),
-        abi::branch_eq(&copied),
-        abi::subtract_immediate(&index, &index, 1),
-        abi::add_registers(&source, &key, &index),
-        abi::load_u8(&byte, &source, 0),
-        abi::add_registers(&target, &cursor, &index),
-        abi::store_u8(&byte, &target, 0),
-        abi::branch(&copy),
-        abi::label(&copied),
-        abi::add_immediate(&end, abi::stack_pointer(), DEBUG_LINE_BUFFER_SIZE),
-        abi::subtract_registers(abi::string_length_register(), &end, &cursor),
-        abi::move_register(abi::string_data_register(), &cursor),
-        abi::move_immediate(abi::return_register(), "Integer", STDERR_FD),
-    ]);
-    platform.emit_write(from, platform_imports, instructions, relocations)
+    emit_prepend_object(
+        &key,
+        &cursor,
+        &format!("{from}_{tag}_key"),
+        instructions,
+        vregs,
+    );
+    emit_write_window(
+        from,
+        &cursor,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )
 }
