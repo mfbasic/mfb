@@ -5,7 +5,7 @@ Effort: small–medium
 Severity: LOW
 Class: Documentation (renderer)
 
-Status: FIXED (5eaea6f15)
+Status: FIXED (5eaea6f15; merged 8dd50b695)
 Regression Test: `src/cli/man.rs` tests — `a_constants_only_package_lists_every_constant_with_value_and_message`, `every_registered_constant_is_listed_on_its_package_page`, `a_record_constant_renders_as_a_qualified_record_construction`, `the_no_types_page_names_what_the_package_has`, `naming_a_constant_as_a_page_points_at_the_package_page`
 
 `errorCode` is a constants-only package: `src/codegen/builtins/errorcode/mod.rs:register`
