@@ -1,12 +1,41 @@
 # bug-520: `datetime` is not correct on its own — offset text is lost or laundered, and five zone-page claims contradict the code
 
-Last updated: 2026-09-13 (re-scoped by owner ruling; standalone audit run; bug-603 merged in as S1–S3; owner decided S1 = write seconds, S6 = keep the offset)
+Last updated: 2026-09-13 (fixed; re-scoped by owner ruling; standalone audit run; bug-603 merged in as S1–S3; owner decided S1 = write seconds, S6 = keep the offset)
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: FIXED (633c258bb, 5b95cd212)
 Regression Test: new `tests/rt-behavior/datetime/` fixtures per sub-issue (Phase 1), plus a `TZ`-pinned host-zone fixture (S10)
+
+## STATUS: FIXED (633c258bb, goldens 5b95cd212)
+
+All ten sub-issues landed in one commit; they share `readOffset`/`offsetLabelSep`, so
+the work was serial on the main thread, not fanned out.
+
+Deviations from the Fix Design:
+
+- **S5 is fixed inside `__datetime_readOffset`**, not by a separate magnitude check
+  in each reader. Hours `00..23` with minutes and seconds `00..59` bound the
+  magnitude under 24 h, so `__datetime_fixedOffset1` can no longer raise from text.
+- **S6 is a new helper**, `helper_civil_keep_offset.rs:__datetime_civilKeepOffset`,
+  shared by `addDays` and `addMonths`. `startOfDay` still re-resolves; it is `civil`
+  at midnight by definition.
+- **S8 went wider than listed.** Every datetime descriptor declared no errors.
+  `date`, `time`, `toIso(dt, digits)`, `parse` and `parseIso` now list theirs
+  alongside the six S8 named. The unprobed arithmetic members are bug-611.
+- **S10 needed a harness change**: a fixture `run.env`, honoured by `test-accept.sh`
+  and `linux-runtime-proof.sh` (see `.ai/testing-gates.md`).
+- **Open Decisions 3 and 4** took the recommended options: document the
+  `fixedOffset(h, m)` sign rule, and add the unrecognised-`TZ` sentence to `local`.
+- **The `mins` parameter text was also wrong.** It said "give it the same sign as
+  `hours` for a western zone", but a negative `mins` raises. It is corrected.
+
+Verification: the three new fixtures were RED at `f011d27b9` and are GREEN. No
+existing fixture's `build.log` changed. `scripts/man-run-examples.sh datetime --run`
+ran 116 of 116. `scripts/man-census.sh --memory-scope` reports 0 unclassified. The
+16 datetime `.run` fixtures pass on box 2223 (`linux-aarch64` glibc) via
+`scripts/linux-runtime-proof.sh`.
 
 ## Scope: owner ruling (2026-09-13)
 
@@ -368,52 +397,52 @@ no caller relies on trailing text being ignored. Every existing datetime fixture
 
 ### Phase 1 — RED fixtures and the missing facts
 
-- [ ] One `tests/rt-behavior/datetime/` fixture per sub-issue, S1–S7 and S9, each failing
+- [x] One `tests/rt-behavior/datetime/` fixture per sub-issue, S1–S7 and S9, each failing
       at HEAD for the documented reason. A new rt fixture needs its four goldens.
-- [ ] Find whether the rt-behavior harness can set `TZ` for a fixture. If not, S1/S6/S7/S10
+- [x] Find whether the rt-behavior harness can set `TZ` for a fixture. If not, S1/S6/S7/S10
       need the harness change named here before their fixtures can exist.
-- [ ] Re-verify `addMonths(a5, 0)` (S6).
-- [ ] For `offsetAt`, `inZone`, `civil`, `toLocal`, `localOffset` and `fixedOffset`,
+- [x] Re-verify `addMonths(a5, 0)` (S6).
+- [x] For `offsetAt`, `inZone`, `civil`, `toLocal`, `localOffset` and `fixedOffset`,
       establish the complete set of raising inputs and codes by reading each body and
       probing (S8).
-- [ ] Census the prefix-matching callers (S3).
+- [x] Census the prefix-matching callers (S3).
 
 Acceptance: every fixture fails at HEAD for its stated reason, and the S8 error table
 and the harness `TZ` answer are written into this file.
-Commit: —
+Commit: 633c258bb
 
 ### Phase 2 — readers (S2–S5)
 
-- [ ] `__datetime_readOffset`: two digits per field, ranges, optional seconds.
-- [ ] End-of-input check in `parseIso` and `parse`.
-- [ ] An offset magnitude ≥ 24 h fails `77050003` in both readers.
+- [x] `__datetime_readOffset`: two digits per field, ranges, optional seconds.
+- [x] End-of-input check in `parseIso` and `parse`.
+- [x] An offset magnitude ≥ 24 h fails `77050003` in both readers.
 
 Acceptance: the S2–S5 fixtures pass, and every existing datetime rt fixture is unchanged.
-Commit: —
+Commit: 633c258bb
 
 ### Phase 3 — writer (S1)
 
-- [ ] `__datetime_offsetLabelSep` emits seconds when non-zero.
+- [x] `__datetime_offsetLabelSep` emits seconds when non-zero.
 
 Acceptance: the S1 fixture round-trips the 1850 New York instant exactly, and
 whole-minute goldens are unchanged.
-Commit: —
+Commit: 633c258bb
 
 ### Phase 4 — S6: keep the offset when it is still valid
 
 Acceptance: the S6 fixture passes under the decided semantics, and the page states them.
-Commit: —
+Commit: 633c258bb
 
 ### Phase 5 — docs (S7–S9) and host-zone pins (S10)
 
-- [ ] Descriptor prose and `errors` for the S7–S9 members, plus the spec
+- [x] Descriptor prose and `errors` for the S7–S9 members, plus the spec
       § "Parse grammar" and `format` token table (seconds offsets, whole-string rule).
-- [ ] `TZ`-pinned fixtures: New York gap/overlap `civil`, `addDays` across both
+- [x] `TZ`-pinned fixtures: New York gap/overlap `civil`, `addDays` across both
       transitions, and `startOfDay` on 2026-03-08.
 
 Acceptance: every edited page renders and its examples run, and the host-zone fixtures
 pass.
-Commit: —
+Commit: 633c258bb
 
 ## Validation Plan
 
