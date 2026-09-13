@@ -69,9 +69,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                component("hue", "The hue in degrees. Wraps by whole turns, so any ordinary angle \
-                                         is valid. A hue so large that its number of whole turns is past \
-                                         the `Integer` range raises `ErrOverflow`."),
+                component("hue", "The hue in degrees. Wraps by whole turns, so any value \
+                                         is valid."),
                 component(
                     "saturation",
                     "How colourful, clamped to `0.0` (grey) .. `1.0` (full).",

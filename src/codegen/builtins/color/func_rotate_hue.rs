@@ -82,9 +82,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 Parameter {
                     name: "degrees",
                     desc: "How far around the wheel. Wraps by whole turns, so any \
-                           ordinary angle is valid, and a negative value turns the other \
-                           way. A value so large that its number of whole turns is past \
-                           the `Integer` range raises `ErrOverflow`.",
+                           value is valid, and a negative value turns the other way.",
                     aliases: &[],
                     ty: ParameterType::Float,
                     default: DefaultValue::None,
