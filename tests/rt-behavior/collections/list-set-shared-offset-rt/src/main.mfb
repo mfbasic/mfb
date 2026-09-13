@@ -1,0 +1,130 @@
+' A length-changing in-place `set` on a `List OF String` whose entries SHARE a
+' byte offset.
+'
+' A zero-length element occupies no bytes, so it sits at the same `valueOffset` as
+' whatever follows it: `["", "", ""]` is three entries at offset 0. Widening one of
+' them moves every byte from the end of its old span up, and every entry at or past
+' that point must move with it. The plan-121-F fixup moved only entries strictly
+' PAST the written element's offset, so a neighbour sharing it stayed behind,
+' pointing into the widened element's new bytes. The next write to that neighbour
+' then overwrote it:
+'
+'   ["", "", ""]  set 1 "ab"  set 2 "cd"   read back  [] [cd] [cd]
+'
+' The browser example (examples/browser) hit exactly this: display::paint builds its
+' canvas as a list of empty rows and overlays text onto them, so rows aliased each
+' other, and a later shift split a Korean scalar -- `List or string index/range is
+' outside valid bounds` on the Wikipedia main page.
+'
+' Every case reads back EVERY element against a shadow kept in a Map, which never
+' takes the in-place list path.
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+TYPE Canvas
+  rows AS List OF String
+  n AS Integer
+END TYPE
+
+FUNC render(xs AS List OF String) AS String
+  MUT out AS String = ""
+  FOR EACH s IN xs
+    out = out & "[" & s & "]"
+  NEXT
+  RETURN out
+END FUNC
+
+' The first index where `xs` disagrees with `shadow`, or -1.
+FUNC firstBad(xs AS List OF String, shadow AS Map OF Integer TO String) AS Integer
+  MUT i AS Integer = 0
+  FOR EACH s IN xs
+    IF s <> collections::getOr(shadow, i, "?") THEN RETURN i
+    i = i + 1
+  NEXT
+  RETURN 0 - 1
+END FUNC
+
+' The browser's canvas shape: the list lives in a record, is copied out into a MUT
+' local, set, and returned in a new record.
+FUNC paintOne(cv AS Canvas, row AS Integer, text AS String) AS Canvas
+  MUT rows AS List OF String = cv.rows
+  rows = collections::set(rows, row, collections::get(rows, row) & text)
+  RETURN Canvas[rows, cv.n + 1]
+END FUNC
+
+FUNC main AS Integer
+  ' 1. Widen two empty neighbours, in order.
+  MUT a AS List OF String = ["", "", ""]
+  a = collections::set(a, 1, "ab")
+  a = collections::set(a, 2, "cd")
+  io::print("empty neighbours, forward:  " & render(a))
+
+  ' 2. The same, in reverse order.
+  MUT b AS List OF String = ["", "", ""]
+  b = collections::set(b, 2, "cd")
+  b = collections::set(b, 1, "ab")
+  io::print("empty neighbours, backward: " & render(b))
+
+  ' 3. Widen an empty element whose NON-empty successor starts at its offset.
+  MUT c AS List OF String = ["p", "", "q"]
+  c = collections::set(c, 1, "ab")
+  io::print("empty before non-empty:     " & render(c))
+
+  ' 4. Empty elements built by append rather than a literal.
+  MUT d AS List OF String = []
+  FOR i = 0 TO 3
+    d = collections::append(d, "")
+  NEXT
+  d = collections::set(d, 3, "z")
+  d = collections::set(d, 0, "w")
+  d = collections::set(d, 2, "y")
+  d = collections::set(d, 1, "x")
+  io::print("appended empties:           " & render(d))
+
+  ' 5. Shrink an element to empty, then widen it and its neighbours again.
+  MUT e AS List OF String = ["aa", "bb", "cc"]
+  e = collections::set(e, 1, "")
+  e = collections::set(e, 2, "")
+  e = collections::set(e, 1, "B")
+  e = collections::set(e, 2, "CCC")
+  io::print("shrink to empty, regrow:    " & render(e))
+
+  ' 6. The same writes through a record field. A variable-width list in a field
+  '    declines the in-place arm (try_inplace_record_field_set_assign), so this is
+  '    the copying path -- the answer both paths must agree on.
+  MUT holder AS Canvas = Canvas[["", "", ""], 0]
+  holder = WITH holder { rows := collections::set(holder.rows, 1, "ab") }
+  holder = WITH holder { rows := collections::set(holder.rows, 2, "cd") }
+  io::print("record field:               " & render(holder.rows))
+
+  ' 7. The browser's shape at scale: 40 empty rows, 2000 growing writes in a
+  '    scattered order with multi-byte text, read back in full after every write.
+  MUT rows AS List OF String = []
+  MUT shadow AS Map OF Integer TO String = Map OF Integer TO String {}
+  FOR i = 0 TO 39
+    rows = collections::append(rows, "")
+    shadow = collections::set(shadow, i, "")
+  NEXT
+  MUT cv AS Canvas = Canvas[rows, 0]
+  LET pieces AS List OF String = ["한국어", " ", "ab", "Հայերեն", "x", "עברית"]
+  MUT bad AS Integer = 0 - 1
+  MUT badAt AS Integer = 0 - 1
+  FOR k = 0 TO 1999
+    LET row AS Integer = (k * 17 + k / 3) MOD 40
+    LET piece AS String = collections::get(pieces, k MOD 6)
+    cv = paintOne(cv, row, piece)
+    shadow = collections::set(shadow, row, collections::getOr(shadow, row, "") & piece)
+    IF bad < 0 THEN
+      bad = firstBad(cv.rows, shadow)
+      IF bad >= 0 THEN badAt = k
+    END IF
+  NEXT
+  io::print("scattered growing writes:   firstBad=" & toString(bad) & " atWrite=" & toString(badAt) & " writes=" & toString(cv.n))
+  MUT total AS Integer = 0
+  FOR EACH r IN cv.rows
+    total = total + len(strings::toScalars(r))
+  NEXT
+  io::print("scalars read back:          " & toString(total))
+  RETURN 0
+END FUNC

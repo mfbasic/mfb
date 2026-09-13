@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/list-set-shared-offset-rt
+Wrote AST to tests/rt-behavior/collections/list-set-shared-offset-rt/list_set_shared_offset_rt.ast
+Wrote IR to tests/rt-behavior/collections/list-set-shared-offset-rt/list_set_shared_offset_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/list-set-shared-offset-rt
+Wrote executable to tests/rt-behavior/collections/list-set-shared-offset-rt/build/list_set_shared_offset_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/list-set-shared-offset-rt/build/list_set_shared_offset_rt.out
+empty neighbours, forward:  [][ab][cd]
+empty neighbours, backward: [][ab][cd]
+empty before non-empty:     [p][ab][q]
+appended empties:           [w][x][y][z]
+shrink to empty, regrow:    [aa][B][CCC]
+record field:               [][ab][cd]
+scattered growing writes:   firstBad=-1 atWrite=-1 writes=2000
+scalars read back:          6331
+[exit 0]
