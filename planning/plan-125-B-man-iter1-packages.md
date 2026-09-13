@@ -391,12 +391,21 @@ more, all `app` (`setMode`, `getMode`, overview). All fixed.
 Acceptance: every remaining unit in the manifest with `exit 0`; ledgers
 recorded; `./scripts/man-census.sh --fill` still 100%, `--memory-scope` 0
 unclassified and `--scope` 0 across the whole surface.
-Commit: —
+Commit: 17d9cac4c (my pass, part 2), 7f4ff371b (reviews applied)
+
+Acceptance measured at `7f4ff371b`:
+- 21/21 units `exit 0` and clean, `--reconcile` `unaccounted=0`.
+- `./scripts/man-census.sh --fill`: `TOTAL 544 544 544 544 1278/1278`, and "pages with
+  neither Description nor Examples: 0".
+- `--memory-scope` 0 unclassified, `--scope` 0.
 
 ### Phase 4 — the cross-package consistency review
 
-- [ ] Build the condensed artifact (§3.2): all 31 overviews + all 20 types
+- [x] Build the condensed artifact (§3.2): all 31 overviews + all 20 types
       pages + all 10 topic overviews, concatenated deterministically.
+      `./scripts/man-manual.sh --condensed` (C-6, `29da2a4ef`): 62 pages
+      (31 + 21 types + 10), 7,205 lines, byte-identical across two runs, empty
+      stderr. The reviewers regenerate it themselves in `{{SCRATCH}}`.
 - [ ] Run the four dimension-scoped reviews.
 - [ ] Apply each finding **as a class** across every affected unit; record in
       the ledger which units each class touched.
