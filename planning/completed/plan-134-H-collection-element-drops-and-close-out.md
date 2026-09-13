@@ -127,18 +127,25 @@ both.
       and G's `Assign` graph-drops the old list, removed element included. It stays as a pin.
       The json/regex `assert_flat` cases: json K = 1 → 4 grew 1077 MB (fails); regex is already
       flat (Corrections).
-- [ ] Added by plan-134-G: the json form of G's unbound-temp case,
+- [x] Added by plan-134-G: the json form of G's unbound-temp case,
       `acc = acc + len(json::stringify(json::parse(t)))` for `t = [1,{"a":[2,3]}]`, as an
       `assert_flat` case in `rt_scope_drop_leaks.rs` (400 000 / 800 000). Measured after G:
       `--debug`, 1 000 iterations → `alloc_calls 200003`, `free_calls 166003`,
       `live_bytes 2912000`, doubling exactly at 2 000. The bound form
       `LET v AS json::Json = json::parse(t)` leaks the same `2912000`. So the leak is 34 blocks
       left inside `json::parse`'s helpers, not the statement-scope temp (a user-type unbound temp
-      is exactly flat: 5 002 allocs, 5 002 frees). Find which helper arms leave them.
+      is exactly flat: 5 002 allocs, 5 002 frees). Find which helper arms leave them. — Added as
+      `a_looped_unbound_recursive_json_temp_runs_at_constant_rss`. RED on the G build: grew
+      5345 MB between 400k and 800k. Two of Phase 2's fixes took it down in turn:
+      - Element and intermediate frees: 196 → 391 MB, then 80 → 159 MB.
+      - The last 32 B per call was not a helper arm. It was `#json_parse`'s `return
+        parsed.value`, re-materialized because the moved graph was reported non-standalone
+        (Corrections). After the fix, bound `json::parse` is 55 003 allocs / 55 003 frees,
+        `live_bytes 0`, and the case passes (`rt_scope_drop_leaks` 128/128).
 
 Acceptance: census complete; the tests fail on main.
   Check: `cargo test --release --test rt_recursive_value_collection_drops` → failed (est. 3 min).
-Commit: —
+Commit: adefa59c0
 
 ### Phase 2 — element frees
 
@@ -180,7 +187,7 @@ Acceptance: element discards return live_bytes; the decoders are flat.
     temp;
   - the B–G value suites 17 / 17 (`rt_recursive_value_copies` 3, `…construction_copies` 4,
     `…drop_symmetry` 6, `…copy_depth` 3, `rt_error_value_copies` 1).
-Commit: —
+Commit: 586d51482
 
 ### Phase 3 — measurements, docs, close-out
 
@@ -283,7 +290,7 @@ Commit: —
 
 Acceptance: every §2.1 "after" row recorded; docs render; bug docs archived.
   Check: `mfb spec memory arenas` renders the new paragraph (est. 1 min).
-Commit: —
+Commit: 291aef987
 
 ## Validation Plan (plan-134, run once here)
 
