@@ -289,7 +289,7 @@ the `PreEscaped` count is unchanged from the Phase 1 baseline; and
 `docs_page_escapes_every_publisher_controlled_field` is green; the `PreEscaped` count
 is the baseline 1; repository lib tests 402 passed.
 `rustup run 1.96.0 cargo test --no-fail-fast` (full workspace, pre-merge tree) → exit 0: **163 test binaries, 5,395 passed, 0 failed, 6 ignored** (log `/tmp/p126-f3-fulltest.log`; 5,317 at plan-126-E's prerequisite run). The main crate's unit tests alone took 4,002 s against 2,073 s earlier the same day, on a host at load average 70–110 on 12 cores (other sessions' test runs, a QEMU VM, two stray probes); the slowest test, `the_whole_corpus_survives_the_top_of_the_dial`, predates this plan (8e19307a1) and is untouched by it.
-Commit: —
+Commit: a380abd59
 
 ## Validation Plan
 
