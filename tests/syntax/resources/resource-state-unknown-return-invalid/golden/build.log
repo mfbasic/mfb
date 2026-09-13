@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-unknown-return-invalid
+   3 | IMPORT fs
+   4 | 
+   5 | FUNC make() AS RES fs::File STATE Nonexistent
+     | ^
+tests/syntax/resources/resource-state-unknown-return-invalid/src/main.mfb:5 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+               Type `Nonexistent` is not a built-in or top-level project type.
+[exit 1]

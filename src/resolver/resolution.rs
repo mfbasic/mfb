@@ -654,11 +654,18 @@ impl Resolver<'_> {
                     }
                     self.resolve_type(file, type_, param.line, imports);
                 }
+                // bug-595: a LINK parameter's `STATE S` is carried apart from its type.
+                if let Some(state_type) = &param.state_type {
+                    self.resolve_type(file, state_type, param.line, imports);
+                }
             }
             if let Some(return_type) = &function.return_type {
                 if !is_c_abi_type(return_type) {
                     self.resolve_type(file, return_type, function.line, imports);
                 }
+            }
+            if let Some(state_type) = &function.return_state_type {
+                self.resolve_type(file, state_type, function.line, imports);
             }
         }
     }
@@ -670,6 +677,10 @@ impl Resolver<'_> {
         imports: &HashMap<String, String>,
     ) {
         self.resolve_type(file, &binding.type_, binding.line, imports);
+        // bug-595: the STATE clause is carried apart from `type_`.
+        if let Some(state_type) = &binding.state_type {
+            self.resolve_type(file, state_type, binding.line, imports);
+        }
         let locals = HashMap::new();
         if let Some(value) = &binding.value {
             self.resolve_expression(file, value, binding.line, imports, &locals);
@@ -792,6 +803,11 @@ impl Resolver<'_> {
             }
 
             self.resolve_type(file, &param.type_, param.line, imports);
+            // bug-595: `RES p AS T STATE S` carries `S` apart from `type_`. Before
+            // this, an unknown `S` on a parameter was not reported at all.
+            if let Some(state_type) = &param.state_type {
+                self.resolve_type(file, state_type, param.line, imports);
+            }
 
             if let Some(default) = &param.default {
                 self.resolve_expression(file, default, param.line, imports, &locals);
@@ -799,6 +815,10 @@ impl Resolver<'_> {
         }
 
         self.resolve_type(file, &function.returns, function.line, imports);
+        // bug-595: likewise a return's `STATE S`.
+        if let Some(state_type) = &function.return_state_type {
+            self.resolve_type(file, state_type, function.line, imports);
+        }
 
         self.resolve_block(file, &function.body, imports, &mut locals);
         if let Some(trap) = &function.trap {
@@ -839,11 +859,19 @@ impl Resolver<'_> {
             HirStatement::Let {
                 name,
                 type_,
+                state_type,
                 value,
                 line,
                 ..
             } => {
                 self.resolve_type(file, type_, *line, imports);
+                // bug-595: a `RES … STATE T` binding carries `T` apart from `type_`;
+                // it is a type position like any other and must resolve, or an
+                // unknown or unqualified STATE name escapes to the verifier as an
+                // unlocated `TYPE_STATE_INVALID` or a misleading `TYPE_STATE_MISMATCH`.
+                if let Some(state_type) = state_type {
+                    self.resolve_type(file, state_type, *line, imports);
+                }
                 if let Some(value) = value {
                     self.resolve_expression(file, value, *line, imports, locals);
                 }
@@ -1100,6 +1128,10 @@ impl Resolver<'_> {
                 let mut lambda_locals = locals.clone();
                 for param in params {
                     self.resolve_type(file, &param.type_, param.line, imports);
+                    // bug-595: a lambda's `RES p AS T STATE S` carries `S` apart.
+                    if let Some(state_type) = &param.state_type {
+                        self.resolve_type(file, state_type, param.line, imports);
+                    }
                     lambda_locals.insert(
                         param.name.clone(),
                         Symbol {

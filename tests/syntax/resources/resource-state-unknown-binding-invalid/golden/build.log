@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-unknown-binding-invalid
+   7 | 
+   8 | SUB main()
+   9 |   RES f AS fs::File STATE Nonexistent = fs::createTempFile()
+     | ^
+tests/syntax/resources/resource-state-unknown-binding-invalid/src/main.mfb:9 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+               Type `Nonexistent` is not a built-in or top-level project type.
+[exit 1]
