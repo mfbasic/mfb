@@ -418,7 +418,11 @@ by the linker spec: `./mfb spec linker macos-aarch64`,
 Native code generation realizes the language's value semantics over a per-arena
 heap of flat, pointer-free blocks: copies are a single `arena_alloc` + byte copy,
 ownership is established by copy-insertion at long-lived store sites, and owned
-non-escaping locals are freed at scope exit. The `memory` spec is the authority
+non-escaping locals are freed at scope exit. A value of a recursive type is the one
+exception to "pointer-free": it is a graph of separate blocks, copied at every store
+by a non-recursive graph copy (or moved at its source's last read) and freed by its
+owner through a non-recursive graph drop, including the elements a collection discards
+in place. The `memory` spec is the authority
 for the value layout, arena mechanism, and scope-drop frees —
 `./mfb spec memory heap-values` and `./mfb spec memory arenas`.
 

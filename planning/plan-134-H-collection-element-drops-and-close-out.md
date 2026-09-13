@@ -184,30 +184,102 @@ Commit: —
 
 ### Phase 3 — measurements, docs, close-out
 
-- [ ] `tools/recursive-value-bench/run.sh target/release/mfb` → record the full "after" table in
-      plan-134-A §2.1 (every row), including speed against the budget.
-- [ ] Re-measure the plan-134-D speed budget the owner deferred here (2026-09-13): medians of 5
+- [x] `tools/recursive-value-bench/run.sh target/release/mfb` → record the full "after" table in
+      plan-134-A §2.1 (every row), including speed against the budget. — `bash
+      tools/recursive-value-bench/run.sh target/release/mfb` → every program exit 0 except
+      `regex_chain group:500001`, which raises by design (exit 3). Recorded in plan-134-A's
+      "After" table:
+      - peak RSS is flat across K for `json_repeat` (173 MB), `regex_repeat` (18 MB) and
+        `json_get` (114 MB);
+      - the shape-C repros are unchanged at 1.08 / 1.03 MB.
+
+      Speed against the budget: the next task's medians-of-5 comparison. This run's times
+      are single runs.
+- [x] Re-measure the plan-134-D speed budget the owner deferred here (2026-09-13): medians of 5
       `json_repeat` / `regex_repeat` K=1 against the pre-plan 0.25 s / 0.27 s (budget +25 %), with
       RSS, and report them to the owner before merging — at D they were 0.24 s / 0.43 s; at E
       0.25 s / 0.89 s (RSS 212 MB / 2.39 GB). Include plan-134-E's cause: `#regex_run` stores
       `root` and the current repeat as placeholder fields in every `__regex_Choice` /
       `__regex_ContRep`, which value semantics now copies — the remedy is a regex helper rewrite
-      (plan-134-E Corrections), which the owner deferred.
-- [ ] Add a `json::get` / `json::getOr` path-walk probe to `tools/recursive-value-bench/` and
+      (plan-134-E Corrections), which the owner deferred. —
+      `bash /tmp/p134-h-speed.sh` compared, on this machine in one run, the pre-plan compiler
+      built from `cc1012bdc` (`git archive` → `/tmp/p134-base`) with the plan-134-H worktree
+      build. Medians of 5; the first run of each includes first-launch cost:
+
+      | probe | before (pre-plan) | after (plan-134-H) |
+      |---|---|---|
+      | `json_repeat` K=1 | **0.10 s**, 204 MB | **0.18 s**, 173 MB |
+      | `regex_repeat` K=1 | **0.11 s**, 345 MB | **0.57 s**, 18 MB |
+
+      **Budget:**
+      - json: 0.18 s is within the plan-134-A absolute budget (0.25 s × 1.25 = 0.31 s), but
+        +80 % over today's same-machine baseline.
+      - regex: 0.57 s is over both — 0.34 s absolute, and 5.2× the same-machine baseline.
+
+      **Cause unchanged since E:** every `__regex_Choice` / `__regex_ContRep` push stores the
+      pattern root and the current repeat as fields, and value semantics copies those graphs.
+      H's frees add the matching drops (RSS 345 MB → 18 MB). The remedy is still the deferred
+      regex helper rewrite. Output identical (`chars=100000 hits=10000`, `bytes=480003`).
+- [x] Add a `json::get` / `json::getOr` path-walk probe to `tools/recursive-value-bench/` and
       measure it before and after plan-134 (median of 5): since plan-134-D the path walk copies the
       subtree at each step (`current = value`, `nextValue = current`, `current = nextValue` in
       `#json_get`/`#json_getOr`, plan-134-D Corrections), which `json_repeat` never exercises.
-      Include the numbers in the owner report.
-- [ ] Doc sync: `mfb spec memory arenas` ("Scope-Drop Frees": recursive values are freed by a
+      Include the numbers in the owner report. — `programs/json_get`: K
+      `json::get(doc, ["a", "b", "c", "leaf"])` walks past a 20 000-item sibling array. Sizes
+      1 / 10 / 100 (in `run.sh` and the README); first tried at 1 000, then cut to 100 because
+      it took 15 s at K = 100.
+
+      | K | before (pre-plan) | after (plan-134-H) |
+      |---|---|---|
+      | 1 | 0.07 s, 135 MB | 0.13 s, 114 MB |
+      | 10 | 0.32 s, 857 MB | 0.95 s, 114 MB |
+      | 100 | 3.78 s, **8.08 GB** | 5.63 s, **114 MB** |
+
+      Before, every step's alias leaked, and RSS grew linearly to 8 GB at K = 100. After, the
+      per-step subtree copies are freed and RSS is flat, but each step costs a copy: ~3× at
+      K = 10, ~1.5× at K = 100 (where the old leak's page faults dominated). Output identical
+      (`found=K`).
+- [x] Doc sync: `mfb spec memory arenas` ("Scope-Drop Frees": recursive values are freed by a
       per-type non-recursive drop; construction stores copy them); `mfb spec memory heap-values`
       (non-flat pointer fields are owned children); `mfb spec architecture native` (the
       copy-insertion paragraph, `src/docs/spec/architecture/06_native.md`); `.ai/collections.md`
       (the bug-601 GOTCHA is history; `G24`'s new status); `.ai/codegen-invariants.md` (the
       recursive-types sentence). Render each with `mfb spec …`.
-- [ ] Bugs: bug-536 Shape C fixed by plan-134 (doc updated and archived — shapes A/B/B-2 were
+      - **arenas:** the drop walker and move paragraphs landed in plan-134-G's Phase 3.
+        Renders "frees it through the module's one drop walker, _mfb_rt_graph_drop …".
+      - **heap-values:** a non-flat pointer field to a recursive graph is an "owned child",
+        deep-copied with and freed with its parent. Renders at line 69.
+      - **architecture native:** the "one exception to pointer-free" sentence — copy,
+        move-at-last-read and drop, including in-place element discards. Renders at line 421.
+      - **`.ai/collections.md`:** the bug-601 GOTCHA's "construction stores still alias" is
+        history (E, G, H named). `G24` is marked lifted, with the aliasing rule it encoded
+        kept. The reaching-type lesson now also names the drop kinds.
+      - **`.ai/codegen-invariants.md`:** in-place element discards are freed since H, and
+        intermediates are freed shallowly. The prose was updated in G's Phase 3 and here.
+
+      Rendered with the rebuilt binary: `target/release/mfb spec memory heap-values`,
+      `… memory arenas`, `… architecture native`.
+- [x] Bugs: bug-536 Shape C fixed by plan-134 (doc updated and archived — shapes A/B/B-2 were
       already fixed); bug-601 archived if D closed its last row; `planning/bug-backlog.md`.
-- [ ] plan-133-A (a peer plan) proposed an `#[ignore]`d soak case waiting on Shape C: tell its
-      owner in the landing report; do not edit that plan.
+      - **bug-536:** status set to "CLOSED 2026-09-13 — shape C fixed by plan-134 (letters
+        A–H)", with the measurements. Archived by `git mv` to
+        `bugs/completed/bug-536-scope-drop-leaks-recursive-types-return-constructor-string-temps.md`.
+      - **bug-601:** already archived — `ls bugs/completed/ | grep bug-601` →
+        `bug-601-mut-copy-of-a-non-flat-list-aliases-its-source.md`; nothing open in `bugs/`.
+      - **`planning/bug-backlog.md`:**
+        - "construction stores still alias until plan-134-E" is history;
+        - "bug-536 has no actionable work" now reads CLOSED;
+        - the shape-C bullet now reads FIXED by plan-134, with the numbers.
+- [x] plan-133-A (a peer plan) proposed an `#[ignore]`d soak case waiting on Shape C: tell its
+      owner in the landing report; do not edit that plan. — Note for the landing report, not an
+      edit to plan-133-A (`planning/plan-133-A-browser-memory-diagnosis-and-soak-test.md`,
+      untouched):
+      - plan-133-A §1 plans `tests/runtime/rt_debug_soak.rs`, whose recursive-workload soak case
+        "fails on today's compiler for the documented reason" (bug-536 Shape C).
+      - Shape C is fixed by plan-134, so that case should now pass and can be re-enabled.
+      - Its owner should re-run it after plan-134 merges.
+      - `tests/runtime/rt_debug_soak.rs` does not exist in this branch (`ls`); whether it has
+        landed on main is checked at the merge.
 
 Acceptance: every §2.1 "after" row recorded; docs render; bug docs archived.
   Check: `mfb spec memory arenas` renders the new paragraph (est. 1 min).
@@ -292,6 +364,27 @@ Commit: —
   `emit_return_exit_inner` then re-materialized the data union's top block
   (`materialize_inline_value_in_arena`): the caller got a copy and the moved original leaked. A
   moved graph is its own block, so the move branch now reports `true`.
+- **Goldens (not a listed task; the final gate needs them clean).** `bash
+  scripts/artifact-gate.sh target/release/mfb all` → `2013 golden(s) checked, 10 diff(s)`: all
+  `json_codegen_cover_rt` / `regex_codegen_cover_rt` `.ncode` on the five targets.
+  Per-function diff against letter G's dumps (`/tmp/p134-ncode-diff.py`):
+  - json 163 → 164 functions, `added: ['_mfb_rt_graph_drop_edges']`, changed
+    `_mfb_rt_graph_drop` (more kinds) and `#json_parse`, `#json_parseArray`,
+    `#json_parseArrayItems`, `#json_parseNumber`, `#json_parseObject`,
+    `#json_parseObjectItems`, `#json_parseValue`, `#json_revive`;
+  - regex 190 → 191 functions, the same `added`, changed `_mfb_rt_graph_drop` and 16 regex
+    helpers — `#regex_compile`, `count`, `find`, `findAll`, `findAllMatches`, `findMatch`,
+    `match`, `parseAlt`, `parseAtom`, `parseClass`, `parseConcat`, `parseEscapeAtom`,
+    `parseNamedGroup`, `parseParen`, `parseQuantSuffix`, `replace`, `split`.
+
+  Every changed function stores or discards recursive values. Regenerated →
+  `10 golden(s) rewritten, 0 failure(s)`; re-gated json and regex → `7 golden(s) checked,
+  0 diff(s)` each.
+
+  Validation Plan coverage check:
+  `grep -o '"symbol": "_mfb_rt_graph_[a-z_]*"'` over both regenerated dumps finds
+  `_mfb_rt_graph_copy`, `_mfb_rt_graph_drop`, `_mfb_rt_graph_drop_edges` and
+  `_mfb_rt_graph_stack_grow` once each, so the gate covers all four walkers.
 - **A set cannot hold a recursive value, so the set arms need no case.** Measured, not
   assumed. `/tmp/p134-h-set` (`LET s AS Set OF Node = Set OF Node { Node[kids := [], tag := 1] }`)
   → `error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: Set element type requires a comparable type,

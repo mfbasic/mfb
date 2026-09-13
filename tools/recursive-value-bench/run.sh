@@ -21,7 +21,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 mfb="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 shift
 
-all_programs="c_union_rss c_record_rss json_repeat regex_repeat node_copies tree_alias deep_chain deep_build_only regex_chain"
+all_programs="c_union_rss c_record_rss json_repeat regex_repeat json_get node_copies tree_alias deep_chain deep_build_only regex_chain"
 programs="${*:-$all_programs}"
 
 # The sizes each program runs at (its first argument). "-" = no argument.
@@ -29,6 +29,7 @@ sizes_for() {
   case "$1" in
     c_union_rss|c_record_rss) echo "400000 800000" ;;
     json_repeat|regex_repeat) echo "1 2 4" ;;
+    json_get) echo "1 10 100" ;;
     node_copies|tree_alias) echo "-" ;;
     deep_chain) echo "50000 70000 100000 1000000" ;;
     deep_build_only) echo "1000000" ;;

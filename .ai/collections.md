@@ -7,7 +7,7 @@ Invariants and hard-won lessons for the MFB compiler's native collection codegen
 Collection mutation codegen is rewritten for amortized-O(1) append.
 
 - **In-place MUT append**: `try_inplace_append_assign` (`collection/assign/builder_inplace_assign.rs`) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (`collection/list/list_mutate.rs`): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias) and `FOR EACH` snapshotting count at loop entry (in-place writes only past that count). transform/filter use the same helper on their private accumulator.
-- **GOTCHA — the in-place arms assume one owner and never check it; copy-insertion is what makes that true** (bug-601). For a flat value `lower_value_owned` copies an aliasing source with `copy_flat_block`. For a value whose type reaches a type cycle it copies with the graph walker (`needs_graph_copy`, plan-134-D) at the five owning stores — bind, assign, global, return (`lower_returned_value`) and closure capture — unless plan-134-C's analysis says the store is the source's last read, which moves. Before that, `MUT ys = xs` over a `List OF Tree` shared `xs`'s block, and an in-place `append` on `ys` grew it under `xs` (`ys=6 xs=112`, a read of freed memory). **Construction stores still alias until plan-134-E**: a constructor argument and the in-place list/map arms' item operand are lowered with plain `lower_value`, so `xs = collections::append(xs, Node[kids := xs, tag := 1])` stores `xs`'s own block (SIGSEGV at the next `get`). Adding a drop for the class before every owner holds a distinct graph double-frees (bug-536 shape C). The helper-built pointer-`String` records (`net::Address`, `udp::Datagram`, `audio::AudioDevice`) were in this class and left it by being flattened onto the ordinary record layout (plan-132, bug-599/601), not by adding copy-insertion. `json::parse` depends on the in-place `append` over `List OF Json`, so declining the arms for the class is not free.
+- **GOTCHA — the in-place arms assume one owner and never check it; copy-insertion is what makes that true** (bug-601). For a flat value `lower_value_owned` copies an aliasing source with `copy_flat_block`. For a value whose type reaches a type cycle it copies with the graph walker (`needs_graph_copy`, plan-134-D) at the five owning stores — bind, assign, global, return (`lower_returned_value`) and closure capture — unless plan-134-C's analysis says the store is the source's last read, which moves. Before that, `MUT ys = xs` over a `List OF Tree` shared `xs`'s block, and an in-place `append` on `ys` grew it under `xs` (`ys=6 xs=112`, a read of freed memory). Construction stores aliased until plan-134-E: a constructor argument and the in-place list/map arms' item operand were lowered with plain `lower_value`, so `xs = collections::append(xs, Node[kids := xs, tag := 1])` stored `xs`'s own block (SIGSEGV at the next `get`). They now go through `lower_value_stored`. Adding a drop for the class before every owner held a distinct graph would have double-freed. plan-134-G added the owner drops (`owns_graph`) only after that, and plan-134-H the in-place element drops (`emit_drop_list_element` / `emit_drop_entry_value`) — see bug-536 shape C. The helper-built pointer-`String` records (`net::Address`, `udp::Datagram`, `audio::AudioDevice`) were in this class and left it by being flattened onto the ordinary record layout (plan-132, bug-599/601), not by adding copy-insertion. `json::parse` depends on the in-place `append` over `List OF Json`, so declining the arms for the class is not free.
 - **Headroom**: `emit_write_collection_header_full` sets capacity/dataCapacity > count/dataLength. Growth shape (`emit_geometric_step`): lookup 4→1024 then ×1.5; data 32→64KiB then ×1.5. Literals/splices stay tight.
 - **GOTCHA — data base uses capacity, never count**: with headroom the data region is at `header + capacity*ENTRY`. Always use `emit_collection_data_pointer`. Two hand-written runtime helpers (`_mfb_rt_fs_path_join`, `_mfb_rt_sort_string_list` in mod.rs) had count-based bases → read garbage from a grown list; fixed to load COLLECTION_OFFSET_CAPACITY. Any NEW hand-rolled collection reader must do the same. (Note: `_mfb_*` helper calls clobber all caller-saved registers x0-x17 — spill live scratch such as x14/x15 to stack slots.)
 - **Shrink-to-fit copies**: `copy_collection_tight` re-tightens every collection value copy (copy_flat_block routes collections to it) so headroom never leaks into a snapshot or across a thread boundary.
@@ -83,8 +83,11 @@ Two rules from it that are easy to get wrong:
   copy a `String`, record or nested-list element gets. Read an element, remove one
   in place, and the value you read followed moved bytes.
 
-  `try_inplace_remove_at_assign` declines on that predicate (gate `G24`).
-  **Any future arm that relocates existing payloads inherits it** — including a
+  `try_inplace_remove_at_assign` declined on that predicate (gate `G24`) until
+  plan-134-H lifted it. `get` has returned an owned deep copy since bug-538, and
+  the compaction now frees the removed element's graph. **The rule it encoded still
+  stands for any value that can alias a buffer:** an arm that relocates existing
+  payloads is safe only while nothing refers into them — including a
   length-changing `set`, which shifts the data tail by design. An arm that shifts
   only *entries* does not: `insert` on the same recursive-union shape was measured
   byte-identical to the pre-change compiler. The failure signature is worth
@@ -117,10 +120,13 @@ Two rules from it that are easy to get wrong:
   * The copy gate is **`type_reaches_cycle`, not `type_participates_in_cycle`** —
     a record like `TYPE Rep { child AS Tree, lo AS Integer }` over a recursive
     `Tree` owns a pointer to a `Tree` graph without being a cycle member itself,
-    so the narrower predicate does not describe it. `G24` still uses the narrow
-    one, which was a second latent hole (`List OF Rep` + `get` + in-place
-    `removeAt`); the `get` copy closes it at the source, because after the copy
-    nothing refers into the payload at all.
+    so the narrower predicate does not describe it. `G24` used the narrow one,
+    which was a second latent hole (`List OF Rep` + `get` + in-place `removeAt`).
+    The `get` copy closed it at the source, because after the copy nothing refers
+    into the payload at all. The same distinction bit plan-134-H: the drop walker's
+    kinds had to be widened to reaching types (`graph_drop_kind_names`), or a
+    `List OF Rep`, a `Map OF String TO Node` or a record holding one was never
+    freed.
   * A value with a **resource** anywhere inside it is excluded
     (`type_contains_resource`). A handle is move-only — §14.6's own carve-out for
     a `List` element holding a resource pointer — so an alias is both the existing

@@ -144,10 +144,23 @@ are in §2.2; this letter moves them into `tools/recursive-value-bench/`.
 **After** (filled in by the letters that move a row; plan-134-H records the rest). The table above
 has no "after" column, so the later numbers are recorded here against the same instruments.
 
-| Row | After | Letter, command |
+Filled by G (two rows) and H (every row), same instrument. H's values are from `bash
+tools/recursive-value-bench/run.sh target/release/mfb` after plan-134-H Phase 2. Times are
+single runs, first-launch cost included; the speed comparison with medians of 5 against a
+pre-plan build is in plan-134-H Phase 3.
+
+| Row | After | Letter |
 |---|---|---|
-| Shape C union repro, peak RSS at 400k / 800k | 1.08 MB / 1.08 MB (1 081 344 / 1 081 344 B) | plan-134-G, `tools/recursive-value-bench/run.sh target/release/mfb c_union_rss c_record_rss` |
-| Shape C record repro, peak RSS at 400k / 800k | 1.03 MB / 1.03 MB (1 032 192 / 1 032 192 B) | plan-134-G, same run |
+| Shape C union repro, peak RSS at 400k / 800k | 1.08 MB / 1.08 MB (1 081 344 / 1 081 344 B) | G; H re-run identical |
+| Shape C record repro, peak RSS at 400k / 800k | 1.03 MB / 1.03 MB (1 032 192 / 1 032 192 B) | G; H re-run identical |
+| `json::parse` of one 480 KB document, K = 1 / 2 / 4 | 173.2 / 173.2 / 173.2 MB (flat); 0.54 / 0.78 / 1.69 s | H |
+| `regex::findAll` over 100 000 chars, K = 1 / 2 / 4 | 18.1 / 18.1 / 18.1 MB (flat); 1.33 / 2.44 / 5.39 s | H |
+| `json::get` path walk, K = 1 / 10 / 100 (new, `json_get`) | 114.3 / 114.3 / 114.3 MB (flat); 0.36 / 1.24 / 11.79 s | H |
+| `node_copies` calls from `main` | 3 copy-shim calls, 0 direct walker calls, 6 `arena_alloc`, 3 `arena_free`, 2 copy functions emitted; `b=1 xs=1 c=1 a=1` | H |
+| `tree_alias` (bug-601's recursive row) | `ys=6 xs=1`, exit 0 | H |
+| `deep_chain` at 50 000 / 70 000 / 100 000 / 1 000 000 | all exit 0 (`top=n`); 40 / 56 / 79 / 781 MB | H (fixed by B) |
+| `deep_build_only` 1 000 000 | exit 0, 781 MB | H |
+| `regex_chain` `group:499999` / `group:500001` | exit 0 (2.22 GB, 11.4 s) / exit 3 `raised=regex: pattern too complex …` | H |
 | bug-601 recursive row: `MUT ys = xs` over `List OF Tree`, 5 in-place appends | `ys=6 xs=112` at `cc1012bdc` (a read of freed storage, so the wrong number is not stable — `xs=240` when this row was first written; correct: `xs=1`) | `tree_alias` |
 | Depth at which today's runtime deep copy crashes | 50 000 exits 0; **70 000, 100 000, 1 000 000 exit 139** | `deep_chain` (copy forced by `collections::get`) |
 | Control: building and holding the same chain without a copy | 1 000 000 exits 0 | `deep_build_only` |

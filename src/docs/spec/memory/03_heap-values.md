@@ -67,7 +67,10 @@ stores, by field type:
 - **non-flat composite** — a **resource** `Union`, a `List`/`Map` carrying a
   resource or recursive payload, a non-flat `Result`, or a nested record that is
   not (or cannot be) flat (e.g. one on a type cycle): an 8-byte **pointer** to a
-  separate allocation.
+  separate allocation. For a value whose type reaches a type cycle, that separate
+  allocation is an **owned child**: copying the record deep-copies it (the graph
+  copy walker), and dropping the record frees it with the parent (the graph drop
+  walker, `./mfb spec memory arenas` "Scope-Drop Frees"). [[src/codegen/memory/arena/graph_drop.rs:lower_graph_drop_walker]]
 
 Because inlined fields are variable-length, a record's total byte size is
 computed by walking the fixed slot region plus each inlined sub-block (a `String`

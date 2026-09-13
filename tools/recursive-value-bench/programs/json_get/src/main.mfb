@@ -1,0 +1,28 @@
+' plan-134-H: K `json::get` path walks (K = first argument) down a four-level path whose
+' last object also holds a 20 000-item array. Since plan-134-D each path step in
+' `#json_get` binds the subtree it steps into, which value semantics copies.
+IMPORT io
+IMPORT json
+IMPORT collections
+IMPORT os
+
+SUB main()
+  LET k AS Integer = toInt(collections::get(os::args(), 0))
+  MUT items AS String = "["
+  MUT j AS Integer = 0
+  WHILE j < 20000
+    items = items & "{\u{22}x\u{22}:" & toString(j) & "},"
+    j = j + 1
+  END WHILE
+  items = items & "0]"
+  LET text AS String = "{\u{22}a\u{22}:{\u{22}b\u{22}:{\u{22}c\u{22}:{\u{22}big\u{22}:" & items & ",\u{22}leaf\u{22}:7}}}}"
+  LET doc AS json::Json = json::parse(text)
+  MUT found AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < k
+    LET leaf AS json::Json = json::get(doc, ["a", "b", "c", "leaf"])
+    found = found + len(json::stringify(leaf))
+    i = i + 1
+  END WHILE
+  io::print("found=" & toString(found))
+END SUB

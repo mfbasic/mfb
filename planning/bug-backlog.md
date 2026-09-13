@@ -427,13 +427,15 @@ being true when 601 was filed.)*
 - ~~**601**~~ — **CLOSED 2026-09-13.** A `MUT` copy of a non-flat list aliased its source.
   The pointer-`String` records half was fixed by **plan-132**; the recursive-type row
   (`List OF Tree`) by **plan-134-D** (`a_recursive_value_copy_is_independent_of_its_source`).
-  Construction stores of recursive values still alias until plan-134-E.
+  Construction stores of recursive values aliased until plan-134-E (fixed there).
 - ~~**581**~~ — **CLOSED 2026-09-12.** Phase 1 landed (`ed87c111a`); Phase 2 won't be done
   (the registry is trusted by design).
 
-bug-536 has **no actionable work**: shapes A, B and B-2 are fixed (B-2 landed
-`b845db0de`, 2026-09-06) and shape C is a design decision, not a bug fix. **Do
-not dispatch 536.**
+bug-536 is **CLOSED** (2026-09-13): shapes A, B and B-2 were fixed (B-2 landed
+`b845db0de`, 2026-09-06), and shape C was delivered as the design plan it needed,
+plan-134 (letters A–H). Recursive values are now copied at every store and freed by
+every owner, including the elements a collection discards in place. The doc is in
+`bugs/completed/`.
 
 ### A correction, because this section was wrong twice in one day
 
@@ -494,9 +496,13 @@ Three of its four parts are done:
   is shape B one level up (`row = append(row, __csv_fieldValue(...))`). Needs a
   transitive `function_returns_fresh_string` NIR predicate; it is a
   **double-free** risk, not a leak risk, so it wants its own change and audit.
-- **Shape C** — a value of a recursive type is never freed. **Blocked**: it needs
-  recursive COPY-insertion, which does not exist, and the naive fix is a double
-  free. It is a design pass, not a bug fix. Do not dispatch it as one.
+- **Shape C** — a value of a recursive type was never freed. **FIXED by plan-134**
+  (2026-09-13). It needed recursive copy-insertion first (letters B–E: a
+  non-recursive graph copy at every owning and construction store, moves at a
+  source's last read). Only then could owners free their graphs (F's drop walker,
+  G's registration) and collections free discarded elements (H). The
+  `c_union_rss`/`c_record_rss` repros are flat (1.08 / 1.03 MB at 400k and 800k), and
+  `json_repeat` K = 1 → 4 is within `assert_flat`'s 8 MiB.
 
 514 is landed. 519, 532 and 535 are landed; 538 is landed and 539 also fixed a
 pre-existing GTK draw-callback SIGSEGV and put the Linux GTK app backend under

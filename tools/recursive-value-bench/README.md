@@ -31,6 +31,7 @@ table, the `_mfb_thread_copy_*` and `_mfb_rt_graph_copy` calls `_mfb_fn_main` ma
 | `c_record_rss` | 400 000, 800 000 | bind `Node[kids := [], tag := i]` n times | G (flat RSS) |
 | `json_repeat` | K = 1, 2, 4 | `json::parse` of one 480 003-byte document K times | D/E (speed budget), H (flat RSS) |
 | `regex_repeat` | K = 1, 2, 4 | `regex::findAll(subject, "[a-c]+[0-9]+")` over 100 000 chars, 10 000 hits, K times | D/E (speed budget), H (flat RSS) |
+| `json_get` | K = 1, 10, 100 | K `json::get(doc, ["a", "b", "c", "leaf"])` path walks past a 20 000-item sibling array — each `#json_get` step binds the subtree it steps into (copied since plan-134-D) | H (speed report) |
 | `node_copies` | — | one `Node` stored by bind, list literal in a record, `append`, `LET c = a`; copy calls from `main` | D, E |
 | `tree_alias` | — | bug-601's recursive row: `MUT ys = xs` over `List OF Tree`, 5 in-place appends; correct output `ys=6 xs=1` | D |
 | `deep_chain` | 50 000, 70 000, 100 000, 1 000 000 | an n-deep chain deep-copied by `collections::get`; exits 139 at ≥ 70 000 while the copy recurses natively | B |
