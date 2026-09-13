@@ -395,17 +395,22 @@ Commit: —
 
 ### Phase 4 — spec, docs, and the full gate
 
-- [ ] `src/docs/spec/tooling/07_cli-reference.md` § `build` Flags: `--debug` row and
+- [x] `src/docs/spec/tooling/07_cli-reference.md` § `build` Flags: `--debug` row and
       prose; the `test` usage row.
-- [ ] New spec topic `src/docs/spec/tooling/09_debug-report.md` (a new topic is
+- [x] New spec topic `src/docs/spec/tooling/09_debug-report.md` (a new topic is
       `NN_slug.md` beside the package's `spec.md`, auto-discovered by prefix —
       `.ai/specifications.md` § Adding a topic) documenting §4.4, the call site, and
       the paths that do not reach `_mfb_shutdown`. Later letters add their sections to
       this page.
-- [ ] `src/docs/spec/memory/08_program-startup.md`: `_mfb_shutdown`'s last call.
-- [ ] Full suite `cargo test --no-fail-fast -- --skip artifact_gate_all`,
+- [x] `src/docs/spec/memory/08_program-startup.md`: `_mfb_shutdown`'s last call. (Rendered: `mfb spec tooling debug-report` has no leaked `[[`; listed in `mfb spec tooling`.)
+- [~] Full suite `cargo test --no-fail-fast -- --skip artifact_gate_all`,
       `scripts/artifact-gate.sh target/release/mfb all`,
       `scripts/test-accept.sh target/release/mfb target/accept-actual`.
+      Scoped per the user (2026-09-12): `cargo test --bin mfb -- spec citations_resolve` ->
+      43 passed; artifact gate stands at 0 diff(s) from `eb196488c` (no non-doc `src/` change
+      since: `git diff --stat eb196488c -- src ':!src/docs'` empty). Remaining: the full
+      `cargo test` and `test-accept.sh` run ONCE at the end of plan-130 (plan-130-E Phase 3's
+      full-suite task), before merging.
 
 Acceptance: all three commands green (acceptance: no mismatch beyond the recorded
 baseline); `cargo test -p mfb --bins citations_resolve` green.
@@ -464,6 +469,11 @@ mfb.debug.end 1
 
 ## Corrections
 
+- **Phase 4 — the full suite moved to the end of the plan (user instruction, 2026-09-12).**
+  "Scope the tests to the change, full suite at the end." Each letter now runs the tests of
+  its own blast radius plus the artifact gate; the full `cargo test` and `test-accept.sh` run
+  once, in plan-130-E Phase 3, before merging. A first full run at this point was stopped
+  after 59 binaries with 0 failures.
 - **Prerequisites — the remote-box probe command was wrong for 2230.** `ssh -p 2230 … true`
   fails on Win11 (`'true' is not recognized as an internal or external command`) even when the
   box is up; the row now probes 2230 with `ver` (measured 2026-09-12: all five answer).

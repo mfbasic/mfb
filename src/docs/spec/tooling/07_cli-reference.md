@@ -41,7 +41,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `init` | `mfb init <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `init-pkg` | `mfb init-pkg <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `build` | `mfb build [flags] [location]` | 0 ok; 2 bad flags; 1 build failed |
-| `test` | `mfb test [--coverage] [--target os-arch] [-O level] [-v] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
+| `test` | `mfb test [--coverage] [--debug] [--target os-arch] [-O level] [-v] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
 | `fmt` | `mfb fmt [--check] [--indent N] [location]` | 0 ok; 2 bad flags; 1 not-formatted (`--check`) or error |
 | `doc` | `mfb doc [--out file] [location]` | 0 ok; 2 bad flags; 1 invalid DOC block or error |
 | `pkg add` | `mfb pkg add <file://…​.mfp or <owner>#<pkg>[@version]> [--pin\|--no-pin]` | 0 ok; 2 usage; 1 failed |
@@ -132,6 +132,7 @@ package).
 | `--sign owner` / `--sign=owner` | — | sign the artifact as `owner` (one-off key + proof + attestation); at most one |
 | `--app` | — | GUI app-mode runtime; at most one |
 | `--app-debug` | — | app mode, keeping the intermediate `build/<name>.AppDir` (Linux); implies `--app`; at most one |
+| `--debug` | — | build a program that writes the debug report to stderr as the last act of `_mfb_shutdown` (see `./mfb spec tooling debug-report`); at most one |
 | `--unsigned` | — | permit unsigned dependencies whose source is **not** local (see below) |
 | `-q` / `--quiet` | — | print only the `Wrote … to` artifact line and diagnostics |
 | `-v` / `--verbose` | — | additionally print a `phase <name> <N>ms` line per front-end stage |
@@ -182,6 +183,14 @@ duplicate yields `mfb build accepts at most one --app-debug option`. On
 directory and has no intermediate to keep — a flag that changed a build's
 *validity* by target would be worse than one that changes nothing.
 [[src/target.rs:finalize_app_bundle]]
+
+`--debug` produces a program that, as the very last thing it does before exiting,
+writes a versioned block of `<key> <value>` lines to stderr (`./mfb spec tooling
+debug-report`). It combines with every other flag, including `--app` and the output
+flags (a `--nir` dump of a `--debug` build carries `"debug": true`), changes no
+exit status or program output, and a duplicate yields `mfb build accepts at most one
+--debug option`. A build without it is byte-identical to one that predates the flag.
+[[src/cli/build/options.rs:parse_build_options]]
 
 The project `icon` (see `./mfb spec tooling project-manifest`) applies to Linux
 app builds as well as macOS: it is rendered to the freedesktop hicolor PNG sizes

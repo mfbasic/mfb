@@ -173,6 +173,12 @@ exit code is valid on return. Because the global gate is idempotent, the
 SIGINT/SIGTERM handler racing the normal exit path cannot double-free.
 [[src/codegen/os/process/process_lifecycle.rs:lower_shutdown]]
 
+In a `--debug` build the last call `_mfb_shutdown` makes, after its `shutdown_done`
+label and before it restores `x19`, is `_mfb_debug_shutdown`, which writes the debug
+report to stderr; it reads only its own globals, so the reloaded exit code and `x19`
+are unaffected. See `./mfb spec tooling debug-report`.
+[[src/codegen/debug/shutdown.rs:lower_debug_shutdown]]
+
 ## See Also
 
 * ./mfb spec memory arenas — arena-state layout, `x19`, RNG state words, `arena_destroy`
