@@ -18,14 +18,15 @@ live bytes it leaves per call and which defect owns them; and
 `tests/runtime/rt_debug_soak.rs` exists with a flat-workload control that passes and a
 recursive-workload soak case that fails on today's compiler for the documented reason.
 
-This letter diagnoses; it fixes nothing. Shape C's fix is a design plan of its own by
-the user's ruling (bug-536 § "USER DECISION (2026-09-06) — shape C leaves the bug
-backlog"), and this plan must not absorb it.
+This letter diagnoses; it fixes nothing. Shape C's fix is **plan-134** (A–H, recursive
+values copied and freed), a design plan of its own by the user's ruling (bug-536 §
+"USER DECISION (2026-09-06) — shape C leaves the bug backlog"); this plan must not
+absorb it.
 
 References — read these first:
 
 - `planning/todo.md` § Memory (§ 1 item 3, § 2).
-- `bugs/bug-536-scope-drop-leaks-recursive-types-return-constructor-string-temps.md`
+- `bugs/completed/bug-536-scope-drop-leaks-recursive-types-return-constructor-string-temps.md`
   — Shape C, and "Shape C is blocked on recursive COPY-insertion".
 - `src/docs/spec/tooling/09_debug-report.md` — the report's `arena.*` keys.
 - `tests/runtime/rt_debug_arena.rs` — build/run/parse helpers this letter reuses.

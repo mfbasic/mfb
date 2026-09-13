@@ -440,9 +440,9 @@ being true when 601 was filed.)*
 - ~~**581**~~ — **CLOSED 2026-09-12.** Phase 1 landed (`ed87c111a`); Phase 2 won't be done
   (the registry is trusted by design).
 
-bug-536 has **no actionable work**: shapes A, B and B-2 are fixed (B-2 landed
-`b845db0de`, 2026-09-06) and shape C is a design decision, not a bug fix. **Do
-not dispatch 536.**
+~~**536**~~ — **CLOSED 2026-09-13.** Shapes A (`f9be6e128`), B (`cd8699103`) and B-2
+(`b845db0de`) are fixed; shape C is plan-134 (A–H), not a bug. Archived to
+`bugs/completed/`.
 
 ### A correction, because this section was wrong twice in one day
 
