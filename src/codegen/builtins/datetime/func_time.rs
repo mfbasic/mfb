@@ -142,7 +142,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 ),
             ],
             return_type: ParameterType::named("Time"),
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument"],
             body: Body::mfb(BODY, "__datetime_time"),
         }],
     });

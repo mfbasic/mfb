@@ -130,6 +130,11 @@ r#"FUNC __datetime_parseFields(value AS String, pattern AS String) AS __datetime
       pi = pi + 1
     END IF
   END WHILE
+  ' bug-520 S3: the pattern must consume the whole value; leftover text is a
+  ' mismatch, not something to ignore.
+  IF vi <> vn THEN
+    FAIL error(77050003, "datetime: unexpected text after pattern")
+  END IF
   RETURN __datetime_Fields[year, month, day, hour, minute, second, nanos, offset, hasOff, isPM, is12, hadPM, vi]
 END FUNC"#;
 

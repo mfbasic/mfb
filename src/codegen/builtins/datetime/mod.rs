@@ -325,6 +325,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_offset_label_sep::register(&mut pkg);
     helper_offset_label::register(&mut pkg);
     helper_resolve_local::register(&mut pkg);
+    helper_civil_keep_offset::register(&mut pkg);
     helper_is_letter::register(&mut pkg);
     helper_pad_n::register(&mut pkg);
     helper_iso_weekday::register(&mut pkg);
@@ -574,6 +575,7 @@ mod func_with_zone;
 mod helper_build_from_fields;
 mod helper_check_fields;
 mod helper_civil_from_days;
+mod helper_civil_keep_offset;
 mod helper_days_from_civil;
 mod helper_expect;
 mod helper_floor_div;

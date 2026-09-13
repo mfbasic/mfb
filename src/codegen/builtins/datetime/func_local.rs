@@ -25,6 +25,10 @@ for projecting a `datetime::Instant` through this zone.
 Because the offset is resolved from host configuration, the civil fields a given
 `datetime::Instant` projects to depend on the machine: two hosts in different configured
 time zones project the same `datetime::Instant` to different `datetime::DateTime` fields.
+On macOS and Linux the host zone is the one the C library resolves, from the
+`TZ` environment variable when it is set; a `TZ` value that library does not
+recognise behaves as it does there, which on macOS and glibc is UTC, with no
+error.
 
 `datetime::local` takes no arguments. The call itself is pure and constant: it
 always returns the same placeholder `datetime::Zone`, reads no host state, and has no side

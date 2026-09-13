@@ -50,17 +50,22 @@ of the prime meridian), a negative offset places them behind UTC (west).
 
 The one-argument form takes the offset directly as a raw signed second count.
 The two-argument form takes whole `hours` and a `mins` magnitude in the range
-`0 .. 59`; `mins` contributes its magnitude only and inherits the sign of
-`hours`. Thus `datetime::fixedOffset(-5, 30)` is `-05:30` (five hours and
-thirty minutes behind UTC), and `datetime::fixedOffset(5, 30)` is `+05:30`. The
-two-argument form is implemented in terms of the one-argument form by combining
-the hours and minutes into a total second count of
-`sign(hours) * (abs(hours) * 3600 + mins * 60)`.
+`0 .. 59`. `hours` alone carries the sign and `mins` is never negative: the total
+is `abs(hours) * 3600 + mins * 60` seconds, negated when `hours` is negative.
+Thus `datetime::fixedOffset(-5, 30)` is `-05:30` (five hours and thirty minutes
+behind UTC), and `datetime::fixedOffset(5, 30)` is `+05:30`. When `hours` is `0`
+the offset is positive, so `datetime::fixedOffset(0, 30)` is `+00:30`, and a
+negative `mins` such as `datetime::fixedOffset(0, -30)` raises
+`ErrInvalidArgument`. A zone less than an hour west of UTC can only be built with
+the one-argument form: `datetime::fixedOffset(-1800)` is `-00:30`.
 
 
 In both forms the offset magnitude must be strictly under 24 hours (86400
-seconds); an offset of exactly `+/-24h` or more is rejected. The function is
-pure: it reads no host state and has no side effects."#;
+seconds); an offset of exactly `+/-24h` or more raises `ErrInvalidArgument`, as
+does `mins` outside `0 .. 59`. In the two-argument form an `hours` so large that
+`hours * 3600` does not fit an `Integer` raises `ErrOverflow`. The label is
+`+HH:MM`, or `+HH:MM:SS` when the offset is not a whole number of minutes. The
+function is pure: it reads no host state and has no side effects."#;
 const EX: &str = r#"Build a zone five and a half hours behind UTC:
 
 ```
@@ -110,7 +115,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     default: super::DefaultValue::None,
                 }],
                 return_type: super::ParameterType::named("Zone"),
-                errors: vec![],
+                errors: vec!["ErrInvalidArgument"],
                 body: super::Body::mfb(BODY_1, "__datetime_fixedOffset1"),
             },
             super::Implementation {
@@ -124,14 +129,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                     super::Parameter {
                         name: "mins",
-                        desc: "The minutes part of the offset. Give it the same sign as `hours` for a western zone.",
+                        desc: "The minutes part of the offset, 0 through 59. Never negative: `hours` carries the sign, so `(-5, 30)` is -05:30. A zone under an hour west of UTC needs the one-argument form.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                 ],
                 return_type: super::ParameterType::named("Zone"),
-                errors: vec![],
+                errors: vec!["ErrInvalidArgument", "ErrOverflow"],
                 body: super::Body::mfb(BODY_2, "__datetime_fixedOffset2"),
             },
         ],

@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/rt-behavior/datetime/datetime-tz-new-york-rt
+Wrote AST to tests/rt-behavior/datetime/datetime-tz-new-york-rt/datetime-tz-new-york-rt.ast
+Wrote IR to tests/rt-behavior/datetime/datetime-tz-new-york-rt/datetime-tz-new-york-rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/datetime/datetime-tz-new-york-rt
+Wrote executable to tests/rt-behavior/datetime/datetime-tz-new-york-rt/build/datetime-tz-new-york-rt.out
+[exit 0]
+$ tests/rt-behavior/datetime/datetime-tz-new-york-rt/build/datetime-tz-new-york-rt.out
+off.winter=-18000
+off.summer=-14400
+off.beforeSpring=-18000
+off.afterSpring=-14400
+off.beforeFall=-14400
+off.afterFall=-18000
+civil.gap=2026-03-08T03:30:00.000-04:00 @1772955000
+civil.overlap=2026-11-01T01:30:00.000-04:00 @1793511000
+civil.plain=2026-07-15T09:00:00.000-04:00 @1784120400
+spring.sat=2026-03-07T09:00:00.000-05:00 @1772892000
+spring.sun=2026-03-08T09:00:00.000-04:00 @1772974800
+spring.daySeconds=82800
+fall.sat=2026-10-31T09:00:00.000-04:00 @1793451600
+fall.sun=2026-11-01T09:00:00.000-05:00 @1793541600
+fall.daySeconds=90000
+addDays.intoGap=2026-03-08T03:30:00.000-04:00 @1772955000
+addMonths.intoGap=2026-03-08T03:30:00.000-04:00 @1772955000
+startOfDay.spring=2026-03-08T00:00:00.000-05:00 @1772946000
+overlap.first=2026-11-01T01:30:00.000-04:00 @1793511000
+overlap.second=2026-11-01T01:30:00.000-05:00 @1793514600
+addDays0.first=2026-11-01T01:30:00.000-04:00 @1793511000
+addDays0.second=2026-11-01T01:30:00.000-05:00 @1793514600
+addMonths0.second=2026-11-01T01:30:00.000-05:00 @1793514600
+addDays1.second=2026-11-02T01:30:00.000-05:00 @1793601000
+addDays.intoOverlapFromEdt=2026-11-01T01:30:00.000-04:00 @1793511000
+addMonths.intoOverlapFromEst=2026-11-01T01:30:00.000-05:00 @1793514600
+lmt=1850-07-01T07:03:58.000-04:56:02 @-3771144000
+lmt.offset=-17762
+lmt.roundTrip=-3771144000
+[exit 0]

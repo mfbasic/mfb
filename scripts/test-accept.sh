@@ -586,8 +586,20 @@ while IFS= read -r project_json; do
         # verbatim and canonicalized by the whole-log pass below.
         run_path=$(select_run_path "$build_output")
         if [ -n "$run_path" ]; then
+          # bug-520 S10: an optional `run.env` beside `project.json` holds
+          # `NAME=value` lines (blank and `#` lines skipped) set for the RUN only,
+          # never the build -- how a fixture pins host state such as `TZ`. Passed
+          # through `env`, which execs the path unchanged, so `argv[0]` and the
+          # logged `$ <exe>` line are the same with or without it.
+          run_env=()
+          if [ -f "$test_dir/run.env" ]; then
+            while IFS= read -r envline || [ -n "$envline" ]; do
+              case "$envline" in '' | '#'*) continue ;; esac
+              run_env+=("$envline")
+            done <"$test_dir/run.env"
+          fi
           echo "$ $run_path"
-          run_with_watchdog "$run_path"
+          run_with_watchdog env ${run_env[@]+"${run_env[@]}"} "$run_path"
           echo "[exit $?]"
         else
           echo "error: build did not report an executable path"

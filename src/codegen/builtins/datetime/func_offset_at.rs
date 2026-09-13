@@ -30,7 +30,11 @@ a DST transition can therefore return different values.
 Only the `seconds` field of `at` participates; the sub-second `nanos` field is
 ignored. The function reads no host state for UTC and fixed zones (those are
 pure); for a local zone it reads the host's time-zone configuration through the
-`datetime::localOffset` OS intrinsic."#;
+`datetime::localOffset` OS intrinsic.
+
+For a local zone, an instant outside the range the host can convert raises
+`ErrInvalidArgument`, exactly as `datetime::localOffset` does. A UTC or
+fixed-offset zone never raises."#;
 const EX: &str = r#"A UTC zone always reports a zero offset:
 
 ```
@@ -97,7 +101,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: super::ParameterType::Integer,
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument"],
             body: super::Body::mfb(BODY, "__datetime_offsetAt"),
         }],
     });

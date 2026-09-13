@@ -1,0 +1,62 @@
+' bug-520 S1/S2: a `DateTime` whose offset is not a whole number of minutes (a
+' host zone's LMT history, e.g. New York's -04:56:02 before 1883) was written as
+' `-04:56` -- the seconds dropped -- so `parseIso(toIso(dt))` named an instant
+' 2 s away from `dt`. The reader, handed the full `-04:56:02`, stopped after the
+' minutes and silently resolved the `-04:56` instant instead.
+'
+' The writer now emits `+-HH:MM:SS` (`ZZZ`: `+-HHMMSS`) when the offset has
+' seconds, and both readers accept that form, so every writer's text names the
+' instant of its `DateTime`. The zone is built by hand, so this fixture needs no
+' host zone data. The whole-minute lines pin that ordinary offsets did not move.
+IMPORT io
+IMPORT datetime
+
+FUNC show(label AS String, value AS String) AS Integer
+  LET dt AS datetime::DateTime = datetime::parseIso(value)
+  io::print(label & "=" & toString(datetime::resolve(dt).seconds) & " off=" & toString(dt.offset))
+  RETURN 0
+  TRAP(err)
+    io::print(label & "=ERROR " & toString(err.code))
+    RETURN 1
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET lmt AS datetime::Zone = datetime::Zone[-17762, 1, "LMT"]
+  LET old AS datetime::DateTime = datetime::inZone(datetime::instant(-2840090638, 0), lmt)
+  LET want AS Integer = datetime::resolve(old).seconds
+  io::print("instant=" & toString(want) & " offset=" & toString(old.offset))
+
+  ' Writers.
+  LET iso AS String = datetime::toIso(old)
+  io::print("toIso=" & iso)
+  io::print("toIso9=" & datetime::toIso(old, 9))
+  io::print("Z=" & datetime::format(old, "Z"))
+  io::print("ZZ=" & datetime::format(old, "ZZ"))
+  io::print("ZZZ=" & datetime::format(old, "ZZZ"))
+
+  ' Round trips name the same instant.
+  LET back AS datetime::DateTime = datetime::parseIso(iso)
+  io::print("isoRoundTrip=" & toString(datetime::resolve(back).seconds = want) & " off=" & toString(back.offset))
+  LET compact AS String = datetime::format(old, "yyyy-MM-dd HH:mm:ss ZZZ")
+  LET back2 AS datetime::DateTime = datetime::parse(compact, "yyyy-MM-dd HH:mm:ss Z")
+  io::print("compactRoundTrip=" & toString(datetime::resolve(back2).seconds = want) & " off=" & toString(back2.offset))
+  LET sep AS String = datetime::format(old, "yyyy-MM-dd HH:mm:ss ZZ")
+  LET back3 AS datetime::DateTime = datetime::parse(sep, "yyyy-MM-dd HH:mm:ss Z")
+  io::print("sepRoundTrip=" & toString(datetime::resolve(back3).seconds = want) & " off=" & toString(back3.offset))
+
+  ' Readers, given seconds directly.
+  show("isoSep", "1880-01-01T09:00:00-04:56:02")
+  show("isoCompact", "1880-01-01T09:00:00-045602")
+  show("isoPlus", "1880-01-01T09:00:00+00:00:30")
+
+  ' Whole-minute offsets are unchanged.
+  LET kolkata AS datetime::DateTime = datetime::inZone(datetime::instant(1782000000, 0), datetime::fixedOffset(5, 30))
+  io::print("wholeIso=" & datetime::toIso(kolkata))
+  io::print("wholeZZZ=" & datetime::format(kolkata, "ZZZ"))
+  io::print("wholeNeg=" & datetime::format(datetime::inZone(datetime::instant(0, 0), datetime::fixedOffset(-19800)), "ZZ"))
+  show("wholeSep", "2026-06-25T14:30:00+05:30")
+  show("wholeCompact", "2026-06-25T14:30:00+0530")
+  show("utc", "2026-06-25T14:30:00Z")
+  RETURN 0
+END FUNC

@@ -8,10 +8,10 @@ const DESC: &str = r#"`datetime::addMonths` advances `dt` by a whole number of c
 returns the resulting `datetime::DateTime`. It collapses `dt`'s year and month into a
 single month index (`year * 12 + month - 1`), adds `months`, and splits the sum
 back into a target year and month with a flooring divide so that crossing year
-boundaries in either direction is handled correctly.
- The wall-clock time of day
-and the zone are taken unchanged from `dt`, and the result is re-resolved through
-`dt`'s zone so the UTC offset is recomputed for the new date.
+boundaries in either direction is handled correctly. The wall-clock time of day
+and the zone are taken unchanged from `dt`. `dt`'s UTC offset is kept whenever it
+is still valid at the new date and time, and otherwise re-resolved through `dt`'s
+zone the way `datetime::civil` resolves a local time.
 
 
 Because months vary in length, the day of month is clamped to the number of days
@@ -22,16 +22,19 @@ exactly. The day is never carried over into the following month.
 
 
 `months` is a signed count: a positive value moves `dt` later in the calendar and
-a negative value moves it earlier; adding zero months returns a `datetime::DateTime` with
-the same date as `dt`. The operation works purely in whole months and never
+a negative value moves it earlier; adding zero months returns a `datetime::DateTime`
+equal to `dt`. The operation works purely in whole months and never
 alters the hour, minute, second, or nanosecond fields; the sub-second nanosecond
-component is carried through unchanged. Because the result is re-resolved through
-`dt`'s zone, `addMonths` is daylight-saving aware: the wall-clock time is
-preserved while the underlying instant absorbs any offset change for the new
-date. For whole-day shifts use `datetime::addDays`, and for uniform physical-time
-arithmetic on a `datetime::Instant` use `datetime::add`. `addMonths` is pure: the same
-`datetime::DateTime` and month count always yield the same result, and it has no side
-effects."#;
+component is carried through unchanged. For a `datetime::local` zone `addMonths`
+is daylight-saving aware: the wall-clock time is preserved while the underlying
+instant absorbs any offset change for the new date, and a result in a fall-back
+overlap stays on the side `dt`'s offset names when that offset is one of the two.
+For whole-day shifts use `datetime::addDays`, and for uniform physical-time
+arithmetic on a `datetime::Instant` use `datetime::add`. `addMonths` has no side
+effects. For a UTC or fixed-offset zone the same `datetime::DateTime` and month
+count always yield the same result. For a `datetime::local` zone the offset comes
+from the host's time-zone rules, so the same `dt` can yield a different absolute
+instant on a host configured for a different zone or DST rule."#;
 const EX: &str = r#"Advance a `datetime::DateTime` by one month:
 
 ```
@@ -73,7 +76,7 @@ r#"FUNC __datetime_addMonths(dt AS DateTime, months AS Integer) AS DateTime
   IF dt.zone.kind <> 2 THEN
     RETURN DateTime[Date[y, m, day], dt.time, dt.zone, dt.offset]
   END IF
-  RETURN __datetime_civil(Date[y, m, day], dt.time, dt.zone)
+  RETURN __datetime_civilKeepOffset(Date[y, m, day], dt.time, dt.zone, dt.offset)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {
