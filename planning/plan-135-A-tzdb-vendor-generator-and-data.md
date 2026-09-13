@@ -398,29 +398,41 @@ Data files only. Safe alone: nothing reads them yet.
 
 Acceptance: the committed bytes are the signed IANA release.
   Check: `cd third_party/tzdb/2026d && shasum -a 256 -c SHA256SUMS` → two `OK` lines; `gpg --verify tzdata2026d.tar.gz.asc tzdata2026d.tar.gz` and the tzcode pair → `Good signature` each (est. 2 min).
-Commit: —
+Commit: b3771486a
 
 ### Phase 2 — generator and drift gate
 
-- [ ] `tools/tzdb/gen_timezones_data.py` per § 4.2, emitting § 4.3.
-- [ ] `tools/tzdb/README.md` per § 4.2, including the update procedure.
-- [ ] Generate `packages/timezones/src/data.mfb`:
+- [x] `tools/tzdb/gen_timezones_data.py` per § 4.2, emitting § 4.3. (Also checks that the
+      tarballs' `version` file equals `RELEASE`, that every transition's type index is
+      below `typecnt`, and that the footer holds no `"` or `\`.)
+- [x] `tools/tzdb/README.md` per § 4.2, including the update procedure.
+- [x] Generate `packages/timezones/src/data.mfb`:
       `python3 tools/tzdb/gen_timezones_data.py > packages/timezones/src/data.mfb`.
-- [ ] `scripts/check-generated.sh`: add
+      (EXIT=0, 0.69 s real; stderr → `names 598 distinct 345 transitions 17018 types 1598
+      footers 94`, equal to § 2; the file is 337,535 B with 385 `PRIVATE FUNC`s)
+- [x] `scripts/check-generated.sh`: add
       `check tools/tzdb/gen_timezones_data.py packages/timezones/src/data.mfb` with a
       comment naming plan-135-A and the reason (nobody reviews 17018 transitions by
-      eye).
-- [ ] Mutation proof for the gate: append one space to `data.mfb`, run
-      `sh scripts/check-generated.sh`, confirm `DRIFT` and exit 1, then revert.
-- [ ] Mutation proof for the fail-closed checks: temporarily lower the spacing threshold
+      eye). (`sh scripts/check-generated.sh` → six `ok:` lines, the last
+      `ok: packages/timezones/src/data.mfb matches tools/tzdb/gen_timezones_data.py`,
+      exit 0)
+- [x] Mutation proof for the gate: append one space to `data.mfb`, run
+      `sh scripts/check-generated.sh`, confirm `DRIFT` and exit 1, then revert. (A
+      Python wrapper appended `b" "`, ran the gate, and restored the bytes → `EXIT=1`,
+      `DRIFT: packages/timezones/src/data.mfb does not match …`, `restored True`)
+- [x] Mutation proof for the fail-closed checks: temporarily lower the spacing threshold
       in a *copy* of the generator to 600,000, confirm it exits 1 naming
-      America/Cambridge_Bay, and discard the copy.
-- [ ] Cross-host determinism. On box 2223, native aarch64 Linux: copy
+      America/Cambridge_Bay, and discard the copy. (Copy `tools/tzdb/mutant_gap.py` with
+      `MIN_TRANSITION_GAP = 600000` → `EXIT=1`, `America/Cambridge_Bay: transitions at
+      972802800 and 973400400 are 597600 s apart, not more than 600000`; copy deleted.
+      "Lower" is wrong: 600,000 *raises* the threshold, and raising it is what trips.)
+- [x] Cross-host determinism. On box 2223, native aarch64 Linux: copy
       `tools/tzdb/gen_timezones_data.py` and `third_party/tzdb/2026d/`, run the
       generator, and `cmp` against the committed `data.mfb`. The CI gate runs on Linux
       and this file is generated on macOS, so a platform-dependent `zic` or `make` would
       otherwise surface only as a red CI row. If 2223 lacks `cc`/`make`, record that and
-      use the first box that has them.
+      use the first box that has them. (2223: `aarch64`, Python 3.14.6, `/usr/bin/cc`,
+      `/usr/bin/make` → `GEN=0`, the same statistics line, `cmp` → `CMP=0`)
 
 Acceptance: the generator reproduces the measured populations, the gate accepts the
 committed file and rejects a changed one, and a second OS produces identical bytes.
@@ -487,6 +499,15 @@ Commit: —
   added 2 new signatures → `[expires: 2031-07-24]`, and both `gpg --verify` →
   `Good signature from "Paul Eggert <eggert@cs.ucla.edu>"` with no expiry note.
   `third_party/tzdb/README.md` records keys.openpgp.org as the source to use.
+- **Phase 2: the fail-closed mutation said "lower"; it raises.** The measured minimum
+  spacing is 597,600 s. Only a threshold *above* that trips: a copy with
+  `MIN_TRANSITION_GAP = 600000` exits 1 naming America/Cambridge_Bay. Lowering it
+  cannot fail. The task was run as it was meant to be.
+- **Phase 2: the generator checks three premises § 4.2 did not list.** The tarballs'
+  `version` file must equal `RELEASE`. Every transition's type index must be below
+  `typecnt`. The footer must hold no `"` or `\`. Without the last check, a footer could
+  break the MFBASIC string literal that `zoneN()` returns. All three hold for 2026d,
+  and the statistics line is unchanged.
 
 ## Summary
 
