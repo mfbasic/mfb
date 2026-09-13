@@ -72,7 +72,7 @@ single-byte divisor and serves `toString` alone — it cannot divide by another
 |---|---|---|
 | Members this letter adds | 7 | §4.4 |
 | Records this letter adds | 1 (`DivResult`) | §4.3 |
-| Members existing after plan-127-B | 23 | plan-127-A §4.4 (11) + plan-127-B §4.3 (12) |
+| Members existing after plan-127-B | 22 | plan-127-A §4.4 (10) + plan-127-B §4.3 (12) — was 23, plan-127-A Corrections C5 |
 
 ### Verified properties
 
@@ -248,9 +248,10 @@ Commit: —
 - [ ] Tests: each of the three raises `ErrInvalidArgument` on `b = 0`; `divide` and
       `remainder` agree with the matching `divMod` field across the Phase 1 spread; the
       §4.2 sign convention holds on the four `(±7, ±2)` cases.
+- [ ] Admit the three division members in all three backend `runtime_calls` lists (plan-127-A C2).
 
-Acceptance: `native_member_declares_error` reports `true` for all three; the agreement
-and sign tests pass.
+Acceptance: all three declare exactly `["ErrInvalidArgument"]` in their registry `errors`
+vector (plan-127-A Corrections C1); the agreement and sign tests pass.
 Commit: —
 
 ### Phase 3 — the members built on division
@@ -267,6 +268,7 @@ Commit: —
       `modPow(b, e, m)` agrees with `remainder(pow(b, e), m)` for small `e`;
       `modPow` with `modulus = 0` raises `ErrInvalidArgument`;
       negative `exponent`/`n` each raise `ErrInvalidArgument`.
+- [ ] Admit the four members in all three backend `runtime_calls` lists (plan-127-A C2).
 
 Acceptance: `factorial(100)` matches a constant computed outside MFB and committed as a
 test literal; `modPow` agrees with the `pow`+`remainder` reference on every small case;

@@ -75,7 +75,7 @@ subtraction reuses to decide result sign and operand order.
 | What | Count | Command |
 |---|---|---|
 | Members this letter adds | 12 | §4 |
-| Members existing after plan-127-A | 11 | plan-127-A §4.4 |
+| Members existing after plan-127-A | 10 | plan-127-A §4.4 (was 11 — plan-127-A Corrections C5) |
 | Private emitters this letter adds | 4 | §4.1 |
 
 ### Verified properties
@@ -211,8 +211,9 @@ values and a reader will assume the other one.
       `subtract(a, b) = negate(subtract(b, a))`;
       addition is commutative and associative over a spread covering both signs.
 - [ ] Measure and record: 1e6 iterations of a 128-bit `add`, with the command.
+- [ ] Admit `add`/`subtract` in all three backend `runtime_calls` lists (plan-127-A C2).
 
-Acceptance: both members report `native_member_declares_error` → `false`; the carry and
+Acceptance: both members declare an empty registry `errors` vector (plan-127-A Corrections C1); the carry and
 borrow chain tests pass; the negative-zero case yields canonical zero.
 Commit: —
 
@@ -228,10 +229,11 @@ Commit: —
       empty-list identities.
 - [ ] Measure and record: one 4096-bit × 4096-bit `multiply`, and 1e4 iterations of a
       512-bit `multiply`, with the commands. Resolve Open Decision 1 against these.
+- [ ] Admit `multiply`/`sum`/`product` in all three backend `runtime_calls` lists (plan-127-A C2).
 
 Acceptance: the 4096-bit product matches an independently computed expectation
 (computed outside MFB and committed as a test constant, not produced by this code);
-all three members report `native_member_declares_error` → `false`.
+all three members declare an empty registry `errors` vector (plan-127-A C1).
 Commit: —
 
 ### Phase 3 — bit operations
@@ -245,6 +247,7 @@ Commit: —
       `testBit` agrees with `shiftRight`+`isZero` across a spread;
       each of the three fallible members raises `ErrInvalidArgument` on a negative
       count/index.
+- [ ] Admit the four bit members in all three backend `runtime_calls` lists (plan-127-A C2).
 
 Acceptance: the shift/multiply equivalence holds for `n` in 1..64 across several
 magnitudes, and the three negative-argument cases each raise `ErrInvalidArgument`.
@@ -264,9 +267,10 @@ Commit: —
       descriptor either way);
       `toRadixString(x, 16)` agrees with the magnitude bytes for several values;
       radix `1` and radix `37` each raise `ErrInvalidArgument`.
+- [ ] Admit the three text members in all three backend `runtime_calls` lists (plan-127-A C2).
 
 Acceptance: the `parse`∘`toString` round trip holds for every value in the test spread,
-and `toString` reports `native_member_declares_error` → `false`.
+and `toString` declares an empty registry `errors` vector (plan-127-A C1).
 Commit: —
 
 ## Validation Plan

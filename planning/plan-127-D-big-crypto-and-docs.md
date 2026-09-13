@@ -85,7 +85,8 @@ is also rejected with `ErrInvalidArgument`"* (same `DESC`, `grep -n "Range and e
 That restriction is a consequence of `Integer`, not of the algorithm, and it is the gap
 this letter closes.
 
-After plan-127-C the `big` package has 30 members and two exported records, all
+After plan-127-C the `big` package has 29 members (was "30" — plan-127-A Corrections C5)
+and two exported records, all
 natively lowered, none of them documented in `mfb spec`.
 
 ### Measured populations
@@ -314,6 +315,6 @@ ceiling that is an artifact of `Integer` and leaves the rest alone.
 Risk sits in the uniformity of the new draw, which no functional test would catch —
 hence a distribution test rather than a range check.
 
-With this letter the feature is complete: 30 `big` members, two records, one crypto
+With this letter the feature is complete: 29 `big` members, two records, one crypto
 overload, one spec chapter, one acceptance fixture. `big::Dec` remains undesigned and
 purely additive whenever it is wanted.
