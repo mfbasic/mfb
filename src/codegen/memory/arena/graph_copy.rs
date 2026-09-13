@@ -588,7 +588,10 @@ pub(crate) mod tests {
             record("JArr", arr()),
             record("JObj", obj()),
             record("JStr", text()),
-            union("J", vec![("JArr", arr()), ("JObj", obj()), ("JStr", text())]),
+            union(
+                "J",
+                vec![("JArr", arr()), ("JObj", obj()), ("JStr", text())],
+            ),
         ]
     }
 
@@ -634,7 +637,12 @@ pub(crate) mod tests {
         let kinds: Vec<String> = recursive_transfer_types(model).into_iter().collect();
         let by_symbol: HashMap<String, String> = kinds
             .iter()
-            .map(|kind| (thread_copy_symbol(&ParameterType::declared(kind)), kind.clone()))
+            .map(|kind| {
+                (
+                    thread_copy_symbol(&ParameterType::declared(kind)),
+                    kind.clone(),
+                )
+            })
             .collect();
         let type_ = ParameterType::declared(name);
         let platform = TestPlatform;
@@ -703,7 +711,10 @@ pub(crate) mod tests {
             ("a cycle member reaching a second cycle", &bridged),
         ] {
             let kinds = recursive_transfer_types(model);
-            assert!(!kinds.is_empty(), "{label}: the model has no recursive type");
+            assert!(
+                !kinds.is_empty(),
+                "{label}: the model has no recursive type"
+            );
             let mut edges = 0;
             for kind in &kinds {
                 let (calls, pushes) = calls_and_pushes(model, kind);
@@ -714,7 +725,10 @@ pub(crate) mod tests {
                 );
                 edges += pushes.len();
             }
-            assert!(edges > 0, "{label}: no edges at all — not looking at a cycle");
+            assert!(
+                edges > 0,
+                "{label}: no edges at all — not looking at a cycle"
+            );
         }
 
         // A `J` payload of `Map OF Integer TO J` is an inline data union, so the map's

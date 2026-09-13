@@ -77,8 +77,14 @@ fn assert_discards_free_the_element(case: &str, source: &str) {
         large_out, small_out,
         "{case}: the output changed with the iteration count"
     );
-    assert_eq!(small_skips, 0, "{case}: a block was freed twice (1 000 iterations)");
-    assert_eq!(large_skips, 0, "{case}: a block was freed twice (2 000 iterations)");
+    assert_eq!(
+        small_skips, 0,
+        "{case}: a block was freed twice (1 000 iterations)"
+    );
+    assert_eq!(
+        large_skips, 0,
+        "{case}: a block was freed twice (2 000 iterations)"
+    );
     assert_eq!(
         large_live,
         small_live,

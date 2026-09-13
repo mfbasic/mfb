@@ -111,7 +111,11 @@ fn assert_copy_then_drop_is_exact(case: &str, source: &str, hook: &str) -> Pair 
         get(&plain, "alloc_calls"),
         get(&hooked, "alloc_calls")
     );
-    assert_eq!(get(&plain, "double_free_skips"), 0, "{case}: plain double_free_skips");
+    assert_eq!(
+        get(&plain, "double_free_skips"),
+        0,
+        "{case}: plain double_free_skips"
+    );
     assert_eq!(
         get(&hooked, "double_free_skips"),
         0,

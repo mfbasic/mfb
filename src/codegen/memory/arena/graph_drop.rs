@@ -132,7 +132,11 @@ impl CodeBuilder<'_> {
             &list_entry_stride(element_type).to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch, &index, &scratch));
-        self.emit(abi::add_immediate(&scratch, &scratch, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch,
+            &scratch,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch, &block, &scratch));
         self.emit(abi::store_u64(&scratch, abi::stack_pointer(), entry_slot));
         self.emit_drop_entry_value(buffer_slot, entry_slot, element_type)
@@ -237,7 +241,11 @@ impl CodeBuilder<'_> {
         let size_slot = self.allocate_stack_object("shallow_block_size", 8);
         self.emit_inlined_block_size_from_ptr_slot(type_, slot, size_slot)?;
         self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), slot));
-        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
         self.emit_arena_free_call();
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
         self.emit(abi::label(&skip));
@@ -765,7 +773,10 @@ mod tests {
     /// pushes, and only resource-free kinds. Returns the number of edges seen.
     fn assert_drop_edges_match(label: &str, model: &TypeModel) -> usize {
         let kinds = recursive_transfer_types(model);
-        assert!(!kinds.is_empty(), "{label}: the model has no recursive type");
+        assert!(
+            !kinds.is_empty(),
+            "{label}: the model has no recursive type"
+        );
         let mut edges = 0;
         for kind in &kinds {
             if type_contains_resource(model, &ParameterType::declared(kind)) {
@@ -821,7 +832,10 @@ mod tests {
             ("UNION Tree (Pair holds two Tree fields)", &tree),
         ] {
             let edges = assert_drop_edges_match(label, model);
-            assert!(edges > 0, "{label}: no edges at all — not looking at a cycle");
+            assert!(
+                edges > 0,
+                "{label}: no edges at all — not looking at a cycle"
+            );
         }
     }
 
@@ -834,12 +848,16 @@ mod tests {
         for (label, source, expected) in [
             (
                 "json_repeat",
-                include_str!("../../../../tools/recursive-value-bench/programs/json_repeat/src/main.mfb"),
+                include_str!(
+                    "../../../../tools/recursive-value-bench/programs/json_repeat/src/main.mfb"
+                ),
                 &["Json"][..],
             ),
             (
                 "regex_repeat",
-                include_str!("../../../../tools/recursive-value-bench/programs/regex_repeat/src/main.mfb"),
+                include_str!(
+                    "../../../../tools/recursive-value-bench/programs/regex_repeat/src/main.mfb"
+                ),
                 // The package's private types render with its internal `#` prefix.
                 &["#regex_Node", "#regex_Cont", "#regex_Choices"][..],
             ),
@@ -859,7 +877,10 @@ mod tests {
                 );
             }
             let edges = assert_drop_edges_match(label, &model);
-            assert!(edges > 0, "{label}: no edges at all — not looking at a cycle");
+            assert!(
+                edges > 0,
+                "{label}: no edges at all — not looking at a cycle"
+            );
         }
     }
 }

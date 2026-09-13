@@ -1614,7 +1614,10 @@ impl CodeBuilder<'_> {
     /// plan-134-F: where a payload of `payload_type` keeps its pointer edges — shared by the
     /// copy's and the drop's per-entry walks, so the two cannot classify one payload two
     /// ways. `None` for a payload that has none.
-    pub(crate) fn payload_edge_shape(&self, payload_type: &ParameterType) -> Option<PayloadEdgeShape> {
+    pub(crate) fn payload_edge_shape(
+        &self,
+        payload_type: &ParameterType,
+    ) -> Option<PayloadEdgeShape> {
         if typed_is_collection_type(payload_type)
             || matches!(payload_type, ParameterType::ResultOf(_))
             || *payload_type == ParameterType::named("Error")
@@ -1648,11 +1651,7 @@ impl CodeBuilder<'_> {
             return Ok(result);
         }
         let slot = self.allocate_stack_object("collection_edge_copy", 8);
-        self.emit(abi::store_u64(
-            &result.location,
-            abi::stack_pointer(),
-            slot,
-        ));
+        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
         self.fix_collection_transfer_payloads(&result.type_, slot, slot)?;
         let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));

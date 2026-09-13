@@ -155,8 +155,17 @@ fn a_recursive_value_built_into_another_is_independent_of_its_source() {
     assert_eq!(
         stdout.trim(),
         [
-            "record=1", "union=1", "literal=1", "append=1", "insert=1", "set=1", "prepend=1",
-            "map=1", "with=1", "state=1", "source=3",
+            "record=1",
+            "union=1",
+            "literal=1",
+            "append=1",
+            "insert=1",
+            "set=1",
+            "prepend=1",
+            "map=1",
+            "with=1",
+            "state=1",
+            "source=3",
         ]
         .join("\n"),
         "plan-134-E: every holder keeps the value it was built from.\nstderr:\n{stderr}"
@@ -215,7 +224,9 @@ fn count_calls(value: &serde_json::Value, from: &str, to_prefix: &str, kind: &st
 fn a_construction_store_copies_an_aliased_source_once_and_a_fresh_value_never() {
     let project = common::temp_project("p134e_copy_count", COPY_COUNT_SOURCE);
     let exe = common::build_project(&project);
-    let output = Command::new(&exe).output().expect("run the copy-count probe");
+    let output = Command::new(&exe)
+        .output()
+        .expect("run the copy-count probe");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
         "b=1 xs=1 c=1 ys=1 a=1",
@@ -283,14 +294,21 @@ END SUB
 fn a_native_collection_builtin_copies_its_result_elements_graphs() {
     let project = common::temp_project("p134e_builtin_copies", BUILTIN_COPIES_SOURCE);
     let exe = common::build_project(&project);
-    let output = Command::new(&exe).output().expect("run the builtin-copy probe");
+    let output = Command::new(&exe)
+        .output()
+        .expect("run the builtin-copy probe");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
         "3 1 2 1",
         "the builtin-copy probe's values"
     );
     let ncode = common::build_ncode(&project, "macos-aarch64", "p134e_builtin_copies");
-    for function in ["_mfb_fn_viaAppend", "_mfb_fn_viaRemoveAt", "_mfb_fn_viaFilter", "_mfb_fn_viaValues"] {
+    for function in [
+        "_mfb_fn_viaAppend",
+        "_mfb_fn_viaRemoveAt",
+        "_mfb_fn_viaFilter",
+        "_mfb_fn_viaValues",
+    ] {
         let copies = count_calls(&ncode, function, "_mfb_thread_copy_", "branch26");
         assert!(
             copies >= 1,

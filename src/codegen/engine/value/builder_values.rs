@@ -1206,10 +1206,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn needs_graph_copy(&self, type_: &ParameterType) -> bool {
         !self.is_freeable_flat_value(type_)
             && crate::codegen::collection::layout::type_reaches_cycle(&self.type_model, type_)
-            && !crate::codegen::collection::layout::type_contains_resource(
-                &self.type_model,
-                type_,
-            )
+            && !crate::codegen::collection::layout::type_contains_resource(&self.type_model, type_)
     }
 
     /// plan-134-G: whether the owner of a `type_` value frees it, through `_mfb_rt_graph_drop`
@@ -1415,7 +1412,10 @@ impl CodeBuilder<'_> {
     /// plan-134-G: a place may be moved out of only if its root local owns its block — a live
     /// `OwnedValue` cleanup at the local's slot, which is what `release_moved_source` gives up.
     /// A `MATCH` view, a by-ref capture or any other alias owns nothing, so its store copies.
-    fn move_source_is_owned(&self, place: &crate::codegen::engine::analysis::last_use::Place) -> bool {
+    fn move_source_is_owned(
+        &self,
+        place: &crate::codegen::engine::analysis::last_use::Place,
+    ) -> bool {
         use crate::codegen::engine::analysis::last_use::Place;
         let (root, member) = match place {
             Place::Local(name) => (name, None),
@@ -1430,7 +1430,8 @@ impl CodeBuilder<'_> {
         let owns = self.active_cleanups.iter().any(|cleanup| {
             matches!(cleanup, ActiveCleanup::OwnedValue(c) if c.stack_offset == local.stack_offset)
         });
-        owns && member.is_none_or(|member| self.pointer_field_offset(&local.type_, member).is_some())
+        owns && member
+            .is_none_or(|member| self.pointer_field_offset(&local.type_, member).is_some())
     }
 
     /// plan-77 M6: the static type of a closure capture, used by the closure

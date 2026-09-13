@@ -997,7 +997,8 @@ impl CodeBuilder<'_> {
                         // call). `lower_value_owned` deep-copied any aliasing source,
                         // so the new block never aliases the freed one — the free is
                         // sound and once-only.
-                        if self.is_freeable_flat_value(&value_type) || self.owns_graph(&value_type) {
+                        if self.is_freeable_flat_value(&value_type) || self.owns_graph(&value_type)
+                        {
                             let new_slot = self.allocate_stack_object("store_global_new", 8);
                             self.emit(abi::store_u64(
                                 &result.location,

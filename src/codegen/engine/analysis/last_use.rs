@@ -475,12 +475,14 @@ impl ViewShape {
                         self.types.insert(name.clone(), type_.clone());
                         let source = match value {
                             Some(NirValue::Local(from)) => Some(Place::Local(from.clone())),
-                            Some(NirValue::MemberAccess { target, member }) => match target.as_ref() {
-                                NirValue::Local(from) => {
-                                    Some(Place::Field(from.clone(), member.clone()))
+                            Some(NirValue::MemberAccess { target, member }) => {
+                                match target.as_ref() {
+                                    NirValue::Local(from) => {
+                                        Some(Place::Field(from.clone(), member.clone()))
+                                    }
+                                    _ => None,
                                 }
-                                _ => None,
-                            },
+                            }
                             _ => None,
                         };
                         self.binds
@@ -488,13 +490,18 @@ impl ViewShape {
                             .or_default()
                             .push((op_key(op), source));
                         let extracted = match value {
-                            Some(NirValue::UnionExtract { value: inner, .. }) => match inner.as_ref() {
-                                NirValue::Local(view) => Some(view.clone()),
-                                _ => None,
-                            },
+                            Some(NirValue::UnionExtract { value: inner, .. }) => {
+                                match inner.as_ref() {
+                                    NirValue::Local(view) => Some(view.clone()),
+                                    _ => None,
+                                }
+                            }
                             _ => None,
                         };
-                        self.extracts.entry(name.clone()).or_default().push(extracted);
+                        self.extracts
+                            .entry(name.clone())
+                            .or_default()
+                            .push(extracted);
                         walk_op(self, op);
                     }
                     NirOp::Assign { name, .. } => {
@@ -607,7 +614,12 @@ impl ViewShape {
     /// a borrowed view (and its alias) reads the view's source place — the whole local, or
     /// just the field when the view was bound from one — followed while that is itself a
     /// view or alias.
-    fn charged_to(&self, name: &str, owning: &HashSet<String>, seen: &mut HashSet<String>) -> Place {
+    fn charged_to(
+        &self,
+        name: &str,
+        owning: &HashSet<String>,
+        seen: &mut HashSet<String>,
+    ) -> Place {
         if !seen.insert(name.to_string()) {
             return Place::Local(name.to_string());
         }
@@ -660,7 +672,8 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
                     }
                     let alias_of_a_view = self.shape.aliases.contains_key(name);
                     if matches!(value, Some(NirValue::Capture { .. }))
-                        || (matches!(value, Some(NirValue::UnionExtract { .. })) && !alias_of_a_view)
+                        || (matches!(value, Some(NirValue::UnionExtract { .. }))
+                            && !alias_of_a_view)
                     {
                         self.excluded.insert(name.clone());
                     }
@@ -670,7 +683,9 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
                         }
                     }
                 }
-                NirOp::ForEach { name, .. } | NirOp::For { name, .. } | NirOp::Trap { name, .. } => {
+                NirOp::ForEach { name, .. }
+                | NirOp::For { name, .. }
+                | NirOp::Trap { name, .. } => {
                     self.bound.insert(name.clone());
                     self.excluded.insert(name.clone());
                 }
@@ -732,7 +747,11 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
 
 /// The `MATCH` ops with no fall-through edge: an unguarded `CASE ELSE`, or unguarded cases
 /// naming every variant of the scrutinee's declared union.
-fn exhaustive_matches(function: &NirFunction, model: &TypeModel, shape: &ViewShape) -> HashSet<usize> {
+fn exhaustive_matches(
+    function: &NirFunction,
+    model: &TypeModel,
+    shape: &ViewShape,
+) -> HashSet<usize> {
     struct Scan<'a> {
         model: &'a TypeModel,
         types: &'a HashMap<String, ParameterType>,
@@ -983,11 +1002,17 @@ mod tests {
         module
             .functions
             .iter()
-            .find(|f| f.name == name || f.name.rsplit(|c| c == '.' || c == ':').next() == Some(name))
+            .find(|f| {
+                f.name == name || f.name.rsplit(|c| c == '.' || c == ':').next() == Some(name)
+            })
             .unwrap_or_else(|| {
                 panic!(
                     "no function `{name}` in {:?}",
-                    module.functions.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+                    module
+                        .functions
+                        .iter()
+                        .map(|f| f.name.as_str())
+                        .collect::<Vec<_>>()
                 )
             })
     }
@@ -1045,7 +1070,11 @@ mod tests {
         move |op| match op {
             NirOp::Assign {
                 name: target,
-                value: NirValue::MemberAccess { target: base, member },
+                value:
+                    NirValue::MemberAccess {
+                        target: base,
+                        member,
+                    },
             } => {
                 target == name
                     && member == field
@@ -1065,9 +1094,7 @@ mod tests {
     }
 
     fn appends_to(name: &'static str) -> impl Fn(&NirOp) -> bool {
-        move |op| {
-            matches!(op, NirOp::Assign { name: target, value } if target == name && is_append_call(value))
-        }
+        move |op| matches!(op, NirOp::Assign { name: target, value } if target == name && is_append_call(value))
     }
 
     fn returns_value(op: &NirOp) -> bool {
@@ -1240,22 +1267,85 @@ END FUNC
         let module = lower(SHAPES);
         let model = TypeModel::from_module(&module).expect("the probe's type model builds");
         let rows: Vec<(&str, &str, Box<dyn Fn(&NirOp) -> bool>, Place, bool)> = vec![
-            ("never read again", "moveAfterBind", Box::new(binds("b")), local("a"), true),
-            ("read again after", "readAgain", Box::new(binds("b")), local("a"), false),
-            ("read on the next iteration", "nextIteration", Box::new(appends_to("xs")), local("a"), false),
-            ("rebound each iteration, then appended", "reboundEachIteration", Box::new(appends_to("xs")), local("item"), true),
-            ("read in the TRAP handler", "readInHandler", Box::new(binds("b")), local("a"), false),
-            ("captured by a lambda", "capturedEarlier", Box::new(binds("b")), local("a"), false),
-            ("the live FOR EACH iterable", "forEachLive", Box::new(binds("copy")), local("xs"), false),
-            ("a parameter", "fromParam", Box::new(binds("q")), local("p"), false),
-            ("a field, another field read after", "fieldThenOtherField", Box::new(binds("k")), member("h", "kids"), true),
-            ("RETURN of an owned local", "returnLocal", Box::new(returns_value), local("n"), true),
+            (
+                "never read again",
+                "moveAfterBind",
+                Box::new(binds("b")),
+                local("a"),
+                true,
+            ),
+            (
+                "read again after",
+                "readAgain",
+                Box::new(binds("b")),
+                local("a"),
+                false,
+            ),
+            (
+                "read on the next iteration",
+                "nextIteration",
+                Box::new(appends_to("xs")),
+                local("a"),
+                false,
+            ),
+            (
+                "rebound each iteration, then appended",
+                "reboundEachIteration",
+                Box::new(appends_to("xs")),
+                local("item"),
+                true,
+            ),
+            (
+                "read in the TRAP handler",
+                "readInHandler",
+                Box::new(binds("b")),
+                local("a"),
+                false,
+            ),
+            (
+                "captured by a lambda",
+                "capturedEarlier",
+                Box::new(binds("b")),
+                local("a"),
+                false,
+            ),
+            (
+                "the live FOR EACH iterable",
+                "forEachLive",
+                Box::new(binds("copy")),
+                local("xs"),
+                false,
+            ),
+            (
+                "a parameter",
+                "fromParam",
+                Box::new(binds("q")),
+                local("p"),
+                false,
+            ),
+            (
+                "a field, another field read after",
+                "fieldThenOtherField",
+                Box::new(binds("k")),
+                member("h", "kids"),
+                true,
+            ),
+            (
+                "RETURN of an owned local",
+                "returnLocal",
+                Box::new(returns_value),
+                local("n"),
+                true,
+            ),
         ];
         for (shape, name, wanted, place, expected) in rows {
             let f = function(&module, name);
             let sites = collect_last_use_moves(f, &model);
             let found = ops(f, wanted.as_ref());
-            assert!(!found.is_empty(), "{shape}: `{name}` has no op of the expected shape");
+            assert!(
+                !found.is_empty(),
+                "{shape}: `{name}` has no op of the expected shape"
+            );
             for op in found {
                 assert_eq!(
                     sites.is_last_use(op_key(op), &place),
@@ -1280,14 +1370,20 @@ END FUNC
         let sites = collect_last_use_moves(f, &model);
         let views = ops(f, &binds_from_local("ch"));
         assert_eq!(views.len(), 1, "isLink binds one scrutinee view");
-        assert!(sites.is_borrow(op_key(views[0])), "a MATCH on a parameter borrows");
+        assert!(
+            sites.is_borrow(op_key(views[0])),
+            "a MATCH on a parameter borrows"
+        );
         assert!(!sites.is_last_use(op_key(views[0]), &local("ch")));
 
         let f = function(&module, "sumChain");
         let sites = collect_last_use_moves(f, &model);
         let views = ops(f, &binds_from_local("cur"));
         assert_eq!(views.len(), 1, "sumChain binds one scrutinee view");
-        assert!(sites.is_last_use(op_key(views[0]), &local("cur")), "the view owns the chain");
+        assert!(
+            sites.is_last_use(op_key(views[0]), &local("cur")),
+            "the view owns the chain"
+        );
         assert!(!sites.is_borrow(op_key(views[0])));
         let steps = ops(f, &assigns_field("cur", "l", "rest"));
         assert_eq!(steps.len(), 1);
@@ -1300,7 +1396,10 @@ END FUNC
         let sites = collect_last_use_moves(f, &model);
         let views = ops(f, &binds_from_local("cur"));
         assert_eq!(views.len(), 1, "sumChainOpen binds one scrutinee view");
-        assert!(sites.is_borrow(op_key(views[0])), "a live source makes the view borrow");
+        assert!(
+            sites.is_borrow(op_key(views[0])),
+            "a live source makes the view borrow"
+        );
         let steps = ops(f, &assigns_field("cur", "l", "rest"));
         assert_eq!(steps.len(), 1);
         assert!(
@@ -1448,11 +1547,36 @@ END FUNC
             }
         };
         // A registry helper's `__pkg_name` is spelled `#pkg_name` once lowered.
-        expect("#json_parseArrayItems", &appends_to("acc"), local("item"), 1);
-        expect("#json_parseArrayItems", &binds("item"), member("parsed", "value"), 1);
-        expect("#json_revive", &appends_to("items"), local("revivedItem"), 1);
-        expect("#regex_parseAlt", &appends_to("opts"), member("nextc", "node"), 1);
-        expect("#regex_parseConcat", &appends_to("parts"), member("q", "node"), 2);
+        expect(
+            "#json_parseArrayItems",
+            &appends_to("acc"),
+            local("item"),
+            1,
+        );
+        expect(
+            "#json_parseArrayItems",
+            &binds("item"),
+            member("parsed", "value"),
+            1,
+        );
+        expect(
+            "#json_revive",
+            &appends_to("items"),
+            local("revivedItem"),
+            1,
+        );
+        expect(
+            "#regex_parseAlt",
+            &appends_to("opts"),
+            member("nextc", "node"),
+            1,
+        );
+        expect(
+            "#regex_parseConcat",
+            &appends_to("parts"),
+            member("q", "node"),
+            2,
+        );
     }
 
     /// The regex matcher's hot stores (plan-134-D speed gate): a backtrack pop
@@ -1486,7 +1610,14 @@ END FUNC
         let simple = function(&module, "#regex_isSimpleNode");
         let sites = collect_last_use_moves(simple, &model);
         let views = ops(simple, &binds_from_local("node"));
-        assert_eq!(views.len(), 1, "#regex_isSimpleNode binds one scrutinee view");
-        assert!(sites.is_borrow(op_key(views[0])), "a MATCH on a parameter borrows");
+        assert_eq!(
+            views.len(),
+            1,
+            "#regex_isSimpleNode binds one scrutinee view"
+        );
+        assert!(
+            sites.is_borrow(op_key(views[0])),
+            "a MATCH on a parameter borrows"
+        );
     }
 }

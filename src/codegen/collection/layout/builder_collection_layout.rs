@@ -3339,7 +3339,9 @@ pub(crate) fn graph_drop_kind_names(
         seeds.0.push(global.type_.clone());
     }
     for function in &module.functions {
-        seeds.0.extend(function.params.iter().map(|param| param.type_.clone()));
+        seeds
+            .0
+            .extend(function.params.iter().map(|param| param.type_.clone()));
         seeds.0.push(function.returns.clone());
         seeds.visit_ops(&function.body);
     }

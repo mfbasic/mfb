@@ -6064,13 +6064,23 @@ END SUB
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn a_looped_recursive_union_bind_runs_at_constant_rss() {
-    assert_flat("c_recursive_union_bind", SHAPE_C_UNION_BIND, 400_000, 800_000);
+    assert_flat(
+        "c_recursive_union_bind",
+        SHAPE_C_UNION_BIND,
+        400_000,
+        800_000,
+    );
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn a_looped_recursive_record_bind_runs_at_constant_rss() {
-    assert_flat("c_recursive_record_bind", SHAPE_C_RECORD_BIND, 400_000, 800_000);
+    assert_flat(
+        "c_recursive_record_bind",
+        SHAPE_C_RECORD_BIND,
+        400_000,
+        800_000,
+    );
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -6088,7 +6098,12 @@ fn a_looped_recursive_global_overwrite_runs_at_constant_rss() {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn a_looped_unbound_recursive_temp_runs_at_constant_rss() {
-    assert_flat("c_recursive_unbound_temp", SHAPE_C_UNBOUND_TEMP, 400_000, 800_000);
+    assert_flat(
+        "c_recursive_unbound_temp",
+        SHAPE_C_UNBOUND_TEMP,
+        400_000,
+        800_000,
+    );
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
