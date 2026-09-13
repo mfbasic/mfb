@@ -77,13 +77,24 @@ unintentionally) across a refactor.
 
 - **coverage.sh** — Runs the instrumented workspace test suite once via
   cargo-llvm-cov and leaves the merged profile in place for the report step. Uses
-  the same LLVM engine locally and in CI so numbers agree per platform.
+  the same LLVM engine locally and in CI so numbers agree per platform. CI runs it
+  with no arguments. `coverage.sh --bins` instead runs only the `mfb` unit tests and
+  writes `target/coverage/coverage.json`: the same `src/**` measurement in minutes
+  rather than hours (nothing under `tests/` links `src/**`), but meaningless for
+  `repository/src/**`.
 - **coverage-check.sh** — Per-file coverage gate: reads the profile left by
   `coverage.sh` and prints every in-scope source file below the floor, exiting
   non-zero if any fall short. Floor defaults to 98; override with `FLOOR=`.
 - **coverage-common.sh** — Shared coverage settings (sourced, not executable):
   the `IGNORE` denominator-exclusion regex and `PKG_FLAGS` package selection,
   used by both coverage scripts and the CI global-floor step so they can't drift.
+- **coverage-report.py** — Instruments over a llvm-cov JSON report, `src/**` only:
+  `gaps` (files below the floor ranked by lines short), `lines <report> <file>
+  [--source]` (uncovered ranges of one file), `shapes` (what kind of line each gap
+  is), `dead` (functions that never ran, folded across instantiations) and `delta
+  <base> [current]` (per-file movement between two reports). Applies
+  `coverage-exceptions.txt` from its own directory, so it works from any cwd. Usage:
+  `python3 scripts/coverage-report.py <gaps|lines|shapes|dead|delta> …` (`FLOOR=`).
 - **coverage-exceptions.txt** — Data file listing source files exempt from the
   per-file 95% gate because their uncovered remainder (network/TTY/subprocess/GUI
   paths) is reachable only from the integration harness.

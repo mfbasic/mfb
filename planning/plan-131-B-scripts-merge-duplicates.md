@@ -162,9 +162,16 @@ own phase with a mutation test.
       New `gaps` from `/tmp` is identical to new from the repo root (359 files). Old
       `coverage-src-gaps.py` from `/tmp` reports `372 src/** files below 98%, 18530 uncovered
       lines`, 13 more files, because it cannot find the exceptions file from there.
-- [ ] Add `--bins` to `scripts/coverage.sh`. Run `sh scripts/coverage.sh --bins` and compare its
+- [x] Add `--bins` to `scripts/coverage.sh`. Run `sh scripts/coverage.sh --bins` and compare its
       JSON with `coverage-bins.sh`'s: they must be identical after sorting keys, or differ only in
       timestamps (record which).
+      Done. Neither literal outcome can hold between two instrumented runs (Corrections). The check
+      that fails if `--bins` measured differently is the command diff: both scripts execute
+      `cargo llvm-cov --bins --no-fail-fast --no-report "$@"`, `drop_never_executed_binaries` and
+      `cargo llvm-cov report $PKG_FLAGS --ignore-filename-regex "$IGNORE" --json --output-path
+      target/coverage/coverage.json`; `--bins` adds only `mkdir -p target/coverage`. Measured from
+      clean profiles: `coverage-bins.sh` exit 0 (2341 s) and `coverage.sh --bins` exit 0 (2097 s),
+      totals 271032 vs 271033 of 285250 lines, with the one flip traced to `HashMap` order.
 - [x] Run `sh scripts/coverage.sh` (no flag), then `sh scripts/coverage-check.sh` → same result as
       before (the CI path is unchanged).
       Where it runs was decided by the user, 2026-09-12: on this Mac, now. The full suite includes
@@ -185,7 +192,7 @@ own phase with a mutation test.
       HashMap-order region traced in Corrections (`values.rs:1199`). It moves in the opposite
       direction between the two `--bins` runs (726 for `coverage-bins.sh`, 727 for `coverage.sh
       --bins`), so it follows the run, not the script.
-- [ ] `git rm` `coverage-bins.sh` and the five `coverage-src-*.py`. Update `planning/tests.md` (every
+- [x] `git rm` `coverage-bins.sh` and the five `coverage-src-*.py`. Update `planning/tests.md` (every
       cited command) and the `scripts/README.md` coverage section.
 
 Acceptance:
@@ -194,6 +201,7 @@ Acceptance:
   (Met: 0/1 before and 0/1 after, from clean profiles; the only output difference is the one traced
   nondeterministic region.)
 - `git grep -n -e coverage-bins.sh -e coverage-src- -- ':!planning/completed' ':!planning/plan-131-*'` → 0.
+  (Met: see the Phase 1 commit's grep, exit 1.)
 
 Commit: —
 
