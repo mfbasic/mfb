@@ -154,22 +154,38 @@ Add a section "A clock reading in a zone":
 
 ### Phase 1 — `civil`
 
-- [ ] `packages/timezones/src/civil.mfb`: the algorithm of § 4.1.
-- [ ] `packages/timezones/src/lib.mfb`: `EXPORT FUNC civil(...)` with a `DOC` block.
-      Build its `EXAMPLE` against the `.mfp`.
-- [ ] `packages/timezones/src/test_civil.mfb`. Every expected value comes from a pasted
-      `zoneinfo` `fold=0` one-liner. Cases:
-  - [ ] New York 2026-01-15 09:00 → `-05:00`, and 2026-07-15 09:00 → `-04:00`.
-  - [ ] Gap 2026-03-08 02:30 → 03:30 `-04:00`, and the gap edges 02:00:00 / 02:59:59.
-  - [ ] Overlap 2026-11-01 01:30 → `-04:00`, the earlier instant; edges 01:00:00 /
-        01:59:59.
-  - [ ] Australia/Lord_Howe's 30-minute overlap.
-  - [ ] Pacific/Apia's skipped 2011-12-30.
-  - [ ] Kwajalein's 1993 jump.
-  - [ ] Nanos preserved (`time(9,0,0,123456789)`).
-  - [ ] `datetime::Date[2026, 2, 30]` literal → traps `77050002`.
-  - [ ] Unknown name → `77050004`.
-- [ ] README § 4.3.
+- [x] `packages/timezones/src/civil.mfb`: the algorithm of § 4.1. (`zonedCivil`; the
+      overlap/gap choice is written as flat one-line `IF`s, because the parser rejects a
+      one-line `IF … THEN` directly before a block `ELSE`: `civil.mfb:43 error[1-102-0001
+      MFB_PARSE_EXPECTED_EXPRESSION]`)
+- [x] `packages/timezones/src/lib.mfb`: `EXPORT FUNC civil(...)` with a `DOC` block.
+      Build its `EXAMPLE` against the `.mfp`. (The example is copied into
+      `/tmp/p135ex/civil` with `timezones.mfp` in its `packages/`, then built with
+      `mfb build -q` and run. Output: `2026-01-15T09:00:00.000-05:00`,
+      `2026-07-15T09:00:00.000-04:00`, `2026-03-08T03:30:00.000-04:00`.)
+- [x] `packages/timezones/src/test_civil.mfb`. Every expected value comes from a pasted
+      `zoneinfo` `fold=0` one-liner. Cases (`mfb test packages/timezones` → `* civil`,
+      9 `[P]`, `Tests: 34  Pass: 34  Fail: 0`):
+  - [x] New York 2026-01-15 09:00 → `-05:00`, and 2026-07-15 09:00 → `-04:00`.
+        (1768485600 `EST` / 1784120400 `EDT`)
+  - [x] Gap 2026-03-08 02:30 → 03:30 `-04:00`, and the gap edges 02:00:00 / 02:59:59.
+        (1772955000; 02:00:00 → 03:00 EDT 1772953200; 02:59:59 → 03:59:59 EDT 1772956799;
+        plus 01:59:59 → EST 1772953199)
+  - [x] Overlap 2026-11-01 01:30 → `-04:00`, the earlier instant; edges 01:00:00 /
+        01:59:59. (1793511000; 1793509200; 1793512799; plus 02:00:00 → EST 1793516400)
+  - [x] Australia/Lord_Howe's 30-minute overlap. (2026-04-05 01:30 / 01:45 → `+11`,
+        02:00 → `+1030`; also its gap, 2026-10-04 02:15 → 02:45 `+11`)
+  - [x] Pacific/Apia's skipped 2011-12-30. (00:00 and 12:00 → the 31st at `+14`,
+        1325239200 / 1325282400; 2011-12-29 23:59:59 → `-10`)
+  - [x] Kwajalein's 1993 jump. (1993-08-21 12:00 → 1993-08-22T12:00 `+12`, 745977600)
+  - [x] Nanos preserved (`time(9,0,0,123456789)`). (`resolve(dt).nanos` = 123456789;
+        `toIso(dt, 9)` → `2026-07-15T09:00:00.123456789-04:00`)
+  - [x] `datetime::Date[2026, 2, 30]` literal → traps `77050002`. (also a
+        `datetime::Time[24, 0, 0, 0]` literal)
+  - [x] Unknown name → `77050004`.
+- [x] README § 4.3. (Before writing it, the `addDays` claim was checked with a probe:
+      `datetime::addDays(civil(2026-03-07 09:00, fixedOffset(-18000)), 1)` →
+      `2026-03-08T09:00:00.000-05:00`, 86400 s later, `8 9 -18000`.)
 
 Acceptance: `civil` gives `zoneinfo`'s `fold=0` answer on each hand case, including both
 New York transitions and the 24-hour Apia gap.

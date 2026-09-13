@@ -110,3 +110,49 @@ EXPORT FUNC toZone(name AS String, at AS datetime::Instant) AS datetime::Zone
   LET t AS LocalType = localTypeAt(name, at.seconds)
   RETURN datetime::Zone[t.utoff, 1, t.abbreviation]
 END FUNC
+
+' ---------------------------------------------------------------------------
+' A clock reading in a zone
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC civil
+  GROUP Clock readings
+  DESC The `datetime::DateTime` for a wall-clock reading in a named zone.
+  DESC Its `zone` is `timezones::toZone` at that instant, and its `offset` is
+  DESC that zone's offset.
+  DESC
+  DESC A reading that never happens, because the clocks sprang forward past it,
+  DESC moves forward by the length of the gap. 02:30 on 2026-03-08 in New York
+  DESC becomes 03:30 EDT. A reading that happens twice, because the clocks fell
+  DESC back through it, resolves to the earlier instant. 01:30 on 2026-11-01
+  DESC in New York is 01:30 EDT, not EST. This is the RFC 9557 "compatible"
+  DESC rule, and Python's `zoneinfo` with `fold=0` answers the same way.
+  DESC
+  DESC The result carries a fixed-offset snapshot. `datetime::addDays` on it
+  DESC keeps that offset across a daylight saving change. To move by calendar
+  DESC days in the zone, call `civil` again with the new date.
+  ARG date The calendar date on the zone's wall clock.
+  ARG time The time of day on the zone's wall clock; nanoseconds are kept.
+  ARG name A tzdb zone name, such as `America/New_York`; case is ignored.
+  RET The zoned date and time, with the offset in force at that instant.
+  ERROR 77050002 A calendar field of `date` or `time` is out of range.
+  ERROR 77050004 `name` is not a zone in the package's tzdb release.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT datetime
+    IMPORT io
+
+    SUB main()
+      LET winter AS datetime::DateTime = timezones::civil(datetime::date(2026, 1, 15), datetime::time(9, 0, 0, 0), "America/New_York")
+      LET summer AS datetime::DateTime = timezones::civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 0), "America/New_York")
+      io::print(datetime::toIso(winter))
+      io::print(datetime::toIso(summer))
+      LET skipped AS datetime::DateTime = timezones::civil(datetime::date(2026, 3, 8), datetime::time(2, 30, 0, 0), "America/New_York")
+      io::print(datetime::toIso(skipped))
+    END SUB
+  END EXAMPLE
+END DOC
+EXPORT FUNC civil(date AS datetime::Date, time AS datetime::Time, name AS String) AS datetime::DateTime
+  RETURN zonedCivil(date, time, name)
+END FUNC

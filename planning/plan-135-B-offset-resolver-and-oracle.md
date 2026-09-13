@@ -372,7 +372,7 @@ Commit: 28b6af197
 Acceptance: the public members return `zoneinfo`'s answers on the hand cases, and an
 unknown name raises `ErrNotFound`.
   Check: `target/release/mfb test packages/timezones` → `Fail: 0`, with the `offsets` group present (est. 1 min).
-Commit: —
+Commit: bd0c5a22b
 
 ### Phase 3 — the oracle, and proof that it can fail
 

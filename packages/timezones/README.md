@@ -39,6 +39,48 @@ change still uses the old offset. Call `toZone` again for each instant you conve
 An unknown name raises `errorCode::ErrNotFound` (`77050004`, exported as
 `timezones::ERR_UNKNOWN_ZONE`). Its message names the zone and the tzdb release.
 
+## A clock reading in a zone
+
+```
+timezones::civil(date AS datetime::Date, time AS datetime::Time, name AS String) AS datetime::DateTime
+```
+
+`civil` turns what a wall clock in a zone reads into a zoned `datetime::DateTime`:
+
+```
+IMPORT timezones
+IMPORT datetime
+IMPORT io
+
+SUB main()
+  LET meeting AS datetime::DateTime = timezones::civil(datetime::date(2026, 1, 15), datetime::time(9, 0, 0, 0), "America/New_York")
+  io::print(datetime::toIso(meeting))   ' 2026-01-15T09:00:00.000-05:00
+  LET summer AS datetime::DateTime = timezones::civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 0), "America/New_York")
+  io::print(datetime::toIso(summer))    ' 2026-07-15T09:00:00.000-04:00
+END SUB
+```
+
+Twice a year a reading is skipped or happens twice. `civil` resolves both cases with
+the RFC 9557 **compatible** rule, which Python's `zoneinfo` also uses with `fold=0`:
+
+- **A skipped reading moves forward by the length of the gap.** New York skips 02:00 to
+  03:00 on 2026-03-08, so `02:30` becomes `2026-03-08T03:30:00.000-04:00`.
+- **A repeated reading resolves to the earlier instant.** New York passes through 01:00
+  to 02:00 twice on 2026-11-01, so `01:30` becomes `2026-11-01T01:30:00.000-04:00`,
+  still daylight time.
+
+**The result carries a fixed-offset snapshot.** Its `zone` is `timezones::toZone` at that
+instant. `datetime::addDays` on it shifts the date, keeps the time, and keeps that
+offset, even across a daylight saving change. To move by calendar days *in the zone*,
+read the clock again:
+
+```
+LET tomorrow AS datetime::DateTime = timezones::civil(datetime::addDays(dt, 1).date, dt.time, "America/New_York")
+```
+
+A calendar field out of range raises `errorCode::ErrInvalidArgument` (`77050002`). An
+unknown zone raises `errorCode::ErrNotFound` (`77050004`).
+
 ## Where the rules come from
 
 The rules are **IANA tzdb 2026d**. The release tarballs are committed unmodified under
