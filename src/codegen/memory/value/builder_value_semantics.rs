@@ -577,7 +577,7 @@ impl CodeBuilder<'_> {
                         target_value.type_, member
                     ));
                 };
-                let inline_string = self.record_field_is_inlined(&target_value.type_, field_type);
+                let inline_string = self.record_field_is_inlined(field_type);
                 // plan-114-E: a record field read yields the field type with its
                 // top-level `RES ` marker stripped, leaving `Stateful { base,
                 // state }` (or the bare resource when the field carries no
@@ -734,7 +734,7 @@ impl CodeBuilder<'_> {
             let slot = self.allocate_stack_object("with_old_field", 8);
             self.emit(abi::load_u64(base, abi::stack_pointer(), target_slot));
             self.emit(abi::load_u64(field, base, 8 * index));
-            if self.record_field_is_inlined(type_, field_type) {
+            if self.record_field_is_inlined(field_type) {
                 self.emit(abi::add_registers(field, base, field));
             }
             self.emit(abi::store_u64(field, abi::stack_pointer(), slot));

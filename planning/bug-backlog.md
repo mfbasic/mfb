@@ -1,7 +1,7 @@
 # Open bug backlog — triage and work order
 
-Last updated: 2026-09-12
-Open bugs: **8** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Last updated: 2026-09-13
+Open bugs: **7** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 ## 2026-09-12 — integration rounds and what they taught
 
@@ -63,14 +63,14 @@ neither filed it), 594 (macOS `drawText` column), 592.
   macOS Network.framework side. Linux and Windows have not been measured on this exact
   sequence, so the fix should confirm them too. Sighting 2 itself is fixed
   (`stlr`/`ldar`, matched pair 19/600 → 0/600).
-- **bug-599 / bug-601 — DECIDED 2026-09-12: FLATTEN.** The owner chose to finish the
-  inline-`String` layout migration for `net::Address`, `udp::Datagram` and
-  `audio::AudioDevice`: every native builder and reader moves to the spec-canonical record
-  image (`emit_build_inlined_record`), and the pointer-`String` record exception
-  (`is_pointer_string_record`, its call sites and tests, the spec's §Record "excluded"
-  note) is deleted. `net::PingResult` and `udp::Datagram` change layout with it, since
-  both embed an `Address`. **Planned as plan-132 (not started).** The `Error`/`ErrorLoc`
-  question is split out as bug-602.
+- ~~**bug-599 / bug-601 — DECIDED 2026-09-12: FLATTEN.**~~ **Done by plan-132
+  (2026-09-13).** `net::Address`, `udp::Datagram`, `net::PingResult` and
+  `audio::AudioDevice` are built through the record marshaller onto the ordinary flat
+  layout, every native reader rebases, and `is_pointer_string_record` is deleted. bug-599 is
+  fixed and archived (a looped `net::lookup` held 1.2 → 1.4 MB over 200k → 400k iterations,
+  was 99.8 → 198.3 MB). bug-601 **stays OPEN** for its recursive-type row only (`List OF
+  Tree`, still aliases; rides on bug-536 shape C). The `Error`/`ErrorLoc` question is
+  bug-602.
 - **bug-593's residual**: a successful or failing `RES` call still grows by the closed
   resource record plan-52-B deliberately never frees (aliases read its closed flag).
   Reclaiming it moves a lifetime.
@@ -420,8 +420,9 @@ Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
 being true when 601 was filed.)*
 
 - **601** — a `MUT` copy of a non-flat list aliases its source, so an in-place `append`
-  on the copy segfaults and a short variant silently computes a wrong value. Decided with
-  599 (flatten); planned as **plan-132**.
+  on the copy segfaults and a short variant silently computes a wrong value. The
+  pointer-`String` records half (the crash) is fixed by **plan-132**; the recursive-type row
+  (`List OF Tree`, a wrong value) remains and rides on bug-536 shape C.
 - ~~**581**~~ — **CLOSED 2026-09-12.** Phase 1 landed (`ed87c111a`); Phase 2 won't be done
   (the registry is trusted by design).
 

@@ -192,7 +192,7 @@ Commit: `e04ecae8f` (task 1), `4379352ef` (C5 tag pin + json sums), `2e0e2e6d1` 
   `rt_tls_listener_thread_transfer` — 1 + 2 + 1 + 2 + 1 passed. A `tcp`-only and a
   `udp`-only program (no `IMPORT net`) copy and pass the flat records correctly on all
   three platforms (C3's prerequisite, measured).
-Commit:
+Commit: `510a361ad`
 
 ### Phase 2 — `audio::AudioDevice`
 
@@ -219,17 +219,29 @@ Commit:
   exactly `audio.devices`, `audio.openInputDevice`, `audio.openOutputDevice` and `main`
   (`main`: `_mfb_arena_free` 10 → 31, owned-collection drops 78 → 100, one flat-copy
   allocation).
-Commit:
+Commit: `da7f876d5`
 
 ### Phase 3 — delete the leftovers
 
-- [ ] `is_pointer_string_record`, its `CodeBuilder` wrapper, its three call sites and
+- [x] `is_pointer_string_record`, its `CodeBuilder` wrapper, its three call sites and
   `pointer_string_record_tests` deleted; any code path reachable only through the class
-  found by census and deleted.
-- [ ] Spec §Record "excluded" note removed; `mfb spec` renders it.
-- [ ] Stale comments corrected. Census (`grep -rni "pointer-\`string\`\|pointer-string\|pointer
+  found by census and deleted. The `record_field_is_inlined` guard was its record
+  argument's only use, so that parameter went too (C9), and with it
+  `record_field_is_pointer_in`'s. The `record_has_inline_data` special case and the
+  thread-transfer `String` arm are deleted. `grep -rn is_pointer_string_record src tests
+  .ai scripts` → one hit, the past-tense history in `rt_net_address_record_layout.rs`'s
+  header. `cargo build --release --all-targets` clean (no warnings); `cargo test --release
+  --bin mfb -- collection::layout memory::marshal builtins::audio builtins::net
+  builtins::udp memory::arena engine::validation` → 63 passed.
+- [x] Spec §Record "excluded" note removed; `mfb spec` renders it. The note is replaced by
+  a sentence saying helper-built records follow the same layout, citing
+  `emit_build_inlined_record_sized`. `mfb spec memory heap-values` renders it under
+  "Record".
+- [x] Stale comments corrected. Census (`grep -rni "pointer-\`string\`\|pointer-string\|pointer
   string record\|pointer_string\|is_pointer_string_record\|pointer strings" src tests .ai`,
-  each hit read), after Phase 2:
+  each hit read), after Phase 2. Re-run after the edits: 7 hits, every one past tense
+  ("plan-132 removed…", "was a pointer-`String` record", "were in this class until
+  plan-132"):
   - the `CodeBuilder::is_pointer_string_record` doc listing `Error`/`ErrorLoc` (deleted
     with the wrapper) and the `type_is_memcpy_copyable` doc that repeats the claim
     (`builder_collection_layout.rs`);
@@ -247,8 +259,15 @@ Commit:
     `record_field_is_inlined` only for resource fields (`validate_resource_rules` doc) and
     says nothing about the pointer-string class; the census does not hit it.
   - [x] `audio/gen_shared.rs` module doc — corrected in Phase 2.
-- [ ] `.ai/collections.md` and `.ai/codegen-invariants.md` updated.
-- [ ] bug-599 and bug-601 docs and the backlog updated.
+- [x] `.ai/collections.md` and `.ai/codegen-invariants.md` updated: the records section
+  now says every record inlines and names the two helper-tier marshaller entry points;
+  the bug-601 gotcha says the class left by flattening, not copy-insertion.
+- [x] bug-599 and bug-601 docs and the backlog updated. bug-599 is FIXED (RSS numbers and
+  the four leak pins named) and moved to `bugs/completed/`. bug-601 stays open for its
+  recursive-type row only (`List OF Tree`, which flattening cannot touch), with
+  `a_mut_copy_of_an_address_list_is_independent_of_its_source` named as the regression
+  test for the fixed half. `planning/bug-backlog.md`: the decision entry, Tier 2 row and
+  open count (8 → 7).
 Commit:
 
 ### Verification (plan end)
@@ -383,3 +402,14 @@ Commit:
   the bug-574 pattern: each buffer is a `HelperScratch` declared before the first
   branch to `done`, named right after its allocation, and released at `done`, so
   every exit frees it and the exits before the allocation skip it on the null guard.
+- **C9 — deleting the predicate's call site in `record_field_is_inlined` left its
+  `record_type` parameter unused, so the parameter is deleted too.** The plan listed the
+  call site, not the signature. Once every record has the same layout, whether a field is
+  inlined depends on the field's type alone. An unused parameter kept only to hold the
+  signature still would suggest a per-record answer that no longer exists, so every caller
+  changed (`grep -rn "record_field_is_inlined(" src` → the free function, the `CodeBuilder`
+  wrapper and 17 calls across `builder_collection_layout.rs`, `marshal/record.rs`,
+  `builder_value_semantics.rs`, `builder_control.rs`, `builder_collection_compare.rs`,
+  `builder_arena_transfer.rs`, `net/gen_ping.rs` and `udp/mod.rs`).
+  `builder_arena_transfer.rs` `record_field_is_pointer_in` lost the same parameter for the
+  same reason. It is a signature change only; the final gate is what proves it neutral.

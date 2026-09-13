@@ -5462,10 +5462,12 @@ fn a_borrowed_get_with_a_fresh_key_operand_runs_at_constant_rss() {
 // for `$trap_valN`, and a resource record is never reclaimed — it is the
 // tombstone every alias reads the closed flag from (plan-52-B, Open Decisions:
 // "Should the record itself ever be reclaimed? Not here."). A SUCCEEDING
-// `fs::open` + `fs::close` loop grows the same way. A `List OF net::Address`
-// binding likewise keeps its default empty list, because a list of a
-// pointer-`String` record is not a flat value and has no drop. Neither is this
-// bug, and freeing either would move a lifetime, so neither shape can be flat.
+// `fs::open` + `fs::close` loop grows the same way. When these cases were
+// measured, a `List OF net::Address` binding likewise kept its default empty
+// list, because `net::Address` was a pointer-`String` record with no drop
+// (bug-599; plan-132 flattened it, and `a_looped_net_lookup_runs_at_constant_rss`
+// now pins the list flat). Neither was this bug, and freeing either would have
+// moved a lifetime, so neither shape could be flat here.
 //
 // What IS this bug is scaled by the trapped `Error`, and nothing else is. So each
 // case runs the same program twice at the same count, differing only in the

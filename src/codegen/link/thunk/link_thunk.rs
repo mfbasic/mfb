@@ -612,9 +612,9 @@ fn lower_link_thunk(
     // plan-50-F: a record with `String` fields does NOT hold String
     // pointers — it INLINES each String's block into a trailing data region and
     // stores the block-relative OFFSET in the field slot. See
-    // `record_field_is_inlined` / `emit_build_inlined_record`: only
-    // Address/Datagram/DatagramText/AudioDevice keep pointer strings, and a
-    // CSTRUCT can map to none of those. So the whole record must be built in one
+    // `record_field_is_inlined` / `emit_build_inlined_record`: every record
+    // inlines its `String`s — plan-132 removed the last pointer-string records. So
+    // the whole record must be built in one
     // allocation whose size depends on every field's strlen — which means every
     // length is measured BEFORE the record is allocated, and each needs a slot.
     //

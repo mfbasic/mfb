@@ -1973,7 +1973,7 @@ mod tests {
             .expect("PingResult layout");
         let inlined: Vec<bool> = fields
             .iter()
-            .map(|(_, ty)| crate::codegen::collection::layout::record_field_is_inlined(model, &result, ty))
+            .map(|(_, ty)| crate::codegen::collection::layout::record_field_is_inlined(model, ty))
             .collect();
         assert_eq!(inlined, [false, true, false, false, false]);
         // Both backends zero the built Address's port slot: ICMP has no port.

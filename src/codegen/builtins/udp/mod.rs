@@ -244,11 +244,7 @@ mod tests {
             .get(&datagram_type)
             .expect("Datagram layout");
         assert!(layout.iter().all(|(_, field)| {
-            crate::codegen::collection::layout::record_field_is_inlined(
-                model,
-                &datagram_type,
-                field,
-            )
+            crate::codegen::collection::layout::record_field_is_inlined(model, field)
         }));
         let pkg = registry().resolve_package("udp").expect("udp package");
         let datagram = pkg

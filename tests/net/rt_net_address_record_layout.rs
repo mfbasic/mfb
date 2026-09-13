@@ -3,21 +3,21 @@
 //!
 //! ## What broke
 //!
-//! `net::Address`, `udp::Datagram` and `audio::AudioDevice` are the three records
-//! built by bespoke runtime helpers rather than by the codegen `Constructor`
-//! path, and those helpers write a `String` field as an **absolute pointer** to a
-//! separate allocation. Every other record inlines its `String` blocks into a
-//! trailing data region and stores a **block-relative offset** in the slot. The
-//! two layouts are distinguished by exactly one predicate,
-//! `builder_collection_layout::is_pointer_string_record`, which matched the
-//! record's name.
+//! `net::Address`, `udp::Datagram` and `audio::AudioDevice` were built by bespoke
+//! runtime helpers rather than by the codegen `Constructor` path, and those helpers
+//! wrote a `String` field as an **absolute pointer** to a separate allocation,
+//! while every other record inlined its `String` blocks and stored a
+//! **block-relative offset**. One name-matching predicate,
+//! `is_pointer_string_record`, told the two layouts apart. bug-480 Phase 4b made a
+//! builtin value type's declared identity package-qualified (`Address` ->
+//! `net.Address`), so that name match stopped firing, and readers took the absolute
+//! pointer as an offset: reading `addr.host` died with `SIGSEGV`, or silently
+//! reported an empty/garbage host.
 //!
-//! bug-480 Phase 4b made a builtin value type's declared identity
-//! package-qualified (`Address` -> `net.Address`), so that name match stopped
-//! firing. Readers then took the absolute pointer the helper had written as an
-//! offset from the record's own base, producing a wild pointer: reading
-//! `addr.host` died with `SIGSEGV`, or silently reported an empty/garbage host
-//! when the arithmetic happened to land on mapped memory.
+//! plan-132 removed the exception altogether: the helpers now build the ordinary
+//! flat record through the record marshaller, and every reader rebases. This test
+//! still earns its place — it is the one run that reads the `String` field of a
+//! value every address-building route produced.
 //!
 //! ## Why a run, and why all four members in one program
 //!
@@ -71,7 +71,7 @@ FUNC main AS Integer
   LET at = udp::localAddress(sock)
   io::print("udp " & at.host & " " & toString(at.port > 0))
 
-  ' ...and nested inside udp::Datagram, which is itself pointer-string.
+  ' ...and inlined inside udp::Datagram.
   RES peer = udp::bind("127.0.0.1", 0)
   udp::send(peer, at, "ping")
   LET dg = udp::receive(sock, 5000)

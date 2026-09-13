@@ -194,7 +194,7 @@ impl CodeBuilder<'_> {
                 }
                 let inline_string_field = fields
                     .iter()
-                    .map(|(_, ft)| self.record_field_is_inlined(other, ft))
+                    .map(|(_, ft)| self.record_field_is_inlined(ft))
                     .collect::<Vec<_>>();
                 for (index, (_, field_type)) in fields.iter().enumerate() {
                     let next_field = self.label("compare_record_next_field");

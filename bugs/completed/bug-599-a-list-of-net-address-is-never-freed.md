@@ -1,27 +1,27 @@
 # bug-599: a `List OF net::Address` is never freed, in any position
 
-Last updated: 2026-09-12
-Effort: large — the list's own drop needs a design decision (see "Decision needed"); two
-helper-internal leaks in the same shapes are fixed and **landed on main in `c70c6d5d8`**
+Last updated: 2026-09-13
+Effort: large — done as plan-132
 Severity: MEDIUM — unbounded growth in any loop that resolves a host or asks a socket for an
 address, successful or not
 Class: Memory
 
-Status: **Open — DECIDED 2026-09-12: flatten** (candidate 2 below). The owner chose to
-move `net::Address`, `udp::Datagram` and `audio::AudioDevice` onto the ordinary inline-`String`
-record layout and delete the pointer-`String` record exception. The migration is planned as
-**plan-132** (not started).
-Previously: reproduced, attributed, partially fixed, and blocked on that decision.
-The branch lands the two leaks that were only ever missing frees (the address builder's
-`inet_ntop` buffer and `net::lookup`'s temporary record): −38% growth per `net::lookup`,
-−57% per `tcp::localAddress`. What remains is the list, record and host `String` themselves,
-which have no owner because the whole value class has no copy-insertion; a drop for it alone
-is a double free (proven below). Either fix is a design/ABI decision.
-Regression Test: `tests/codegen/codegen_helper_scratch_release.rs` (the free counts of every
-address-building helper) and the positive pin
+Status: **FIXED by plan-132** (candidate 2 below, the owner's 2026-09-12 decision).
+`net::Address`, `udp::Datagram` and `audio::AudioDevice` use the ordinary flat record layout
+(Phase 1 `510a361ad`, Phase 2 `da7f876d5`), so a list of them, one of them, and the host
+`String` inlined in it have an owner and are freed by the machinery every other record uses.
+Peak RSS on macOS, 200k → 400k iterations, before → after: `net::lookup` 99.8 → 198.3 MB
+became 1.2 → 1.4 MB; `tcp::localAddress` 38.0 → 74.9 MB became 1.1 → 1.1 MB; a user-built
+list of two copies 196.4 → 391.8 MB became 1.1 → 1.1 MB; `udp::receive` 157.5 → 313.6 MB
+became 1.49 → 1.49 MB (plan-132 C8 also freed the `recvfrom` buffer, which leaked on every
+call). The earlier partial fix (`c70c6d5d8`) stays.
+Regression Test: `a_looped_net_lookup_runs_at_constant_rss`,
+`a_looped_local_address_runs_at_constant_rss`,
+`a_looped_user_built_address_list_runs_at_constant_rss`,
+`a_looped_udp_receive_runs_at_constant_rss` and the positive pin
 `every_address_reads_back_after_its_builder_scratch_is_freed` in
-`tests/runtime/rt_scope_drop_leaks.rs`. No RSS pin yet: no shape of this bug is flat after
-the partial fix, and an `#[ignore]`d red pin is not a test.
+`tests/runtime/rt_scope_drop_leaks.rs`; the per-helper free counts in
+`tests/codegen/codegen_helper_scratch_release.rs`.
 
 ## How it was found
 

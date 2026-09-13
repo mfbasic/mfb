@@ -12,9 +12,11 @@
 //! as the call-site builder guarantees.
 //!
 //! Field classification goes through the shared `&TypeModel` predicates
-//! (`record_field_is_inlined` / `type_is_memcpy_copyable` / `is_pointer_string_record`), so a
-//! natively-built record and a source-built one have identical layout. The
-//! `TypeModel` reaches the emitter through the shared `TypeModel` lookup.
+//! (`record_field_is_inlined` / `type_is_memcpy_copyable`), so a natively-built
+//! record and a source-built one have identical layout. A helper building a builtin
+//! record classifies it with `TypeModel::builtin_records()` — the same layouts every
+//! program's model registers — so the result does not depend on what the program
+//! imports (plan-132).
 //!
 //! The emitter works entirely through stack slots (no value is held in a register
 //! across a sub-step). The six scratch vregs it writes are a [`MarshalRegs`]: a
@@ -169,7 +171,7 @@ pub(crate) fn emit_build_inlined_record_sized(
     }
     for (index, (name, field_type)) in fields.iter().enumerate() {
         if known_sizes[index].is_some()
-            && !record_field_is_inlined(type_model, record_type, field_type)
+            && !record_field_is_inlined(type_model, field_type)
         {
             return Err(format!(
                 "native record '{record_type}' field '{name}' ({field_type}) is not inlined, \
@@ -186,7 +188,7 @@ pub(crate) fn emit_build_inlined_record_sized(
         abi::store_u64(r0, abi::stack_pointer(), scratch.size),
     ]);
     for (index, (_, field_type)) in fields.iter().enumerate() {
-        if !record_field_is_inlined(type_model, record_type, field_type) {
+        if !record_field_is_inlined(type_model, field_type) {
             continue;
         }
         emit_align_slot(scratch.size, regs, instructions);
@@ -226,7 +228,7 @@ pub(crate) fn emit_build_inlined_record_sized(
         abi::store_u64(r0, abi::stack_pointer(), scratch.cursor),
     ]);
     for (index, (_, field_type)) in fields.iter().enumerate() {
-        if record_field_is_inlined(type_model, record_type, field_type) {
+        if record_field_is_inlined(type_model, field_type) {
             emit_align_slot(scratch.cursor, regs, instructions);
             // Slot stores the block-relative offset of the inlined sub-block.
             instructions.extend([

@@ -1,17 +1,24 @@
 # bug-601: a `MUT` copy of a non-flat list ALIASES its source, and in-place mutation then corrupts or frees the source
 
-Last updated: 2026-09-12
-Effort: needs a decision (see "Options") — the code change for either option is small; the cost is not
+Last updated: 2026-09-13
+Effort: the pointer-`String` half is done (plan-132); the recursive-type half needs the
+bug-536 shape C design
 Severity: HIGH — a 17-line program SIGSEGVs, and a 10-line one silently computes a wrong value
 Class: Memory-safety / Correctness (value semantics)
 
-Status: Open — **DECIDED 2026-09-12 for the pointer-`String` records: flatten.** The owner chose
-to move `net::Address`, `udp::Datagram` and `audio::AudioDevice` onto the ordinary inline-`String`
-layout (bug-599's candidate 2), which makes them `memcpy`-copyable, so `MUT ys = xs` gets a real
-copy. Planned as **plan-132** (not started). Recursive types (for example `List OF json::Json`) are a separate class that
-flattening does not touch; whether they alias this way still needs its own probe. `Error` and
-`ErrorLoc` are split out as bug-602.
-Regression Test: none yet — the repros below are the RED cases a fix must flip.
+Status: **Open — FIXED for the pointer-`String` records by plan-132** (Phase 1 `510a361ad`,
+Phase 2 `da7f876d5`). `net::Address`, `udp::Datagram` and `audio::AudioDevice` are on the
+ordinary flat layout, so they are `memcpy`-copyable and `MUT ys = xs` makes a real copy. The
+three `List OF net::Address` repros below flip on macOS, Linux (box 2223) and Windows (box
+2230): `removeAt` on the copy prints `ys=0 xs=1`, the two `append` shapes print `ys=2 xs=1`
+with every host intact, and nothing crashes.
+**Still open: the recursive-type row.** A `List OF Tree` (a recursive user union), `MUT ys =
+xs`, 5 in-place appends printed `ys=6 xs=112` — the same aliasing, in a class flattening does
+not touch (a recursive value cannot be flat). It rides on copy-insertion for recursive types,
+bug-536 shape C's prerequisite. `Error` and `ErrorLoc` are split out as bug-602.
+Regression Test: `a_mut_copy_of_an_address_list_is_independent_of_its_source` in
+`tests/net/rt_net_address_record_layout.rs` (the pointer-`String` half). None yet for the
+recursive row.
 
 ## How it was found
 

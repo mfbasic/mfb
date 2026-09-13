@@ -779,8 +779,8 @@ pub(crate) struct OwnedValueCleanup {
     pub(crate) loop_alias_slot: Option<usize>,
     /// bug-593: `Some` when this cleanup releases ONLY the `{tag, size, payload}`
     /// wrapper an inline `TRAP` built for a `Result OF T` whose `T` is not a flat
-    /// value (a resource, or a collection of a pointer-`String` record such as
-    /// `net::Address`), so `is_freeable_flat_value` gave the bind no drop at all.
+    /// value (a resource, or a collection of a recursive type), so
+    /// `is_freeable_flat_value` gave the bind no drop at all.
     /// The drop frees the one wrapper block by the size word at +8 and never walks
     /// into its payload; see [`ResultWrapperDrop`] for which paths it covers.
     ///
