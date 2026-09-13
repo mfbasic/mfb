@@ -660,6 +660,10 @@ fixture lines (`cert`, `empty`, `deadline`) held in all 1,200 runs.
   goldens; `git status` changed only those 3. No `.run` golden moved, and no
   `.ir`/`.ast`/`build.log` moved.
 * **Branch, after regen.** Same command: 2009 goldens, **0 diffs**, exit 0.
+* **Full suite** at `9ab9a10ae`: `cargo test --no-fail-fast` to a file, cargo's
+  exit code **0**. 162 test targets: 5364 passed, 0 failed, 6 ignored. That
+  includes `artifact_gate_all`, the three new pins, the positive runtime pin and
+  `rt_macos_tls_write_capacity`.
 
 ### OPEN: a write after `tls::read` has already reported the close never raises
 
