@@ -123,8 +123,15 @@ own phase with a mutation test.
 
 ### Phase 1 — Coverage merges (no tree writes, lowest risk)
 
-- [ ] Produce one report JSON with `sh scripts/coverage-bins.sh`. Record the wall time and the
+- [x] Produce one report JSON with `sh scripts/coverage-bins.sh`. Record the wall time and the
       JSON path here.
+      `/usr/bin/time -p sh scripts/coverage-bins.sh`: the unit-test run completed, `real 3654.05`
+      (61 min; it shared the CPU with the Phase 3/4 sweeps). The script then exited 1 at its report
+      step: `failed to create file target/coverage/coverage.json: No such file or directory`, because
+      nothing had created `target/coverage/` in this fresh worktree (see Corrections). The JSON was
+      regenerated from the profile that run left, using the script's own report command after
+      `mkdir -p target/coverage`: `target/coverage/coverage.json`, 50008226 bytes. Kept as
+      `/tmp/p131-cov/bins-a.json`.
 - [x] Write `scripts/coverage-report.py` with subcommands `gaps`, `lines`, `shapes`, `dead` and
       `delta`, sharing one loader. The exceptions path is resolved relative to `__file__`.
       The loader, the exceptions read and the `src/**` key function (repository prefix first) are
@@ -143,6 +150,13 @@ own phase with a mutation test.
       - `dead --top 40` (83 lines: `1120 src/** functions never executed`);
       - `delta` with one report (361 lines), and with two (3 lines). The second report is a copy
         with `emitter.rs` covered lowered by 50 (`-5.13   97.64% ->  92.51%`).
+      Re-run on the fresh bins report (`/tmp/p131-covdiff.sh /tmp/p131-cov/bins-a.json`), every diff
+      empty:
+      - `gaps` (29 lines: `155 src/** files below 98%, 4623 uncovered lines`);
+      - `lines src/ir/lower.rs` (82 lines), and with `--source` (234);
+      - `shapes` (49), `dead` (63);
+      - `delta` on one report (157 lines), and on two, Aug 27 full → fresh bins (829 lines:
+        `below 98%: 359 -> 155`).
 - [x] Also run the new script from `/tmp` → same output. This shows the cwd-relative exceptions
       bug is gone.
       New `gaps` from `/tmp` is identical to new from the repo root (359 files). Old
@@ -153,6 +167,11 @@ own phase with a mutation test.
       timestamps (record which).
 - [ ] Run `sh scripts/coverage.sh` (no flag), then `sh scripts/coverage-check.sh` → same result as
       before (the CI path is unchanged).
+      Where it runs was decided by the user, 2026-09-12: on this Mac, now. The full suite includes
+      `tests/runtime/rt_audio_mml_bounds.rs`, which plays tunes through the default audio output, and
+      each pass is hours of CPU. "Before" is HEAD's committed `coverage.sh`, which has no `--bins`. It
+      runs from `scripts/.coverage-head.sh` in the same tree, after the "after" pass, so both passes
+      use the same instrumented build.
 - [ ] `git rm` `coverage-bins.sh` and the five `coverage-src-*.py`. Update `planning/tests.md` (every
       cited command) and the `scripts/README.md` coverage section.
 
@@ -194,7 +213,7 @@ Acceptance:
 - The remote legs match line for line. (Met: 2228 and 2227 diffs empty.)
 - The selftest exits 0. (Met: exit 0.)
 
-Commit: —
+Commit: 5625a41ea
 
 ### Phase 3 — Baseline merge
 
@@ -257,7 +276,7 @@ Acceptance:
   (Met: 17539 identical lines, 5262 added `.out` lines, 0 removed.)
 - The `tests/gate` tests pass. (Met: 1 + 5 + 3, exit 0, after the census row rename.)
 
-Commit: —
+Commit: e0dc2b8c7
 
 ### Phase 4 — Regen merge (writes into tests/, highest risk)
 
@@ -377,6 +396,31 @@ See plan-131-A.
   (`.ai/remote_systems.md`); 2227 (Alpine x86_64, 4 cores, `/usr/bin/cargo` 1.96.1) is equally a
   Linux host for the `uname`-derived HOST fix. The tree is shipped as `git archive HEAD` plus the
   uncommitted `regen-native-goldens.sh`, built with `CARGO_TARGET_DIR=/tmp/p131-target`.
+- **2026-09-12, Phase 1: back-to-back coverage runs merged each other's profiles.** Neither coverage
+  script cleans `target/llvm-cov-target/*.profraw`, and `cargo llvm-cov report` merges every profraw
+  it finds. After four instrumented runs there were 30 profraw files, time-stamped 16:3x (25),
+  17:3x (2), 17:4x (1) and 18:2x (2). So the first `coverage.sh --bins` JSON was not comparable
+  with `coverage-bins.sh`'s. Measured by `/tmp/p131-covratio.py`:
+  - segments: 539422 counts exactly 2×, 418948 zero in both, 29056 with some other ratio
+    (e.g. `880` vs `1761`);
+  - one per-file line summary differs;
+  - functions: 17992 exactly 2×, 1747 other, 2068 equal.
+
+  The first CI-mode "after" pass would have merged the same stale data, but CI always starts from a
+  fresh checkout. That pass was killed, along with the release build its tests had started, and the
+  whole of Phase 1's comparison was restarted. Each run now begins with `cargo llvm-cov clean
+  --workspace`: `coverage-bins.sh`, then `coverage.sh --bins`, then compare; then new `coverage.sh` +
+  `coverage-check.sh`; then HEAD's `coverage.sh` + `coverage-check.sh` (`/tmp/p131-cimode2.sh`).
+  The five-subcommand differential is unaffected: it compares two scripts on one and the same
+  report file.
+- **2026-09-12, Phase 1: `coverage-bins.sh` could not write its report in a fresh worktree.** Its
+  `cargo llvm-cov report … --json --output-path target/coverage/coverage.json` does not create the
+  directory. In the main checkout an earlier full `coverage.sh` run (its `--html --output-dir
+  target/coverage` pass) had created it, so the script only ever worked after one. Here the 61-minute
+  test run finished and the report step failed (exit 1). `coverage.sh --bins` copied that report
+  step, so it now runs `mkdir -p target/coverage` first. `coverage-bins.sh` is being deleted, so it
+  is not patched: its JSON for the comparison was rebuilt by its own report command from the kept
+  profile.
 - **2026-09-12, Phase 3: the Linux baseline never hashed a linked executable.** `mfb build` given
   dump flags writes the dumps and does not link: a scratch copy of `byte-identity/audio` built with
   the script's flags for `macos-aarch64` has no `build/` directory, while a plain build of the same
