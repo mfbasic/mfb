@@ -165,19 +165,34 @@ Commit: —
 
 ### Phase 2 — TLS loopback merge
 
-- [ ] Add `--remote <ssh-port> [target]` to `scripts/check-tls-loopback.sh`. It reuses the
+- [x] Add `--remote <ssh-port> [target]` to `scripts/check-tls-loopback.sh`. It reuses the
       existing MFBASIC server/client sources and ships the `-glibc`/`-musl` `.out` files as
       `check-tls-loopback-remote.sh` does (read it first).
-- [ ] On box 2228: run `bash scripts/check-tls-loopback-remote.sh target/release/mfb 2228` and
+      Spelled `check-tls-loopback.sh <mfb-exe> --remote <ssh-port> [linux-target]`. The server and
+      client programs are now one `server_source <chain> <key>` and one `client_source` function,
+      used by both modes. The remote mode carries the old script's logic and its exact messages.
+      The selftest's sabotage `sed` still matches, since leg 1's `*"echo:hello-tls"*)` and its
+      `did not round-trip` message are unchanged. Local mode output diffs empty against the old
+      script (two `PASS` lines plus the macOS `SKIP`, exit 0).
+- [x] On box 2228: run `bash scripts/check-tls-loopback-remote.sh target/release/mfb 2228` and
       `bash scripts/check-tls-loopback.sh target/release/mfb --remote 2228`. The PASS/FAIL lines
       must be the same. Record both.
-- [ ] Locally, `bash scripts/check-net-harness-selftest.sh target/release/mfb` → exit 0. The
+      2026-09-12, box 2228 (glibc): old and new both print
+      `PASS: tls::connect <-> tls::listen completed on linux-x86_64/glibc (port 2228)` and
+      `PASS: tls::connect refuses a chain it cannot verify on linux-x86_64/glibc`, exit 0; `diff` is
+      empty. Also box 2227 (musl): the same two lines with `linux-x86_64/musl (port 2227)`, and
+      `diff` is empty.
+- [x] Locally, `bash scripts/check-net-harness-selftest.sh target/release/mfb` → exit 0. The
       sabotage legs must still fail for their reasons.
-- [ ] `git rm scripts/check-tls-loopback-remote.sh`. Document `--remote` in the script header.
+      8/8 `ok` (the tls leg: as shipped PASS, sabotaged FAIL), exit 0.
+- [x] `git rm scripts/check-tls-loopback-remote.sh`. Document `--remote` in the script header.
+      The header has a `## --remote` section and both usage lines. Live references after removal:
+      none (`git grep -n check-tls-loopback-remote -- ':!planning/completed' ':!bugs/completed'
+      ':!planning/plan-131-*'` → exit 1).
 
 Acceptance:
-- The remote legs match line for line.
-- The selftest exits 0.
+- The remote legs match line for line. (Met: 2228 and 2227 diffs empty.)
+- The selftest exits 0. (Met: exit 0.)
 
 Commit: —
 

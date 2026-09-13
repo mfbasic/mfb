@@ -28,21 +28,183 @@
 #    the client half is covered by the server-side proof plus the public fixture.
 #    Installing a CA into a system trust store is not something a test may do.
 #
+# ## --remote: legs 3-4 on a Linux box (plan-110-F Phase 2)
+#
+# On the macOS dev host leg 3 SKIPs. `--remote <ssh-port> [linux-target]` instead
+# cross-builds the same MFBASIC server and client for a Linux target, ships them
+# to the box on that ssh port, and runs the MFBASIC-to-MFBASIC exchange (trusted
+# CA must complete, unrelated CA must be refused) there. It is the only place the
+# whole exchange can be MFBASIC on both ends without a test modifying a system
+# trust store. The identity is generated HERE (the dev host has openssl and the
+# generator) and copied over, so the box needs nothing but a shell. The glibc or
+# musl `.out` is shipped to match the box's libc. An unreachable box is a SKIP.
+# Legs 1-2 are not run in this mode.
+#
 # Usage: check-tls-loopback.sh <mfb-exe>
+#        check-tls-loopback.sh <mfb-exe> --remote <ssh-port> [linux-target]
+#   e.g. check-tls-loopback.sh target/release/mfb --remote 2227 linux-x86_64
 set -u
 
 if [ "$#" -lt 1 ]; then
-  echo "usage: check-tls-loopback.sh <mfb-exe>" >&2
+  echo "usage: check-tls-loopback.sh <mfb-exe> [--remote <ssh-port> [linux-target]]" >&2
   exit 2
 fi
 MFB_EXE=$1
+shift
+REMOTE_PORT=""
+TARGET=linux-x86_64
+if [ "$#" -gt 0 ]; then
+  if [ "$1" != "--remote" ] || [ "$#" -lt 2 ]; then
+    echo "usage: check-tls-loopback.sh <mfb-exe> [--remote <ssh-port> [linux-target]]" >&2
+    exit 2
+  fi
+  REMOTE_PORT=$2
+  TARGET=${3:-linux-x86_64}
+fi
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PORT=${TLS_LOOPBACK_PORT:-18443}
 
 command -v openssl >/dev/null 2>&1 || { echo "FAIL: openssl not found" >&2; exit 1; }
 
+# ---------------------------------------------------------------------------
+# The MFBASIC peers, shared by the local and the remote legs.
+# ---------------------------------------------------------------------------
+
+# The server: accept one connection, echo one message back, exit.
+# usage: server_source <chain.pem> <server-key.pem>
+server_source() {
+  cat <<EOF
+IMPORT encoding
+IMPORT io
+IMPORT tls
+
+FUNC main AS Integer
+  RES listener = tls::listen("127.0.0.1", $PORT, "$1", "$2")
+  io::print("listening")
+  RES conn = tls::accept(listener, 20000)
+  LET got = encoding::utf8Decode(tls::read(conn, 1024))
+  tls::write(conn, "echo:" & got)
+  tls::close(conn)
+  tls::close(listener)
+  RETURN 0
+END FUNC
+EOF
+}
+
+# The client: send one message, print the echo.
+client_source() {
+  cat <<EOF
+IMPORT encoding
+IMPORT io
+IMPORT tls
+
+FUNC main AS Integer
+  RES sock = tls::connect("127.0.0.1", $PORT, 10000, "127.0.0.1")
+  tls::write(sock, "hello-tls")
+  io::print(encoding::utf8Decode(tls::read(sock, 1024)))
+  tls::close(sock)
+  RETURN 0
+END FUNC
+EOF
+}
+
+# usage: make_project <dir> <name>   (main.mfb is read from stdin)
+make_project() {
+  mkdir -p "$1/src"
+  cat >"$1/project.json" <<EOF
+{ "name": "$2", "version": "0.1.0", "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+EOF
+  cat >"$1/src/main.mfb"
+}
+
 work=$(mktemp -d)
 server_pid=""
+remote_dir=mfb-tls-loopback
+remote_host=test@127.0.0.1
+
+# ---------------------------------------------------------------------------
+# --remote: legs 3-4 on a Linux box.
+# ---------------------------------------------------------------------------
+if [ -n "$REMOTE_PORT" ]; then
+  rssh() { ssh -p "$REMOTE_PORT" -o BatchMode=yes "$remote_host" "$@"; }
+  rscp() { scp -q -P "$REMOTE_PORT" -o BatchMode=yes "$@"; }
+  cleanup() {
+    rssh "rm -rf $remote_dir" 2>/dev/null
+    rm -rf "$work"
+  }
+  trap cleanup EXIT
+
+  bash "$ROOT/scripts/gen-test-tls-identity.sh" "$work/id" >/dev/null || exit 1
+  bash "$ROOT/scripts/gen-test-tls-identity.sh" "$work/other" >/dev/null || exit 1
+
+  # The paths the server reads are the REMOTE ones; the identity is copied to
+  # ~/$remote_dir/id there.
+  remote_home=$(rssh 'echo $HOME' 2>/dev/null)
+  if [ -z "$remote_home" ]; then
+    echo "SKIP: box on ssh port $REMOTE_PORT is not reachable"; exit 0
+  fi
+
+  server_source "$remote_home/$remote_dir/id/chain.pem" "$remote_home/$remote_dir/id/server-key.pem" \
+    | make_project "$work/server" tls_loopback_server
+  client_source | make_project "$work/client" tls_loopback_client
+
+  for which in server client; do
+    out=$("$MFB_EXE" build -target "$TARGET" "$work/$which" 2>&1) || {
+      echo "FAIL: $which build for $TARGET failed" >&2; printf '%s\n' "$out" >&2; exit 1; }
+  done
+
+  # musl and glibc variants are both emitted; ship whichever the box runs.
+  libc=$(rssh 'ldd --version 2>&1 | head -1 | grep -qi musl && echo musl || echo glibc')
+  rssh "rm -rf $remote_dir && mkdir -p $remote_dir/id" || exit 1
+  # NB: the unrelated CA is copied SEPARATELY, under its own name. Listing it in
+  # the same scp as `id/ca.pem` lands both as `ca.pem` and the second silently
+  # clobbers the first, so the "trusted" leg then runs against the wrong anchor and
+  # fails the handshake -- a self-inflicted failure that looks exactly like a real
+  # one.
+  rscp "$work/id/chain.pem" "$work/id/server-key.pem" "$work/id/ca.pem" \
+    "$remote_host:$remote_dir/id/" || exit 1
+  rscp "$work/other/ca.pem" "$remote_host:$remote_dir/id/other-ca.pem" || exit 1
+  rscp "$work/server/build/tls_loopback_server-$libc.out" "$remote_host:$remote_dir/server.out" || exit 1
+  rscp "$work/client/build/tls_loopback_client-$libc.out" "$remote_host:$remote_dir/client.out" || exit 1
+
+  run_leg() { # <ca-file> -> prints the client's output
+    rssh "
+      cd $remote_dir && chmod +x server.out client.out
+      ./server.out > server.log 2>&1 &
+      pid=\$!
+      for i in \$(seq 1 100); do grep -q listening server.log 2>/dev/null && break; sleep 0.1; done
+      SSL_CERT_FILE=\$PWD/id/$1 ./client.out 2>&1
+      rc=\$?
+      kill \$pid 2>/dev/null; wait \$pid 2>/dev/null
+      echo \"[rc \$rc]\"
+    " 2>&1
+  }
+
+  trusted=$(run_leg ca.pem)
+  case "$trusted" in
+    *"echo:hello-tls"*"[rc 0]"*) ;;
+    *) echo "FAIL: MFBASIC-to-MFBASIC TLS exchange did not complete on the remote box" >&2
+       printf '%s\n' "$trusted" >&2
+       exit 1 ;;
+  esac
+  echo "PASS: tls::connect <-> tls::listen completed on $TARGET/$libc (port $REMOTE_PORT)"
+
+  untrusted=$(run_leg other-ca.pem)
+  case "$untrusted" in
+    *"[rc 0]"*) echo "FAIL: tls::connect ACCEPTED a chain signed by an unrelated CA" >&2
+                printf '%s\n' "$untrusted" >&2
+                exit 1 ;;
+  esac
+  echo "PASS: tls::connect refuses a chain it cannot verify on $TARGET/$libc"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Local legs.
+# ---------------------------------------------------------------------------
 cleanup() {
   if [ -n "$server_pid" ]; then
     kill "$server_pid" 2>/dev/null
@@ -59,32 +221,7 @@ bash "$ROOT/scripts/gen-test-tls-identity.sh" "$work/id" >/dev/null || exit 1
 # verifier just as happily.
 bash "$ROOT/scripts/gen-test-tls-identity.sh" "$work/other" >/dev/null || exit 1
 
-# ---------------------------------------------------------------------------
-# The MFBASIC server: accept one connection, echo one message back, exit.
-# ---------------------------------------------------------------------------
-mkdir -p "$work/server/src"
-cat >"$work/server/project.json" <<'EOF'
-{ "name": "tls_loopback_server", "version": "0.1.0", "mfb": "1.0",
-  "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-EOF
-cat >"$work/server/src/main.mfb" <<EOF
-IMPORT encoding
-IMPORT io
-IMPORT tls
-
-FUNC main AS Integer
-  RES listener = tls::listen("127.0.0.1", $PORT, "$work/id/chain.pem", "$work/id/server-key.pem")
-  io::print("listening")
-  RES conn = tls::accept(listener, 20000)
-  LET got = encoding::utf8Decode(tls::read(conn, 1024))
-  tls::write(conn, "echo:" & got)
-  tls::close(conn)
-  tls::close(listener)
-  RETURN 0
-END FUNC
-EOF
+server_source "$work/id/chain.pem" "$work/id/server-key.pem" | make_project "$work/server" tls_loopback_server
 
 build_output=$("$MFB_EXE" build "$work/server" 2>&1) || {
   echo "FAIL: server build error" >&2; printf '%s\n' "$build_output" >&2; exit 1; }
@@ -155,26 +292,7 @@ if [ "$host_os" != "Linux" ]; then
   exit 0
 fi
 
-mkdir -p "$work/client/src"
-cat >"$work/client/project.json" <<'EOF'
-{ "name": "tls_loopback_client", "version": "0.1.0", "mfb": "1.0",
-  "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "entry": "main", "targets": ["native"] }
-EOF
-cat >"$work/client/src/main.mfb" <<EOF
-IMPORT encoding
-IMPORT io
-IMPORT tls
-
-FUNC main AS Integer
-  RES sock = tls::connect("127.0.0.1", $PORT, 10000, "127.0.0.1")
-  tls::write(sock, "hello-tls")
-  io::print(encoding::utf8Decode(tls::read(sock, 1024)))
-  tls::close(sock)
-  RETURN 0
-END FUNC
-EOF
+client_source | make_project "$work/client" tls_loopback_client
 build_output=$("$MFB_EXE" build "$work/client" 2>&1) || {
   echo "FAIL: client build error" >&2; printf '%s\n' "$build_output" >&2; exit 1; }
 client_exe=$(printf '%s\n' "$build_output" | sed -n 's/^Wrote executable to //p' | tail -n 1)
