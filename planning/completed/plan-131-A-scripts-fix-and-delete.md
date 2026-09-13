@@ -241,7 +241,7 @@ Each is a self-contained fix to one script, and each restores a proof somebody i
 - [x] *(added)* `scripts/test-canvas-vulkan.sh`: a backticked `loadFont` in a comment inside the
       double-quoted remote command ran as a local command substitution
       (`line 603: loadFont: command not found`). Backticks removed.
-- [~] *(added)* `scripts/test-macapp.sh`: the same rot. Five builds failed
+- [x] *(added)* `scripts/test-macapp.sh`: the same rot. Five builds failed
       (`FAIL: build -app appdefault` … `wrongmode_io`) on the bare `Mode.Console` enum
       (`SYMBOL_UNKNOWN_IDENTIFIER`, reproduced by building the extracted program), and its two canvas
       programs used `canvas::rgb`. Qualify as `app::Mode.*`, port to `color::rgb` + `IMPORT color`.
@@ -256,6 +256,13 @@ Each is a self-contained fix to one script, and each restores a proof somebody i
       (the one attempt typed into the user's windows and was killed). The `reconcile` leg's
       `got ''` in that attempt did not reproduce when the built bundle was run directly
       (`stdout=[RECONCILE_BEFORE]`).
+      GUI legs run 2026-09-12 with the user away and their explicit permission ("you can use script to
+      control input"), other apps hidden first, on the merged plan branch's release `mfb`:
+      `MFB_MACAPP_GUI=1 bash scripts/test-macapp.sh target/release/mfb` → 20 `ok`, 0 FAIL, 0 skip,
+      `macOS app mode runtime tests passed`, exit 0. They include the setMode reconcile
+      (`RECONCILE_BEFORE`), Canvas teardown/rebuild, the canvas blit (red|blue captured), resize on the
+      software and Metal paths, keep-window-open, window and canvas-window keypresses reaching
+      `io::readLine`, and `term::terminalSize` (114x42).
 - [x] Prove the canvas fix: run `bash scripts/test-canvas-vulkan.sh target/release/mfb --box 2228`
       from a directory other than the repo root (e.g. `/tmp`). The groups stage must get past the
       `sed` extraction. Record the stage results. Box access per `.ai/remote_systems.md`.
@@ -417,9 +424,10 @@ Commit: 6347f0be5
 - **2026-09-12, Phase 1: the canvas proof ran on 2227, not 2228.** 2228 refused connections at plan
   start (`ssh … -p 2228 … true` → exit 255). 2227 is the musl half of the same test's evidence and
   was up. The glibc/2228 run followed once the user brought 2228 up (15 `ok`, exit 0).
-- **2026-09-12, Phase 1: the GUI legs of `test-macapp.sh` are gated on the user, not on this plan.**
+- **2026-09-12, Phase 1: the GUI legs of `test-macapp.sh` were gated on the user, not on this plan.**
   `MFB_MACAPP_GUI=1` types into the focused window of the live desktop. The macapp task stays `[~]`
-  until the user approves a GUI run.
+  until the user approves a GUI run. (Resolved the same day: the user left and permitted it; the GUI run
+  passed 20/20.)
 - **2026-09-12, Phase 3: the stale-path loop needs `-I` and an exclusion.** Without `-I` it reports
   `Binary`/`file`/`matches`. With it, the remaining hits are the selftest's runtime temp copies.
 
