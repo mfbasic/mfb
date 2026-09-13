@@ -301,6 +301,7 @@ type LowerValidatedModule = fn(
     &[PathBuf],
     NativeBuildMode,
     Option<u64>,
+    crate::codegen::debug::DebugOptions,
 ) -> Result<NirModule, String>;
 
 /// The per-backend lowering entry points the diagnostic dump writers call.
@@ -329,8 +330,9 @@ pub(crate) fn write_nir(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
-    let module = (hooks.lower_validated_module)(ir, target, packages, build_mode, None)?;
+    let module = (hooks.lower_validated_module)(ir, target, packages, build_mode, None, debug)?;
     let nir_path = project_dir.join(format!("{}.nir", ir.name));
     fs::write(&nir_path, module.to_json())
         .map_err(|err| format!("failed to write '{}': {err}", nir_path.display()))?;
@@ -344,8 +346,9 @@ pub(crate) fn write_native_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
-    let module = (hooks.lower_validated_module)(ir, target, packages, build_mode, None)?;
+    let module = (hooks.lower_validated_module)(ir, target, packages, build_mode, None, debug)?;
     let native_plan = (hooks.lower_plan)(&module, DUMP_FLAVOR)?;
     native_plan.validate()?;
     let plan_path = project_dir.join(format!("{}.nplan", ir.name));
@@ -361,8 +364,9 @@ pub(crate) fn write_native_object_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
-    let module = (hooks.lower_validated_module)(ir, target, packages, build_mode, None)?;
+    let module = (hooks.lower_validated_module)(ir, target, packages, build_mode, None, debug)?;
     let native_plan = (hooks.lower_plan)(&module, DUMP_FLAVOR)?;
     native_plan.validate()?;
     os::linux::write_native_object_plan(project_dir, &ir.name, &native_plan)
@@ -375,8 +379,9 @@ pub(crate) fn write_native_code_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
-    let module = (hooks.lower_validated_module)(ir, target, packages, build_mode, None)?;
+    let module = (hooks.lower_validated_module)(ir, target, packages, build_mode, None, debug)?;
     let native_plan = (hooks.lower_plan)(&module, DUMP_FLAVOR)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
@@ -395,8 +400,9 @@ pub(crate) fn write_mir(
     target: &BuildTarget,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
-    let module = (hooks.lower_validated_module)(ir, target, packages, build_mode, None)?;
+    let module = (hooks.lower_validated_module)(ir, target, packages, build_mode, None, debug)?;
     let native_plan = (hooks.lower_plan)(&module, DUMP_FLAVOR)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;

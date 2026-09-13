@@ -9,6 +9,7 @@ pub(crate) fn lower_module(
     target: String,
     build_mode: crate::target::NativeBuildMode,
     stdin_log_cap: Option<u64>,
+    debug: crate::codegen::debug::DebugOptions,
     runtime_helpers: Vec<RuntimeHelper>,
 ) -> Result<NirModule, String> {
     Ok(NirModule {
@@ -16,6 +17,7 @@ pub(crate) fn lower_module(
         build_mode,
         stdin_log_cap: stdin_log_cap
             .unwrap_or(crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT),
+        debug,
         project: ir.name.clone(),
         entry: ir.entry.as_ref().map(lower_entry),
         globals: ir

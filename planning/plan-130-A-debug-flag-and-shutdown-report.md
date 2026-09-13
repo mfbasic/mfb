@@ -288,18 +288,29 @@ into `src/codegen/debug/write.rs`: `emit_debug_key_value(key_symbol, value_vreg)
 
 ### Phase 1 — the flag, parsed and carried, emitting nothing
 
-Safe alone: the value reaches `NirModule` and nothing reads it.
+Safe alone: the value reaches `NirModule`; its only reader is the `.nir` dump line
+(see Corrections — an unread field breaks the warning-free tree).
 
-- [ ] `src/cli/build/mod.rs`: `BuildOptions.debug`; `options.rs`: parse `--debug` in
+- [x] `src/cli/build/mod.rs`: `BuildOptions.debug`; `options.rs`: parse `--debug` in
       `parse_build_options` and `parse_test_options` with the at-most-once error;
       the 4 other literals pass `false`.
-- [ ] `src/cli/help.rs`: `--debug` row in `BUILD_HELP` and `TEST_HELP`.
-- [ ] `src/codegen/debug/mod.rs`: `DebugOptions` (module registered in the codegen tree).
-- [ ] `lower_project` + `NirModule.debug`; the 12 call sites; `write_executable` and the
+- [x] `src/cli/help.rs`: `--debug` row in `BUILD_HELP` and `TEST_HELP`.
+- [x] `src/codegen/debug/mod.rs`: `DebugOptions` (module registered in the codegen tree).
+- [x] `lower_project` + `NirModule.debug`; the 12 call sites; `write_executable` and the
       dump writers forward it from `build_project`.
-- [ ] Tests in `src/cli/build/mod.rs` `mod tests`: `parse_build_options_debug_sets_flag`,
+- [x] Tests in `src/cli/build/mod.rs` `mod tests`: `parse_build_options_debug_sets_flag`,
       `parse_build_options_rejects_repeated_debug`, `parse_test_options_debug_sets_flag`,
       and `parse_build_options_defaults` asserts `debug == false`.
+- [x] (added) The signatures the 12 call sites sit inside: `NativeBackend::write_executable`
+      and its 5 dump methods, the 6 dispatchers in `src/target.rs`, each backend's
+      `lower_validated_module` (linux ×3, windows) and the `linux_common::LowerValidatedModule`
+      fn type + its 5 dump writers; `nir::lower_module`.
+- [x] (added) Hand-built `NirModule` fixtures gain `debug: DebugOptions::OFF`
+      (`validation.rs`, `opt1/local_rewrites.rs`, `plan/mod.rs`, `validate/mod.rs` ×2), and the
+      test callers pass `OFF` (`testutil.rs` ×2, `cross_executables.rs` 6 calls + the dump
+      `Writer` fn type, `linux_riscv64` tests ×2).
+- [x] (added) `NirModule::to_json` writes `"debug": true` only for a `--debug` module (the
+      field's reader; normal dumps unchanged); `DebugOptions::OFF` is `#[cfg(test)]`.
 
 Acceptance: `cargo test --bin mfb parse_` green with the new tests;
 `scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)`;
@@ -393,6 +404,25 @@ Commit: —
   is a struct so it can be added without touching call sites again.
 
 ## Corrections
+
+- **Prerequisites — the remote-box probe command was wrong for 2230.** `ssh -p 2230 … true`
+  fails on Win11 (`'true' is not recognized as an internal or external command`) even when the
+  box is up; the row now probes 2230 with `ver` (measured 2026-09-12: all five answer).
+- **Phase 1 — "Safe alone: nothing reads it" was false for this tree.** `.ai/build-tooling.md`
+  keeps `cargo check --all-targets` warning-free, and an unread `NirModule::debug` plus a
+  production-unused `DebugOptions::OFF` produced two warnings (measured: `cargo check
+  --all-targets` → `field debug is never read`, `associated constant OFF is never used`). Fix,
+  not a suppression: `NirModule::to_json` prints `"debug": true` for a `--debug` module only
+  (so a `--debug --nir` dump states what it is and no committed `.nir` golden changes), and
+  `OFF` is `#[cfg(test)]` because production always builds the value from the parsed flag.
+- **Phase 1 — the "12 call sites" undercounted the signatures to change.** The count of
+  `lower_project` calls is right (`git grep -nE "lower::lower_project\(|shared::lower::lower_project\(" -- src`
+  → 12), but those calls sit inside functions whose own signatures must carry the value: the
+  `NativeBackend` trait (`write_executable` + 5 dump methods), the 6 `src/target.rs`
+  dispatchers, 4 per-backend `lower_validated_module`s, `linux_common`'s fn type and 5 dump
+  writers, and `nir::lower_module`. Also unlisted: 5 hand-built `NirModule` test fixtures and
+  the `cross_executables.rs` dump `Writer` fn type (found by `cargo check --all-targets`).
+  Added as ticked tasks under Phase 1.
 
 ## Summary
 

@@ -368,11 +368,18 @@ impl NativeBackend for Backend {
         app_version: Option<&str>,
         _vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
+        debug: crate::codegen::debug::DebugOptions,
         progress: &dyn Fn(&str),
     ) -> Result<Vec<PathBuf>, String> {
         progress("lowering module");
-        let module =
-            lower_validated_module(ir, &self.target(), packages, build_mode, stdin_log_cap)?;
+        let module = lower_validated_module(
+            ir,
+            &self.target(),
+            packages,
+            build_mode,
+            stdin_log_cap,
+            debug,
+        )?;
         progress("planning + regalloc");
         let native_plan = plan::lower_module(&module)?;
         native_plan.validate()?;
@@ -403,8 +410,9 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
-        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None)?;
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None, debug)?;
         let path = project_dir.join(format!("{}.nir", ir.name));
         std::fs::write(&path, module.to_json())
             .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
@@ -417,8 +425,9 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
-        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None)?;
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None, debug)?;
         let native_plan = plan::lower_module(&module)?;
         native_plan.validate()?;
         let path = project_dir.join(format!("{}.nplan", ir.name));
@@ -433,8 +442,9 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
-        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None)?;
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None, debug)?;
         let native_plan = plan::lower_module(&module)?;
         os::windows::write_native_object_plan(project_dir, &ir.name, &native_plan)
     }
@@ -445,8 +455,9 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
-        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None)?;
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None, debug)?;
         let native_plan = plan::lower_module(&module)?;
         native_plan.validate()?;
         let native_code = code::lower_module(&module, &native_plan, packages)?;
@@ -463,8 +474,9 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
+        debug: crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String> {
-        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None)?;
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None, debug)?;
         let native_plan = plan::lower_module(&module)?;
         native_plan.validate()?;
         let mir = code::lower_module_mir(&module, &native_plan, packages)?;
@@ -481,6 +493,7 @@ fn lower_validated_module(
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
     stdin_log_cap: Option<u64>,
+    debug: crate::codegen::debug::DebugOptions,
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
@@ -495,7 +508,14 @@ fn lower_validated_module(
             build_mode.as_str()
         ));
     }
-    let module = lower::lower_project(ir, target.name(), packages, build_mode, stdin_log_cap)?;
+    let module = lower::lower_project(
+        ir,
+        target.name(),
+        packages,
+        build_mode,
+        stdin_log_cap,
+        debug,
+    )?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     Ok(module)

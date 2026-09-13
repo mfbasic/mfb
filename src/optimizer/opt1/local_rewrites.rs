@@ -402,6 +402,7 @@ pub(super) mod testutil {
             target: "macos-aarch64".to_string(),
             build_mode: crate::target::NativeBuildMode::Console,
             stdin_log_cap: 0,
+            debug: crate::codegen::debug::DebugOptions::OFF,
             project: "test".to_string(),
             entry: None,
             globals: vec![],

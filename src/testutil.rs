@@ -645,6 +645,7 @@ pub fn nir_for_src(
                 &[],
                 build_mode,
                 None,
+                crate::codegen::debug::DebugOptions::OFF,
             )
             .map_err(|err| format!("{err:?}"))
         })
@@ -757,8 +758,15 @@ fn lower_ir_to_code(
     // against a symbol nothing defines -- which `validate` refuses, correctly,
     // as "data relocation target '<pkg>.<member>' is not a data object or
     // defined symbol".
-    let module = lower::lower_project(&ir, target.name().to_string(), packages, build_mode, None)
-        .map_err(|err| format!("test source must lower to NIR: {err:?}"))?;
+    let module = lower::lower_project(
+        &ir,
+        target.name().to_string(),
+        packages,
+        build_mode,
+        None,
+        crate::codegen::debug::DebugOptions::OFF,
+    )
+    .map_err(|err| format!("test source must lower to NIR: {err:?}"))?;
     // `packages` reaches the CODE stage too, not just the NIR merge. The code
     // stage reads each package's exported TYPES into the `TypeModel`
     // (`add_package_type_export`) and its exported RESOURCES into

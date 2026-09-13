@@ -211,6 +211,11 @@ pub(crate) struct BuildOptions {
     /// that changes a build's *validity* by target, which is worse than one that
     /// changes nothing.
     pub(crate) app_debug: bool,
+    /// `--debug` (plan-130): build a program that writes a measurement report to
+    /// stderr as the last act of `_mfb_shutdown`. Reaches codegen as
+    /// `NirModule::debug`; a build without it is byte-identical to one that
+    /// predates the flag.
+    pub(crate) debug: bool,
     /// Optimization scale level selected by `-O<N>` / `--optimize <N>`
     /// (plan-100). Defaults to `-O1`, at which the shipping Level-1 passes run
     /// -- so the flagless build is today's exact codegen. `-O0` turns the dial
@@ -778,6 +783,10 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 !vendored.is_empty(),
                 // plan-15 D3: bake the manifest `"config".stdinLogCap` (or the default).
                 crate::manifest::stdin_log_cap(&manifest),
+                // plan-130: the `--debug` report switch.
+                crate::codegen::debug::DebugOptions {
+                    enabled: options.debug,
+                },
                 &progress,
             )
             .map_err(|err| {
@@ -1100,7 +1109,16 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     BuildOutput::NativeCodePlan => target::write_native_code_plan,
                     _ => target::write_mir,
                 };
-                let path = match writer(&options.location, ir, &target, packages, build_mode) {
+                let path = match writer(
+                    &options.location,
+                    ir,
+                    &target,
+                    packages,
+                    build_mode,
+                    crate::codegen::debug::DebugOptions {
+                        enabled: options.debug,
+                    },
+                ) {
                     Ok(path) => path,
                     Err(err) => {
                         eprintln!("error: {err}");
@@ -1185,6 +1203,7 @@ pub(crate) fn build_source_dependencies_for_test(
             sign_owner: None,
             app_mode: false,
             app_debug: false,
+            debug: false,
             opt: crate::optimizer::OptLevel::default(),
             allow_unsigned: true,
             mode: crate::testing::CompileMode::Build,
@@ -1265,6 +1284,7 @@ mod tests {
         assert!(options.outputs.is_empty());
         assert!(options.sign_owner.is_none());
         assert!(!options.app_mode);
+        assert!(!options.debug);
         assert!(!options.allow_unsigned);
         assert_eq!(options.target, target::BuildTarget::host());
     }
@@ -1331,6 +1351,38 @@ mod tests {
 
         // There is no single-dash alias: `--app-debug` postdates plan-42.
         assert!(parse_build_options(s(&["-app-debug"])).is_err());
+    }
+
+    /// plan-130-A: `--debug` turns on the stderr debug report.
+    #[test]
+    fn parse_build_options_debug_sets_flag() {
+        let options = parse_build_options(s(&["--debug"])).expect("--debug");
+        assert!(options.debug);
+        // `--debug` is its own axis: it is not app mode and not `--app-debug`.
+        assert!(!options.app_mode && !options.app_debug);
+        let both = parse_build_options(s(&["--app", "--debug"])).expect("--app --debug");
+        assert!(both.app_mode && both.debug);
+    }
+
+    #[test]
+    fn parse_build_options_rejects_repeated_debug() {
+        let err = match parse_build_options(s(&["--debug", "--debug"])) {
+            Err(err) => err,
+            Ok(_) => panic!("mfb build must reject a repeated --debug"),
+        };
+        assert_eq!(err, "mfb build accepts at most one --debug option");
+    }
+
+    #[test]
+    fn parse_test_options_debug_sets_flag() {
+        let options = parse_test_options(s(&["--debug"])).expect("--debug");
+        assert!(options.debug);
+        assert!(!parse_test_options(vec![]).expect("defaults").debug);
+        let err = match parse_test_options(s(&["--debug", "--debug"])) {
+            Err(err) => err,
+            Ok(_) => panic!("mfb test must reject a repeated --debug"),
+        };
+        assert_eq!(err, "mfb test accepts at most one --debug option");
     }
 
     /// `mfb test` never runs a test binary out of a sealed AppImage, so it takes

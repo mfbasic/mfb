@@ -140,6 +140,8 @@ Options:
   --app               Build as a standalone application instead of a library
   --app-debug         Like --app, but keep the intermediate build/<name>.AppDir
                       beside the AppImage (Linux; inert on macOS)
+  --debug             Build a program that prints a measurement report to stderr
+                      at exit
   --unsigned          Allow unsigned dependencies from a non-local source
   -q, --quiet         Print only the artifact line and any diagnostics
   -v, --verbose       Also print a per-phase timing line for each build stage
@@ -172,6 +174,8 @@ Options:
   --target <os-arch>  Build for a specific target (only host targets are run)
   -O <level>          Optimization level: 0 off, 1 default, 2-3 enable more
                       passes (also -O0..-O3, --optimize <level>)
+  --debug             Build test programs that print a measurement report to
+                      stderr at exit
   -v, --verbose       Also print the build summary, a per-phase timing line for
                       each build stage, and a per-pass optimizer fire count
   -vv                 Also print the compile profiler: a nested span tree of

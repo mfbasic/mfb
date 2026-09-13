@@ -103,6 +103,7 @@ fn every_linux_backend_writes_an_elf_for_its_own_architecture() {
                 None,
                 false,
                 None,
+                crate::codegen::debug::DebugOptions::OFF,
                 &|_| {},
             )
             .unwrap_or_else(|err| panic!("{os}-{arch}: write_executable: {err}"));
@@ -178,6 +179,7 @@ fn the_two_libc_flavors_are_different_binaries() {
             None,
             false,
             None,
+            crate::codegen::debug::DebugOptions::OFF,
             &|_| {},
         )
         .expect("write_executable");
@@ -231,6 +233,7 @@ fn an_app_build_writes_an_appdir_per_libc_world_and_seals_it() {
             None,
             false,
             None,
+            crate::codegen::debug::DebugOptions::OFF,
             &|_| {},
         );
         assert!(
@@ -253,6 +256,7 @@ fn an_app_build_writes_an_appdir_per_libc_world_and_seals_it() {
                 Some("1.2.3"),
                 false,
                 None,
+                crate::codegen::debug::DebugOptions::OFF,
                 &|_| {},
             )
             .unwrap_or_else(|err| panic!("linux-{arch}: app write_executable: {err}"));
@@ -324,6 +328,7 @@ fn write_executable_announces_each_stage() {
             None,
             false,
             None,
+            crate::codegen::debug::DebugOptions::OFF,
             &|stage| seen.lock().expect("progress lock").push(stage.to_string()),
         )
         .expect("write_executable");
@@ -376,8 +381,14 @@ fn every_dump_kind_writes_on_every_target_that_advertises_it() {
         write_mir, write_native_code_plan, write_native_object_plan, write_native_plan, write_nir,
     };
 
-    type Writer =
-        fn(&Path, &IrProject, &BuildTarget, &[PathBuf], NativeBuildMode) -> Result<PathBuf, String>;
+    type Writer = fn(
+        &Path,
+        &IrProject,
+        &BuildTarget,
+        &[PathBuf],
+        NativeBuildMode,
+        crate::codegen::debug::DebugOptions,
+    ) -> Result<PathBuf, String>;
 
     // (extension, writer, the capability that gates it)
     let kinds: &[(&str, Writer, fn(&BackendCapabilities) -> bool)] = &[
@@ -397,7 +408,14 @@ fn every_dump_kind_writes_on_every_target_that_advertises_it() {
         for (extension, write, gated_on) in kinds {
             let scratch = Scratch::new(&format!("dump_{}_{extension}", target.arch));
             let ir = crate::testutil::named_ir_for_src(SRC, "dumpprog");
-            let written = write(&scratch.0, &ir, &target, &[], NativeBuildMode::Console);
+            let written = write(
+                &scratch.0,
+                &ir,
+                &target,
+                &[],
+                NativeBuildMode::Console,
+                crate::codegen::debug::DebugOptions::OFF,
+            );
 
             // Every registered backend advertises every dump capability today,
             // asserted here rather than assumed: it is what makes the loop
@@ -488,6 +506,7 @@ fn every_executable_target_writes_an_image_its_os_can_load() {
             None,
             false,
             None,
+            crate::codegen::debug::DebugOptions::OFF,
             &|_| {},
         )
         .unwrap_or_else(|err| panic!("{}: {err}", target.name()));
