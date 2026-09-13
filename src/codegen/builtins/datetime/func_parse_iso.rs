@@ -24,11 +24,13 @@ parsing `value` left to right. The components are:
   first nine digits are scaled to nanoseconds (so `.25` becomes `250000000` ns);
   any digits beyond the ninth are read but ignored
 - `<offset>` — required UTC offset: `Z` or `z` for UTC, otherwise a signed
-  `+/-HH:MM` or `+/-HHMM` (the colon between offset hours and minutes is optional)
+  `+/-HH:MM` or `+/-HHMM`, optionally followed by seconds in the same style
+  (`+/-HH:MM:SS` or `+/-HHMMSS`). Every offset field is exactly two digits
 
-The numeric readers are greedy up to their stated width but also accept fewer
-digits, so a field may be written with or without leading padding as long as the
-surrounding separators are present. The offset is mandatory; unlike
+The offset ends the timestamp: any text after it raises `ErrInvalidFormat`.
+The date and time readers are greedy up to their stated width but also accept
+fewer digits, so those fields may be written with or without leading padding as
+long as the surrounding separators are present. The offset is mandatory; unlike
 `datetime::parse` there is no zone argument and no defaulting to UTC, because a
 conforming RFC 3339 timestamp always carries its own offset. The parsed offset is
 applied directly, making the result a fixed-offset moment.
@@ -39,7 +41,11 @@ against the bounds `datetime::date` and `datetime::time` enforce: `month` in
 `0 .. 23`, `mm` and `ss` in `0 .. 59`. An out-of-range component such as month
 13 or day 40 raises `ErrInvalidFormat` rather than being carried into the
 resulting `datetime::DateTime` or rolled over into a different date. The offset's
-magnitude must be under 24 hours. `parseIso` is pure: it reads no host state and
+hours must be `00 .. 23` and its minutes and seconds `00 .. 59`, so its magnitude
+is under 24 hours; an offset outside that, such as `+05:75` or `+24:00`, also
+raises `ErrInvalidFormat`. Seconds in the offset are what `datetime::toIso`
+writes for a zone whose offset is not a whole number of minutes, so
+`parseIso(toIso(dt, 9))` names the same instant as `dt` for every offset. `parseIso` is pure: it reads no host state and
 has no side effects."#;
 const EX: &str = r#"Parse a UTC timestamp:
 
@@ -131,6 +137,10 @@ r#"FUNC __datetime_parseIso(value AS String) AS DateTime
     END WHILE
   END IF
   LET off AS __datetime_NumRead = __datetime_readOffset(value, pos)
+  ' bug-520 S3: the offset ends the timestamp; text after it is not ignored.
+  IF off.nextPos <> n THEN
+    FAIL error(77050003, "datetime: unexpected text after offset")
+  END IF
   __datetime_checkFields(yr.value, mo.value, dy.value, hh.value, mm.value, ss.value, nanos)
   LET d AS Date = Date[yr.value, mo.value, dy.value]
   LET t AS Time = Time[hh.value, mm.value, ss.value, nanos]
@@ -154,7 +164,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 default: super::DefaultValue::None,
             }],
             return_type: super::ParameterType::named("DateTime"),
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat"],
             body: super::Body::mfb(BODY, "__datetime_parseIso"),
         }],
     });

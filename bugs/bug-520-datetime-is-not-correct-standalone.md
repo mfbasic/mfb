@@ -320,6 +320,50 @@ datetime::fixedOffset(-1800)      ' -1800 "-00:30"
 - **S10.** Add `rt-behavior` fixtures that run with `TZ=America/New_York`. Whether the
   harness can set a fixture's environment is **UNVERIFIED** (Phase 1).
 
+## Phase 1 findings (2026-09-13)
+
+**Harness `TZ` answer.** `scripts/test-accept.sh` ran a fixture binary with no way to
+set its environment (`run_with_watchdog "$run_path"`). Added: an optional `run.env`
+beside `project.json` (`NAME=value` lines) applied to the run only, through `env`, so
+`argv[0]` and the logged `$ <exe>` line do not change. `scripts/linux-runtime-proof.sh`
+applies it too. `datetime-tz-new-york-rt/run.env` is `TZ=America/New_York`.
+
+**RED at HEAD** (`bash scripts/test-accept.sh target/release/mfb /tmp/b520-actual <name>`,
+`f011d27b9`, macOS aarch64):
+
+| Fixture | Line at HEAD | Sub-issue |
+| --- | --- | --- |
+| `datetime-offset-seconds-rt` | `toIso=1880-01-01T09:00:00.000-04:56`, `isoRoundTrip=FALSE`, `isoSep=-2840090640` | S1, S2 |
+| `datetime-parse-strict-rt` | `isoTrailZ=ACCEPTED`, `patTrail=ACCEPTED`, `isoMin75=ACCEPTED … off=22500`, `isoHour1=ACCEPTED`, `isoPlus24=77050002` | S3, S4, S5 |
+| `datetime-tz-new-york-rt` | `addDays0.second=…-04:00 @1793511000`, `addMonths0.second=…-04:00`, `lmt.roundTrip=-3771144002` | S1, S6 |
+
+S6 re-verified: `addMonths(a5, 0)` moved the instant too (`addMonths0.second` above).
+S7 and S9 are page text; no fixture can show S7, because it needs two `TZ` values.
+
+**S8 error table** (probe `/tmp/b520-s8`, `TZ=America/New_York`; each line is a call
+and its trapped code):
+
+| Member | Raises | Inputs |
+| --- | --- | --- |
+| `localOffset` | `ErrInvalidArgument` | `9223372036854775807`, `-9223372036854775808`, `10^17` (`10^15` is fine) |
+| `offsetAt` | `ErrInvalidArgument` | Local zone with the same out-of-range seconds; a fixed zone never raises |
+| `toLocal` | `ErrInvalidArgument` | same out-of-range seconds |
+| `inZone` | `ErrInvalidArgument`, `ErrOverflow` | Local zone out of range → 77050002; `fixedOffset(3600)` at `Integer` max, or `Zone[max, 1, "x"]` → 77050010 |
+| `civil` | `ErrInvalidArgument`, `ErrOverflow` | Local zone, year `±3·10^9` → 77050002; UTC year `3·10^14` → 77050010 |
+| `fixedOffset(s)` | `ErrInvalidArgument` | `±86400`, `Integer` max |
+| `fixedOffset(h, m)` | `ErrInvalidArgument`, `ErrOverflow` | `(0, -30)`, `(5, 60)`, `(24, 0)`, `(-5, -30)` → 77050002; `(max, 0)`, `(min, 0)` → 77050010 |
+
+The audit found more than S8 named: **every** datetime descriptor declared
+`errors: vec![]`, including `date`, `time`, `toIso(dt, digits)`, `parse` and `parseIso`,
+which `FAIL` explicitly (`grep -c 'errors: vec!\[\]' src/codegen/builtins/datetime/func_*.rs`).
+Those five now list their codes too. The arithmetic members that can only overflow
+(`add`, `addDays`, `addMonths`, `plus`, `between`, `toMillis`, …) are not probed and
+still list none; see bug-611.
+
+**S3 census.** `grep -rn "datetime::parse(\|datetime::parseIso(" tests/ examples/ packages/ src/docs/`:
+no caller relies on trailing text being ignored. Every existing datetime fixture's
+`build.log` is byte-identical after the fix.
+
 ## Phases
 
 ### Phase 1 — RED fixtures and the missing facts

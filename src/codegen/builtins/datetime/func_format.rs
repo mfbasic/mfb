@@ -39,6 +39,11 @@ The recognized tokens are:
 - `ZZ` — offset, always `+/-HH:MM` (`Z` is never substituted)
 - `ZZZ` and longer — offset, `+/-HHMM` with no colon
 
+An offset that is not a whole number of minutes, such as a host zone's local
+mean time before standard time (New York's `-04:56:02`), is written with its
+seconds: `+/-HH:MM:SS`, or `+/-HHMMSS` for `ZZZ`. Whole-minute offsets never
+carry a seconds field, and `datetime::parse` reads both forms back.
+
 The fractional-second token renders the `nanos` of `dt.time` as 9 digits and
 keeps the leading run-length digits, so `fff` yields milliseconds, `ffffff`
 microseconds, and `fffffffff` nanoseconds. Month, weekday, and AM/PM names are
