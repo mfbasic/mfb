@@ -298,7 +298,7 @@ compile (running would take over the terminal).
 
 Acceptance: 8 units reconciled in the manifest; ledgers recorded; sweeps clean
 for all eight.
-Commit: a1cd1f9f7 (first five), and the commit carrying this line (retry three)
+Commit: a1cd1f9f7 (first five), 17d9cac4c (retry three)
 
 ### Phase 3 — the remaining 20 packages
 
