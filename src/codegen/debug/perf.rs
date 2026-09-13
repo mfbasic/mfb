@@ -1,13 +1,18 @@
 //! The `perf` report section (plan-130-B): plan-67's runtime timings of the whole
 //! program, `_mfb_arena_alloc`, and `_mfb_arena_free`, switched on by `--debug`.
 //!
-//! The timing helpers themselves (`perf.init/start/end/done`) are unchanged and
-//! live in `codegen::builtins::perf`. This section owns when they are emitted and
-//! called: the region is mapped and the `program` span opened at entry
-//! ([`DebugFeature::emit_entry_start`]); the span is closed and the table printed
-//! by `_mfb_debug_report_perf`, which `_mfb_debug_shutdown` calls. The arena
+//! The timing helpers themselves (`perf.init/start/end/done`) live in
+//! `codegen::builtins::perf`. This section owns when they are emitted and called:
+//! the region is mapped and the `program` span opened at entry
+//! ([`DebugFeature::emit_entry_start`]); the span is closed and the statistics
+//! printed by `_mfb_debug_report_perf`, which `_mfb_debug_shutdown` calls. The arena
 //! helpers bracket their bodies with `perf.start`/`perf.end` when
 //! `feature_active(module, PERF_SECTION)` holds.
+//!
+//! Report lines: `perf.<span>.<stat> <value>` for each span (`program`,
+//! `mfb_alloc`, `mfb_free`) and stat (`count`, `avg`, `median`, `min`, `max`, `sum`;
+//! durations in nanoseconds), plus `perf.mismatch <n>` / `perf.overflow <n>` when
+//! non-zero.
 //!
 //! macOS only: the timing helpers read the clock through the Darwin
 //! `clock_gettime` sequence and are inert bodies elsewhere.
@@ -19,9 +24,10 @@ use crate::codegen::engine::builder::internal_branch;
 use crate::codegen::engine::types::{CodeDataObject, CodeFunction, CodegenPlatform};
 use crate::codegen::engine::util::finalize_vreg_helper;
 use crate::codegen::error::constants::{
-    PERF_HEADER_SYMBOL, PERF_NAME_MFB_ALLOC_SYMBOL, PERF_NAME_MFB_FREE_SYMBOL,
-    PERF_NAME_MISMATCH_SYMBOL, PERF_NAME_OVERFLOW_SYMBOL, PERF_NAME_PROGRAM_SYMBOL,
-    PERF_STATE_SYMBOL,
+    PERF_KEY_AVG_SYMBOL, PERF_KEY_COUNT_SYMBOL, PERF_KEY_MAX_SYMBOL, PERF_KEY_MEDIAN_SYMBOL,
+    PERF_KEY_MIN_SYMBOL, PERF_KEY_PREFIX_SYMBOL, PERF_KEY_SUM_SYMBOL, PERF_NAME_MFB_ALLOC_SYMBOL,
+    PERF_NAME_MFB_FREE_SYMBOL, PERF_NAME_MISMATCH_SYMBOL, PERF_NAME_OVERFLOW_SYMBOL,
+    PERF_NAME_PROGRAM_SYMBOL, PERF_STATE_SYMBOL,
 };
 use crate::codegen::memory::data::{push_symbol_address, string_data_object};
 use crate::target::shared::abi;
@@ -54,6 +60,7 @@ impl DebugFeature for PerfFeature {
     }
 
     fn data_objects(&self, _module: &NirModule) -> Vec<CodeDataObject> {
+        let text = |symbol: &str, value: &str| string_data_object(symbol, value.to_string());
         vec![
             // The region base (0 until `perf.init` maps it; every helper treats 0 as
             // "perf inert").
@@ -65,16 +72,22 @@ impl DebugFeature for PerfFeature {
                 size: 8,
                 value: "0000000000000000".to_string(),
             },
-            string_data_object(
-                PERF_HEADER_SYMBOL,
-                "name count avg median min max sum\n".to_string(),
-            ),
-            // Span names (compared by pointer) and the diagnostic counter rows.
-            string_data_object(PERF_NAME_PROGRAM_SYMBOL, "program".to_string()),
-            string_data_object(PERF_NAME_MISMATCH_SYMBOL, "mismatch".to_string()),
-            string_data_object(PERF_NAME_OVERFLOW_SYMBOL, "overflow".to_string()),
-            string_data_object(PERF_NAME_MFB_ALLOC_SYMBOL, "mfb_alloc".to_string()),
-            string_data_object(PERF_NAME_MFB_FREE_SYMBOL, "mfb_free".to_string()),
+            // Span names: compared by pointer in the tables, and copied into each
+            // report key (`perf.<name>.<stat>`), so each is one token.
+            text(PERF_NAME_PROGRAM_SYMBOL, "program"),
+            text(PERF_NAME_MFB_ALLOC_SYMBOL, "mfb_alloc"),
+            text(PERF_NAME_MFB_FREE_SYMBOL, "mfb_free"),
+            // Report-key pieces `perf.done` assembles each line from.
+            text(PERF_KEY_PREFIX_SYMBOL, "perf."),
+            text(PERF_KEY_COUNT_SYMBOL, ".count "),
+            text(PERF_KEY_AVG_SYMBOL, ".avg "),
+            text(PERF_KEY_MEDIAN_SYMBOL, ".median "),
+            text(PERF_KEY_MIN_SYMBOL, ".min "),
+            text(PERF_KEY_MAX_SYMBOL, ".max "),
+            text(PERF_KEY_SUM_SYMBOL, ".sum "),
+            // The header counters' keys, printed only when non-zero.
+            text(PERF_NAME_MISMATCH_SYMBOL, "mismatch "),
+            text(PERF_NAME_OVERFLOW_SYMBOL, "overflow "),
         ]
     }
 
@@ -85,8 +98,9 @@ impl DebugFeature for PerfFeature {
         _platform: &dyn CodegenPlatform,
     ) -> Result<Vec<CodeFunction>, String> {
         // `_mfb_debug_report_perf`: close the whole-program span, then print the
-        // table. Both helpers are arena-free (they read only `_mfb_rt_perf_state`),
-        // which is what lets them run after `_mfb_arena_destroy`.
+        // statistics. Both helpers are arena-free (they read only
+        // `_mfb_rt_perf_state`), which is what lets them run after
+        // `_mfb_arena_destroy`.
         let symbol = PERF_REPORT_SYMBOL;
         let perf_end = perf_symbol("perf.end");
         let perf_done = perf_symbol("perf.done");

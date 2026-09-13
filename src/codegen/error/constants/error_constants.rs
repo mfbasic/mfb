@@ -220,11 +220,6 @@ pub(crate) const HAS_RVV_GLOBAL_SYMBOL: &str = "_mfb_rt_has_rvv";
 /// it and treats a 0 base as "perf inert" (mmap failed / perf-free build).
 pub(crate) const PERF_STATE_SYMBOL: &str = "_mfb_rt_perf_state";
 
-/// plan-67-B: the `mfb.string.v1` object holding the perf-table header line
-/// (`name count avg median min max sum`), written to stderr by `perf_done`.
-/// Emitted under the same `--debug` macOS-entry gate as `PERF_STATE_SYMBOL`.
-pub(crate) const PERF_HEADER_SYMBOL: &str = "_mfb_rt_perf_header";
-
 /// plan-67-C: the `mfb.string.v1` name object for the whole-program span. The
 /// entry loads its address as `perf_start`'s `namePtr`; because every injection of
 /// a given name references the one symbol, table B can key on pointer identity.
@@ -243,6 +238,18 @@ pub(crate) const PERF_NAME_OVERFLOW_SYMBOL: &str = "_mfb_rt_perf_name_overflow";
 /// macOS backend, so the exit table shows a timing row per region.
 pub(crate) const PERF_NAME_MFB_ALLOC_SYMBOL: &str = "_mfb_rt_perf_name_mfb_alloc";
 pub(crate) const PERF_NAME_MFB_FREE_SYMBOL: &str = "_mfb_rt_perf_name_mfb_free";
+
+/// plan-130-B: the `mfb.string.v1` key pieces `perf.done` assembles each debug-report line
+/// from: `perf.` + a span name + a stat suffix (`.count ` …), or `perf.` + a header
+/// counter key (`PERF_NAME_MISMATCH_SYMBOL` / `PERF_NAME_OVERFLOW_SYMBOL`). Emitted by
+/// the debug report's `perf` section.
+pub(crate) const PERF_KEY_PREFIX_SYMBOL: &str = "_mfb_rt_perf_key_prefix";
+pub(crate) const PERF_KEY_COUNT_SYMBOL: &str = "_mfb_rt_perf_key_count";
+pub(crate) const PERF_KEY_AVG_SYMBOL: &str = "_mfb_rt_perf_key_avg";
+pub(crate) const PERF_KEY_MEDIAN_SYMBOL: &str = "_mfb_rt_perf_key_median";
+pub(crate) const PERF_KEY_MIN_SYMBOL: &str = "_mfb_rt_perf_key_min";
+pub(crate) const PERF_KEY_MAX_SYMBOL: &str = "_mfb_rt_perf_key_max";
+pub(crate) const PERF_KEY_SUM_SYMBOL: &str = "_mfb_rt_perf_key_sum";
 
 // ===========================================================================
 // term:: TUI state slots (reserved in the program-entry frame)

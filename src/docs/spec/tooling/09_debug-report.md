@@ -77,6 +77,12 @@ Sections print in the order of the compiler's feature registry,
 | --- | --- | --- |
 | `mfb.debug` | `mfb.debug.target` | the target the program was compiled for (`macos-aarch64`, `linux-aarch64`, `linux-x86_64`, `linux-riscv64`, `windows-x86_64`) |
 | | `mfb.debug.build` | `console` or `app` |
+| `perf` (macOS only) | `perf.<span>.count`, `.avg`, `.median`, `.min`, `.max`, `.sum` | for each timed span — `program` (from entry to the report), `mfb_alloc` and `mfb_free` (every arena allocation and free call) — the number of samples and their average, median, minimum, maximum, and total duration in nanoseconds; a span that never ran prints nothing |
+| | `perf.mismatch`, `perf.overflow` | printed only when non-zero: a span end with no open start, and samples dropped because the timing region filled |
+
+The `perf` section maps its own timing region at program entry (never the arena)
+and prints each line with a single `write`; it is emitted only for a `macos-aarch64`
+`--debug` build. [[src/codegen/debug/perf.rs:PerfFeature]]
 
 ## See Also
 

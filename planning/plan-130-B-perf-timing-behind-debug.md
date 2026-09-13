@@ -127,30 +127,45 @@ and CI never builds it); porting timings to all targets now (user decision).
       `--debug` build carries none). `cargo test --bin mfb -- perf codegen::debug` -> 13 passed.
 
 Acceptance: `cargo test --bin mfb perf` green; `git grep -nE "cfg\(perf\)|cfg!\(perf\)|--cfg perf" -- src Cargo.toml` → no matches; artifact gate `0 diff(s)`.
-Commit: —
+Commit: fedd21989
 
 ### Phase 2 — report format and runtime proof
 
-- [ ] `perf.done` rows rewritten as `perf.*` report lines (§3).
-- [ ] `tests/runtime/rt_debug_report.rs`: a macOS `--debug` build's report block
+- [x] `perf.done` rows rewritten as `perf.*` report lines (§3). The header line is gone; each table A entry prints six
+      `perf.<name>.<stat> <value>` lines and the header counters print `perf.mismatch <n>` /
+      `perf.overflow <n>` when non-zero, each assembled right-to-left by `emit_perf_line` in a
+      96-byte stack window (`PERF_LOCALS_SIZE`, was 32) and written with one `write`. The old
+      column writers (`emit_write_i64*`, `emit_write_name`) and `PERF_HEADER_SYMBOL` are deleted;
+      the key pieces are new `PERF_KEY_*_SYMBOL` objects.
+      `cargo test --bin mfb -- perf codegen::debug` -> 13 passed; artifact gate 0 diff(s).
+- [x] `tests/runtime/rt_debug_report.rs`: a macOS `--debug` build's report block
       contains `perf.program.count 1`, `perf.mfb_alloc.count <n ≥ 1>`,
       `perf.mfb_free.count <n>`; the same program built for linux-aarch64 with
-      `--debug` contains no `perf.` line.
+      `--debug` contains no `perf.` line. `assert_block` requires `perf.program.count 1` plus the other five
+      `perf.program.*` statistics on every macOS exit path (and no `perf.` line elsewhere); the
+      new `the_perf_section_times_the_arena` requires `perf.mfb_alloc.count >= 1` and all six
+      statistics for any arena span it reports; `every_cross_target_calls_the_report_right_after_shutdown_done`
+      requires no `_mfb_rt_perf_` in the linux-aarch64/x86_64/riscv64 and windows `--debug` dumps.
+      `cargo test --release --no-fail-fast --test rt_debug_report` -> 7 passed.
 
 Acceptance: `cargo test --release --test rt_debug_report` green.
 Commit: —
 
 ### Phase 3 — docs
 
-- [ ] `07_runtime-helper-abi.md` perf section: gate is `--debug`; output is the report.
-- [ ] Doc comments at the former gate sites, `perf.rs` module doc, `runtime/mod.rs`,
+- [x] `07_runtime-helper-abi.md` perf section: gate is `--debug`; output is the report. (Landed in Phase 1 `fedd21989`.)
+- [x] Doc comments at the former gate sites, `perf.rs` module doc, `runtime/mod.rs`,
       `perf_specs.rs`, `error_constants.rs`, `macos_aarch64/code.rs`,
-      `scripts/man-census.sh` comment.
-- [ ] `.ai/testing-gates.md` § "Perf goldens break execution acceptance": rewrite — no
+      `scripts/man-census.sh` comment. (Landed in Phase 1 `fedd21989`.)
+- [x] (added) Debug-report spec page (`09_debug-report.md`): the `perf` section's keys, units,
+      and macOS-only scope. (`cargo test --bin mfb -- spec citations_resolve` -> 43 passed.)
+- [x] `.ai/testing-gates.md` § "Perf goldens break execution acceptance": rewrite — no
       goldens carry perf output now; the cause was a `cfg(perf)`/debug build.
-- [ ] Memory note `mfb-exe-tests-use-release-binary`: correct the "debug injects perf"
+- [x] Memory note `mfb-exe-tests-use-release-binary`: correct the "debug injects perf"
       line (memory edits via a sub-agent, per AGENTS.md).
-- [ ] Full suite + artifact gate + test-accept as in plan-130-A Phase 4.
+- [~] Full suite + artifact gate + test-accept as in plan-130-A Phase 4. Scoped per the user (2026-09-12): spec tests 43 passed; artifact gate 0 diff(s) and
+      `rt_debug_report` 7 passed on the Phase 2 code (no code change since). Remaining: the full
+      `cargo test` and `test-accept.sh` run once at the end of plan-130 (plan-130-E Phase 3).
 
 Acceptance: `git grep -nE "cfg perf|cfg\(perf\)" -- . ':!planning'` → no matches; the
 three suites green.
@@ -169,6 +184,16 @@ Commit: —
 
 ## Corrections
 
+- **Phase 3 — the testing-gates claim was false, not stale.** Measured: no committed golden names
+  `_mfb_rt_perf_` or carries the perf table (the only test-tree hit is `rt_debug_report`'s own
+  no-perf assertion), and the artifact gate reads `0 diff(s)` with the RELEASE binary, so its
+  advice to run the gate with a debug `mfb` "so perf symbols match" had no basis. The section is
+  rewritten under a new heading, "Perf timings never reach a golden (plan-130-B)".
+- **Phase 2 — "the same program built for linux-aarch64 contains no `perf.` line" is checked on
+  the dump, not a run.** This host cannot run a Linux binary; the no-perf property is what the
+  code emits, so `rt_debug_report` asserts no `_mfb_rt_perf_` symbol in each non-macOS `--debug`
+  `.ncode`, and a non-macOS `assert_block` requires zero `perf.` lines. `perf.mfb_free.*` is
+  asserted only when present (a program need not free).
 - **Phase 1 — docs landed early.** Phase 1's acceptance grep covers `src` doc comments, so the
   `--cfg perf` prose in `perf.rs`, `tests/perf.rs`, `error_constants.rs`, `runtime/mod.rs`,
   `perf_specs.rs`, `macos_aarch64/code.rs`, `scripts/man-census.sh` and

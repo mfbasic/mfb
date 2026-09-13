@@ -34,14 +34,52 @@ fn host_target() -> &'static str {
     }
 }
 
-/// The §4.4 block a console build on this host prints.
-fn expected_block() -> Vec<String> {
-    vec![
+/// Assert a report block's shape: the core section for `build`, then — on macOS,
+/// where the `perf` section applies (plan-130-B) — `perf.<key> <integer>` lines
+/// including the six statistics of the whole-program span, then the end line.
+/// Returns the `perf.` lines (none off macOS).
+fn assert_block(case: &str, block: &[String], build: &str) -> Vec<String> {
+    let head = [
         "mfb.debug.begin 1".to_string(),
         format!("mfb.debug.target {}", host_target()),
-        "mfb.debug.build console".to_string(),
-        "mfb.debug.end 1".to_string(),
-    ]
+        format!("mfb.debug.build {build}"),
+    ];
+    assert!(
+        block.len() >= 4,
+        "{case}: report block too short: {block:?}"
+    );
+    assert_eq!(&block[..3], &head[..], "{case}: report block head");
+    assert_eq!(
+        block.last().map(String::as_str),
+        Some("mfb.debug.end 1"),
+        "{case}: report block end"
+    );
+    let perf: Vec<String> = block[3..block.len() - 1].to_vec();
+    if !cfg!(target_os = "macos") {
+        assert!(perf.is_empty(), "{case}: perf is macOS-only, got {perf:?}");
+        return perf;
+    }
+    for line in &perf {
+        let (key, value) = line
+            .split_once(' ')
+            .unwrap_or_else(|| panic!("{case}: `{line}` is not `<key> <value>`"));
+        assert!(
+            key.starts_with("perf.") && !value.contains(' ') && value.parse::<u64>().is_ok(),
+            "{case}: `{line}` is not a `perf.<key> <integer>` line"
+        );
+    }
+    assert!(
+        perf.iter().any(|line| line == "perf.program.count 1"),
+        "{case}: the whole-program span must be counted once: {perf:?}"
+    );
+    for stat in ["avg", "median", "min", "max", "sum"] {
+        let key = format!("perf.program.{stat} ");
+        assert!(
+            perf.iter().any(|line| line.starts_with(&key)),
+            "{case}: missing `{key}<n>` in {perf:?}"
+        );
+    }
+    perf
 }
 
 /// Build `source` as its own project, with or without `--debug`, and return the
@@ -133,7 +171,7 @@ fn assert_report_on_exit(case: &str, source: &str) {
         before, normal.stderr,
         "{case}: --debug changed stderr before the report"
     );
-    assert_eq!(block, expected_block(), "{case}: report block");
+    assert_block(case, &block, "console");
 }
 
 #[test]
@@ -257,7 +295,7 @@ fn sigterm_mid_sleep_ends_stderr_with_the_report() {
         before, normal.stderr,
         "--debug changed stderr before the report"
     );
-    assert_eq!(block, expected_block(), "SIGTERM report block");
+    assert_block("dbg_sigterm", &block, "console");
 }
 
 /// Build `source` as project `name` for `target` with `--ncode` (and `--debug` when
@@ -323,6 +361,10 @@ fn every_cross_target_calls_the_report_right_after_shutdown_done() {
             .iter()
             .filter_map(|function| function["symbol"].as_str())
             .collect();
+        assert!(
+            !debug.to_string().contains("_mfb_rt_perf_"),
+            "{target}: perf is macOS-only; a --debug build must emit no perf helper"
+        );
         for expected in ["_mfb_debug_shutdown", "_mfb_debug_report_core"] {
             assert!(
                 symbols.contains(&expected),
@@ -400,14 +442,46 @@ fn a_headless_app_finish_ends_stderr_with_the_report() {
         before, normal.stderr,
         "--debug changed stderr before the report"
     );
-    assert_eq!(
-        block,
-        vec![
-            "mfb.debug.begin 1".to_string(),
-            "mfb.debug.target macos-aarch64".to_string(),
-            "mfb.debug.build app".to_string(),
-            "mfb.debug.end 1".to_string(),
-        ],
-        "headless app report block"
+    assert_block("dbgapp", &block, "app");
+}
+
+/// plan-130-B: on macOS the `perf` section also times the arena. A program that
+/// allocates reports `perf.mfb_alloc.count` of at least one, and every arena span it
+/// reports carries all six statistics.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_perf_section_times_the_arena() {
+    let source = concat!(
+        "IMPORT io\n",
+        "\n",
+        "FUNC main() AS Integer\n",
+        "  LET a = \"abc\" & toString(12345)\n",
+        "  LET b = a & a\n",
+        "  io::print(b)\n",
+        "  RETURN 0\n",
+        "END FUNC\n",
     );
+    let debug = run(&build("dbg_perf_arena", source, true));
+    let (_, block) = split_report("dbg_perf_arena", &debug.stderr);
+    let perf = assert_block("dbg_perf_arena", &block, "console");
+    let alloc_count = perf
+        .iter()
+        .find_map(|line| line.strip_prefix("perf.mfb_alloc.count "))
+        .and_then(|n| n.parse::<u64>().ok())
+        .unwrap_or_else(|| panic!("no perf.mfb_alloc.count line: {perf:?}"));
+    assert!(alloc_count >= 1, "the program allocates; got {alloc_count}");
+    for span in ["mfb_alloc", "mfb_free"] {
+        if perf
+            .iter()
+            .any(|line| line.starts_with(&format!("perf.{span}.count ")))
+        {
+            for stat in ["avg", "median", "min", "max", "sum"] {
+                let key = format!("perf.{span}.{stat} ");
+                assert!(
+                    perf.iter().any(|line| line.starts_with(&key)),
+                    "missing `{key}<n>` in {perf:?}"
+                );
+            }
+        }
+    }
 }

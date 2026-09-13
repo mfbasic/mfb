@@ -273,15 +273,15 @@ failure is a GPU frame **byte-identical** to the oracle: two independent rasteri
 do not agree to the byte by luck, so an exact match on a first run means the GPU path
 never ran.
 
-## Perf goldens break execution acceptance
+## Perf timings never reach a golden (plan-130-B)
 
-Running `scripts/test-accept.sh <exe> <dir>` for a FULL execution pass is **inherently noisy** at baseline and cannot reach 0 mismatches — do not treat a clean full test-accept as the acceptance gate.
+The plan-67 perf table used to be blamed for execution-acceptance noise ("a debug mfb injects perf"). That was never the gate: the instrumentation was emitted only by a compiler built with `RUSTFLAGS="--cfg perf"`, and since plan-130-B there is no such flag at all — the timings are the `perf` section of the stderr debug report, emitted only for a program built with **`mfb build --debug`**, on macOS only (`./mfb spec tooling debug-report`). No test builds its goldens with `--debug`, and none carries perf output: measured 2026-09-12, `git grep -l "_mfb_rt_perf_" -- tests` names only `tests/runtime/rt_debug_report.rs` (its own no-perf assertion), and `git grep -l "name count avg median min max sum" -- tests` names nothing. A debug and a release `mfb` emit the same programs in this respect.
 
-**Why:** a debug-gated `_mfb_rt_perf_*` table is printed at program exit (macOS). Many executing fixtures' `build.log`/`.ncode` goldens were seeded with a *debug* mfb, so they carry perf symbols (`.ncode`) and a perf table with **run-varying nanosecond timings** in `build.log` (`program 1 37000` one run, `29000` the next). A **release** mfb strips the perf table entirely; a **debug** mfb reproduces it with different numbers — neither profile diffs clean. Verified identical on pure `main` (`git worktree add --detach`), so it is a pre-existing baseline, not any one plan's regression. `tests/common/mfb_exe()` resolves **release** precisely to keep the cargo-test acceptance deterministic (no perf).
+Whether a full `scripts/test-accept.sh <exe> <dir>` pass now reaches 0 mismatches is unmeasured since plan-130-B; record the baseline before treating a mismatch as a regression.
 
 **The real gates (use these):**
 - Full `cargo test` (behavior + IR + citation gates). Green = the executable proof.
-- `scripts/artifact-gate.sh target/debug/mfb` — codegen byte-identity, execution-free (~10min). Run with **debug** so its `.ncode`/`.ncodesum` goldens (which carry debug perf symbols) match.
+- `scripts/artifact-gate.sh target/release/mfb all` — codegen byte-identity, execution-free. Either profile of `mfb` works (the goldens carry no perf symbols); the release binary is the one the rt tests run, so prefer it (plan-130-B measured `0 diff(s)` with it).
 - For a NEW rt-behavior fixture: seed its goldens with the **release** mfb (`sync-goldens.sh target/release/mfb <glob>`) so the program output is deterministic (no perf table), and verify with `test-accept.sh target/release/mfb`. A new fixture needs its `golden/` dir pre-created with empty placeholder files (build.log + `<name>.ast`/`.ir`/`.run`) — sync-goldens only *refreshes* existing golden files, never creates them.
 
 **Known-stale (macOS host):** `{audio,http,json,net,regex,strings}_codegen_cover_rt.macos-aarch64.ncodesum` byte-identity goldens differ from a locally-rebuilt macOS mfb (regen'd on another host/profile). Pre-existing on main; not something a feature branch introduced.
