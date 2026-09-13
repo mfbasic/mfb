@@ -17,7 +17,8 @@ use std::io::IsTerminal;
 
 use crate::cli::spec::detect_terminal_width;
 use crate::codegen::registry::{
-    self, registry, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    self, registry, DefaultValue, Implementation, Parameter, RegistryConstant, RegistryFunction,
+    RegistryPackage,
 };
 use crate::docs::man::{self, ManTopic};
 use crate::docs::render;
@@ -86,12 +87,17 @@ pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
                     .function(page_name)
                     .filter(|function| !function.internal_only);
                 if *page_name == "types" && function.is_none() {
-                    print_markdown(&format!(
-                        "The `{}` package has no public types.\n\nRun `mfb man {}` to list its functions.\n",
+                    print_markdown(&render_no_types_markdown(package));
+                    return Ok(());
+                }
+                // A constant is a value, not a function, and has no page of its
+                // own; its row is on the package overview.
+                if function.is_none() && package.constants().iter().any(|c| c.name == *page_name) {
+                    return Err(format!(
+                        "`{}::{page_name}` is a constant, not a function, and has no page of its own\n\nRun `mfb man {}` to see its value.",
                         package.import_name(),
                         package.import_name(),
                     ));
-                    return Ok(());
                 }
                 let function = function.ok_or_else(|| {
                     format!(
@@ -345,6 +351,8 @@ fn render_package_markdown(package: &RegistryPackage) -> String {
         md.push('\n');
     }
 
+    render_constants(&mut md, package);
+
     let mut names: Vec<&'static str> = Vec::new();
     for function in package.functions() {
         for name in function_errors(function) {
@@ -374,6 +382,74 @@ fn has_public_types(package: &RegistryPackage) -> bool {
         || package.unions().iter().any(|union| union.export)
         || package.enums().iter().any(|r#enum| r#enum.export)
         || package.resources().iter().any(|resource| resource.export)
+}
+
+/// The Constants section of a package overview: every registered constant in
+/// registration order, with its type, its value as a program would write it, and a
+/// Description column when any constant carries a message. Omitted when the
+/// package registers none.
+fn render_constants(md: &mut String, package: &RegistryPackage) {
+    let constants = package.constants();
+    if constants.is_empty() {
+        return;
+    }
+    let pkg = package.import_name();
+    let described = constants.iter().any(|c| c.message.is_some());
+    md.push_str("## Constants\n\n");
+    if described {
+        md.push_str("| Constant | Type | Value | Description |\n| --- | --- | --- | --- |\n");
+    } else {
+        md.push_str("| Constant | Type | Value |\n| --- | --- | --- |\n");
+    }
+    for constant in constants {
+        let ty = constant_type_name(package, constant);
+        let value = match (constant.value, constant.components) {
+            (Some(value), _) => value.to_string(),
+            (None, Some(components)) => format!("{ty}[{}]", components.join(", ")),
+            (None, None) => String::new(),
+        };
+        md.push_str(&format!(
+            "| `{pkg}::{}` | `{ty}` | `{value}` |",
+            constant.name
+        ));
+        if described {
+            md.push_str(&format!(" {} |", constant.message.unwrap_or("")));
+        }
+        md.push('\n');
+    }
+    md.push('\n');
+}
+
+/// A constant's type as source spells it: a record the package declares is
+/// qualified (`vector::Float3`); a scalar type (`Integer`, `Float`) is not.
+fn constant_type_name(package: &RegistryPackage, constant: &RegistryConstant) -> String {
+    let declared = package
+        .records()
+        .iter()
+        .any(|record| record.name == constant.type_name);
+    if declared {
+        format!("{}::{}", package.import_name(), constant.type_name)
+    } else {
+        constant.type_name.to_string()
+    }
+}
+
+/// The page `mfb man <pkg> types` shows for a package with no public types. It
+/// points at the overview by what that page lists, so a constants-only package
+/// (`errorCode`) is not told to list functions it does not have.
+fn render_no_types_markdown(package: &RegistryPackage) -> String {
+    let has_functions = package.functions().iter().any(|f| !f.internal_only);
+    let has_constants = !package.constants().is_empty();
+    let lists = match (has_functions, has_constants) {
+        (true, true) => "its functions and constants",
+        (false, true) => "its constants",
+        _ => "its functions",
+    };
+    format!(
+        "The `{}` package has no public types.\n\nRun `mfb man {}` to list {lists}.\n",
+        package.import_name(),
+        package.import_name(),
+    )
 }
 
 /// Build the consolidated *types* page for a package: every exported record (with a
@@ -1919,6 +1995,87 @@ mod tests {
             }
         }
         assert!(checked > 400, "the census walked only {checked} members");
+    }
+
+    /// bug-609: `errorCode` registers 52 constants and nothing else, and its page
+    /// listed none of them — a developer at `mfb man` could not see which names
+    /// exist. The page lists each constant with its registered value and message.
+    #[test]
+    fn a_constants_only_package_lists_every_constant_with_value_and_message() {
+        let package = registry().resolve_package("errorCode").unwrap();
+        let md = render_package_markdown(package);
+        assert!(md.contains("## Constants\n"), "no Constants section:\n{md}");
+        assert!(
+            md.contains(
+                "| `errorCode::ErrPathNotFound` | `Integer` | `77030001` | Filesystem path does not exist. |"
+            ),
+            "no ErrPathNotFound row:\n{md}"
+        );
+        assert!(!md.contains("## Functions"));
+    }
+
+    /// bug-609: every registered constant of every package appears on that
+    /// package's overview, so a constant added later cannot go undiscoverable.
+    #[test]
+    fn every_registered_constant_is_listed_on_its_package_page() {
+        let mut checked = 0;
+        for package in registry()
+            .packages()
+            .iter()
+            .filter(|package| !package.is_unqualified_global())
+        {
+            let md = render_package_markdown(package);
+            for constant in package.constants() {
+                let cell = format!("| `{}::{}` |", package.import_name(), constant.name);
+                assert!(md.contains(&cell), "{cell} missing from its package page");
+                checked += 1;
+            }
+        }
+        assert!(checked > 100, "the census walked only {checked} constants");
+    }
+
+    /// bug-609: a record constant's value renders in the spelling a program
+    /// writes — a `pkg::Type[...]` construction — with a qualified type.
+    #[test]
+    fn a_record_constant_renders_as_a_qualified_record_construction() {
+        let vector = registry().resolve_package("vector").unwrap();
+        let md = render_package_markdown(vector);
+        assert!(
+            md.contains(
+                "| `vector::zeroFloat3` | `vector::Float3` | `vector::Float3[0.0, 0.0, 0.0]` |"
+            ),
+            "no zeroFloat3 row:\n{md}"
+        );
+        let color = registry().resolve_package("color").unwrap();
+        let md = render_package_markdown(color);
+        assert!(
+            md.contains("| `color::black` | `color::Color` | `color::Color[0, 0, 0, 255]` |"),
+            "no black row:\n{md}"
+        );
+    }
+
+    /// bug-609: the no-types page told the reader to "list its functions" for a
+    /// package that exports none. It names what the package does have.
+    #[test]
+    fn the_no_types_page_names_what_the_package_has() {
+        let error_code = registry().resolve_package("errorCode").unwrap();
+        let md = render_no_types_markdown(error_code);
+        assert!(!md.contains("function"), "{md}");
+        assert!(md.contains("to list its constants"), "{md}");
+        // A package with functions and no types keeps its original wording.
+        let bits = registry().resolve_package("bits").unwrap();
+        assert!(!has_public_types(bits) && bits.constants().is_empty());
+        assert!(render_no_types_markdown(bits).contains("to list its functions"));
+    }
+
+    /// bug-609: `mfb man errorCode ErrPathNotFound` answered "unknown errorCode
+    /// function" — true, but it sent the reader to a page that listed no
+    /// constants. A constant's name is recognised and routed to its package page.
+    #[test]
+    fn naming_a_constant_as_a_page_points_at_the_package_page() {
+        let err = show_man(&s(&["errorCode", "ErrPathNotFound"])).unwrap_err();
+        assert!(err.contains("is a constant"), "{err}");
+        assert!(err.contains("mfb man errorCode"), "{err}");
     }
 
     #[test]

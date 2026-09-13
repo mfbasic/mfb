@@ -1,12 +1,12 @@
 # bug-609: `mfb man errorCode` lists none of its 52 constants, and its types page says "list its functions"
 
-Last updated: 2026-09-13
+Last updated: 2026-09-13 (fixed)
 Effort: small–medium
 Severity: LOW
 Class: Documentation (renderer)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (5eaea6f15)
+Regression Test: `src/cli/man.rs` tests — `a_constants_only_package_lists_every_constant_with_value_and_message`, `every_registered_constant_is_listed_on_its_package_page`, `a_record_constant_renders_as_a_qualified_record_construction`, `the_no_types_page_names_what_the_package_has`, `naming_a_constant_as_a_page_points_at_the_package_page`
 
 `errorCode` is a constants-only package: `src/codegen/builtins/errorcode/mod.rs:register`
 registers 52 `Err*` constants (`add_constant`), each with a value and a message,
@@ -61,9 +61,35 @@ The three commands above, at `worktree-P-125` HEAD.
 
 ## Fix
 
-Phase 1 — renderer tests: `mfb man errorCode` lists `errorCode::ErrPathNotFound`
+- [x] Phase 1 — renderer tests: `mfb man errorCode` lists `errorCode::ErrPathNotFound`
 and its value; the types fallback for a package with no functions does not say
-"list its functions" (RED). Commit:
+"list its functions" (RED). Commit: 5eaea6f15 (tests and fix landed together;
+all five tests verified RED on the pre-fix renderer first; prep refactor 2eb775566)
 
-Phase 2 — render a Constants section from the registry; word the fallback by what
-the package has (GREEN); update proven-wrong pins. Commit:
+- [x] Phase 2 — render a Constants section from the registry; word the fallback by what
+the package has (GREEN); update proven-wrong pins. Commit: 5eaea6f15 (no pin needed
+updating: no test or golden carried the rendered errorCode/vector page)
+
+## STATUS: FIXED (5eaea6f15)
+
+Deviations and additions beyond the doc:
+
+- `mfb man errorCode ErrPathNotFound` still exits 2 (a constant has no page), but
+  now says it is a constant and points at `mfb man errorCode`.
+- A record constant's Value renders as `pkg::Type[c1, …]`; a probe program using
+  `vector::Float3[0.0, 0.0, 0.0]`, `color::Color[0, 0, 0, 255]`,
+  `errorCode::ErrPathNotFound = 77030001` and `math::pi` built and printed TRUE ×4.
+- Found while fixing: the errorCode overview's example said `ErrPathNotFound` is
+  `77020001` — that is `ErrReadFailed`; corrected to the registered `77030001`.
+- math's overview carried a hand-maintained constants table (the non-goal's drift
+  risk); it is replaced by a sentence naming the constants and pointing at the
+  derived table.
+- `scripts/man-census.sh --memory-scope` carve-out 2 now also classifies the
+  errorCode Constants row that carries `ErrOutOfMemory`'s runtime message
+  "Allocation failed."; whole surface: 0 unclassified, carve-out 2 40 → 41.
+  `.ai/man-content.md` §0 lists Constants as derived and §4.4 documents this
+  carve-out, which §9.2 already referenced.
+- Fallout caught by the full suite: `tests/guards/no_type_strings.rs` (plan-111)
+  flagged the first version's `constant_type_name(…, type_name: &str)` helper
+  (`str_type_params / cli: 1 > budget 0`). The helper now takes the
+  `RegistryConstant` (5372f1211); the guard is green with its budget unchanged.
