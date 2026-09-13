@@ -105,7 +105,7 @@ neither filed it), 594 (macOS `drawText` column), 592.
 | 563 | MED | `ceeefcf24` | `collections::get`'s merged error union split per overload |
 | 552 | LOW | `d83714554` | all three Level-2 global rows fire for the first time |
 | 559 | LOW | `3173773c4` | `civil`/`addDays` finally demonstrate a DST transition |
-| 576 | MED | branch ready | an unbound runtime-helper `String` now has an owner |
+| 576 | MED | `fbddba488` (landed in round 2 `2f40cf6b4`) | an unbound runtime-helper `String` now has an owner |
 | 548 | LOW | archived | both paths settled; deletion independently re-confirmed |
 
 **Filed after reproducing** (see the duplicate-filing lesson below): **590 HIGH**
@@ -313,20 +313,19 @@ the bug doc.
 ## ⚠️ THREE BUG NUMBERS COLLIDE — 550, 551, 552
 
 A peer session filed its own 548–552 concurrently with this one. **550, 551 and
-552 each name two completely different bugs**, mine archived under
-`bugs/completed/` and the peer's still open under `bugs/`:
+552 each name two completely different bugs.** As of 2026-09-12, **all six are fixed** and
+archived under `bugs/completed/`:
 
-| # | in `bugs/completed/` (mine, fixed) | in `bugs/` (peer's, open) |
+| # | first bug | second bug |
 |---|---|---|
-| 550 | every `debug_assert!` is decorative — CI builds release | `collections::append([], x)` type-checks then fails to build |
-| 551 | an `EXPORT LET` package constant has no type for an importer | an inline `TRAP` on a `RES … STATE` write panics the compiler |
-| 552 | the riscv64 linker scans relocations quadratically | the three Level-2 global optimizer rows cannot fire |
+| 550 | every `debug_assert!` is decorative — CI builds release (`157a8dc52`) | `collections::append([], x)` type-checks then fails to build (`2203554bb`) |
+| 551 | an `EXPORT LET` package constant has no type for an importer (`9a5aacb6e`) | an inline `TRAP` on a `RES … STATE` write panics the compiler (`1c83b7dda`) |
+| 552 | the riscv64 linker scans relocations quadratically (`aea1216bf`) | the three Level-2 global optimizer rows cannot fire (`d83714554`) |
 
-**Not resolved here on purpose.** Renumbering a peer's in-flight documents in the
-shared checkout is the kind of edit that silently destroys someone's work, so the
-collision is recorded rather than fixed. Whoever owns the peer session should
-renumber theirs (548/549 are peer-only and fine). Until then, **a reference to
-"bug-550" is ambiguous** — cite the title too.
+**Never renumbered.** Renumbering a peer's in-flight documents in the shared checkout
+silently destroys someone's work, so the collision was recorded rather than fixed, and
+both documents of each pair kept their number. **A reference to "bug-550", "bug-551" or
+"bug-552" is still ambiguous** — cite the title or the archived file name too.
 
 The underlying cause is the one already recorded for rule codes and plan numbers:
 `ls bugs/` under-reports, because a number claimed on an unlanded branch is
@@ -401,7 +400,16 @@ Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
 539 and 545. **Do not re-dispatch these** — the table that used to sit here said
 "agent running" for all three and was stale for a full session.
 
-## Tier 2 — there is NO open HIGH
+## Tier 2 — HIGH: two open, both blocked on an owner decision
+
+*(Updated 2026-09-12. This heading used to read "there is NO open HIGH", which stopped
+being true when 601 was filed.)*
+
+- **601** — a `MUT` copy of a non-flat list aliases its source, so an in-place `append`
+  on the copy segfaults and a short variant silently computes a wrong value. It is decided
+  together with 599; see Open decisions at the top.
+- **581** — Phase 1 landed (`ed87c111a`). Phase 2, what a client does when `snapshot.json`
+  carries no per-package commitment, is an Open decision.
 
 bug-536 has **no actionable work**: shapes A, B and B-2 are fixed (B-2 landed
 `b845db0de`, 2026-09-06) and shape C is a design decision, not a bug fix. **Do
@@ -490,11 +498,11 @@ byte-identity coverage for the first time. 532 **unblocked bug-534's `split`**.
   bug-486 and bug-533 were name-keyed-over-an-overload; this one is simply a
   member lying in its descriptor. **A function-level `TRAP` test cannot see any
   of the three — write the INLINE form.**
-- **The invariant that should have caught it never runs** — filed as **bug-550**.
+- **The invariant that should have caught it never runs** — filed as **bug-550**
+  (the `debug_assert!` one; the number collides, see above).
   `raise_error_bare`'s declaration check is a `debug_assert!`, and CI builds
   release on every job, so all **55** `debug_assert!`s in the tree are compiled
-  out everywhere. Needs a decision: a debug-assertions CI job, or promoting the
-  miscompile-guarding ones to real `assert!`.
+  out everywhere. **Landed `157a8dc52`** (2026-09-06).
 - **Two branches editing one package both shift its embedded line numbers**, so
   neither parent's `.ir` goldens are right for the merged tree. 528 and 534
   collided on exactly that; resolving the conflict by picking a side would have
@@ -538,15 +546,16 @@ the sibling census is complete.
 
 **App backends**: **541 is landed (`0ba90b19f`)** — all three gates, with a real
 runtime RED on box 2230 (`gate01=size80` -> `gate01=raised` against the console
-oracle). **540 is PARTIAL (`a02bd12df`)**: WIN-01 and WIN-05 landed, WIN-02/03/04
-remain and are root-caused in the doc. WIN-05 was a NEW find while fixing 541 —
+oracle). **540 is PARTIAL**: WIN-01 and WIN-05 landed (`a02bd12df`), and WIN-04 landed
+in round 3 (`6ca7e8b8e`). The Windows smoke run on box 2230 passed on 2026-09-12. Only
+WIN-02/03 remain. WIN-05 was a NEW find while fixing 541 —
 Windows `term::on` reset 3 fields where every other backend resets 7.
 
 **WIN-02/03 are blocked on an INSTRUMENT, not on work.** Headless Windows never
 reaches `WM_SIZE`, so proving a resize needs a `term::` twin of
 `MFB_CANVAS_RESIZE_W/_H`. That adds test-only surface to the product, so it is an
-Open Decision. WIN-04's correct fix is sharing `emit_app_io_write`'s ~430-line
-cluster walk, whose labels are untagged and would collide.
+Open Decision. WIN-04 was fixed by sharing `emit_app_io_write`'s cluster walk, landed
+in round 3 (`6ca7e8b8e`).
 
 **A THIRD bug was found here and it is the one worth remembering.**
 `scripts/test-winapp.sh` named `canvas::rgb`, which plan-122-D's canvas migration
@@ -566,8 +575,8 @@ spelling — nothing else will tell you.
 **datetime**: 520 (no named zones — huge; carries interaction notes from the
 three landed siblings). 518, 519 and 521 are landed.
 
-**crypto**: 515 (no memory-hard password KDF) is the only one left. **511 is
-landed (`e24914d5d`)** and **517 is landed (`5c2024f71`)**.
+**crypto**: the cluster is **complete**. **515 is landed (`b399e3363`)**, as are
+**511 (`e24914d5d`)** and **517 (`5c2024f71`)**.
 
 **517 was the one backlog item blocked on a ruling, and the owner gave it**: the
 SHA-1 advisory is scoped to the USE — `hash` warns, `hmac`/`hkdf`/`pbkdf2` do
@@ -600,24 +609,28 @@ existed. Same "two lists" shape as bug-470 and bug-533. The durable fix is a tes
 that ENUMERATES the curve fields and asserts a branch-free secret path for each,
 so adding a curve fails until it is covered.
 
-**registry / supply chain** (audit-3 MEDIUM carryover):
-489 (response terminal injection) · 490 (client redirect credential leak) ·
-491 (`pkg install` not bound to the lock)
+**registry / supply chain** (audit-3 MEDIUM carryover): **all landed**:
+489 (response terminal injection, `a1cd9d0c7`) · 490 (client redirect credential leak,
+`18f589667`) · 491 (`pkg install` not bound to the lock, `0f5256342`)
 
 **Older carryover**: **453, 454 and 483 are landed** (`f332f18e6`, `94b2ec1e1`,
-`7b0ab81be`). Remaining: 479 (inline TRAP on thread start — one decision left,
-see Tier 2) · 484 (`picture::drawItem` never renders — x-large, sequenced AFTER
-plan-116-I) · 487 (state-mutating operand UAF — **memory gate**) · 527 (range
-parameter naming, large) · 515 (memory-hard password KDF) · 520 (named zones,
-huge) · 472 (man examples never compiled — **blocked on a user decision**
-recorded in plan-108-A) · 543 (spawn fd parity — **the owner has ruled**; Linux
-is settled, the macOS mechanism is the open question) · 488 (deliberately open
-pending a long clean period).
+`7b0ab81be`). The rest of this list has landed too:
+- 479 (inline TRAP on thread start): `694dee2b7`
+- 487 (state-mutating operand UAF): `56b368996`
+- 527 (range parameter naming): `177cdd2e7`
+- 515 (memory-hard password KDF): `b399e3363`
+- 472 (man examples never compiled): `17c424988`
+- 543 (spawn fd parity): `e36ebcedf`
+- 488: CLOSED after its clean period (`e5f705c13`)
 
-**Newly filed today, all found while fixing something else — none is a
-regression:** 550 (55 `debug_assert!`s that never run, because CI builds
-release) · 552 (riscv64 linker quadratic, unreachable until 453 removed the
-ceiling above it) · 553 (28 `tls`/`tcp` members declare `errors: vec![]`).
+**Still open:** only 484 (`picture::drawItem` never renders — x-large, sequenced AFTER
+plan-116-I) and 520 (named zones, huge).
+
+**Filed that day, all found while fixing something else — none is a regression — and
+all since landed:** 550 (55 `debug_assert!`s that never run, because CI builds release;
+`157a8dc52`) · 552 (riscv64 linker quadratic, unreachable until 453 removed the ceiling
+above it; `aea1216bf`) · 553 (28 `tls`/`tcp` members declare `errors: vec![]`;
+`0fbccd28d`). 550 and 552 are the collided numbers; see the collision table above.
 
 **The lesson the cross-platform cluster paid for: name the instrument.** All
 three needed something the artifact gate structurally is not.
@@ -651,19 +664,21 @@ through to a default of `true` for both flatness modes — "this handle is a fla
 copyable block that may be relocated into another thread's arena". Use the
 model-aware `is_resource_nominal` / `is_sendable_resource_nominal` instead. The
 same blind spot had a SECOND consumer (`defer_resource_flag`), which meant
-bug-425's guarantee never held for user resources; **479 is the remaining bug
-that shares 546's error message**, so read them together. The invariant is
+bug-425's guarantee never held for user resources. **479 shares 546's error
+message**, so read them together (479 is also landed, `694dee2b7`). The invariant is
 recorded in `.ai/resources-packages.md`.
 
 ## Tier 4 — test-infrastructure flakes (cheap, and they are costing us now)
 
-| Bug | Sev | Effort | Title |
-|---|---|---|---|
-| 488 | LOW | small | `rt_tls_connect_allow_self_signed` port gate is per-process |
-| 456 | LOW | small | `mfb opt` sweep level-variant ncode goldens |
-| 472 | MED | small | man examples are never compiled |
+**Nothing open.** Every row that used to sit here has landed:
 
-537 is landed. **The rest are worth doing early despite being LOW.** 488 and 537
+| Bug | Sev | Landed | Title |
+|---|---|---|---|
+| 488 | LOW | CLOSED `e5f705c13` | `rt_tls_connect_allow_self_signed` port gate is per-process |
+| 456 | LOW | `854c99fdd` | `mfb opt` sweep level-variant ncode goldens |
+| 472 | MED | `17c424988` | man examples are never compiled |
+
+537 is landed. 488 and 537
 produced false reds on four separate suite runs during the audit-3 fix pass,
 every time two `cargo test` runs shared the machine — which is exactly the
 agent-plus-lead setup this backlog prescribes.
@@ -681,5 +696,4 @@ regenerate-then-gate is a normal workflow, so the `regen-*` scripts mattered.
 The transferable lesson is in `tests/gate_lock_covers_every_writer.rs`: a
 recogniser for "which scripts contend" was written three times and
 under-reported every time, so it is now an exhaustive classification with a
-blindness guard. 488, 456 and 472 remain; each is <1h and each removes a
-recurring misdiagnosis risk from every later bug.
+blindness guard. 488, 456 and 472 have since landed too (see the table above).
