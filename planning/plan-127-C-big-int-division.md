@@ -26,8 +26,8 @@ Stated once in plan-127-A and unchanged. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-127-B is complete: Phases 1–4 ticked and their commits recorded | `grep -c '^- \[ \]' planning/plan-127-B-big-int-arithmetic.md` → `0` | NOT MET |
-| The magnitude emitters exist | `grep -c "fn emit_add_magnitude\|fn emit_sub_magnitude\|fn emit_mul_magnitude" src/codegen/builtins/big/gen_big.rs` → `3` | NOT MET |
+| plan-127-B is complete: Phases 1–4 ticked and their commits recorded | `grep -c '^- \[ \]' planning/completed/plan-127-B-big-int-arithmetic.md` → `0` | MET (2026-09-13, worktree-P-127 @ 92cff30cc: `0`; plan archived to `planning/completed/`) |
+| The magnitude emitters exist | `grep -c "fn emit_add_magnitude\|fn emit_sub_magnitude\|fn emit_mul_magnitude" src/codegen/builtins/big/gen_big.rs` → `3` | MET (2026-09-13, @ 92cff30cc: `3`) |
 
 If plan-127-B is not complete, this letter cannot start, full stop. Algorithm D is
 built from magnitude compare, subtract and multiply; there is no partial mode.

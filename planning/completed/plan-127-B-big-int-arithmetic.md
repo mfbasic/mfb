@@ -339,7 +339,7 @@ Commit: e597d3580
 
 Acceptance: the `parse`∘`toString` round trip holds for every value in the test spread,
 and `toString` declares an empty registry `errors` vector (plan-127-A C1).
-Commit: —
+Commit: 92cff30cc
 
 ## Validation Plan
 
