@@ -25,8 +25,8 @@ Stated once in plan-127-A and unchanged. This letter adds one:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-127-A is complete: Phases 1–5 ticked and their commits recorded | `grep -c '^- \[ \]' planning/plan-127-A-big-int-foundation.md` → `0` | NOT MET |
-| `gen_big.rs` exposes the three shared emitters | `grep -c "fn emit_load_int\|fn emit_alloc_magnitude\|fn emit_build_int" src/codegen/builtins/big/gen_big.rs` → `3` | NOT MET |
+| plan-127-A is complete: Phases 1–5 ticked and their commits recorded | `grep -c '^- \[ \]' planning/completed/plan-127-A-big-int-foundation.md` → `0` | MET (2026-09-13, worktree-P-127 @ 6e8aaf0ed: `0`; plan archived to `planning/completed/`) |
+| `gen_big.rs` exposes the three shared emitters | `grep -c "fn emit_load_int\|fn emit_alloc_magnitude\|fn emit_build_int" src/codegen/builtins/big/gen_big.rs` → `3` | MET (2026-09-13, @ 6e8aaf0ed: `3`) |
 
 If plan-127-A is not complete, this letter cannot start, full stop. Its emitters and its
 pinned offsets are this letter's entire foundation; there is no partial mode.
