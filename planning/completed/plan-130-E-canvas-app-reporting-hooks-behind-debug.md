@@ -118,7 +118,7 @@ Acceptance: unit test green; artifact gate `0 diff(s)`.
 Measured: `cargo test --bin mfb -- codegen::registry codegen::builtins::canvas` green (with
 Phase 2's split in place); artifact gate `1437 tests, 1603 build(s), 2013 golden(s) checked,
 0 diff(s)` — no golden holds canvas source.
-Commit: —
+Commit: 5fb8cd9ed
 
 ### Phase 2 — canvas hooks
 
@@ -150,7 +150,7 @@ runtime tests passed` (Vulkan render matches the software oracle, groups match
 `tests/golden/canvas/groups.png`). 2227 musl: `EXIT=0` with `skip: box 2227 built no Vulkan
 device (loader present, no usable ICD)` — the `--debug` program ran and wrote its stats line
 (`vulkanReady=FALSE`); the box has no usable Vulkan driver (see Corrections).
-Commit: —
+Commit: 5fb8cd9ed
 
 ### Phase 3 — Windows app hook and docs
 
@@ -165,11 +165,16 @@ Commit: —
       build.
 - [x] Debug-report spec page: a "hooks" section listing the three variables.
       `09_debug-report.md` § Reporting hooks; `cargo test --bin mfb -- docs::spec` green.
-- [ ] Full suite + artifact gate + test-accept as in plan-130-A Phase 4.
+- [x] Full suite + artifact gate + test-accept as in plan-130-A Phase 4.
+      The one full run for all of plan-130 (letters A–E), on `5fb8cd9ed` (E plus main merged):
+      `cargo test --no-fail-fast` → exit 0, 5482 passed, 0 failed, 6 ignored;
+      `scripts/test-accept.sh target/release/mfb /tmp/p130-accept-actual` → exit 0,
+      `acceptance tests passed (1460 test(s) ran)`; artifact gate `1437 tests, 1603 build(s),
+      2013 golden(s) checked, 0 diff(s)`.
 
 Acceptance: `scripts/test-winapp.sh target/release/mfb` passes on 2230; the three
 suites green.
-Commit: —
+Commit: 5fb8cd9ed
 
 ## Validation Plan
 
