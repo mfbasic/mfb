@@ -19,6 +19,11 @@ wrap400=#6633cc
 wrap40=#6633cc
 wrapNeg320=#6633cc
 wrap360=#3366cc base=#3366cc
+hslaBig=#ff00eeff hsla304=#ff00eeff
+hslNegBig=#ffee00 hsl56=#ffee00
+rotateBig=#ff00ee rotate304=#ff00ee
+negTurnHue=0.00
+tinyNeg=#ff0000
 satClampHigh=#0080ff
 satClampLow=#808080
 lightClampHigh=#ffffff
