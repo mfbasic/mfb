@@ -156,3 +156,110 @@ END DOC
 EXPORT FUNC civil(date AS datetime::Date, time AS datetime::Time, name AS String) AS datetime::DateTime
   RETURN zonedCivil(date, time, name)
 END FUNC
+
+' ---------------------------------------------------------------------------
+' Writing and reading a zoned time (RFC 9557)
+' ---------------------------------------------------------------------------
+
+' A zoned time read by `timezones::parseIso`: the date, time and offset, and
+' the zone they belong to.
+DOC
+  TYPE ZonedDateTime
+  DESC A date and time together with the named zone it belongs to, as
+  DESC `timezones::parseIso` reads it. `dateTime` carries the offset and
+  DESC abbreviation in force at that instant. `name` is the zone in its tzdb
+  DESC spelling, so `timezones::toIso(z.dateTime, z.name)` writes the value
+  DESC back.
+END DOC
+EXPORT TYPE ZonedDateTime
+  ' The date and time, with the zone's offset and abbreviation at that instant.
+  ' Its `zone` is the fixed-offset snapshot `timezones::toZone` returns.
+  dateTime AS datetime::DateTime
+  ' The zone name, in its tzdb spelling. A link such as `US/Eastern` stays a
+  ' link.
+  name AS String
+END TYPE
+
+DOC
+  FUNC toIso
+  GROUP Zoned text
+  DESC Write `dt` as an RFC 9557 zoned timestamp: `datetime::toIso`'s RFC
+  DESC 3339 text followed by the zone name in brackets, for example
+  DESC `2026-07-15T09:00:00.000-04:00[America/New_York]`.
+  DESC
+  DESC The name is written in its tzdb spelling, whatever case it was given
+  DESC in. `dt.offset` must be the zone's offset at `dt`'s instant, so a
+  DESC written string never contradicts itself. A `DateTime` from
+  DESC `timezones::civil` or `timezones::parseIso` always passes. An offset
+  DESC that is not a whole number of minutes, such as New York's 1850 local
+  DESC mean time, is written with seconds (`-04:56:02`).
+  DESC
+  DESC Without `digits` the text has milliseconds. With `digits` it has 0, 3,
+  DESC 6 or 9 fractional digits, as `datetime::toIso` accepts. Only
+  DESC `digits = 9` keeps every nanosecond, so use it when the text must read
+  DESC back to the same instant.
+  ARG dt The date and time to write.
+  ARG digits How many fractional-second digits to write: 0, 3, 6 or 9.
+  ARG name The zone `dt` belongs to, such as `America/New_York`; case is ignored.
+  RET The RFC 9557 text.
+  ERROR 77050002 `digits` is not 0, 3, 6 or 9, or `dt.offset` is not the zone's offset at `dt`'s instant.
+  ERROR 77050004 `name` is not a zone in the package's tzdb release.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT datetime
+    IMPORT io
+
+    SUB main()
+      LET meeting AS datetime::DateTime = timezones::civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 123456789), "America/New_York")
+      io::print(timezones::toIso(meeting, "America/New_York"))
+      io::print(timezones::toIso(meeting, 9, "America/New_York"))
+    END SUB
+  END EXAMPLE
+END DOC
+EXPORT FUNC toIso(dt AS datetime::DateTime, name AS String) AS String
+  LET annotation AS String = zoneAnnotation(dt, name)
+  RETURN datetime::toIso(dt) & annotation
+END FUNC
+
+EXPORT FUNC toIso(dt AS datetime::DateTime, digits AS Integer, name AS String) AS String
+  LET annotation AS String = zoneAnnotation(dt, name)
+  RETURN datetime::toIso(dt, digits) & annotation
+END FUNC
+
+DOC
+  FUNC parseIso
+  GROUP Zoned text
+  DESC Read an RFC 9557 zoned timestamp, such as
+  DESC `2026-07-15T09:00:00.000-04:00[America/New_York]`, into the instant it
+  DESC names and the zone it names.
+  DESC
+  DESC The text is an RFC 3339 timestamp that `datetime::parseIso` accepts,
+  DESC then one time-zone annotation, then any suffix tags. The zone may be
+  DESC marked critical (`[!America/New_York]`). A `[u-ca=iso8601]` calendar
+  DESC tag is accepted, and any other calendar is refused. An unknown tag is
+  DESC ignored, unless it is marked critical, which refuses it.
+  DESC
+  DESC The offset must be the zone's offset at that instant, and text where
+  DESC they disagree is refused whether or not the zone is critical. Two
+  DESC spellings are also accepted. `Z` names the instant without an offset,
+  DESC so the zone supplies one. An offset rounded to the minute from a
+  DESC local-mean-time offset with seconds, such as `-04:56` for `-04:56:02`,
+  DESC is read back to the exact instant.
+  ARG text The zoned timestamp to read.
+  RET The date and time in the zone, and the zone name in tzdb spelling.
+  ERROR 77050003 The text is malformed, has no zone annotation or an unsupported calendar or critical tag, or its offset is not the zone's offset.
+  ERROR 77050004 The zone name is not in the package's tzdb release.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT datetime
+    IMPORT io
+
+    SUB main()
+      LET z AS timezones::ZonedDateTime = timezones::parseIso("2026-07-15T09:00:00.000-04:00[America/New_York]")
+      io::print(z.name & " " & toString(datetime::resolve(z.dateTime).seconds) & " " & z.dateTime.zone.label)
+    END SUB
+  END EXAMPLE
+END DOC
+EXPORT FUNC parseIso(text AS String) AS ZonedDateTime
+  RETURN zonedParseIso(text)
+END FUNC

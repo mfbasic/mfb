@@ -221,30 +221,53 @@ Shape: `packages/logger/runtime-smoke.sh`.
 
 ### Phase 1 — `toIso`, `parseIso`, `ZonedDateTime`
 
-- [ ] Write `src/iso.mfb` per §§ 4.1–4.2.
-- [ ] In `lib.mfb`, add the `EXPORT` declarations and `DOC` blocks, declaring the type
+- [x] Write `src/iso.mfb` per §§ 4.1–4.2. (`zoneAnnotation` for the write check;
+      `zonedParseIso` for the reader. A probe of the post-bug-520 `datetime::parseIso`
+      confirmed what § 4.2 assumes: `…Z` and `…+00:00` → offset 0; `…-04:56:02` →
+      −17762 at −3771144000; `…-04:56` → −17760 at −3771144002; `""` → `error 77050003`.)
+- [x] In `lib.mfb`, add the `EXPORT` declarations and `DOC` blocks, declaring the type
       the way `packages/jwt` declares its exported records. Build each `EXAMPLE` against
       the `.mfp`.
-- [ ] In `src/test_iso.mfb`, cover:
-  - [ ] the New York January and July writes;
-  - [ ] the 1850 New York LMT round trip (`-04:56:02` written, read back exact);
-  - [ ] a minute-rounded `-04:56` read, recomputed to the exact instant;
-  - [ ] `Z[America/New_York]`;
-  - [ ] `+00:00[America/New_York]` → `77050003`;
-  - [ ] `[!America/New_York]` accepted;
-  - [ ] `[u-ca=iso8601]` accepted, `[u-ca=gregory]` → `77050003`;
-  - [ ] `[foo=bar]` ignored, `[!foo=bar]` → `77050003`;
-  - [ ] numeric zone `[+05:30]` → `77050003`;
-  - [ ] two zone annotations → `77050003`;
-  - [ ] trailing text after `]` → `77050003`;
-  - [ ] missing `]` → `77050003`;
-  - [ ] `[Nowhere/Bogus]` → `77050004`;
-  - [ ] `[america/new_york]` accepted, `name` = `America/New_York`; `[us/eastern]` → `US/Eastern`;
-  - [ ] `toIso(dt, "america/new_york")` writes `[America/New_York]`;
-  - [ ] `toIso` with a wrong offset → `77050002`;
-  - [ ] `toIso(dt, 5, name)` → `77050002`;
-  - [ ] nanos preserved at `digits = 9`.
-- [ ] Add the README section "Writing and reading a zoned time", including the
+      - Both `toIso` overloads share one `DOC` block, the way `sqlite3` documents
+        `query`. A second `DOC FUNC toIso` failed with `error[2-205-0003 DOC_DUPLICATE]`.
+      - `ZonedDateTime` has a `DOC TYPE` block without `GROUP`. With it, the build failed
+        with `DOC_GROUP_INVALID_CONTEXT`.
+      - `bash /tmp/p135ex/build.sh toiso parseiso` printed:
+        - `toiso`: `2026-07-15T09:00:00.123-04:00[America/New_York]` and
+          `2026-07-15T09:00:00.123456789-04:00[America/New_York]`
+        - `parseiso`: `America/New_York 1784120400 EDT`
+- [x] In `src/test_iso.mfb`, cover (`mfb test packages/timezones` → `* iso`, 14 cases
+      all `[P]`, `Tests: 48  Pass: 48  Fail: 0`):
+  - [x] the New York January and July writes; (`…09:00:00.000-05:00[America/New_York]` /
+        `…-04:00[…]`, plus the July read → `1784120400 0 -14400 America/New_York`)
+  - [x] the 1850 New York LMT round trip (`-04:56:02` written, read back exact);
+        (`1850-07-01T07:03:58.000-04:56:02[America/New_York]` → `-3771144000 0 -17762
+        America/New_York`, label `LMT`)
+  - [x] a minute-rounded `-04:56` read, recomputed to the exact instant; (→ −3771144000,
+        −17762)
+  - [x] `Z[America/New_York]`; (→ 1784120400, −14400, and rendered `09:00:00.000-04:00`)
+  - [x] `+00:00[America/New_York]` → `77050003`; (also `-05:00` in July, elective and
+        critical)
+  - [x] `[!America/New_York]` accepted;
+  - [x] `[u-ca=iso8601]` accepted, `[u-ca=gregory]` → `77050003`; (the first `u-ca` counts:
+        `[u-ca=gregory][u-ca=iso8601]` refused, `[u-ca=iso8601][u-ca=gregory]` accepted)
+  - [x] `[foo=bar]` ignored, `[!foo=bar]` → `77050003`; (and `[Foo=bar]`, not a valid key,
+        → `77050003`)
+  - [x] numeric zone `[+05:30]` → `77050003`;
+  - [x] two zone annotations → `77050003`;
+  - [x] trailing text after `]` → `77050003`;
+  - [x] missing `]` → `77050003`; (also no annotation, `[]`, a tag before the zone, an
+        `..` zone part, and a malformed base)
+  - [x] `[Nowhere/Bogus]` → `77050004`;
+  - [x] `[america/new_york]` accepted, `name` = `America/New_York`; `[us/eastern]` → `US/Eastern`;
+  - [x] `toIso(dt, "america/new_york")` writes `[America/New_York]`;
+  - [x] `toIso` with a wrong offset → `77050002`; (a January 09:00 at fixed −14400; an
+        unknown zone → `77050004`)
+  - [x] `toIso(dt, 5, name)` → `77050002`; (`digits = 0` writes
+        `2026-07-15T09:00:00-04:00[America/New_York]`)
+  - [x] nanos preserved at `digits = 9`. (`…09:00:00.123456789-04:00[America/New_York]`
+        → `1784120400 123456789 -14400 America/New_York`)
+- [x] Add the README section "Writing and reading a zoned time", including the
       case-insensitive name rule and the always-act inconsistency rule.
 
 Acceptance: every listed case passes.
@@ -260,7 +283,10 @@ Commit: —
       mismatches; revert.
 - [ ] Mutation proof: make `toIso` drop nanos. `roundtrip` must report mismatches;
       revert.
-- [ ] Write `packages/timezones/runtime-smoke.sh` (§ 4.3).
+- [x] Write `packages/timezones/runtime-smoke.sh` (§ 4.3). (`runtime-smoke.sh
+      /Users/…/mfb/target/release/mfb` → `timezones runtime smoke passed`, `EXIT=0`. The
+      consumer imports only `io` and `timezones`, reads the zoned string, passes
+      `z.dateTime.date`/`.time` back to `civil`, and asserts both lines exactly.)
 
 Acceptance: round trips are exact across the whole corpus, syntax verdicts match
 Temporal except for the declared divergences, and the `.mfp` links into an executable

@@ -81,6 +81,51 @@ LET tomorrow AS datetime::DateTime = timezones::civil(datetime::addDays(dt, 1).d
 A calendar field out of range raises `errorCode::ErrInvalidArgument` (`77050002`). An
 unknown zone raises `errorCode::ErrNotFound` (`77050004`).
 
+## Writing and reading a zoned time
+
+```
+EXPORT TYPE ZonedDateTime        ' dateTime AS datetime::DateTime, name AS String
+timezones::toIso(dt AS datetime::DateTime, name AS String) AS String
+timezones::toIso(dt AS datetime::DateTime, digits AS Integer, name AS String) AS String
+timezones::parseIso(text AS String) AS timezones::ZonedDateTime
+```
+
+An RFC 3339 timestamp such as `2026-07-15T09:00:00.000-04:00` records an instant and an
+offset, but not the zone. RFC 9557 appends the zone in brackets, and these two members
+write and read that form:
+
+```
+IMPORT timezones
+IMPORT datetime
+IMPORT io
+
+SUB main()
+  LET meeting AS datetime::DateTime = timezones::civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 0), "America/New_York")
+  LET text AS String = timezones::toIso(meeting, "America/New_York")
+  io::print(text)                                    ' 2026-07-15T09:00:00.000-04:00[America/New_York]
+  LET back AS timezones::ZonedDateTime = timezones::parseIso(text)
+  io::print(back.name & " " & back.dateTime.zone.label)   ' America/New_York EDT
+END SUB
+```
+
+- **Names ignore case.** `[america/new_york]` reads as `America/New_York`, and
+  `toIso(dt, "america/new_york")` writes `[America/New_York]`. A link stays a link:
+  `[us/eastern]` reads as `US/Eastern`.
+- **The offset must agree with the zone, always.** `toIso` refuses (`77050002`) a
+  `DateTime` whose offset is not the zone's offset at its instant. `parseIso` refuses
+  (`77050003`) text whose offset disagrees with its zone, whether or not the zone is
+  marked critical with `!`. RFC 9557 would let a reader ignore an elective mismatch;
+  this package treats it as corrupt data.
+- **Two spellings read back exactly.** `Z[America/New_York]` names the instant and takes
+  the zone's offset. A local-mean-time offset rounded to the minute
+  (`1850-07-01T07:03:58-04:56[America/New_York]`) reads back to the exact instant.
+  `toIso` itself writes such an offset with seconds (`-04:56:02`).
+- **Suffix tags.** `[u-ca=iso8601]` is accepted and any other calendar is refused. An
+  unknown tag such as `[foo=bar]` is ignored, and `[!foo=bar]` is refused. A numeric
+  annotation like `[+05:30]` is refused; use `datetime::parseIso` for plain offsets.
+- **Only `digits = 9` keeps every nanosecond.** The two-argument `toIso` writes
+  milliseconds.
+
 ## Where the rules come from
 
 The rules are **IANA tzdb 2026d**. The release tarballs are committed unmodified under
