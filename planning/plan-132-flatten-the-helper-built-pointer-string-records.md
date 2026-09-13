@@ -291,18 +291,29 @@ Commit: `301c27462`
   Phase 3 (predicted codegen-neutral: the predicate was already constant `false`, and C9
   is a signature change): `bash scripts/artifact-gate.sh /tmp/p132/mfb-p3 all` (binary of
   the `301c27462` tree) → `1437 tests, 1603 build(s), 2013 golden(s) checked, 0 diff(s)`.
-- [~] Acceptance over the `net`/`tcp`/`udp`/`tls`/`http`/`audio` fixtures. Phase 1:
+- [x] Acceptance over the `net`/`tcp`/`udp`/`tls`/`http`/`audio` fixtures. Phase 1:
   `bash scripts/test-accept.sh /tmp/p132/mfb-p1 /tmp/p132/accept_p1 <the 122 fixtures under
   those package directories>` → `acceptance tests passed (123 test(s) ran)`, EXIT=0.
   Phase 2: the same run on `/tmp/p132/mfb-p2` → `acceptance tests passed (123 test(s)
-  ran)`, EXIT=0. Remaining: the final run after Phase 3.
+  ran)`, EXIT=0. After Phase 3: the full acceptance run below (every fixture, these 122
+  included) passed.
 - [x] Runtime on Linux (box 2223) and Windows (box 2230) for the socket packages.
   Cross-built the probe set with the Phase 1 compiler (`/tmp/p132/xbuild.sh`, targets
   `linux-aarch64` and `windows-x86_64`) and ran it on each box: every program exits 0;
   the bug-601 repros print `ys=0 xs=1` / `ys=2 xs=1` with `127.0.0.1:80` hosts; the
   `tcp`-only and `udp`-only programs work; the lookup/localAddress/user-list/udp loops
   complete. Box 2223 has no GNU `time`, so RSS is measured on macOS only (the pins).
-- [ ] Full suite + test-accept once, merged with main.
+- [x] Full suite + test-accept once, merged with main. Main had advanced 27 commits
+  (plan-131, scripts/harness work); `git merge main` was clean (`gen_ping.rs` and the
+  bug-599 doc auto-merged). `cargo fmt --all` touched 8 plan files and the repository
+  workspace none (`6598e1ffd`). `cargo test --release --no-fail-fast -- --skip
+  artifact_gate_all` → 171 test binaries, one failed target: `no_type_strings`,
+  `declared_sites / codegen: 57 > budget 52`, which plan-132 caused. Fixed by conversion
+  (C10, `c528a77e5`), with the budget unchanged: `cargo test --release --test no_type_strings`
+  → 7 passed; the affected unit tests → 123 passed. The change is codegen-neutral,
+  proven on the final compiler: `bash scripts/artifact-gate.sh /tmp/p132/mfb-final all`
+  → `2013 golden(s) checked, 0 diff(s)`. `bash scripts/test-accept.sh /tmp/p132/mfb-final
+  /tmp/p132/accept_full` → `acceptance tests passed (1460 test(s) ran)`, exit 0.
 
 ## Verification
 
