@@ -362,23 +362,32 @@ Commit: 13cab251d
 
 Acceptance: `cargo test --release --test rt_debug_report` green on macOS; artifact
 gate `0 diff(s)`.
-Commit: —
+Commit: eb196488c
 
 ### Phase 3 — the other four targets, runtime-proven
 
-- [ ] linux-aarch64: cross-build the Phase 2 programs, run the `-glibc.out` on 2223;
-      record the stderr tail here.
-- [ ] linux-x86_64: run glibc on 2228 and musl on 2227 (raw-syscall write path).
-- [ ] linux-riscv64: run on 2229.
-- [ ] windows-x86_64: run on 2230 via a CRLF `.bat` (see memory
+- [x] linux-aarch64: cross-build the Phase 2 programs, run the `-glibc.out` on 2223;
+      record the stderr tail here. (Proof log below.)
+- [x] linux-x86_64: run glibc on 2228 and musl on 2227 (raw-syscall write path).
+      (Proof log below.)
+- [x] linux-riscv64: run on 2229 (Alpine, so the `-musl.out`). (Proof log below.)
+- [x] windows-x86_64: run on 2230 via a CRLF `.bat` (see memory
       `windows-box-has-no-test-script`); the SIGTERM case is not applicable (no signal
       handler on Windows) — record plain return, `EXIT PROGRAM 3`, untrapped error.
-- [ ] `--app --debug` on macOS (`scripts/test-macapp.sh`-style headless run with
-      `MFB_MACAPP_HEADLESS=1`): the worker's normal finish prints the block.
-- [ ] Extend `tests/runtime/rt_debug_report.rs` with codegen-inspection cases for the
+      (Proof log below.)
+- [x] `--app --debug` on macOS (`scripts/test-macapp.sh`-style headless run with
+      `MFB_MACAPP_HEADLESS=1`): the worker's normal finish prints the block. Measured: a
+      `RETURN 3` program, `--app` vs `--app --debug`: both exit 3, stdout `hi`, normal stderr
+      empty, debug stderr exactly `mfb.debug.begin 1` / `mfb.debug.target macos-aarch64` /
+      `mfb.debug.build app` / `mfb.debug.end 1`. Pinned by (added)
+      `rt_debug_report::a_headless_app_finish_ends_stderr_with_the_report`.
+- [x] Extend `tests/runtime/rt_debug_report.rs` with codegen-inspection cases for the
       four non-host targets: the `.ncode` of a `--debug` build contains a call to
       `_mfb_debug_shutdown` inside `_mfb_shutdown` after `shutdown_done`, and a
       normal build contains no `_mfb_debug` symbol.
+      (`every_cross_target_calls_the_report_right_after_shutdown_done`: asserts the call is
+      the instruction immediately after the label on linux-aarch64/x86_64/riscv64 and
+      windows-x86_64; `cargo test --release --no-fail-fast --test rt_debug_report` → 6 passed.)
 
 Acceptance: every row above has its recorded stderr tail in the Corrections-adjacent
 proof log below with the exact §4.4 block; artifact gate `0 diff(s)`.
@@ -422,6 +431,36 @@ Commit: —
   scope. Alternative: accept the gap and document it (§ new spec page).
 - **Per-feature selection** (`--debug=arena,perf`) — recommended: not now; `DebugOptions`
   is a struct so it can be added without touching call sites again.
+
+## Phase 3 proof log
+
+Measured 2026-09-12, base `eb196488c`. Built on macOS by `/tmp/p130-p3-build.sh`
+(`mfb build [--debug] --target <t>` of four programs: `ret` = print + `RETURN 0`, `exit` =
+print + `EXIT PROGRAM code` with `code = 3`, `err` = print + untrapped `1 / z`, `term` =
+print `ready` + `os::sleep(30000)`), run on each box by a runner that prints exit code,
+stdout and stderr of the normal and the `--debug` build.
+
+| Box | Target / libc | ret | exit | err | term (SIGTERM) |
+|---|---|---|---|---|---|
+| 2223 (`uname -m` aarch64) | linux-aarch64 glibc | 0 / 0 | 3 / 3 | 255 / 255 | 143 / 143 |
+| 2228 (x86_64) | linux-x86_64 glibc | 0 / 0 | 3 / 3 | 255 / 255 | 143 / 143 |
+| 2227 (x86_64) | linux-x86_64 musl (raw-syscall write) | 0 / 0 | 3 / 3 | 255 / 255 | 143 / 143 |
+| 2229 (riscv64) | linux-riscv64 musl | 0 / 0 | 3 / 3 | 255 / 255 | 143 / 143 |
+| 2230 (Win11) | windows-x86_64 | 0 / 0 | 3 / 3 | 255 / 255 | n/a |
+
+Cells are `normal exit / --debug exit`. In every row both builds printed identical stdout
+(`hello`, `before`, `before`, `ready`) and identical stderr before the block (empty, or
+`Error: 7-705-0002` / `Argument value is not valid for the requested operation.` for
+`err`), and every `--debug` run's stderr ended with exactly:
+
+```
+mfb.debug.begin 1
+mfb.debug.target <linux-aarch64|linux-x86_64|linux-riscv64|windows-x86_64>
+mfb.debug.build console
+mfb.debug.end 1
+```
+
+(the target token matching the row); no normal run printed any `mfb.debug.` line.
 
 ## Corrections
 

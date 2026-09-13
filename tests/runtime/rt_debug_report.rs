@@ -259,3 +259,155 @@ fn sigterm_mid_sleep_ends_stderr_with_the_report() {
     );
     assert_eq!(block, expected_block(), "SIGTERM report block");
 }
+
+/// Build `source` as project `name` for `target` with `--ncode` (and `--debug` when
+/// asked), returning the parsed dump.
+fn build_ncode(name: &str, source: &str, target: &str, debug: bool) -> serde_json::Value {
+    let project = common::temp_project(name, source);
+    let mut command = Command::new(common::mfb_exe());
+    command
+        .arg("build")
+        .arg("--ncode")
+        .arg("--target")
+        .arg(target);
+    if debug {
+        command.arg("--debug");
+    }
+    let output = command
+        .arg(&project)
+        .output()
+        .expect("run mfb build --ncode");
+    assert!(
+        output.status.success(),
+        "{name}: mfb build --ncode --target {target} (debug={debug}) failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let text = std::fs::read_to_string(project.join(format!("{name}.ncode")))
+        .unwrap_or_else(|err| panic!("{name}: read the ncode dump: {err}"));
+    serde_json::from_str(&text).expect("parse the ncode dump")
+}
+
+fn functions(plan: &serde_json::Value) -> &Vec<serde_json::Value> {
+    plan["functions"].as_array().expect("functions array")
+}
+
+/// plan-130-A Phase 3: the call site on the four targets this host cannot run.
+///
+/// A runtime test only exercises the host backend; the call inside
+/// `_mfb_shutdown` is emitted per backend, so each one is inspected in its own
+/// dump. In a `--debug` build the instruction right after the `shutdown_done`
+/// label is the call to `_mfb_debug_shutdown` (after the label, so the
+/// already-shut-down early return reaches it too); a normal build carries no
+/// `_mfb_debug` symbol or reference at all.
+#[test]
+fn every_cross_target_calls_the_report_right_after_shutdown_done() {
+    let source =
+        "IMPORT io\n\nFUNC main() AS Integer\n  io::print(\"hello\")\n  RETURN 0\nEND FUNC\n";
+    for target in [
+        "linux-aarch64",
+        "linux-x86_64",
+        "linux-riscv64",
+        "windows-x86_64",
+    ] {
+        let slug = target.replace('-', "_");
+
+        let normal = build_ncode(&format!("dbgncode_{slug}_normal"), source, target, false);
+        assert!(
+            !normal.to_string().contains("_mfb_debug"),
+            "{target}: a build without --debug must carry no _mfb_debug symbol or reference"
+        );
+
+        let debug = build_ncode(&format!("dbgncode_{slug}_debug"), source, target, true);
+        let symbols: Vec<&str> = functions(&debug)
+            .iter()
+            .filter_map(|function| function["symbol"].as_str())
+            .collect();
+        for expected in ["_mfb_debug_shutdown", "_mfb_debug_report_core"] {
+            assert!(
+                symbols.contains(&expected),
+                "{target}: --debug build is missing {expected}"
+            );
+        }
+        let shutdown = functions(&debug)
+            .iter()
+            .find(|function| function["symbol"].as_str() == Some("_mfb_shutdown"))
+            .unwrap_or_else(|| panic!("{target}: no _mfb_shutdown in the --debug dump"));
+        let instructions = shutdown["instructions"].as_array().expect("instructions");
+        let done = instructions
+            .iter()
+            .position(|instruction| {
+                instruction["op"].as_str() == Some("label")
+                    && instruction["name"].as_str() == Some("shutdown_done")
+            })
+            .unwrap_or_else(|| panic!("{target}: _mfb_shutdown has no shutdown_done label"));
+        let next = &instructions[done + 1];
+        assert_eq!(
+            next["target"].as_str(),
+            Some("_mfb_debug_shutdown"),
+            "{target}: the instruction after shutdown_done must call the report, got {next}"
+        );
+    }
+}
+
+/// plan-130-A Phase 3: an app build's worker finishes through `_mfb_shutdown` too,
+/// so a headless macOS `--app --debug` run ends stderr with the report (build
+/// token `app`) and otherwise behaves like the `--app` build.
+///
+/// `MFB_MACAPP_HEADLESS` skips all window construction, so this opens nothing.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_headless_app_finish_ends_stderr_with_the_report() {
+    let source = "IMPORT io\n\nFUNC main() AS Integer\n  io::print(\"hi\")\n  RETURN 3\nEND FUNC\n";
+    let run_app = |name: &str, debug: bool| {
+        let project = common::temp_project(name, source);
+        let mut command = Command::new(common::mfb_exe());
+        command.arg("build").arg("--app");
+        if debug {
+            command.arg("--debug");
+        }
+        let output = command.arg(&project).output().expect("run mfb build --app");
+        assert!(
+            output.status.success(),
+            "{name}: app build failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = Command::new(common::app_binary(&project, name))
+            .env("MFB_MACAPP_HEADLESS", "1")
+            .output()
+            .expect("run the headless app");
+        Run {
+            status: output.status,
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        }
+    };
+    let normal = run_app("dbgapp_normal", false);
+    let debug = run_app("dbgapp_debug", true);
+    assert!(
+        !normal.stderr.contains("mfb.debug."),
+        "an --app build without --debug must print no report:\n{}",
+        normal.stderr
+    );
+    assert_eq!(
+        debug.status.code(),
+        normal.status.code(),
+        "--debug changed the exit code"
+    );
+    assert_eq!(debug.stdout, normal.stdout, "--debug changed stdout");
+    let (before, block) = split_report("dbgapp", &debug.stderr);
+    assert_eq!(
+        before, normal.stderr,
+        "--debug changed stderr before the report"
+    );
+    assert_eq!(
+        block,
+        vec![
+            "mfb.debug.begin 1".to_string(),
+            "mfb.debug.target macos-aarch64".to_string(),
+            "mfb.debug.build app".to_string(),
+            "mfb.debug.end 1".to_string(),
+        ],
+        "headless app report block"
+    );
+}
