@@ -1,0 +1,27 @@
+$ mfb build -ast -ir tests/rt-behavior/datetime/datetime-offset-seconds-rt
+Wrote AST to tests/rt-behavior/datetime/datetime-offset-seconds-rt/datetime-offset-seconds-rt.ast
+Wrote IR to tests/rt-behavior/datetime/datetime-offset-seconds-rt/datetime-offset-seconds-rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/datetime/datetime-offset-seconds-rt
+Wrote executable to tests/rt-behavior/datetime/datetime-offset-seconds-rt/build/datetime-offset-seconds-rt.out
+[exit 0]
+$ tests/rt-behavior/datetime/datetime-offset-seconds-rt/build/datetime-offset-seconds-rt.out
+instant=-2840090638 offset=-17762
+toIso=1880-01-01T09:00:00.000-04:56:02
+toIso9=1880-01-01T09:00:00.000000000-04:56:02
+Z=-04:56:02
+ZZ=-04:56:02
+ZZZ=-045602
+isoRoundTrip=TRUE off=-17762
+compactRoundTrip=TRUE off=-17762
+sepRoundTrip=TRUE off=-17762
+isoSep=-2840090638 off=-17762
+isoCompact=-2840090638 off=-17762
+isoPlus=-2840108430 off=30
+wholeIso=2026-06-21T05:30:00.000+05:30
+wholeZZZ=+0530
+wholeNeg=-05:30
+wholeSep=1782378000 off=19800
+wholeCompact=1782378000 off=19800
+utc=1782397800 off=0
+[exit 0]

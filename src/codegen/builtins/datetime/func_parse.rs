@@ -44,9 +44,13 @@ the time `00:00:00.000000000`. The recognized tokens are:
 - `a` — AM/PM marker, case-insensitive
 - `EEE` / `EEEE` — weekday name; the letters are read but not validated
 - `Z` / `ZZ` / `ZZZ` — offset: the letter `Z` (or `z`) for UTC, else `+/-HH:MM` or
-  `+/-HHMM` (the colon between offset hours and minutes is optional)
+  `+/-HHMM` (the colon between offset hours and minutes is optional), optionally
+  followed by seconds in the same style (`+/-HH:MM:SS` or `+/-HHMMSS`). Every
+  offset field is exactly two digits
 
-Numeric tokens are greedy up to their stated width but accept fewer digits, so the
+`pattern` must account for all of `value`: text left over after the last token or
+literal raises `ErrInvalidFormat`. Numeric tokens other than the offset are greedy
+up to their stated width but accept fewer digits, so the
 minimal forms (`M`, `d`, `H`, `h`, `m`, `s`) read one or two digits and the padded
 forms accept the same. Name tokens (month names, AM/PM) are matched without regard
 to case. The weekday token only skips over the run of letters in `value`; it does
@@ -60,8 +64,9 @@ and `second` in `0 .. 59`, and the fractional second in
 `0 .. 999999999` nanoseconds. An out-of-range component raises
 `ErrInvalidFormat` — the same code a shape mismatch raises, so one `TRAP`
 catches every flavour of bad text. The bound is applied to the hour the value
-actually names, after the 12-hour/AM-PM fold. The offset token's magnitude must
-also be under 24 hours.
+actually names, after the 12-hour/AM-PM fold. The offset token's hours must be
+`00 .. 23` and its minutes and seconds `00 .. 59`, so its magnitude is under 24
+hours; `+05:75` and `+24:00` raise `ErrInvalidFormat` too.
 
 There is no rollover: `"2026-13-45"` is an error, not December-plus-one-month.
 That normalization belongs to `datetime::addMonths`/`datetime::addDays`, which
@@ -174,7 +179,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("DateTime"),
-                errors: vec![],
+                errors: vec!["ErrInvalidFormat"],
                 body: super::Body::mfb(BODY_2, "__datetime_parse2"),
             },
             super::Implementation {
@@ -202,7 +207,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("DateTime"),
-                errors: vec![],
+                errors: vec!["ErrInvalidFormat"],
                 body: super::Body::mfb(BODY_3, "__datetime_parse3"),
             },
         ],

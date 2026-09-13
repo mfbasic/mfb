@@ -5,7 +5,20 @@ Effort: x-large (1d–3d) — three independent shapes; the recursive-drop one i
 Severity: HIGH
 Class: Memory-safety / Security (denial of service — unbounded memory growth on ordinary programs; the real amplifier behind audit-3 DEC-03)
 
-Status: **shapes A, B, B-2 FIXED** (B-2: 2026-09-06, `b845db0de`). **Shape C remains, and is NOT a bug fix** — see the ruling below.
+Status: **CLOSED 2026-09-13.** Shapes A, B and B-2 are fixed; shape C is plan work (plan-134), not a bug.
+
+## STATUS: FIXED — shapes A (`f9be6e128`), B native (`cd8699103`), B-2 (`b845db0de`)
+
+- **Shape A** — `RETURN <record/union constructor>` no longer abandons its block: `f9be6e128`.
+- **Shape B, native half** — an unbound native `String` temp is freed when its producer proves it fresh: `cd8699103`.
+- **Shape B-2, callee half** — a `.mfb` callee's `String` is freed by its caller: `b845db0de`.
+- **Shape C** — a value of a recursive type is never freed. By the user's ruling
+  (2026-09-06, below) it is not a bug fix. It is designed and tracked as **plan-134**
+  (A–H, `planning/plan-134-*`: recursive values copied and freed), and it closes there.
+
+The history below is kept as it was written.
+
+Superseded status line: shapes A, B, B-2 FIXED (B-2: 2026-09-06, `b845db0de`); shape C remains, and is NOT a bug fix — see the ruling below.
 **Shape B's NATIVE half FIXED** (2026-09-05, `cd8699103`).
 **Shape B-2 (the callee half) FIXED** (2026-09-06, branch `bug-536-shape-b2`) —
 a `String` returned by a user / `.mfb`-bodied function may now be freed by its

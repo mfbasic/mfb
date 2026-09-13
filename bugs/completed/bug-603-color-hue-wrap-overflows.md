@@ -1,11 +1,11 @@
 # bug-603: `color::hsl` / `hsla` / `rotateHue` raise `ErrOverflow` for a large finite hue
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 Effort: small (<1h)
 Severity: LOW
 Class: Correctness
 
-Status: Open
+Status: Fixed — see STATUS block at the end
 Regression Test: `tests/rt-behavior/color/color_hsl_rt` (extend — see Phase 1)
 
 `color::hsl`, `color::hsla` and `color::rotateHue` fail at run time with
@@ -61,7 +61,10 @@ cd /tmp/hue-overflow && mfb build . && ./build/hue_overflow.out; echo "exit=$?"
   Arithmetic overflow or numeric conversion outside the destination range.
   exit=255
   ```
-- Expected: `hsla big hue: #ff00d4ff` — the colour of hue `304.0`, with exit 0.
+- Expected: `hsla big hue: #ff00eeff` — the colour of hue `304.0`, with exit 0.
+  (Corrected 2026-09-13: filed as `#ff00d4ff`, which is hue ~310. Hue 304 is
+  sector 5 with `x = 1 - |304/60 MOD 2 - 1| = 0.933`, blue `238 = ee`;
+  `color::hsla(304.0, 1.0, 0.5, 255)` prints `#ff00eeff` on the fixed binary.)
 
 The same program with `color::rotateHue(color::rgb(255, 0, 0), big)` fails
 identically (observed). `color::hsl(0.0 - big, 1.0, 0.5)` goes through the same
@@ -176,14 +179,17 @@ it needs a second, wrong answer for the large branch.
 injected into every program that imports `color` (`RegistryHelper::always`), so
 every `.ir` golden that embeds the colour helpers changes by exactly this
 function's lines, and the `.ncodesum` of any fixture importing `color` flips.
-`grep -rl '__color_wrapHue' tests/` lists them. No runtime output of an existing
+(Corrected 2026-09-13: `grep -rl '__color_wrapHue' tests/` lists **0** — the
+dumps spell the helper `#color_wrapHue`; `grep -rl '#color_wrapHue' tests/`
+lists 40 files, most via `term`, which imports `color`, and including
+`syntax/**` goldens that `sync-goldens.sh` does not refresh.) No runtime output of an existing
 fixture should change.
 
 ## Phases
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Extend `tests/rt-behavior/color/color_hsl_rt/src/main.mfb` with a hue of
+- [x] Extend `tests/rt-behavior/color/color_hsl_rt/src/main.mfb` with a hue of
       `1e36`, a hue of `-1e36`, a `rotateHue` by `1e36` (each printed beside the
       same colour built from the wrapped value, `304.0` / `56.0`), and
       `toHsl(hsl(-360.0, 1.0, 0.5)).hue`. Confirm the fixture stops at the first
@@ -193,33 +199,46 @@ fixture should change.
 
 Acceptance: the extended fixture fails for the documented reason; the audit
 list is complete with a verdict per site.
-Commit: —
+Commit: 333b23197 (test and fix landed together; RED observed on the unfixed
+release binary: prints through `wrap360=`, then `Error: 7-705-0010`, exit 255.
+Also added `tinyNeg`, a tiny negative hue whose lift rounds to 360.0)
 
 ### Phase 2 — the fix
 
-- [ ] Apply the Fix Design to `helper_hsl.rs:__color_wrapHue`.
-- [ ] Remove the "raises `ErrOverflow`" sentence from the `hue` parameter of
+- [x] Apply the Fix Design to `helper_hsl.rs:__color_wrapHue`.
+- [x] Remove the "raises `ErrOverflow`" sentence from the `hue` parameter of
       `func_hsl.rs` and `func_hsla.rs` and from `degrees` in `func_rotate_hue.rs`
       (added by plan-125 to document this bug as current behavior).
 
 Acceptance: the Phase 1 lines print the wrapped colours and `0.00`; every
 pre-existing `color_hsl_rt` output line is unchanged.
-Commit: —
+Commit: 333b23197
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `scripts/sync-goldens.sh target/release/mfb color_hsl_rt`, then diff:
-      the only runtime-output delta is the new lines.
-- [ ] Regenerate every other golden embedding the helper
+- [x] `scripts/sync-goldens.sh target/release/mfb color_hsl_rt`, then diff:
+      the only runtime-output delta is the new lines. (Ran the unfiltered sync
+      instead, to catch every embedding fixture: 42 files changed; the
+      `color_hsl_rt` `build.log` delta is exactly the five new lines.)
+- [x] Regenerate every other golden embedding the helper
       (`grep -rl '__color_wrapHue' tests/`) and confirm each `.ir` diff is only
       `__color_wrapHue`'s lines; regenerate flipped `.ncodesum`s per
-      `.ai/testing-gates.md`.
-- [ ] `scripts/artifact-gate.sh target/release/mfb all` → `diffs=0`; the
-      project's full suite.
+      `.ai/testing-gates.md`. (The grep must be `#color_wrapHue` — see the Fix
+      Design correction. All 37 other `.ir` diffs, after normalising `"line"`
+      keys and `builtins/color.mfb` `ErrorLoc` lines (+3), reduce to one
+      identical residual: the helper's old body against its new one;
+      `macos-app-mode-term` `.app.nir`/`.app.nplan` likewise. The gate then
+      flagged 9 `.ncodesum`s — `byte-identity/term` ×5 targets and
+      `macos-app-mode-term` ×4 `.app` targets — regenerated.)
+- [x] `scripts/artifact-gate.sh target/release/mfb all` → `diffs=0`; the
+      project's full suite. (Gate: 1437 tests, 2013 goldens, 0 diffs.
+      `cargo test --release --no-fail-fast`: 172 binaries, 5538 passed,
+      0 failed, 6 ignored. `scripts/test-accept.sh`: 1460 tests passed.
+      `cargo fmt --all --check`, both workspaces: clean.)
 
 Acceptance: full suite green; golden deltas are exactly the helper's lines plus
 the new fixture output.
-Commit: —
+Commit: 4100ca044 (goldens), 8e2826a37 (`.ncodesum`), db9867fe6 (rustfmt)
 
 ## Validation Plan
 
@@ -242,3 +261,20 @@ helper is injected into every program importing `color`, so the `.ir` and
 `.ncodesum` churn is wide but mechanical, and each diff must be confirmed to be
 only `__color_wrapHue`. The `audio` MML synth carries the same pattern latently
 and is left alone.
+
+## STATUS: FIXED (333b23197)
+
+Fixed 2026-09-13 as designed: `__color_wrapHue` uses `hue MOD 360.0`, and the
+`ErrOverflow` sentence is gone from the `hsl`/`hsla`/`rotateHue` parameters.
+The release repro prints `hsla big hue: #ff00eeff`, exit 0 (macos-aarch64).
+
+Deviations from the doc as filed:
+
+- The expected colour was wrong: hue 304 is `#ff00eeff`, not `#ff00d4ff`.
+- The golden census grep was wrong: dumps spell the helper `#color_wrapHue`,
+  so `__color_wrapHue` matched 0 files. 40 goldens changed, plus the fixture's
+  `.ast`/`build.log`, plus 9 `.ncodesum`s.
+- Added a sixth fixture line, `tinyNeg`, covering the `up >= 360.0` arm.
+- Runtime proof covers macos-aarch64 only. The helper is target-independent
+  MFBASIC, so the other targets are gated only by `.ncodesum` change sentinels,
+  not by execution.

@@ -20,7 +20,15 @@ FUNC __datetime_offsetLabelSep(seconds AS Integer, sep AS String) AS String
   END IF
   LET hh AS Integer = s / 3600
   LET mm AS Integer = (s / 60) MOD 60
-  RETURN sign & __datetime_pad2(hh) & sep & __datetime_pad2(mm)
+  LET label AS String = sign & __datetime_pad2(hh) & sep & __datetime_pad2(mm)
+  ' bug-520 S1: a host zone's LMT offset is not whole minutes (New York is
+  ' -04:56:02). Dropping the seconds wrote text naming a different instant, so
+  ' they are written when present; whole-minute labels are unchanged.
+  LET ss AS Integer = s MOD 60
+  IF ss = 0 THEN
+    RETURN label
+  END IF
+  RETURN label & sep & __datetime_pad2(ss)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

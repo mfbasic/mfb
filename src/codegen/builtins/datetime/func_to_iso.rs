@@ -9,7 +9,8 @@ an explicit UTC offset. The result is a freshly built `String` of the shape
 `yyyy-MM-ddTHH:mm:ss.fffZ`, for example `2026-06-25T14:30:00.000+05:30`, where
 the literal `T` separates the date from the time and the trailing field is the
 offset carried by `dt`: the single letter `Z` when the offset is zero, otherwise
-a signed `+HH:MM` or `-HH:MM`. The fractional-second field is zero-padded to a
+a signed `+HH:MM` or `-HH:MM` (`+HH:MM:SS` when the offset is not a whole number
+of minutes, so the text never names a different instant from `dt`). The fractional-second field is zero-padded to a
 fixed width, so the output of a given form is always the same length and sorts
 correctly as text.
 
@@ -170,7 +171,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::String,
-                errors: vec![],
+                errors: vec!["ErrInvalidArgument"],
                 body: super::Body::mfb(BODY_2, "__datetime_toIso2"),
             },
         ],

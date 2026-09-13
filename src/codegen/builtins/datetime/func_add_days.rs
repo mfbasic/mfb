@@ -10,20 +10,27 @@ adds `days`, converts that count back to a year-month-day date, and rebuilds the
 `datetime::DateTime` from the new date, `dt`'s original wall-clock time, and `dt`'s original
 zone.
 
-Because the result is re-resolved through `dt`'s zone, `addDays` is
-daylight-saving aware: the wall-clock time of day is preserved and the UTC offset
-is recomputed for the new date, so crossing a DST transition shifts the
-underlying instant by the appropriate 23-, 24-, or 25-hour day rather than a
-fixed `86_400` seconds. The sub-second nanosecond component of the time is carried
-through unchanged.
+For a `datetime::local` zone `addDays` is daylight-saving aware: the wall-clock
+time of day is preserved and the UTC offset is worked out for the new date, so
+crossing a DST transition shifts the underlying instant by the appropriate 23-,
+24-, or 25-hour day rather than a fixed `86_400` seconds. `dt`'s offset is kept
+whenever it is still valid at the new date and time, and only otherwise
+re-resolved the way `datetime::civil` resolves a local time. So when the result
+lands in a fall-back overlap, where the wall-clock time happens twice, it stays
+on the side `dt`'s offset names if that offset is one of the two. A fixed-offset
+or UTC zone keeps its offset. The sub-second nanosecond component of the time is
+carried through unchanged.
 
 `days` is a signed count: a positive value moves `dt` later in the calendar and a
 negative value moves it earlier. Adding zero days returns a `datetime::DateTime` equal to
 `dt`. The operation works purely in whole days and never alters the hour, minute,
 second, or nanosecond fields; for month-length-aware shifts use
 `datetime::addMonths`, and for uniform physical-time arithmetic on a `datetime::Instant`
-use `datetime::add`. `addDays` is pure: the same `datetime::DateTime` and day count always
-yield the same result, and it has no side effects."#;
+use `datetime::add`. `addDays` has no side effects. For a UTC or fixed-offset zone
+the same `datetime::DateTime` and day count always yield the same result. For a
+`datetime::local` zone the offset comes from the host's time-zone rules, so the
+same `dt` can yield a different absolute instant on a host configured for a
+different zone or DST rule."#;
 const EX: &str = r#"Advance a `datetime::DateTime` by one week:
 
 ```
@@ -88,7 +95,7 @@ r#"FUNC __datetime_addDays(dt AS DateTime, days AS Integer) AS DateTime
   IF dt.zone.kind <> 2 THEN
     RETURN DateTime[__datetime_civilFromDays(newDays), dt.time, dt.zone, dt.offset]
   END IF
-  RETURN __datetime_civil(__datetime_civilFromDays(newDays), dt.time, dt.zone)
+  RETURN __datetime_civilKeepOffset(__datetime_civilFromDays(newDays), dt.time, dt.zone, dt.offset)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

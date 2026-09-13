@@ -1,0 +1,80 @@
+' bug-520 S3/S4/S5: both readers laundered malformed offset text and ignored
+' trailing text instead of refusing it.
+'
+' - S3: `parseIso` returned right after the offset and `parse` after the last
+'   pattern token, so "...Zgarbage" and "2026-01-01 junk" parsed.
+' - S4: offset minutes were not range-checked (`+05:75` became +06:15) and a
+'   field could be one digit (`+5:30`, `+05:3`).
+' - S5: an offset of 24 h or more reached the `fixedOffset` constructor and
+'   raised its ErrInvalidArgument (77050002), not the readers' documented
+'   ErrInvalidFormat (77050003) for bad text.
+'
+' Every rejection must be ErrInvalidFormat. The accepted lines are
+' load-bearing: a strictness check that refuses valid text is the failure this
+' fixture exists to catch, so each boundary form is pinned to its offset.
+IMPORT io
+IMPORT datetime
+IMPORT errorCode
+
+FUNC iso(label AS String, value AS String) AS Integer
+  LET dt AS datetime::DateTime = datetime::parseIso(value)
+  io::print(label & "=ACCEPTED " & toString(datetime::resolve(dt).seconds) & " off=" & toString(dt.offset))
+  RETURN 0
+  TRAP(err)
+    io::print(label & "=" & toString(err.code) & " format=" & toString(err.code = errorCode::ErrInvalidFormat))
+    RETURN 1
+END TRAP
+END FUNC
+
+FUNC pat(label AS String, value AS String, pattern AS String) AS Integer
+  LET dt AS datetime::DateTime = datetime::parse(value, pattern, datetime::utc())
+  io::print(label & "=ACCEPTED " & toString(datetime::resolve(dt).seconds) & " off=" & toString(dt.offset))
+  RETURN 0
+  TRAP(err)
+    io::print(label & "=" & toString(err.code) & " format=" & toString(err.code = errorCode::ErrInvalidFormat))
+    RETURN 1
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' S3: trailing text.
+  iso("isoTrailZ", "2026-01-01T00:00:00Zgarbage")
+  iso("isoTrailOffset", "2026-01-01T00:00:00+05:30x")
+  iso("isoTrailSpace", "2026-01-01T00:00:00Z ")
+  pat("patTrail", "2026-01-01 junk", "yyyy-MM-dd")
+  pat("patTrailOffset", "2026-01-01 00:00 +05:30!", "yyyy-MM-dd HH:mm Z")
+  pat("patTrailDigit", "2026-01-015", "yyyy-MM-dd")
+
+  ' S4: impossible offset minutes/seconds and short fields.
+  iso("isoMin75", "2026-01-01T00:00:00+05:75")
+  iso("isoMin60", "2026-01-01T00:00:00+05:60")
+  iso("isoSec60", "2026-01-01T00:00:00+05:30:60")
+  iso("isoHour1", "2026-01-01T00:00:00+5:30")
+  iso("isoMin1", "2026-01-01T00:00:00+05:3")
+  iso("isoSec1", "2026-01-01T00:00:00+05:30:1")
+  iso("isoHourOnly", "2026-01-01T00:00:00+05")
+  iso("isoColonNoSec", "2026-01-01T00:00:00+05:30:")
+  pat("patMin75", "2026-01-01 00:00 +05:75", "yyyy-MM-dd HH:mm Z")
+  pat("patHour1", "2026-01-01 00:00 +5:30", "yyyy-MM-dd HH:mm Z")
+
+  ' S5: an offset of 24 h or more is bad text, not a bad argument.
+  iso("isoPlus24", "2026-01-01T00:00:00+24:00")
+  iso("isoMinus24", "2026-01-01T00:00:00-24:00")
+  iso("isoPlus99", "2026-01-01T00:00:00+99:00")
+  pat("patPlus24", "2026-01-01 00:00 +24:00", "yyyy-MM-dd HH:mm Z")
+
+  ' Accepted boundaries.
+  iso("okZ", "2026-01-01T00:00:00Z")
+  iso("okLowerZ", "2026-01-01T00:00:00z")
+  iso("okMax", "2026-01-01T00:00:00+23:59:59")
+  iso("okMin", "2026-01-01T00:00:00-23:59:59")
+  iso("okCompactMax", "2026-01-01T00:00:00-235959")
+  iso("okMinute59", "2026-01-01T00:00:00+05:59")
+  iso("okZero", "2026-01-01T00:00:00-00:00")
+  iso("okFraction", "2026-01-01T00:00:00.123456789012+01:00")
+  pat("okPatNoOffset", "2026-01-01", "yyyy-MM-dd")
+  pat("okPatLiteralTail", "2026-01-01 at noon", "yyyy-MM-dd 'at noon'")
+  pat("okPatOffset", "2026-01-01 00:00 -0800", "yyyy-MM-dd HH:mm Z")
+  pat("okPatSecondsOffset", "2026-01-01 00:00 +01:00:30", "yyyy-MM-dd HH:mm Z")
+  RETURN 0
+END FUNC
