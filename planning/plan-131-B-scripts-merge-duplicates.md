@@ -125,14 +125,29 @@ own phase with a mutation test.
 
 - [ ] Produce one report JSON with `sh scripts/coverage-bins.sh`. Record the wall time and the
       JSON path here.
-- [ ] Write `scripts/coverage-report.py` with subcommands `gaps`, `lines`, `shapes`, `dead` and
+- [x] Write `scripts/coverage-report.py` with subcommands `gaps`, `lines`, `shapes`, `dead` and
       `delta`, sharing one loader. The exceptions path is resolved relative to `__file__`.
-- [ ] Differential: for each subcommand, run the old script and the new subcommand from the repo
+      The loader, the exceptions read and the `src/**` key function (repository prefix first) are
+      each written once. The subcommand bodies are straight ports.
+      `shapes` keeps its original fixed 98 floor, and `delta` applies exceptions to the counts only,
+      as the originals did.
+- [x] Differential: for each subcommand, run the old script and the new subcommand from the repo
       root on that JSON (for `delta`, on two JSONs; a copy with one file's counts edited is
       enough), then `diff` the stdout → identical. For `lines`, test both with and without
       `--source`. Record the five diff results.
-- [ ] Also run the new script from `/tmp` → same output. This shows the cwd-relative exceptions
+      Run 2026-09-12 on the main checkout's `target/coverage/coverage.json` (a full llvm-cov
+      export; re-checked on the fresh bins JSON below). Every `diff` is empty:
+      - `gaps` (29 lines: `359 src/** files below 98%, 16935 uncovered lines`);
+      - `lines src/arch/aarch64/encode/emitter.rs` (18 lines), and with `--source` (36 lines);
+      - `shapes` (49 lines: `13386 uncovered region-entry lines`);
+      - `dead --top 40` (83 lines: `1120 src/** functions never executed`);
+      - `delta` with one report (361 lines), and with two (3 lines). The second report is a copy
+        with `emitter.rs` covered lowered by 50 (`-5.13   97.64% ->  92.51%`).
+- [x] Also run the new script from `/tmp` → same output. This shows the cwd-relative exceptions
       bug is gone.
+      New `gaps` from `/tmp` is identical to new from the repo root (359 files). Old
+      `coverage-src-gaps.py` from `/tmp` reports `372 src/** files below 98%, 18530 uncovered
+      lines`, 13 more files, because it cannot find the exceptions file from there.
 - [ ] Add `--bins` to `scripts/coverage.sh`. Run `sh scripts/coverage.sh --bins` and compare its
       JSON with `coverage-bins.sh`'s: they must be identical after sorting keys, or differ only in
       timestamps (record which).

@@ -270,7 +270,7 @@ Acceptance:
 - `check-net-harness-selftest.sh` exits 0.
 - `test-canvas-vulkan.sh` run from `/tmp` reaches and completes the groups stage.
 
-Commit: —
+Commit: 6347f0be5
 
 ### Phase 2 — Delete the 8 dead files
 
@@ -305,7 +305,7 @@ Acceptance:
   Measured 2026-09-12: 1 + 5 + 3 passed, exit 0.
 - The grep above finds 0 hits.
 
-Commit: —
+Commit: 6347f0be5
 
 ### Phase 3 — Fix every stale reference
 
@@ -360,7 +360,7 @@ Acceptance:
 - `sh scripts/check-generated.sh` exits 0.
 - `test-accept-selftest.sh` exits 0.
 
-Commit: —
+Commit: 6347f0be5
 
 ## Validation Plan
 
@@ -369,6 +369,8 @@ Commit: —
 - Runtime proof: the Phase 1 harness runs, with their output recorded above.
 - Neutrality: `bash scripts/artifact-gate.sh target/release/mfb all` → 0 diffs (A touches no
   compiler input). `git diff --stat` shows only files named in this plan.
+  Measured 2026-09-12 at `6347f0be5`: `artifact-gate [all]: 1436 tests, 1602 build(s), 2011
+  golden(s) checked, 0 diff(s)`, exit 0.
 - Doc sync: `.ai/testing-gates.md`, `.ai/resources-packages.md`, `scripts/README.md`,
   `tools/codepage-index/README.md`. No `mfb man`/spec change.
 
