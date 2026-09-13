@@ -133,6 +133,8 @@ impl CodeInstruction {
             CodeOp::StrU64 | CodeOp::StrU32 | CodeOp::StrU16 | CodeOp::StrU8 => {
                 &["src", "base", "offset"]
             }
+            CodeOp::LdarU64 | CodeOp::LdarU32 => &["dst", "base"],
+            CodeOp::StlrU64 => &["src", "base"],
             CodeOp::LdrD => &["dst", "base", "offset"],
             CodeOp::StrD => &["src", "base", "offset"],
             CodeOp::Adrp | CodeOp::AddPageOff => &["dst", "symbol"],

@@ -8,33 +8,28 @@
 
 use std::collections::BTreeMap;
 
-const MFPC_MAGIC: &[u8; 4] = b"MFPC";
-const SECTION_MANIFEST: u16 = 1;
-const SECTION_STRING_POOL: u16 = 2;
-const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;
-const SECTION_ABI_INDEX: u16 = 15;
-/// Optional human-facing package metadata (plan-61-D). Restated here for the
-/// same reason as the ids above: this crate does not depend on the compiler.
-const SECTION_PACKAGE_META: u16 = 18;
-const PACKAGE_META_FIELD_DESCRIPTION: u16 = 1;
-/// Mirrors `crate::manifest::MAX_DESCRIPTION_BYTES` in the compiler crate.
-const MAX_DESCRIPTION_BYTES: usize = 4096;
-const ABI_FORMAT_VERSION: u16 = 1;
-const ABI_HASH_LEN: usize = 32;
-
-/// Wire discriminant for a `vendor` native-library locator (plan-46-B §4.1).
-/// A vendor locator carries a 32-byte SHA-256 of the file; a `system` locator
-/// (discriminant 0) names a file the registry never sees and carries no hash.
-const WIRE_LIB_TYPE_VENDOR: u8 = 1;
-const NATIVE_LIBRARY_HASH_LEN: usize = 32;
-
-/// Wire encoding of the `libc` axis (plan-46-B §4.1), mirrored from
-/// `src/binary_repr/mod.rs:353-359`. This crate is a dependency *of* the
-/// compiler crate, not the other way round, so the constants are restated here
-/// rather than imported — as `MFPC_MAGIC` and the section ids above already are.
-const WIRE_LIBC_UNSPECIFIED: u8 = 0;
-const WIRE_LIBC_GLIBC: u8 = 1;
-const WIRE_LIBC_MUSL: u8 = 2;
+// plan-126-C: the MFPC magic, the section ids, the field/format versions, the
+// limits and the `libc`/`lib_type` wire encodings all come from
+// `mfb_wire::mfpc` now. They used to be **restated** here, under a comment
+// explaining that this crate does not depend on the compiler crate and citing
+// `src/binary_repr/mod.rs` as the source of truth — fifteen constants kept in
+// step by hand. `mfb_wire` is the crate both may depend on, so the apology and
+// the copies are both gone.
+//
+// `read_section_table` came from there too, and that one mattered more than the
+// constants: it decodes bytes a package signature covers, and the two
+// hand-synchronized copies had already drifted in **both** directions. This
+// crate's version lacked the MFPC major-version check and used `as usize` where
+// the compiler used `checked_usize`; the compiler's lacked the
+// `MAX_MFPC_SECTIONS` ceiling this one added in bug-578. The shared reader
+// enforces the union, so both sides gained a guard.
+use mfb_wire::bytes::ABI_HASH_LEN;
+use mfb_wire::mfpc::{
+    read_section_table, ABI_FORMAT_VERSION, MAX_DESCRIPTION_BYTES, NATIVE_LIBRARY_HASH_LEN,
+    PACKAGE_META_FIELD_DESCRIPTION, SECTION_ABI_INDEX, SECTION_MANIFEST,
+    SECTION_NATIVE_LIBRARY_TABLE, SECTION_PACKAGE_META, SECTION_STRING_POOL, WIRE_LIBC_GLIBC,
+    WIRE_LIBC_MUSL, WIRE_LIBC_UNSPECIFIED, WIRE_LIB_TYPE_VENDOR,
+};
 
 /// Decode the `libc` wire byte into the token stored in
 /// `package_version_targets.libc`. An unrecognized value is an error, not a
@@ -68,6 +63,61 @@ fn decode_libc(raw: u8) -> Result<Option<String>, String> {
 /// legitimate package while capping the fan-out.
 const MAX_VENDOR_ENTRIES: usize = 1024;
 const MAX_VENDOR_LOCATORS: usize = 4096;
+
+/// Format-level ceilings on what an MFPC container may declare (bug-578).
+///
+/// Every count below is a raw `u32` read straight off an attacker-controlled,
+/// authenticated-but-untrusted payload, and parsing previously stopped only
+/// when the running offset ran off the end of the section. That makes the
+/// 64 MiB request-body limit (`server.rs:MAX_BODY_BYTES`) the only bound — and
+/// it is the wrong bound, because the in-memory representation is several times
+/// larger than the wire bytes that declare it. The worst case is the string
+/// pool: a `String` is 24 bytes on a 64-bit target while the smallest possible
+/// entry is its 4-byte length prefix, so a ~48 MiB pool of empty entries
+/// expands to a ~288 MiB `Vec<String>` on a 512 MiB server, reachable by any
+/// self-registered owner through `/validate` or `/publish`.
+///
+/// The values are derived from the compiler's *actual* maxima, measured across
+/// every committed compiler-produced package (`packages/*/*.mfp`):
+///
+/// | package     | sections | pool entries | pool bytes | ABI exports | meta fields |
+/// |-------------|---------:|-------------:|-----------:|------------:|------------:|
+/// | cli         |       11 |           45 |        423 |           8 |           1 |
+/// | json_schema |       12 |          628 |      9,175 |          24 |           1 |
+/// | jwt         |       12 |          914 |     12,763 |          48 |           1 |
+/// | libsnd      |       14 |           56 |        669 |          12 |           1 |
+/// | mustache    |       12 |          305 |      4,112 |          12 |           1 |
+/// | sqlite3     |       14 |           64 |        767 |          28 |           1 |
+/// | yaml        |       12 |          356 |      4,600 |          11 |           1 |
+///
+/// Each ceiling therefore sits three to four orders of magnitude above anything
+/// the compiler emits today. They bound the damage; they are not a schema.
+///
+// `MAX_MFPC_SECTIONS` moved to `mfb_wire::mfpc` with `read_section_table`, the
+// only thing that enforces it (plan-126-C). The measurement table above is the
+// evidence for it and for the four ceilings below, so it stays here; the
+// constant's own rationale travelled with it.
+
+/// `MAX_STRING_POOL_ENTRIES`: 1,147x the largest real pool (jwt, 914 entries).
+/// Caps the `Vec<String>` at ~24 MiB of `String` headers.
+const MAX_STRING_POOL_ENTRIES: usize = 1024 * 1024;
+
+/// `MAX_STRING_POOL_BYTES`: aggregate decoded string bytes, ~2,600x the largest
+/// real pool (jwt, 12,763 bytes) and half the request-body limit. The pool's
+/// bytes are 1:1 with the wire, so this is the weaker of the two pool bounds —
+/// it exists so the pool's share of a 64 MiB body stays bounded on its own.
+const MAX_STRING_POOL_BYTES: usize = 32 * 1024 * 1024;
+
+/// `MAX_ABI_EXPORTS`: 5,461x the largest real index (jwt, 48 exports). An export
+/// is 38 wire bytes, so the body limit alone allowed ~1.7 million iterations,
+/// each a `hex::encode` allocation, on every `/validate` and `/publish`.
+const MAX_ABI_EXPORTS: usize = 256 * 1024;
+
+/// `MAX_PACKAGE_META_FIELDS`: the writer emits exactly one field (the
+/// description, `src/binary_repr/writer.rs:1127`). An unknown field id is
+/// *skipped*, which is what makes a later field additive — and what made the
+/// loop free to spin ~10 million times on a 64 MiB payload.
+const MAX_PACKAGE_META_FIELDS: usize = 256;
 
 /// One `vendor` locator drawn from a package's section-10 `NATIVE_LIBRARY_TABLE`
 /// — the logical library it belongs to, its bare source filename, the hex
@@ -220,6 +270,15 @@ pub fn parse_package_description(payload: &[u8]) -> Result<Option<String>, Strin
     let mut offset = 0usize;
     let field_count = read_u32(bytes, offset)? as usize;
     offset += 4;
+    // Reject on the declared count before the loop (bug-578). Unknown field ids
+    // are skipped rather than rejected — which is what makes a later field
+    // additive, and what left this loop free to spin ~10 million times.
+    if field_count > MAX_PACKAGE_META_FIELDS {
+        return Err(format!(
+            "package meta section declares {field_count} fields \
+             (limit {MAX_PACKAGE_META_FIELDS})"
+        ));
+    }
     let mut description = None;
     for _ in 0..field_count {
         let field_id = read_u16(bytes, offset)?;
@@ -314,35 +373,6 @@ pub fn abi_index_json(payload: &[u8]) -> serde_json::Value {
     }
 }
 
-fn read_section_table(bytes: &[u8]) -> Result<BTreeMap<u16, &[u8]>, String> {
-    if bytes.len() < 16 || &bytes[0..4] != MFPC_MAGIC {
-        return Err("payload is not an MFPC container".to_string());
-    }
-    let section_count = read_u32(bytes, 12)? as usize;
-    let table_end = 16usize
-        .checked_add(section_count.checked_mul(24).ok_or("bad section table")?)
-        .ok_or("bad section table")?;
-    if table_end > bytes.len() {
-        return Err("truncated MFPC section table".to_string());
-    }
-    let mut sections = BTreeMap::new();
-    for index in 0..section_count {
-        let entry = 16 + index * 24;
-        let id = read_u16(bytes, entry)?;
-        let offset = read_u64(bytes, entry + 8)? as usize;
-        let length = read_u64(bytes, entry + 16)? as usize;
-        let end = offset.checked_add(length).ok_or("bad section length")?;
-        if end > bytes.len() {
-            return Err("truncated MFPC section".to_string());
-        }
-        // A repeated section id is tampering (matches the compiler reader).
-        if sections.insert(id, &bytes[offset..end]).is_some() {
-            return Err(format!("duplicate MFPC section id {id}"));
-        }
-    }
-    Ok(sections)
-}
-
 fn read_string_pool(bytes: &[u8]) -> Result<Vec<String>, String> {
     let mut offset = 0usize;
     let count = read_u32(bytes, offset)? as usize;
@@ -353,10 +383,29 @@ fn read_string_pool(bytes: &[u8]) -> Result<Vec<String>, String> {
     // over-reserved by up to 24x — a ~48 MiB section declaring a huge count forced
     // a ~1.15 GiB transient allocation, on every /validate and /publish, for a
     // pool that can hold at most `len / 4` strings.
+    //
+    // That cap is still not an absolute one (bug-578): `bytes.len() / 4` is
+    // exactly the number of empty entries an attacker supplies, so a ~48 MiB
+    // pool of 4-byte entries still built ~12 million `String`s — ~288 MiB on a
+    // 512 MiB server. The entry ceiling below is what bounds it; the `min` is
+    // kept because it still avoids over-reserving for a *truncated* pool.
+    if count > MAX_STRING_POOL_ENTRIES {
+        return Err(format!(
+            "string pool declares {count} entries (limit {MAX_STRING_POOL_ENTRIES})"
+        ));
+    }
     let mut strings = Vec::with_capacity(count.min(bytes.len() / 4));
+    let mut total_bytes = 0usize;
     for _ in 0..count {
         let length = read_u32(bytes, offset)? as usize;
         offset += 4;
+        // Bound the aggregate before the entry is copied out, not after.
+        total_bytes = total_bytes.saturating_add(length);
+        if total_bytes > MAX_STRING_POOL_BYTES {
+            return Err(format!(
+                "string pool declares more than {MAX_STRING_POOL_BYTES} bytes of strings"
+            ));
+        }
         let end = offset.checked_add(length).ok_or("bad string length")?;
         if end > bytes.len() {
             return Err("truncated string pool entry".to_string());
@@ -381,6 +430,14 @@ fn read_abi_exports(bytes: &[u8], strings: &[String]) -> Result<BTreeMap<String,
     offset += 2; // reserved
     let export_count = read_u32(bytes, offset)? as usize;
     offset += 4;
+    // Reject on the declared count before the loop (bug-578): an export is 38
+    // wire bytes, so the request-body limit alone allowed ~1.7 million
+    // iterations, each a `hex::encode` allocation.
+    if export_count > MAX_ABI_EXPORTS {
+        return Err(format!(
+            "ABI index declares {export_count} exports (limit {MAX_ABI_EXPORTS})"
+        ));
+    }
     let mut map = BTreeMap::new();
     for _ in 0..export_count {
         let name_index = read_u32(bytes, offset)? as usize;
@@ -415,12 +472,10 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
-fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
-    let slice = bytes.get(offset..offset + 8).ok_or("truncated u64")?;
-    Ok(u64::from_le_bytes([
-        slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
-    ]))
-}
+// `read_u64` is gone (plan-126-C). Its only production caller was this file's
+// `read_section_table`, which moved to `mfb_wire::mfpc` — where the equivalent
+// is `bytes::checked_u64_at`, with its own tests. Keeping it here would have
+// left a helper used by nothing but a test that tested the helper.
 
 /// A minimal `vendor` locator for tests that care only about the blob hash —
 /// the version→blob edges in `store.rs` and the reachability walk in `gc.rs`,
@@ -443,6 +498,12 @@ pub(crate) fn vendor_ref_for_hash(hash: &str) -> VendorBlobRef {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // plan-126-C: both are now this file's *tests*-only vocabulary — the
+    // production code that used them (`read_section_table`) moved to
+    // `mfb_wire::mfpc`. The tests stay: they assert the registry's
+    // *best-effort posture* around the shared reader, which is this crate's
+    // behaviour and not the reader's.
+    use mfb_wire::mfpc::{MAX_MFPC_SECTIONS, MFPC_MAGIC};
 
     fn put_u16(dst: &mut Vec<u8>, value: u16) {
         dst.extend_from_slice(&value.to_le_bytes());
@@ -500,6 +561,88 @@ mod tests {
             bytes.extend_from_slice(data);
         }
         bytes
+    }
+
+    /// Like [`container`], but with a caller-chosen MFPC major version, so a
+    /// test can build the one thing the registry used to accept and no longer
+    /// does.
+    fn container_with_major(sections: &[(u16, Vec<u8>)], major: u16) -> Vec<u8> {
+        let mut bytes = container(sections);
+        bytes[4..6].copy_from_slice(&major.to_le_bytes());
+        bytes
+    }
+
+    /// **plan-126-C Phase 3 — the guard this crate was missing.**
+    ///
+    /// Before the shared reader, this crate's `read_section_table` never checked
+    /// the MFPC major version: only the compiler's copy did. A v1 or v3
+    /// container's payload layout differs throughout, so decoding one as v2
+    /// mis-reads rather than failing.
+    ///
+    /// The failure mode is **silent**, which is why this asserts the error
+    /// directly instead of watching a publish succeed: `abi_index_json` maps
+    /// *every* parse error to `{}`, so a missing guard does not reject anything
+    /// — it records empty metadata for a package the compiler would refuse to
+    /// load, and nothing announces it.
+    #[test]
+    fn a_wrong_mfpc_major_version_is_now_rejected_by_this_crate_too() {
+        let sections = [
+            (SECTION_STRING_POOL, string_pool(&["greet"])),
+            // string index 0 is "greet" in the pool above.
+            (SECTION_ABI_INDEX, abi_section(&[(0, [0x11; 32])])),
+        ];
+
+        // v2 is what the compiler emits: parses, and yields the real index.
+        let good = container(&sections);
+        let parsed = parse_abi_index(&good).expect("a v2 container parses");
+        assert_eq!(parsed.len(), 1);
+        assert!(abi_index_json(&good).get("greet").is_some());
+
+        // v3 and v1 are both refused, explicitly and by name.
+        for major in [1u16, 3] {
+            let bytes = container_with_major(&sections, major);
+            let err = parse_abi_index(&bytes).unwrap_err();
+            assert!(
+                err.contains(&format!("unsupported MFPC major version {major}")),
+                "major {major}: {err}"
+            );
+
+            // And this is the insidious part, asserted rather than assumed: the
+            // error is swallowed into an empty object, so a publish carrying
+            // this payload would have succeeded with empty `abiIndex` either
+            // way. The guard changes *which* packages land with empty metadata,
+            // not whether they land.
+            assert_eq!(abi_index_json(&bytes), serde_json::json!({}));
+        }
+    }
+
+    /// The registry's **best-effort posture** toward optional sections survives
+    /// the reader swap: a payload that is not an MFPC container at all must
+    /// still mean "no such section", never an error, for the parsers whose
+    /// absence case is normal. A package with no section 10 or 18 is the
+    /// ordinary case, not a finding.
+    #[test]
+    fn a_non_container_payload_still_means_no_such_section_not_an_error() {
+        for payload in [
+            &b""[..],
+            &b"not an MFPC container"[..],
+            // A v3 container: structurally a container, wrong version. The
+            // best-effort parsers must treat it as "nothing here" too.
+            &container_with_major(&[(SECTION_STRING_POOL, string_pool(&["x"]))], 3)[..],
+        ] {
+            assert_eq!(
+                parse_vendor_blobs(payload).expect("vendor blobs are best-effort"),
+                Vec::new(),
+            );
+            assert_eq!(
+                parse_package_description(payload).expect("description is best-effort"),
+                None,
+            );
+            assert_eq!(
+                parse_manifest_metadata(payload).expect("manifest metadata is best-effort"),
+                None,
+            );
+        }
     }
 
     #[test]
@@ -918,13 +1061,28 @@ mod tests {
     /// trying to reserve for `count` strings.
     #[test]
     fn string_pool_does_not_preallocate_beyond_what_the_section_can_hold() {
+        // bug-578 moved the *outer* bound to an absolute entry ceiling, which a
+        // `u32::MAX` count now trips first. The bug-276 R8 invariant is about
+        // the counts the ceiling still admits, so probe it at the ceiling: the
+        // section can hold 16 entries, the header claims 1,048,576, and the
+        // reservation must follow the section, not the claim.
         let mut pool = Vec::new();
-        put_u32(&mut pool, u32::MAX); // declared count
+        put_u32(&mut pool, MAX_STRING_POOL_ENTRIES as u32); // declared count
         pool.extend_from_slice(&[0u8; 64]); // but only 64 bytes of entries
         let err = read_string_pool(&pool).unwrap_err();
         assert!(
             err.contains("truncated"),
             "expected a truncation rejection, got: {err}"
+        );
+
+        // A count past the ceiling is refused earlier still, on the count alone.
+        let mut pool = Vec::new();
+        put_u32(&mut pool, u32::MAX);
+        pool.extend_from_slice(&[0u8; 64]);
+        let err = read_string_pool(&pool).unwrap_err();
+        assert!(
+            err.contains("entries"),
+            "expected an entry-cap rejection, got: {err}"
         );
     }
 
@@ -1051,13 +1209,325 @@ mod tests {
             .contains("truncated string pool entry"));
     }
 
+    /// The `read_u64` row is gone with the helper (plan-126-C): its only
+    /// production caller was this file's `read_section_table`, now
+    /// `mfb_wire::mfpc`'s, where `bytes::checked_u64_at` carries its own
+    /// truncation and wrap-offset tests.
     #[test]
     fn read_integer_helpers_report_truncation() {
         assert!(read_u16(&[0u8], 0).is_err());
         assert!(read_u32(&[0u8; 2], 0).is_err());
-        assert!(read_u64(&[0u8; 4], 0).is_err());
         assert_eq!(read_u16(&[2, 0], 0).unwrap(), 2);
         assert_eq!(read_u32(&[2, 0, 0, 0], 0).unwrap(), 2);
-        assert_eq!(read_u64(&[2, 0, 0, 0, 0, 0, 0, 0], 0).unwrap(), 2);
+    }
+
+    // ---------------------------------------------------------------------
+    // bug-578: format-level ceilings on section, string-pool, ABI-export and
+    // package-meta counts.
+    //
+    // Measured on HEAD before the fix (`python3` census of every committed
+    // compiler-produced package, `packages/*/*.mfp`):
+    //
+    //   package      sections  pool entries  pool bytes  abi exports  meta fields
+    //   cli               11            45         423            8            1
+    //   json_schema       12           628       9,175           24            1
+    //   jwt               12           914      12,763           48            1
+    //   libsnd            14            56         669           12            1
+    //   mustache          12           305       4,112           12            1
+    //   sqlite3           14            64         767           28            1
+    //   yaml              12           356       4,600           11            1
+    //
+    // The ceilings below sit three to four orders of magnitude above those
+    // real maxima; see the constant docs for each derivation.
+    // ---------------------------------------------------------------------
+
+    /// A pool whose entries are all zero-length: `count` real 4-byte entries.
+    fn empty_entry_pool(count: u32) -> Vec<u8> {
+        let mut pool = Vec::with_capacity(4 + count as usize * 4);
+        put_u32(&mut pool, count);
+        for _ in 0..count {
+            put_u32(&mut pool, 0);
+        }
+        pool
+    }
+
+    /// The headline shape (bug-578): the declared count is backed by real
+    /// bytes, so truncation never fires and the pre-fix parser built one
+    /// `String` per entry.
+    ///
+    /// A `String` is 24 bytes on a 64-bit target while the smallest entry is
+    /// its 4-byte length prefix, so a ~48 MiB pool of empty entries expands to
+    /// a ~288 MiB `Vec<String>` on a 512 MiB server. bug-276 R8 capped the
+    /// *pre-allocation* at `bytes.len() / 4`, which is exactly the number of
+    /// entries the attacker supplies here — it never bounded the pool in
+    /// absolute terms. Only an entry ceiling does.
+    #[test]
+    fn string_pool_rejects_excessive_entry_count() {
+        let pool = empty_entry_pool(MAX_STRING_POOL_ENTRIES as u32 + 1);
+        let err = read_string_pool(&pool).unwrap_err();
+        assert!(
+            err.contains("string pool") && err.contains("entries"),
+            "expected an entry-cap rejection, got: {err}"
+        );
+    }
+
+    /// The same ceiling has to hold through every public entry point, because
+    /// `validate_package_request` reaches the pool through all of them.
+    #[test]
+    fn every_consumer_rejects_an_oversized_string_pool() {
+        let pool = empty_entry_pool(MAX_STRING_POOL_ENTRIES as u32 + 1);
+        let payload = container(&[
+            (SECTION_MANIFEST, vec![0u8; 64]),
+            (SECTION_STRING_POOL, pool.clone()),
+            (SECTION_ABI_INDEX, abi_section(&[])),
+            (
+                SECTION_NATIVE_LIBRARY_TABLE,
+                native_library_table(&[(0, &[])]),
+            ),
+        ]);
+        assert!(parse_abi_index(&payload).unwrap_err().contains("entries"));
+        assert!(parse_vendor_blobs(&payload)
+            .unwrap_err()
+            .contains("entries"));
+        assert!(parse_manifest_metadata(&payload)
+            .unwrap_err()
+            .contains("entries"));
+        // `abi_index_json` is best-effort, so the rejection surfaces as the
+        // empty object rather than an error — but the pool is still never built.
+        assert_eq!(abi_index_json(&payload), serde_json::json!({}));
+    }
+
+    /// Aggregate decoded string bytes are capped too. Byte-for-byte the pool is
+    /// no worse than 1:1 with the request body, but the cap keeps the pool's
+    /// share of a 64 MiB body bounded independently of the entry ceiling.
+    #[test]
+    fn string_pool_rejects_excessive_aggregate_bytes() {
+        let chunk = 1024 * 1024;
+        let entries = MAX_STRING_POOL_BYTES / chunk + 1;
+        let mut pool = Vec::new();
+        put_u32(&mut pool, entries as u32);
+        for _ in 0..entries {
+            put_u32(&mut pool, chunk as u32);
+            pool.resize(pool.len() + chunk, b'x');
+        }
+        let err = read_string_pool(&pool).unwrap_err();
+        assert!(
+            err.contains("string pool") && err.contains("bytes"),
+            "expected an aggregate-byte rejection, got: {err}"
+        );
+    }
+
+    /// The section table was bounded only by the body: a 64 MiB payload can
+    /// declare ~2.7 million 24-byte table entries, every one of them walked and
+    /// inserted into a `BTreeMap` before anything else is checked.
+    #[test]
+    fn section_table_rejects_excessive_section_count() {
+        let count = MAX_MFPC_SECTIONS + 1;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(MFPC_MAGIC);
+        put_u16(&mut bytes, 2);
+        put_u16(&mut bytes, 0);
+        put_u32(&mut bytes, 0);
+        put_u32(&mut bytes, count as u32);
+        // Real, distinct, zero-length entries: rejection must come from the
+        // count, not from truncation or the duplicate-id check.
+        for index in 0..count {
+            put_u16(&mut bytes, index as u16 + 1);
+            put_u16(&mut bytes, 0);
+            put_u32(&mut bytes, 0);
+            put_u64(&mut bytes, 0);
+            put_u64(&mut bytes, 0);
+        }
+        let err = read_section_table(&bytes).unwrap_err();
+        assert!(
+            err.contains("sections"),
+            "expected a section-count rejection, got: {err}"
+        );
+    }
+
+    /// `read_abi_exports` had no export ceiling: 38 wire bytes per export means
+    /// a 64 MiB payload drives ~1.7 million iterations, each one a `hex::encode`
+    /// allocation, on every `/validate` and `/publish`.
+    #[test]
+    fn abi_index_rejects_excessive_export_count() {
+        let count = MAX_ABI_EXPORTS + 1;
+        let mut abi = Vec::with_capacity(8 + count * 38);
+        put_u16(&mut abi, ABI_FORMAT_VERSION);
+        put_u16(&mut abi, 0);
+        put_u32(&mut abi, count as u32);
+        for _ in 0..count {
+            put_u32(&mut abi, 0); // every export names string 0
+            put_u16(&mut abi, 1);
+            abi.extend_from_slice(&[0u8; ABI_HASH_LEN]);
+        }
+        let payload = container(&[
+            (SECTION_STRING_POOL, string_pool(&["greet"])),
+            (SECTION_ABI_INDEX, abi),
+        ]);
+        let err = parse_abi_index(&payload).unwrap_err();
+        assert!(
+            err.contains("exports"),
+            "expected an export-cap rejection, got: {err}"
+        );
+    }
+
+    /// Section 18's field loop was bounded only by truncation at 6 bytes per
+    /// field — ~10 million iterations for a 64 MiB payload.
+    #[test]
+    fn package_meta_rejects_excessive_field_count() {
+        let count = MAX_PACKAGE_META_FIELDS + 1;
+        let mut section = Vec::new();
+        put_u32(&mut section, count as u32);
+        for _ in 0..count {
+            put_u16(&mut section, 777); // unknown field id: skipped, not stored
+            put_u32(&mut section, 0);
+        }
+        let payload = container(&[(SECTION_PACKAGE_META, section)]);
+        let err = parse_package_description(&payload).unwrap_err();
+        assert!(
+            err.contains("fields"),
+            "expected a field-cap rejection, got: {err}"
+        );
+    }
+
+    /// POSITIVE PIN 1 — a real compiler-produced `.mfp` still parses to exactly
+    /// the same ABI index, vendor locators and metadata.
+    ///
+    /// `tests/fixtures/libsnd.mfp` is the widest shape the compiler emits: all
+    /// 14 sections, a section-10 table with seven real `vendor` locators across
+    /// three architectures and both libc flavours, a section-18 description, and
+    /// a 12-entry ABI index. If a ceiling ever starts refusing legitimate
+    /// packages, this is the test that fails.
+    ///
+    /// It is a COMMITTED copy, deliberately. The pin originally read the build
+    /// output at `packages/libsnd/libsnd.mfp`, which `.gitignore:34`
+    /// (`packages/**/*.mfp`) excludes — so the one test proving the parser
+    /// ceilings do not refuse real packages passed only on a machine that had
+    /// already built libsnd, and failed on every fresh clone and in CI. A pin
+    /// whose subject is untracked is not a pin. Regenerate with
+    /// `mfb build -pkg packages/libsnd` and copy it here if the emitted shape
+    /// ever changes; the assertions below are exact, so a stale copy fails loudly
+    /// rather than silently checking less.
+    #[test]
+    fn a_real_compiler_produced_package_still_parses() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/libsnd.mfp");
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        let package = crate::package::parse_mfp_package(&bytes).expect("a real .mfp parses");
+
+        let sections = read_section_table(&package.payload).expect("section table");
+        assert_eq!(
+            sections.len(),
+            14,
+            "libsnd emits every section the writer has"
+        );
+
+        let pool = read_string_pool(sections.get(&SECTION_STRING_POOL).unwrap()).unwrap();
+        assert_eq!(pool.len(), 56);
+
+        let abi = parse_abi_index(&package.payload).expect("abi index");
+        assert_eq!(abi.len(), 12);
+        assert!(abi.contains_key("closeSound"));
+        assert!(abi.contains_key("getFormats"));
+
+        let vendors = parse_vendor_blobs(&package.payload).expect("vendor locators");
+        assert_eq!(vendors.len(), 7);
+        assert_eq!(vendors[0].logical, "libsnd");
+        assert_eq!(vendors[0].os, "macos");
+        assert_eq!(vendors[0].arch.as_deref(), Some("aarch64"));
+        assert_eq!(vendors[0].libc, None);
+        assert_eq!(vendors[0].source, "libsndfile.1.0.37.dylib");
+        assert_eq!(
+            vendors[0].hash,
+            "7297000499a2f5e146ad4c369db90f00c652ccc3b5cafafce9d388e43aa3617e"
+        );
+        assert_eq!(vendors[3].libc.as_deref(), Some("glibc"));
+        assert_eq!(vendors[4].libc.as_deref(), Some("musl"));
+
+        let meta = parse_manifest_metadata(&package.payload).expect("manifest");
+        assert_eq!(
+            meta,
+            Some(ManifestMetadata {
+                author: String::new(),
+                url: String::new(),
+            })
+        );
+
+        let description = parse_package_description(&package.payload)
+            .expect("description")
+            .expect("libsnd declares a description");
+        assert!(description.starts_with("A reusable native binding package for libsndfile"));
+    }
+
+    /// POSITIVE PIN 2 — a payload sitting exactly *on* every ceiling is still
+    /// accepted. A cap that is off by one in the rejecting direction refuses a
+    /// legitimate package, which is the failure mode these ceilings must not
+    /// introduce.
+    #[test]
+    fn payloads_exactly_at_every_ceiling_are_still_accepted() {
+        // String pool: exactly MAX_STRING_POOL_ENTRIES entries.
+        let pool = read_string_pool(&empty_entry_pool(MAX_STRING_POOL_ENTRIES as u32))
+            .expect("a pool at the entry ceiling is valid");
+        assert_eq!(pool.len(), MAX_STRING_POOL_ENTRIES);
+
+        // String pool: exactly MAX_STRING_POOL_BYTES of aggregate string bytes.
+        let mut wide = Vec::new();
+        put_u32(&mut wide, 1);
+        put_u32(&mut wide, MAX_STRING_POOL_BYTES as u32);
+        wide.resize(wide.len() + MAX_STRING_POOL_BYTES, b'x');
+        let wide = read_string_pool(&wide).expect("a pool at the byte ceiling is valid");
+        assert_eq!(wide[0].len(), MAX_STRING_POOL_BYTES);
+
+        // Section table: exactly MAX_MFPC_SECTIONS distinct sections.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(MFPC_MAGIC);
+        put_u16(&mut bytes, 2);
+        put_u16(&mut bytes, 0);
+        put_u32(&mut bytes, 0);
+        put_u32(&mut bytes, MAX_MFPC_SECTIONS as u32);
+        for index in 0..MAX_MFPC_SECTIONS {
+            put_u16(&mut bytes, index as u16 + 1);
+            put_u16(&mut bytes, 0);
+            put_u32(&mut bytes, 0);
+            put_u64(&mut bytes, 0);
+            put_u64(&mut bytes, 0);
+        }
+        let table = read_section_table(&bytes).expect("a table at the section ceiling is valid");
+        assert_eq!(table.len(), MAX_MFPC_SECTIONS);
+
+        // ABI index: exactly MAX_ABI_EXPORTS exports.
+        let mut abi = Vec::with_capacity(8 + MAX_ABI_EXPORTS * 38);
+        put_u16(&mut abi, ABI_FORMAT_VERSION);
+        put_u16(&mut abi, 0);
+        put_u32(&mut abi, MAX_ABI_EXPORTS as u32);
+        for index in 0..MAX_ABI_EXPORTS {
+            put_u32(&mut abi, (index % 2) as u32);
+            put_u16(&mut abi, 1);
+            abi.extend_from_slice(&[0u8; ABI_HASH_LEN]);
+        }
+        let payload = container(&[
+            (SECTION_STRING_POOL, string_pool(&["greet", "farewell"])),
+            (SECTION_ABI_INDEX, abi),
+        ]);
+        let map = parse_abi_index(&payload).expect("an index at the export ceiling is valid");
+        assert_eq!(map.len(), 2, "every export names one of the two strings");
+
+        // Package meta: exactly MAX_PACKAGE_META_FIELDS fields, the last one
+        // the real description.
+        let mut section = Vec::new();
+        put_u32(&mut section, MAX_PACKAGE_META_FIELDS as u32);
+        for _ in 0..MAX_PACKAGE_META_FIELDS - 1 {
+            put_u16(&mut section, 777);
+            put_u32(&mut section, 0);
+        }
+        put_u16(&mut section, PACKAGE_META_FIELD_DESCRIPTION);
+        put_u32(&mut section, 4);
+        section.extend_from_slice(b"real");
+        let payload = container(&[(SECTION_PACKAGE_META, section)]);
+        assert_eq!(
+            parse_package_description(&payload).unwrap().as_deref(),
+            Some("real"),
+        );
     }
 }

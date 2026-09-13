@@ -89,6 +89,13 @@ impl LocalPaths {
     pub fn snapshot_version_path(&self) -> PathBuf {
         self.home.join("snapshot-version")
     }
+
+    /// The highest `root.json` version seen (bug-584 rollback defense). Root
+    /// renewal rotates the delegated online keys, so replaying a still-unexpired
+    /// OLDER root would resurrect the keys a renewal retired.
+    pub fn root_version_path(&self) -> PathBuf {
+        self.home.join("root-version")
+    }
 }
 
 /// Pin the registry id + root fingerprint (plan-10-C2). Written once by
@@ -151,6 +158,30 @@ pub fn read_snapshot_version(paths: &LocalPaths) -> Result<Option<i64>, String> 
         .parse::<i64>()
         .map(Some)
         .map_err(|_| format!("malformed pinned snapshot version '{}'", path.display()))
+}
+
+/// Pin the highest `root.json` version seen (bug-584). Advanced by every
+/// verified chain; a lower root version is a rollback.
+pub fn write_root_version(paths: &LocalPaths, version: i64) -> Result<(), String> {
+    create_private_dir(&paths.home)?;
+    write_private_file(&paths.root_version_path(), &version.to_string())
+}
+
+/// Read the pinned root version, if any. Fails CLOSED on a present-but-
+/// unparseable file, exactly as `read_snapshot_version` does: returning
+/// `Ok(None)` would drop the anti-rollback floor to 0 with no error.
+pub fn read_root_version(paths: &LocalPaths) -> Result<Option<i64>, String> {
+    let path = paths.root_version_path();
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let value = fs::read_to_string(&path)
+        .map_err(|err| format!("failed to read root version '{}': {err}", path.display()))?;
+    value
+        .trim()
+        .parse::<i64>()
+        .map(Some)
+        .map_err(|_| format!("malformed pinned root version '{}'", path.display()))
 }
 
 /// Persist the last-seen log checkpoint.
@@ -767,6 +798,24 @@ pub(crate) mod tests {
         );
         let err = read_checkpoint(&paths).unwrap_err();
         assert!(err.starts_with("failed to read checkpoint '"), "{err}");
+    }
+
+    /// bug-584: the root-version pin round-trips, reads `None` when absent, and
+    /// fails CLOSED on a corrupt file rather than silently dropping the
+    /// anti-rollback floor to 0.
+    #[test]
+    fn root_version_round_trips_and_fails_closed_when_malformed() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = LocalPaths::new(temp.path().join(".mfb"));
+        assert!(read_root_version(&paths).unwrap().is_none());
+        write_root_version(&paths, 7).unwrap();
+        assert_eq!(read_root_version(&paths).unwrap(), Some(7));
+        #[cfg(unix)]
+        assert_eq!(mode(&paths.root_version_path()), 0o600);
+        fs::write(paths.root_version_path(), "not-a-number").unwrap();
+        assert!(read_root_version(&paths)
+            .unwrap_err()
+            .contains("malformed pinned root version"));
     }
 
     #[test]

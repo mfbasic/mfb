@@ -1,0 +1,11 @@
+' bug-595: a STATE clause is a type position and must resolve like any other.
+' On a stateless initializer (the attach point) an unknown STATE name used to
+' reach the verifier and fail as an UNLOCATED TYPE_STATE_INVALID -- no file, no
+' line, no rule code. It must be SYMBOL_UNKNOWN_TYPE at the clause.
+IMPORT fs
+IMPORT io
+
+SUB main()
+  RES f AS fs::File STATE Nonexistent = fs::createTempFile()
+  io::print("bound")
+END SUB

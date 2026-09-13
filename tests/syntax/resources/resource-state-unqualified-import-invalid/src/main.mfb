@@ -1,0 +1,12 @@
+' bug-595: an imported STATE type written without its package prefix (bug-480
+' Phase 4b requires one) used to surface as TYPE_STATE_MISMATCH, printing the
+' internal spelling http.PendingState. It must be SYMBOL_UNKNOWN_TYPE, exactly
+' as LET r AS Response is.
+IMPORT net
+IMPORT http
+IMPORT io
+
+SUB main()
+  RES s AS http::Stream STATE PendingState = http::startRead(net::toUrl("http://example.com/"))
+  io::print("bound")
+END SUB

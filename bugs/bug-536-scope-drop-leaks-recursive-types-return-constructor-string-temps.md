@@ -551,13 +551,35 @@ introduces a double free is not a fix):
   after — **235 MB → 112 MB per repeat call**. The residual is two separate
   pre-existing leaks (findings 1 and 2 below), not shape B-2.
 
-### Found while fixing B-2 — three SEPARATE pre-existing defects, not fixed here
+### Found while fixing B-2 — three SEPARATE pre-existing defects, NOW FILED
+
+**All three are now filed with their own numbers (2026-09-12).** They were
+recorded here rather than filed because the numbering would have raced a peer
+session; that has been resolved and the analysis below is carried into each doc:
+
+| | filed as | severity |
+|---|---|---|
+| 1. `s = s & <expr>` self-append leak | **bug-587** | HIGH |
+| 2. `Result OF T` bound through `TRAP` never freed | **bug-588** | HIGH |
+| 3. `String`-returning CALLBACK double-free / SIGSEGV | **bug-589** | HIGH |
+
+> **STALE — read this before using the three items below.** They were also filed
+> on **2026-09-06** as bugs **560, 561, 562** (`8c57683f3`), from this same list,
+> and all three are now in `bugs/completed/`. The 2026-09-12 re-filing above
+> duplicated them because the text below was never re-measured. Item 3 was
+> re-measured on 2026-09-12 and **does not reproduce**: bug-562 fixed it on
+> 2026-09-07 (`1bba27392`), so **bug-589 is closed as a duplicate**. Items 1 and 2
+> map to completed bug-560 and bug-561 respectively and should be re-measured
+> before anyone works bug-587 or bug-588. The analysis below is preserved as the
+> record of what was measured *on 2026-09-06*; it is not a statement about main.
+
+They are kept here too, because this is where they were measured and where the
+contrast against B-2 is recorded. **Do not work them from this document** — the
+filed bugs are the work orders.
 
 All three reproduce unchanged on the base commit and are unaffected by B-2. The
 first two are the whole of `csv::parse`'s residual 112 MB per repeat call, so
-anyone tracking DEC-03 should not attribute that to B-2. Each wants its own
-bug number; they are recorded here rather than filed so the numbering does not
-race with a peer session.
+anyone tracking DEC-03 should not attribute that to B-2.
 
 1. **`s = s & <expr>` on a `MUT String` leaks ~190 B per evaluation.** The
    document's own shape-B table records `s = toString(i)` as "flat — the

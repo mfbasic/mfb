@@ -13,6 +13,8 @@ const USAGE: &str = "\
 Usage: mfb-repo --dbpath <db_path> --datapath <data_path> [--listen <addr:port>] [--s3-endpoint <url>]
        mfb-repo reanchor --dbpath <db_path> --datapath <data_path> --owner <owner> --ident-key <base64url>
        mfb-repo init-root --dbpath <db_path> --datapath <data_path> --registry-id <id> [--expires-days <n>]
+       mfb-repo renew-root --dbpath <db_path> --datapath <data_path> --registry-id <id> --root-key-file <path> [--expires-days <n>]
+       mfb-repo reanchor-root --dbpath <db_path> --datapath <data_path> --registry-id <id> [--expires-days <n>]
        mfb-repo gc --dbpath <db_path> --datapath <data_path> [--s3-endpoint <url>] [--grace-hours <n>] [--delete] [--json]
        mfb-repo backfill-metadata --dbpath <db_path> --datapath <data_path> [--s3-endpoint <url>]
 
@@ -28,19 +30,37 @@ support must be compiled in (`cargo build -p mfb_repository --features s3`).
 fresh ident public key with NO chain link. Clients holding the old pin fail
 hard with a re-anchor warning instead of silently following.
 
+`init-root` is ONE-TIME initialization and refuses to run against a registry
+that already has a root of trust (bug-584): overwriting it would swap the anchor
+every pinned client verifies against, which from the client's side is
+indistinguishable from a takeover.
+
+`renew-root` is the routine ceremony: it re-signs root.json with a bumped
+version, a fresh expiry and freshly generated online snapshot/timestamp keys,
+under the SAME offline root key, which it reads from --root-key-file (the
+base64url key `init-root` printed, one line, nothing else) and never persists.
+The root fingerprint does not change, so already-pinned clients keep verifying
+with no out-of-band step.
+
+`reanchor-root` is the recovery ceremony for a LOST offline root key: it mints a
+new root key and replaces the anchor. Every client that pinned the old
+fingerprint fails hard until it re-pins out of band, so it is a separate,
+explicitly selected, transparency-logged mode.
+
 `gc` reclaims package blobs that no live package version references — the
 orphans a `PUT /blob` leaves when a publish is abandoned between the upload and
 the commit. It is a DRY RUN unless `--delete` is given, and it never touches a
 blob younger than the grace period (default 24h, `--grace-hours`) or one any
 live version references, including a yanked one.
 
-`backfill-metadata` populates the author, url and native-target columns for
-versions published before the server recorded them, by re-parsing each stored
-package blob. No republish and no publisher action is needed. It is idempotent,
-skips (rather than aborts on) a blob it cannot parse, and reports a version
-whose header and signed manifest disagree under its own count — that is a
-transparency finding, not a parse failure, and it is left untouched. It exits
-non-zero if anything was skipped.";
+`backfill-metadata` populates the author, url, native-target and documentation
+records for versions published before the server recorded them, by re-parsing
+each stored package blob. No republish and no publisher action is needed. It is
+idempotent, skips (rather than aborts on) a blob it cannot parse, and reports a
+version whose header and signed manifest disagree under its own count — that
+is a transparency finding, not a parse failure, and it is left untouched. A doc
+section that is present but does not decode is likewise counted on its own line
+and not recorded. It exits non-zero if anything was skipped.";
 
 // coverage:off — the async entrypoint binds a listener / spawns the server and
 // calls process::exit on every error branch; it cannot run under a unit test.
@@ -148,6 +168,126 @@ async fn main() {
                 process::exit(2);
             }
         }
+    }
+
+    // Operator subcommand: renew the root of trust under the SAME offline root
+    // key (bug-584). Keeps the pinned anchor; rotates the delegated online keys
+    // and the root expiry. The offline key is read from a file rather than an
+    // argument so it never appears in the process table.
+    if args.first().map(String::as_str) == Some("renew-root") {
+        args.remove(0);
+        let (dbpath, datapath, registry_id, expires_days, root_key_file) =
+            match parse_renew_root_args(args) {
+                Ok(parsed) => parsed,
+                Err(err) => {
+                    eprintln!("error: {err}\n\n{USAGE}");
+                    process::exit(2);
+                }
+            };
+        let root_private = match read_root_key_file(&root_key_file) {
+            Ok(key) => key,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(2);
+            }
+        };
+        let opened = match Store::open_repository(&dbpath, &datapath) {
+            Ok(opened) => opened,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        };
+        let expires_at = match init_root_expires_at(expires_days, mfb_repository::store::now_unix())
+        {
+            Ok(at) => at,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        };
+        match opened
+            .store
+            .renew_registry_root(&registry_id, expires_at, &root_private)
+        {
+            Ok(version) => {
+                let config = opened
+                    .store
+                    .registry_config()
+                    .ok()
+                    .flatten()
+                    .expect("registry config exists after renewal");
+                println!(
+                    "Renewed registry `{registry_id}` root of trust to version {version} (expires in {expires_days} days)."
+                );
+                println!(
+                    "Root fingerprint is UNCHANGED — pinned clients keep verifying: {}",
+                    mfb_repository::crypto::fingerprint(&config.root_public)
+                );
+            }
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // Operator subcommand: replace a LOST root of trust (bug-584). Mints a new
+    // offline root key; every pinned client fails hard until it re-pins.
+    if args.first().map(String::as_str) == Some("reanchor-root") {
+        args.remove(0);
+        let (dbpath, datapath, registry_id, expires_days) = match parse_init_root_args(args) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                eprintln!("error: {err}\n\n{USAGE}");
+                process::exit(2);
+            }
+        };
+        let opened = match Store::open_repository(&dbpath, &datapath) {
+            Ok(opened) => opened,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        };
+        let expires_at = match init_root_expires_at(expires_days, mfb_repository::store::now_unix())
+        {
+            Ok(at) => at,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        };
+        match opened
+            .store
+            .reanchor_registry_root(&registry_id, expires_at)
+        {
+            Ok(root_private) => {
+                let config = opened
+                    .store
+                    .registry_config()
+                    .ok()
+                    .flatten()
+                    .expect("registry config exists after re-anchor");
+                println!(
+                    "RE-ANCHORED registry `{registry_id}` root of trust (expires in {expires_days} days)."
+                );
+                println!(
+                    "New root fingerprint (publish it; every pinned client must re-pin out of band): {}",
+                    mfb_repository::crypto::fingerprint(&config.root_public)
+                );
+                println!(
+                    "Root PRIVATE key (STORE OFFLINE, never on the server): {}",
+                    mfb_repository::crypto::encode_bytes(&root_private)
+                );
+            }
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        }
+        return;
     }
 
     // Operator subcommand: reclaim unreferenced package blobs (plan-49).
@@ -481,6 +621,40 @@ fn parse_init_root_args(args: Vec<String>) -> Result<(PathBuf, PathBuf, String, 
         registry_id.ok_or("--registry-id is required")?,
         expires_days,
     ))
+}
+
+/// `renew-root` takes the same fields as `init-root` plus the offline root key
+/// file. The key is a path, never an argument value: an argument would put the
+/// registry's offline root private key in the process table (bug-584).
+fn parse_renew_root_args(
+    args: Vec<String>,
+) -> Result<(PathBuf, PathBuf, String, i64, PathBuf), String> {
+    let mut rest = Vec::new();
+    let mut root_key_file = None;
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        if arg == "--root-key-file" {
+            root_key_file = Some(PathBuf::from(
+                iter.next().ok_or("--root-key-file requires <path>")?,
+            ));
+        } else {
+            rest.push(arg);
+        }
+    }
+    // The shared fields are parsed FIRST so an unknown option keeps its own
+    // diagnostic rather than being reported as a missing key file.
+    let (dbpath, datapath, registry_id, expires_days) = parse_init_root_args(rest)?;
+    let root_key_file = root_key_file.ok_or("--root-key-file is required")?;
+    Ok((dbpath, datapath, registry_id, expires_days, root_key_file))
+}
+
+/// Read the base64url offline root private key from `path` (the exact string
+/// `init-root` printed, one line). Decoding here — rather than inside the store
+/// — keeps the "malformed file" and "wrong key" diagnostics apart.
+fn read_root_key_file(path: &PathBuf) -> Result<Vec<u8>, String> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|err| format!("failed to read root key file {}: {err}", path.display()))?;
+    mfb_repository::crypto::decode_bytes(raw.trim(), "root key")
 }
 
 #[derive(Debug)]
@@ -1161,6 +1335,120 @@ mod tests {
         let decoded = crypto::decode_bytes(&ident_key, "identKey").unwrap();
         let key = opened.store.reanchor_ident("alice", &decoded).unwrap();
         assert_eq!(key.fingerprint, crypto::fingerprint(&fresh_public));
+    }
+
+    /// bug-584: `renew-root` parses the init-root fields plus the offline key
+    /// file, and the key is a PATH — never an argument value that would put the
+    /// offline root private key in the process table.
+    #[test]
+    fn parse_renew_root_args_requires_the_root_key_file() {
+        let (dbpath, datapath, registry_id, expires_days, root_key_file) =
+            parse_renew_root_args(args(&[
+                "--dbpath",
+                "/db",
+                "--datapath",
+                "/data",
+                "--registry-id",
+                "reg-1",
+                "--root-key-file",
+                "/keys/root",
+                "--expires-days",
+                "30",
+            ]))
+            .unwrap();
+        assert_eq!(dbpath, PathBuf::from("/db"));
+        assert_eq!(datapath, PathBuf::from("/data"));
+        assert_eq!(registry_id, "reg-1");
+        assert_eq!(expires_days, 30);
+        assert_eq!(root_key_file, PathBuf::from("/keys/root"));
+
+        assert_eq!(
+            parse_renew_root_args(args(&[
+                "--dbpath",
+                "/db",
+                "--datapath",
+                "/data",
+                "--registry-id",
+                "reg-1",
+            ]))
+            .unwrap_err(),
+            "--root-key-file is required",
+        );
+        assert_eq!(
+            parse_renew_root_args(args(&["--root-key-file"])).unwrap_err(),
+            "--root-key-file requires <path>",
+        );
+        // The shared fields keep their own diagnostics.
+        assert_eq!(
+            parse_renew_root_args(args(&["--root-key-file", "/keys/root"])).unwrap_err(),
+            "--dbpath is required",
+        );
+        assert!(parse_renew_root_args(args(&["--nope", "x"]))
+            .unwrap_err()
+            .contains("unknown option"));
+    }
+
+    /// bug-584: the key file holds exactly what `init-root` printed; trailing
+    /// whitespace is tolerated, a missing or malformed file is a clear error.
+    #[test]
+    fn read_root_key_file_round_trips_what_init_root_printed() {
+        use mfb_repository::crypto;
+        let temp = tempfile::tempdir().unwrap();
+        let (_public, private) = crypto::generate_keypair();
+        let path = temp.path().join("root.key");
+        std::fs::write(&path, format!("{}\n", crypto::encode_bytes(&private))).unwrap();
+        assert_eq!(read_root_key_file(&path).unwrap(), private);
+
+        let missing = temp.path().join("nope.key");
+        assert!(read_root_key_file(&missing)
+            .unwrap_err()
+            .contains("failed to read root key file"));
+        let garbage = temp.path().join("garbage.key");
+        std::fs::write(&garbage, "not base64url!!").unwrap();
+        assert!(read_root_key_file(&garbage)
+            .unwrap_err()
+            .contains("root key"));
+    }
+
+    /// bug-584 (positive pin at the CLI's store layer): the operator's honest
+    /// sequence — initialize once, renew later with the key that was printed —
+    /// works, while a second `init-root` is refused instead of silently
+    /// replacing the anchor.
+    #[test]
+    fn renew_root_operation_keeps_the_anchor_and_a_second_init_is_refused() {
+        use mfb_repository::crypto;
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let now = mfb_repository::store::now_unix();
+        let root_private = opened
+            .store
+            .init_registry_root("reg-1", init_root_expires_at(365, now).unwrap())
+            .unwrap();
+        let anchor = opened.store.registry_config().unwrap().unwrap().root_public;
+
+        assert!(opened
+            .store
+            .init_registry_root("reg-1", init_root_expires_at(365, now).unwrap())
+            .unwrap_err()
+            .contains("already initialized"));
+
+        let key_path = temp.path().join("root.key");
+        std::fs::write(&key_path, crypto::encode_bytes(&root_private)).unwrap();
+        let version = opened
+            .store
+            .renew_registry_root(
+                "reg-1",
+                init_root_expires_at(30, now).unwrap(),
+                &read_root_key_file(&key_path).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(version, 2);
+        assert_eq!(
+            opened.store.registry_config().unwrap().unwrap().root_public,
+            anchor
+        );
     }
 
     /// The init-root subcommand's core store operation: initialize the root of

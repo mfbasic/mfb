@@ -39,6 +39,7 @@ pub(crate) fn lower_net_lookup_helper(
     const SADDR_PTR_OFFSET: usize = 152;
     const HOSTLEN_OFFSET: usize = 160;
     const HINTS_OFFSET: usize = 104; // 104..152
+    const ADDRREC_OFFSET: usize = 168; // the builder's temp record, freed per element
 
     let resolve_fail = format!("{symbol}_resolve_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -196,6 +197,7 @@ pub(crate) fn lower_net_lookup_helper(
     // x1 = Address pointer; copy its 16 bytes into the list data region and
     // record the entry descriptor.
     instructions.extend([
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), ADDRREC_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), INDEX_OFFSET),
         abi::move_immediate(&v10, "Integer", "16"),
         abi::multiply_registers(&v11, &v9, &v10),
@@ -216,6 +218,16 @@ pub(crate) fn lower_net_lookup_helper(
         abi::store_u64(&v13, &v14, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
         abi::add_immediate(&v14, &v14, COLLECTION_ENTRY_SIZE),
         abi::store_u64(&v14, abi::stack_pointer(), ENTRY_OFFSET),
+        // bug-599: the record the builder allocated is garbage from here on — its
+        // two words now live in the list's data region, and the host `String` it
+        // points at is owned through that copy. Free the 16-byte record itself
+        // (the size `emit_address_host_and_record` allocated it with); every read
+        // below reloads from the stack.
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ADDRREC_OFFSET),
+        abi::move_immediate(abi::c_arg(1), "Integer", "16"),
+    ]);
+    emit_arena_free(symbol, &mut instructions, &mut relocations);
+    instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), INDEX_OFFSET),
         abi::add_immediate(&v9, &v9, 1),
         abi::store_u64(&v9, abi::stack_pointer(), INDEX_OFFSET),

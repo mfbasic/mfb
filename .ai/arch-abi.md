@@ -586,6 +586,10 @@ The trap: if each trailing section computes its own slot as `align_up(rsrc_rva +
 
 Rule: chain them. The unconditional `.mfbnote` is placed after `.rsrc`; `.mfbsign` must be placed after `.mfbnote` (`align_up(mfbnote_rva + mfbnote_bytes.len(), SECTION_ALIGNMENT)`), not after `.rsrc`. Any future third trailing section chains off the last one. Guard added: `signed_build_emits_both_mfbnote_and_mfbsign_disjoint` asserts non-overlapping virtual extents. The write-only linkers have no runtime verifier, so a byte/section scan test is the only guard against this class of bug.
 
+### A signed image is sealed last: patch nothing after `content_signature::seal`
+
+A signed build's `.mfbsign` blob carries a `contentSignature` over every byte of the file except the blob itself (Mach-O: up to `LC_CODE_SIGNATURE`). Each linker calls `crate::os::content_signature::seal` on its finished bytes — ELF/PE after encoding, Mach-O on the final-size unsigned image before `code_signature`. Any byte written after the seal (a late relocation patch, a checksum, a new trailing section filled in afterwards) makes `mfb info` report the file as not matching its signature. Add post-link writes BEFORE the seal; on Mach-O, before the seal and so before the ad-hoc page hashes. The seal locates the blob with `crate::os::inspect`, the same reader the verifier uses — keep that single locator.
+
 ## Staging arguments in place clobbers them when the callee's own arguments share the bank
 
 `canvas::metalDrawScene` stages its arguments into the MFB argument bank, and its own

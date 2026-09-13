@@ -1,7 +1,9 @@
 IMPORT collections
 IMPORT datetime
+IMPORT errorCode
 IMPORT fs
 IMPORT io
+IMPORT strings
 IMPORT tcp
 
 PRIVATE FUNC levelName(level AS LogLevel) AS String
@@ -11,11 +13,46 @@ PRIVATE FUNC levelName(level AS LogLevel) AS String
     CASE LogLevel.WARN : RETURN "WARN"
     CASE LogLevel.ERROR : RETURN "ERROR"
   END MATCH
-  FAIL error(77050002, "logger: unknown log level")
+  FAIL error(errorCode::ErrInvalidArgument, "logger: unknown log level")
 END FUNC
 
+' Keep one entry on one line. A newline in the message would otherwise end the
+' entry and let whatever follows it read back as a complete, indistinguishable
+' entry of its own -- at any level and any timestamp -- on the console, in the
+' file, and on the socket alike. Written as the two characters `\` and `n`, the
+' same escape a reader already knows how to undo.
+PUBLIC FUNC escapeMessage(message AS String) AS String
+  IF strings::count(message, "\r") = 0 AND strings::count(message, "\n") = 0 THEN RETURN message
+  RETURN strings::replace(strings::replace(message, "\r", "\\r"), "\n", "\\n")
+END FUNC
+
+DOC
+  FUNC formatEntry
+  GROUP Formatting
+  DESC Render one entry as the single line the line-oriented backends write:
+  DESC `[TIMESTAMP] [LEVEL] MESSAGE`.
+  DESC
+  DESC `logger::log` calls this once per call and hands the result to every
+  DESC backend, so the console, the file, and the socket carry byte-identical
+  DESC lines. Call it yourself from a `CustomBackend` when you want the same
+  DESC line the others got.
+  ARG entry The entry to render.
+  RET The formatted line, with no trailing newline.
+  ERROR 77050002 `entry.level` is not one of the four `LogLevel` members.
+  EXAMPLE
+    IMPORT io
+    IMPORT logger
+
+    FUNC main() AS Integer
+      LET entry AS logger::LogEntry = logger::LogEntry[level := logger::LogLevel.WARN, timestamp := "2026-01-02T03:04:05Z", message := "disk almost full"]
+      io::print(logger::formatEntry(entry))
+      ' [2026-01-02T03:04:05Z] [WARN] disk almost full
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
 EXPORT FUNC formatEntry(entry AS LogEntry) AS String
-  RETURN "[" & entry.timestamp & "] [" & levelName(entry.level) & "] " & entry.message
+  RETURN "[" & entry.timestamp & "] [" & levelName(entry.level) & "] " & escapeMessage(entry.message)
 END FUNC
 
 PRIVATE FUNC doLog(backend AS LogBackend, entry AS LogEntry, formattedText AS String) AS Nothing
@@ -25,15 +62,59 @@ PRIVATE FUNC doLog(backend AS LogBackend, entry AS LogEntry, formattedText AS St
     CASE FileBackend(fileBackend)
       fs::writeAll(fileBackend.file, formattedText & "\n")
     CASE NetworkBackend(networkBackend)
-      tcp::write(networkBackend.socket, formattedText)
+      ' The newline is the framing: without it a reader cannot tell where one
+      ' entry on the stream ends and the next begins.
+      tcp::write(networkBackend.socket, formattedText & "\n")
     CASE CustomBackend(customBackend)
+      ' Handed the structured entry, including the message exactly as logged.
       LET callback AS FUNC(LogEntry) AS Nothing = customBackend.callback
       callback(entry)
     CASE ELSE
-      FAIL error(77050002, "logger: unknown backend")
+      FAIL error(errorCode::ErrInvalidArgument, "logger: unknown backend")
   END MATCH
 END FUNC
 
+DOC
+  FUNC log
+  GROUP Logging
+  DESC Timestamp `msg`, format it, and deliver it to every backend `logger`
+  DESC routes it to.
+  DESC
+  DESC The common backends are delivered first, in list order, then the backends
+  DESC configured for exactly this level, in list order. A backend in both lists
+  DESC is called twice. Delivery is synchronous and in order: when `log` returns,
+  DESC every backend has been called.
+  DESC
+  DESC The timestamp is read once, from `datetime::now()` in UTC, so every
+  DESC backend reached by this call records the same instant.
+  DESC
+  DESC Nothing is swallowed. A file write or socket write that fails, or a
+  DESC callback that fails, propagates out of `log` — and stops the fan-out, so
+  DESC backends later in the order do not receive that entry.
+  ARG logger The configured backends and their routing.
+  ARG level The entry's severity, and the key routed on.
+  ARG msg The message. Carriage returns and line feeds are escaped so the entry stays on one line; `CustomBackend` still receives the message unmodified.
+  RET Nothing.
+  ERROR 77050002 `level` is not one of the four `LogLevel` members, or a backend is not one of the four `LogBackend` members.
+  EXAMPLE
+    IMPORT io
+    IMPORT logger
+
+    FUNC count(entry AS logger::LogEntry) AS Nothing
+      io::print("callback saw " & toString(entry.level = logger::LogLevel.ERROR))
+    END FUNC
+
+    FUNC main() AS Integer
+      LET console AS logger::LogBackend = logger::ConsoleBackend[]
+      LET custom AS logger::LogBackend = logger::CustomBackend[callback := count]
+      LET byLevel AS Map OF logger::LogLevel TO List OF logger::LogBackend = Map OF logger::LogLevel TO List OF logger::LogBackend {logger::LogLevel.ERROR := [custom]}
+      LET app AS logger::Logger = logger::Logger[common := [console], backends := byLevel]
+      logger::log(app, logger::LogLevel.INFO, "started")
+      logger::log(app, logger::LogLevel.ERROR, "request failed")
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
 EXPORT FUNC log(logger AS Logger, level AS LogLevel, msg AS String) AS Nothing
   LET timestamp AS String = datetime::toIso(datetime::toUtc(datetime::now()))
   LET entry AS LogEntry = LogEntry[level := level, timestamp := timestamp, message := msg]
@@ -73,6 +154,29 @@ TESTING
       expectString(formatEntry(LogEntry[level := LogLevel.ERROR, timestamp := "2026-01-02T03:04:05Z", message := "error"]), "[2026-01-02T03:04:05Z] [ERROR] error")
     END TCASE
 
+    TCASE "an empty message still formats"
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "2026-01-02T03:04:05Z", message := ""]), "[2026-01-02T03:04:05Z] [INFO] ")
+    END TCASE
+
+    TCASE "a newline cannot forge a second entry"
+      LET forged AS String = "line one\n[2020-01-01T00:00:00Z] [ERROR] forged"
+      LET line AS String = formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "2026-01-02T03:04:05Z", message := forged])
+      expectInteger(strings::count(line, "\n"), 0)
+      expectString(line, "[2026-01-02T03:04:05Z] [INFO] line one\\n[2020-01-01T00:00:00Z] [ERROR] forged")
+    END TCASE
+
+    TCASE "a carriage return cannot rewrite the line"
+      LET line AS String = formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "2026-01-02T03:04:05Z", message := "real\rfake"])
+      expectInteger(strings::count(line, "\r"), 0)
+      expectString(line, "[2026-01-02T03:04:05Z] [INFO] real\\rfake")
+    END TCASE
+
+    TCASE "escaping leaves an ordinary message untouched"
+      expectString(escapeMessage("plain text with \\n written out"), "plain text with \\n written out")
+      expectString(escapeMessage(""), "")
+      expectString(escapeMessage("a\r\nb"), "a\\r\\nb")
+    END TCASE
+
     TCASE "routes common before exact level and preserves duplicates"
       testTrace = ""
       testMessage = ""
@@ -94,6 +198,45 @@ TESTING
       LET configured AS Logger = Logger[common := [common], backends := Map OF LogLevel TO List OF LogBackend {}]
       log(configured, LogLevel.WARN, "only common")
       expectString(testTrace, "C")
+    END TCASE
+
+    TCASE "routing is by exact level, never by threshold"
+      testTrace = ""
+      LET common AS LogBackend = CustomBackend[callback := commonCallback]
+      LET specific AS LogBackend = CustomBackend[callback := levelCallback]
+      LET routes AS Map OF LogLevel TO List OF LogBackend = Map OF LogLevel TO List OF LogBackend {LogLevel.WARN := [specific]}
+      LET configured AS Logger = Logger[common := [common], backends := routes]
+      log(configured, LogLevel.ERROR, "more severe than WARN")
+      expectString(testTrace, "C")
+      log(configured, LogLevel.WARN, "exactly WARN")
+      expectString(testTrace, "CCL")
+    END TCASE
+
+    TCASE "a logger with no backends at all delivers nothing"
+      testTrace = ""
+      LET configured AS Logger = Logger[common := [], backends := Map OF LogLevel TO List OF LogBackend {}]
+      log(configured, LogLevel.DEBUG, "into the void")
+      expectString(testTrace, "")
+    END TCASE
+
+    TCASE "a callback receives the message unsanitized"
+      testTrace = ""
+      testMessage = ""
+      LET common AS LogBackend = CustomBackend[callback := commonCallback]
+      LET configured AS Logger = Logger[common := [common], backends := Map OF LogLevel TO List OF LogBackend {}]
+      log(configured, LogLevel.INFO, "two\nlines")
+      expectString(testMessage, "two\nlines")
+    END TCASE
+
+    TCASE "every backend of one call shares one timestamp"
+      testTrace = ""
+      testTimestamp = ""
+      LET common AS LogBackend = CustomBackend[callback := commonCallback]
+      LET configured AS Logger = Logger[common := [common], backends := Map OF LogLevel TO List OF LogBackend {LogLevel.INFO := [common]}]
+      log(configured, LogLevel.INFO, "twice")
+      expectString(testTrace, "CC")
+      LET first AS String = testTimestamp
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := first, message := "twice"]), "[" & first & "] [INFO] twice")
     END TCASE
   END TGROUP
 END TESTING

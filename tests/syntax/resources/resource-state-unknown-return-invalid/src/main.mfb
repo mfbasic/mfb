@@ -1,0 +1,10 @@
+' bug-595: a return STATE clause was never resolved, so an unknown name surfaced
+' as a misleading TYPE_RETURN_MISMATCH instead of the unknown type it is.
+IMPORT fs
+
+FUNC make() AS RES fs::File STATE Nonexistent
+  RETURN fs::createTempFile()
+END FUNC
+
+SUB main()
+END SUB

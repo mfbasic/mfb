@@ -18,7 +18,11 @@ Revert fmt churn with `git restore .` only inside an isolated worktree, never th
 
 ## rustfmt recurses the module tree
 
-There is **no `[workspace]` table** in the root `Cargo.toml` — `mfb_repository` is a plain path dependency — so root `cargo fmt` does NOT reach it. `repository/` **needs its own pass**: `cargo fmt && (cd repository && cargo fmt)`.
+The root `Cargo.toml` **does** have a `[workspace]` table (added by bug-347; this section previously claimed it did not, and the second-pass advice below it was written against that claim). Members and `default-members` are both `[".", "repository", "wire"]` — three of them since plan-126-B added `mfb_wire`. Count them rather than trusting this line: `rustup run 1.96.0 cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["workspace_members"]))'`.
+
+**`cargo fmt --all` therefore reaches all three members, `repository/` included.** Measured 2026-09-12 by appending a deliberately-misformatted `pub fn probe_fmt(   )->u8{1}` to `repository/src/validation.rs` and to `wire/src/lib.rs`, running `rustup run 1.96.0 cargo fmt --all`, and observing that **both** were reformatted. So the separate `(cd repository && cargo fmt)` pass that AGENTS.md and several plan docs prescribe is now **redundant** — it is harmless and still correct to run, but a green `cargo fmt --all` alone no longer leaves `repository/` unformatted. Do not conclude from the old wording that a root-only `fmt` has skipped it.
+
+The trap the second pass was guarding against has not gone away, it has moved: `cargo fmt --all` formats **every** member, so in a shared checkout it reformats files belonging to other sessions. Run `git diff --stat` afterwards and undo anything that is not yours, by hand and by explicit path.
 
 **`cargo fmt -- <files>` does NOT scope formatting to those files** — it formats the entire workspace (the `--` args are rustfmt options). For targeted formatting use `rustfmt --edition 2021 <files>` directly. To prove a diff is fmt-only: `diff <(git show HEAD:$f | rustfmt --edition 2021) $f`.
 
@@ -37,11 +41,11 @@ Two traps:
 
 ## clippy --fix trims double-double constants
 
-`cargo clippy --fix --all-targets` rewrites every full-precision `hi` half in `src/target/shared/code/builder_pow.rs` and `builder_simd_float_math.rs` to the shortest literal that round-trips a lone `f64` (e.g. `6.931_471_805_599_452_862_27e-01` → `6.931_471_805_599_453e-1`). Those extra digits are exactly what the paired `lo` tail recombines against, so the "fix" silently degrades `pow`/`exp`/`log`/`sin`/`cos` accuracy.
+`cargo clippy --fix --all-targets` rewrites every full-precision `hi` half in `src/codegen/builtins/math/gen_pow.rs` and `src/codegen/builtins/vector/builder_simd_float_math.rs` to the shortest literal that round-trips a lone `f64` (e.g. `6.931_471_805_599_452_862_27e-01` → `6.931_471_805_599_453e-1`). Those extra digits are exactly what the paired `lo` tail recombines against, so the "fix" silently degrades `pow`/`exp`/`log`/`sin`/`cos` accuracy.
 
 Why: `--fix` applies `excessive_precision` mechanically; it cannot read the prose saying the precision is deliberate.
 
-**How to apply:** add `#![allow(clippy::excessive_precision)]` and `#![allow(clippy::approx_constant)]` to both files **before** running `--fix`, never after. Both allows are in the tree — re-check the two files' diffs after any `--fix` run.
+**How to apply:** add `#![allow(clippy::excessive_precision)]` and `#![allow(clippy::approx_constant)]` to both files **before** running `--fix`, never after. Both allows are in the tree — re-check the two files' diffs after any `--fix` run. (The files moved: `src/target/shared/code/builder_pow.rs` → `src/codegen/builtins/math/builder_pow.rs` in `efba4fa8b`, then renamed to `gen_pow.rs` in `0c78bd8e7`; `builder_simd_float_math.rs` now lives under `src/codegen/builtins/vector/`. Both allows travelled with them.)
 
 Related trap: `approx_constant` is **deny-by-default** (clippy correctness group), so a missing allow makes `cargo clippy --all-targets` exit non-zero, not merely warn.
 

@@ -52,7 +52,7 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
-        signing_metadata: Option<&[u8]>,
+        signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
         build_mode: NativeBuildMode,
         app_icon: Option<&Path>,
         app_version: Option<&str>,
@@ -193,7 +193,7 @@ fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
-    signing_metadata: Option<&[u8]>,
+    signing_metadata: Option<&crate::arch::image::ExecutableSigning>,
     build_mode: NativeBuildMode,
     app_icon: Option<&Path>,
     app_version: Option<&str>,
@@ -230,7 +230,7 @@ fn write_executable(
         native_code.validate()?;
         progress("encoding image");
         let mut image = arch::x86_64::encode::encode(&native_code)?;
-        image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
+        image.signing_metadata = signing_metadata.cloned();
         // plan-46-D §4.2: point the loader at the `vendor/` directory beside the
         // executable, so a bare-filename `dlopen` of a vendored library resolves
         // and keeps resolving after the whole `build/` directory is moved. Emitted

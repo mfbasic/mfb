@@ -12,7 +12,9 @@ pub(crate) struct BuildSigningInfo {
     /// attestation. The one-off private key exists only here, in memory,
     /// and is discarded when the build ends (plan-23 §3.3).
     pub(crate) package_signing: target::package_mfp::PackageSigning,
-    pub(crate) executable_metadata: Vec<u8>,
+    /// The `mfb-signing-v1` blob an executable build embeds, and the same one-off
+    /// key, with which the linker seals the blob's content signature.
+    pub(crate) executable_signing: crate::arch::image::ExecutableSigning,
 }
 
 /// The identity a `--sign` build signs for: the manifest ident when declared
@@ -128,6 +130,7 @@ pub(super) fn load_build_signing_info(
     );
     let executable_metadata = executable_signing_metadata_json(
         owner,
+        &repo_url,
         &ident_key,
         &ident_fingerprint,
         &signing_key,
@@ -144,6 +147,10 @@ pub(super) fn load_build_signing_info(
         ident: ident.to_string(),
         ident_fingerprint,
         signing_fingerprint,
+        executable_signing: crate::arch::image::ExecutableSigning {
+            metadata: executable_metadata,
+            signing_private: Some(signing_private.clone()),
+        },
         package_signing: target::package_mfp::PackageSigning {
             ident_key,
             signing_key,
@@ -153,7 +160,6 @@ pub(super) fn load_build_signing_info(
             attestation: attestation_response.attestation,
             attestation_sig,
         },
-        executable_metadata,
     })
 }
 
@@ -175,6 +181,9 @@ pub(crate) fn apply_signing_metadata(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn executable_signing_metadata_json(
     owner: &str,
+    // The registry that issued the attestation: where a verifier fetches the
+    // registry key and the owner's current ident from.
+    registry: &str,
     ident_key: &str,
     ident_fingerprint: &str,
     signing_key: &str,
@@ -185,9 +194,10 @@ pub(super) fn executable_signing_metadata_json(
     attestation_sig: &str,
 ) -> String {
     format!(
-        "{{\"format\":\"mfb-signing-v1\",\"owner\":{},\"author\":{},\"identKey\":{},\"identFingerprint\":{},\"signingKey\":{},\"signingFingerprint\":{},\"proof\":{},\"proofSignature\":{},\"attestation\":{},\"attestationSignature\":{},\"signatureType\":\"Ed25519\"}}\n",
+        "{{\"format\":\"mfb-signing-v1\",\"owner\":{},\"author\":{},\"registry\":{},\"identKey\":{},\"identFingerprint\":{},\"signingKey\":{},\"signingFingerprint\":{},\"proof\":{},\"proofSignature\":{},\"attestation\":{},\"attestationSignature\":{},\"contentSignature\":\"{}\",\"signatureType\":\"Ed25519\"}}\n",
         json_string(owner),
         json_string(owner),
+        json_string(registry),
         json_string(ident_key),
         json_string(ident_fingerprint),
         json_string(signing_key),
@@ -196,5 +206,7 @@ pub(super) fn executable_signing_metadata_json(
         json_string(proof_sig),
         json_string(attestation),
         json_string(attestation_sig),
+        // Filled by the linker once the image is complete.
+        crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER,
     )
 }

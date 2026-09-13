@@ -242,6 +242,38 @@ jobs:
       - name: Golden/artifact tests
         run: bash scripts/artifact-gate.sh target/release/mfb all
 
+  # Documentation-example gate (bug-472), a separate step like `fmt`: every
+  # Examples block on every built-in `mfb man` page must build, and must run
+  # unless `scripts/man-examples-not-run.txt` lists it with a reason. A red here
+  # means "a documented example does not work", on its own line. It checks and
+  # never rewrites. The prose is `&'static str` the compiler never reads, so
+  # nothing else in the pipeline can see a broken example.
+  man-examples:
+    needs: build
+    runs-on: ubuntu-latest
+    # Hang backstop, not a performance bound: each example is already killed at
+    # RUN_TIMEOUT, and the whole corpus measured well inside this.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mfb-bin
+          path: target/release
+      - run: chmod +x target/release/mfb
+      # `app` and `canvas` examples are `--app` builds, whose ELF links GTK 4 —
+      # the loader needs it even headless (see the test job's note).
+      - name: Install the GTK 4 runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libgtk-4-1
+      # `net::ping`'s example opens an unprivileged ICMP socket; see the
+      # acceptance job's note on `ping_group_range`.
+      - name: Permit unprivileged ICMP sockets
+        run: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+      - name: Man-page examples build and run
+        run: bash scripts/man-examples-gate.sh target/release/mfb
+
   # Coverage recompiles instrumented, so it builds its own targets rather than
   # reusing the binary.
   #

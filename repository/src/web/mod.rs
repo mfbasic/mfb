@@ -281,7 +281,14 @@ pub fn landing(registry_id: &str, root_fingerprint: Option<&str>) -> Markup {
 pub struct SearchRow {
     pub ident: String,
     pub owner: String,
+    /// The newest **active** release (plan-126-A). `None` for a package with no
+    /// published version, and for one whose every version is yanked or blocked.
     pub latest_version: Option<String>,
+    /// The release state of `latest_version`, badged beside the version chip.
+    /// This field did not exist before plan-126-A, which is why a yanked
+    /// headline on this page carried no marker of any kind: there was nothing
+    /// for the renderer to mark it with.
+    pub latest_state: Option<String>,
     pub description: Option<String>,
     pub published_at: Option<i64>,
 }
@@ -337,8 +344,27 @@ pub fn search_page(registry_id: &str, query: &str, results: &[SearchRow]) -> Mar
                                     a."result__ident" href=(package_path(&row.ident)) {
                                         (row.ident)
                                     }
-                                    @if let Some(version) = &row.latest_version {
-                                        span."result__ver" { "v" (version) }
+                                    // plan-126-A: the version chip names the
+                                    // newest *active* release and carries its
+                                    // state. A package whose every release is
+                                    // withdrawn says so — it keeps its row in
+                                    // the results (it exists, and the query
+                                    // found it) but shows no version chip to
+                                    // misread as current.
+                                    @match &row.latest_version {
+                                        Some(version) => {
+                                            span."result__ver" { "v" (version) }
+                                            @if let Some(release_state) = &row.latest_state {
+                                                span class={
+                                                    "state state--" (state_modifier(release_state))
+                                                } { (release_state) }
+                                            }
+                                        }
+                                        None => {
+                                            span."result__ver result__ver--none" {
+                                                "no active release"
+                                            }
+                                        }
                                     }
                                     @if let Some(at) = row.published_at {
                                         span."result__meta" {
@@ -384,18 +410,319 @@ fn hex_value(value: &str) -> Markup {
     }
 }
 
-/// The tab strip shared by the two package views. The audit "tab" is a separate
-/// URL, not a script toggle — the site has no script.
-fn package_tabs(ident: &str, audit: bool) -> Markup {
+/// Which package view a page is (plan-126-F).
+///
+/// An enum rather than the `audit: bool` it replaced: with three tabs a bool
+/// cannot name the third, and two bools could claim two current tabs at once.
+/// Each variant marks exactly one tab current by construction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PackageTab {
+    Overview,
+    Docs,
+    Audit,
+}
+
+/// The tab strip shared by the package views. Each "tab" is a separate URL, not
+/// a script toggle — the site has no script.
+///
+/// `aria-current="page"` is emitted on the current tab **only**: maud's optional
+/// attribute syntax omits the attribute entirely when the value is `None`,
+/// rather than rendering an empty one.
+fn package_tabs(ident: &str, current: PackageTab) -> Markup {
     let base = package_path(ident);
+    let mark = |tab: PackageTab| (current == tab).then_some("page");
     html! {
         nav."tabs" aria-label="Package views" {
-            @if audit {
-                a."tab" href=(base) { "Overview" }
-                a."tab" href={ (base) "/audit" } aria-current="page" { "Audit" }
+            a."tab" href=(base) aria-current=[mark(PackageTab::Overview)] { "Overview" }
+            a."tab" href={ (base) "/docs" } aria-current=[mark(PackageTab::Docs)] { "Docs" }
+            a."tab" href={ (base) "/audit" } aria-current=[mark(PackageTab::Audit)] { "Audit" }
+        }
+    }
+}
+
+/// What the Docs tab renders (plan-126-F).
+pub struct DocsView {
+    pub ident: String,
+    /// The latest active release — the same plan-126-A selection that picked
+    /// the documentation, so the version named is the version documented.
+    /// `None` when the package has no active release.
+    pub version: Option<String>,
+    /// The documentation of that release, or `None` when its author included
+    /// none.
+    pub page: Option<mfb_wire::docpage::DocPage>,
+}
+
+/// `GET /p/:ident/docs` — the Docs tab (plan-126-F).
+///
+/// **Every string on this page is publisher-controlled**: package prose,
+/// subtitles, signatures, examples, parameter descriptions. The defence is the
+/// same as everywhere on this site — maud escapes every interpolated value, and
+/// this function never reaches for maud's escaping bypass. The compiler's `src/doc/html.rs`
+/// renderer is deliberately **not** reused: it emits an inline `<style>` the CSP
+/// blocks, and embedding its HTML would need exactly that bypass. The shared
+/// thing is the *model* (`mfb_wire::docpage`), not the markup.
+///
+/// A package whose release carries no documentation still gets this tab, with an
+/// explicit statement: a missing tab would make "no documentation" and "the docs
+/// failed to load" indistinguishable.
+pub fn docs_page(registry_id: &str, view: &DocsView) -> Markup {
+    let raw = format!("{}/docs", package_json_path(&view.ident));
+    let body = html! {
+        div."wrap" {
+            div."pkg-head" {
+                h1."pkg-head__ident" { (view.ident) }
+                div."pkg-head__row" {
+                    @if let Some(version) = &view.version {
+                        span."pkg-latest" { "v" (version) }
+                    }
+                    span."muted" { "documentation" }
+                }
+                @if let Some(page) = &view.page {
+                    @if !page.subtitle.is_empty() {
+                        p."pkg-desc" { (doc_inline(&page.subtitle)) }
+                    }
+                }
+            }
+
+            (package_tabs(&view.ident, PackageTab::Docs))
+
+            p { a."raw-link" href=(raw) { (raw) " — raw JSON" } }
+
+            @match &view.page {
+                Some(page) => {
+                    @if let Some(message) = &page.package_deprecated {
+                        div."callout callout--warning" role="note" {
+                            strong."callout__label" { "Deprecated." }
+                            @if message.is_empty() {
+                                "This package is deprecated."
+                            } @else {
+                                (doc_inline(message))
+                            }
+                        }
+                    }
+                    @if !page.intro.is_empty() {
+                        div."doc-intro" {
+                            (doc_prose(&page.intro))
+                        }
+                    }
+                    // Only the public groups. A declaration its author marked
+                    // `INTERNAL` is not part of the package's API — a consumer
+                    // cannot call it — so the registry does not present it
+                    // (plan-126-F Open Decision; `GET /packages/:ident/docs`
+                    // omits them identically).
+                    @if page.public.is_empty() {
+                        p."muted" {
+                            "This release documents the package itself but none of its \
+                             public declarations."
+                        }
+                    } @else {
+                        (doc_index(&page.public))
+                        @for group in &page.public {
+                            h2."section-title" { (group.title) }
+                            @for decl in &group.decls {
+                                (doc_decl(decl))
+                            }
+                        }
+                    }
+                },
+                None => {
+                    div."empty" role="note" {
+                        h2 { "No documentation in this release" }
+                        p {
+                            "The package's author did not include documentation in "
+                            @match &view.version {
+                                Some(version) => { "release " span."mono" { "v" (version) } },
+                                None => { "any active release" },
+                            }
+                            "."
+                        }
+                        p."muted" {
+                            "For the MFBASIC language itself, run "
+                            span."mono" { "mfb man" }
+                            "."
+                        }
+                    }
+                },
+            }
+        }
+    };
+    page(&format!("{} — docs", view.ident), registry_id, body)
+}
+
+/// Render prose blocks: a `DESC` is a paragraph, and `WARN` / `INFO` / `SEC` are
+/// callouts — the same four-way mapping the compiler's renderer uses
+/// (`src/doc/html.rs`, `render_prose`), expressed with the site's semantic
+/// colour tokens instead of that renderer's palette.
+fn doc_prose(prose: &[mfb_wire::docpage::Prose]) -> Markup {
+    use mfb_wire::docs::DocProseKind;
+    html! {
+        @for block in prose {
+            @match block.kind {
+                DocProseKind::Desc => {
+                    p { (doc_inline(&block.text)) }
+                },
+                DocProseKind::Warn => {
+                    div."callout callout--warning" role="note" {
+                        strong."callout__label" { "Warning." }
+                        (doc_inline(&block.text))
+                    }
+                },
+                DocProseKind::Info => {
+                    div."callout callout--info" role="note" {
+                        strong."callout__label" { "Note." }
+                        (doc_inline(&block.text))
+                    }
+                },
+                DocProseKind::Sec => {
+                    div."callout callout--danger" role="note" {
+                        strong."callout__label" { "Security." }
+                        (doc_inline(&block.text))
+                    }
+                },
+            }
+        }
+    }
+}
+
+/// Inline doc text: a backtick span becomes `<code>`, and nothing else is markup
+/// (plan-09-doc.md §2.3) — the rule the compiler's renderer applies
+/// (`src/doc/html.rs`, `inline`), including leaving an unclosed backtick as a
+/// literal character. Every piece is interpolated, so maud escapes the code span
+/// and the text around it alike; splitting on a backtick never produces markup.
+fn doc_inline(text: &str) -> Markup {
+    let mut pieces: Vec<(bool, &str)> = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('`') {
+        let Some(close) = rest[open + 1..].find('`') else {
+            break;
+        };
+        pieces.push((false, &rest[..open]));
+        pieces.push((true, &rest[open + 1..open + 1 + close]));
+        rest = &rest[open + 1 + close + 1..];
+    }
+    pieces.push((false, rest));
+    html! {
+        @for (is_code, piece) in pieces {
+            @if is_code {
+                code { (piece) }
             } @else {
-                a."tab" href=(base) aria-current="page" { "Overview" }
-                a."tab" href={ (base) "/audit" } { "Audit" }
+                (piece)
+            }
+        }
+    }
+}
+
+/// The HTML element id for a declaration: the model's anchor under a `doc-`
+/// prefix. The model's anchors are unique among declarations and avoid only the
+/// compiler page's own ids; this page's shell carries others (`q` on the search
+/// box in every page header), so a declaration named `q` would otherwise
+/// duplicate an id and its index link would jump to the search box. No shell id
+/// starts `doc-`. `GET /packages/:ident/docs` reports this same id.
+pub fn doc_element_id(anchor: &str) -> String {
+    format!("doc-{anchor}")
+}
+
+/// A no-script index of the declaration groups, folded with the checkbox + label
+/// pattern the Overview's target rows use. Rendered **checked** (open), so the
+/// index is visible by default and without CSS. The checkbox id contains `_`,
+/// which [`doc_element_id`] never produces, so it cannot collide with a
+/// declaration.
+fn doc_index(groups: &[mfb_wire::docpage::DocGroup]) -> Markup {
+    let count: usize = groups.iter().map(|group| group.decls.len()).sum();
+    html! {
+        nav."doc-index" aria-label="Declarations" {
+            input."fold-cb" type="checkbox" id="doc_index_fold" checked;
+            label."tgt-toggle doc-index__toggle" for="doc_index_fold"
+                title="Show/hide the declaration index" {
+                span."chev" {}
+                "Contents"
+                span."tgt-count" { (count) }
+            }
+            div."doc-index__groups" {
+                @for group in groups {
+                    div."doc-index__group" {
+                        p."eyebrow" { (group.title) }
+                        ul {
+                            @for decl in &group.decls {
+                                li {
+                                    a."mono" href={ "#" (doc_element_id(&decl.anchor)) } {
+                                        (decl.name)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One declaration: the same parts, in the same order, as the compiler's
+/// `render_decl` (`src/doc/html.rs`) — heading and kind badge, signature,
+/// deprecation, description, parameters, members, returns, errors, example.
+/// The signature and example look like code and are the fields most tempting to
+/// emit raw; they are interpolated like everything else.
+fn doc_decl(decl: &mfb_wire::docpage::DocDecl) -> Markup {
+    let id = doc_element_id(&decl.anchor);
+    html! {
+        section."decl" id=(id) {
+            div."decl__head" {
+                h3."decl__name" {
+                    a."mono" href={ "#" (id) } { (decl.name) }
+                }
+                span class={ "doc-badge doc-badge--" (decl.badge_class) } { (decl.kind_label) }
+            }
+            @if !decl.signature.is_empty() {
+                pre."decl__sig" { code { (decl.signature) } }
+            }
+            @if let Some(message) = &decl.deprecated {
+                div."callout callout--warning" role="note" {
+                    strong."callout__label" { "Deprecated." }
+                    @if message.is_empty() {
+                        "This declaration is deprecated."
+                    } @else {
+                        (doc_inline(message))
+                    }
+                }
+            }
+            (doc_prose(&decl.desc))
+            (doc_table("Parameters", "name", &decl.args))
+            @if let Some(label) = decl.member_label {
+                (doc_table(label, "name", &decl.props))
+            }
+            @if !decl.ret.is_empty() {
+                h4."decl__h" { "Returns" }
+                p { (doc_inline(&decl.ret)) }
+            }
+            (doc_table("Errors", "code", &decl.errors))
+            @if !decl.example.is_empty() {
+                div."decl__example" {
+                    p."eyebrow" { "Example" }
+                    pre { code { (decl.example) } }
+                }
+            }
+        }
+    }
+}
+
+/// A two-column name/description table; renders nothing for no rows.
+fn doc_table(heading: &str, name_column: &str, rows: &[(String, String)]) -> Markup {
+    html! {
+        @if !rows.is_empty() {
+            h4."decl__h" { (heading) }
+            table."grid doc-table" {
+                thead {
+                    tr { th { (name_column) } th { "description" } }
+                }
+                tbody {
+                    @for (name, desc) in rows {
+                        tr {
+                            td."mono" data-label=(name_column) { (name) }
+                            td data-label="description" { (doc_inline(desc)) }
+                        }
+                    }
+                }
             }
         }
     }
@@ -433,7 +760,14 @@ pub struct PackageView {
     pub author: Option<String>,
     pub url: Option<String>,
     pub description: Option<String>,
+    /// The newest **active** release (plan-126-A), not simply the newest row.
+    /// `None` means every published version is yanked, blocked or
+    /// legal-tombstoned — rendered as an explicit statement, not an omission.
     pub latest_version: Option<String>,
+    /// The release state of `latest_version`, badged beside it so a
+    /// `deprecated` headline does not read as current. `None` exactly when
+    /// `latest_version` is.
+    pub latest_state: Option<String>,
     pub versions: Vec<VersionRow>,
 }
 
@@ -452,8 +786,32 @@ pub fn package_page(registry_id: &str, view: &PackageView) -> Markup {
             div."pkg-head" {
                 h1."pkg-head__ident" { (view.ident) }
                 div."pkg-head__row" {
-                    @if let Some(latest) = &view.latest_version {
-                        span."pkg-latest" { "latest v" (latest) }
+                    // plan-126-A: the headline version is the newest *active*
+                    // release, and its state is badged beside it — a
+                    // `deprecated` headline must not read as current. When
+                    // there is no active release the absence is *stated*: an
+                    // omitted chip and a package with no releases at all would
+                    // otherwise render identically, and the reader could not
+                    // tell "nothing published" from "everything withdrawn".
+                    @match &view.latest_version {
+                        Some(latest) => {
+                            span."pkg-latest" { "latest v" (latest) }
+                            @if let Some(release_state) = &view.latest_state {
+                                span class={ "state state--" (state_modifier(release_state)) } {
+                                    (release_state)
+                                }
+                            }
+                        }
+                        None => {
+                            @if !view.versions.is_empty() {
+                                span."pkg-latest pkg-latest--none" {
+                                    "no active release"
+                                }
+                                span."muted" {
+                                    "every published version is yanked or blocked"
+                                }
+                            }
+                        }
                     }
                     span."muted" { "owner " span."mono" { (view.owner) } }
                 }
@@ -497,7 +855,7 @@ pub fn package_page(registry_id: &str, view: &PackageView) -> Markup {
                 }
             }
 
-            (package_tabs(&view.ident, false))
+            (package_tabs(&view.ident, PackageTab::Overview))
 
             h2."section-title" {
                 "Versions " span."muted" { "(" (view.versions.len()) ")" }
@@ -668,7 +1026,7 @@ pub fn audit_page(registry_id: &str, view: &AuditView) -> Markup {
                 }
             }
 
-            (package_tabs(&view.ident, true))
+            (package_tabs(&view.ident, PackageTab::Audit))
 
             div."prose" {
                 p {
@@ -972,6 +1330,7 @@ mod tests {
             url: None,
             description: None,
             latest_version: Some("4.2.0".to_string()),
+            latest_state: Some("available".to_string()),
             versions: vec![version("4.2.0"), version("3.6.0")],
         };
         let rendered = package_page("reg", &view).into_string();
@@ -993,6 +1352,448 @@ mod tests {
         // Both versions' target rows are still present in the markup.
         assert!(rendered.contains("m-4.2.0.so"), "{rendered}");
         assert!(rendered.contains("m-3.6.0.so"), "{rendered}");
+    }
+
+    // === plan-126-A: the Overview header's headline release =================
+
+    /// A `PackageView` whose newest *listed* version is yanked. The header must
+    /// name the older active release, **and** the versions table must still
+    /// contain the yanked one — the second half is what proves the selection
+    /// filter did not leak into the transparency listing.
+    #[test]
+    fn the_header_names_the_newest_active_release_while_the_table_keeps_the_yanked_one() {
+        let view = PackageView {
+            latest_version: Some("1.5.0".to_string()),
+            latest_state: Some("available".to_string()),
+            versions: vec![
+                header_test_version("2.0.0", "yanked"),
+                header_test_version("1.5.0", "available"),
+            ],
+            ..header_test_view()
+        };
+        let rendered = package_page("reg", &view).into_string();
+
+        assert!(rendered.contains("latest v1.5.0"), "{rendered}");
+        assert!(!rendered.contains("latest v2.0.0"), "{rendered}");
+        // The yanked release is still listed, with its state visible.
+        assert!(rendered.contains("state--yanked"), "{rendered}");
+        assert_eq!(rendered.matches("2.0.0").count() >= 1, true, "{rendered}");
+    }
+
+    /// A `deprecated` headline is badged, so it cannot read as current. This is
+    /// the case the bare version chip could never express.
+    #[test]
+    fn a_deprecated_headline_release_carries_its_state_badge() {
+        let view = PackageView {
+            latest_version: Some("2.0.0".to_string()),
+            latest_state: Some("deprecated".to_string()),
+            versions: vec![header_test_version("2.0.0", "deprecated")],
+            ..header_test_view()
+        };
+        let rendered = package_page("reg", &view).into_string();
+        assert!(rendered.contains("latest v2.0.0"), "{rendered}");
+        assert!(rendered.contains("state--deprecated"), "{rendered}");
+    }
+
+    /// Versions exist but none is active. The header states that, rather than
+    /// silently omitting the chip — otherwise "everything withdrawn" and
+    /// "nothing published" render identically.
+    #[test]
+    fn no_active_release_is_stated_not_omitted() {
+        let view = PackageView {
+            latest_version: None,
+            latest_state: None,
+            versions: vec![
+                header_test_version("2.0.0", "blocked"),
+                header_test_version("1.5.0", "yanked"),
+            ],
+            ..header_test_view()
+        };
+        let rendered = package_page("reg", &view).into_string();
+
+        assert!(rendered.contains("no active release"), "{rendered}");
+        assert!(
+            rendered.contains("every published version is yanked or blocked"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("latest v"), "{rendered}");
+        // Both versions are still in the table.
+        assert!(rendered.contains("state--blocked"), "{rendered}");
+        assert!(rendered.contains("state--yanked"), "{rendered}");
+    }
+
+    /// A package identity with no published version at all takes neither
+    /// branch: there is nothing to state the absence *of*.
+    #[test]
+    fn a_package_with_no_versions_renders_no_release_copy_at_all() {
+        let view = PackageView {
+            latest_version: None,
+            latest_state: None,
+            versions: Vec::new(),
+            ..header_test_view()
+        };
+        let rendered = package_page("reg", &view).into_string();
+        assert!(!rendered.contains("latest v"), "{rendered}");
+        assert!(!rendered.contains("no active release"), "{rendered}");
+    }
+
+    fn header_test_view() -> PackageView {
+        PackageView {
+            ident: "acme#matrix".to_string(),
+            owner: "acme".to_string(),
+            ident_key: "00".to_string(),
+            ident_fingerprint: "00".to_string(),
+            server_fingerprint: "00".to_string(),
+            author: None,
+            url: None,
+            description: None,
+            latest_version: None,
+            latest_state: None,
+            versions: Vec::new(),
+        }
+    }
+
+    fn header_test_version(version: &str, state: &str) -> VersionRow {
+        VersionRow {
+            version: version.to_string(),
+            hash: "sha256:00".to_string(),
+            published_at: 0,
+            state: state.to_string(),
+            abi_symbols: 1,
+            log_index: Some(1),
+            targets: Vec::new(),
+        }
+    }
+
+    // === plan-126-F: tabs and the Docs tab ================================
+
+    /// Every tab variant marks exactly one tab current, and it is the right one.
+    #[test]
+    fn package_tabs_mark_exactly_the_current_tab() {
+        for (current, label) in [
+            (PackageTab::Overview, "Overview"),
+            (PackageTab::Docs, "Docs"),
+            (PackageTab::Audit, "Audit"),
+        ] {
+            let rendered = package_tabs("acme#matrix", current).into_string();
+            assert_eq!(
+                rendered.matches("aria-current=\"page\"").count(),
+                1,
+                "{current:?}: {rendered}"
+            );
+            assert!(
+                rendered.contains(&format!("aria-current=\"page\">{label}</a>")),
+                "{current:?} must mark {label}: {rendered}"
+            );
+        }
+    }
+
+    fn docs_view(page: Option<mfb_wire::docpage::DocPage>) -> DocsView {
+        DocsView {
+            ident: "acme#matrix".to_string(),
+            version: Some("4.2.0".to_string()),
+            page,
+        }
+    }
+
+    fn doc_page_with_intro(
+        desc: Vec<(u8, String)>,
+        deprecated: Option<String>,
+    ) -> mfb_wire::docpage::DocPage {
+        mfb_wire::docpage::from_package(
+            mfb_wire::docs::PackageDocs {
+                package: Some(mfb_wire::docs::PackageDocEntry {
+                    name: "matrix".to_string(),
+                    desc,
+                    deprecated,
+                }),
+                decls: Vec::new(),
+            },
+            "matrix",
+        )
+    }
+
+    /// No documentation is stated explicitly, names the release, points at
+    /// `mfb man`, and renders no documentation markup.
+    #[test]
+    fn the_empty_docs_page_states_the_author_included_no_documentation() {
+        let rendered = docs_page("reg", &docs_view(None)).into_string();
+        assert!(
+            rendered.contains("did not include documentation"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("v4.2.0"), "{rendered}");
+        assert!(rendered.contains("mfb man"), "{rendered}");
+        assert!(!rendered.contains("callout"), "{rendered}");
+        assert!(!rendered.contains("doc-intro"), "{rendered}");
+        assert_eq!(rendered.matches("aria-current=\"page\"").count(), 1);
+        assert!(
+            rendered.contains("aria-current=\"page\">Docs</a>"),
+            "{rendered}"
+        );
+    }
+
+    /// The first `DESC` is the subtitle, the rest is intro, and each of the four
+    /// prose kinds renders as its own element and callout class.
+    #[test]
+    fn the_docs_page_renders_package_prose_and_every_callout_kind() {
+        let page = doc_page_with_intro(
+            vec![
+                (0, "The subtitle.".to_string()),
+                (0, "A paragraph.".to_string()),
+                (1, "A warning.".to_string()),
+                (2, "A note.".to_string()),
+                (3, "A security caveat.".to_string()),
+            ],
+            Some("use matrix2".to_string()),
+        );
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+        assert!(rendered.contains("The subtitle."), "{rendered}");
+        assert!(rendered.contains("<p>A paragraph.</p>"), "{rendered}");
+        assert!(rendered.contains("callout--warning"), "{rendered}");
+        assert!(rendered.contains("callout--info"), "{rendered}");
+        assert!(rendered.contains("callout--danger"), "{rendered}");
+        assert!(rendered.contains("Deprecated."), "{rendered}");
+        assert!(rendered.contains("use matrix2"), "{rendered}");
+        assert!(
+            !rendered.contains("did not include documentation"),
+            "{rendered}"
+        );
+    }
+
+    /// Publisher prose is escaped, never rendered as markup. The full escaping
+    /// proof across signatures, examples and parameters is plan-126-F Phase 3.
+    #[test]
+    fn docs_page_escapes_publisher_prose() {
+        let hostile = "<script>alert(1)</script>";
+        let page = doc_page_with_intro(
+            vec![(0, hostile.to_string()), (2, hostile.to_string())],
+            Some(hostile.to_string()),
+        );
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+        assert!(!rendered.contains("<script"), "{rendered}");
+        assert!(rendered.contains("&lt;script&gt;"), "{rendered}");
+    }
+
+    fn doc_decl_entry(kind: &str, name: &str, group: &str) -> mfb_wire::docs::DeclDocEntry {
+        mfb_wire::docs::DeclDocEntry {
+            kind: kind.to_string(),
+            name: name.to_string(),
+            signature: String::new(),
+            group: group.to_string(),
+            desc: Vec::new(),
+            args: Vec::new(),
+            props: Vec::new(),
+            ret: String::new(),
+            errors: Vec::new(),
+            example: String::new(),
+            internal: false,
+            deprecated: None,
+        }
+    }
+
+    fn doc_page_with_decls(
+        desc: Vec<(u8, String)>,
+        decls: Vec<mfb_wire::docs::DeclDocEntry>,
+    ) -> mfb_wire::docpage::DocPage {
+        mfb_wire::docpage::from_package(
+            mfb_wire::docs::PackageDocs {
+                package: Some(mfb_wire::docs::PackageDocEntry {
+                    name: "matrix".to_string(),
+                    desc,
+                    deprecated: None,
+                }),
+                decls,
+            },
+            "matrix",
+        )
+    }
+
+    /// **plan-126-F Phase 3.** Every part of a declaration renders: group
+    /// heading, index link, anchored section, kind badge, signature, deprecation,
+    /// description, parameters, members under the kind's label, returns, errors
+    /// and example.
+    #[test]
+    fn the_docs_page_renders_every_part_of_a_declaration() {
+        let mut add = doc_decl_entry("func", "addUp", "Arithmetic");
+        add.signature = "EXPORT FUNC addUp(a AS Integer, b AS Integer) AS Integer".to_string();
+        add.desc = vec![(0, "Adds two integers.".to_string())];
+        add.args = vec![
+            ("a".to_string(), "The first addend.".to_string()),
+            ("b".to_string(), "The second addend.".to_string()),
+        ];
+        add.ret = "The sum.".to_string();
+        add.errors = vec![("ErrOverflow".to_string(), "The sum overflowed.".to_string())];
+        add.example = "PRINT matrix::addUp(1, 2)".to_string();
+        add.deprecated = Some("use addAll".to_string());
+        let mut point = doc_decl_entry("type", "Point", "");
+        point.props = vec![("x".to_string(), "Horizontal.".to_string())];
+
+        let page = doc_page_with_decls(vec![(0, "Sub.".to_string())], vec![add, point]);
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+
+        // Groups in first-appearance order, each with its heading.
+        let arithmetic = rendered.find(">Arithmetic</h2>").expect(&rendered);
+        let types = rendered.find(">Types</h2>").expect(&rendered);
+        assert!(arithmetic < types, "{rendered}");
+        // Anchored sections, linked from the index and from their own heading.
+        assert!(
+            rendered.contains(r#"<section class="decl" id="doc-addup">"#),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains(r#"<section class="decl" id="doc-point">"#),
+            "{rendered}"
+        );
+        assert_eq!(
+            rendered.matches(r##"href="#doc-addup""##).count(),
+            2,
+            "{rendered}"
+        );
+        assert!(rendered.contains("doc-badge--function"), "{rendered}");
+        assert!(rendered.contains(">Function</span>"), "{rendered}");
+        assert!(rendered.contains(">Type</span>"), "{rendered}");
+        assert!(
+            rendered.contains("<pre class=\"decl__sig\"><code>EXPORT FUNC addUp(a AS Integer, b AS Integer) AS Integer</code></pre>"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("use addAll"), "{rendered}");
+        assert!(rendered.contains("<p>Adds two integers.</p>"), "{rendered}");
+        assert!(rendered.contains(">Parameters</h4>"), "{rendered}");
+        assert!(rendered.contains("The second addend."), "{rendered}");
+        assert!(rendered.contains(">Fields</h4>"), "{rendered}");
+        assert!(rendered.contains("Horizontal."), "{rendered}");
+        assert!(
+            rendered.contains(">Returns</h4><p>The sum.</p>"),
+            "{rendered}"
+        );
+        assert!(rendered.contains(">Errors</h4>"), "{rendered}");
+        assert!(rendered.contains("ErrOverflow"), "{rendered}");
+        assert!(
+            rendered.contains("<pre><code>PRINT matrix::addUp(1, 2)</code></pre>"),
+            "{rendered}"
+        );
+        // The index is open by default, so it works without CSS.
+        assert!(
+            rendered.contains(r#"id="doc_index_fold" checked"#),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("<span class=\"tgt-count\">2</span>"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("<script"), "{rendered}");
+        assert!(!rendered.contains("style="), "{rendered}");
+    }
+
+    /// A declaration its author marked `INTERNAL` is not rendered anywhere on the
+    /// page — not in the index and not as a section.
+    #[test]
+    fn internal_declarations_are_not_rendered() {
+        let public = doc_decl_entry("func", "visibleOne", "");
+        let mut hidden = doc_decl_entry("func", "secretHelper", "");
+        hidden.internal = true;
+        let page = doc_page_with_decls(Vec::new(), vec![public, hidden]);
+        assert_eq!(
+            page.internal.len(),
+            1,
+            "the fixture must carry an internal decl"
+        );
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+        assert!(rendered.contains("visibleOne"), "{rendered}");
+        assert!(!rendered.contains("secretHelper"), "{rendered}");
+        assert!(!rendered.contains("secrethelper"), "{rendered}");
+    }
+
+    /// A package documented with no public declarations says so rather than
+    /// rendering an empty index.
+    #[test]
+    fn a_page_with_no_public_declarations_says_so() {
+        let page = doc_page_with_decls(vec![(0, "Sub.".to_string())], Vec::new());
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+        assert!(
+            rendered.contains("none of its public declarations"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("doc-index"), "{rendered}");
+    }
+
+    /// Backtick spans become `<code>`, escaped like the text around them; an
+    /// unclosed backtick stays a literal character — the compiler renderer's rule.
+    #[test]
+    fn doc_inline_renders_backtick_spans_as_escaped_code() {
+        assert_eq!(
+            doc_inline("call `f(<a>)` now").into_string(),
+            "call <code>f(&lt;a&gt;)</code> now"
+        );
+        assert_eq!(
+            doc_inline("a `b` c `d`").into_string(),
+            "a <code>b</code> c <code>d</code>"
+        );
+        assert_eq!(doc_inline("tick ` alone").into_string(), "tick ` alone");
+        assert_eq!(doc_inline("``").into_string(), "<code></code>");
+        assert_eq!(doc_inline("").into_string(), "");
+    }
+
+    /// The page header's search box is `id="q"`. A declaration named `q` must not
+    /// duplicate that id, or its index link would jump to the search box.
+    #[test]
+    fn a_declaration_named_like_a_shell_id_does_not_duplicate_it() {
+        let page = doc_page_with_decls(Vec::new(), vec![doc_decl_entry("func", "q", "")]);
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+        assert_eq!(rendered.matches(r#"id="q""#).count(), 1, "{rendered}");
+        assert!(rendered.contains(r#"id="doc-q""#), "{rendered}");
+        assert!(rendered.contains(r##"href="#doc-q""##), "{rendered}");
+    }
+
+    /// **plan-126-F Phase 3's escaping test.** Each publisher-controlled field
+    /// carries its own hostile marker, so the assertions prove every field was
+    /// *rendered* escaped — a field silently dropped would otherwise pass as
+    /// "escaped" too.
+    #[test]
+    fn docs_page_escapes_every_publisher_controlled_field() {
+        let attack = |field: &str| format!("<script>alert('{field}')</script>\" onmouseover=\"x");
+        let mut decl = doc_decl_entry("func", "addUp", "");
+        decl.signature = attack("signature");
+        decl.example = attack("example");
+        decl.args = vec![("a".to_string(), attack("param"))];
+        decl.ret = attack("returns");
+        decl.errors = vec![("ErrX".to_string(), attack("error"))];
+        decl.desc = vec![(0, attack("decl-desc"))];
+        let page = doc_page_with_decls(
+            vec![(0, attack("package")), (1, attack("callout"))],
+            vec![decl],
+        );
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+
+        for field in [
+            "package",
+            "callout",
+            "signature",
+            "example",
+            "param",
+            "returns",
+            "error",
+            "decl-desc",
+        ] {
+            let escaped =
+                format!("&lt;script&gt;alert('{field}')&lt;/script&gt;&quot; onmouseover=&quot;x");
+            assert!(
+                rendered.contains(&escaped),
+                "{field} must render escaped: {rendered}"
+            );
+        }
+        assert!(!rendered.contains("<script"), "{rendered}");
+        // No attribute break: every `onmouseover` on the page is the escaped
+        // text of one of the eight fields, never an attribute. (A bare
+        // ` onmouseover=` substring check would match that escaped *text*.)
+        assert!(!rendered.contains("\" onmouseover=\""), "{rendered}");
+        assert_eq!(rendered.matches("onmouseover").count(), 8, "{rendered}");
+        assert_eq!(
+            rendered.matches("&quot; onmouseover=&quot;x").count(),
+            8,
+            "{rendered}"
+        );
     }
 
     /// maud escapes interpolated values by default. This asserts the property

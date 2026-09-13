@@ -9,6 +9,7 @@
 // regress. Runtime proof of the Schannel path is Windows-only (box 2230).
 // --- codegen tier imports (migration) ---
 use super::*;
+use crate::arch::ops::CodeOp;
 use crate::codegen::engine::mir;
 use crate::codegen::engine::tests::TestPlatform;
 use std::collections::HashMap;
@@ -63,6 +64,41 @@ fn listen_accepts_a_pkcs1_key_not_only_pkcs8() {
     assert!(
         has_label("t_listen_key_decoded"),
         "both key encodings must join at one PKCS_RSA_PRIVATE_KEY decode (bug-461)"
+    );
+}
+
+// bug-597: Winsock's `getaddrinfo`, like glibc's, refuses a NULL node together
+// with a NULL service, so the empty-host bind-all `tls::listen` could never
+// resolve. The bind-all path stages the C string "0" (0x30) as the service, and
+// nothing between `resolved` and the call may zero it. Execution proof is
+// Windows-only (box 2230).
+#[test]
+fn listen_bind_all_passes_a_non_null_service() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (ins, _rel, _slots) =
+        lower_tls_listen("t_listen", &imports, &TestPlatform).expect("lower schannel tls::listen");
+    let at = |label: &str| {
+        ins.iter()
+            .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(label))
+            .unwrap_or_else(|| panic!("missing label {label}"))
+    };
+    let (null_host, resolved) = (at("t_listen_null_host"), at("t_listen_resolved"));
+    assert!(
+        ins[null_host..resolved]
+            .iter()
+            .any(|i| i.op == CodeOp::MovImm && i.get("value").as_deref() == Some("48")),
+        "bug-597: the bind-all path must stage the service string \"0\""
+    );
+    let service_reg = abi::c_arg(1).to_string();
+    let zeroed_service = ins[resolved..].iter().take(8).any(|i| {
+        i.op == CodeOp::MovImm
+            && i.get("dst").as_deref() == Some(service_reg.as_str())
+            && i.get("value").as_deref() == Some("0")
+    });
+    assert!(
+        !zeroed_service,
+        "bug-597: getaddrinfo's service argument must not be a literal NULL"
     );
 }
 

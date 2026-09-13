@@ -1246,47 +1246,12 @@ impl BinaryReprProject {
     }
 }
 
-// === Doc-section encoding (bug-335 B1) =====================================
-// The `doc` section writer and the IR→PackageDocs lowering. Their decoders
-// (`read_doc_table`, `doc_kind_name`) stay in reader.rs; these are the write
-// halves, kept beside their sole caller (`lower_project_*` / `encode`).
-
-pub(super) fn encode_doc_table(docs: &PackageDocs) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    match &docs.package {
-        Some(package) => {
-            bytes.push(1);
-            put_bytes(&mut bytes, package.name.as_bytes());
-            put_prose_list(&mut bytes, &package.desc);
-            put_optional_str(&mut bytes, &package.deprecated);
-        }
-        None => bytes.push(0),
-    }
-    put_u32(&mut bytes, docs.decls.len() as u32);
-    for decl in &docs.decls {
-        let kind = match decl.kind.as_str() {
-            "sub" => DOC_KIND_SUB,
-            "type" => DOC_KIND_TYPE,
-            "union" => DOC_KIND_UNION,
-            "enum" => DOC_KIND_ENUM,
-            "resource" => DOC_KIND_RESOURCE,
-            _ => DOC_KIND_FUNC,
-        };
-        put_u16(&mut bytes, kind);
-        put_bytes(&mut bytes, decl.name.as_bytes());
-        put_bytes(&mut bytes, decl.signature.as_bytes());
-        put_bytes(&mut bytes, decl.group.as_bytes());
-        put_prose_list(&mut bytes, &decl.desc);
-        put_pair_list(&mut bytes, &decl.args);
-        put_pair_list(&mut bytes, &decl.props);
-        put_bytes(&mut bytes, decl.ret.as_bytes());
-        put_pair_list(&mut bytes, &decl.errors);
-        put_bytes(&mut bytes, decl.example.as_bytes());
-        bytes.push(u8::from(decl.internal));
-        put_optional_str(&mut bytes, &decl.deprecated);
-    }
-    bytes
-}
+// === Doc-section lowering (bug-335 B1, plan-126-D) =========================
+// The IR→PackageDocs lowering. The section-17 codec itself -- `encode_doc_table`,
+// formerly here, and `read_doc_table`/`doc_kind_name`, formerly in reader.rs --
+// moved to `mfb_wire::docs` so the registry can decode published documentation
+// without this crate. `docs_from_ir` stays because `crate::ir::ProjectDocs` is
+// compiler IR; only the `PackageDocs` half of the boundary moved.
 
 pub(super) fn docs_from_ir(docs: &crate::ir::ProjectDocs) -> PackageDocs {
     use crate::ir::IrDocKind;

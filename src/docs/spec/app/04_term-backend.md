@@ -175,7 +175,7 @@ with a block/shade glyph (the `FillStyle` enum) — one run per row.
 `term::drawText` stamps a string at an absolute cell (one grid position per
 grapheme cluster, a double-width cluster taking two columns and being dropped
 rather than split when only one column remains, clipped to the row, cursor
-unmoved; the Windows backend is the exception and walks scalars, not clusters) and `term::drawGlyph` stamps a single scalar by code
+unmoved) and `term::drawGlyph` stamps a single scalar by code
 point. `term::drawText` also has an `AttributedString` overload (a source companion,
 `term_astrings_bridge.mfb`, injected only when a program imports both `term` and
 `astrings`): it draws maximal same-style runs through the `String` helper above,
@@ -497,8 +497,10 @@ off the grid fills its visible part. Present-driven — no redraw request. [[src
 `TV_GLYPH_G`/`X`/`Y`; the IMP stamps that one cell (clamped) with the current
 attributes. `term::drawText` parks the start cell in `TV_TEXT_X`/`Y` and passes the
 text as an NSString `withObject:` argument (built like `mfbWriteString:`); the IMP
-iterates `characterAtIndex:`, stamping one cell per unit on the row, clipping at
-the right edge and skipping control characters — without moving the cursor. Both
+walks the string by composed character sequence, stamping each cluster at the
+running column and advancing it by the cluster's display width, clipping at the
+right edge; a control character takes one column and stamps nothing — without
+moving the cursor. Both
 are marshaled (`waitUntilDone:YES`) and present-driven. Control code points are
 skipped so they cannot corrupt the surface. [[src/target/macos_aarch64/app/term_view.rs:emit_term_draw_glyph_helper]] [[src/target/macos_aarch64/app/term_view.rs:emit_term_draw_text_helper]] [[src/target/macos_aarch64/app/app_io.rs:emit_app_draw_text]]
 
@@ -703,8 +705,8 @@ composes them. [[src/target/win_x86_64/app/mod.rs:emit_app_io_write]]
 [[src/target/win_x86_64/app/mod.rs:emit_win_wide_width]]
 
 The six positioned draw helpers (`drawHLine`/`drawVLine`/`drawBox`/`fillRect`/
-`drawText`/`drawGlyph`) — previously `ErrUnsupported` stubs — stamp Light
-box-drawing glyphs / positioned text directly into the memDC. The cell is a fixed
+`drawText`/`drawGlyph`) — previously `ErrUnsupported` stubs — stamp the
+style-selected box-drawing glyphs / positioned text directly into the memDC. The cell is a fixed
 8×16 px grid (Consolas at height 16); a font-linked CJK glyph spans two cells.
 The surface is a fixed **80 columns × 25 rows** (`TUI_COLS`/`TUI_ROWS`); it does
 not follow the client size.
@@ -732,24 +734,29 @@ because it is a leaf that never parks them.
 `emit_term_draw_glyph_at` additionally skips control code points (`< U+0020`), as
 the console and macOS bodies do.
 
-Three things this backend still does **not** do, each documented as a gap on the
-matching `mfb man term` page rather than silently diverging:
+**`term::drawText` is `io::write`'s cluster walk, emitted a second time** (bug-540
+WIN-04), exactly as on Linux: `emit_win_term_cluster_walk` is specialized at emit
+time by `WinTermWriteMode`. `Write` starts at the `TUI_ROW`/`TUI_COL` globals,
+wraps a wide cluster to the next row rather than split it, handles `\n`/`\r`, and
+leaves the new cursor in the globals. `DrawText` starts at its `(row, column)`
+arguments (a row off the surface draws nothing), ends the run at the right edge and
+when a width-2 cluster has only one column left, advances a negative start column
+without stamping, gives a control unit one column and no stamp, and never touches
+the cursor. The UTF-16 conversion, surrogate decode, combining-mark/ZWJ fold, width
+lookup and `TextOutW` of the whole cluster are the same instructions — down to the
+stack slots (`WALK_*`) — in both bodies. Every label the walk emits carries its
+specialization's prefix (`term_*`/`ww_*` for `Write`, the spellings that walk always
+had, and `dt_*`/`dt_ww_*` for `DrawText`); labels are function-scoped, and each
+member emits the walk once. Until bug-540 `emit_term_draw_text_at` carried its own
+walk over UTF-16 units, so `io::write` and `term::drawText` disagreed about the same
+string on this one backend.
+[[src/target/win_x86_64/app/mod.rs:emit_win_term_cluster_walk]]
+[[src/target/win_x86_64/app/mod.rs:WinTermWriteMode]]
 
-* It does not read the `LineStyle`/`FillStyle` ordinal. `emit_term_draw_line` and
-  `emit_term_draw_box` hard-code the Light glyphs and `emit_term_fill_rect` stamps
-  a space in the current background. The ordinal arrives in `ARG[0]` and is
-  discarded.
-* `emit_term_draw_text_at` walks UTF-16 units (decoding surrogate pairs) rather
-  than extended grapheme clusters, so unlike the console and macOS `drawText` it
-  does not fold combining marks or ZWJ sequences into one position. It also omits
-  the wide-at-the-edge preflight the other two perform — it tests only
-  `CURCOL >= TUI_COLS`, so a width-2 unit starting in the last column is drawn
-  rather than dropped, where `emit_draw_text` drops the cluster and stops the run.
-  Its `io::write` path (`emit_app_io_write`) does extend clusters and does reserve
-  the trailing column; the two have not been unified.
-* It gates on the live `TUI_MEMDC` handle rather than the shared `active` slot,
-  and `emit_term_off` does not clear that handle — see the note at the top of this
-  topic.
+The walk's cluster rule is this backend's own approximation, not UAX #29: it folds
+combining marks in U+0300..U+036F and a ZWJ plus the scalar it joins. A mark outside
+that block (U+20D0.., U+FE0F) is its own cluster, on `io::write` and `term::drawText`
+alike.
 
 ## See Also
 

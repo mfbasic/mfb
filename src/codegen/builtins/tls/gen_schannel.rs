@@ -20,6 +20,10 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
+// bug-575: the Schannel backend marshals the connect host (through
+// `socket_connect`) and the listen host into arena C-strings for `getaddrinfo`;
+// both are helper scratch nothing on the caller side can see.
+use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::marshal::*;
 use std::collections::HashMap;
 

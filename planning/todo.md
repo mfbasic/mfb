@@ -441,3 +441,140 @@ state explicitly why PNG keeps its own (canvas may need it without a zlib depend
 some target). Not a defect at HEAD — a design question for the plan.
 
 ---
+
+**Every normal ending already passes through `_mfb_shutdown`:** normal return, `EXIT PROGRAM`, untrapped errors, and SIGINT/SIGTERM on Unix console builds.
+**Some endings skip it:**
+- closing an app-mode window while the program is still running (macOS, GTK, Windows);
+- Ctrl-C on Windows;
+- SIGPIPE on a stdout write, and crashes.
+- On those paths nothing would be printed.
+
+---
+
+## Memory
+
+`src/docs/spec/memory/04_arenas.md` describes the arena correctly; the implementation in
+`src/codegen/memory/arena/arena.rs` does not match it. Work top to bottom: sections 1–5
+come before any plan is written. The Bucket List at the end is the inventory of what is
+wrong.
+
+### 1. Build the measurement harness
+
+1. **RSS over time per thread**, not just strace map counts. strace slowed the browser worker
+   enough that one Wikipedia load never finished, so check its overhead against the plan-67-F
+   perf rows before trusting any absolute number.
+2. **Measure the entropy-fill cost** on grow and free (fill on vs off), to know its share of
+   every number below. Measurement only; the fill stays.
+3. **Add an app-sized soak test**: a large parse or long server loop whose peak RSS must stay
+   flat across iteration counts. The existing leak tests only cover small code shapes, so
+   none of the Bucket List was caught. It fails today and tells you when a fix works.
+
+### 2. Find the browser's actual problem
+
+1. **Never freed, or freed but not reused?** Parse the same saved Wikipedia HTML with
+   `dom::parse` twice on the main thread (no threads) and compare maps/RSS after the first
+   and second parse.
+2. **Alloc vs free call counts** during one browser page load (gdb breakpoint counts on
+   box 2223, or the plan-67-F perf rows on macOS). A free count near the alloc count means
+   reuse is the problem; a tiny free count means values are never freed.
+
+If values are never freed, allocator changes will not move the browser's numbers: judge the
+A/B tests in section 3 on the other workloads and treat the browser as a separate problem.
+
+### 3. Spike / A-B test
+
+Every A/B below should report arena map count, peak RSS, and wall time on the same set:
+the browser page loads, the audio example, and the allocator benchmarks the `arena.rs`
+comments cite (bignum-modexp, datetime, large-list churn). The bins and gates being
+questioned were each added for a measured speedup, so no change lands on map count alone.
+Build every variant from the same base commit, in its own worktree, as throwaway code, and
+measure on macOS and at least one Linux box.
+
+A/B tests:
+
+1. **Drain the large bins in `arena_flush_coalesce`** vs HEAD.
+2. **Coalesce in `arena_free`** (route frees through `arena_insert_free`, all sizes vs large
+   only) vs the bin push. The bins were the plan-25-A / allocator-01 speedups, so measure
+   what coalescing costs back.
+3. **Remove the "skip flush when the list is empty" gate** (plan-64 A1) vs HEAD; its comment
+   names a datetime workload that regressed without it.
+4. **Let a large request split a bigger parked chunk** (best-fit or first-fit over the large
+   bins) vs exact-size-only reuse.
+5. **Default block size** — 4 KiB vs 64 KiB vs geometric growth. Measure syscall count, fill
+   cost and RSS.
+6. **A full double-free check** (walk the target bin) vs the head-only check — cost on the
+   free path, or whether it belongs in a debug-only build.
+7. **The ×1.5 buffer growth policy** behind the audio example's series vs a larger factor or
+   a reserve, once 1–4 decide how freed large chunks come back.
+
+Spikes (is it possible and safe, not which is faster):
+
+8. **A dedicated `mmap`/`munmap` for very large requests** (the audio example's 43–129 MB
+   buffers). Find the threshold where it beats keeping the chunk in the arena.
+9. **Unmap a block once it is entirely free.** How much per-block live accounting it needs,
+   and what it costs on the free path.
+10. **Reclaim a worker arena when its thread completes.** What still points into the worker
+    arena after `thread::waitFor` (the result copy, the control block, which lives in the
+    parent's arena), and whether it can be destroyed safely at that point.
+
+### 4. Record the results
+
+Write the measured numbers from sections 1–3 into the Bucket List, and strike any item the
+tests disprove.
+
+### 5. Decide whether any result changes the spec
+
+The spec is the target, but an A/B may show a specified behavior costs too much (for example
+coalescing on every free undoing the bin speedups). Either accept the cost or change the
+spec, and settle it here. Then write the plan.
+
+### Bucket List
+
+Code does not match the spec:
+
+1. **Worker arenas are never reclaimed.** The spec says a worker arena is reclaimed when its
+   package instance ends. The only call to `_mfb_arena_destroy` is in `lower_shutdown`
+   (`src/codegen/os/process/process_lifecycle.rs`), on the main arena, at exit.
+2. **Large bins never drain.** The spec says a colliding large chunk is recovered when the
+   bins drain at flush-before-grow. `lower_arena_flush_coalesce` gathers only the free list
+   and the 128 quick bins, so a freed chunk > 2048 B is reused only by an exact-size request
+   and never coalesces.
+3. **`arena_free` does not coalesce.** The spec says a free merges with its address-adjacent
+   neighbours (prev, next, both). `lower_arena_free` only pushes onto a quick or large bin
+   and never calls `arena_insert_free`.
+4. **The double-free guard is weaker than specified.** The spec says a repeated free of the
+   same address is a no-op. `lower_arena_free` only detects `ptr == bin head`, i.e. an
+   immediate re-free.
+5. **Flush-before-grow differs from the spec.** The spec drains every quick bin through the
+   coalescing insert and retries the walk. The code skips the flush entirely when the
+   address-ordered list is empty, and the retry re-enters at the designated-victim scan.
+6. **Large frees go to the wrong place.** The spec's intro puts large chunks on the
+   address-ordered list; the code parks them on the hashed large bins.
+7. **Entropy fill runs after the bin push**, not after the coalescing insert as the spec says
+   (follows from 3).
+8. **`arena_destroy` clears more than the spec says**: everything from arena-state offset 104
+   to the end (large bins, stdout buffer words, v128 slots, current error, stdin words), not
+   just the list heads, quick bins and designated-victim words. Decide which is right.
+
+Look into:
+
+9. **No block is ever unmapped before exit.** An arena that becomes empty keeps every block;
+   memory only grows until the process ends.
+10. **The browser example's growth.** 60 s of driven use (example.com, Wikipedia `BASIC`,
+    Hacker News) mapped 238,167 arena blocks / 1,308,315,648 bytes; the fetch worker for the
+    603,614-byte Wikipedia page alone mapped 194,400 blocks / 939 MB. Re-measure after 2–5,
+    and check separately whether recursive values (`dom::Node`) are ever freed — the spec's
+    Scope-Drop Frees section excludes recursive composites.
+11. **The audio example's buffer growth.** Two short tunes grew one buffer in ×1.5 steps to
+    requests of 43–129 MB, 611,160,064 bytes mapped in total.
+12. **Verify the spec's "O(1) amortized regardless of the size mix" claim** once 2–5 land;
+    today a mix of large sizes defeats reuse.
+
+No testing needed:
+
+13. **Stale `type_is_flat` references in the spec**: `03_heap-values.md:83`,
+    `04_arenas.md:343`, `05_collections.md:245`. plan-114-B split it into
+    `type_is_memcpy_copyable` and `type_is_arena_transferable`.
+14. **`threading/08_queue-semantics.md:170`** says the runtime bulk-reclaims the worker arena
+    at teardown; nothing does (same gap as 1).
+

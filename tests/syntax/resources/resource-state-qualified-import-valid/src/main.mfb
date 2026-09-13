@@ -1,0 +1,11 @@
+' bug-595 positive control: resolving the STATE clause must not reject a
+' correctly QUALIFIED imported STATE type. This is the spelling bug-480 Phase 4b
+' requires and the one http::finish documents; it must still build.
+IMPORT net
+IMPORT http
+IMPORT io
+
+SUB main()
+  RES s AS http::Stream STATE http::PendingState = http::startRead(net::toUrl("http://example.com/"))
+  io::print("bound")
+END SUB

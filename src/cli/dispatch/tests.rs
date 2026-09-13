@@ -70,7 +70,7 @@ fn an_unknown_command_is_a_usage_error() {
 fn every_command_answers_its_help_flag() {
     for command in [
         "init", "init-pkg", "build", "test", "pkg", "repo", "machine", "key", "org", "token",
-        "audit", "man", "spec", "doc", "fmt",
+        "audit", "info", "man", "spec", "doc", "fmt",
     ] {
         assert_eq!(
             run(&[command, "--help"]),
@@ -141,6 +141,25 @@ fn a_missing_subcommand_is_a_usage_error() {
              subcommand is a typo, not a command that ran and failed"
         );
     }
+}
+
+/// `info` takes exactly one binary: none, or two, is a usage error. A file that
+/// is not an MFBasic binary — or cannot be read at all — is an inspection
+/// outcome, and every inspection outcome exits `0`.
+#[test]
+fn info_requires_exactly_one_binary_and_reports_everything_else_with_zero() {
+    assert_eq!(run(&["info"]), 2, "`mfb info` names no binary");
+    assert_eq!(
+        run(&["info", "one", "two"]),
+        2,
+        "`mfb info` inspects one file"
+    );
+    assert_eq!(run(&["info", "Cargo.toml"]), 0, "not an MFBasic binary");
+    assert_eq!(
+        run(&["info", "does/not/exist.out"]),
+        0,
+        "an unreadable file is reported, not failed"
+    );
 }
 
 /// A flag `audit` refuses is a usage error.

@@ -1,9 +1,20 @@
 use crate::crypto;
 
-const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
-/// Fixed-size fields before the variable-length header section:
-/// magic (8) + containerMajor/Minor (4) + binaryReprMajor/Minor (4) + flags (4).
-const FIXED_PREFIX_LEN: usize = 20;
+// plan-126-B: the container magic, the fixed-prefix length, the field readers
+// and the signature-header rule come from `mfb_wire::mfp` instead of being
+// declared privately here — the magic used to be an unnamed literal array and
+// the four readers were byte-for-byte copies of the compiler's.
+//
+// This decoder keeps its own **policy**, which is not the compiler's: `ident` is
+// read `required = true` (an unidentified package cannot be published) and no
+// name charset guard is applied (the registry does not turn a header name into
+// a local path). See the three-decoder table in `mfb_wire::mfp`'s module doc and
+// the bug-340 B8 note in `src/binary_repr/mod.rs`.
+use mfb_wire::mfp::{
+    read_mfp_bytes, read_mfp_string, read_u16, read_u32, read_u64, validate_signature_header,
+    FIXED_PREFIX_LEN, MFP_MAGIC,
+};
+
 const SIGNATURE_ED25519: u16 = 1;
 
 /// A parsed container v1.0 `.mfp` header (plan-23 §4). The reader is hard
@@ -312,54 +323,6 @@ pub fn package_content_hash(bytes: &[u8]) -> Result<[u8; 32], String> {
     Ok(crypto::sha256(bytes))
 }
 
-fn validate_signature_header(signature_type: u16, signature_length: usize) -> Result<(), String> {
-    match (signature_type, signature_length) {
-        (0, 0) | (1, 64) => Ok(()),
-        (0, _) => Err("unsigned .mfp package must have zero signature length".to_string()),
-        (1, _) => Err("Ed25519 .mfp package must have a 64 byte signature".to_string()),
-        _ => Err(format!("unsupported .mfp signature type {signature_type}")),
-    }
-}
-
-fn read_mfp_string(
-    bytes: &[u8],
-    offset: &mut usize,
-    field: &str,
-    limit: usize,
-    required: bool,
-) -> Result<String, String> {
-    let raw = read_mfp_bytes(bytes, offset, field, limit)?;
-    let value = String::from_utf8(raw).map_err(|_| format!(".mfp {field} is not valid UTF-8"))?;
-    if required && value.is_empty() {
-        return Err(format!(".mfp {field} must not be empty"));
-    }
-    Ok(value)
-}
-
-fn read_mfp_bytes(
-    bytes: &[u8],
-    offset: &mut usize,
-    field: &str,
-    limit: usize,
-) -> Result<Vec<u8>, String> {
-    let length = read_u32(bytes, *offset)? as usize;
-    *offset = offset
-        .checked_add(4)
-        .ok_or_else(|| format!("invalid .mfp {field} length"))?;
-    if length > limit {
-        return Err(format!(".mfp {field} exceeds the {limit} byte limit"));
-    }
-    let end = offset
-        .checked_add(length)
-        .ok_or_else(|| format!("invalid .mfp {field} length"))?;
-    if end > bytes.len() {
-        return Err(format!("truncated .mfp {field}"));
-    }
-    let value = bytes[*offset..end].to_vec();
-    *offset = end;
-    Ok(value)
-}
-
 /// Test-only container v1.0 builder: serialize a package with an arbitrary
 /// trust chain so server tests can craft forgeries without the compiler's
 /// writer. Mirrors `src/target/package_mfp/mod.rs::build_package_bytes`.
@@ -416,29 +379,6 @@ pub(crate) mod test_support {
         bytes.extend_from_slice(&package.payload);
         bytes
     }
-}
-
-fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
-    let value = bytes
-        .get(offset..offset + 2)
-        .ok_or_else(|| "truncated .mfp header".to_string())?;
-    Ok(u16::from_le_bytes([value[0], value[1]]))
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
-    let value = bytes
-        .get(offset..offset + 4)
-        .ok_or_else(|| "truncated .mfp header".to_string())?;
-    Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
-}
-
-fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
-    let value = bytes
-        .get(offset..offset + 8)
-        .ok_or_else(|| "truncated .mfp header".to_string())?;
-    Ok(u64::from_le_bytes([
-        value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],
-    ]))
 }
 
 #[cfg(test)]

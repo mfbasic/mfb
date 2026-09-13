@@ -2,32 +2,164 @@ IMPORT collections
 IMPORT fs
 IMPORT tcp
 
+DOC
+  PACKAGE
+  DESC One-line UTC log entries, dispatched in order to the console, an open
+  DESC file, a connected socket, and your own code.
+  DESC
+  DESC A `logger::Logger` holds two things: a list of backends that receive
+  DESC every entry, and a map from `logger::LogLevel` to the backends that
+  DESC receive only entries at exactly that level. `logger::log` formats the
+  DESC entry once and delivers it to the common list first, then to the list
+  DESC configured for that level.
+  EXAMPLE
+    IMPORT fs
+    IMPORT logger
+
+    FUNC audit(entry AS logger::LogEntry) AS Nothing
+      ' entry.level, entry.timestamp and entry.message are the structured form.
+    END FUNC
+
+    FUNC main() AS Integer
+      RES file AS fs::File = fs::createTempFile()
+      LET console AS logger::LogBackend = logger::ConsoleBackend[]
+      LET toFile AS logger::LogBackend = logger::FileBackend[file := file]
+      LET custom AS logger::LogBackend = logger::CustomBackend[callback := audit]
+      LET byLevel AS Map OF logger::LogLevel TO List OF logger::LogBackend = Map OF logger::LogLevel TO List OF logger::LogBackend {logger::LogLevel.ERROR := [custom]}
+      LET app AS logger::Logger = logger::Logger[common := [console, toFile], backends := byLevel]
+
+      logger::log(app, logger::LogLevel.INFO, "started")
+      logger::log(app, logger::LogLevel.ERROR, "request failed")
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+  DESC
+  DESC The `ERROR` call above reaches `custom` after both common backends; the
+  DESC `INFO` call does not reach it at all. Routing is by exact level, never by
+  DESC threshold: a backend listed under `WARN` does not see `ERROR`. List a
+  DESC backend under every level you want it to see, or put it in `common`.
+  DESC
+  DESC A backend that appears in both lists is called twice, deliberately — the
+  DESC package delivers what you configured rather than deduplicating behind
+  DESC your back.
+  DESC
+  DESC Filtering by level is the caller's: there is no minimum level, because a
+  DESC `Logger` whose map leaves a level out already delivers nothing extra for
+  DESC it, and a `Logger` with an empty `common` list delivers nothing else.
+  DESC
+  DESC Handles are yours
+  DESC
+  DESC The caller creates, flushes when needed, and closes every file and
+  DESC socket. This package never opens, closes, flushes, retries, reconnects,
+  DESC batches, or filters them, and a backend's failure propagates out of
+  DESC `logger::log` to you rather than being swallowed.
+  SEC A message is sanitized before it is written. An entry occupies exactly one
+  SEC line, so a carriage return or line feed in the message is written as `\r`
+  SEC or `\n` -- two ordinary characters -- rather than ending the line. Without
+  SEC that, any message built from untrusted input could forge a complete,
+  SEC indistinguishable log entry at any level and any timestamp, on the console,
+  SEC in the file, and on the socket alike. `CustomBackend` still receives the
+  SEC unmodified `LogEntry`, because it is handed structure rather than a line.
+  WARN A `Logger` is an ordinary value with no lock of its own. Two threads
+  WARN logging to backends that share one `fs::File` or one `tcp::Socket` can
+  WARN interleave their bytes; give each thread its own handle, or serialize the
+  WARN calls yourself.
+END DOC
+
+DOC
+  ENUM LogLevel
+  DESC The severity of one entry.
+  DESC
+  DESC The level is written into the formatted line as its own name, and it is
+  DESC the key `Logger.backends` routes on. The four are ordered by severity for
+  DESC a reader, but the package never compares them: routing is exact-match.
+  PROP DEBUG Detail useful while diagnosing, normally off in production.
+  PROP INFO  The ordinary course of events.
+  PROP WARN  Something unexpected that did not stop the operation.
+  PROP ERROR An operation failed.
+END DOC
 EXPORT ENUM LogLevel
   DEBUG, INFO, WARN, ERROR
 END ENUM
 
+DOC
+  TYPE LogEntry
+  DESC One log entry in structured form, as `CustomBackend` receives it.
+  DESC
+  DESC Every backend reached by a single `logger::log` call sees the same entry,
+  DESC including the same timestamp — it is read once per call, not once per
+  DESC backend, so a fan-out cannot disagree with itself about when something
+  DESC happened.
+  PROP level     The entry's severity.
+  PROP timestamp The instant the entry was created, UTC, ISO-8601 (`2026-01-02T03:04:05.678Z`).
+  PROP message   The message exactly as it was passed to `logger::log`, unsanitized. The line-oriented backends escape it; this field does not.
+END DOC
 EXPORT TYPE LogEntry
   level AS LogLevel
   timestamp AS String
   message AS String
 END TYPE
 
+DOC
+  TYPE ConsoleBackend
+  DESC A backend that writes each entry to standard output with `io::print`.
+  DESC
+  DESC It carries no configuration, so it is written `logger::ConsoleBackend[]`.
+END DOC
 EXPORT TYPE ConsoleBackend
-  use_colors AS Boolean
 END TYPE
 
+DOC
+  TYPE FileBackend
+  DESC A backend that appends each entry, and a newline, to an open file.
+  DESC
+  DESC Writes go through `fs::writeAll` on the handle you supply. The package
+  DESC does not open, flush, or close it: open the file in append mode, flush
+  DESC when you need the bytes on disk, and close it when you are done.
+  PROP file An open `fs::File`. The handle stays open — you still close it.
+END DOC
 EXPORT TYPE FileBackend
   file AS RES fs::File
 END TYPE
 
+DOC
+  TYPE NetworkBackend
+  DESC A backend that writes each entry, and a newline, to a connected socket.
+  DESC
+  DESC Writes go through `tcp::write` on the handle you supply. The trailing
+  DESC newline is what frames the stream: a reader splits entries on it, exactly
+  DESC as it would reading the file a `FileBackend` writes. The package does not
+  DESC connect, reconnect, retry, or close — a write that fails propagates out of
+  DESC `logger::log`.
+  PROP socket A connected `tcp::Socket`. The handle stays open — you still close it.
+END DOC
 EXPORT TYPE NetworkBackend
   socket AS RES tcp::Socket
 END TYPE
 
+DOC
+  TYPE CustomBackend
+  DESC A backend that calls your function with the structured `LogEntry`.
+  DESC
+  DESC This is the seam for anything the package does not do itself: counting
+  DESC entries, forwarding to a service, buffering, filtering, or reformatting.
+  DESC The callback receives the entry rather than a formatted line, so it sees
+  DESC the message exactly as it was logged; call `logger::formatEntry` to get
+  DESC the same line the other backends write.
+  PROP callback The function to call, once per delivery.
+END DOC
 EXPORT TYPE CustomBackend
   callback AS FUNC(LogEntry) AS Nothing
 END TYPE
 
+DOC
+  UNION LogBackend
+  DESC One destination for log entries.
+  PROP ConsoleBackend Standard output.
+  PROP FileBackend    An open file, one line per entry.
+  PROP NetworkBackend A connected socket, one line per entry.
+  PROP CustomBackend  Your own function, given the structured entry.
+END DOC
 EXPORT UNION LogBackend
   ConsoleBackend
   FileBackend
@@ -35,6 +167,15 @@ EXPORT UNION LogBackend
   CustomBackend
 END UNION
 
+DOC
+  TYPE Logger
+  DESC A configured set of backends, and the routing between them.
+  DESC
+  DESC Build one and pass it to `logger::log`. It holds no handle of its own and
+  DESC opens nothing; every resource in it is one you supplied and still own.
+  PROP common   Backends that receive every entry, whatever its level. Delivered first, in list order.
+  PROP backends Backends that receive entries at exactly one level. Delivered after `common`, in list order. A level absent from the map routes nowhere.
+END DOC
 EXPORT TYPE Logger
   common AS List OF LogBackend
   backends AS Map OF LogLevel TO List OF LogBackend
@@ -48,19 +189,27 @@ TESTING
     TCASE "constructs every public data shape"
       LET callback AS FUNC(LogEntry) AS Nothing = ignore
       LET custom AS LogBackend = CustomBackend[callback := callback]
-      LET console AS LogBackend = ConsoleBackend[use_colors := FALSE]
+      LET console AS LogBackend = ConsoleBackend[]
       LET common AS List OF LogBackend = [console, custom]
       LET byLevel AS Map OF LogLevel TO List OF LogBackend = Map OF LogLevel TO List OF LogBackend {LogLevel.INFO := [custom]}
       LET configured = Logger[common := common, backends := byLevel]
       expectInteger(len(configured.common), 2)
       expectEqual(collections::hasKey(configured.backends, LogLevel.INFO), TRUE)
+      expectEqual(collections::hasKey(configured.backends, LogLevel.ERROR), FALSE)
     END TCASE
 
     TCASE "a file backend aliases through a list"
-      RES file AS fs::File = fs::open("target/logger-model-test.txt", "w")
+      RES file AS fs::File = fs::createTempFile()
       LET backend AS LogBackend = FileBackend[file := file]
       LET backends AS List OF LogBackend = [backend]
       expectInteger(len(backends), 1)
+    END TCASE
+
+    TCASE "an entry carries the level it was built with"
+      LET entry AS LogEntry = LogEntry[level := LogLevel.WARN, timestamp := "2026-01-02T03:04:05Z", message := "careful"]
+      expectEqual(entry.level = LogLevel.WARN, TRUE)
+      expectString(entry.timestamp, "2026-01-02T03:04:05Z")
+      expectString(entry.message, "careful")
     END TCASE
   END TGROUP
 END TESTING

@@ -93,9 +93,65 @@ image runs the server as the unprivileged `mfb` user (uid 10001) that owns
 `/data`. Writing the DB as root leaves root-owned SQLite files the server then
 cannot write.
 
+### Volume permissions (bug-586)
+
+`/data/meta.db` holds the **server signing private key**, the session-signing
+secret, and the online snapshot/timestamp private keys — all in plaintext. Its
+`-wal` and `-shm` sidecars carry the same rows. SQLite creates all three with
+the process umask, so under the ordinary `umask 022` they would land at `0644`.
+
+Two halves protect them, because neither is sufficient alone:
+
+- The image creates `/data` as `0700` (`Dockerfile`). A **mounted volume
+  replaces that directory with its own mode**, so on Fly this does not survive
+  a `fly volumes create`.
+- `mfb-repo` therefore tightens the directory to `0700` and the database and
+  both sidecars to `0600` every time it opens the store, before it writes any
+  key material. It only ever removes access — an operator who has deliberately
+  narrowed further (say `0400`) keeps that.
+
+If the files are exposed and cannot be tightened — normally a volume owned by
+another UID — startup **fails** with a message naming the path, rather than
+serving with the keys readable. Repair it and restart:
+
+```sh
+fly ssh console -C "chown -R mfb:mfb /data && chmod 700 /data && chmod 600 /data/meta.db*"
+```
+
+(as root, i.e. without `-u mfb`). Existing deployments are repaired
+automatically on the next restart when the service account already owns the
+files; the command above is only needed when it does not.
+
 Store the printed **root PRIVATE key** offline — it is never persisted on the
 server. Pin the printed root fingerprint out of band. (`reanchor` is likewise
 run via `fly ssh console`.)
+
+### Renewing it (bug-584)
+
+`init-root` really is once: run against a registry that already has a root of
+trust it **refuses**, because overwriting the anchor is indistinguishable, from
+a pinned client's side, from a takeover. To extend the root expiry and rotate
+the online snapshot/timestamp keys, use `renew-root` with the offline root key
+you stored above. Write the key to a file — never pass it as an argument, which
+would put it in the process table — and delete the file afterwards:
+
+```sh
+fly ssh console -u mfb -C "sh -c 'umask 077; cat > /data/root.key'" < root.key
+fly ssh console -u mfb -C "mfb-repo renew-root --dbpath /data/meta.db \
+    --datapath s3://<bucket>/packages --registry-id my-registry \
+    --root-key-file /data/root.key --expires-days 365"
+fly ssh console -u mfb -C "rm -f /data/root.key"
+```
+
+The root fingerprint does **not** change, so every already-pinned client keeps
+verifying with no out-of-band step; the command prints the unchanged fingerprint
+so you can confirm that. It is safe while the server is serving.
+
+If the offline root key is **lost**, the only recovery is `mfb-repo
+reanchor-root` (same flags as `init-root`), which mints a new anchor and prints
+a new fingerprint. Every client that pinned the old one fails hard until it
+re-pins out of band, so treat it as a published security event, not routine
+maintenance.
 
 ## Reclaiming abandoned uploads
 

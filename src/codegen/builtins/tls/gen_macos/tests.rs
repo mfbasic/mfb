@@ -635,6 +635,34 @@ fn close_listener_drains_to_cancelled() {
     );
 }
 
+// bug-564: `tls::close` cancels the connection (`nw_connection_cancel` is
+// asynchronous) and used to return immediately. The connection's state handler
+// (STATE_INVOKE) runs over the arena-allocated ctx on the `mfb.tls` queue and
+// still fires the `cancelled` transition; a process exit before it runs
+// dereferences the ctx after `_mfb_shutdown`'s `arena_destroy` has munmapped it
+// — EXC_BAD_ACCESS / KERN_INVALID_ADDRESS on an unmapped page, after the program
+// has already printed all of its output.
+//
+// Every other cancel site in this backend already drains: connect's failure exit
+// (bug-380), accept's two failure exits and `closeListener` (bug-412). The
+// ordinary `tls::close` — the most-executed of the five — was the one left out.
+#[test]
+fn close_drains_to_cancelled() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (ins, rel, _s) =
+        lower_tls_close_macos("t_cl", &imports, &TlsReadTestPlatform).expect("lower");
+    assert!(
+        has_cancel_drain(&ins, "t_cl_cancel_drain", "5"),
+        "close must drain to the connection `cancelled` state (5) before returning, \
+         so a queued state handler cannot run against the ctx after arena_destroy"
+    );
+    assert!(
+        rel.iter().any(|r| r.to.contains("dispatch_semaphore_wait")),
+        "the close drain must resolve dispatch_semaphore_wait to block on ctx->sem"
+    );
+}
+
 // bug-55: closeListener releases the listener, its queue, and the listener
 // ctx semaphore; before the fix it only cancelled the listener.
 #[test]
@@ -789,4 +817,187 @@ fn the_send_completion_records_the_error_domain_itself() {
             .any(|i| i.op == CodeOp::BranchLinkRegister),
         "…which means it calls through that pointer"
     );
+}
+
+// bug-564 (second sighting): a trampoline must publish the error DOMAIN before
+// the gate that tells `tls::write` to read it.
+//
+// `tls::write` reads two things a Network.framework handler writes on another
+// thread, with no lock between them: a gate (`CTX_STATE >= 4` in the
+// terminal-state guard, or `CTX_ERROR != 0` after the send wait) and then the
+// payload, `CTX_EDOM`. Both trampolines stored the gate first and `CTX_EDOM` last,
+// with the call into `nw_error_get_error_domain` in between, so a writer landing
+// in that window saw a dead connection with no domain yet and raised
+// `ErrTlsFailed` for a departed peer
+// (`rt-behavior/tls/tls-write-peer-closed-raises-rt`: `write raised=FALSE`). The
+// send completion is reachable the same way: the writer can be woken by the
+// STATE handler's signal and then read a `CTX_ERROR` the send completion has
+// stored but not yet classified.
+//
+// Program order is necessary but not sufficient. Under the ARMv8 memory model
+// another core may observe plain `str`s out of program order. A store-release
+// (`stlr`) becomes visible only after every program-order-prior store, so each
+// GATE store must be one; the payload store may stay a plain `str`. The reader
+// half (a load-acquire on the gate) is pinned by
+// `write_loads_its_gates_by_load_acquire`.
+
+/// Every store in `instructions` that lands at `[ctx + off]`, as
+/// `(index, op)`. A plain store addresses `[x19, #off]` directly. A store-release
+/// has no offset form, so it addresses a register the instruction immediately
+/// before it set to `x19 + off`.
+fn ctx_stores(instructions: &[CodeInstruction], ctx: &str, off: usize) -> Vec<(usize, CodeOp)> {
+    let off = off.to_string();
+    instructions
+        .iter()
+        .enumerate()
+        .filter(|(n, i)| match i.op {
+            // Stores into the CTX (x19), not the frame: the trampoline parks
+            // its arguments at sp+16/24, and 16 is also CTX_STATE.
+            CodeOp::StrU64 | CodeOp::StrU32 => {
+                i.get("base").as_deref() == Some(ctx) && i.get("offset").as_deref() == Some(&off)
+            }
+            CodeOp::StlrU64 => addressed_by_previous(instructions, *n, ctx, &off),
+            _ => false,
+        })
+        .map(|(n, i)| (n, i.op))
+        .collect()
+}
+
+/// Is the `base` of `instructions[n]` the result of `add_imm base, ctx, #off` at
+/// `n - 1`?
+fn addressed_by_previous(instructions: &[CodeInstruction], n: usize, ctx: &str, off: &str) -> bool {
+    let Some(prev) = n.checked_sub(1).map(|p| &instructions[p]) else {
+        return false;
+    };
+    prev.op == CodeOp::AddImm
+        && prev.get("dst") == instructions[n].get("base")
+        && prev.get("src").as_deref() == Some(ctx)
+        && prev.get("imm").as_deref() == Some(off)
+}
+
+#[test]
+fn trampolines_publish_the_error_domain_before_the_gate() {
+    use crate::codegen::builtins::tls::gen_macos::{
+        CTX_EDOM, CTX_ERROR, CTX_STATE, SEND_INVOKE, STATE_INVOKE,
+    };
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    for server in [false, true] {
+        let trampolines = crate::target::macos_aarch64::tls::block_trampolines(server);
+        for (symbol, gates) in [
+            (STATE_INVOKE, vec![CTX_STATE, CTX_ERROR]),
+            (SEND_INVOKE, vec![CTX_ERROR]),
+        ] {
+            let f = trampolines
+                .iter()
+                .find(|f| f.symbol == symbol)
+                .unwrap_or_else(|| panic!("{symbol} is emitted (server={server})"));
+            let stores_to = |off: usize| ctx_stores(&f.instructions, abi::LOCAL[0], off);
+            let edom = stores_to(CTX_EDOM);
+            assert_eq!(edom.len(), 1, "{symbol} stores CTX_EDOM exactly once");
+            let edom = edom[0].0;
+            for gate in gates {
+                let gate_stores = stores_to(gate);
+                assert!(
+                    !gate_stores.is_empty(),
+                    "{symbol} stores the gate at offset {gate}"
+                );
+                assert!(
+                    gate_stores.iter().all(|&(g, _)| g > edom),
+                    "{symbol} must store CTX_EDOM (index {edom}) BEFORE the gate at offset \
+                     {gate} (stores {gate_stores:?}): tls::write reads the gate first and \
+                     the domain second, unsynchronised, so a gate published first lets a \
+                     departed peer be reported as ErrTlsFailed"
+                );
+                assert!(
+                    gate_stores.iter().all(|&(_, op)| op == CodeOp::StlrU64),
+                    "{symbol} must publish the gate at offset {gate} with a store-release \
+                     (stores {gate_stores:?}): ARMv8 lets another core see a plain `str` \
+                     before the CTX_EDOM store that precedes it in program order"
+                );
+            }
+        }
+    }
+}
+
+// bug-564, the reader half. `tls::write` loads a gate and then, at
+// `write_classify`, the payload `CTX_EDOM`. Under the ARMv8 memory model a plain
+// load may execute out of program order, so the `CTX_EDOM` load could run first
+// against memory older than the gate even though the handler published in order.
+// A load-acquire executes before every program-order-later load, which closes
+// that. Both gates are pinned: the terminal-state guard (`CTX_STATE`) and the
+// send-completion error after the wait (`CTX_ERROR`).
+#[test]
+fn write_loads_its_gates_by_load_acquire() {
+    use crate::codegen::builtins::tls::gen_macos::{CTX_EDOM, CTX_ERROR, CTX_STATE};
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    for text in [false, true] {
+        let (ins, _rel, _s) =
+            lower_tls_write_macos("t_w", &imports, &TlsReadTestPlatform, text).expect("lower");
+        // `lower_tls_write_macos` keeps the ctx pointer in the frame at `CTX`
+        // (sp+24) and reloads it before each ctx access. Only loads through
+        // THAT register count; offsets 16 and 32 are also record-header fields
+        // this helper reads through other pointers. If the slot moves, the
+        // "loads the gate" assert below fails rather than passing vacuously.
+        const WRITE_CTX_SLOT: &str = "24";
+        let loads_of = |off: usize| -> Vec<(usize, CodeOp)> {
+            let off_text = off.to_string();
+            let mut ctx_reg: Option<String> = None;
+            let mut found = Vec::new();
+            for (n, i) in ins.iter().enumerate() {
+                let base = i.get("base");
+                let through_ctx = |reg: Option<&str>| reg.is_some() && reg == ctx_reg.as_deref();
+                match i.op {
+                    CodeOp::LdrU64 | CodeOp::LdrU32
+                        if through_ctx(base.as_deref())
+                            && i.get("offset").as_deref() == Some(&off_text) =>
+                    {
+                        found.push((n, i.op));
+                    }
+                    CodeOp::LdarU64 | CodeOp::LdarU32 => {
+                        let prev = n.checked_sub(1).map(|p| &ins[p]);
+                        if prev.is_some_and(|p| {
+                            p.op == CodeOp::AddImm
+                                && p.get("dst") == base
+                                && through_ctx(p.get("src").as_deref())
+                                && p.get("imm").as_deref() == Some(&off_text)
+                        }) {
+                            found.push((n, i.op));
+                        }
+                    }
+                    _ => {}
+                }
+                // Track the register the ctx pointer was last loaded into; any
+                // other write to it ends that.
+                if i.op == CodeOp::LdrU64
+                    && base.as_deref() == Some("sp")
+                    && i.get("offset").as_deref() == Some(WRITE_CTX_SLOT)
+                {
+                    ctx_reg = i.get("dst").map(|d| d.to_string());
+                } else if i.get("dst").is_some() && i.get("dst").as_deref() == ctx_reg.as_deref() {
+                    ctx_reg = None;
+                }
+            }
+            found
+        };
+        for (gate, acquire) in [(CTX_STATE, CodeOp::LdarU32), (CTX_ERROR, CodeOp::LdarU64)] {
+            let loads = loads_of(gate);
+            assert!(
+                !loads.is_empty(),
+                "tls::write (text={text}) loads the gate at offset {gate}"
+            );
+            assert!(
+                loads.iter().all(|&(_, op)| op == acquire),
+                "tls::write (text={text}) must load the gate at offset {gate} with \
+                 {acquire:?} (loads {loads:?}): a plain load lets the later CTX_EDOM \
+                 load run first on another core's older memory"
+            );
+        }
+        let classify = window(&ins, "t_w_write_classify", "t_w_peer_closed");
+        assert!(
+            classify.iter().any(|i| i.op == CodeOp::LdrU32
+                && i.get("offset").as_deref() == Some(&CTX_EDOM.to_string())),
+            "the payload load stays where the gate loads precede it"
+        );
+    }
 }

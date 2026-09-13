@@ -172,6 +172,10 @@ and is NOT attributed here. It is not the orphaned `ErrorLoc` either: the same
 two programs measure 1 089 → 1 056 B/call and 1 163 → 1 040 B/call across
 bug-573's fix, i.e. unchanged. Whatever it is survives both arena fixes.
 
+> **Now tracked as bug-593** (filed 2026-09-12). bug-575 later measured the same flat,
+> length-independent growth on a failing `tls::connect` and `tcp::connect`. Do not treat
+> the note above as unowned work.
+
 ## bug-566's pins are flat now
 
 `assert_no_extra_growth` was comparative for exactly this reason. All three

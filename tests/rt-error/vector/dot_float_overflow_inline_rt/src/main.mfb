@@ -1,0 +1,13 @@
+IMPORT vector
+
+' bug-590, second instance: `vector::dot` over a re-evaluation-safe Local INLINES
+' (plan-01-vector `try_inline_vector_op`), which replaced the `__vector_dot_float3`
+' FUNC — and with it the `RETURN` boundary that observed the sum. The +Inf was
+' bound to a named local with no trap and printed as f64::MAX's digits (exit 0).
+' The inline arm now observes its own sum, so this raises ErrFloatOverflow
+' (7-705-0015) exactly as the out-of-line FUNC did.
+FUNC main AS Integer
+  LET v AS vector::Float3 = vector::Float3[1.0e200, 1.0e200, 1.0e200]
+  LET d AS Float = vector::dot(v, v)
+  RETURN 0
+END FUNC

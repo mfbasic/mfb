@@ -25,7 +25,7 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   (4) proof it's wrong (repro/spec cite/sibling contract; your change is never proof).
 
 * Not all 4 → test wins, STOP.
-* Run the full suite, never one module.
+* Before re-baselining a golden, run the full suite, never one module.
 * Once proven wrong: fix the bug AND correct only the disproved line (never re-baseline a whole file); show proof in commit.
 
 ## A claim is measured or a guess

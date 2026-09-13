@@ -528,7 +528,11 @@ pub(crate) fn write_executable(
     // bug-432: the `.mfbsign` section goes last — after the unconditional
     // `.mfbnote`, so the two trailing sections never overlap — so its size shifts no
     // earlier RVA. It carries the blob verbatim, read-only, with no data directory.
-    if let Some(metadata) = image.signing_metadata.as_deref() {
+    if let Some(metadata) = image
+        .signing_metadata
+        .as_ref()
+        .map(|signing| signing.metadata.as_slice())
+    {
         let sign_rva = align_up(mfbnote_rva + mfbnote_bytes.len() as u32, SECTION_ALIGNMENT);
         let sign_file = align_up(mfbnote_file + mfbnote_bytes.len() as u32, FILE_ALIGNMENT);
         sections.push(Section {
@@ -541,12 +545,12 @@ pub(crate) fn write_executable(
         });
     }
 
-    Ok(pe::write_image(
-        &sections,
-        text_rva + entry_offset as u32,
-        dirs,
-        gui,
-    ))
+    let mut bytes = pe::write_image(&sections, text_rva + entry_offset as u32, dirs, gui);
+    // The image is complete: seal the content signature over it.
+    if let Some(signing) = &image.signing_metadata {
+        crate::os::content_signature::seal(&mut bytes, signing)?;
+    }
+    Ok(bytes)
 }
 
 fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
@@ -810,15 +814,18 @@ mod tests {
     #[test]
     fn signing_metadata_emits_mfbsign_section() {
         let mut img = image(vec![0xc3]); // ret
-        img.signing_metadata = Some(b"{\"format\":\"mfb-signing-v1\"}".to_vec());
+        img.signing_metadata = Some(crate::arch::image::ExecutableSigning::unsealed(
+            b"{\"format\":\"mfb-signing-v1\"}",
+        ));
         let bytes = write_executable(&img, false, None, None).expect("link");
         let section = section_named(&bytes, b".mfbsign").expect(".mfbsign section present");
+        let metadata = &img.signing_metadata.as_ref().unwrap().metadata;
         // The section body carries the blob verbatim (no PE-specific header). The
         // raw body may be FILE_ALIGNMENT-padded, so scan for the blob within it.
         assert!(
             section
-                .windows(img.signing_metadata.as_ref().unwrap().len())
-                .any(|w| w == img.signing_metadata.as_ref().unwrap().as_slice()),
+                .windows(metadata.len())
+                .any(|w| w == metadata.as_slice()),
             "the .mfbsign section body carries the blob verbatim"
         );
     }
@@ -855,7 +862,9 @@ mod tests {
     #[test]
     fn signed_build_emits_both_mfbnote_and_mfbsign_disjoint() {
         let mut img = image(vec![0xc3]);
-        img.signing_metadata = Some(b"{\"format\":\"mfb-signing-v1\"}".to_vec());
+        img.signing_metadata = Some(crate::arch::image::ExecutableSigning::unsealed(
+            b"{\"format\":\"mfb-signing-v1\"}",
+        ));
         let bytes = write_executable(&img, false, None, None).expect("link");
         let (note_va, note_sz) = section_extent(&bytes, b".mfbnote").expect(".mfbnote present");
         let (sign_va, sign_sz) = section_extent(&bytes, b".mfbsign").expect(".mfbsign present");

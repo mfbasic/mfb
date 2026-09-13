@@ -12,6 +12,23 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
+    /// The signed tree head, memoised by log size (bug-579).
+    head_cache: Arc<Mutex<Option<CachedLogHead>>>,
+}
+
+/// A signed tree head, valid for exactly the log size it was computed at.
+///
+/// The transparency log is append-only and dense — nothing in the crate
+/// deletes or rewrites a `log_entries` row (the only `UPDATE`/`DROP` against
+/// that table are tests that deliberately corrupt it to prove the readers
+/// degrade to an error) — so `size` uniquely determines the root, and the size
+/// is a sound cache key. `COUNT(*)` on a B-tree is far cheaper than loading and
+/// re-hashing every leaf, which is what this avoids.
+#[derive(Clone)]
+struct CachedLogHead {
+    size: i64,
+    root: [u8; 32],
+    signature: Vec<u8>,
 }
 
 /// `auth_challenges.purpose` for a challenge minted by `/auth/challenge` (an
@@ -39,6 +56,13 @@ pub struct PublishMetadata {
     /// published before plan-61-D, which simply carries no section 18 — that is
     /// a normal outcome, not a failure.
     pub description: Option<String>,
+    /// The raw MFPC section-17 bytes (the `DOC` table) to record in
+    /// `package_version_docs` (plan-126-E). `None` for an undocumented package,
+    /// **and** for one whose section 17 failed to decode: documentation "does not
+    /// affect execution or the ABI", so a malformed doc table must never reject a
+    /// signed package -- it is simply not recorded. Written inside the same
+    /// transaction as the version row.
+    pub docs: Option<Vec<u8>>,
 }
 
 /// One `package_version_targets` row as `Store::target_rows_for_test` yields it:
@@ -113,6 +137,90 @@ pub struct NewSession {
     pub expires_at: i64,
 }
 
+/// The outcome of a machine-link fetch (bug-583). `Unapproved` is separated
+/// from `Missing` on purpose: the caller found a live pairing but did not
+/// prove possession of the pairing code, and nothing was consumed.
+#[derive(Debug, Clone)]
+pub enum PairingFetch {
+    Relayed { blob: Vec<u8>, salt: Vec<u8> },
+    Missing,
+    Unapproved,
+}
+
+/// Tighten `path` so no group/other bit is set (bug-586).
+///
+/// The metadata database holds `server_keys.private_key`, the
+/// `server_secrets.secret` used to sign sessions, and
+/// `registry_config.{snapshot_private,timestamp_private}` — all in plaintext.
+/// SQLite creates the database and its `-wal`/`-shm` sidecars with the process
+/// umask, so under the ordinary `umask 022` they land at `0644` inside a `0755`
+/// directory: any other account on the host or with access to the mounted
+/// volume can copy the server's signing key and forge attestations, sessions
+/// and signed metadata.
+///
+/// This only ever REMOVES access. A path that is already private is left
+/// untouched (it may legitimately be `0400`, or owned differently), so this can
+/// never widen an operator's deliberate hardening. When a path IS exposed and
+/// cannot be tightened — typically a volume owned by another UID — the open
+/// fails with operator guidance rather than serving with the keys readable,
+/// because "start anyway" is exactly the silent widening this must not do.
+#[cfg(unix)]
+fn make_private(path: &Path, mode: u32, what: &str) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        // Not every sidecar exists at every call; absence is not exposure.
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => {
+            return Err(format!(
+                "failed to inspect {what} '{}': {err}",
+                path.display()
+            ))
+        }
+    };
+    let current = metadata.permissions().mode() & 0o777;
+    if current & 0o077 == 0 {
+        return Ok(());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).map_err(|err| {
+        format!(
+            "{what} '{}' is accessible to other accounts (mode {current:o}) and its permissions \
+             could not be tightened to {mode:o}: {err}. It holds the server signing key, the \
+             session secret and the online metadata keys in plaintext. Repair the volume, e.g. \
+             `chown -R mfb:mfb <dir> && chmod 700 <dir> && chmod 600 <dir>/meta.db*`, then restart.",
+            path.display()
+        )
+    })
+}
+
+/// The metadata directory, the database, and its SQLite sidecars, all made
+/// private to the service account (bug-586).
+#[cfg(unix)]
+fn harden_private_state(db_dir: Option<&Path>, dbpath: &Path) -> Result<(), String> {
+    if let Some(dir) = db_dir {
+        make_private(dir, 0o700, "database directory")?;
+    }
+    make_private(dbpath, 0o600, "database")?;
+    // `-wal` and `-shm` are written by SQLite with the same umask and carry the
+    // same rows; protecting only `meta.db` would leave the secrets readable in
+    // the write-ahead log.
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = dbpath.as_os_str().to_os_string();
+        sidecar.push(suffix);
+        make_private(Path::new(&sidecar), 0o600, "database journal")?;
+    }
+    Ok(())
+}
+
+/// Non-Unix targets have no POSIX mode to enforce. This is deliberately a
+/// no-op rather than a best-effort imitation: claiming enforcement that did not
+/// happen is worse than stating plainly that it did not. The deployed server is
+/// Linux (`repository/Dockerfile`); see `repository/DEPLOY.md`.
+#[cfg(not(unix))]
+fn harden_private_state(_db_dir: Option<&Path>, _dbpath: &Path) -> Result<(), String> {
+    Ok(())
+}
+
 pub struct OpenedRepository {
     pub store: Store,
     pub packages_dir: PathBuf,
@@ -126,6 +234,7 @@ impl Store {
                 dbpath.display()
             ));
         }
+        let mut db_dir = None;
         if let Some(parent) = dbpath.parent() {
             fs::create_dir_all(parent).map_err(|err| {
                 format!(
@@ -133,7 +242,15 @@ impl Store {
                     parent.display()
                 )
             })?;
+            if !parent.as_os_str().is_empty() {
+                db_dir = Some(parent);
+            }
         }
+        // bug-586: tighten the directory BEFORE the database is created. The
+        // file itself is created by SQLite under the process umask, so there is
+        // a window in which it exists at 0644; a 0700 directory means no other
+        // account can traverse into it during that window.
+        harden_private_state(db_dir, dbpath)?;
         // A remote (`s3://…`) data path has no local directory to create; the
         // blob backend is constructed separately (see `blobstore`). Operator
         // subcommands that only touch the metadata DB still work in S3 mode.
@@ -166,8 +283,13 @@ impl Store {
             .map_err(|err| format!("failed to enable WAL: {err}"))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|err| format!("failed to set busy timeout: {err}"))?;
+        // bug-586: now that the database and its WAL/SHM sidecars exist, make
+        // them private too — before `migrate`/`ensure_server_secret`/
+        // `ensure_server_keypair` below write any key material into them.
+        harden_private_state(db_dir, dbpath)?;
         let store = Store {
             conn: Arc::new(Mutex::new(conn)),
+            head_cache: Arc::new(Mutex::new(None)),
         };
         store.migrate()?;
         store.ensure_server_secret()?;
@@ -414,6 +536,7 @@ impl Store {
                 lookup TEXT NOT NULL UNIQUE,
                 blob BLOB NOT NULL,
                 salt BLOB NOT NULL,
+                approval_key BLOB NOT NULL DEFAULT x'',
                 created_at INTEGER NOT NULL,
                 expires_at INTEGER NOT NULL,
                 used_at INTEGER NULL
@@ -487,6 +610,20 @@ impl Store {
                 package_version_id INTEGER NOT NULL REFERENCES package_versions(id),
                 hash TEXT NOT NULL REFERENCES package_blobs(hash),
                 PRIMARY KEY (package_version_id, hash)
+            );
+
+            -- plan-126-E: each version's MFPC section 17 (the `DOC` table), stored
+            -- RAW so `mfb_wire::docs` stays the only decoder. A side table rather
+            -- than a column on `package_versions`: at 9-28 KB a BLOB column would
+            -- bloat every SELECT on a table the search, detail, index and audit
+            -- paths all read, and "this version has no documentation" is an
+            -- absent row rather than a NULL to interpret. Kept per version, not
+            -- latest-only, so a yanked newest release falls back to the older
+            -- active one's docs by a row lookup rather than a blob fetch -- which
+            -- on S3 would mean the server fetching its own blob over HTTPS.
+            CREATE TABLE IF NOT EXISTS package_version_docs (
+                package_version_id INTEGER PRIMARY KEY REFERENCES package_versions(id),
+                doc_section BLOB NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS release_state_changes (
@@ -574,6 +711,16 @@ impl Store {
             "auth_challenges",
             "purpose TEXT NOT NULL DEFAULT 'login'",
         )?;
+        // bug-583: the code-derived approval public key. Pre-migration rows
+        // default to the empty key, which no approval signature can ever
+        // verify under, so an in-flight pairing across the upgrade is refused
+        // rather than silently accepted on the old lookup-only rule. Pairings
+        // live ten minutes, so the window closes on its own.
+        add_column_if_missing(
+            &conn,
+            "pairing_blobs",
+            "approval_key BLOB NOT NULL DEFAULT x''",
+        )?;
         Ok(())
     }
 
@@ -619,20 +766,24 @@ impl Store {
             }
         })?;
         let owner_id = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'auth', ?2, ?3, 'current', ?4, NULL)",
-            params![owner_id, auth_key, auth_fingerprint, now],
-        )
-        .map_err(|err| format!("failed to register auth key: {err}"))?;
-        let auth_key_id = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'ident', ?2, ?3, 'current', ?4, NULL)",
-            params![owner_id, ident_key, ident_fingerprint, now],
-        )
-        .map_err(|err| format!("failed to register ident key: {err}"))?;
-        let ident_key_id = tx.last_insert_rowid();
+        let auth_key_id = insert_key_tx(
+            &tx,
+            owner_id,
+            KEY_ROLE_AUTH,
+            auth_key,
+            &auth_fingerprint,
+            now,
+            "failed to register auth key",
+        )?;
+        let ident_key_id = insert_key_tx(
+            &tx,
+            owner_id,
+            KEY_ROLE_IDENT,
+            ident_key,
+            &ident_fingerprint,
+            now,
+            "failed to register ident key",
+        )?;
         append_log_tx(
             &tx,
             "register",
@@ -868,6 +1019,7 @@ impl Store {
         lookup: &str,
         blob: &[u8],
         salt: &[u8],
+        approval_key: &[u8],
     ) -> Result<i64, String> {
         let now = now_unix();
         let expires_at = now + 600;
@@ -880,9 +1032,10 @@ impl Store {
         )
         .map_err(|err| format!("failed to clear expired pairing blobs: {err}"))?;
         conn.execute(
-            "INSERT INTO pairing_blobs (owner_id, lookup, blob, salt, created_at, expires_at, used_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
-            params![owner_id, lookup, blob, salt, now, expires_at],
+            "INSERT INTO pairing_blobs
+                 (owner_id, lookup, blob, salt, approval_key, created_at, expires_at, used_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)",
+            params![owner_id, lookup, blob, salt, approval_key, now, expires_at],
         )
         .map_err(|err| {
             if is_unique_violation(&err) {
@@ -896,20 +1049,31 @@ impl Store {
 
     /// Fetch-and-consume a pairing blob: single use, refused after expiry.
     /// The stored ciphertext is destroyed as it is handed out.
-    pub fn take_pairing_blob(
+    ///
+    /// bug-583: `approve` is handed the row's code-derived approval public key
+    /// and decides, INSIDE the transaction, whether this caller proved
+    /// possession of the pairing code. A refusal rolls the transaction back,
+    /// so a caller holding only the (server-visible) lookup can neither take
+    /// the blob nor burn the honest machine's pending pairing. Consumption is
+    /// therefore atomic with authorization.
+    pub fn take_pairing_blob<F>(
         &self,
         owner: &str,
         lookup: &str,
-    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, String> {
+        approve: F,
+    ) -> Result<PairingFetch, String>
+    where
+        F: FnOnce(&[u8]) -> bool,
+    {
         let folded = fold_owner(owner);
         let now = now_unix();
         let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start pairing transaction: {err}"))?;
-        let row: Option<(i64, Vec<u8>, Vec<u8>)> = tx
+        let row: Option<(i64, Vec<u8>, Vec<u8>, Vec<u8>)> = tx
             .query_row(
-                "SELECT p.id, p.blob, p.salt
+                "SELECT p.id, p.blob, p.salt, p.approval_key
                  FROM pairing_blobs p
                  JOIN owners o ON o.id = p.owner_id
                  WHERE p.lookup = ?1
@@ -918,14 +1082,18 @@ impl Store {
                    AND p.used_at IS NULL
                    AND p.expires_at > ?3",
                 params![lookup, folded, now],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()
             .map_err(|err| format!("failed to load pairing blob: {err}"))?;
-        let Some((id, blob, salt)) = row else {
+        let Some((id, blob, salt, approval_key)) = row else {
             tx.commit().ok();
-            return Ok(None);
+            return Ok(PairingFetch::Missing);
         };
+        if !approve(&approval_key) {
+            tx.rollback().ok();
+            return Ok(PairingFetch::Unapproved);
+        }
         tx.execute(
             "UPDATE pairing_blobs SET used_at = ?1, blob = x'' WHERE id = ?2",
             params![now, id],
@@ -933,7 +1101,7 @@ impl Store {
         .map_err(|err| format!("failed to consume pairing blob: {err}"))?;
         tx.commit()
             .map_err(|err| format!("failed to commit pairing fetch: {err}"))?;
-        Ok(Some((blob, salt)))
+        Ok(PairingFetch::Relayed { blob, salt })
     }
 
     /// Register an additional machine's auth key on an existing account
@@ -958,13 +1126,15 @@ impl Store {
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start link transaction: {err}"))?;
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'auth', ?2, ?3, 'current', ?4, NULL)",
-            params![owner.id, public_key, fingerprint, now_unix()],
-        )
-        .map_err(|err| format!("failed to register machine auth key: {err}"))?;
-        let key_id = tx.last_insert_rowid();
+        let key_id = insert_key_tx(
+            &tx,
+            owner.id,
+            KEY_ROLE_AUTH,
+            public_key,
+            &fingerprint,
+            now_unix(),
+            "failed to register machine auth key",
+        )?;
         append_log_tx(
             &tx,
             "link",
@@ -1021,13 +1191,15 @@ impl Store {
             params![now, old_key.id],
         )
         .map_err(|err| format!("failed to retire ident key: {err}"))?;
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'ident', ?2, ?3, 'current', ?4, NULL)",
-            params![owner.id, new_public, fingerprint, now],
-        )
-        .map_err(|err| format!("failed to register rotated ident key: {err}"))?;
-        let new_key_id = tx.last_insert_rowid();
+        let new_key_id = insert_key_tx(
+            &tx,
+            owner.id,
+            KEY_ROLE_IDENT,
+            new_public,
+            &fingerprint,
+            now,
+            "failed to register rotated ident key",
+        )?;
         tx.execute(
             "INSERT INTO ident_chain (owner_id, old_key_id, new_key_id, signature, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1080,13 +1252,15 @@ impl Store {
             params![now, old_key.id],
         )
         .map_err(|err| format!("failed to retire ident key: {err}"))?;
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'ident', ?2, ?3, 'current', ?4, NULL)",
-            params![owner.id, new_public, fingerprint, now],
-        )
-        .map_err(|err| format!("failed to register re-anchored ident key: {err}"))?;
-        let key_id = tx.last_insert_rowid();
+        let key_id = insert_key_tx(
+            &tx,
+            owner.id,
+            KEY_ROLE_IDENT,
+            new_public,
+            &fingerprint,
+            now,
+            "failed to register re-anchored ident key",
+        )?;
         append_log_tx(
             &tx,
             "reanchor",
@@ -1425,6 +1599,125 @@ impl Store {
         Ok(versions)
     }
 
+    /// The package's headline "latest" release: newest by `published_at` among
+    /// the versions whose state is **active** (plan-126-A).
+    ///
+    /// Returns `(version, state)`, or `None` when the package has no active
+    /// release at all — every published version yanked, blocked or
+    /// legal-tombstoned — which is a statement to render, not missing data.
+    ///
+    /// This is the **only** server-side "latest version" selection. Before it
+    /// existed, both the package page and the search results took
+    /// `ORDER BY created_at DESC LIMIT 1` with no state predicate, so a package
+    /// whose newest release was yanked advertised that release as its headline
+    /// version — on the search page with no state badge at all.
+    ///
+    /// Two properties are load-bearing:
+    ///
+    /// * **The predicate is an allowlist**, `state IN ('available','deprecated')`,
+    ///   matching [`crate::validation::state_is_active`] and through it the
+    ///   install client's `state_is_floating_eligible`. Written as
+    ///   `state != 'yanked'` it would admit `blocked` and `legal-tombstoned`.
+    /// * **Ordering is by publish time**, not semver — `max_by_key(published_at)`
+    ///   is how the install client selects, and diverging here would put the two
+    ///   surfaces in disagreement about the same package.
+    ///
+    /// This filters the *selection* only. [`Self::package_detail`] still returns
+    /// every version unfiltered; the transparency listing is never narrowed.
+    pub fn latest_active_version(&self, ident: &str) -> Result<Option<(String, String)>, String> {
+        let conn = self.conn();
+        conn.query_row(
+            // The two state literals are the SQL spelling of
+            // `validation::state_is_active`. Keep them in step: a state added to
+            // the active set there must be added here, and the
+            // `active_states_are_an_allowlist_matching_the_install_client` test
+            // plus this module's yanked/blocked/tombstoned tests are what catch
+            // a one-sided edit.
+            "SELECT pv.version, pv.state
+             FROM package_versions pv
+             JOIN packages p ON p.id = pv.package_id
+             WHERE p.ident = ?1 AND pv.state IN ('available', 'deprecated')
+             ORDER BY pv.created_at DESC, pv.id DESC
+             LIMIT 1",
+            params![ident],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|err| format!("failed to load latest active version: {err}"))
+    }
+
+    /// Record the raw MFPC section-17 bytes for one version (plan-126-E).
+    ///
+    /// **Raw bytes, not a decoded structure.** `mfb_wire::docs` is the single
+    /// decoder; storing decoded rows would create a second representation that
+    /// must migrate whenever the wire format is extended. A `BLOB` costs one
+    /// decode per page render, on data already in the local database.
+    ///
+    /// `INSERT OR IGNORE`: a version's documentation is fixed by its signed
+    /// payload, so an existing row is never rewritten. That is what keeps the
+    /// backfill sweep idempotent -- a second pass over the same blob changes
+    /// nothing.
+    ///
+    /// Returns whether a row was **actually inserted**: `false` when one already
+    /// existed. The backfill sweep counts only real inserts, so a second run
+    /// reports zero rather than re-claiming the rows the first run wrote.
+    pub fn put_version_docs(
+        &self,
+        package_version_id: i64,
+        section: &[u8],
+    ) -> Result<bool, String> {
+        let conn = self.conn();
+        let inserted = conn
+            .execute(
+                "INSERT OR IGNORE INTO package_version_docs (package_version_id, doc_section)
+                 VALUES (?1, ?2)",
+                params![package_version_id, section],
+            )
+            .map_err(|err| format!("failed to record version documentation: {err}"))?;
+        Ok(inserted == 1)
+    }
+
+    /// The doc section of a package's **latest active** release (plan-126-E), as
+    /// `(version, raw section-17 bytes)`.
+    ///
+    /// Built on [`Self::latest_active_version`], deliberately -- not on its own
+    /// `ORDER BY created_at LIMIT 1`. That is what makes a yanked newest release
+    /// fall back to the older active one's documentation, and it keeps one
+    /// definition of "latest" in the registry instead of two predicates that can
+    /// drift (plan-126-A).
+    ///
+    /// `None` when the package has no active release, **or** when its latest
+    /// active release carries no documentation. It never falls back to an older
+    /// release's docs: the Docs tab's contract is "the current version's
+    /// documentation", and showing an older version's would contradict it
+    /// (plan-126-F Open Decision).
+    ///
+    /// `latest_active_version` is called before this function takes the
+    /// connection lock. The lock is not re-entrant, so holding it across that
+    /// call would deadlock.
+    pub fn latest_active_version_docs(
+        &self,
+        ident: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, String> {
+        let Some((version, _state)) = self.latest_active_version(ident)? else {
+            return Ok(None);
+        };
+        let conn = self.conn();
+        let section: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT d.doc_section
+                 FROM package_version_docs d
+                 JOIN package_versions pv ON pv.id = d.package_version_id
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1 AND pv.version = ?2",
+                params![ident, version],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load version documentation: {err}"))?;
+        Ok(section.map(|section| (version, section)))
+    }
+
     /// Everything `GET /packages/:ident` renders: the package's owner, its
     /// recorded metadata, and **every** version with its native target rows
     /// (plan-61-B §3).
@@ -1699,15 +1992,23 @@ impl Store {
             idents = fuzzy;
         }
 
-        // Attach each package's newest version. Done per package rather than in
-        // the ranking query so the rank expression stays readable; the page is
-        // already capped by `limit`.
+        // Attach each package's newest **active** release. Done per package
+        // rather than in the ranking query so the rank expression stays
+        // readable; the page is already capped by `limit`.
+        //
+        // plan-126-A: the state predicate is the same allowlist
+        // `Store::latest_active_version` applies, and `pv.state` is selected
+        // alongside so the result chip can be badged. Before this, the search
+        // page showed a yanked release as a package's current version with no
+        // state marker of any kind — `SearchResultRow` carried no state field,
+        // so there was nothing a renderer could have marked it with. That made
+        // this the one surface where the missing filter was not merely cosmetic.
         let mut latest_statement = conn
             .prepare(
-                "SELECT pv.version, pv.created_at, pv.description
+                "SELECT pv.version, pv.created_at, pv.description, pv.state
                  FROM package_versions pv
                  JOIN packages p ON p.id = pv.package_id
-                 WHERE p.ident = ?1
+                 WHERE p.ident = ?1 AND pv.state IN ('available', 'deprecated')
                  ORDER BY pv.created_at DESC, pv.id DESC
                  LIMIT 1",
             )
@@ -1720,18 +2021,27 @@ impl Store {
                         row.get::<_, String>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
                     ))
                 })
                 .optional()
                 .map_err(|err| format!("failed to read latest version: {err}"))?;
-            let (latest_version, published_at, description) = match latest {
-                Some((version, at, description)) => (Some(version), Some(at), description),
-                None => (None, None, None),
+            // A match with no active release stays a match: the package exists
+            // and the query found it. Only its headline version is absent, and
+            // the page states that rather than dropping the row — a search that
+            // silently hid a fully-yanked package would be the same truncation
+            // the Overview's complete version table exists to prevent.
+            let (latest_version, published_at, description, latest_state) = match latest {
+                Some((version, at, description, release_state)) => {
+                    (Some(version), Some(at), description, Some(release_state))
+                }
+                None => (None, None, None, None),
             };
             results.push(SearchResultRow {
                 ident,
                 owner,
                 latest_version,
+                latest_state,
                 published_at,
                 description,
             });
@@ -1841,6 +2151,18 @@ impl Store {
         // uploaded via PUT /blob and their `package_blobs` rows exist; nothing
         // reads these edges in this plan.
         let package_version_id = tx.last_insert_rowid();
+        // plan-126-E: the doc row is written in the SAME transaction as the version
+        // row. A crash between two separate writes would leave a version whose docs
+        // never appear -- and no backfill run could tell that apart from a package
+        // that was simply never documented.
+        if let Some(section) = &metadata.docs {
+            tx.execute(
+                "INSERT OR IGNORE INTO package_version_docs (package_version_id, doc_section)
+                 VALUES (?1, ?2)",
+                params![package_version_id, section],
+            )
+            .map_err(|err| format!("failed to record version documentation: {err}"))?;
+        }
         for vendor in vendor_blobs {
             tx.execute(
                 "INSERT OR IGNORE INTO package_version_blobs (package_version_id, hash)
@@ -2230,13 +2552,15 @@ impl Store {
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start token transaction: {err}"))?;
-        tx.execute(
-            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
-             VALUES (?1, 'auth', ?2, ?3, 'current', ?4, NULL)",
-            params![owner_record.id, token_public, fingerprint, now],
-        )
-        .map_err(|err| format!("failed to register token key: {err}"))?;
-        let key_id = tx.last_insert_rowid();
+        let key_id = insert_key_tx(
+            &tx,
+            owner_record.id,
+            KEY_ROLE_AUTH,
+            token_public,
+            &fingerprint,
+            now,
+            "failed to register token key",
+        )?;
         tx.execute(
             "INSERT INTO publish_tokens (owner_id, key_id, scope, expires_at, revoked_at, created_at)
              VALUES (?1, ?2, ?3, ?4, NULL, ?5)",
@@ -2491,32 +2815,152 @@ impl Store {
     /// the online snapshot/timestamp keys, sign a `root.json` that delegates
     /// the server (attestation), snapshot, and timestamp keys, and persist
     /// everything **except the root private key**, which is returned for the
-    /// operator to store offline. Re-running bumps the root version and
-    /// re-delegates (root-key renewal / delegated-key rotation). The root
-    /// private key never touches the serving host's database.
+    /// operator to store offline. The root private key never touches the
+    /// serving host's database.
+    ///
+    /// **One-time** (bug-584): this refuses to run against a configured
+    /// registry. It used to mint a fresh offline root key and overwrite the
+    /// sole config row on every run, which silently replaced the anchor a
+    /// pinned client verifies against — a change indistinguishable, from the
+    /// client's side, from registry takeover. Renewing the delegated online
+    /// keys and the root expiry is `renew_registry_root`, authenticated by the
+    /// offline root key and keeping the anchor; deliberately replacing a lost
+    /// anchor is `reanchor_registry_root`.
     pub fn init_registry_root(
         &self,
         registry_id: &str,
         expires_at: i64,
     ) -> Result<Vec<u8>, String> {
+        let (root_public, root_private) = crypto::generate_keypair();
+        self.write_registry_root(
+            registry_id,
+            expires_at,
+            &root_public,
+            &root_private,
+            RootCeremony::Init,
+        )?;
+        Ok(root_private)
+    }
+
+    /// Root renewal (bug-584): re-sign `root.json` with a bumped version, a
+    /// fresh expiry, and freshly generated online snapshot/timestamp keys —
+    /// under the **same** offline root key, which the operator supplies from
+    /// offline storage and which is never persisted here.
+    ///
+    /// This is the authenticated old-to-new transition the pinned anchor
+    /// needs: possession of the offline root key is the authentication, the
+    /// anchor (`root_public`, hence its fingerprint) is unchanged, so a client
+    /// that pinned the registry before the renewal verifies the renewed chain
+    /// with no out-of-band step. A key that is not the configured root — and a
+    /// registry id that is not the configured one — is refused without
+    /// touching any stored field. Returns the new root version.
+    pub fn renew_registry_root(
+        &self,
+        registry_id: &str,
+        expires_at: i64,
+        root_private: &[u8],
+    ) -> Result<i64, String> {
+        let root_public = crypto::public_from_private(root_private)
+            .map_err(|_| "offline root key is malformed".to_string())?;
+        self.write_registry_root(
+            registry_id,
+            expires_at,
+            &root_public,
+            root_private,
+            RootCeremony::Renew,
+        )
+    }
+
+    /// Deliberate root re-anchor (bug-584): mint a **new** offline root key and
+    /// replace the anchor, for the one case renewal cannot cover — the offline
+    /// root key is lost. Mirrors the ident `reanchor` ceremony (plan-23 §3.6):
+    /// every client that pinned the old fingerprint fails hard until it
+    /// re-pins the new one out of band, which is why it is a separate,
+    /// explicitly selected, transparency-logged mode and never something a
+    /// repeated `init-root` does by accident. Returns the new root private key
+    /// for the operator to store offline.
+    pub fn reanchor_registry_root(
+        &self,
+        registry_id: &str,
+        expires_at: i64,
+    ) -> Result<Vec<u8>, String> {
+        let (root_public, root_private) = crypto::generate_keypair();
+        self.write_registry_root(
+            registry_id,
+            expires_at,
+            &root_public,
+            &root_private,
+            RootCeremony::Reanchor,
+        )?;
+        Ok(root_private)
+    }
+
+    /// The one writer of `registry_config`'s root columns. `ceremony` decides
+    /// what it may do to an already-configured root — the whole security
+    /// question of bug-584 — and every mode appends a transparency-log entry so
+    /// a root change is auditable after the fact.
+    fn write_registry_root(
+        &self,
+        registry_id: &str,
+        expires_at: i64,
+        root_public: &[u8],
+        root_private: &[u8],
+        ceremony: RootCeremony,
+    ) -> Result<i64, String> {
         if registry_id.is_empty() || registry_id.len() > 255 {
             return Err("registry id must be 1..=255 bytes".to_string());
         }
         let (server_public, _server_private) = self.server_keypair()?;
-        let (root_public, root_private) = crypto::generate_keypair();
         let (snapshot_public, snapshot_private) = crypto::generate_keypair();
         let (timestamp_public, timestamp_private) = crypto::generate_keypair();
         let now = now_unix();
-        let conn = self.conn();
-        let previous_version: i64 = conn
+        let mut conn = self.conn();
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start root ceremony transaction: {err}"))?;
+        let existing: Option<(i64, String, Vec<u8>)> = tx
             .query_row(
-                "SELECT root_version FROM registry_config WHERE id = 1",
+                "SELECT root_version, registry_id, root_public FROM registry_config WHERE id = 1",
                 [],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
-            .map_err(|err| format!("failed to read registry config: {err}"))?
-            .unwrap_or(0);
+            .map_err(|err| format!("failed to read registry config: {err}"))?;
+        let previous_version = match (ceremony, &existing) {
+            (RootCeremony::Init, Some(_)) => {
+                return Err(
+                    "registry root of trust is already initialized; renew it with `mfb-repo \
+                     renew-root` (same offline root key, pinned clients keep verifying) or, only \
+                     if the offline root key is lost, re-anchor it with `mfb-repo reanchor-root` \
+                     (every pinned client must re-pin out of band)"
+                        .to_string(),
+                )
+            }
+            (RootCeremony::Init, None) => 0,
+            (RootCeremony::Renew | RootCeremony::Reanchor, None) => {
+                return Err(
+                    "registry root of trust is not initialized; run `mfb-repo init-root` first"
+                        .to_string(),
+                )
+            }
+            (RootCeremony::Renew, Some((version, existing_id, existing_public))) => {
+                if existing_public.as_slice() != root_public {
+                    return Err(
+                        "the supplied key is not this registry's offline root key; refusing to \
+                         replace the pinned anchor"
+                            .to_string(),
+                    );
+                }
+                if existing_id != registry_id {
+                    return Err(format!(
+                        "registry id `{registry_id}` does not match the configured registry id \
+                         `{existing_id}`"
+                    ));
+                }
+                *version
+            }
+            (RootCeremony::Reanchor, Some((version, _, _))) => *version,
+        };
         let version = previous_version + 1;
         let root_json = format!(
             "{{\"type\":\"root\",\"registryId\":{},\"version\":{},\"expires\":{},\"serverKey\":{},\"snapshotKey\":{},\"timestampKey\":{}}}",
@@ -2528,10 +2972,10 @@ impl Store {
             json_value(&crypto::encode_bytes(&timestamp_public)),
         );
         let root_signature = crypto::sign(
-            &root_private,
+            root_private,
             &crypto::root_signing_input(root_json.as_bytes()),
         )?;
-        conn.execute(
+        tx.execute(
             "INSERT INTO registry_config
                (id, registry_id, root_version, root_public, root_json, root_signature,
                 snapshot_public, snapshot_private, timestamp_public, timestamp_private, created_at)
@@ -2560,7 +3004,19 @@ impl Store {
             ],
         )
         .map_err(|err| format!("failed to store registry root: {err}"))?;
-        Ok(root_private)
+        append_log_tx(
+            &tx,
+            ceremony.log_kind(),
+            &format!(
+                "{{\"registryId\":{},\"version\":{},\"rootFingerprint\":{}}}",
+                json_value(registry_id),
+                version,
+                json_value(&crypto::fingerprint(root_public)),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit root ceremony: {err}"))?;
+        Ok(version)
     }
 
     /// The signed `root.json` and its delegated online keypairs, if the root
@@ -2741,6 +3197,60 @@ impl Store {
             .map_err(|err| format!("failed to size the log: {err}"))
     }
 
+    /// The current signed tree head: `(size, root, signature)`, memoised by
+    /// log size (bug-579).
+    ///
+    /// `/log/checkpoint`, `/packages/:ident/audit` and `/snapshot.json` are all
+    /// anonymous and each rebuilt this independently: every request loaded every
+    /// leaf, recomputed the whole Merkle root and produced a fresh signature. The
+    /// cost grew with the log and nothing bounded the repetition, so public
+    /// traffic could pin the CPU and serialize unrelated work behind `Store`'s
+    /// single connection mutex.
+    ///
+    /// The memo is deliberately NOT inside `log_leaf_hashes`. That reader has a
+    /// documented contract about surfacing a malformed leaf as an error, and a
+    /// test corrupts leaves in place — leaving the row COUNT unchanged — to prove
+    /// it. A cache keyed on size inside that function would serve the pre-corruption
+    /// leaves and silently defeat the check. Here the key is sound because
+    /// production only ever appends.
+    ///
+    /// The signature is recomputed only when the size moves, so a cache hit is
+    /// also one fewer Ed25519 signing operation.
+    pub fn signed_checkpoint(&self) -> Result<(i64, [u8; 32], Vec<u8>), String> {
+        let size = self.log_size()?;
+        {
+            let cached = self
+                .head_cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(head) = cached.as_ref() {
+                if head.size == size {
+                    return Ok((head.size, head.root, head.signature.clone()));
+                }
+            }
+        }
+        let leaves = self.log_leaf_hashes(None)?;
+        // Re-read rather than trusting the count taken above: an append between
+        // the two reads would otherwise cache a root under the wrong size.
+        let size = leaves.len() as i64;
+        let root = crate::log::root(&leaves);
+        let (_public, private) = self.server_keypair()?;
+        let signature = crypto::sign(
+            &private,
+            &crate::log::checkpoint_signing_input(size as u64, &root),
+        )?;
+        let mut cached = self
+            .head_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *cached = Some(CachedLogHead {
+            size,
+            root,
+            signature: signature.clone(),
+        });
+        Ok((size, root, signature))
+    }
+
     /// The ordered leaf hashes of the first `size` log entries (the whole
     /// log when `size` is None).
     pub fn log_leaf_hashes(&self, size: Option<i64>) -> Result<Vec<[u8; 32]>, String> {
@@ -2902,6 +3412,30 @@ pub struct LogEntryRef {
     pub leaf_hash: [u8; 32],
 }
 
+/// Which root ceremony `Store::write_registry_root` is performing. The three
+/// differ only in what they may do to an already-configured root, which is
+/// exactly the trust-continuity question bug-584 settles.
+#[derive(Clone, Copy)]
+enum RootCeremony {
+    /// First-time initialization; refuses if a root is already configured.
+    Init,
+    /// Renewal under the same offline root key; the anchor is unchanged.
+    Renew,
+    /// Deliberate replacement of a lost anchor; pinned clients must re-pin.
+    Reanchor,
+}
+
+impl RootCeremony {
+    /// The transparency-log kind recorded for this ceremony.
+    fn log_kind(self) -> &'static str {
+        match self {
+            RootCeremony::Init => "root-init",
+            RootCeremony::Renew => "root-renew",
+            RootCeremony::Reanchor => "root-reanchor",
+        }
+    }
+}
+
 /// The signed-metadata root of trust (plan-10-C2): the root-signed `root.json`
 /// plus the online snapshot/timestamp keypairs the server signs metadata with.
 #[derive(Debug, Clone)]
@@ -2921,8 +3455,14 @@ pub struct RegistryConfig {
 pub struct SearchResultRow {
     pub ident: String,
     pub owner: String,
-    /// `None` for a package identity with no published version yet.
+    /// The newest **active** release (plan-126-A). `None` for a package
+    /// identity with no published version yet — and also for one whose every
+    /// published version is yanked, blocked or legal-tombstoned.
     pub latest_version: Option<String>,
+    /// The release state of `latest_version`, so a `deprecated` headline is
+    /// badged rather than reading as current. `None` exactly when
+    /// `latest_version` is.
+    pub latest_state: Option<String>,
     pub published_at: Option<i64>,
     /// NULL until plan-61-E.
     pub description: Option<String>,
@@ -3007,6 +3547,79 @@ pub struct PackageVersionRow {
 
 fn json_value(value: &str) -> String {
     serde_json::to_string(value).expect("JSON string encoding cannot fail")
+}
+
+/// The ONE place a `keys` row is created (bug-580).
+///
+/// Role separation is an account-wide invariant, not a per-endpoint check: an
+/// account's current ident key and every current auth key must be DIFFERENT
+/// keys. Domain-separated proof messages stop a proof being replayed across
+/// roles; they do nothing to stop a client deliberately offering the same
+/// public key for both, and every insertion path verified its proofs and then
+/// inserted without comparing. Theft of a machine auth private key would then
+/// also be theft of the identity-signing key, which is the whole separation the
+/// design exists to provide.
+///
+/// Funnelling every insert through here is deliberate. The bug report named two
+/// paths; there were five, and the two it missed included `issue_publish_token`
+/// — the worst of them, because a publish token is a DELEGATED, exportable
+/// credential, so a token equal to the ident key hands the account identity to
+/// whatever CI holds the token. A per-site check would have been written from
+/// that same incomplete list. `key_insertion_has_exactly_one_writer` keeps it
+/// the only writer, so a sixth path cannot be added without meeting this.
+///
+/// The check runs INSIDE the caller's transaction, so a concurrent rotation
+/// cannot slip a colliding key in between the read and the insert. In
+/// `register_owner` the auth row is written first, so the ident insert's query
+/// sees it and the two-argument case needs no separate comparison.
+///
+/// Existing accounts that already hold a colliding pair are deliberately left
+/// alone: this gates the creation of NEW credentials only, and never revokes
+/// live access (the bug's stated non-goal).
+fn insert_key_tx(
+    tx: &rusqlite::Transaction<'_>,
+    owner_id: i64,
+    role: &str,
+    public_key: &[u8],
+    fingerprint: &str,
+    now: i64,
+    what: &str,
+) -> Result<i64, String> {
+    let opposite = match role {
+        KEY_ROLE_AUTH => KEY_ROLE_IDENT,
+        KEY_ROLE_IDENT => KEY_ROLE_AUTH,
+        other => return Err(format!("unknown key role '{other}'")),
+    };
+    let collision: Option<i64> = tx
+        .query_row(
+            "SELECT id FROM keys
+             WHERE owner_id = ?1 AND role = ?2 AND status = 'current' AND fingerprint = ?3",
+            params![owner_id, opposite, fingerprint],
+            |row| row.get(0),
+        )
+        .optional()
+        // Deliberately the caller's own `what` message, not a message about this
+        // query. `losing_the_key_tables_errors_revocation_and_chain_reads`
+        // (bug-264 / REPO-09) pins that a broken `keys` table degrades to an
+        // error naming the OPERATION — "failed to register token key: …" — and
+        // that contract must not depend on which statement happens to touch the
+        // table first. Adding a read ahead of the insert would otherwise have
+        // silently re-worded five operator-facing failures.
+        .map_err(|err| format!("{what}: {err}"))?;
+    if collision.is_some() {
+        return Err(format!(
+            "key role separation: this public key is already the account's current {opposite} \
+             key. A machine auth key and the account ident key must be different keys, so that \
+             losing one does not lose the other."
+        ));
+    }
+    tx.execute(
+        "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
+         VALUES (?1, ?2, ?3, ?4, 'current', ?5, NULL)",
+        params![owner_id, role, public_key, fingerprint, now],
+    )
+    .map_err(|err| format!("{what}: {err}"))?;
+    Ok(tx.last_insert_rowid())
 }
 
 /// Append one entry to the transparency log inside an existing transaction.
@@ -3557,6 +4170,15 @@ pub(crate) mod tests {
         assert_eq!(reopened.store.server_public_key().unwrap(), public);
     }
 
+    /// Helper: the approval predicate every honest fetch passes.
+    fn approved(_key: &[u8]) -> bool {
+        true
+    }
+
+    fn is_missing(fetch: &PairingFetch) -> bool {
+        matches!(fetch, PairingFetch::Missing)
+    }
+
     #[test]
     fn pairing_blob_is_single_use_and_expires() {
         let (_temp, store) = test_store();
@@ -3564,26 +4186,52 @@ pub(crate) mod tests {
         let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         let lookup = crypto::pairing_lookup("test-code");
         store
-            .store_pairing_blob(owner_id, &lookup, b"ciphertext", b"salt")
+            .store_pairing_blob(owner_id, &lookup, b"ciphertext", b"salt", b"approval")
             .unwrap();
 
         // Wrong owner or wrong lookup yields nothing.
-        assert!(store.take_pairing_blob("bob", &lookup).unwrap().is_none());
-        assert!(store
-            .take_pairing_blob("alice", &crypto::pairing_lookup("other"))
-            .unwrap()
-            .is_none());
+        assert!(is_missing(
+            &store.take_pairing_blob("bob", &lookup, approved).unwrap()
+        ));
+        assert!(is_missing(
+            &store
+                .take_pairing_blob("alice", &crypto::pairing_lookup("other"), approved)
+                .unwrap()
+        ));
 
-        // First fetch succeeds; the second finds the blob consumed.
-        let (blob, salt) = store.take_pairing_blob("alice", &lookup).unwrap().unwrap();
+        // bug-583: a caller that fails the approval predicate is refused AND
+        // does not consume the pairing — the honest fetch below still works.
+        assert!(matches!(
+            store
+                .take_pairing_blob("alice", &lookup, |_key| false)
+                .unwrap(),
+            PairingFetch::Unapproved
+        ));
+
+        // First fetch succeeds; the second finds the blob consumed. The stored
+        // approval key is exactly what the predicate is handed.
+        let PairingFetch::Relayed { blob, salt } = store
+            .take_pairing_blob("alice", &lookup, |key| key == b"approval")
+            .unwrap()
+        else {
+            panic!("the approved fetch must relay the blob");
+        };
         assert_eq!(blob, b"ciphertext");
         assert_eq!(salt, b"salt");
-        assert!(store.take_pairing_blob("alice", &lookup).unwrap().is_none());
+        assert!(is_missing(
+            &store.take_pairing_blob("alice", &lookup, approved).unwrap()
+        ));
 
         // An expired blob is never handed out.
         let expired_lookup = crypto::pairing_lookup("expired-code");
         store
-            .store_pairing_blob(owner_id, &expired_lookup, b"ciphertext", b"salt")
+            .store_pairing_blob(
+                owner_id,
+                &expired_lookup,
+                b"ciphertext",
+                b"salt",
+                b"approval",
+            )
             .unwrap();
         store
             .conn
@@ -3594,10 +4242,11 @@ pub(crate) mod tests {
                 params![now_unix() - 1, expired_lookup],
             )
             .unwrap();
-        assert!(store
-            .take_pairing_blob("alice", &expired_lookup)
-            .unwrap()
-            .is_none());
+        assert!(is_missing(
+            &store
+                .take_pairing_blob("alice", &expired_lookup, approved)
+                .unwrap()
+        ));
     }
 
     #[test]
@@ -3979,6 +4628,434 @@ pub(crate) mod tests {
             .complete_challenge("no-such-id", &[0u8; 64])
             .unwrap_err()
             .contains("unknown challenge"));
+    }
+
+    /// bug-586: the metadata database holds the server signing key, the session
+    /// secret and the online snapshot/timestamp keys in plaintext. SQLite
+    /// creates it and its `-wal`/`-shm` sidecars with the process umask, so
+    /// under the ordinary `umask 022` they land at 0644 in a 0755 directory and
+    /// any other local account can copy the credentials.
+    ///
+    /// The RED case is made deterministic by pre-creating the directory and an
+    /// empty database file at exposed modes rather than by setting the umask.
+    /// `umask` is process-global and libtest runs in parallel, so a test that
+    /// set it would race every other test that creates a file; pre-setting the
+    /// modes proves the same defect without that hazard, and additionally
+    /// covers the upgrade path — an ALREADY deployed volume whose files are
+    /// exposed today.
+    #[cfg(unix)]
+    #[test]
+    fn open_repository_makes_the_key_bearing_database_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("data");
+        let dbpath = dir.join("meta.db");
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        // A zero-length file is a valid empty SQLite database, so this is the
+        // real "existing world-readable deployment" shape.
+        fs::write(&dbpath, b"").unwrap();
+        fs::set_permissions(&dbpath, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(mode(&dir), 0o755, "precondition: the directory is exposed");
+        assert_eq!(
+            mode(&dbpath),
+            0o644,
+            "precondition: the database is exposed"
+        );
+
+        let opened = Store::open_repository(&dbpath, &temp.path().join("blobs")).unwrap();
+
+        assert_eq!(mode(&dir), 0o700, "the metadata directory must be private");
+        assert_eq!(mode(&dbpath), 0o600, "the database must be private");
+        // The sidecars carry the same rows; protecting only meta.db would leave
+        // the secrets readable in the write-ahead log.
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = dir.join(format!("meta.db{suffix}"));
+            assert!(sidecar.exists(), "WAL mode must have created {suffix}");
+            assert_eq!(
+                mode(&sidecar),
+                0o600,
+                "the {suffix} sidecar must be private"
+            );
+        }
+
+        // And the keys really are in there, so the modes above are guarding
+        // something: this is what makes the bug HIGH-value rather than cosmetic.
+        let (_public, private) = opened.store.server_keypair().unwrap();
+        assert!(!private.is_empty());
+    }
+
+    /// POSITIVE (bug-586): hardening must not break an ordinary open, and must
+    /// never WIDEN an operator's deliberate choice.
+    ///
+    /// Without this, "refuse every open" and "chmod everything to 0600
+    /// unconditionally" would both pass the test above. A `0400` database is a
+    /// legitimate read-only hardening; tightening is allowed to remove access,
+    /// never to grant it.
+    #[cfg(unix)]
+    #[test]
+    fn open_repository_leaves_an_already_private_database_alone_and_still_works() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("data");
+        let dbpath = dir.join("meta.db");
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+
+        // A normal open on a fresh path: the store is fully functional.
+        let opened = Store::open_repository(&dbpath, &temp.path().join("blobs")).unwrap();
+        let store = opened.store;
+        let keys = register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            store.list_package_versions("alice#toolbox").unwrap().len(),
+            1
+        );
+        assert_eq!(mode(&dbpath), 0o600);
+        assert_eq!(mode(&dir), 0o700);
+        drop(store);
+
+        // An operator who deliberately narrowed further keeps their choice:
+        // re-opening must not relax 0400 back up to 0600.
+        fs::set_permissions(&dbpath, fs::Permissions::from_mode(0o400)).unwrap();
+        let reopened = Store::open_repository(&dbpath, &temp.path().join("blobs"));
+        assert!(reopened.is_ok(), "a 0400 database must still open");
+        assert_eq!(
+            mode(&dbpath),
+            0o400,
+            "hardening may remove access, never grant it"
+        );
+        let _ = keys;
+    }
+
+    /// bug-579: `signed_checkpoint` memoises the signed tree head by log size,
+    /// so the anonymous routes stop loading every leaf and re-hashing the whole
+    /// Merkle tree on every request.
+    ///
+    /// Observing a cache is harder than it looks: Ed25519 signing is
+    /// deterministic (RFC 8032), so "the same bytes came back" is equally true
+    /// of a full recompute and proves nothing. The discriminator used here is a
+    /// leaf corruption applied IN PLACE, which leaves the row count — and so the
+    /// memo key — unchanged. A recompute surfaces `malformed log leaf hash`; a
+    /// cache hit returns the head it already holds.
+    ///
+    /// That is a PROBE of the mechanism, not a supported state. It is also the
+    /// soundness argument written as a test: size is a valid key precisely
+    /// because production only ever appends, and `log_leaf_hashes` is
+    /// deliberately left un-memoised so it still reports the corruption — see
+    /// `log_readers_reject_a_malformed_leaf_hash`.
+    #[test]
+    fn signed_checkpoint_is_memoised_by_log_size() {
+        let (_temp, store) = test_store();
+        let keys = register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        let (size, root, signature) = store.signed_checkpoint().unwrap();
+        assert_eq!(size, store.log_size().unwrap());
+
+        {
+            let conn = store.conn();
+            conn.execute("UPDATE log_entries SET leaf_hash = x'0011'", [])
+                .unwrap();
+        }
+        assert!(
+            store.log_leaf_hashes(None).is_err(),
+            "the un-memoised reader must still see the corruption"
+        );
+        let (cached_size, cached_root, cached_signature) = store.signed_checkpoint().unwrap();
+        assert_eq!(cached_size, size, "the memo answered");
+        assert_eq!(cached_root, root);
+        assert_eq!(cached_signature, signature);
+
+        // An append changes the size, so the key misses and the head is rebuilt
+        // — which, over the corrupted leaves, now correctly ERRORS rather than
+        // serving a stale root under a new size. Masking that would be the
+        // dangerous failure.
+        store
+            .publish_package_version(
+                owner_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
+            .unwrap();
+        assert!(
+            store.signed_checkpoint().is_err(),
+            "a size change must re-read, never serve the previous root"
+        );
+        let _ = keys;
+    }
+
+    /// bug-580: an account's current ident key and every current auth key must
+    /// be DIFFERENT keys.
+    ///
+    /// **This was never exploitable, and the report's premise was wrong.**
+    /// Measured on the pre-fix store, all five paths already refused a
+    /// role-colliding key — with `UNIQUE constraint failed: keys.fingerprint`.
+    /// `keys.fingerprint` is declared `NOT NULL UNIQUE` *globally*, so no two
+    /// rows anywhere can share a public key and the separation fell out of that.
+    ///
+    /// What this test protects is that the guarantee stops being INCIDENTAL. It
+    /// came from an index whose purpose is not role separation, and bug-580's own
+    /// non-goals ask for that index to be loosened ("do not prohibit two
+    /// different accounts from independently choosing the same public key" — which
+    /// the global UNIQUE currently does prohibit). Whoever loosens it would remove
+    /// the role separation as a side effect, with nothing failing. Now
+    /// `insert_key_tx` enforces the account-scoped invariant directly, so the two
+    /// properties can move independently.
+    ///
+    /// Every path is exercised because the point is that the list is complete.
+    /// The report named two; there are five, and the two it missed include
+    /// `issue_publish_token` — the one that matters most, since a publish token
+    /// is a delegated, exportable credential handed to CI.
+    #[test]
+    fn key_role_separation_is_enforced_at_every_creation_path() {
+        let (_temp, store) = test_store();
+        let (shared_public, shared_private) = crypto::generate_keypair();
+        let proof = |role: &str, owner: &str, public: &[u8], private: &[u8]| {
+            crypto::sign(private, &crypto::registration_message(role, owner, public)).unwrap()
+        };
+
+        // 1. Registration with one key in both roles.
+        let err = store
+            .register_owner(
+                "alice",
+                &shared_public,
+                &proof(crypto::ROLE_AUTH, "alice", &shared_public, &shared_private),
+                &shared_public,
+                &proof(crypto::ROLE_IDENT, "alice", &shared_public, &shared_private),
+            )
+            .unwrap_err();
+        assert!(err.contains("key role separation"), "{err}");
+        // Nothing was persisted: the transaction rolled back whole.
+        assert!(store.owner_with_ident_key("alice").unwrap().is_none());
+
+        // A proper account, to test the remaining paths against.
+        let keys = register_keys(&store, "alice");
+
+        // 2. Linking a machine whose auth key IS the account ident key.
+        let err = store
+            .add_auth_key(
+                "alice",
+                &keys.ident_public,
+                &proof(
+                    crypto::ROLE_AUTH,
+                    "alice",
+                    &keys.ident_public,
+                    &keys.ident_private,
+                ),
+            )
+            .unwrap_err();
+        assert!(err.contains("key role separation"), "{err}");
+
+        // 3. A publish token minted on the ident key. The report missed this
+        //    one, and it is the most dangerous: the token leaves the machine.
+        let err = store
+            .issue_publish_token(
+                "alice",
+                &keys.ident_public,
+                &proof(
+                    crypto::ROLE_AUTH,
+                    "alice",
+                    &keys.ident_public,
+                    &keys.ident_private,
+                ),
+                "publish",
+                3600,
+            )
+            .unwrap_err();
+        assert!(err.contains("key role separation"), "{err}");
+
+        // 4. Rotating the ident ONTO an existing machine auth key.
+        let chain = crypto::sign(
+            &keys.ident_private,
+            &crypto::ident_rotation_message(
+                "alice",
+                &crypto::fingerprint(&keys.ident_public),
+                &keys.auth_public,
+            ),
+        )
+        .unwrap();
+        let err = store
+            .rotate_ident(
+                "alice",
+                &keys.auth_public,
+                &chain,
+                &proof(
+                    crypto::ROLE_IDENT,
+                    "alice",
+                    &keys.auth_public,
+                    &keys.auth_private,
+                ),
+            )
+            .unwrap_err();
+        assert!(err.contains("key role separation"), "{err}");
+
+        // 5. Re-anchoring the ident onto an existing machine auth key.
+        let err = store
+            .reanchor_ident("alice", &keys.auth_public)
+            .unwrap_err();
+        assert!(err.contains("key role separation"), "{err}");
+
+        // The account is intact after five refusals: each rolled back whole.
+        let (_owner, ident) = store.owner_with_ident_key("alice").unwrap().unwrap();
+        assert_eq!(ident.public_key, keys.ident_public);
+    }
+
+    /// POSITIVE (bug-580): distinct keys must keep working everywhere.
+    ///
+    /// Without this, "reject every key" passes the test above. It pins the
+    /// normal shapes the invariant must NOT disturb — several machines, a
+    /// publish token, a rotation, and (the bug's explicit non-goal) two
+    /// different accounts independently choosing the same public key.
+    #[test]
+    fn distinct_keys_still_register_link_tokenize_and_rotate() {
+        let (_temp, store) = test_store();
+        let alice = register_keys(&store, "alice");
+        let proof = |role: &str, owner: &str, public: &[u8], private: &[u8]| {
+            crypto::sign(private, &crypto::registration_message(role, owner, public)).unwrap()
+        };
+
+        // Several distinct machines link to one account.
+        for _ in 0..3 {
+            let (machine_public, machine_private) = crypto::generate_keypair();
+            store
+                .add_auth_key(
+                    "alice",
+                    &machine_public,
+                    &proof(
+                        crypto::ROLE_AUTH,
+                        "alice",
+                        &machine_public,
+                        &machine_private,
+                    ),
+                )
+                .expect("a distinct machine key still links");
+        }
+
+        // A publish token on its own fresh key.
+        let (token_public, token_private) = crypto::generate_keypair();
+        store
+            .issue_publish_token(
+                "alice",
+                &token_public,
+                &proof(crypto::ROLE_AUTH, "alice", &token_public, &token_private),
+                "publish",
+                3600,
+            )
+            .expect("a distinct token key still issues");
+
+        // A rotation onto a fresh ident.
+        let (next_public, next_private) = crypto::generate_keypair();
+        let chain = crypto::sign(
+            &alice.ident_private,
+            &crypto::ident_rotation_message(
+                "alice",
+                &crypto::fingerprint(&alice.ident_public),
+                &next_public,
+            ),
+        )
+        .unwrap();
+        store
+            .rotate_ident(
+                "alice",
+                &next_public,
+                &chain,
+                &proof(crypto::ROLE_IDENT, "alice", &next_public, &next_private),
+            )
+            .expect("a distinct ident still rotates");
+
+        // The new check is per ACCOUNT (`owner_id = ?1`), so it does not itself
+        // stop two accounts choosing one public key — bug-580's non-goals ask
+        // for that to stay permitted.
+        //
+        // It is nonetheless refused today, by the GLOBAL `keys.fingerprint`
+        // UNIQUE index. That is a pre-existing divergence from the stated
+        // non-goal, measured rather than assumed, and it is deliberately left
+        // alone here: allowing one key to authenticate as two accounts is a
+        // policy decision with its own security argument, not something to
+        // change while fixing an unrelated invariant. This asserts the CURRENT
+        // behaviour so the divergence is visible and any future change to it is
+        // a deliberate edit to this line.
+        let (shared_public, shared_private) = crypto::generate_keypair();
+        let (carol_ident, carol_ident_private) = crypto::generate_keypair();
+        store
+            .register_owner(
+                "carol",
+                &shared_public,
+                &proof(crypto::ROLE_AUTH, "carol", &shared_public, &shared_private),
+                &carol_ident,
+                &proof(
+                    crypto::ROLE_IDENT,
+                    "carol",
+                    &carol_ident,
+                    &carol_ident_private,
+                ),
+            )
+            .expect("the first account may use this key");
+        let (dave_ident, dave_ident_private) = crypto::generate_keypair();
+        let err = store
+            .register_owner(
+                "dave",
+                &shared_public,
+                &proof(crypto::ROLE_AUTH, "dave", &shared_public, &shared_private),
+                &dave_ident,
+                &proof(crypto::ROLE_IDENT, "dave", &dave_ident, &dave_ident_private),
+            )
+            .unwrap_err();
+        assert!(
+            err.contains("UNIQUE constraint failed: keys.fingerprint"),
+            "a second account sharing a key is refused by the GLOBAL index, not \
+             by the account-scoped role check: {err}"
+        );
+    }
+
+    /// bug-580: `insert_key_tx` must stay the ONLY writer of a `keys` row.
+    ///
+    /// The role-separation invariant is account-wide, so it has to hold at every
+    /// creation path — and the reason it did not before is that the paths were
+    /// enumerated by hand and the list was wrong (the report named two of five).
+    /// A per-site check would have been written from the same wrong list. This
+    /// asserts the structural property instead: one writer, so a new path cannot
+    /// be added without going through the check.
+    ///
+    /// Same shape as `tests/gate_lock_covers_every_writer.rs` — a recogniser and
+    /// the thing it recognises are two lists, and they drift.
+    #[test]
+    fn key_insertion_has_exactly_one_writer() {
+        let source = include_str!("store.rs");
+        // The needle is the statement's full column list, not the bare table
+        // name: a recogniser that matches its own diagnostic text counts itself
+        // and is wrong by one before it has read a line of production code.
+        let needle = concat!("INSERT INTO keys ", "(owner_id, role, public_key");
+        let writers = source.matches(needle).count();
+        assert_eq!(
+            writers, 1,
+            "every `keys` row must be created by `insert_key_tx`, which enforces \
+             auth/ident role separation (bug-580); found {writers} insertion sites. \
+             Route the new one through `insert_key_tx` rather than adding a second \
+             check that will drift from this one."
+        );
     }
 
     #[test]
@@ -4792,6 +5869,204 @@ pub(crate) mod tests {
         let _ = alice;
     }
 
+    // === plan-126-A: latest-active-version selection ======================
+    //
+    // Publish two versions and move the newer one's state, then assert which
+    // version the selection names. `publish_package_version` stamps both rows
+    // with the same `created_at` second, so the tie resolves on `pv.id DESC` —
+    // the later-inserted row wins, which is what makes "newest" meaningful in a
+    // test that runs in milliseconds.
+
+    /// Publish `versions` in order under `alice#toolbox` and return the store.
+    fn store_with_versions(versions: &[(&str, &str)]) -> (tempfile::TempDir, Store) {
+        let (temp, store) = test_store();
+        register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        for (version, state) in versions {
+            store
+                .publish_package_version(
+                    owner_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("hash-{version}"),
+                    &format!("path-{version}"),
+                    "{}",
+                    &[],
+                    &PublishMetadata::default(),
+                )
+                .unwrap();
+            if *state != "available" {
+                store
+                    .set_release_state(owner_id, "alice#toolbox", version, state)
+                    .unwrap();
+            }
+        }
+        (temp, store)
+    }
+
+    /// The bug plan-126-A fixes: the newest release is yanked, so the headline
+    /// version must be the older active one — not the yanked newest.
+    #[test]
+    fn latest_active_version_skips_a_yanked_newest_release() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "available"), ("2.0.0", "yanked")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), "available".to_string())),
+        );
+        // The transparency listing is untouched: both versions are still there.
+        let versions = store.list_package_versions("alice#toolbox").unwrap();
+        assert_eq!(versions.len(), 2);
+    }
+
+    /// `blocked` is operator-set and never reaches the maintainer route, so a
+    /// denylist written as `state != 'yanked'` would pass the test above and
+    /// fail this one. That is the whole reason the predicate is an allowlist.
+    #[test]
+    fn latest_active_version_skips_a_blocked_newest_release() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "available"), ("2.0.0", "blocked")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), "available".to_string())),
+        );
+    }
+
+    /// The second operator-only state, for the same reason.
+    #[test]
+    fn latest_active_version_skips_a_legal_tombstoned_newest_release() {
+        let (_temp, store) =
+            store_with_versions(&[("1.5.0", "available"), ("2.0.0", "legal-tombstoned")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), "available".to_string())),
+        );
+    }
+
+    /// `deprecated` **is** active — the install client installs it on a floating
+    /// add — and the state travels with the version so the page can badge it.
+    #[test]
+    fn latest_active_version_returns_a_deprecated_release_with_its_state() {
+        let (_temp, store) =
+            store_with_versions(&[("1.5.0", "available"), ("2.0.0", "deprecated")]);
+        assert_eq!(
+            store.latest_active_version("alice#toolbox").unwrap(),
+            Some(("2.0.0".to_string(), "deprecated".to_string())),
+        );
+    }
+
+    /// Every published version inactive: `None` means "no active release", a
+    /// statement the page renders — not "this package does not exist".
+    #[test]
+    fn latest_active_version_is_none_when_every_version_is_inactive() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "yanked"), ("2.0.0", "blocked")]);
+        assert_eq!(store.latest_active_version("alice#toolbox").unwrap(), None);
+        // The versions themselves are still listed.
+        assert_eq!(
+            store.list_package_versions("alice#toolbox").unwrap().len(),
+            2
+        );
+    }
+
+    /// No versions at all, and an ident no package carries: both `None`, and
+    /// neither is an error.
+    #[test]
+    fn latest_active_version_is_none_for_no_versions_and_unknown_idents() {
+        let (_temp, store) = store_with_versions(&[]);
+        assert_eq!(store.latest_active_version("alice#toolbox").unwrap(), None);
+        assert_eq!(store.latest_active_version("alice#nope").unwrap(), None);
+        assert_eq!(store.latest_active_version("not-an-ident").unwrap(), None);
+    }
+
+    // === plan-126-E: per-version documentation storage =====================
+
+    /// The `package_versions.id` of `alice#toolbox@version`.
+    fn version_id(store: &Store, version: &str) -> i64 {
+        store
+            .all_package_versions()
+            .unwrap()
+            .into_iter()
+            .find(|(_, ident, v, _)| ident == "alice#toolbox" && v == version)
+            .map(|(id, ..)| id)
+            .expect("version is published")
+    }
+
+    /// A stored section reads back byte for byte -- including zero bytes and
+    /// values above 0x7F, which a text column would mangle.
+    #[test]
+    fn version_docs_round_trip_byte_for_byte() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available")]);
+        let section = vec![0x01, 0x00, 0xFF, 0x7F, 0x00, 0x42];
+        store
+            .put_version_docs(version_id(&store, "1.0.0"), &section)
+            .unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.0.0".to_string(), section)),
+        );
+    }
+
+    /// No docs row is `None`, and so is an ident no package carries.
+    #[test]
+    fn a_version_with_no_docs_row_yields_none() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available")]);
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+        assert_eq!(
+            store.latest_active_version_docs("alice#nope").unwrap(),
+            None
+        );
+    }
+
+    /// **plan-126-E Phase 1's acceptance test.** The newest release is yanked
+    /// and both releases carry docs. The accessor must return the older active
+    /// release's docs -- not the yanked newest's, and not `None`. An accessor
+    /// written as its own `ORDER BY created_at LIMIT 1` would return 2.0.0's, so
+    /// this is what proves it is built on the plan-126-A selection.
+    #[test]
+    fn a_yanked_newest_release_falls_back_to_the_older_active_releases_docs() {
+        let (_temp, store) = store_with_versions(&[("1.5.0", "available"), ("2.0.0", "yanked")]);
+        store
+            .put_version_docs(version_id(&store, "1.5.0"), b"docs-1.5.0")
+            .unwrap();
+        store
+            .put_version_docs(version_id(&store, "2.0.0"), b"docs-2.0.0")
+            .unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.5.0".to_string(), b"docs-1.5.0".to_vec())),
+        );
+    }
+
+    /// The contract plan-126-F's Docs tab relies on: an undocumented *current*
+    /// release reads as undocumented. It never borrows an older release's docs,
+    /// which would describe a version the tab is not showing.
+    #[test]
+    fn an_undocumented_latest_release_never_borrows_an_older_releases_docs() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available"), ("2.0.0", "available")]);
+        store
+            .put_version_docs(version_id(&store, "1.0.0"), b"docs-1.0.0")
+            .unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+    }
+
+    /// `INSERT OR IGNORE`: a second write for the same version keeps the first.
+    /// The backfill sweep relies on this to stay idempotent.
+    #[test]
+    fn putting_version_docs_twice_keeps_the_first_row() {
+        let (_temp, store) = store_with_versions(&[("1.0.0", "available")]);
+        let id = version_id(&store, "1.0.0");
+        store.put_version_docs(id, b"first").unwrap();
+        store.put_version_docs(id, b"second").unwrap();
+        assert_eq!(
+            store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.0.0".to_string(), b"first".to_vec())),
+        );
+    }
+
     #[test]
     fn set_release_state_rejects_unpublished_and_updates_published() {
         let (_temp, store) = test_store();
@@ -4878,11 +6153,152 @@ pub(crate) mod tests {
             crypto::public_from_private(&root_private).unwrap(),
             config.root_public
         );
-        // Re-running bumps the root version (delegation renewal).
-        store
+        // Re-running is NOT delegation renewal: it minted a fresh anchor
+        // (bug-584, measured). It is refused; renewal is `renew_registry_root`.
+        assert!(store
             .init_registry_root("reg-1", now_unix() + 7200)
-            .unwrap();
+            .unwrap_err()
+            .contains("already initialized"));
         assert!(store.registry_config().unwrap().is_some());
+    }
+
+    /// bug-584 (positive pin): an honest renewal — the operator supplies the
+    /// offline root key — bumps the version, re-delegates freshly generated
+    /// online keys under a new expiry, and leaves the ANCHOR untouched, so a
+    /// client pinned to the original fingerprint keeps verifying.
+    #[test]
+    fn renew_registry_root_keeps_the_anchor_and_rotates_the_delegated_keys() {
+        let (_temp, store) = test_store();
+        let expires = now_unix() + 3600;
+        let root_private = store.init_registry_root("reg-1", expires).unwrap();
+        let before = store.registry_config().unwrap().unwrap();
+
+        let renewed_expires = expires + 86_400;
+        let version = store
+            .renew_registry_root("reg-1", renewed_expires, &root_private)
+            .expect("a renewal under the configured root key is accepted");
+        assert_eq!(version, 2);
+        let after = store.registry_config().unwrap().unwrap();
+
+        // The anchor — the only thing a client pins — is unchanged.
+        assert_eq!(before.root_public, after.root_public);
+        assert_eq!(
+            crypto::fingerprint(&before.root_public),
+            crypto::fingerprint(&after.root_public),
+        );
+        // The online delegated keys are fresh, and the new root.json verifies
+        // under the same root key with the bumped version and new expiry.
+        assert_ne!(before.snapshot_public, after.snapshot_public);
+        assert_ne!(before.timestamp_public, after.timestamp_public);
+        assert_ne!(before.root_json, after.root_json);
+        crypto::verify(
+            &after.root_public,
+            &crypto::root_signing_input(after.root_json.as_bytes()),
+            &after.root_signature,
+        )
+        .expect("the renewed root.json verifies under the pinned root key");
+        assert!(after
+            .root_json
+            .contains(&format!("\"version\":2,\"expires\":{renewed_expires}")));
+        assert!(after
+            .root_json
+            .contains(&crypto::encode_bytes(&after.snapshot_public)));
+        // ...and the renewal is auditable in the transparency log.
+        assert_eq!(log_kinds(&store), vec!["root-init", "root-renew"]);
+    }
+
+    /// bug-584: renewal is authenticated by possession of the offline root key.
+    /// A stranger's key, a malformed key, and an uninitialized registry are all
+    /// refused without touching a stored field.
+    #[test]
+    fn renew_registry_root_refuses_anything_but_the_configured_root_key() {
+        let (_temp, store) = test_store();
+        let (_stranger_public, stranger_private) = crypto::generate_keypair();
+        assert!(store
+            .renew_registry_root("reg-1", now_unix() + 3600, &stranger_private)
+            .unwrap_err()
+            .contains("not initialized"));
+
+        let root_private = store
+            .init_registry_root("reg-1", now_unix() + 3600)
+            .unwrap();
+        let before = store.registry_config().unwrap().unwrap();
+
+        let err = store
+            .renew_registry_root("reg-1", now_unix() + 7200, &stranger_private)
+            .unwrap_err();
+        assert!(
+            err.contains("not this registry's offline root key"),
+            "{err}"
+        );
+        assert!(store
+            .renew_registry_root("reg-1", now_unix() + 7200, &[0u8; 3])
+            .unwrap_err()
+            .contains("malformed"));
+        // A renewal aimed at a different registry id is refused too: the
+        // registry id is part of what the pinned client checks.
+        let err = store
+            .renew_registry_root("reg-2", now_unix() + 7200, &root_private)
+            .unwrap_err();
+        assert!(err.contains("does not match the configured"), "{err}");
+
+        let after = store.registry_config().unwrap().unwrap();
+        assert_eq!(before.root_public, after.root_public);
+        assert_eq!(before.root_json, after.root_json);
+        assert_eq!(before.snapshot_public, after.snapshot_public);
+        assert_eq!(before.timestamp_public, after.timestamp_public);
+    }
+
+    /// bug-584: replacing the anchor is still possible when the offline root
+    /// key is LOST, but only as its own explicitly selected ceremony, and it is
+    /// transparency-logged as a re-anchor rather than looking like a renewal.
+    #[test]
+    fn reanchor_registry_root_replaces_the_anchor_only_when_explicitly_selected() {
+        let (_temp, store) = test_store();
+        assert!(store
+            .reanchor_registry_root("reg-1", now_unix() + 3600)
+            .unwrap_err()
+            .contains("not initialized"));
+        store
+            .init_registry_root("reg-1", now_unix() + 3600)
+            .unwrap();
+        let before = store.registry_config().unwrap().unwrap();
+
+        let new_private = store
+            .reanchor_registry_root("reg-1", now_unix() + 7200)
+            .unwrap();
+        let after = store.registry_config().unwrap().unwrap();
+        assert_ne!(before.root_public, after.root_public);
+        assert_eq!(
+            crypto::public_from_private(&new_private).unwrap(),
+            after.root_public
+        );
+        assert!(after.root_json.contains("\"version\":2"));
+        assert_eq!(log_kinds(&store), vec!["root-init", "root-reanchor"]);
+    }
+
+    /// bug-584: `init-root` is one-time initialization. A second run used to
+    /// mint a brand-new offline root key and overwrite the sole config row,
+    /// silently replacing the anchor every pinned client verifies against —
+    /// indistinguishable from registry takeover. It must refuse, and must not
+    /// touch any configured field while refusing.
+    #[test]
+    fn init_registry_root_refuses_to_replace_a_configured_root() {
+        let (_temp, store) = test_store();
+        store
+            .init_registry_root("reg-1", now_unix() + 3600)
+            .unwrap();
+        let before = store.registry_config().unwrap().unwrap();
+        let err = store
+            .init_registry_root("reg-1", now_unix() + 7200)
+            .unwrap_err();
+        assert!(err.contains("already initialized"), "{err}");
+        let after = store.registry_config().unwrap().unwrap();
+        assert_eq!(before.root_public, after.root_public);
+        assert_eq!(before.root_json, after.root_json);
+        assert_eq!(before.root_signature, after.root_signature);
+        assert_eq!(before.snapshot_public, after.snapshot_public);
+        assert_eq!(before.timestamp_public, after.timestamp_public);
     }
 
     #[test]
@@ -5431,6 +6847,18 @@ pub(crate) mod tests {
 
     /// Drop tables from a live store. Foreign keys are disabled for the drop so
     /// the child rows do not block it, then re-enabled for the assertions.
+    /// Every transparency-log entry kind, in log order.
+    fn log_kinds(store: &Store) -> Vec<String> {
+        let conn = store.conn();
+        let mut statement = conn
+            .prepare("SELECT kind FROM log_entries ORDER BY idx ASC")
+            .unwrap();
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap();
+        rows.map(|row| row.unwrap()).collect()
+    }
+
     fn drop_tables(store: &Store, tables: &[&str]) {
         let conn = store.conn();
         conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
@@ -5527,7 +6955,7 @@ pub(crate) mod tests {
             .unwrap_err()
             .contains("failed to load package owner"));
         assert!(store
-            .take_pairing_blob("alice", "lookup")
+            .take_pairing_blob("alice", "lookup", approved)
             .unwrap_err()
             .contains("failed to load pairing blob"));
         assert!(store
@@ -5786,7 +7214,7 @@ pub(crate) mod tests {
 
         drop_tables(&store, &["pairing_blobs"]);
         assert!(store
-            .store_pairing_blob(owner, "lookup", b"blob", b"salt")
+            .store_pairing_blob(owner, "lookup", b"blob", b"salt", b"approval")
             .unwrap_err()
             .contains("failed to clear expired pairing blobs"));
     }

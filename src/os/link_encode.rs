@@ -303,9 +303,19 @@ mod tests {
 
     #[test]
     fn adrp_page21_encodes_and_reach_checks() {
+        // A two-page delta fits entirely in immlo, so immhi is zero here.
         let (immlo, immhi) = adrp_page21(0, 0x2000).unwrap();
-        assert_eq!(immlo, 2 & 0b11);
-        assert_eq!(immhi, (2u32 >> 2) & 0x7ffff);
+        assert_eq!(immlo, 2);
+        assert_eq!(immhi, 0);
+        // A delta large enough to reach immhi. The case above cannot tell a broken
+        // immhi from a zero one, which is what clippy's erasing_op was pointing at.
+        let (immlo, immhi) = adrp_page21(0, 0x40_0000).unwrap(); // 0x400 pages
+        assert_eq!(immlo, 0);
+        assert_eq!(immhi, 0x100);
+        // A negative delta: the sign bits must reach immhi, masked to 19 bits.
+        let (immlo, immhi) = adrp_page21(0x5000, 0x1000).unwrap(); // -4 pages
+        assert_eq!(immlo, 0);
+        assert_eq!(immhi, 0x7ffff);
         let err = adrp_page21(0, 1u64 << 33).unwrap_err();
         assert!(err.contains("exceeds the ±4 GiB reach"), "{err}");
     }

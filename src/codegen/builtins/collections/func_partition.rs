@@ -160,6 +160,7 @@ impl CodeBuilder<'_> {
                     closure_captures: None,
                     capacity_slot: None,
                     loop_alias_slot: None,
+                    result_wrapper: None,
                 })?;
                 self.emit_owned_value_drop(&OwnedValueCleanup {
                     type_: collection.type_.clone(),
@@ -167,6 +168,7 @@ impl CodeBuilder<'_> {
                     closure_captures: None,
                     capacity_slot: None,
                     loop_alias_slot: None,
+                    result_wrapper: None,
                 })?;
                 for (reg, slot) in regs.iter().zip(&save) {
                     self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));

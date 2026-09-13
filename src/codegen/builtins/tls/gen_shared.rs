@@ -321,6 +321,17 @@ pub(crate) fn tls_verify_callback_function() -> CodeFunction {
 /// Copy a NUL-free MFBASIC `String` (pointer at `sp + str_off`) into a freshly
 /// allocated NUL-terminated C string, storing the result pointer at
 /// `sp + out_off`. Branches to `alloc_fail` on allocation failure.
+///
+/// bug-575: the block is the enclosing helper's own **scratch** — it is handed to
+/// `getaddrinfo`/`SSL_set_tlsext_host_name`/`open` and never returned to MFBASIC,
+/// so no caller-side ownership analysis can see it and nothing freed it. `scratch`
+/// records the block's pointer and the EXACT byte count `_mfb_arena_alloc` was
+/// given, for `emit_helper_scratch_release` to free at the helper's single `ret`.
+/// The scratch is declared (and null-initialised) by the enclosing helper rather
+/// than here, because several sites sit behind a branch that can reach `done`
+/// without marshalling anything — `tls::listen`'s empty-host bind-all path jumps
+/// straight past its `emit_cstring`, and the release must read a null there, not
+/// an undefined vreg.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_cstring(
     symbol: &str,
@@ -328,6 +339,7 @@ pub(crate) fn emit_cstring(
     str_off: usize,
     out_off: usize,
     alloc_fail: &str,
+    scratch: &HelperScratch,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
@@ -343,12 +355,17 @@ pub(crate) fn emit_cstring(
     instructions.extend([
         abi::load_u64(&v17, abi::stack_pointer(), str_off),
         abi::load_u64(&v18, &v17, 0),
-        abi::add_immediate(abi::return_register(), &v18, 1),
+        // The scratch SIZE is the allocation's own byte count: `_mfb_arena_free`
+        // re-normalizes exactly as `_mfb_arena_alloc` does, so a size that is not
+        // the one allocated returns the block to the wrong bin (bug-560).
+        abi::add_immediate(&scratch.size, &v18, 1),
+        abi::move_register(abi::return_register(), &scratch.size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), out_off),
+        abi::move_register(&scratch.pointer, abi::mfb_return(1)),
         abi::load_u64(&v17, abi::stack_pointer(), str_off),
         abi::load_u64(&v18, &v17, 0),
         abi::add_immediate(&v19, &v17, 8),

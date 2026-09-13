@@ -11,7 +11,7 @@ use crate::server::{
     TokenIssueRequest, TokenIssueResponse, TokenRevokeRequest, TokenRevokeResponse,
     TransferAcceptRequest, TransferOfferRequest, TransferResponse, ValidatePackageResponse,
 };
-use crate::validation::validate_owner_name;
+use crate::validation::{fold_owner, validate_owner_name};
 use crate::DEFAULT_REPO_URL;
 use reqwest::blocking::Client;
 use serde::de::DeserializeOwned;
@@ -177,17 +177,26 @@ fn redirect_policy() -> reqwest::redirect::Policy {
                 "repository redirected more than {MAX_REDIRECTS} times"
             ));
         }
-        match ensure_redirect_target(attempt.url()) {
+        let target = attempt.url();
+        // Two stages, deliberately separate: the static URL check, then the
+        // resolution check that closes the hostname hole (bug-585).
+        let vetted = ensure_redirect_target(target)
+            .and_then(|()| ensure_redirect_host_resolves_public(target, resolve_redirect_host));
+        match vetted {
             Ok(()) => attempt.follow(),
             Err(message) => attempt.error(message),
         }
     })
 }
 
-/// Vet a single redirect target: https only (no plaintext downgrade), and never
-/// an IP literal in an SSRF-sensitive range (bug-420 item 2). A hostname that
-/// resolves to an internal address is out of scope for this literal check — the
-/// documented threat is a 302 straight to `169.254.169.254`/`127.0.0.1`/RFC-1918.
+/// Vet a single redirect target's URL TEXT: https only (no plaintext
+/// downgrade), and never an IP literal in an SSRF-sensitive range (bug-420
+/// item 2).
+///
+/// This is half the guard. It decides everything that can be read off the URL
+/// without touching the network, so it stays pure and cheap. A target written
+/// as a HOSTNAME is decided by [`ensure_redirect_host_resolves_public`]
+/// (bug-585); [`redirect_policy`] is the one place both run.
 fn ensure_redirect_target(url: &reqwest::Url) -> Result<(), String> {
     if url.scheme() != "https" {
         return Err(format!(
@@ -206,6 +215,102 @@ fn ensure_redirect_target(url: &reqwest::Url) -> Result<(), String> {
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+/// Resolve a redirect target's hostname through the platform resolver — the same
+/// `getaddrinfo` reqwest's own connector will call a moment later.
+///
+/// Split out from [`ensure_redirect_host_resolves_public`] so the policy can be
+/// tested against a deterministic answer set: a security filter whose tests
+/// depend on live DNS is a filter nobody can prove either way offline.
+fn resolve_redirect_host(host: &str, port: u16) -> Result<Vec<std::net::IpAddr>, String> {
+    use std::net::ToSocketAddrs as _;
+    (host, port)
+        .to_socket_addrs()
+        .map(|addrs| addrs.map(|addr| addr.ip()).collect())
+        .map_err(|err| err.to_string())
+}
+
+/// The other half of the redirect guard: refuse a target whose HOSTNAME resolves
+/// into a blocked range (bug-585).
+///
+/// `ensure_redirect_target` only ever parsed the host as an `IpAddr`, so a
+/// hostile registry could 302 a blob fetch at `https://localhost:<port>/` — or
+/// any attacker-controlled name with an `A` record of `127.0.0.1`,
+/// `169.254.169.254`, or RFC-1918 space — and reqwest would resolve the name
+/// itself and open a real socket to a service reachable only from the developer
+/// or CI machine. Measured, not reasoned:
+/// `a_hostname_redirect_resolving_to_loopback_is_refused_before_connecting`
+/// recorded an accepted connection on the loopback probe before this landed.
+///
+/// Three properties a reader needs, stated plainly:
+///
+/// - **It fails CLOSED.** A name that will not resolve, or that resolves to an
+///   empty answer, is refused rather than followed. That costs nothing real: an
+///   unresolvable hop cannot be connected to either, so the request was going to
+///   fail regardless — it just fails with an honest message instead of a
+///   connector error. And a filter that treats "I could not check" as "allowed"
+///   is not a filter.
+/// - **ANY blocked answer refuses the hop**, not just the first. A name with a
+///   mixed public/internal answer set is exactly how this gets smuggled past a
+///   check that only looks at `addrs[0]`, and reqwest walks the whole list.
+/// - **It is NOT airtight against DNS rebinding, and cannot be made so here.**
+///   This resolves, then reqwest resolves again and connects: a classic TOCTOU.
+///   A name with a ~0 TTL answering public once and `127.0.0.1` the next time
+///   wins the race. Closing it needs the connection to be pinned to the exact
+///   address this function approved — a custom `reqwest::dns::Resolve` on the
+///   shared client — and that is not available *here*, because the resolver is
+///   handed a bare hostname with no way to tell an initial URL from a redirect
+///   hop, and `http://localhost:<port>` is a SUPPORTED local-dev registry
+///   (`ensure_transport_security`). So this raises the attack from "write the
+///   address in the `Location` header" to "win a resolver race", and the OS
+///   resolver cache plus a realistic TTL make that unreliable for the attacker.
+///   Blob bytes remain SHA-256 verified regardless; what is at stake is the
+///   transport-level probe, not integrity.
+///
+/// Cost: one `getaddrinfo` per redirect hop, on a name reqwest is about to
+/// resolve anyway, so in practice it is a warm-cache lookup. A legitimate blob
+/// fetch is one hop.
+fn ensure_redirect_host_resolves_public(
+    url: &reqwest::Url,
+    resolve: impl Fn(&str, u16) -> Result<Vec<std::net::IpAddr>, String>,
+) -> Result<(), String> {
+    let Some(host) = url.host_str() else {
+        return Ok(());
+    };
+    // An IP literal was already decided by `ensure_redirect_target`; there is no
+    // name to look up, and no lookup is performed. (`host_str` brackets an IPv6
+    // literal, so strip them before parsing.)
+    if host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>()
+        .is_ok()
+    {
+        return Ok(());
+    }
+    let port = url.port_or_known_default().unwrap_or(443);
+    let addresses = resolve(host, port).map_err(|err| {
+        format!(
+            "refusing to follow a repository redirect to '{host}': its address could not be \
+             resolved ({err}). The redirect guard fails closed — a hop that cannot be shown \
+             to be public is not followed."
+        )
+    })?;
+    if addresses.is_empty() {
+        return Err(format!(
+            "refusing to follow a repository redirect to '{host}': it resolved to no \
+             addresses. The redirect guard fails closed."
+        ));
+    }
+    if let Some(blocked) = addresses.iter().find(|ip| is_blocked_redirect_ip(**ip)) {
+        return Err(format!(
+            "refusing to follow a repository redirect to '{host}': it resolves to internal \
+             address {blocked}. A redirect to a private, loopback, or link-local host is a \
+             possible SSRF, whether the address is written in the URL or answered by DNS."
+        ));
     }
     Ok(())
 }
@@ -245,12 +350,22 @@ fn is_blocked_redirect_ip(ip: std::net::IpAddr) -> bool {
 /// `server.pub` on first contact; a later mismatch is refused (plan-23 index
 /// §10.3). Every online flow calls this before touching other routes.
 pub fn ensure_server_key(repo_url: &str, paths: &LocalPaths) -> Result<Vec<u8>, String> {
+    let server_key = fetch_server_key(repo_url)?;
+    local::pin_server_key(paths, &server_key)?;
+    Ok(server_key)
+}
+
+/// Fetch the registry public key from `GET /ident` and check it against the
+/// fingerprint the response names — with no local state: nothing is pinned or
+/// compared against a pin. Authenticated by transport only; a caller that holds
+/// a signed claim about the key (an attestation's `repoFingerprint`) must compare
+/// against that.
+pub fn fetch_server_key(repo_url: &str) -> Result<Vec<u8>, String> {
     let response = get_json::<ServerIdentResponse>(repo_url, "/ident")?;
     let server_key = crypto::decode_bytes(&response.server_key, "serverKey")?;
     if crypto::fingerprint(&server_key) != response.server_fingerprint {
         return Err("repository /ident fingerprint does not match its key".to_string());
     }
-    local::pin_server_key(paths, &server_key)?;
     Ok(server_key)
 }
 
@@ -420,6 +535,11 @@ pub fn link_start(
     let mut plaintext = ident_private.clone();
     plaintext.extend_from_slice(&ident_public);
     let (blob, salt) = crypto::seal_pairing_blob(&code, &plaintext)?;
+    // bug-583: publish the PUBLIC half of the code-derived approval keypair as
+    // the verifier for the fetch half. The code itself never leaves this
+    // machine, so the relay cannot derive the private half and cannot approve
+    // an auth key of its own.
+    let (approval_public, _approval_private) = crypto::pairing_approval_keypair(&code)?;
     let response = post_json::<LinkStartResponse>(
         repo_url,
         "/machines/link",
@@ -428,6 +548,7 @@ pub fn link_start(
             lookup: crypto::pairing_lookup(&code),
             blob: crypto::encode_bytes(&blob),
             salt: crypto::encode_bytes(&salt),
+            approval_key: crypto::encode_bytes(&approval_public),
             session_token,
         },
     )?;
@@ -449,14 +570,24 @@ pub fn link_fetch(
     let (auth_public, auth_private) = crypto::generate_keypair();
     let message = crypto::registration_message(crypto::ROLE_AUTH, owner, &auth_public);
     let proof = crypto::sign(&auth_private, &message)?;
+    // bug-583: prove possession of the typed code by signing THIS auth key
+    // with the code-derived approval private key. The lookup only names the
+    // pending pairing; it is not authorization.
+    let lookup = crypto::pairing_lookup(code.trim());
+    let (_approval_public, approval_private) = crypto::pairing_approval_keypair(code.trim())?;
+    let approval = crypto::sign(
+        &approval_private,
+        &crypto::pairing_approval_message(&lookup, &auth_public),
+    )?;
     let response = post_json::<LinkFetchResponse>(
         repo_url,
         "/machines/link/fetch",
         &LinkFetchRequest {
             owner: owner.to_string(),
-            lookup: crypto::pairing_lookup(code.trim()),
+            lookup,
             auth_key: crypto::encode_bytes(&auth_public),
             proof: crypto::encode_bytes(&proof),
+            approval: crypto::encode_bytes(&approval),
         },
     )?;
     let blob = crypto::decode_bytes(&response.blob, "blob")?;
@@ -691,8 +822,54 @@ fn fetch_checkpoint_unpinned(
 }
 
 /// Fetch, verify and pin the current checkpoint.
+///
+/// This is the **only** primitive that advances the local pin, and every advance
+/// past an existing pin is gated on an RFC 6962 consistency proof (bug-582).
+/// Signatures and monotonicity alone cannot establish an append-only history: a
+/// registry holding its online key can sign any larger tree it likes, so a
+/// bigger head is a *candidate*, never evidence. Before the gate moved here,
+/// `fetch_checkpoint` wrote any `size > pinned_size` straight over the pin,
+/// which erased the root the fork would have been detected against — and
+/// `verify_publish_inclusion`, the whole of `pkg install --proof`'s contact with
+/// the log, advanced through it with no consistency check anywhere in the flow.
 pub fn fetch_checkpoint(repo_url: &str, paths: &LocalPaths) -> Result<CheckpointResponse, String> {
+    // Read the pin BEFORE the fetch, so the value proven against is the one the
+    // client already accepted and not anything this exchange may have written.
+    let pinned = local::read_checkpoint(paths)?;
+    // Deliberately unpinned (bug-276 R2): the candidate head must not overwrite
+    // the pin until its consistency against that pin has been proven, or a fork
+    // erases the very evidence it would be caught by.
     let checkpoint = fetch_checkpoint_unpinned(repo_url, paths)?;
+    let Some((pinned_size, pinned_root)) = pinned else {
+        // Trust on first use: there is no predecessor to prove an extension of.
+        local::write_checkpoint(paths, checkpoint.size, &checkpoint.root_hash)?;
+        return Ok(checkpoint);
+    };
+    if checkpoint.size == pinned_size {
+        // `fetch_checkpoint_unpinned` has already refused every other root at
+        // this size, so this IS the pinned head. Nothing advances, so there is
+        // nothing to prove and no proof to ask the registry for.
+        return Ok(checkpoint);
+    }
+    // Strictly larger — a smaller size was refused above as a ROLLBACK.
+    let proof = get_json::<ConsistencyProofResponse>(
+        repo_url,
+        &format!("/log/consistency?from={pinned_size}&to={}", checkpoint.size),
+    )?;
+    let old_root = decode_hex32(&pinned_root, "pinned root")?;
+    let new_root = decode_hex32(&checkpoint.root_hash, "rootHash")?;
+    let mut path = Vec::new();
+    for node in &proof.path {
+        path.push(decode_hex32(node, "proof node")?);
+    }
+    crate::log::verify_consistency(
+        pinned_size as usize,
+        checkpoint.size as usize,
+        &old_root,
+        &new_root,
+        &path,
+    )?;
+    // Proven an extension of the pinned history — only now advance the pin.
     local::write_checkpoint(paths, checkpoint.size, &checkpoint.root_hash)?;
     Ok(checkpoint)
 }
@@ -781,38 +958,16 @@ pub fn verify_publish_inclusion(
 
 /// Fetch and verify a consistency proof between the pinned checkpoint and
 /// the current one.
+///
+/// Since bug-582 this is exactly `fetch_checkpoint`: the consistency gate lives
+/// in the one pin-advance primitive rather than in one of its two callers, so a
+/// call site cannot pick the unsafe half by accident. The name is kept because
+/// it says at the call site *why* the log is being contacted.
 pub fn verify_log_consistency(
     repo_url: &str,
     paths: &LocalPaths,
 ) -> Result<CheckpointResponse, String> {
-    let Some((pinned_size, pinned_root)) = local::read_checkpoint(paths)? else {
-        // Nothing pinned yet: fetch_checkpoint establishes the first pin.
-        return fetch_checkpoint(repo_url, paths);
-    };
-    // Deliberately unpinned (bug-276 R2): the candidate head must not overwrite
-    // the pin until its consistency against that pin has been proven, or a fork
-    // erases the very evidence it would be caught by.
-    let checkpoint = fetch_checkpoint_unpinned(repo_url, paths)?;
-    let proof = get_json::<ConsistencyProofResponse>(
-        repo_url,
-        &format!("/log/consistency?from={pinned_size}&to={}", checkpoint.size),
-    )?;
-    let old_root = decode_hex32(&pinned_root, "pinned root")?;
-    let new_root = decode_hex32(&checkpoint.root_hash, "rootHash")?;
-    let mut path = Vec::new();
-    for node in &proof.path {
-        path.push(decode_hex32(node, "proof node")?);
-    }
-    crate::log::verify_consistency(
-        pinned_size as usize,
-        checkpoint.size as usize,
-        &old_root,
-        &new_root,
-        &path,
-    )?;
-    // Proven an extension of the pinned history — only now advance the pin.
-    local::write_checkpoint(paths, checkpoint.size, &checkpoint.root_hash)?;
-    Ok(checkpoint)
+    fetch_checkpoint(repo_url, paths)
 }
 
 fn decode_hex32(value: &str, field: &str) -> Result<[u8; 32], String> {
@@ -845,6 +1000,9 @@ pub struct DelegatedMetadata {
     /// The root-delegated server (attestation) key. A consumer refuses any
     /// attestation not signed by this exact key.
     pub server_key: Vec<u8>,
+    /// The verified `root.json` version (bug-584). Pinned locally and never
+    /// allowed to go backwards, so a renewal cannot be rolled back.
+    pub root_version: i64,
     pub snapshot_version: i64,
     pub index_hash: String,
 }
@@ -852,13 +1010,20 @@ pub struct DelegatedMetadata {
 /// Verify the signed-metadata chain (plan-10-C2): root → timestamp → snapshot.
 /// Rejects a bad root fingerprint, a registry-id mismatch, expired metadata,
 /// an undelegated key, a snapshot/timestamp that disagree, and a version
-/// rollback below `min_snapshot_version`. `now` is passed in for testability.
+/// rollback below `min_root_version` or `min_snapshot_version`. `now` is passed
+/// in for testability.
+///
+/// The root version floor is bug-584: root renewal rotates the delegated online
+/// keys under the same anchor, so an old-but-unexpired `root.json` — correctly
+/// signed by the very key the client pinned — would otherwise resurrect the
+/// snapshot/timestamp keys a renewal retired.
 pub fn verify_registry_metadata(
     root: &RootResponse,
     timestamp: &SignedMetadataResponse,
     snapshot: &SignedMetadataResponse,
     expected_registry_id: &str,
     pinned_root_fingerprint: &str,
+    min_root_version: i64,
     min_snapshot_version: i64,
     now: i64,
 ) -> Result<DelegatedMetadata, String> {
@@ -877,6 +1042,12 @@ pub fn verify_registry_metadata(
     let root_doc = parse_metadata(&root.signed, "root.json")?;
     check_field(&root_doc, "registryId", expected_registry_id, "root.json")?;
     check_not_expired(&root_doc, now, "root.json")?;
+    let root_version = metadata_i64(&root_doc, "version", "root.json")?;
+    if root_version < min_root_version {
+        return Err(format!(
+            "metadata ROLLBACK: root version {root_version} is below the pinned version {min_root_version}"
+        ));
+    }
     let server_key = decode_delegated_key(&root_doc, "serverKey")?;
     let snapshot_key = decode_delegated_key(&root_doc, "snapshotKey")?;
     let timestamp_key = decode_delegated_key(&root_doc, "timestampKey")?;
@@ -933,6 +1104,7 @@ pub fn verify_registry_metadata(
 
     Ok(DelegatedMetadata {
         server_key,
+        root_version,
         snapshot_version,
         index_hash: snapshot_index_hash,
     })
@@ -996,7 +1168,7 @@ pub fn trust_registry(
     root_fingerprint: &str,
 ) -> Result<i64, String> {
     let server_key = ensure_server_key(repo_url, paths)?;
-    let delegated = fetch_and_verify_metadata(repo_url, registry_id, root_fingerprint, 0)?;
+    let delegated = fetch_and_verify_metadata(repo_url, registry_id, root_fingerprint, 0, 0)?;
     if delegated.server_key != server_key {
         return Err(
             "registry attestation key is not delegated by the pinned root; refusing to trust"
@@ -1004,6 +1176,7 @@ pub fn trust_registry(
         );
     }
     local::write_root_pin(paths, registry_id, root_fingerprint)?;
+    local::write_root_version(paths, delegated.root_version)?;
     local::write_snapshot_version(paths, delegated.snapshot_version)?;
     Ok(delegated.snapshot_version)
 }
@@ -1017,14 +1190,19 @@ pub fn verify_pinned_metadata(repo_url: &str, paths: &LocalPaths) -> Result<(), 
         return Ok(());
     };
     let server_key = ensure_server_key(repo_url, paths)?;
+    let min_root = local::read_root_version(paths)?.unwrap_or(0);
     let min = local::read_snapshot_version(paths)?.unwrap_or(0);
-    let delegated = fetch_and_verify_metadata(repo_url, &registry_id, &root_fingerprint, min)?;
+    let delegated =
+        fetch_and_verify_metadata(repo_url, &registry_id, &root_fingerprint, min_root, min)?;
     if delegated.server_key != server_key {
         return Err(
             "registry attestation key is not delegated by the pinned root; refusing to trust"
                 .to_string(),
         );
     }
+    // A root renewal advances this; a client pinned before the renewal follows
+    // it, and the retired root can never be replayed back over it (bug-584).
+    local::write_root_version(paths, delegated.root_version)?;
     local::write_snapshot_version(paths, delegated.snapshot_version)?;
     Ok(())
 }
@@ -1033,6 +1211,7 @@ fn fetch_and_verify_metadata(
     repo_url: &str,
     registry_id: &str,
     root_fingerprint: &str,
+    min_root_version: i64,
     min_snapshot_version: i64,
 ) -> Result<DelegatedMetadata, String> {
     let root = get_json::<RootResponse>(repo_url, "/root.json")?;
@@ -1044,6 +1223,7 @@ fn fetch_and_verify_metadata(
         &snapshot,
         registry_id,
         root_fingerprint,
+        min_root_version,
         min_snapshot_version,
         crate::store::now_unix(),
     )
@@ -1257,9 +1437,53 @@ pub fn fetch_index(
     // If a signed-metadata root is pinned (plan-10-C2), the chain must verify
     // and delegate this server key before we trust anything the index says.
     verify_pinned_metadata(repo_url, paths)?;
+    fetch_index_with_key(repo_url, &server_key, owner, package)
+}
+
+/// [`fetch_index`] against a server key the caller already trusts, with no local
+/// state: the route binding, the identKey/fingerprint cross-check and the
+/// name-binding signature are all checked under `server_key`.
+pub fn fetch_index_with_key(
+    repo_url: &str,
+    server_key: &[u8],
+    owner: &str,
+    package: &str,
+) -> Result<IndexResponse, String> {
+    validate_owner_name(owner)?;
     let ident = format!("{owner}#{package}");
     let response =
         get_json::<IndexResponse>(repo_url, &format!("/index/{}", percent_encode(&ident)))?;
+    // bug-581: bind the response to the route BEFORE anything in it is trusted.
+    //
+    // Every signature check below is self-referential: the name binding is
+    // verified over `name_binding_message(response.owner, response.ident_fingerprint)`,
+    // i.e. over values the response itself supplies. It therefore proves the
+    // registry signed *something*, never that it answered the question that was
+    // asked. A registry holding its online server key could return a validly
+    // signed binding and version list for a different package entirely and the
+    // client would return it as the requested index.
+    //
+    // The ident is compared exactly because the registry echoes the requested
+    // ident verbatim (`server.rs:package_index` returns the raw path parameter),
+    // so this is a true route binding and not a guess about normalization.
+    if response.ident != ident {
+        return Err(format!(
+            "registry index is for a different package: requested {ident}, served {}",
+            sanitize_server_text(&response.ident)
+        ));
+    }
+    // The owner, by contrast, is compared CASE-FOLDED. The registry resolves
+    // owners by `owner_folded` and answers with `owner_display`, so `Alice#pkg`
+    // is a legitimate request whose honest answer says `alice`. An exact
+    // comparison here would refuse valid input — the failure mode this repo has
+    // shipped four times. `fold_owner` is the registry's own rule, not a
+    // second, drifting copy of it.
+    if fold_owner(&response.owner) != fold_owner(owner) {
+        return Err(format!(
+            "registry index names a different owner: requested {owner}, served {}",
+            sanitize_server_text(&response.owner)
+        ));
+    }
     // The pinned ident is only as trustworthy as the name binding: verify it
     // under the pinned server key and cross-check the fingerprint.
     let ident_public = crypto::decode_bytes(
@@ -1274,11 +1498,13 @@ pub fn fetch_index(
     }
     let signature = crypto::decode_bytes(&response.name_binding_signature, "nameBindingSignature")?;
     crypto::verify(
-        &server_key,
+        server_key,
         &crypto::name_binding_message(&response.owner, &response.ident_fingerprint),
         &signature,
     )
-    .map_err(|_| "registry name binding does not verify under the pinned server key".to_string())?;
+    .map_err(|_| {
+        "registry name binding does not verify under the registry server key".to_string()
+    })?;
     Ok(response)
 }
 
@@ -1565,10 +1791,16 @@ mod tests {
     ///
     /// This document was filed "not demonstrated end to end", on the grounds that
     /// the redirect guard requires an https target so a loopback harness cannot
-    /// drive it. That is escapable: `ensure_redirect_target` blocks IP LITERALS,
-    /// and its own doc says a hostname resolving to an internal address is out of
-    /// scope — so `https://localhost:<port>/` passes the guard. The hop therefore
-    /// gets attempted for real, and the attempt is observable in the error.
+    /// drive it. That is escapable: at the time, `ensure_redirect_target` blocked
+    /// IP LITERALS only, so `https://localhost:<port>/` passed the guard. The hop
+    /// therefore gets attempted for real, and the attempt is observable in the
+    /// error.
+    ///
+    /// bug-585 has since closed that hole in the SHARED client's policy, but this
+    /// test is unaffected and still measures what it always did: a
+    /// credential-bearing POST runs on `no_redirect_client`, which consults no
+    /// policy at all. That independence is the point — the guarantee here is
+    /// "never follows a redirect", not "follows only safe ones".
     ///
     /// The target port has nothing listening, deliberately: pointing it at a stub
     /// would make the client open a TLS handshake against a plain-HTTP socket and
@@ -2050,6 +2282,7 @@ mod tests {
             "reg-1",
             &m.root_fingerprint,
             0,
+            0,
             1_000,
         )
         .expect("valid chain verifies");
@@ -2069,6 +2302,7 @@ mod tests {
             "reg-1",
             "deadbeef",
             0,
+            0,
             1_000,
         )
         .is_err());
@@ -2080,6 +2314,7 @@ mod tests {
             &m.snapshot,
             "reg-2",
             &m.root_fingerprint,
+            0,
             0,
             1_000,
         )
@@ -2093,6 +2328,7 @@ mod tests {
             "reg-1",
             &m.root_fingerprint,
             0,
+            0,
             9_000,
         )
         .unwrap_err()
@@ -2105,11 +2341,27 @@ mod tests {
             &m.snapshot,
             "reg-1",
             &m.root_fingerprint,
+            0,
             6,
             1_000,
         )
         .unwrap_err()
         .contains("ROLLBACK"));
+
+        // bug-584: a root version below the pinned floor is a rollback, even
+        // though the chain is otherwise perfect.
+        assert!(verify_registry_metadata(
+            &m.root,
+            &m.timestamp,
+            &m.snapshot,
+            "reg-1",
+            &m.root_fingerprint,
+            2,
+            0,
+            1_000,
+        )
+        .unwrap_err()
+        .contains("root version 1 is below the pinned version 2"));
 
         // Tampered snapshot signature.
         let mut tampered = build_metadata("reg-1", 5, 2_000, "idxhash", "idxhash");
@@ -2120,6 +2372,7 @@ mod tests {
             &tampered.snapshot,
             "reg-1",
             &tampered.root_fingerprint,
+            0,
             0,
             1_000,
         )
@@ -2133,6 +2386,7 @@ mod tests {
             &m2.snapshot,
             "reg-1",
             &m2.root_fingerprint,
+            0,
             0,
             1_000,
         )
@@ -2328,6 +2582,7 @@ mod tests {
             "reg-1",
             &m.root_fingerprint,
             0,
+            0,
             1_000,
         )
         .unwrap_err()
@@ -2342,6 +2597,7 @@ mod tests {
             &m2.snapshot,
             "reg-1",
             &m2.root_fingerprint,
+            0,
             0,
             1_000,
         )
@@ -2419,6 +2675,7 @@ mod tests {
             "reg-1",
             &m.root_fingerprint,
             0,
+            0,
             1_000,
         )
         .unwrap_err();
@@ -2432,6 +2689,7 @@ mod tests {
             &matched.snapshot,
             "reg-1",
             &matched.root_fingerprint,
+            0,
             0,
             1_000,
         )
@@ -3126,6 +3384,15 @@ mod tests {
         let mut expected = ident_private;
         expected.extend_from_slice(&ident_public);
         assert_eq!(opened, expected);
+
+        // bug-583: the parked row also carries the PUBLIC half of the
+        // code-derived approval keypair — the verifier the fetch half is
+        // checked against. The private half stays with the code.
+        let (approval_public, _approval_private) = crypto::pairing_approval_keypair(&code).unwrap();
+        assert_eq!(
+            crypto::decode_bytes(&field(&request, "approvalKey"), "approvalKey").unwrap(),
+            approval_public
+        );
     }
 
     /// The new machine installs the relayed ident keypair alongside a fresh
@@ -3190,6 +3457,19 @@ mod tests {
             &crypto::registration_message(crypto::ROLE_AUTH, "alice", &auth_public),
         );
         assert_eq!(field(&request, "lookup"), crypto::pairing_lookup(code));
+
+        // bug-583 cohesion pin: the approval this client sends is exactly what
+        // the server verifies — the code-derived approval key signing THIS
+        // pairing's lookup and THIS auth key. (`link_start`'s half of the pair
+        // is pinned in the sibling test above, so the two together are the
+        // end-to-end approval the server checks.)
+        let (approval_public, _approval_private) = crypto::pairing_approval_keypair(code).unwrap();
+        assert_signed(
+            &request,
+            "approval",
+            &approval_public,
+            &crypto::pairing_approval_message(&crypto::pairing_lookup(code), &auth_public),
+        );
     }
 
     /// A blob that decrypts but is not a well-formed ident keypair is refused
@@ -3590,6 +3870,242 @@ mod tests {
         );
     }
 
+    /// bug-582: a validly signed *larger* head is not evidence of an extension.
+    ///
+    /// `fetch_checkpoint`'s only growth check was monotonicity, so any head with
+    /// `size > pinned_size` was written straight over the pin without asking for
+    /// a consistency proof. That is the same defect bug-276 R2 fixed for
+    /// `verify_log_consistency`, left standing in the sibling primitive — and it
+    /// is reachable, because `verify_publish_inclusion` (the whole of
+    /// `pkg install --proof`'s log contact) advances the pin through it.
+    ///
+    /// The two halves matter separately: refusing an *absent* proof is easy, and
+    /// refusing a proof that is genuine **for the fork's own history** is what
+    /// proves the check is anchored to the pinned root rather than to the
+    /// registry's arithmetic.
+    #[test]
+    fn fetch_checkpoint_rejects_an_unproven_larger_fork() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let leaf = crate::log::leaf_hash;
+        let honest = [
+            leaf(b"a"),
+            leaf(b"b"),
+            leaf(b"c"),
+            leaf(b"d"),
+            leaf(b"e"),
+            leaf(b"f"),
+        ];
+        let root4 = crate::log::root(&honest[..4]);
+        let root6 = crate::log::root(&honest);
+        // A fork: it grows past the pin but rewrites leaf 3, so it is not an
+        // extension of the history this client already accepted.
+        let fork = [leaf(b"a"), leaf(b"b"), leaf(b"c"), leaf(b"X"), leaf(b"e")];
+        let root5 = crate::log::root(&fork);
+        let hexpath =
+            |path: Vec<[u8; 32]>| -> Vec<String> { path.iter().map(hex::encode).collect() };
+
+        // Trust on first use: no predecessor, so size 4 pins.
+        let first = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(4, &root4))
+            .serve();
+        assert_eq!(fetch_checkpoint(&first.url, &paths).unwrap().size, 4);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4)))
+        );
+
+        // A bigger fork with no proof offered at all.
+        let silent = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(5, &root5))
+            .serve();
+        assert!(
+            fetch_checkpoint(&silent.url, &paths).is_err(),
+            "a larger head with no consistency proof must not be accepted"
+        );
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4))),
+            "a refused head must never overwrite the pin it would be caught by"
+        );
+
+        // A bigger fork with a proof that is perfectly valid inside the fork's
+        // own history — 4 -> 5 over the forked leaves. It cannot reproduce the
+        // pinned root, and that is the only thing the client may trust.
+        let forged = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(5, &root5))
+            .ok(
+                "/log/consistency",
+                serde_json::json!({
+                    "from": 4, "to": 5,
+                    "path": hexpath(crate::log::consistency_path(4, &fork)),
+                })
+                .to_string(),
+            )
+            .serve();
+        let err = fetch_checkpoint(&forged.url, &paths).unwrap_err();
+        // Which of the two roots the walk fails to reproduce depends on where
+        // the forked leaf sits, so the assertion is on the anchor rather than
+        // on the side: a proof that is internally valid is still refused
+        // because it cannot tie the candidate to the pinned history.
+        assert!(
+            err.contains("consistency proof does not reproduce"),
+            "the proof must be anchored to the PINNED root, got: {err}"
+        );
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4)))
+        );
+
+        // POSITIVE: a genuine 4 -> 6 extension still advances the pin. Without
+        // this the fix could be "refuse every advance" and still look green.
+        let extended = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(6, &root6))
+            .ok(
+                "/log/consistency",
+                serde_json::json!({
+                    "from": 4, "to": 6,
+                    "path": hexpath(crate::log::consistency_path(4, &honest)),
+                })
+                .to_string(),
+            )
+            .serve();
+        assert_eq!(fetch_checkpoint(&extended.url, &paths).unwrap().size, 6);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((6, hex::encode(root6)))
+        );
+        assert!(
+            target_of(&extended.request_to("/log/consistency")).contains("from=4&to=6"),
+            "the proof is requested between the pinned and candidate sizes"
+        );
+
+        // POSITIVE: re-reading the head the client is already pinned to is not
+        // an advance. `fetch_checkpoint_unpinned` has already refused every
+        // other root at this size, so there is nothing left to prove and no
+        // consistency request to make.
+        let steady = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(6, &root6))
+            .serve();
+        assert_eq!(fetch_checkpoint(&steady.url, &paths).unwrap().size, 6);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((6, hex::encode(root6)))
+        );
+        assert!(
+            !steady
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| path_of(request) == "/log/consistency"),
+            "an unchanged head must not need a proof of itself"
+        );
+    }
+
+    /// bug-582: `pkg install --proof` reaches the log only through
+    /// `verify_publish_inclusion`, and nothing on that path ever called
+    /// `verify_log_consistency` first — so the larger-fork attack landed on the
+    /// pin there with no consistency check anywhere in the flow.
+    #[test]
+    fn verify_publish_inclusion_rejects_an_unproven_larger_fork() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let leaf = crate::log::leaf_hash;
+        let publish = crate::log::leaf_hash(
+            publish_leaf_payload("alice#pkg", "1.0.0", &"a".repeat(64)).as_bytes(),
+        );
+        let honest = [publish, leaf(b"b"), leaf(b"c"), leaf(b"d")];
+        let root2 = crate::log::root(&honest[..2]);
+        let root4 = crate::log::root(&honest);
+        // A fork of the same size-4 history that rewrites leaf 1.
+        let fork = [publish, leaf(b"X"), leaf(b"c"), leaf(b"d")];
+        let root4f = crate::log::root(&fork);
+
+        let log_routes = |routes: Routes, leaves: &[[u8; 32]]| -> Routes {
+            let path: Vec<String> = crate::log::inclusion_path(0, leaves)
+                .iter()
+                .map(hex::encode)
+                .collect();
+            routes
+                .ok(
+                    "/log/publish",
+                    serde_json::json!({"index": 0, "leafHash": hex::encode(publish)}).to_string(),
+                )
+                .ok(
+                    "/log/proof/",
+                    serde_json::json!({
+                        "index": 0,
+                        "size": leaves.len(),
+                        "leafHash": hex::encode(publish),
+                        "path": path,
+                    })
+                    .to_string(),
+                )
+        };
+
+        // Pin at size 2 by trust on first use.
+        let first = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(2, &root2))
+            .serve();
+        assert_eq!(fetch_checkpoint(&first.url, &paths).unwrap().size, 2);
+
+        // A larger fork, offering no consistency proof.
+        let attacker = log_routes(
+            registry
+                .routes()
+                .ok("/log/checkpoint", registry.checkpoint_body(4, &root4f)),
+            &fork,
+        )
+        .serve();
+        assert!(
+            verify_publish_inclusion(&attacker.url, &paths, "alice#pkg", "1.0.0", &"a".repeat(64))
+                .is_err(),
+            "inclusion must not be reported against an unproven fork"
+        );
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((2, hex::encode(root2))),
+            "the fork must not have replaced the pin"
+        );
+
+        // POSITIVE: the honest 2 -> 4 extension, with its proof, still verifies
+        // the publish and advances the pin.
+        let good = log_routes(
+            registry
+                .routes()
+                .ok("/log/checkpoint", registry.checkpoint_body(4, &root4))
+                .ok(
+                    "/log/consistency",
+                    serde_json::json!({
+                        "from": 2, "to": 4,
+                        "path": crate::log::consistency_path(2, &honest)
+                            .iter()
+                            .map(hex::encode)
+                            .collect::<Vec<String>>(),
+                    })
+                    .to_string(),
+                ),
+            &honest,
+        )
+        .serve();
+        let (entry, checkpoint) =
+            verify_publish_inclusion(&good.url, &paths, "alice#pkg", "1.0.0", &"a".repeat(64))
+                .expect("an honest publish under a proven extension still verifies");
+        assert_eq!(entry.index, 0);
+        assert_eq!(checkpoint.size, 4);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4)))
+        );
+    }
+
     /// The inclusion proof must describe the entry that was asked for.
     #[test]
     fn verify_publish_inclusion_rejects_a_mismatched_proof_envelope() {
@@ -3683,6 +4199,26 @@ mod tests {
         expires: i64,
         server_public: &[u8],
     ) -> MetadataFixture {
+        build_metadata_delegating_at_root_version(
+            authority,
+            registry_id,
+            1,
+            version,
+            expires,
+            server_public,
+        )
+    }
+
+    /// `build_metadata_delegating` with an explicit `root.json` version — what a
+    /// root RENEWAL moves (bug-584).
+    fn build_metadata_delegating_at_root_version(
+        authority: &MetadataAuthority,
+        registry_id: &str,
+        root_version: i64,
+        version: i64,
+        expires: i64,
+        server_public: &[u8],
+    ) -> MetadataFixture {
         let MetadataAuthority {
             root_public,
             root_private,
@@ -3692,7 +4228,7 @@ mod tests {
             timestamp_private,
         } = authority;
         let root_signed = format!(
-            "{{\"type\":\"root\",\"registryId\":\"{registry_id}\",\"version\":1,\"expires\":{expires},\"serverKey\":\"{}\",\"snapshotKey\":\"{}\",\"timestampKey\":\"{}\"}}",
+            "{{\"type\":\"root\",\"registryId\":\"{registry_id}\",\"version\":{root_version},\"expires\":{expires},\"serverKey\":\"{}\",\"snapshotKey\":\"{}\",\"timestampKey\":\"{}\"}}",
             crypto::encode_bytes(server_public),
             crypto::encode_bytes(snapshot_public),
             crypto::encode_bytes(timestamp_public),
@@ -3856,6 +4392,66 @@ mod tests {
             "{err}"
         );
         assert_eq!(local::read_snapshot_version(&paths).unwrap(), Some(3));
+    }
+
+    /// bug-584: a root RENEWAL (same anchor, higher `root.json` version)
+    /// advances the pinned root version, and the retired root — still correctly
+    /// signed by the pinned key, still unexpired — cannot be replayed back over
+    /// it. Without this floor, a renewal performed to retire a compromised
+    /// online snapshot/timestamp key would be undone by serving the old
+    /// root.json that still delegates it.
+    #[test]
+    fn verify_pinned_metadata_follows_a_renewal_and_refuses_the_retired_root() {
+        let registry = Registry::new();
+        let authority = MetadataAuthority::new();
+        let future = crate::store::now_unix() + 3600;
+        let (_temp, paths) = temp_paths();
+
+        let first = build_metadata_delegating_at_root_version(
+            &authority,
+            "reg-1",
+            1,
+            5,
+            future,
+            &registry.public,
+        );
+        let stub = with_metadata_routes(registry.routes(), &first).serve();
+        trust_registry(&stub.url, &paths, "reg-1", &first.root_fingerprint).unwrap();
+        assert_eq!(local::read_root_version(&paths).unwrap(), Some(1));
+
+        // The operator renews: same anchor, root version 2. The pinned client
+        // follows it with no out-of-band step.
+        let renewed = build_metadata_delegating_at_root_version(
+            &authority,
+            "reg-1",
+            2,
+            6,
+            future,
+            &registry.public,
+        );
+        let stub2 = with_metadata_routes(registry.routes(), &renewed).serve();
+        verify_pinned_metadata(&stub2.url, &paths).expect("a renewed root is followed");
+        assert_eq!(local::read_root_version(&paths).unwrap(), Some(2));
+        // Re-verifying the SAME root version is not a rollback.
+        verify_pinned_metadata(&stub2.url, &paths).expect("the same root version still verifies");
+
+        // The retired root, replayed with a newer snapshot, is refused.
+        let replayed = build_metadata_delegating_at_root_version(
+            &authority,
+            "reg-1",
+            1,
+            7,
+            future,
+            &registry.public,
+        );
+        let stub3 = with_metadata_routes(registry.routes(), &replayed).serve();
+        let err = verify_pinned_metadata(&stub3.url, &paths).unwrap_err();
+        assert!(
+            err.contains("root version 1 is below the pinned version 2"),
+            "{err}"
+        );
+        assert_eq!(local::read_root_version(&paths).unwrap(), Some(2));
+        assert_eq!(local::read_snapshot_version(&paths).unwrap(), Some(6));
     }
 
     // --- org / token / transfer / release-state ---------------------------
@@ -4064,14 +4660,29 @@ mod tests {
     // --- index ------------------------------------------------------------
 
     fn index_body(registry: &Registry, ident_key: &str, ident_fingerprint: &str) -> String {
+        index_body_for(registry, "alice", "alice#pkg", ident_key, ident_fingerprint)
+    }
+
+    /// The same body with the route-identifying fields under the caller's
+    /// control, so a test can serve an index that is *validly signed* and yet
+    /// answers a different question than the one asked (bug-581). The signature
+    /// is always over the `owner` the body carries — that is precisely the
+    /// self-referential property that made the binding useless on its own.
+    fn index_body_for(
+        registry: &Registry,
+        owner: &str,
+        ident: &str,
+        ident_key: &str,
+        ident_fingerprint: &str,
+    ) -> String {
         let signature = crypto::sign(
             &registry.private,
-            &crypto::name_binding_message("alice", ident_fingerprint),
+            &crypto::name_binding_message(owner, ident_fingerprint),
         )
         .unwrap();
         serde_json::json!({
-            "ident": "alice#pkg",
-            "owner": "alice",
+            "ident": ident,
+            "owner": owner,
             "identKey": ident_key,
             "identFingerprint": ident_fingerprint,
             "nameBindingSignature": crypto::encode_bytes(&signature),
@@ -4155,8 +4766,95 @@ mod tests {
         let err = fetch_index(&stub3.url, &paths3, "alice", "pkg").unwrap_err();
         assert_eq!(
             err,
-            "registry name binding does not verify under the pinned server key"
+            "registry name binding does not verify under the registry server key"
         );
+    }
+
+    /// bug-581: a signature over values the RESPONSE supplies cannot bind the
+    /// response to the REQUEST.
+    ///
+    /// `fetch_index` verified `name_binding_message(response.owner,
+    /// response.ident_fingerprint)` and nothing else, so a registry holding its
+    /// online server key could answer any `/index/<ident>` with a validly signed
+    /// binding and version list for a package of its choosing. The client
+    /// returned it as the requested index, and `mfb pkg add` would pin that
+    /// ident key as the anchor for a dependency it never asked for.
+    ///
+    /// All three substitutions below are *cryptographically valid*. Each fails
+    /// only on the route binding, and each defeats a different half-fix.
+    #[test]
+    fn fetch_index_rejects_a_validly_signed_response_for_another_ident() {
+        let registry = Registry::new();
+        let (ident_public, _) = crypto::generate_keypair();
+        let ident_key = format!("ed25519:{}", crypto::encode_bytes(&ident_public));
+        let fingerprint = crypto::fingerprint(&ident_public);
+
+        let serve = |owner: &str, ident: &str| {
+            registry
+                .routes()
+                .ok(
+                    "/index/",
+                    index_body_for(&registry, owner, ident, &ident_key, &fingerprint),
+                )
+                .serve()
+        };
+
+        // A wholly different package, under a different owner.
+        let (_t1, p1) = temp_paths();
+        let stub = serve("mallory", "mallory#other");
+        let err = fetch_index(&stub.url, &p1, "alice", "pkg").unwrap_err();
+        assert!(
+            err.contains("different package"),
+            "the response ident must be checked against the route, got: {err}"
+        );
+
+        // Same owner, different package. An owner-only check would accept this.
+        let (_t2, p2) = temp_paths();
+        let stub = serve("alice", "alice#other");
+        let err = fetch_index(&stub.url, &p2, "alice", "pkg").unwrap_err();
+        assert!(err.contains("different package"), "{err}");
+
+        // The right ident echoed back, but signed for — and keyed to — a
+        // different owner. An ident-only check would accept this, and it is the
+        // attack in its purest form: the name binding verifies perfectly,
+        // because it is a binding of the response to itself.
+        let (_t3, p3) = temp_paths();
+        let stub = serve("mallory", "alice#pkg");
+        let err = fetch_index(&stub.url, &p3, "alice", "pkg").unwrap_err();
+        assert!(
+            err.contains("different owner"),
+            "the signed owner must be checked against the route, got: {err}"
+        );
+    }
+
+    /// POSITIVE (bug-581): the route binding must not refuse honest answers.
+    ///
+    /// The registry resolves owners case-folded (`owner_folded`) and answers
+    /// with `owner_display`, so `Alice#pkg` is a legitimate request whose honest
+    /// response says `owner: "alice"`. An exact owner comparison would have
+    /// broken every mixed-case `mfb pkg add` — the precise shape of guard that
+    /// has shipped and rejected valid input four times in this repo.
+    #[test]
+    fn fetch_index_accepts_an_honest_response_whose_owner_case_differs() {
+        let registry = Registry::new();
+        let (ident_public, _) = crypto::generate_keypair();
+        let ident_key = format!("ed25519:{}", crypto::encode_bytes(&ident_public));
+        let fingerprint = crypto::fingerprint(&ident_public);
+
+        // Requested `Alice#pkg`; the registry echoes the ident verbatim and
+        // answers with the registered display form of the owner.
+        let (_temp, paths) = temp_paths();
+        let stub = registry
+            .routes()
+            .ok(
+                "/index/",
+                index_body_for(&registry, "alice", "Alice#pkg", &ident_key, &fingerprint),
+            )
+            .serve();
+        let response =
+            fetch_index(&stub.url, &paths, "Alice", "pkg").expect("a case-folded owner is honest");
+        assert_eq!(response.owner, "alice");
+        assert_eq!(response.versions.len(), 1);
     }
 
     // --- blobs ------------------------------------------------------------
@@ -4225,6 +4923,194 @@ mod tests {
         assert!(
             internal.requests.lock().unwrap().is_empty(),
             "the client must not connect to the internal redirect target"
+        );
+    }
+
+    /// A loopback listener that reports only THAT a connection arrived.
+    ///
+    /// This is the right instrument for an SSRF test: the attack succeeds the
+    /// moment a socket is opened to the internal service, whatever is spoken
+    /// over it afterwards. The accepted socket is dropped immediately so a TLS
+    /// client fails its handshake at once instead of waiting out `BLOB_TIMEOUT`.
+    fn spawn_connection_probe() -> (u16, std::sync::mpsc::Receiver<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            for connection in listener.incoming() {
+                if connection.is_err() || tx.send(()).is_err() {
+                    return;
+                }
+            }
+        });
+        (port, rx)
+    }
+
+    /// bug-585: a redirect to a HOSTNAME whose DNS answer is internal must be
+    /// refused before any socket is opened.
+    ///
+    /// `localhost` is the deterministic case of the general attack — a name the
+    /// resolver answers with `127.0.0.1` — and it needs no network. Before the
+    /// fix `ensure_redirect_target` parsed the host as an `IpAddr`, failed, and
+    /// returned `Ok(())`; reqwest then resolved the name itself and connected.
+    /// Measured on the pre-fix code: the probe below received a connection.
+    #[test]
+    fn a_hostname_redirect_resolving_to_loopback_is_refused_before_connecting() {
+        let (port, connected) = spawn_connection_probe();
+        let registry = spawn_raw(move |_request| {
+            format!(
+                "HTTP/1.1 302 Found\r\nLocation: https://localhost:{port}/blob\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .into_bytes()
+        });
+
+        let err = fetch_blob(&registry.url, &"0".repeat(64))
+            .expect_err("a redirect to a loopback-resolving hostname must be refused");
+        assert!(
+            connected.recv_timeout(Duration::from_millis(500)).is_err(),
+            "the client opened a socket to the loopback-only service named by the \
+             redirect: that is the SSRF"
+        );
+        assert!(
+            err.contains("redirect"),
+            "the refusal must come from the redirect policy, not from a failed \
+             handshake against the internal service; got: {err}"
+        );
+    }
+
+    /// bug-585 POSITIVE PIN, and the one that matters most: an ordinary public
+    /// https hop — the S3/Tigris presigned-URL 302 that `GET /blob` exists to
+    /// follow — must still be followed after the guard learned to resolve names.
+    ///
+    /// An SSRF filter's standing failure mode is refusing VALID input, and a
+    /// DNS-based filter that breaks blob downloads is worse than the bug it
+    /// closes. The resolver is injected so this is decided by the POLICY and not
+    /// by whether the machine running the test has a network: a security check
+    /// nobody can prove offline is a check nobody re-verifies.
+    #[test]
+    fn a_presigned_blob_redirect_to_a_public_host_is_still_allowed() {
+        let url = |raw: &str| raw.parse::<reqwest::Url>().unwrap();
+        let public = |_: &str, _: u16| {
+            Ok(vec![
+                "52.219.128.1".parse::<std::net::IpAddr>().unwrap(),
+                "2600:1f18:1::1".parse::<std::net::IpAddr>().unwrap(),
+            ])
+        };
+
+        for target in [
+            "https://bucket.s3.us-east-1.amazonaws.com/blobs/abc?X-Amz-Signature=deadbeef",
+            "https://fly.storage.tigris.dev/bucket/blobs/abc?X-Amz-Expires=900",
+            "https://packages.example.com/blob/abc",
+            // A non-default port on a public host is still a legitimate hop.
+            "https://cdn.example.com:8443/blob/abc",
+        ] {
+            assert_eq!(
+                ensure_redirect_host_resolves_public(&url(target), public),
+                Ok(()),
+                "{target} is an ordinary public presigned hop and must be followed"
+            );
+        }
+
+        // An IP literal is decided by `ensure_redirect_target` alone: the
+        // resolution stage must not look it up at all. Pinned by a resolver that
+        // panics if it is ever called — so the literal path pays no DNS cost and
+        // cannot be failed closed by a resolver outage.
+        let never = |host: &str, _: u16| -> Result<Vec<std::net::IpAddr>, String> {
+            panic!("resolved the IP literal '{host}'")
+        };
+        assert_eq!(
+            ensure_redirect_host_resolves_public(&url("https://93.184.216.34/blob"), never),
+            Ok(())
+        );
+        assert_eq!(
+            ensure_redirect_host_resolves_public(&url("https://[2606:2800:220::1]/blob"), never),
+            Ok(())
+        );
+    }
+
+    /// bug-585: every blocked family reached by NAME is refused, and a mixed
+    /// answer set is refused on the blocked member rather than allowed on the
+    /// public one — reqwest walks the whole list, so checking `addrs[0]` would
+    /// be a hole an attacker controls the ordering of.
+    #[test]
+    fn a_redirect_host_resolving_into_a_blocked_range_is_refused() {
+        let url = |raw: &str| raw.parse::<reqwest::Url>().unwrap();
+        let target = url("https://blob.attacker.example/blob");
+        let ip = |raw: &str| raw.parse::<std::net::IpAddr>().unwrap();
+
+        for answer in [
+            "127.0.0.1",        // loopback
+            "169.254.169.254",  // cloud metadata (link-local)
+            "10.0.0.5",         // RFC 1918
+            "192.168.1.1",      //
+            "172.16.0.1",       //
+            "100.64.0.1",       // CGNAT
+            "0.0.0.0",          // unspecified
+            "::1",              // IPv6 loopback
+            "fe80::1",          // IPv6 link-local
+            "fc00::1",          // IPv6 unique-local
+            "::ffff:127.0.0.1", // IPv4-mapped loopback
+        ] {
+            let err = ensure_redirect_host_resolves_public(&target, |_, _| Ok(vec![ip(answer)]))
+                .expect_err("a blocked answer must refuse the hop");
+            assert!(err.contains("redirect"), "{answer}: {err}");
+            assert!(err.contains("blob.attacker.example"), "{answer}: {err}");
+        }
+
+        // Mixed answers: public FIRST, internal second. The blocked member wins.
+        let mixed = |_: &str, _: u16| Ok(vec![ip("93.184.216.34"), ip("169.254.169.254")]);
+        let err = ensure_redirect_host_resolves_public(&target, mixed)
+            .expect_err("a mixed answer set must be refused on its blocked member");
+        assert!(err.contains("169.254.169.254"), "{err}");
+    }
+
+    /// bug-585: the guard FAILS CLOSED. A hop whose name will not resolve, or
+    /// that resolves to nothing, is refused rather than handed to the connector
+    /// unchecked — "I could not check" must never mean "allowed".
+    ///
+    /// This costs nothing real: an unresolvable hop could not have been
+    /// connected to either, so the request fails either way; it just fails with
+    /// a message that names the reason.
+    #[test]
+    fn an_unresolvable_redirect_host_fails_closed() {
+        let url = |raw: &str| raw.parse::<reqwest::Url>().unwrap();
+        let target = url("https://blob.attacker.example/blob");
+
+        let err = ensure_redirect_host_resolves_public(&target, |_, _| {
+            Err("nodename nor servname provided".to_string())
+        })
+        .expect_err("a resolution failure must refuse the hop");
+        assert!(err.contains("fails closed"), "{err}");
+
+        let err = ensure_redirect_host_resolves_public(&target, |_, _| Ok(Vec::new()))
+            .expect_err("an empty answer set must refuse the hop");
+        assert!(err.contains("no addresses"), "{err}");
+    }
+
+    /// bug-585: the injected resolver above proves the POLICY; this proves the
+    /// policy is wired to the REAL resolver, which is the half an injected
+    /// double can never show.
+    ///
+    /// Both cases are deterministic with no network: `localhost` is answered
+    /// from the hosts file, and `.invalid` is guaranteed never to resolve
+    /// (RFC 2606) whether the machine is online or not.
+    #[test]
+    fn the_redirect_guard_uses_the_platform_resolver() {
+        let answers = resolve_redirect_host("localhost", 443).expect("localhost resolves");
+        assert!(!answers.is_empty(), "localhost resolved to nothing");
+        assert!(
+            answers.iter().all(|ip| ip.is_loopback()),
+            "localhost answered something other than loopback: {answers:?}"
+        );
+        assert!(
+            answers.iter().all(|ip| is_blocked_redirect_ip(*ip)),
+            "every localhost answer must be a blocked redirect target: {answers:?}"
+        );
+
+        assert!(
+            resolve_redirect_host("mfb-585-does-not-exist.invalid", 443).is_err(),
+            "an RFC 2606 .invalid name must not resolve"
         );
     }
 

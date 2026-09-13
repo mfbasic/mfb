@@ -502,6 +502,186 @@ fn repo_signed_metadata_root_verifies_chain_and_gates_add() {
     assert!(app_dir.join("packages/meta_pkg.mfp").is_file());
 }
 
+/// bug-584: the operator root lifecycle, end to end through the real binaries.
+/// `init-root` is one-time (a second run is refused instead of silently
+/// swapping the anchor), and `renew-root` — authenticated by the offline root
+/// key the first ceremony printed — rotates the delegated online keys while a
+/// client that pinned BEFORE the renewal keeps verifying and installing.
+#[test]
+fn repo_root_renewal_keeps_an_already_pinned_client_verifying() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+
+    let init_root_args = |extra: &[&str]| {
+        let mut args = vec![
+            "init-root".to_string(),
+            "--dbpath".to_string(),
+            repo_dir
+                .path()
+                .join("meta.db")
+                .to_str()
+                .unwrap()
+                .to_string(),
+            "--datapath".to_string(),
+            repo_dir
+                .path()
+                .join("packages")
+                .to_str()
+                .unwrap()
+                .to_string(),
+            "--registry-id".to_string(),
+            "test-registry".to_string(),
+        ];
+        args.extend(extra.iter().map(|value| value.to_string()));
+        args
+    };
+
+    let init = Command::new(repo_exe())
+        .args(init_root_args(&[]))
+        .output()
+        .expect("init-root");
+    assert!(
+        init.status.success(),
+        "init-root failed: {}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+    let init_stdout = String::from_utf8_lossy(&init.stdout);
+    let root_fingerprint = init_stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("Root fingerprint (pin this out of band): "))
+        .expect("root fingerprint in init-root output")
+        .trim()
+        .to_string();
+    let root_key = init_stdout
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Root PRIVATE key (STORE OFFLINE, never on the server): ")
+        })
+        .expect("root private key in init-root output")
+        .trim()
+        .to_string();
+
+    // A second initialization is refused: it would replace the anchor every
+    // pinned client verifies against.
+    let again = Command::new(repo_exe())
+        .args(init_root_args(&[]))
+        .output()
+        .expect("second init-root");
+    assert!(!again.status.success());
+    let again_err = String::from_utf8_lossy(&again.stderr);
+    assert!(again_err.contains("already initialized"), "{again_err}");
+
+    let repo = start_repo(repo_dir.path());
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+    let trust = run_mfb(
+        &repo,
+        home.path(),
+        &["repo", "trust", "test-registry", &root_fingerprint],
+    );
+    assert!(
+        trust.status.success(),
+        "repo trust failed: {}",
+        String::from_utf8_lossy(&trust.stderr)
+    );
+
+    // The operator renews with the offline key, while the registry is serving.
+    let key_file = work.path().join("root.key");
+    std::fs::write(&key_file, &root_key).unwrap();
+    let renew = Command::new(repo_exe())
+        .args([
+            "renew-root",
+            "--dbpath",
+            repo_dir.path().join("meta.db").to_str().unwrap(),
+            "--datapath",
+            repo_dir.path().join("packages").to_str().unwrap(),
+            "--registry-id",
+            "test-registry",
+            "--root-key-file",
+            key_file.to_str().unwrap(),
+            "--expires-days",
+            "30",
+        ])
+        .output()
+        .expect("renew-root");
+    assert!(
+        renew.status.success(),
+        "renew-root failed: {}",
+        String::from_utf8_lossy(&renew.stderr)
+    );
+    let renew_stdout = String::from_utf8_lossy(&renew.stdout);
+    assert!(renew_stdout.contains("version 2"), "{renew_stdout}");
+    assert!(
+        renew_stdout.contains(&root_fingerprint),
+        "the renewal reports the UNCHANGED anchor: {renew_stdout}"
+    );
+
+    // A renewal attempt with a key that is not the offline root key is refused.
+    let stranger = work.path().join("stranger.key");
+    let (_public, private) = crypto::generate_keypair();
+    std::fs::write(&stranger, crypto::encode_bytes(&private)).unwrap();
+    let bad = Command::new(repo_exe())
+        .args([
+            "renew-root",
+            "--dbpath",
+            repo_dir.path().join("meta.db").to_str().unwrap(),
+            "--datapath",
+            repo_dir.path().join("packages").to_str().unwrap(),
+            "--registry-id",
+            "test-registry",
+            "--root-key-file",
+            stranger.to_str().unwrap(),
+        ])
+        .output()
+        .expect("renew-root with a stranger key");
+    assert!(!bad.status.success());
+    let bad_err = String::from_utf8_lossy(&bad.stderr);
+    assert!(
+        bad_err.contains("not this registry's offline root key"),
+        "{bad_err}"
+    );
+
+    // The client pinned before the renewal publishes and installs with no
+    // out-of-band step: the renewed chain still verifies under its pin.
+    let pkg_dir = work.path().join("renew_pkg");
+    let pkg_arg = pkg_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", pkg_arg]).status.success());
+    let manifest = pkg_dir.join("project.json");
+    let base = std::fs::read_to_string(&manifest).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#renew_pkg\",\n",
+    );
+    std::fs::write(&manifest, &base).unwrap();
+    assert!(
+        run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg_arg])
+            .status
+            .success()
+    );
+
+    let app_dir = work.path().join("renew_consumer");
+    assert!(run_mfb_plain(&["init", app_dir.to_str().unwrap()])
+        .status
+        .success());
+    let add = Command::new(mfb_exe())
+        .args(["pkg", "add", "alice#renew_pkg"])
+        .current_dir(&app_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("add across a root renewal");
+    assert!(
+        add.status.success(),
+        "add across a root renewal failed: {}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    assert!(app_dir.join("packages/renew_pkg.mfp").is_file());
+}
+
 #[test]
 fn repo_ownership_transfer_is_two_sided_and_rebinds_the_package() {
     let repo_dir = tempfile::tempdir().unwrap();

@@ -356,6 +356,15 @@ table.grid td.mono, table.grid th.mono { font-family: var(--font-mono); }
   border-radius: 999px;
   padding: 0.05rem 0.55rem;
 }
+/* plan-126-A: a search hit whose every release is withdrawn. Stated in place of
+   the version chip, reusing the same danger tokens as the yanked state badge —
+   dropping the chip silently would let "everything withdrawn" read as
+   "version unknown". */
+.result__ver--none {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
 .result__meta {
   color: var(--muted);
   font-size: 0.82rem;
@@ -434,6 +443,14 @@ table.grid td.mono, table.grid th.mono { font-family: var(--font-mono); }
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   padding: 0.1rem 0.6rem;
+}
+/* plan-126-A: no active release. Styled as a real statement rather than a
+   missing chip, so "everything withdrawn" cannot be misread as "nothing
+   published". Reuses the danger tokens the yanked state badge already uses. */
+.pkg-latest--none {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
 }
 .pkg-desc { margin: 0.9rem 0 0; max-width: 60rem; font-size: 1.02rem; text-wrap: pretty; }
 
@@ -877,3 +894,97 @@ details.hex[open] > summary .hx { display: none; }
   body { font-size: 14px; }
   table.grid td, .versions .v-main td, table.targets td { grid-template-columns: 6.5rem 1fr; }
 }
+
+/* --------------------------------------------------------- docs tab ----- */
+/* plan-126-F: the Docs tab renders publisher DOC blocks. Callouts reuse the
+   site's semantic tokens (note / warn / danger), which already carry dark-mode
+   values, rather than importing the compiler renderer's palette. */
+.doc-intro { margin: 1rem 0 1.5rem; max-width: 60rem; }
+.doc-intro p { margin: 0.5rem 0; text-wrap: pretty; }
+.callout {
+  margin: 0.75rem 0;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  max-width: 60rem;
+}
+.callout--info {
+  color: var(--note);
+  border-color: var(--note-border);
+  background: var(--note-bg);
+}
+.callout--warning {
+  color: var(--warn);
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+.callout--danger {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+.callout__label { font-weight: 700; margin-right: 0.35rem; }
+
+/* declaration index: the Overview's checkbox + label fold, rendered checked.
+   Visible unless unchecked, so a browser without :has() still shows it. */
+.doc-index {
+  margin: 0 0 1.5rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-width: 60rem;
+}
+.doc-index .doc-index__toggle { margin-left: 0; }
+.doc-index .chev::before { transform: rotate(90deg); }
+.doc-index:has(.fold-cb:not(:checked)) .chev::before { transform: none; }
+.doc-index__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.5rem 2rem;
+  margin-top: 0.6rem;
+}
+.doc-index:has(.fold-cb:not(:checked)) .doc-index__groups { display: none; }
+.doc-index__group .eyebrow { margin: 0; }
+.doc-index__group ul { list-style: none; margin: 0.2rem 0 0; padding: 0; }
+.doc-index__group li { margin: 0.1rem 0; font-size: 0.9rem; overflow-wrap: anywhere; }
+
+/* one declaration */
+.decl { margin: 1.25rem 0 2.25rem; max-width: 60rem; scroll-margin-top: 1rem; }
+.decl p { margin: 0.5rem 0; text-wrap: pretty; }
+.decl__head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+.decl__name { font-size: 1.05rem; overflow-wrap: anywhere; }
+.decl__name a { color: var(--text); }
+.doc-badge {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+.decl__sig, .decl__example pre {
+  margin: 0.6rem 0;
+  padding: 0.55rem 0.75rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+.decl__h {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 1rem 0 0.35rem;
+}
+.decl__example .eyebrow { margin: 1rem 0 0; }
+.doc-table { margin: 0 0 0.5rem; }
+.doc-intro code, .decl p code, .doc-table code, .pkg-desc code, .callout code { font-size: 0.92em; }

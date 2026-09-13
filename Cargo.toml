@@ -3,11 +3,14 @@
 # ~13k lines of network-facing Rust sat outside every gate. Naming it a member
 # puts it back in the test and coverage denominators.
 [workspace]
-members = [".", "repository"]
+members = [".", "repository", "wire"]
 # With a package at the workspace root, a bare `cargo test` would select only
-# that root package. Naming both keeps `cargo test` (no flags) equivalent to
-# `cargo test --workspace`, which is what bug-347 requires.
-default-members = [".", "repository"]
+# that root package. Naming every member keeps `cargo test` (no flags)
+# equivalent to `cargo test --workspace`, which is what bug-347 requires — and
+# is why `wire` (plan-126-B) is listed here as well as above: a member absent
+# from `default-members` has its tests outside a bare `cargo test`, exactly the
+# hole bug-347 closed for `repository`.
+default-members = [".", "repository", "wire"]
 
 [package]
 name = "mfb"
@@ -17,6 +20,9 @@ license = "MIT"
 
 [dependencies]
 mfb_repository = { path = "repository" }
+# plan-126-B: the one home for the byte primitives and `.mfp`/MFPC framing this
+# crate and `mfb_repository` both need. It depends on neither of them.
+mfb_wire = { path = "wire" }
 sha2 = "0.10"
 tinyjson = "2.5"
 unicode-casefold = "0.2"
@@ -176,6 +182,10 @@ name = "cli_init_symlink"
 path = "tests/cli/cli_init_symlink.rs"
 
 [[test]]
+name = "cli_info"
+path = "tests/cli/cli_info.rs"
+
+[[test]]
 name = "cli_json_depth_limit"
 path = "tests/cli/cli_json_depth_limit.rs"
 
@@ -186,6 +196,10 @@ path = "tests/cli/cli_linux_app_mode.rs"
 [[test]]
 name = "cli_macos_app_io_input_imports"
 path = "tests/cli/cli_macos_app_io_input_imports.rs"
+
+[[test]]
+name = "cli_macos_app_term_draw_text"
+path = "tests/cli/cli_macos_app_term_draw_text.rs"
 
 [[test]]
 name = "cli_man_summary_plain"
@@ -480,6 +494,10 @@ path = "tests/net/rt_macos_d4_union_state_tls.rs"
 [[test]]
 name = "rt_macos_tls_write_capacity"
 path = "tests/net/rt_macos_tls_write_capacity.rs"
+
+[[test]]
+name = "rt_macos_tls_write_after_clean_close"
+path = "tests/net/rt_macos_tls_write_after_clean_close.rs"
 
 [[test]]
 name = "rt_net_address_overload_form"

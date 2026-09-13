@@ -3041,9 +3041,14 @@ impl<'a> Walker<'a> {
                 let positionals = arguments.len() - named.len();
                 let supplied_names: Vec<&str> =
                     named.iter().map(|(name, _)| name.as_str()).collect();
-                if let Some(params) =
-                    builtins::select_param_name_overload(&overloads, positionals, &supplied_names)
-                {
+                let required =
+                    builtins::call_param_name_overload_required(&canonical).unwrap_or_default();
+                if let Some(params) = builtins::select_param_name_overload(
+                    &overloads,
+                    &required,
+                    positionals,
+                    &supplied_names,
+                ) {
                     let positional_values: Vec<&HirExpression> = arguments
                         .iter()
                         .filter_map(|argument| match argument {

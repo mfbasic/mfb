@@ -101,6 +101,13 @@ boundary, with characteristics `CNT_INITIALIZED_DATA | READ`. Because it follows
 every other section, its presence shifts only `NumberOfSections` and
 `SizeOfImage`; no earlier RVA, the entry point, or any code/data address moves.
 
+## Reading the marker
+
+`mfb info <binary>` is the in-tree reader: it locates the marker by the carrier
+above for each format and prints the descriptor's compiler version, or `Not a
+MFBasic binary` when no carrier holds an `MFB1` descriptor
+(`./mfb spec tooling cli-reference`). [[src/os/inspect.rs:inspect]]
+
 ## Relationship to executable signing
 
 The marker is additive and orthogonal to the optional MFBASIC executable signing

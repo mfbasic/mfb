@@ -41,6 +41,7 @@ $MFB_HOME (or ~/.mfb)/<repo-hash>/
 ├── checkpoint                  0600   "<size> <root-hex>" last-seen log head
 ├── root-pin                    0600   "<registry-id> <root-fingerprint>"
 ├── snapshot-version            0600   highest snapshot version seen (rollback defense)
+├── root-version                0600   highest root.json version seen (rollback defense)
 ├── keys/                       0700
 │   ├── <owner>.auth.pub        0600   base64url auth public key (per machine)
 │   ├── <owner>.auth.prv        0600   base64url auth private key
@@ -56,6 +57,7 @@ $MFB_HOME (or ~/.mfb)/<repo-hash>/
 | `checkpoint` | `checkpoint_path` | last-seen transparency-log head (`<size> <root-hex>`); rollback/fork detection anchor |
 | `root-pin` | `root_pin_path` | pinned signed-metadata root: `<registry-id> <root-fingerprint>` |
 | `snapshot-version` | `snapshot_version_path` | highest snapshot version seen; metadata rollback defense |
+| `root-version` | `root_version_path` | highest `root.json` version seen; refuses replay of a root a renewal retired |
 | `keys/<owner>.auth.pub` | `auth_public_key_path` | base64url 32-byte Ed25519 auth public key |
 | `keys/<owner>.auth.prv` | `auth_private_key_path` | base64url 32-byte Ed25519 auth private (seed) key |
 | `keys/<owner>.ident.pub` | `ident_public_key_path` | base64url 32-byte Ed25519 ident public key |

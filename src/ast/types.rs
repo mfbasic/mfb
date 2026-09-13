@@ -125,56 +125,12 @@ impl DocHeaderKind {
     }
 }
 
-/// The kind of a prose block in a `DOC` body: an ordinary description paragraph
-/// (`DESC`) or one of the callouts (`WARN`/`INFO`/`SEC`). They interleave in
-/// source order so a callout can sit between two paragraphs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DocProseKind {
-    Desc,
-    Warn,
-    Info,
-    Sec,
-}
-
-impl DocProseKind {
-    pub fn from_keyword(keyword: &str) -> Option<DocProseKind> {
-        match keyword.to_ascii_uppercase().as_str() {
-            "DESC" => Some(DocProseKind::Desc),
-            "WARN" => Some(DocProseKind::Warn),
-            "INFO" => Some(DocProseKind::Info),
-            "SEC" => Some(DocProseKind::Sec),
-            _ => None,
-        }
-    }
-
-    /// Stable on-wire code for the `.mfp` doc section and `-ast` output.
-    pub fn code(self) -> u8 {
-        match self {
-            DocProseKind::Desc => 0,
-            DocProseKind::Warn => 1,
-            DocProseKind::Info => 2,
-            DocProseKind::Sec => 3,
-        }
-    }
-
-    pub fn from_code(code: u8) -> DocProseKind {
-        match code {
-            1 => DocProseKind::Warn,
-            2 => DocProseKind::Info,
-            3 => DocProseKind::Sec,
-            _ => DocProseKind::Desc,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            DocProseKind::Desc => "desc",
-            DocProseKind::Warn => "warn",
-            DocProseKind::Info => "info",
-            DocProseKind::Sec => "sec",
-        }
-    }
-}
+// `DocProseKind` moved to `mfb_wire::docs` (plan-126-D): its numeric `code()` is
+// `.mfp` wire format and its `label()` is what the `-ast` dump prints, and the
+// registry now decodes section 17 without this crate. Re-exported here so
+// `crate::ast::DocProseKind` -- reached through `pub use types::*` in
+// `ast/mod.rs` -- and every existing reference resolve unchanged.
+pub use mfb_wire::docs::DocProseKind;
 
 /// One prose paragraph or callout in a `DOC` body.
 #[derive(Clone, Debug)]

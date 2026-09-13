@@ -1,5 +1,5 @@
 use crate::blobstore::{BlobFetch, BlobKind, BlobStore};
-use crate::store::{now_unix, NewSession, Store};
+use crate::store::{now_unix, NewSession, PairingFetch, Store};
 use crate::{crypto, package};
 use axum::extract::{ConnectInfo, State};
 use axum::http::{header, StatusCode};
@@ -191,6 +191,12 @@ pub struct LinkStartRequest {
     pub blob: String,
     /// Base64url argon2id salt.
     pub salt: String,
+    /// Base64url Ed25519 PUBLIC half of the code-derived approval keypair
+    /// (bug-583). The old machine derives it from the code it just generated;
+    /// the server keeps it as the verifier for the fetch half. It is public
+    /// by construction — holding it does not let the relay sign anything.
+    #[serde(rename = "approvalKey")]
+    pub approval_key: String,
     #[serde(rename = "sessionToken")]
     pub session_token: String,
 }
@@ -211,6 +217,11 @@ pub struct LinkFetchRequest {
     pub auth_key: String,
     /// Role-separated proof-of-possession for the new auth key.
     pub proof: String,
+    /// Base64url Ed25519 signature over
+    /// `crypto::pairing_approval_message(lookup, authKey)`, made with the
+    /// private half derived from the typed pairing code (bug-583). This — not
+    /// the server-visible lookup — is the pairing approval.
+    pub approval: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -539,8 +550,17 @@ pub struct PackageDetailResponse {
     /// `null` until plan-61-E populates it. Present in the shape from day one
     /// so E adds no field and breaks no consumer.
     pub description: Option<String>,
+    /// The newest **active** release (plan-126-A) — `null` when every published
+    /// version is yanked, blocked or legal-tombstoned, which is a statement
+    /// about the package rather than missing data. `null` was already a possible
+    /// value here (a package with no versions), so no consumer gains a new shape.
     #[serde(rename = "latestVersion")]
     pub latest_version: Option<String>,
+    /// The release state of `latestVersion`, so a `deprecated` headline is
+    /// visibly deprecated rather than reading as current. `null` exactly when
+    /// `latestVersion` is (plan-126-A).
+    #[serde(rename = "latestState")]
+    pub latest_state: Option<String>,
     /// **Every** version, newest first, including yanked and superseded — see
     /// `PackageDetailVersionResponse::state`.
     pub versions: Vec<PackageDetailVersionResponse>,
@@ -721,6 +741,22 @@ pub struct SessionClaims {
 /// by `/validate` and `/publish` so a single upload cannot exhaust memory.
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
+/// Anonymous transparency-log routes, shared per-IP budget (bug-579).
+///
+/// Sized from the WORST LEGITIMATE CLIENT, not from a round number. A single
+/// `verify_publish_inclusion` makes three log requests (`/log/checkpoint`,
+/// `/log/publish`, `/log/proof/:index`) and `mfb pkg install --proof` calls it
+/// once PER DEPENDENCY, so a 200-dependency install is a ~600-request burst in
+/// seconds — and every developer behind one NAT or one CI egress IP shares this
+/// key. A tight budget here would not harden the registry, it would break
+/// installs. 1200/minute leaves 2x headroom over that worst case while still
+/// converting "unbounded" into "bounded".
+///
+/// Note this grew with bug-582: a client now fetches a consistency proof on
+/// every pin advance, so the log is contacted more than it used to be. Any
+/// future tightening has to be re-derived from the client, not guessed.
+const LOG_PER_IP_MAX: usize = 1200;
+
 /// Per-client (peer-IP) rate caps on the anonymous auth endpoints, replacing the
 /// old global-string buckets that let one client lock the whole user base out of
 /// registration/login (audit-2 REPO-12 / bug-188). A generous global ceiling is
@@ -874,6 +910,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/search.html", get(search_html))
         .route("/p/:ident", get(package_page_html))
         .route("/p/:ident/audit", get(package_audit_html))
+        .route("/p/:ident/docs", get(package_docs_html))
         .route("/search", get(search))
         .route("/index/:ident", get(package_index))
         // plan-61-B: anonymous read surface. These read no credential of any
@@ -882,6 +919,7 @@ pub fn build_router(state: AppState) -> Router {
         // below; matchit resolves static before param.
         .route("/packages/:ident", get(package_detail))
         .route("/packages/:ident/audit", get(package_audit))
+        .route("/packages/:ident/docs", get(package_docs))
         .route(
             "/blob/:hash",
             get(package_blob).head(head_blob).put(put_blob),
@@ -999,17 +1037,19 @@ async fn challenge(
 
 async fn log_checkpoint(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
 ) -> Result<Json<CheckpointResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let leaves = state.store.log_leaf_hashes(None).map_err(internal)?;
-    let root = crate::log::root(&leaves);
-    let (_public, private) = state.store.server_keypair().map_err(internal)?;
-    let signature = crypto::sign(
-        &private,
-        &crate::log::checkpoint_signing_input(leaves.len() as u64, &root),
-    )
-    .map_err(internal)?;
+    if !state
+        .rate_limiter
+        .allow(&format!("log:{}", peer.ip()), LOG_PER_IP_MAX, 60)
+    {
+        return Err(too_many_requests());
+    }
+    // bug-579: memoised by log size, so a repeated call is a COUNT(*) rather
+    // than loading every leaf, rebuilding the Merkle root and signing it again.
+    let (size, root, signature) = state.store.signed_checkpoint().map_err(internal)?;
     Ok(Json(CheckpointResponse {
-        size: leaves.len() as i64,
+        size,
         root_hash: hex::encode(root),
         signature: crypto::encode_bytes(&signature),
     }))
@@ -1022,9 +1062,16 @@ struct ProofQuery {
 
 async fn log_inclusion_proof(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     axum::extract::Path(index): axum::extract::Path<i64>,
     axum::extract::Query(query): axum::extract::Query<ProofQuery>,
 ) -> Result<Json<InclusionProofResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state
+        .rate_limiter
+        .allow(&format!("log:{}", peer.ip()), LOG_PER_IP_MAX, 60)
+    {
+        return Err(too_many_requests());
+    }
     let leaves = state.store.log_leaf_hashes(query.size).map_err(internal)?;
     let size = leaves.len() as i64;
     if index < 0 || index >= size {
@@ -1065,8 +1112,16 @@ pub struct SearchResponse {
 pub struct SearchResult {
     pub ident: String,
     pub owner: String,
+    /// The newest **active** release (plan-126-A) — `null` for a package with no
+    /// published version, and for one whose every version is yanked, blocked or
+    /// legal-tombstoned.
     #[serde(rename = "latestVersion")]
     pub latest_version: Option<String>,
+    /// The release state of `latestVersion`, so a consumer can tell a
+    /// `deprecated` headline from a current one. `null` exactly when
+    /// `latestVersion` is (plan-126-A).
+    #[serde(rename = "latestState")]
+    pub latest_state: Option<String>,
     /// `null` until plan-61-E.
     pub description: Option<String>,
     #[serde(rename = "publishedAt")]
@@ -1108,6 +1163,7 @@ async fn search(
             ident: row.ident,
             owner: row.owner,
             latest_version: row.latest_version,
+            latest_state: row.latest_state,
             description: description_preview(row.description),
             published_at: row.published_at,
         })
@@ -1211,6 +1267,7 @@ async fn search_html(
             ident: row.ident,
             owner: row.owner,
             latest_version: row.latest_version,
+            latest_state: row.latest_state,
             description: description_preview(row.description),
             published_at: row.published_at,
         })
@@ -1223,6 +1280,235 @@ async fn search_html(
         StatusCode::OK,
         crate::web::search_page(&registry_id, &text, &rows),
     )
+}
+
+/// `GET /p/:ident/docs` — the Docs tab (plan-126-F).
+///
+/// Resolves the package through `package_detail` first, so an unknown ident gets
+/// the identical not-found page and status the Overview and Audit tabs give. It
+/// then reads the documentation of the **latest active** release
+/// (`Store::latest_active_version_docs`, built on plan-126-A's selection) — the
+/// same release `detail.latest_version` names, so the version shown is the
+/// version documented.
+///
+/// The stored bytes were decode-validated when they were recorded, so a decode
+/// failure here means the database no longer matches what was written. That is
+/// reported as an explicit error page, never a panic, and never rendered as
+/// "no documentation", which would hide it.
+async fn package_docs_html(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Response {
+    let (registry_id, _fingerprint) = registry_identity(&state);
+    let view = match lookup_package_docs(&state, ident).await {
+        Ok(view) => view,
+        Err(DocsLookupError::Package((status, Json(error)))) => {
+            return crate::web::html_response(
+                status,
+                crate::web::message_page(&registry_id, "Package not found", &error.error),
+            )
+        }
+        Err(DocsLookupError::Unavailable(message)) => {
+            return crate::web::html_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                crate::web::message_page(&registry_id, "Documentation unavailable", message),
+            )
+        }
+    };
+    crate::web::html_response(StatusCode::OK, crate::web::docs_page(&registry_id, &view))
+}
+
+/// Why the Docs tab's lookup produced no view.
+enum DocsLookupError {
+    /// `package_detail` refused the ident (malformed, or no such package) —
+    /// passed through unchanged so every surface reports it identically.
+    Package((StatusCode, Json<ErrorResponse>)),
+    /// The package exists but its stored documentation could not be read.
+    Unavailable(&'static str),
+}
+
+/// The one lookup behind both `GET /p/:ident/docs` and `GET /packages/:ident/docs`,
+/// so the HTML page and its JSON mirror cannot disagree about which release is
+/// documented or what its documentation says.
+///
+/// Resolves the package through `package_detail` (same 400/404 as the other
+/// package routes), then reads the **latest active** release's stored section
+/// 17 (`Store::latest_active_version_docs`, plan-126-A's selection) — the release
+/// `detail.latest_version` names, so the version reported is the one documented.
+async fn lookup_package_docs(
+    state: &AppState,
+    ident: String,
+) -> Result<crate::web::DocsView, DocsLookupError> {
+    let Json(detail) = package_detail(State(state.clone()), axum::extract::Path(ident))
+        .await
+        .map_err(DocsLookupError::Package)?;
+
+    let fallback_name = detail
+        .ident
+        .split_once('#')
+        .map(|(_, package)| package.to_string())
+        .unwrap_or_else(|| detail.ident.clone());
+    let page = match state.store.latest_active_version_docs(&detail.ident) {
+        Ok(Some((_version, section))) => match mfb_wire::docs::read_doc_table(&section) {
+            Ok(docs) => Some(mfb_wire::docpage::from_package(docs, &fallback_name)),
+            Err(_) => {
+                return Err(DocsLookupError::Unavailable(
+                    "The stored documentation for this release could not be decoded.",
+                ))
+            }
+        },
+        Ok(None) => None,
+        Err(_) => {
+            return Err(DocsLookupError::Unavailable(
+                "The registry could not load this package's documentation.",
+            ))
+        }
+    };
+
+    Ok(crate::web::DocsView {
+        ident: detail.ident,
+        version: detail.latest_version,
+        page,
+    })
+}
+
+/// `GET /packages/:ident/docs` — the Docs tab as JSON (plan-126-F Phase 3).
+///
+/// Anonymous and read-only, like `GET /packages/:ident`. Serializes the same
+/// `DocPage` model the HTML tab renders — not the raw wire structures — so the
+/// two surfaces agree on grouping, order and anchors by construction.
+/// `documentation` is `null` exactly when the HTML tab shows the
+/// no-documentation statement.
+async fn package_docs(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Result<Json<PackageDocsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    match lookup_package_docs(&state, ident).await {
+        Ok(view) => Ok(Json(PackageDocsResponse::from_view(view))),
+        Err(DocsLookupError::Package(error)) => Err(error),
+        Err(DocsLookupError::Unavailable(message)) => Err(internal(message.to_string())),
+    }
+}
+
+/// `GET /packages/:ident/docs` (plan-126-F Phase 3).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PackageDocsResponse {
+    pub ident: String,
+    /// The latest active release — the same value `GET /packages/:ident` reports
+    /// as `latestVersion`, and the release whose documentation this is. `null`
+    /// when no release is active.
+    pub version: Option<String>,
+    /// `null` when that release carries no documentation.
+    pub documentation: Option<DocPageResponse>,
+}
+
+/// A `DocPage` as JSON. Carries only the **public** groups: declarations the
+/// author marked `INTERNAL` are omitted here exactly as on the HTML tab
+/// (`crate::web::docs_page`).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocPageResponse {
+    #[serde(rename = "packageName")]
+    pub package_name: String,
+    pub subtitle: String,
+    pub intro: Vec<DocProseResponse>,
+    pub deprecated: Option<String>,
+    pub groups: Vec<DocGroupResponse>,
+}
+
+/// One prose block; `kind` is `desc`, `warn`, `info` or `sec`.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocProseResponse {
+    pub kind: String,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocGroupResponse {
+    pub title: String,
+    pub declarations: Vec<DocDeclResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocDeclResponse {
+    /// The HTML tab's element id for this declaration
+    /// (`crate::web::doc_element_id`), so a client can link to
+    /// `/p/<ident>/docs#<anchor>`.
+    pub anchor: String,
+    pub kind: String,
+    pub name: String,
+    pub signature: String,
+    pub description: Vec<DocProseResponse>,
+    pub parameters: Vec<DocEntryResponse>,
+    /// `Fields` / `Variants` / `Members` for a type-like declaration, else `null`.
+    #[serde(rename = "memberLabel")]
+    pub member_label: Option<String>,
+    pub members: Vec<DocEntryResponse>,
+    pub returns: String,
+    /// `name` is the error code.
+    pub errors: Vec<DocEntryResponse>,
+    pub example: String,
+    pub deprecated: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocEntryResponse {
+    pub name: String,
+    pub description: String,
+}
+
+impl PackageDocsResponse {
+    fn from_view(view: crate::web::DocsView) -> Self {
+        fn prose(blocks: Vec<mfb_wire::docpage::Prose>) -> Vec<DocProseResponse> {
+            blocks
+                .into_iter()
+                .map(|block| DocProseResponse {
+                    kind: block.kind.label().to_string(),
+                    text: block.text,
+                })
+                .collect()
+        }
+        fn entries(rows: Vec<(String, String)>) -> Vec<DocEntryResponse> {
+            rows.into_iter()
+                .map(|(name, description)| DocEntryResponse { name, description })
+                .collect()
+        }
+        let documentation = view.page.map(|page| DocPageResponse {
+            package_name: page.package_name,
+            subtitle: page.subtitle,
+            intro: prose(page.intro),
+            deprecated: page.package_deprecated,
+            groups: page
+                .public
+                .into_iter()
+                .map(|group| DocGroupResponse {
+                    title: group.title,
+                    declarations: group
+                        .decls
+                        .into_iter()
+                        .map(|decl| DocDeclResponse {
+                            anchor: crate::web::doc_element_id(&decl.anchor),
+                            kind: decl.kind_label.to_string(),
+                            name: decl.name,
+                            signature: decl.signature,
+                            description: prose(decl.desc),
+                            parameters: entries(decl.args),
+                            member_label: decl.member_label.map(str::to_string),
+                            members: entries(decl.props),
+                            returns: decl.ret,
+                            errors: entries(decl.errors),
+                            example: decl.example,
+                            deprecated: decl.deprecated,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        });
+        PackageDocsResponse {
+            ident: view.ident,
+            version: view.version,
+            documentation,
+        }
+    }
 }
 
 /// `GET /p/:ident` — the rendered package page (plan-61-C Phase 3).
@@ -1256,6 +1542,7 @@ async fn package_page_html(
         url: detail.url,
         description: detail.description,
         latest_version: detail.latest_version,
+        latest_state: detail.latest_state,
         versions: detail
             .versions
             .into_iter()
@@ -1295,10 +1582,18 @@ async fn package_page_html(
 /// `GET /p/:ident/audit` — the rendered transparency tab (plan-61-C Phase 3).
 async fn package_audit_html(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     axum::extract::Path(ident): axum::extract::Path<String>,
 ) -> Response {
     let (registry_id, _fingerprint) = registry_identity(&state);
-    let audit = match package_audit(State(state.clone()), axum::extract::Path(ident.clone())).await
+    // Shares the JSON route's budget on purpose: the HTML page does the same
+    // full-log work, so exempting it would leave the bypass open.
+    let audit = match package_audit(
+        State(state.clone()),
+        ConnectInfo(peer),
+        axum::extract::Path(ident.clone()),
+    )
+    .await
     {
         Ok(Json(audit)) => audit,
         Err((status, Json(error))) => {
@@ -1429,8 +1724,22 @@ async fn package_detail(
     }
 
     let (server_public, _server_private) = state.store.server_keypair().map_err(internal)?;
+    // plan-126-A: the headline version is the newest **active** release, not
+    // simply the newest row. `versions.first()` had no state predicate, so a
+    // package whose newest release was yanked advertised that release here — and
+    // API consumers read this field as "the version to use". `versions` itself
+    // stays complete and unfiltered above; only this selection narrows.
+    let latest = state
+        .store
+        .latest_active_version(&ident)
+        .map_err(internal)?;
+    let (latest_version, latest_state) = match latest {
+        Some((version, release_state)) => (Some(version), Some(release_state)),
+        None => (None, None),
+    };
     Ok(Json(PackageDetailResponse {
-        latest_version: versions.first().map(|version| version.version.clone()),
+        latest_version,
+        latest_state,
         ident,
         owner: owner_record.owner_display,
         ident_key: format!("ed25519:{}", crypto::encode_bytes(&ident_key.public_key)),
@@ -1450,13 +1759,27 @@ async fn package_detail(
 /// history rather than take the registry's word for it.
 async fn package_audit(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     axum::extract::Path(ident): axum::extract::Path<String>,
 ) -> Result<Json<PackageAuditResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state
+        .rate_limiter
+        .allow(&format!("log:{}", peer.ip()), LOG_PER_IP_MAX, 60)
+    {
+        return Err(too_many_requests());
+    }
     let (owner_part, _package_part) = split_ident(&ident)?;
     let Some(audit) = state.store.package_audit(&ident).map_err(internal)? else {
         return Err(not_found("unknown package".to_string()));
     };
 
+    // Deliberately NOT `signed_checkpoint()`: this route needs the leaf vector
+    // itself to build an inclusion path per publish, so the memo would save
+    // nothing and would introduce a race — a head memoised at one size beside
+    // paths built from a differently-sized leaf set. Computing both from ONE
+    // read keeps the response internally coherent, which is the property the
+    // bug's non-goals protect. It is the per-IP budget above that bounds this
+    // route, not the cache.
     let leaves = state.store.log_leaf_hashes(None).map_err(internal)?;
     let root = crate::log::root(&leaves);
     let (_public, private) = state.store.server_keypair().map_err(internal)?;
@@ -1536,8 +1859,15 @@ struct ConsistencyQuery {
 
 async fn log_consistency_proof(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     axum::extract::Query(query): axum::extract::Query<ConsistencyQuery>,
 ) -> Result<Json<ConsistencyProofResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state
+        .rate_limiter
+        .allow(&format!("log:{}", peer.ip()), LOG_PER_IP_MAX, 60)
+    {
+        return Err(too_many_requests());
+    }
     let leaves = state.store.log_leaf_hashes(query.to).map_err(internal)?;
     let to = leaves.len() as i64;
     if query.from < 0 || query.from > to {
@@ -2025,15 +2355,17 @@ async fn snapshot_metadata(
     };
     let version = state.store.log_size().map_err(internal)?;
     let index_hash = state.store.index_canonical_hash().map_err(internal)?;
-    let leaves = state.store.log_leaf_hashes(None).map_err(internal)?;
-    let checkpoint_root = hex::encode(crate::log::root(&leaves));
+    // bug-579: the same memoised head as /log/checkpoint.
+    let (checkpoint_size, checkpoint_root_bytes, _signature) =
+        state.store.signed_checkpoint().map_err(internal)?;
+    let checkpoint_root = hex::encode(checkpoint_root_bytes);
     let signed = format!(
         "{{\"type\":\"snapshot\",\"registryId\":{},\"version\":{},\"expires\":{},\"indexHash\":{},\"checkpoint\":{{\"size\":{},\"rootHash\":{}}}}}",
         json_str(&config.registry_id),
         version,
         now_unix() + SNAPSHOT_TTL_SECS,
         json_str(&index_hash),
-        leaves.len(),
+        checkpoint_size,
         json_str(&checkpoint_root),
     );
     let signature = crypto::sign(
@@ -2495,9 +2827,16 @@ async fn link_start(
     if blob.is_empty() || blob.len() > 4096 || salt.is_empty() || salt.len() > 64 {
         return Err(bad_request("malformed pairing blob".to_string()));
     }
+    // bug-583: the approval verifier must be a well-formed Ed25519 public key,
+    // or the fetch half would have nothing real to check the code against.
+    let approval_key =
+        crypto::decode_bytes(&request.approval_key, "approvalKey").map_err(bad_request)?;
+    if approval_key.len() != crypto::PUBLIC_KEY_LEN {
+        return Err(bad_request("malformed pairing approval key".to_string()));
+    }
     let expires_at = state
         .store
-        .store_pairing_blob(owner.id, &request.lookup, &blob, &salt)
+        .store_pairing_blob(owner.id, &request.lookup, &blob, &salt, &approval_key)
         .map_err(conflict_or_bad_request)?;
     Ok(Json(LinkStartResponse {
         owner: owner.owner_display,
@@ -2505,15 +2844,19 @@ async fn link_start(
     }))
 }
 
-/// New-machine side of a link: presenting the correct code-derived lookup is
-/// the pairing approval. The new machine's auth key is registered to the
-/// account and the (single-use) blob handed over in the same exchange.
+/// New-machine side of a link: the pairing approval is a signature made with
+/// the key derived from the typed pairing CODE (bug-583) over this exact auth
+/// public key. The lookup only *finds* the pending pairing — it is visible to
+/// the relay and to anyone who can read the database, so it authorizes
+/// nothing. On a valid approval the new machine's auth key is registered to
+/// the account and the (single-use) blob handed over in the same exchange.
 async fn link_fetch(
     State(state): State<AppState>,
     Json(request): Json<LinkFetchRequest>,
 ) -> Result<Json<LinkFetchResponse>, (StatusCode, Json<ErrorResponse>)> {
     let auth_key = crypto::decode_bytes(&request.auth_key, "authKey").map_err(bad_request)?;
     let proof = crypto::decode_bytes(&request.proof, "proof").map_err(bad_request)?;
+    let approval = crypto::decode_bytes(&request.approval, "approval").map_err(bad_request)?;
     // Verify the proof BEFORE consuming the single-use blob, so a malformed
     // request cannot burn a pending pairing.
     let Some((owner_record, _ident)) = state
@@ -2527,14 +2870,28 @@ async fn link_fetch(
         crypto::registration_message(crypto::ROLE_AUTH, &owner_record.owner_display, &auth_key);
     crypto::verify(&auth_key, &message, &proof)
         .map_err(|_| bad_request("invalid auth proof-of-possession signature".to_string()))?;
-    let Some((blob, salt)) = state
+    // The approval is checked inside the store transaction, so a caller that
+    // cannot prove the code neither receives the blob nor spends the honest
+    // machine's single-use pairing.
+    let approval_message = crypto::pairing_approval_message(&request.lookup, &auth_key);
+    let fetched = state
         .store
-        .take_pairing_blob(&request.owner, &request.lookup)
-        .map_err(internal)?
-    else {
-        return Err(bad_request(
-            "unknown, used, or expired pairing code".to_string(),
-        ));
+        .take_pairing_blob(&request.owner, &request.lookup, |approval_key| {
+            crypto::verify(approval_key, &approval_message, &approval).is_ok()
+        })
+        .map_err(internal)?;
+    let (blob, salt) = match fetched {
+        PairingFetch::Relayed { blob, salt } => (blob, salt),
+        PairingFetch::Unapproved => {
+            return Err(bad_request(
+                "pairing approval does not prove the pairing code".to_string(),
+            ))
+        }
+        PairingFetch::Missing => {
+            return Err(bad_request(
+                "unknown, used, or expired pairing code".to_string(),
+            ))
+        }
     };
     let (owner, key) = state
         .store
@@ -2903,14 +3260,33 @@ async fn publish_package(
         .and_then(|package| crate::abi::parse_package_description(&package.payload).ok())
         .flatten()
         .filter(|value| !value.is_empty());
+    // plan-126-E: capture MFPC section 17 (the `DOC` table) from the payload this
+    // handler already holds, best-effort. The RAW section bytes are what gets
+    // stored -- `mfb_wire::docs` stays the only decoder -- but only once they
+    // decode, so a malformed doc table is never recorded. It is never a reason to
+    // refuse the publish either: documentation "does not affect execution or the
+    // ABI" (src/binary_repr/writer.rs), and turning a doc-table defect into a
+    // rejected signed package would be a new failure mode on a trust path. Same
+    // posture as `parse_package_description` directly above.
+    let docs = parsed.as_ref().and_then(|package| {
+        let sections = mfb_wire::mfpc::read_section_table(&package.payload).ok()?;
+        let section = sections.get(&mfb_wire::mfpc::SECTION_DOC_TABLE)?;
+        mfb_wire::docs::read_doc_table(section).ok()?;
+        Some(section.to_vec())
+    });
     let publish_metadata = match manifest_metadata {
         Some(meta) => crate::store::PublishMetadata {
             author: Some(meta.author).filter(|value| !value.is_empty()),
             url: Some(meta.url).filter(|value| !value.is_empty()),
             description,
+            docs,
         },
+        // `docs` is set explicitly here too. Left to `..Default::default()` it
+        // would silently become `None` for every package without a MANIFEST
+        // section, dropping documentation the publisher did sign.
         None => crate::store::PublishMetadata {
             description,
+            docs,
             ..Default::default()
         },
     };
@@ -5016,7 +5392,10 @@ mod tests {
             )
             .await;
         }
-        let checkpoint_small = log_checkpoint(State(state.clone())).await.unwrap().0;
+        let checkpoint_small = log_checkpoint(State(state.clone()), peer("127.0.0.1"))
+            .await
+            .unwrap()
+            .0;
         assert_eq!(checkpoint_small.size, 4);
 
         // The checkpoint signature verifies under the server key.
@@ -5035,6 +5414,7 @@ mod tests {
         for index in 0..checkpoint_small.size {
             let proof = log_inclusion_proof(
                 State(state.clone()),
+                peer("127.0.0.1"),
                 axum::extract::Path(index),
                 axum::extract::Query(ProofQuery { size: None }),
             )
@@ -5076,10 +5456,14 @@ mod tests {
             &crypto::fingerprint(&signing_public),
         )
         .await;
-        let checkpoint_big = log_checkpoint(State(state.clone())).await.unwrap().0;
+        let checkpoint_big = log_checkpoint(State(state.clone()), peer("127.0.0.1"))
+            .await
+            .unwrap()
+            .0;
         assert_eq!(checkpoint_big.size, 5);
         let proof = log_consistency_proof(
             State(state.clone()),
+            peer("127.0.0.1"),
             axum::extract::Query(ConsistencyQuery {
                 from: checkpoint_small.size,
                 to: None,
@@ -5326,6 +5710,7 @@ mod tests {
                         author: Some("alice".to_string()),
                         url: Some("https://example.invalid".to_string()),
                         description: None,
+                        docs: None,
                     },
                 )
                 .unwrap();
@@ -5347,8 +5732,12 @@ mod tests {
         assert_eq!(detail.ident, "alice#toolbox");
         assert_eq!(detail.owner, "alice");
         assert_eq!(detail.versions.len(), 2, "the yanked version is still here");
-        // Newest first, so `latestVersion` is the un-yanked 2.0.0.
+        // The yanked release here is the *older* one, so the newest-active
+        // selection (plan-126-A) and a bare newest-row pick agree: 2.0.0.
+        // The case where they disagree is covered by
+        // `package_detail_names_the_newest_active_release_not_a_yanked_newest`.
         assert_eq!(detail.latest_version.as_deref(), Some("2.0.0"));
+        assert_eq!(detail.latest_state.as_deref(), Some("available"));
         let yanked = detail
             .versions
             .iter()
@@ -5373,6 +5762,74 @@ mod tests {
         // `description` is in the shape from day one, null until plan-61-E, so
         // that sub-plan adds no field and breaks no consumer.
         assert_eq!(detail.description, None);
+    }
+
+    /// plan-126-A — the handler seam, which the `web::package_page` tests cannot
+    /// reach: `package_detail` must read its headline version from
+    /// `Store::latest_active_version`, not from `versions.first()`.
+    ///
+    /// The newest release is yanked here, which is precisely the shape
+    /// `package_detail_lists_every_version_including_yanked_ones` does *not*
+    /// cover — that test yanks the older version, so both selections agree and
+    /// it stayed green throughout the bug's lifetime.
+    #[tokio::test]
+    async fn package_detail_names_the_newest_active_release_not_a_yanked_newest() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        for version in ["1.5.0", "2.0.0"] {
+            h.store
+                .publish_package_version(
+                    alice_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("hash-{version}"),
+                    &format!("data/{version}.mfp"),
+                    "{}",
+                    &[],
+                    &crate::store::PublishMetadata::default(),
+                )
+                .unwrap();
+        }
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "yanked")
+            .unwrap();
+
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+
+        assert_eq!(
+            detail.latest_version.as_deref(),
+            Some("1.5.0"),
+            "a yanked newest release must not be advertised as the latest",
+        );
+        assert_eq!(detail.latest_state.as_deref(), Some("available"));
+        // And the listing is still complete: the selection narrowed, the
+        // transparency view did not.
+        assert_eq!(detail.versions.len(), 2);
+        assert_eq!(detail.versions[0].version, "2.0.0");
+        assert_eq!(detail.versions[0].state, "yanked");
+
+        // Withdraw the fallback too: now there is no active release, and the
+        // field is null rather than naming an ineligible version.
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "1.5.0", "yanked")
+            .unwrap();
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+        assert_eq!(detail.latest_version, None);
+        assert_eq!(detail.latest_state, None);
+        assert_eq!(detail.versions.len(), 2, "still listed, still auditable");
     }
 
     /// An unknown package 404s with the standard error shape, and an unknown
@@ -5407,6 +5864,7 @@ mod tests {
         let audit_known = err_of(
             package_audit(
                 State(h.state.clone()),
+                peer("127.0.0.1"),
                 axum::extract::Path("alice#nosuchpackage".to_string()),
             )
             .await,
@@ -5414,6 +5872,7 @@ mod tests {
         let audit_unknown = err_of(
             package_audit(
                 State(h.state.clone()),
+                peer("127.0.0.1"),
                 axum::extract::Path("mallory#nosuchpackage".to_string()),
             )
             .await,
@@ -5464,6 +5923,7 @@ mod tests {
 
         let audit = package_audit(
             State(h.state.clone()),
+            peer("127.0.0.1"),
             axum::extract::Path("alice#toolbox".to_string()),
         )
         .await
@@ -5637,6 +6097,10 @@ mod tests {
         assert_eq!(response.query, "sql");
         assert_eq!(response.total, 3);
         assert_eq!(response.results[0].latest_version.as_deref(), Some("1.0.0"));
+        assert_eq!(
+            response.results[0].latest_state.as_deref(),
+            Some("available")
+        );
         // `description` is in the shape from day one and null until plan-61-E.
         assert_eq!(response.results[0].description, None);
 
@@ -5644,6 +6108,135 @@ mod tests {
         let response = search_for(&h, "http://x/search?q=bob").await;
         assert_eq!(response.results.len(), 1);
         assert_eq!(response.results[0].ident, "bob#tool");
+    }
+
+    /// plan-126-A Phase 3 — the search path had its **own** unfiltered
+    /// newest-version statement, and `SearchResultRow` carried no state field at
+    /// all, so a yanked release appeared here as a package's current version
+    /// with no marker of any kind. This is the surface where the missing filter
+    /// was not merely cosmetic.
+    #[tokio::test]
+    async fn search_names_the_newest_active_release_and_carries_its_state() {
+        let h = harness();
+        seed_packages(&h, &["alice#toolbox"]);
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        // seed_packages published 1.0.0; add a newer 2.0.0 and yank it.
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "2.0.0",
+                "hash-2",
+                "data/2.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata::default(),
+            )
+            .unwrap();
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "yanked")
+            .unwrap();
+
+        let response = search_for(&h, "http://x/search?q=toolbox").await;
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(
+            response.results[0].latest_version.as_deref(),
+            Some("1.0.0"),
+            "a yanked newest release must not be the search headline",
+        );
+        assert_eq!(
+            response.results[0].latest_state.as_deref(),
+            Some("available")
+        );
+
+        // A `deprecated` newest release IS active — the install client installs
+        // it on a floating add — and its state travels so the page can badge it.
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "deprecated")
+            .unwrap();
+        let response = search_for(&h, "http://x/search?q=toolbox").await;
+        assert_eq!(response.results[0].latest_version.as_deref(), Some("2.0.0"));
+        assert_eq!(
+            response.results[0].latest_state.as_deref(),
+            Some("deprecated"),
+        );
+
+        // Withdraw everything: the package keeps its result row — it exists and
+        // the query found it — but names no version.
+        for version in ["1.0.0", "2.0.0"] {
+            h.store
+                .set_release_state(alice_id, "alice#toolbox", version, "blocked")
+                .unwrap();
+        }
+        let response = search_for(&h, "http://x/search?q=toolbox").await;
+        assert_eq!(
+            response.results.len(),
+            1,
+            "a fully-withdrawn package is still a match, not a hidden row",
+        );
+        assert_eq!(response.results[0].latest_version, None);
+        assert_eq!(response.results[0].latest_state, None);
+    }
+
+    /// The rendered-HTML half of the phase: the yanked version **string** must
+    /// not reach the search result chip. A JSON assertion cannot see a renderer
+    /// that fell back to some other field.
+    #[tokio::test]
+    async fn the_search_page_never_shows_a_yanked_version_in_the_result_chip() {
+        let h = harness();
+        seed_packages(&h, &["alice#toolbox"]);
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "9.9.9",
+                "hash-9",
+                "data/9.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata::default(),
+            )
+            .unwrap();
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "9.9.9", "yanked")
+            .unwrap();
+
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("alice#toolbox"), "{body}");
+        assert!(body.contains("v1.0.0"), "{body}");
+        assert!(
+            !body.contains("9.9.9"),
+            "the yanked version must not appear anywhere in the result: {body}",
+        );
+
+        // And with nothing active, the page states it rather than showing a chip.
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "yanked")
+            .unwrap();
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("alice#toolbox"), "{body}");
+        assert!(body.contains("no active release"), "{body}");
+        assert!(!body.contains("v1.0.0"), "{body}");
+    }
+
+    /// A `deprecated` search headline renders its badge, which is the thing the
+    /// bare version chip could never express.
+    #[tokio::test]
+    async fn the_search_page_badges_a_deprecated_headline_release() {
+        let h = harness();
+        seed_packages(&h, &["alice#toolbox"]);
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "deprecated")
+            .unwrap();
+
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("v1.0.0"), "{body}");
+        assert!(body.contains("state--deprecated"), "{body}");
     }
 
     /// An empty or whitespace-only query returns nothing — never the whole
@@ -5965,6 +6558,10 @@ mod tests {
             ident: "alice#<script>alert(1)</script>".to_string(),
             owner: "<img src=x onerror=alert(1)>".to_string(),
             latest_version: Some("1.0.0\"><script>".to_string()),
+            // plan-126-A added this field, so it joins the hostile-value set:
+            // it reaches a `class=` attribute via `state_modifier`, and a value
+            // outside the vocabulary must not be able to break out of it.
+            latest_state: Some("\" onmouseover=\"alert(1)".to_string()),
             description: Some("<b>bold</b>".to_string()),
             published_at: Some(1_700_000_000),
         }];
@@ -5984,6 +6581,25 @@ mod tests {
         );
         // The echoed query is publisher-independent but still user-controlled.
         assert!(rendered.contains("query-echo"));
+
+        // plan-126-A: `latest_state` reaches a `class=` attribute through
+        // `state_modifier`, a total map onto a fixed vocabulary — an
+        // out-of-vocabulary value becomes `state--other`, so the hostile string
+        // never reaches the attribute at all.
+        assert!(rendered.contains("state--other"), "{rendered}");
+        // The raw value does still render as visible text, so — per this test's
+        // own rule — assert on the absence of an attribute *break*, not on the
+        // scary substring: an escaped `&quot; onmouseover=&quot;` legitimately
+        // contains the text `onmouseover=`. The quote is what would end the
+        // attribute, and it is escaped.
+        assert!(
+            !rendered.contains(r#"" onmouseover=""#),
+            "the state value must not break out of its attribute: {rendered}",
+        );
+        assert!(
+            rendered.contains("&quot; onmouseover=&quot;alert(1)"),
+            "{rendered}"
+        );
     }
 
     /// **The XSS regression test** (plan-61-C Phase 3) — the single most
@@ -6028,6 +6644,7 @@ mod tests {
                     url: Some("javascript:alert(1)".to_string()),
                     // plan-61-E extends this fixture to the description too.
                     description: Some("<img src=x onerror=alert('desc')>".to_string()),
+                    docs: None,
                 },
             )
             .unwrap();
@@ -6213,6 +6830,294 @@ mod tests {
         assert!(!body.contains("<script"));
     }
 
+    // === plan-126-F: the Docs tab through the real router ==================
+
+    /// Publish `alice#toolbox@1.0.0` with optional documentation.
+    fn seed_toolbox(h: &Harness, docs: Option<Vec<u8>>) {
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash-1.0.0",
+                "data/1.0.0.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata {
+                    docs,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+
+    fn toolbox_doc_section() -> Vec<u8> {
+        mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
+            package: Some(mfb_wire::docs::PackageDocEntry {
+                name: "toolbox".to_string(),
+                desc: vec![
+                    (0, "Toolbox subtitle.".to_string()),
+                    (2, "An informational note.".to_string()),
+                ],
+                deprecated: None,
+            }),
+            decls: Vec::new(),
+        })
+    }
+
+    /// **plan-126-F Phase 1's acceptance test.** Each of the three package pages,
+    /// rendered through the real router, carries exactly one
+    /// `aria-current="page"`, on its own tab.
+    #[tokio::test]
+    async fn every_package_tab_page_marks_exactly_one_current_tab() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        for (uri, label) in [
+            ("/p/alice%23toolbox", "Overview"),
+            ("/p/alice%23toolbox/docs", "Docs"),
+            ("/p/alice%23toolbox/audit", "Audit"),
+        ] {
+            let (status, _headers, body) = get_page(&h.state, uri).await;
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert_eq!(
+                body.matches("aria-current=\"page\"").count(),
+                1,
+                "{uri} must mark exactly one tab: {body}"
+            );
+            assert!(
+                body.contains(&format!("aria-current=\"page\">{label}</a>")),
+                "{uri} must mark {label}: {body}"
+            );
+        }
+    }
+
+    /// A release with no stored documentation gets the tab, HTTP 200, and an
+    /// explicit statement — not a 404 and not a hidden tab.
+    #[tokio::test]
+    async fn the_docs_tab_states_when_a_release_has_no_documentation() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (status, headers, body) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_SECURITY_POLICY).unwrap(),
+            crate::web::CONTENT_SECURITY_POLICY,
+        );
+        assert!(body.contains("did not include documentation"), "{body}");
+        assert!(body.contains("v1.0.0"), "{body}");
+    }
+
+    /// Stored documentation renders under the unchanged site CSP, with no inline
+    /// style and no script — the two things the compiler's own renderer would
+    /// have needed.
+    #[tokio::test]
+    async fn the_docs_tab_renders_stored_documentation_under_the_site_csp() {
+        let h = harness();
+        seed_toolbox(&h, Some(toolbox_doc_section()));
+        let (status, headers, body) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_SECURITY_POLICY).unwrap(),
+            crate::web::CONTENT_SECURITY_POLICY,
+        );
+        assert!(body.contains("Toolbox subtitle."), "{body}");
+        assert!(body.contains("An informational note."), "{body}");
+        assert!(body.contains("callout--info"), "{body}");
+        assert!(!body.contains("did not include documentation"), "{body}");
+        assert!(!body.contains("<style"), "no inline style: {body}");
+        assert!(!body.contains("<script"), "no script: {body}");
+    }
+
+    /// An unknown ident's Docs tab 404s exactly like the other tabs, with the
+    /// same not-found page, because it resolves through `package_detail`.
+    #[tokio::test]
+    async fn an_unknown_packages_docs_tab_404s_like_the_other_tabs() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (overview_status, _h1, overview_body) = get_page(&h.state, "/p/alice%23nope").await;
+        let (docs_status, _h2, docs_body) = get_page(&h.state, "/p/alice%23nope/docs").await;
+        assert_eq!(docs_status, StatusCode::NOT_FOUND);
+        assert_eq!(docs_status, overview_status);
+        assert!(docs_body.contains("Package not found"), "{docs_body}");
+        assert!(
+            overview_body.contains("Package not found"),
+            "{overview_body}"
+        );
+    }
+
+    /// A doc section whose subtitle names the release, with one public
+    /// declaration (in group `Math`) and one the author marked `INTERNAL`.
+    fn release_doc_section(release_tag: &str) -> Vec<u8> {
+        let decl = |name: &str, internal: bool| mfb_wire::docs::DeclDocEntry {
+            kind: "func".to_string(),
+            name: name.to_string(),
+            signature: format!("EXPORT FUNC {name}() AS Integer"),
+            group: "Math".to_string(),
+            desc: vec![(0, format!("{name} of {release_tag}."))],
+            args: vec![("a".to_string(), "An argument.".to_string())],
+            props: Vec::new(),
+            ret: "A number.".to_string(),
+            errors: Vec::new(),
+            example: format!("PRINT toolbox::{name}()"),
+            internal,
+            deprecated: None,
+        };
+        mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
+            package: Some(mfb_wire::docs::PackageDocEntry {
+                name: "toolbox".to_string(),
+                desc: vec![(0, format!("Toolbox {release_tag}."))],
+                deprecated: None,
+            }),
+            decls: vec![decl("addUp", false), decl("secretHelper", true)],
+        })
+    }
+
+    fn publish_toolbox_release(h: &Harness, version: &str, docs: Option<Vec<u8>>) {
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                version,
+                &format!("hash-{version}"),
+                &format!("data/{version}.mfp"),
+                "{}",
+                &[],
+                &crate::store::PublishMetadata {
+                    docs,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+
+    fn docs_json(body: &str) -> PackageDocsResponse {
+        serde_json::from_str(body).unwrap_or_else(|err| panic!("{err}: {body}"))
+    }
+
+    /// **plan-126-F Validation Plan: the JSON/HTML parity test.** Both routes
+    /// report the same release, the same groups and the same declaration
+    /// anchors, and both omit the internal declaration.
+    #[tokio::test]
+    async fn the_docs_json_route_mirrors_the_docs_tab() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        publish_toolbox_release(&h, "1.0.0", Some(release_doc_section("r1")));
+
+        let (json_status, json_headers, json_body) =
+            get_page(&h.state, "/packages/alice%23toolbox/docs").await;
+        let (html_status, _headers, html_body) =
+            get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(json_status, StatusCode::OK, "{json_body}");
+        assert_eq!(html_status, StatusCode::OK, "{html_body}");
+        assert!(json_headers
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("application/json"));
+
+        let docs = docs_json(&json_body);
+        assert_eq!(docs.ident, "alice#toolbox");
+        assert_eq!(docs.version.as_deref(), Some("1.0.0"));
+        assert!(html_body.contains("v1.0.0"), "{html_body}");
+        // The HTML tab links its JSON mirror.
+        assert!(
+            html_body.contains("/packages/alice%23toolbox/docs"),
+            "{html_body}"
+        );
+
+        let documentation = docs.documentation.expect("documented release");
+        assert_eq!(documentation.subtitle, "Toolbox r1.");
+        assert!(html_body.contains("Toolbox r1."), "{html_body}");
+        assert_eq!(documentation.groups.len(), 1);
+        let group = &documentation.groups[0];
+        assert_eq!(group.title, "Math");
+        assert!(html_body.contains(">Math</h2>"), "{html_body}");
+        let anchors: Vec<&str> = group
+            .declarations
+            .iter()
+            .map(|decl| decl.anchor.as_str())
+            .collect();
+        assert_eq!(anchors, ["doc-addup"]);
+        for anchor in anchors {
+            assert!(
+                html_body.contains(&format!("id=\"{anchor}\"")),
+                "the JSON anchor {anchor} must be an element id on the tab: {html_body}"
+            );
+        }
+        let add = &group.declarations[0];
+        assert_eq!(add.signature, "EXPORT FUNC addUp() AS Integer");
+        assert_eq!(add.parameters[0].name, "a");
+        assert_eq!(add.returns, "A number.");
+        assert_eq!(add.example, "PRINT toolbox::addUp()");
+        assert!(!json_body.contains("secretHelper"), "{json_body}");
+        assert!(!html_body.contains("secretHelper"), "{html_body}");
+    }
+
+    /// An undocumented release is `documentation: null` on the JSON route —
+    /// the state the HTML tab states in words.
+    #[tokio::test]
+    async fn the_docs_json_route_reports_null_for_an_undocumented_release() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (status, _headers, body) = get_page(&h.state, "/packages/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let docs = docs_json(&body);
+        assert_eq!(docs.version.as_deref(), Some("1.0.0"));
+        assert!(docs.documentation.is_none(), "{body}");
+        assert!(body.contains("\"documentation\":null"), "{body}");
+    }
+
+    /// The JSON route refuses an unknown package with the same status as
+    /// `GET /packages/:ident`.
+    #[tokio::test]
+    async fn the_docs_json_route_404s_like_the_package_route() {
+        let h = harness();
+        seed_toolbox(&h, None);
+        let (detail_status, _h1, _b1) = get_page(&h.state, "/packages/alice%23nope").await;
+        let (docs_status, _h2, docs_body) = get_page(&h.state, "/packages/alice%23nope/docs").await;
+        assert_eq!(detail_status, StatusCode::NOT_FOUND);
+        assert_eq!(docs_status, detail_status);
+        assert!(docs_body.contains("unknown package"), "{docs_body}");
+    }
+
+    /// **plan-126-F Validation Plan: the cross-surface check.** When the newest
+    /// release is yanked, both the tab and its JSON mirror serve the older
+    /// active release's documentation and name that release — plan-126-A's
+    /// selection end to end, not merely the newest row.
+    #[tokio::test]
+    async fn the_docs_tab_documents_the_older_active_release_when_the_newest_is_yanked() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        publish_toolbox_release(&h, "1.0.0", Some(release_doc_section("r1")));
+        publish_toolbox_release(&h, "2.0.0", Some(release_doc_section("r2")));
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        let (_status, _headers, before) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert!(before.contains("Toolbox r2."), "{before}");
+        assert!(before.contains("v2.0.0"), "{before}");
+
+        h.store
+            .set_release_state(alice_id, "alice#toolbox", "2.0.0", "yanked")
+            .unwrap();
+
+        let (status, _headers, html_body) = get_page(&h.state, "/p/alice%23toolbox/docs").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html_body.contains("Toolbox r1."), "{html_body}");
+        assert!(html_body.contains("v1.0.0"), "{html_body}");
+        assert!(!html_body.contains("Toolbox r2."), "{html_body}");
+        assert!(!html_body.contains("v2.0.0"), "{html_body}");
+
+        let (_status, _headers, json_body) =
+            get_page(&h.state, "/packages/alice%23toolbox/docs").await;
+        let docs = docs_json(&json_body);
+        assert_eq!(docs.version.as_deref(), Some("1.0.0"));
+        assert_eq!(docs.documentation.unwrap().subtitle, "Toolbox r1.");
+    }
+
     /// An unknown package renders a 404 **page**, not a bare status — and that
     /// page still carries the CSP, because it is built by the shared builder.
     #[tokio::test]
@@ -6369,6 +7274,141 @@ mod tests {
             response.results[0].description.as_deref(),
             Some(exact.as_str())
         );
+    }
+
+    /// bug-579: the anonymous transparency-log routes each loaded EVERY leaf,
+    /// rebuilt the whole Merkle root and produced a fresh signature, on every
+    /// request, with no limiter key consumed. Cost grew with the log and nothing
+    /// bounded the repetition.
+    ///
+    /// This pins the route CONTRACT: a repeat at an unchanged size is identical,
+    /// an APPEND is observed rather than masked, and what is served still
+    /// verifies under the server key. A cache that got the append wrong would be
+    /// a far worse bug than the one being fixed, because clients pin what this
+    /// returns. The memo's mechanism is probed separately in
+    /// `store::tests::signed_checkpoint_is_memoised_by_log_size`.
+    #[tokio::test]
+    async fn log_checkpoint_follows_an_append_and_still_verifies() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        let first = log_checkpoint(State(h.state.clone()), peer("10.0.0.1"))
+            .await
+            .unwrap()
+            .0;
+
+        // A repeat at an unchanged size is byte-identical.
+        //
+        // Note this alone does NOT prove the memo engaged: Ed25519 signing is
+        // deterministic (RFC 8032), so a full recompute would produce exactly
+        // the same bytes. It pins the contract, not the mechanism.
+        let repeat = log_checkpoint(State(h.state.clone()), peer("10.0.0.1"))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(repeat.size, first.size);
+        assert_eq!(repeat.root_hash, first.root_hash);
+        assert_eq!(repeat.signature, first.signature);
+
+        // An append MUST be observed. This is the half a stale cache breaks.
+        // The memo's *mechanism* is probed in
+        // `store::tests::signed_checkpoint_is_memoised_by_log_size`, which can
+        // reach the connection directly; here the contract is what matters.
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash-1",
+                "data/1.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata::default(),
+            )
+            .unwrap();
+        let after = log_checkpoint(State(h.state.clone()), peer("10.0.0.1"))
+            .await
+            .unwrap()
+            .0;
+        assert!(
+            after.size > first.size,
+            "the memo must not hide an append: {} -> {}",
+            first.size,
+            after.size
+        );
+        assert_ne!(after.root_hash, first.root_hash);
+
+        // And the served head is the real one, not a cached artefact: it must
+        // verify under the server key and match a freshly computed root.
+        let leaves = h.store.log_leaf_hashes(None).unwrap();
+        assert_eq!(after.root_hash, hex::encode(crate::log::root(&leaves)));
+        let (server_public, _) = h.store.server_keypair().unwrap();
+        crypto::verify(
+            &server_public,
+            &crate::log::checkpoint_signing_input(after.size as u64, &crate::log::root(&leaves)),
+            &crypto::decode_bytes(&after.signature, "signature").unwrap(),
+        )
+        .expect("the memoised checkpoint must still verify under the server key");
+    }
+
+    /// bug-579: the anonymous log routes now consume a shared per-IP budget.
+    #[tokio::test]
+    async fn anonymous_log_routes_are_rate_limited_per_ip() {
+        let h = harness();
+        for _ in 0..LOG_PER_IP_MAX {
+            let _ = log_checkpoint(State(h.state.clone()), peer("10.0.0.2"))
+                .await
+                .expect("within budget");
+        }
+        let (status, _) = err_of(log_checkpoint(State(h.state.clone()), peer("10.0.0.2")).await);
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+
+        // The budget is shared across the log routes, so an exhausted peer
+        // cannot simply switch to the proof route for more full-log work.
+        let (status, _) = err_of(
+            log_consistency_proof(
+                State(h.state.clone()),
+                peer("10.0.0.2"),
+                axum::extract::Query(ConsistencyQuery { from: 0, to: None }),
+            )
+            .await,
+        );
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+
+        // It is PER IP: one abusive peer must not deny the rest of the world.
+        let _ = log_checkpoint(State(h.state.clone()), peer("10.0.0.3"))
+            .await
+            .expect("a different peer has its own budget");
+    }
+
+    /// POSITIVE (bug-579): the budget must clear the worst LEGITIMATE client.
+    ///
+    /// `verify_publish_inclusion` makes three log requests — `/log/checkpoint`,
+    /// `/log/publish`, `/log/proof/:index` — and `mfb pkg install --proof` calls
+    /// it once per dependency, so a large install is a single burst of roughly
+    /// `3 x deps` requests, all from one IP. Behind a NAT or a CI egress address
+    /// that IP is shared by everyone. A budget tuned for "abuse" without this
+    /// number would not harden the registry, it would break installs.
+    ///
+    /// This pins the headroom explicitly so that anyone tightening
+    /// `LOG_PER_IP_MAX` has to confront the client's real request shape.
+    #[tokio::test]
+    async fn the_log_budget_clears_a_full_install_burst_from_one_ip() {
+        let h = harness();
+        const DEPENDENCIES: usize = 200;
+        const REQUESTS_PER_DEPENDENCY: usize = 3;
+        let burst = DEPENDENCIES * REQUESTS_PER_DEPENDENCY;
+        assert!(
+            burst <= LOG_PER_IP_MAX,
+            "a {DEPENDENCIES}-dependency `pkg install --proof` is {burst} log \
+             requests from one IP; LOG_PER_IP_MAX is {LOG_PER_IP_MAX}"
+        );
+        for _ in 0..burst {
+            let _ = log_checkpoint(State(h.state.clone()), peer("10.0.0.4"))
+                .await
+                .expect("an ordinary install burst must not be throttled");
+        }
     }
 
     fn peer(ip: &str) -> ConnectInfo<SocketAddr> {
@@ -6701,12 +7741,15 @@ mod tests {
         let salt = vec![9u8; 16];
         let good_blob = crypto::encode_bytes(&blob);
         let good_salt = crypto::encode_bytes(&salt);
+        let (approval_public, approval_private) = crypto::pairing_approval_keypair(&code).unwrap();
+        let good_approval_key = crypto::encode_bytes(&approval_public);
         let start =
             |owner: &str, session: &str, lookup: &str, blob: &str, salt: &str| LinkStartRequest {
                 owner: owner.to_string(),
                 lookup: lookup.to_string(),
                 blob: blob.to_string(),
                 salt: salt.to_string(),
+                approval_key: good_approval_key.clone(),
                 session_token: session.to_string(),
             };
 
@@ -6811,11 +7854,21 @@ mod tests {
             .unwrap(),
         );
         let key = crypto::encode_bytes(&new_public);
+        // The pairing approval: the typed code signs THIS auth key for THIS
+        // pairing (bug-583).
+        let approval = crypto::encode_bytes(
+            &crypto::sign(
+                &approval_private,
+                &crypto::pairing_approval_message(&lookup, &new_public),
+            )
+            .unwrap(),
+        );
         let fetch = |owner: &str, lookup: &str, auth_key: &str, proof: &str| LinkFetchRequest {
             owner: owner.to_string(),
             lookup: lookup.to_string(),
             auth_key: auth_key.to_string(),
             proof: proof.to_string(),
+            approval: approval.clone(),
         };
 
         assert_eq!(
@@ -6909,6 +7962,145 @@ mod tests {
             err_of(link_fetch(State(h.state), Json(fetch("alice", &lookup, &key, &proof)),).await)
                 .1,
             "unknown, used, or expired pairing code",
+        );
+    }
+
+    /// bug-583: the server-visible `lookup` is NOT the pairing approval. The
+    /// relay (or any database reader) sees the lookup the moment the old
+    /// machine parks the blob; if that alone enrols an auth key, a server
+    /// that provably cannot read the ident blob can still impersonate the
+    /// account at the auth layer — exactly what plan-23 §2 ("a full server
+    /// compromise yields zero user keys", machines are equals) forbids.
+    /// Authorization must require the pairing CODE, which only the user
+    /// carries from the old machine to the new one.
+    #[tokio::test]
+    async fn pairing_lookup_without_code_cannot_enrol_an_auth_key() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+
+        // An honest link starts: the old machine seals its ident keypair
+        // under the code and parks it. The relay now knows the lookup.
+        let code = crypto::generate_pairing_code();
+        let lookup = crypto::pairing_lookup(&code);
+        let mut plaintext = keys.ident_private.clone();
+        plaintext.extend_from_slice(&keys.ident_public);
+        let (blob, salt) = crypto::seal_pairing_blob(&code, &plaintext).unwrap();
+        let (approval_public, approval_private) = crypto::pairing_approval_keypair(&code).unwrap();
+        let _ = link_start(
+            State(h.state.clone()),
+            Json(LinkStartRequest {
+                owner: "alice".to_string(),
+                lookup: lookup.clone(),
+                blob: crypto::encode_bytes(&blob),
+                salt: crypto::encode_bytes(&salt),
+                approval_key: crypto::encode_bytes(&approval_public),
+                session_token: token.clone(),
+            }),
+        )
+        .await
+        .expect("pairing blob stored");
+
+        // The relay adversary: it has the lookup, the blob, the salt and the
+        // approval public key — everything the server stores — and nothing
+        // else. It cannot open the blob, but it can mint a keypair and sign
+        // the ordinary auth proof-of-possession over its OWN key, and it can
+        // attach an approval signature made with a key of its own choosing.
+        let (relay_public, relay_private) = crypto::generate_keypair();
+        let relay_proof = crypto::sign(
+            &relay_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &relay_public),
+        )
+        .unwrap();
+        let (forged_public, forged_private) = crypto::generate_keypair();
+        assert_ne!(forged_public, approval_public);
+        let relay_fetch = |approval: Vec<u8>| LinkFetchRequest {
+            owner: "alice".to_string(),
+            lookup: lookup.clone(),
+            auth_key: crypto::encode_bytes(&relay_public),
+            proof: crypto::encode_bytes(&relay_proof),
+            approval: crypto::encode_bytes(&approval),
+        };
+        let forged = crypto::sign(
+            &forged_private,
+            &crypto::pairing_approval_message(&lookup, &relay_public),
+        )
+        .unwrap();
+        for attempt in [forged, vec![0u8; crypto::SIGNATURE_LEN]] {
+            let (status, message) =
+                err_of(link_fetch(State(h.state.clone()), Json(relay_fetch(attempt))).await);
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{message}");
+            assert_eq!(message, "pairing approval does not prove the pairing code");
+        }
+        // No auth key was enrolled for the relay's fingerprint, so it cannot
+        // complete a login challenge.
+        assert!(h
+            .store
+            .owner_auth_key_by_fingerprint("alice", &crypto::fingerprint(&relay_public))
+            .unwrap()
+            .is_none());
+
+        // An approval the honest new machine made for ITS key cannot be
+        // re-pointed at the relay's key: the auth key is inside the signed
+        // bytes.
+        let (new_public, new_private) = crypto::generate_keypair();
+        let new_proof = crypto::sign(
+            &new_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &new_public),
+        )
+        .unwrap();
+        let honest_approval = crypto::sign(
+            &approval_private,
+            &crypto::pairing_approval_message(&lookup, &new_public),
+        )
+        .unwrap();
+        assert_eq!(
+            err_of(
+                link_fetch(
+                    State(h.state.clone()),
+                    Json(relay_fetch(honest_approval.clone())),
+                )
+                .await
+            )
+            .1,
+            "pairing approval does not prove the pairing code",
+        );
+
+        // POSITIVE PIN: none of the refusals burned the pairing. The honest
+        // new machine, holding the typed code, still completes the link, gets
+        // the exact relayed bytes back, and its key opens a real session.
+        let fetched = link_fetch(
+            State(h.state.clone()),
+            Json(LinkFetchRequest {
+                owner: "alice".to_string(),
+                lookup: lookup.clone(),
+                auth_key: crypto::encode_bytes(&new_public),
+                proof: crypto::encode_bytes(&new_proof),
+                approval: crypto::encode_bytes(&honest_approval),
+            }),
+        )
+        .await
+        .expect("the machine holding the code still links")
+        .0;
+        assert_eq!(crypto::decode_bytes(&fetched.blob, "blob").unwrap(), blob);
+        assert_eq!(
+            crypto::open_pairing_blob(
+                &code,
+                &crypto::decode_bytes(&fetched.blob, "blob").unwrap(),
+                &crypto::decode_bytes(&fetched.salt, "salt").unwrap(),
+            )
+            .unwrap(),
+            plaintext,
+        );
+        let session = open_session_for_key(
+            &h.store,
+            "alice",
+            &new_private,
+            &crypto::fingerprint(&new_public),
+        );
+        assert_eq!(
+            verify_session_token(&h.store, &session).unwrap().sub,
+            "alice"
         );
     }
 
@@ -7179,6 +8371,106 @@ mod tests {
             .is_some());
     }
 
+    /// bug-584 (positive pin, end to end): a client that pinned the registry
+    /// root BEFORE a renewal still verifies the served chain after it. The
+    /// renewal re-delegates fresh online keys under a bumped root version, and
+    /// the client — anchored solely on the fingerprint it pinned — follows it
+    /// with no out-of-band step, picking up the newly delegated keys.
+    #[tokio::test]
+    async fn a_pinned_client_verifies_the_chain_across_an_authenticated_root_renewal() {
+        let h = harness();
+        let expires = now_unix() + 86_400;
+        let root_private = h.store.init_registry_root("reg-1", expires).unwrap();
+        // What the operator publishes and the client pins out of band.
+        let pinned_fingerprint = root_metadata(State(h.state.clone()))
+            .await
+            .expect("root served")
+            .0
+            .root_fingerprint;
+
+        let verify = |state: AppState| async move {
+            let root = root_metadata(State(state.clone())).await.expect("root").0;
+            let timestamp = timestamp_metadata(State(state.clone()))
+                .await
+                .expect("timestamp")
+                .0;
+            let snapshot = snapshot_metadata(State(state)).await.expect("snapshot").0;
+            (root, timestamp, snapshot)
+        };
+
+        let (root, timestamp, snapshot) = verify(h.state.clone()).await;
+        let before = crate::client::verify_registry_metadata(
+            &root,
+            &timestamp,
+            &snapshot,
+            "reg-1",
+            &pinned_fingerprint,
+            0,
+            0,
+            now_unix(),
+        )
+        .expect("the first chain verifies under the pinned root");
+        assert_eq!(before.root_version, 1);
+
+        // The operator renews with the offline root key they stored at init.
+        let version = h
+            .store
+            .renew_registry_root("reg-1", expires + 86_400, &root_private)
+            .expect("renewal under the offline root key");
+        assert_eq!(version, 2);
+
+        let (root, timestamp, snapshot) = verify(h.state.clone()).await;
+        // The anchor the client pinned is unchanged...
+        assert_eq!(root.root_fingerprint, pinned_fingerprint);
+        let after = crate::client::verify_registry_metadata(
+            &root,
+            &timestamp,
+            &snapshot,
+            "reg-1",
+            &pinned_fingerprint,
+            before.root_version,
+            before.snapshot_version,
+            now_unix(),
+        )
+        .expect("the renewed chain verifies under the SAME pinned root");
+        // The renewal advanced the pinned root version...
+        assert_eq!(after.root_version, 2);
+        // ...the delegated attestation key still cross-checks against the
+        // server key the client pinned, and the root document really did move.
+        assert_eq!(after.server_key, h.store.server_public_key().unwrap());
+        let root_doc: serde_json::Value = serde_json::from_str(&root.signed).unwrap();
+        assert_eq!(root_doc["version"], 2);
+        assert_eq!(root_doc["expires"], expires + 86_400);
+        let config = h.store.registry_config().unwrap().unwrap();
+        assert_eq!(
+            root_doc["snapshotKey"],
+            crypto::encode_bytes(&config.snapshot_public)
+        );
+
+        // A re-anchor, by contrast, is exactly the break the client must NOT
+        // follow: the pinned fingerprint no longer matches.
+        h.store
+            .reanchor_registry_root("reg-1", expires + 172_800)
+            .unwrap();
+        let (root, timestamp, snapshot) = verify(h.state.clone()).await;
+        assert_ne!(root.root_fingerprint, pinned_fingerprint);
+        let err = crate::client::verify_registry_metadata(
+            &root,
+            &timestamp,
+            &snapshot,
+            "reg-1",
+            &pinned_fingerprint,
+            after.root_version,
+            after.snapshot_version,
+            now_unix(),
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("does not match the pinned root fingerprint"),
+            "{err}"
+        );
+    }
+
     #[tokio::test]
     async fn signed_metadata_is_absent_until_the_root_ceremony_then_verifies() {
         let h = harness();
@@ -7317,6 +8609,7 @@ mod tests {
             let (status, message) = err_of(
                 log_inclusion_proof(
                     State(h.state.clone()),
+                    peer("127.0.0.1"),
                     axum::extract::Path(index),
                     axum::extract::Query(ProofQuery { size: None }),
                 )
@@ -7330,6 +8623,7 @@ mod tests {
         // with it: index 1 is outside a one-leaf tree.
         let historic = log_inclusion_proof(
             State(h.state.clone()),
+            peer("127.0.0.1"),
             axum::extract::Path(0),
             axum::extract::Query(ProofQuery { size: Some(1) }),
         )
@@ -7343,6 +8637,7 @@ mod tests {
             err_of(
                 log_inclusion_proof(
                     State(h.state.clone()),
+                    peer("127.0.0.1"),
                     axum::extract::Path(1),
                     axum::extract::Query(ProofQuery { size: Some(1) }),
                 )
@@ -7356,6 +8651,7 @@ mod tests {
             let (status, message) = err_of(
                 log_consistency_proof(
                     State(h.state.clone()),
+                    peer("127.0.0.1"),
                     axum::extract::Query(ConsistencyQuery { from, to: None }),
                 )
                 .await,
@@ -7741,16 +9037,19 @@ mod tests {
         let token_session =
             open_session_for_key(&h.store, "alice", &token_private, &token_fingerprint);
 
-        let lookup = crypto::pairing_lookup(&crypto::generate_pairing_code());
-        let start = |session: &str, lookup: &str| LinkStartRequest {
+        let code = crypto::generate_pairing_code();
+        // Both halves derive their pairing approval material from the code, as
+        // the real client does (bug-583).
+        let start = |session: &str, code: &str| LinkStartRequest {
             owner: "alice".to_string(),
-            lookup: lookup.to_string(),
+            lookup: crypto::pairing_lookup(code),
             blob: crypto::encode_bytes(&[7u8; 64]),
             salt: crypto::encode_bytes(&[9u8; 16]),
+            approval_key: crypto::encode_bytes(&crypto::pairing_approval_keypair(code).unwrap().0),
             session_token: session.to_string(),
         };
         assert_eq!(
-            err_of(link_start(State(h.state.clone()), Json(start(&token_session, &lookup)),).await),
+            err_of(link_start(State(h.state.clone()), Json(start(&token_session, &code)),).await),
             (
                 StatusCode::BAD_REQUEST,
                 "a publish token session cannot link a machine".to_string(),
@@ -7766,14 +9065,25 @@ mod tests {
             )
             .unwrap(),
         );
-        let fetch = |lookup: &str| LinkFetchRequest {
-            owner: "alice".to_string(),
-            lookup: lookup.to_string(),
-            auth_key: crypto::encode_bytes(&new_public),
-            proof: proof.clone(),
+        let fetch = |code: &str| {
+            let lookup = crypto::pairing_lookup(code);
+            let approval_private = crypto::pairing_approval_keypair(code).unwrap().1;
+            LinkFetchRequest {
+                approval: crypto::encode_bytes(
+                    &crypto::sign(
+                        &approval_private,
+                        &crypto::pairing_approval_message(&lookup, &new_public),
+                    )
+                    .unwrap(),
+                ),
+                owner: "alice".to_string(),
+                lookup,
+                auth_key: crypto::encode_bytes(&new_public),
+                proof: proof.clone(),
+            }
         };
         assert_eq!(
-            err_of(link_fetch(State(h.state.clone()), Json(fetch(&lookup))).await).1,
+            err_of(link_fetch(State(h.state.clone()), Json(fetch(&code))).await).1,
             "unknown, used, or expired pairing code",
         );
         // Refusing the link did not narrow the token further: it still attests
@@ -7795,10 +9105,10 @@ mod tests {
 
         // A real two-machine link is untouched: the account's machine key parks
         // the blob and the new machine fetches it.
-        let _ = link_start(State(h.state.clone()), Json(start(&owner_session, &lookup)))
+        let _ = link_start(State(h.state.clone()), Json(start(&owner_session, &code)))
             .await
             .expect("a machine-key session still starts a link");
-        let fetched = link_fetch(State(h.state.clone()), Json(fetch(&lookup)))
+        let fetched = link_fetch(State(h.state.clone()), Json(fetch(&code)))
             .await
             .expect("the new machine still fetches the pairing")
             .0;
@@ -7807,10 +9117,10 @@ mod tests {
         // itself enrol the next machine.
         let linked_session =
             open_session_for_key(&h.store, "alice", &new_private, &fetched.auth_fingerprint);
-        let next_lookup = crypto::pairing_lookup(&crypto::generate_pairing_code());
+        let next_code = crypto::generate_pairing_code();
         let _ = link_start(
             State(h.state.clone()),
-            Json(start(&linked_session, &next_lookup)),
+            Json(start(&linked_session, &next_code)),
         )
         .await
         .expect("a linked machine key can pair another machine");
@@ -9075,6 +10385,108 @@ mod tests {
         assert_eq!(source, "libsnd.a");
     }
 
+    // === plan-126-E Phase 2: section 17 captured at publish ================
+
+    /// A publishable payload with an optional section 17 (`doc`). Same shape
+    /// `validate_writes_no_target_rows_but_publish_does` publishes -- a string
+    /// pool and an ABI index -- minus the section-10 vendor table, which would
+    /// need an uploaded blob.
+    fn payload_with_doc_section(doc_section: Option<Vec<u8>>) -> Vec<u8> {
+        let mut sections = vec![
+            (2, mfpc_string_pool(&["greet"])),
+            (15, mfpc_abi_section(&[(0, [0xab; 32])])),
+        ];
+        if let Some(section) = doc_section {
+            sections.push((17, section));
+        }
+        mfpc_container(&sections)
+    }
+
+    /// A well-formed section-17 body, produced by the one shared encoder.
+    fn sample_doc_section() -> Vec<u8> {
+        mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
+            package: Some(mfb_wire::docs::PackageDocEntry {
+                name: "toolbox".to_string(),
+                desc: vec![(0, "A toolbox.".to_string())],
+                deprecated: None,
+            }),
+            decls: vec![mfb_wire::docs::DeclDocEntry {
+                kind: "func".to_string(),
+                name: "greet".to_string(),
+                signature: "EXPORT FUNC greet() AS String".to_string(),
+                group: String::new(),
+                desc: vec![(0, "Greets.".to_string())],
+                args: Vec::new(),
+                props: Vec::new(),
+                ret: "a greeting".to_string(),
+                errors: Vec::new(),
+                example: String::new(),
+                internal: false,
+                deprecated: None,
+            }],
+        })
+    }
+
+    /// Publish `payload` as `alice#toolbox@1.0.0` through the real handler.
+    async fn publish_payload(payload: Vec<u8>) -> Harness {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let (_artifact, request) = signed_request(&h.state, &keys, &token, "1.0.0", payload).await;
+        let _ = publish_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("publish succeeds");
+        h
+    }
+
+    /// A documented package's section 17 is stored, and reads back byte for
+    /// byte -- the raw bytes, not a re-encoding.
+    #[tokio::test]
+    async fn publishing_a_documented_package_stores_its_doc_section_byte_for_byte() {
+        let section = sample_doc_section();
+        let h = publish_payload(payload_with_doc_section(Some(section.clone()))).await;
+        assert_eq!(
+            h.store.latest_active_version_docs("alice#toolbox").unwrap(),
+            Some(("1.0.0".to_string(), section)),
+        );
+    }
+
+    /// No section 17 is the normal undocumented case: publish succeeds, no row.
+    #[tokio::test]
+    async fn publishing_an_undocumented_package_succeeds_and_stores_no_doc_row() {
+        let h = publish_payload(payload_with_doc_section(None)).await;
+        assert_eq!(
+            h.store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+    }
+
+    /// **plan-126-E Phase 2's important negative.** A truncated section 17 must
+    /// not reject a signed package -- documentation "does not affect execution
+    /// or the ABI" -- and must not be recorded either.
+    #[tokio::test]
+    async fn a_truncated_doc_section_still_publishes_and_records_nothing() {
+        let mut truncated = sample_doc_section();
+        truncated.truncate(truncated.len() - 3);
+        assert!(
+            mfb_wire::docs::read_doc_table(&truncated).is_err(),
+            "the fixture must genuinely fail to decode, or this test proves nothing"
+        );
+        let h = publish_payload(payload_with_doc_section(Some(truncated))).await;
+        assert_eq!(
+            h.store.latest_active_version_docs("alice#toolbox").unwrap(),
+            None
+        );
+        // The version itself landed: a doc-table defect did not block the publish.
+        assert_eq!(
+            h.store
+                .latest_active_version("alice#toolbox")
+                .unwrap()
+                .map(|(version, _)| version),
+            Some("1.0.0".to_string()),
+        );
+    }
+
     #[tokio::test]
     async fn publish_refuses_invalid_packages_and_tolerates_a_pre_staged_blob() {
         let h = harness();
@@ -9763,5 +11175,142 @@ mod tests {
             },
             auth_private,
         )
+    }
+
+    /// bug-578, request level: an MFPC payload whose string pool declares more
+    /// entries than the format ceiling allows is rejected inside the parser,
+    /// before `/validate` builds a single `String` for it.
+    ///
+    /// The payload here is ~4 MiB — a sixteenth of `MAX_BODY_BYTES` — and
+    /// declares 1,048,577 zero-length pool entries. Pre-fix the parser accepted
+    /// the count and constructed every entry, so those 4 MiB of body became a
+    /// ~25 MiB `Vec<String>`; scaled to the full 64 MiB body limit the same
+    /// shape reached ~288 MiB on a 512 MiB server, and `validate_package_request`
+    /// pays it once per parser it calls. The request must come back with a
+    /// bounded diagnostic and an empty `abiIndex` instead.
+    #[tokio::test]
+    async fn oversized_string_pool_is_rejected_at_the_request_boundary() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let keys = register_owner_with_all_keys(&store, "alice");
+        let token = open_session(&store, "alice", &keys.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            blob_store: BlobStore::local(temp.path().join("data")),
+            rate_limiter: RateLimiter::new(),
+        };
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let ident_fingerprint = crypto::fingerprint(&keys.ident_public);
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+        let (attestation, attestation_sig) =
+            real_attestation(&state, &token, "1.0.0", &signing_fingerprint).await;
+        let proof = format!(
+            "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"1.0.0\",\"identFingerprint\":\"{}\",\"signingFingerprint\":\"{}\",\"issued\":1}}",
+            ident_fingerprint, signing_fingerprint,
+        );
+        let proof_sig = crypto::sign(
+            &keys.ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
+
+        // A minimal MFPC container: an oversized string pool (section 2), a
+        // one-entry native library table (section 10) so `parse_vendor_blobs`
+        // has to resolve the pool, and an ABI index (section 15) so
+        // `abi_index_json` does too.
+        let hostile_payload = {
+            let entries: u32 = 1_048_577; // MAX_STRING_POOL_ENTRIES + 1
+            let mut pool = Vec::with_capacity(4 + entries as usize * 4);
+            pool.extend_from_slice(&entries.to_le_bytes());
+            for _ in 0..entries {
+                pool.extend_from_slice(&0u32.to_le_bytes());
+            }
+            let mut table = Vec::new();
+            table.extend_from_slice(&1u32.to_le_bytes()); // one entry
+            table.extend_from_slice(&0u32.to_le_bytes()); // logical -> string 0
+            table.extend_from_slice(&0u32.to_le_bytes()); // zero locators
+            let mut abi = Vec::new();
+            abi.extend_from_slice(&1u16.to_le_bytes()); // format version
+            abi.extend_from_slice(&0u16.to_le_bytes()); // reserved
+            abi.extend_from_slice(&0u32.to_le_bytes()); // zero exports
+
+            let sections: [(u16, Vec<u8>); 3] = [(2, pool), (10, table), (15, abi)];
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"MFPC");
+            bytes.extend_from_slice(&2u16.to_le_bytes());
+            bytes.extend_from_slice(&0u16.to_le_bytes());
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+            bytes.extend_from_slice(&(sections.len() as u32).to_le_bytes());
+            let mut data_offset = 16 + sections.len() * 24;
+            for (id, data) in &sections {
+                bytes.extend_from_slice(&id.to_le_bytes());
+                bytes.extend_from_slice(&0u16.to_le_bytes());
+                bytes.extend_from_slice(&0u32.to_le_bytes());
+                bytes.extend_from_slice(&(data_offset as u64).to_le_bytes());
+                bytes.extend_from_slice(&(data.len() as u64).to_le_bytes());
+                data_offset += data.len();
+            }
+            for (_id, data) in &sections {
+                bytes.extend_from_slice(data);
+            }
+            bytes
+        };
+        assert!(
+            hostile_payload.len() < MAX_BODY_BYTES,
+            "the whole point is that this fits inside the body limit"
+        );
+
+        let artifact = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                author: "alice".to_string(),
+                url: String::new(),
+                payload: hostile_payload,
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+                proof,
+                proof_sig,
+                attestation,
+                attestation_sig,
+            },
+            &signing_private,
+        );
+        let parsed = package::parse_mfp_package(&artifact).unwrap();
+        let request = PackageArtifactRequest {
+            ident: parsed.ident.clone(),
+            version: parsed.version.clone(),
+            artifact: crypto::encode_bytes(&artifact),
+            content_hash: parsed.content_hash_hex(),
+            ident_fingerprint: parsed.ident_fingerprint().unwrap(),
+            signing_fingerprint: parsed.signing_fingerprint().unwrap(),
+            session_token: token.clone(),
+        };
+        let report = validate_package_request(&state, &request, "validate", VALIDATE_PER_OWNER_MAX)
+            .await
+            .unwrap();
+        assert!(!report.valid, "an over-ceiling pool must not validate");
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("string pool declares 1048577 entries")),
+            "expected a bounded string-pool diagnostic, got: {:?}",
+            report.diagnostics
+        );
+        // The diagnostic is a single bounded line, not a dump of the payload.
+        for diagnostic in &report.diagnostics {
+            assert!(
+                diagnostic.len() < 512,
+                "diagnostics must stay bounded: {diagnostic}"
+            );
+        }
+        // The best-effort ABI reader reports the empty object rather than
+        // building the pool behind the caller's back.
+        assert_eq!(report.abi_index, serde_json::json!({}));
     }
 }

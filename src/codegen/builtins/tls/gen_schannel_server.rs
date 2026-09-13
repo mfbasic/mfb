@@ -292,6 +292,8 @@ pub(crate) fn lower_tls_listen(
     // PKCS#1 it is the file's own DER.
     const KEYPTR: usize = 184;
     const KEYLEN: usize = 192;
+    const SERVICE: usize = 200; // getaddrinfo service: NULL, or &SERVICE_STR
+    const SERVICE_STR: usize = 208; // the C string "0" for the bind-all path
     const FRAME_SIZE: usize = 0x100;
 
     let addr_off = platform.addrinfo_addr_offset();
@@ -308,6 +310,11 @@ pub(crate) fn lower_tls_listen(
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
+    // bug-575: the host C-string `getaddrinfo` reads is this helper's own scratch.
+    // Declared here, ahead of every branch that can reach `done`, because the
+    // empty-host bind-all path branches to `null_host` and stores a plain 0 in
+    // `HOSTCSTR` without allocating: the release must read a null there.
+    let host_scratch = HelperScratch::declare(&mut vregs, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT),
@@ -324,21 +331,40 @@ pub(crate) fn lower_tls_listen(
         abi::store_u64(&v9, abi::stack_pointer(), HINTS),
         abi::move_immediate(&v9, "Integer", super::gen_shared::SOCK_STREAM),
         abi::store_u64(&v9, abi::stack_pointer(), HINTS + 8),
+        // A named host resolves with a NULL service; only bind-all sets one.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SERVICE),
         // Empty host => NULL node (bind all interfaces).
         abi::load_u64(&v9, abi::stack_pointer(), HOST),
         abi::load_u64(&v9, &v9, 0),
         abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&null_host),
     ]);
-    super::gen_shared::emit_cstring(symbol, "host", HOST, HOSTCSTR, &alloc_fail, &mut ins, &mut rel, &mut vregs);
+    super::gen_shared::emit_cstring(
+        symbol,
+        "host",
+        HOST,
+        HOSTCSTR,
+        &alloc_fail,
+        &host_scratch,
+        &mut ins,
+        &mut rel,
+        &mut vregs,
+    );
     ins.extend([
         abi::branch(&resolved),
         abi::label(&null_host),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HOSTCSTR),
+        // bug-597: Winsock's getaddrinfo, like glibc's, refuses a NULL node AND a
+        // NULL service, so bind-all points service at the C string "0" (bug-113's
+        // shape). The real port overwrites sin_port afterward.
+        abi::move_immediate(&v9, "Integer", "48"),
+        abi::store_u64(&v9, abi::stack_pointer(), SERVICE_STR),
+        abi::add_immediate(&v9, abi::stack_pointer(), SERVICE_STR),
+        abi::store_u64(&v9, abi::stack_pointer(), SERVICE),
         abi::label(&resolved),
-        // getaddrinfo(host, NULL, &hints, &res)
+        // getaddrinfo(host, service, &hints, &res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HOSTCSTR),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SERVICE),
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES),
     ]);
@@ -650,7 +676,9 @@ pub(crate) fn lower_tls_listen(
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
 
-    ins.extend([abi::label(&done), abi::return_()]);
+    ins.push(abi::label(&done));
+    emit_helper_scratch_release(symbol, &[host_scratch], &mut vregs, &mut ins, &mut rel);
+    ins.push(abi::return_());
     Ok((ins, rel, FRAME_SIZE))
 }
 

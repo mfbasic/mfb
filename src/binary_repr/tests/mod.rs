@@ -2,7 +2,8 @@ use super::*;
 
 mod builder_tests;
 mod cross_package_tests;
-mod doc_table_tests;
+// `doc_table_tests` moved to `wire/src/docs.rs`'s test module with the
+// section-17 codec it covers (plan-126-D).
 mod fixtures;
 mod gap_tests;
 mod mod_error_path_tests;
@@ -14,6 +15,8 @@ mod reader_gap_tests;
 mod reader_tests;
 mod resource_table_tests;
 mod sections_tests;
-mod util_tests;
+// `util_tests` moved to `wire/src/bytes.rs`'s own test module with the
+// primitives it covers (plan-126-B) — a test for `mfb_wire` code that ran only
+// under the compiler crate would have left the new crate's own gate empty.
 mod writer_tests;
 mod writer_walker_tests;

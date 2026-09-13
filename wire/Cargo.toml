@@ -1,0 +1,17 @@
+[package]
+name = "mfb_wire"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# Mirror the two existing crates' guard: an item placed after a
+# `#[cfg(test)] mod tests` reads as the end of the file, so production code
+# under it is easy to miss.
+[lints.clippy]
+items_after_test_module = "deny"
+
+[dependencies]
+# The only dependency, and deliberately the only kind of dependency this crate
+# may take: a pure computation over bytes. No I/O, no HTTP, no database, no
+# async. See the crate doc in src/lib.rs for why.
+sha2 = "0.10"

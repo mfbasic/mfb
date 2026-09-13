@@ -104,7 +104,9 @@ Rule of thumb: anything needed AFTER a `bl _mfb_*` runtime-helper call must live
 
 A record's `String` field is not a pointer. The word at `8*i` is the offset, relative to the record's own block, of an inlined `{len, bytes, NUL}` sub-block in a trailing data region. Blocks sit contiguously, each 8-aligned, each `len + 9` bytes. Block size = `8*n + Σ align8(len+9)`.
 
-Only `Address`, `Datagram`, `DatagramText`, `AudioDevice` keep pointer strings — every other record inlines. See `record_field_is_inlined` (`src/target/shared/code/builder_collection_layout.rs:586`); the authoritative construction is `emit_build_inlined_record` in the same file. Mirror it; never hand-roll a record from a mental model.
+Only `net::Address`, `udp::Datagram` and `audio::AudioDevice` keep pointer strings — every other record inlines. The list is `is_pointer_string_record` and the layout rule `record_field_is_inlined`, both in `src/codegen/collection/layout/builder_collection_layout.rs` (`DatagramText` left the list in bug-483: it is no longer declared anywhere); the authoritative construction is `emit_build_inlined_record` in the same file. Mirror it; never hand-roll a record from a mental model.
+
+A pointer-string record is not `type_is_memcpy_copyable`, and neither is any value that holds one (a `List OF net::Address`, a `Result` of one, a user record with an `Address` field). That class gets **no owning copy at a bind and no drop anywhere** — the same second-class status as a recursive type (bug-536 shape C). So every such value leaks (bug-599), two bindings can share one block, and an in-place collection arm on the copy mutates or frees the source (bug-601). Do not add a drop for the class on its own: it double-frees the shared block.
 
 Why it bites: the caller sizes/copies a record by walking the data region contiguously (`emit_record_block_size_to_slot` ignores the stored offsets when sizing), so hand-built code that stores a pointer and omits the region makes the caller read garbage as a length and add 9 → `ldr x11,[x10]; add x11,x11,#9`. Huge garbage → "Allocation failed" (7-701-0001); small-but-wrong → SIGSEGV at a different address every run. A scalar-only record hides this completely — `8*n` is then exactly right, so scalar tests passing proves nothing about the String path.
 
@@ -180,6 +182,32 @@ an argument or a container corrupts the free list, surfacing much later as
 - A **user/`.mfb`-bodied** function returning `String` needs the callee-side
   contract below — the mark is set by a producer's own lowering and cannot travel
   out of a callee.
+- A **native runtime helper** (`os::hostName`, `fs::readText`, `io::readLine`, …)
+  allocates its result with `_mfb_arena_alloc` and hands back the only pointer, but
+  `emit_runtime_helper_call` set no mark, so only the `Bind` spelling owned it:
+  `LET s AS String = os::arch()` was flat while `len(os::arch())` leaked 64 B per
+  call, `os::hostName()` 129 B, `fs::tempDirectory()` 260 B (bug-576). It now marks
+  its own result when `runtime_result_is_caller_owned` holds — the SAME gate the
+  `Bind` path and bug-566's inline-`TRAP` path already ask, so the licence is not a
+  new one. The exclusion it turns on is `thread.*`: `x19` is per-thread, a
+  `thread::waitFor` result is the WORKER's block, and freeing it from this thread
+  writes this thread's free list into another thread's heap. The catalog-wide audit
+  is `every_block_returning_runtime_helper_is_classified` /
+  `every_string_returning_runtime_helper_is_marked_fresh` in `codegen::registry`.
+- **A producer that JOINS two allocating paths must mark at the join.**
+  `collections::getOr` on a `String` element materializes the found element
+  (marked) and, on the miss path, copies the caller's default with
+  `emit_copy_owned_string` — whose own materializer overwrote the mark with the
+  COPY's register, not the joined `result`. The identity test rejected it and every
+  unbound `getOr` leaked 64 B per call (bug-592); `get` was flat only because its
+  miss path raises. `mark_fresh_element_result` now marks `result` after the join
+  label in `lower_list_get_common`, `lower_map_get` and `lower_map_get_or` (both
+  the hash and the scan arm each). This realizes §14.6's "Reads produce owned
+  values, not aliases into the buffer" for an unbound read, and it only ADDS a free.
+  The alias side stays closed: the plan-86 E `borrow_get_result` alias is only
+  taken for a non-`String` element, and `register_pending_temp` early-returns while
+  that flag is set. The member census is
+  `every_collections_member_returning_an_element_has_an_ownership_verdict`.
 
 ## A `.mfb` callee's `String`: assume-guarantee, not a per-site classification
 
@@ -187,12 +215,20 @@ bug-536 shape B-2. `function_returns_fresh_string(f)` is the callee half of the
 same contract `function_returns_param_borrow` states for the opposite answer, and
 the two are disjoint by construction (the fresh predicate checks the borrow one
 first and loses). It admits a function whose declared return is a bare `String`,
-that has at least one value return, that is not a param-borrow function, and that
-is not callback-referenced. That last exclusion is **conservative, not
-principled**: K1 excludes callbacks to FORCE a copy, while excluding them here
-removes the copy obligation — which leaves a pre-existing HOF SIGSEGV live
-(`collections::transform(xs, identish)` where `identish` is `RETURN toString(s)`).
-Dropping the arm is the fix; it wants its own callback-ABI audit.
+that has at least one value return, and that is not a param-borrow function.
+
+**A callback-referenced function is NOT excluded, and must not be** (bug-562,
+`1bba27392`). It was, when B-2 landed, purely to keep callback lowering
+byte-identical for one change — and that exclusion was the live half of a SIGSEGV:
+`collections::transform(xs, identish)` with `FUNC identish(s AS String) AS String
+/ RETURN toString(s)` was `[exit 139]`, because `toString`'s `String` arm is the
+identity and handed the HOF back the very block `free_collection_loop_item` was
+about to free. K1 excludes callbacks to FORCE a copy; excluding them *here*
+removed the copy obligation instead. Admitting the set makes the callee satisfy
+the `FunctionRef` ABI's ownership of the return value rather than weakening it.
+Do not re-add the arm — `tests/rt-behavior/collections/callback-string-return-identity-rt`
+and `tests/codegen/codegen_string_return_freshness.rs::being_used_as_a_callback_never_removes_the_return_copy`
+are the guards.
 
 **The guarantee is delivered, not observed.** `lower_returned_value` already
 makes three of the four return shapes fresh — a move-elided owned local moves its
@@ -244,9 +280,15 @@ one is now fixed (bug-560).**
 
 **The `TRAP` row here was wrong twice and is now closed; do not re-derive it.**
 It read "a `Result OF T` bound through `TRAP` (128 B per call for `Integer`,
-type-independent — the `$trap_resN` binding gets no scope-drop free)". The
-`$trap_resN` binding always DID get a scope-drop free (`ResultOf` is a freeable
-flat value). What leaked was, in order:
+type-independent — the `$trap_resN` binding gets no scope-drop free)". For a
+FLAT `T` the `$trap_resN` binding always DID get a scope-drop free (`Result OF T`
+is then a freeable flat value). **For a non-flat `T` it did not** — a resource
+(`RES f = fs::open(..) TRAP`, `tcp::connect`, `tls::connect`) or a collection of a
+pointer-`String` record (`List OF net::Address`) fails `type_is_memcpy_copyable`,
+so `is_freeable_flat_value` registered nothing and every failing iteration
+orphaned the wrapper with the trapped `Error` inlined in it: ~1 KB per call, flat
+in the argument, sized by the error message (bug-593, fixed by a wrapper-only
+drop, `ResultWrapperDrop`). What leaked for a flat `T` was, in order:
 
 * the block the PRODUCER returned, which `emit_build_result_inline` copies into
   the `Result` and nothing then owned — bug-561, fixed;

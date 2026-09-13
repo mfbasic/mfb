@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-unqualified-import-invalid
+   8 | 
+   9 | SUB main()
+  10 |   RES s AS http::Stream STATE PendingState = http::startRead(net::toUrl("http://example.com/"))
+     | ^
+tests/syntax/resources/resource-state-unqualified-import-invalid/src/main.mfb:10 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+               Type `PendingState` is not a built-in or top-level project type.
+[exit 1]

@@ -9,11 +9,11 @@ pub(super) fn encode_mach_o(
     data: &[u8],
     libraries: &[(String, String)],
     image: &EncodedImage,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, String> {
     let unsigned =
         encode_unsigned_mach_o(code_offset, entry_offset, code, data, 0, libraries, image);
     let signature = code_signature(&unsigned, name);
-    let unsigned = encode_unsigned_mach_o(
+    let mut unsigned = encode_unsigned_mach_o(
         code_offset,
         entry_offset,
         code,
@@ -22,10 +22,16 @@ pub(super) fn encode_mach_o(
         libraries,
         image,
     );
+    // Seal the content signature into the blob before the ad-hoc signature
+    // hashes the pages that hold it. The unsigned image ends at the
+    // `LC_CODE_SIGNATURE` offset, which is exactly where the covered bytes end.
+    if let Some(signing) = &image.signing_metadata {
+        crate::os::content_signature::seal(&mut unsigned, signing)?;
+    }
     let signature = code_signature(&unsigned, name);
     let mut bytes = unsigned;
     bytes.extend_from_slice(&signature);
-    bytes
+    Ok(bytes)
 }
 
 fn encode_unsigned_mach_o(
@@ -49,7 +55,10 @@ fn encode_unsigned_mach_o(
     // read-only `__const` block (constants, bug-187).
     let needs_data_const = has_imports || has_init || has_rodata;
     let dc_size = data_const_size(image);
-    let signing_metadata = image.signing_metadata.as_deref();
+    let signing_metadata = image
+        .signing_metadata
+        .as_ref()
+        .map(|signing| signing.metadata.as_slice());
     let signing_metadata_len = signing_metadata.map_or(0, |metadata| metadata.len());
     let layout = macho_layout(
         code_offset,
