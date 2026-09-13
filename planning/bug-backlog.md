@@ -58,12 +58,14 @@ neither filed it), 594 (macOS `drawText` column), 592.
   second; main behaves the same). Whether a received close_notify alone should fail later
   writes is a semantics call — TLS 1.3 permits half-close. Sighting 2 itself is fixed
   (`stlr`/`ldar`, matched pair 19/600 → 0/600).
-- **bug-599 / bug-601, the non-flat address-record lists**: the list block, record and host
-  `String` still grow, and no drop can be added alone because values of this class share
-  blocks (bug-601: `MUT ys = xs` then an in-place `append` segfaults). Either flatten
-  `net::Address` / `udp::Datagram` / `audio::AudioDevice` onto the inlined-String layout
-  (recommended by the fixer; an internal ABI change over ~13 writers and ~12 readers), or fold
-  both into the bug-536 shape-C plan.
+- **bug-599 / bug-601 — DECIDED 2026-09-12: FLATTEN.** The owner chose to finish the
+  inline-`String` layout migration for `net::Address`, `udp::Datagram` and
+  `audio::AudioDevice`: every native builder and reader moves to the spec-canonical record
+  image (`emit_build_inlined_record`), and the pointer-`String` record exception
+  (`is_pointer_string_record`, its call sites and tests, the spec's §Record "excluded"
+  note) is deleted. `net::PingResult` and `udp::Datagram` change layout with it, since
+  both embed an `Address`. In progress. The `Error`/`ErrorLoc` question is split out as
+  bug-602.
 - **bug-593's residual**: a successful or failing `RES` call still grows by the closed
   resource record plan-52-B deliberately never frees (aliases read its closed flag).
   Reclaiming it moves a lifetime.
