@@ -137,7 +137,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("Instant"),
-                errors: vec![],
+                errors: vec!["ErrOverflow"],
                 body: super::Body::mfb(BODY_2, "__datetime_instant2"),
             },
             super::Implementation {
@@ -165,7 +165,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("Instant"),
-                errors: vec![],
+                errors: vec!["ErrOverflow"],
                 body: super::Body::mfb(BODY_3, "__datetime_instant3"),
             },
             super::Implementation {
@@ -200,7 +200,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("Instant"),
-                errors: vec![],
+                errors: vec!["ErrOverflow"],
                 body: super::Body::mfb(BODY_4, "__datetime_instant4"),
             },
             super::Implementation {
@@ -242,7 +242,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("Instant"),
-                errors: vec![],
+                errors: vec!["ErrOverflow"],
                 body: super::Body::mfb(BODY_5, "__datetime_instant5"),
             },
         ],

@@ -39,6 +39,44 @@ day/month counts, a Local zone far from the epoch), and list exactly the codes s
 in its descriptor `errors`, the way bug-520's S8 table did. Descriptor `errors` feed
 the `.ir` goldens; regenerate and inspect.
 
+## Probe findings (2026-09-13)
+
+Measured on macOS aarch64 with `target/release/mfb` at `9423d8d22`. Every call was
+wrapped in `TRAP` and printed its code. It ran under the host zone and again under
+`TZ=America/New_York`, and the output was identical (both exit 0). The raises are
+pinned by `tests/rt-behavior/datetime/datetime-arith-errors-rt`, and the declarations by
+`datetime::tests::members_declare_the_errors_they_raise`.
+
+| Member (overload) | Raising input | Code |
+| --- | --- | --- |
+| `add` | `add(instant(max), duration(1))` | `ErrOverflow` |
+| `subtract` | `subtract(instant(min), duration(1))` | `ErrOverflow` |
+| `plus` / `minus` | `duration(max)` + 1 / `duration(min)` − 1 | `ErrOverflow` |
+| `negate` | `negate(duration(min))` | `ErrOverflow` |
+| `between` | `between(instant(min), instant(max))` | `ErrOverflow` |
+| `instant` 2–5, `duration` 2–5 | `instant(max, 1000000000)`, `instant(max, 0, 0)`, … | `ErrOverflow` |
+| `toMillis` / `toNanos` | `instant(max)` / `instant(10^10)` | `ErrOverflow` |
+| `addDays` | `days = max` / Local zone, `days = 10^12` | `ErrOverflow` / `ErrInvalidArgument` |
+| `addMonths` | `months = max` / Local zone, `months = 10^11` | `ErrOverflow` / `ErrInvalidArgument` |
+| `startOfDay` | `toUtc(instant(max))` (the `±86400` probe in `resolveLocal`) / Local zone, year `3·10^9` | `ErrOverflow` / `ErrInvalidArgument` |
+| `withZone` | `toUtc(instant(max))` into `fixedOffset(3600)` / into `local()` from `instant(10^17)` | `ErrOverflow` / `ErrInvalidArgument` |
+| `format` | unknown token `"q"` / a record with offset `min` and pattern `ZZ` | `ErrInvalidFormat` / `ErrOverflow` |
+| `formatDuration` | `duration(max)` (`seconds * 1000`) | `ErrOverflow` |
+| `toIso` (both) | a record with offset `min` (`-s` in the offset label) | `ErrOverflow` |
+| `dayOfYear`, `weekday`, `resolve` | a record with year `max` | `ErrOverflow` |
+
+- **Only a directly built record raises in the last three rows and `format`/`toIso`.**
+  `datetime::DateTime[datetime::Date[max, 1, 1], …, offset]` compiles. Values that come
+  from the constructors did not raise there: `dayOfYear`, `weekday`, `resolve` and
+  `toIso` of `toUtc(instant(max))` and `toUtc(instant(min))` all returned.
+- **No raise at the extremes:** `fromMillis` (min, max), `toUtc` (min, max), `compare`,
+  `equals`, `isBefore`, `isAfter`, `isLeapYear(min)`, `daysInMonth(min, 2)` and
+  `daysInMonth(2026, 13)`, `now`, `nowNanos`, `monotonic`, `monotonicNanos`, `local`,
+  `utc`. They keep `errors: vec![]`.
+- **`format` was outside the doc's list.** `__datetime_formatToken` ends in
+  `FAIL error(77050003, …)` for an unrecognised letter, so the page claimed no error
+  for a documented failure.
+
 ## Phases
 
 ### Phase 1 — probe and declare

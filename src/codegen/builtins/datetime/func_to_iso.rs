@@ -150,7 +150,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     default: super::DefaultValue::None,
                 }],
                 return_type: super::ParameterType::String,
-                errors: vec![],
+                errors: vec!["ErrOverflow"],
                 body: super::Body::mfb(BODY_1, "__datetime_toIso"),
             },
             super::Implementation {
@@ -171,7 +171,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::String,
-                errors: vec!["ErrInvalidArgument"],
+                errors: vec!["ErrInvalidArgument", "ErrOverflow"],
                 body: super::Body::mfb(BODY_2, "__datetime_toIso2"),
             },
         ],
