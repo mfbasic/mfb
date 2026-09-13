@@ -437,27 +437,32 @@ Commit: b3771486a
 Acceptance: the generator reproduces the measured populations, the gate accepts the
 committed file and rejects a changed one, and a second OS produces identical bytes.
   Check: `python3 tools/tzdb/gen_timezones_data.py 2>&1 >/dev/null` → `names 598 distinct 345 transitions 17018 types 1598 footers 94`; `sh scripts/check-generated.sh; echo EXIT=$?` → the `ok: packages/timezones/src/data.mfb …` line and `EXIT=0`; on 2223 `cmp` → no output, exit 0 (est. 5 min).
-Commit: —
+Commit: b6668242d
 
 ### Phase 3 — package skeleton and data tests
 
-- [ ] `packages/timezones/project.json`, `src/lib.mfb`, `README.md` and `.gitignore` as
-      needed, per § 4.4.
-- [ ] `packages/timezones/src/test_data.mfb`, with these cases:
-  - [ ] `len(zoneNames())` is 598, and every name has non-empty `zoneData`.
-  - [ ] `zoneData("US/Eastern") = zoneData("America/New_York")`.
-  - [ ] `zoneData("Etc/UTC") = zoneData("Zulu")`.
-  - [ ] `zoneData` is `""` for `"Nowhere/Bogus"`, `""` and `"America/New_York "`.
-  - [ ] `zoneData("america/new_york") = zoneData("America/New_York")` and
+- [x] `packages/timezones/project.json`, `src/lib.mfb`, `README.md` and `.gitignore` as
+      needed, per § 4.4. (`.gitignore` ~~not added~~ — moot: `git check-ignore -v
+      packages/x/build/a packages/x/x.mfp` → `.gitignore:24:build/` and
+      `.gitignore:34:packages/**/*.mfp`; the root file already covers both.)
+- [x] `packages/timezones/src/test_data.mfb`, with these cases (`mfb test
+      packages/timezones` → `* data`, 7 `[P]`, `Tests: 7  Pass: 7  Fail: 0`):
+  - [x] `len(zoneNames())` is 598, and every name has non-empty `zoneData`.
+  - [x] `zoneData("US/Eastern") = zoneData("America/New_York")`.
+  - [x] `zoneData("Etc/UTC") = zoneData("Zulu")`.
+  - [x] `zoneData` is `""` for `"Nowhere/Bogus"`, `""` and `"America/New_York "`.
+  - [x] `zoneData("america/new_york") = zoneData("America/New_York")` and
         `zoneData("AMERICA/NEW_YORK") = zoneData("America/New_York")`.
-  - [ ] `canonicalName("america/new_york")` is `"America/New_York"`,
+  - [x] `canonicalName("america/new_york")` is `"America/New_York"`,
         `canonicalName("us/eastern")` is `"US/Eastern"`, and
         `canonicalName("Nowhere/Bogus")` is `""`; every name in `zoneNames()` is its
         own `canonicalName`.
-  - [ ] Every returned string has exactly two `|` separators.
-  - [ ] `tzdbVersion()` is `"2026d"`.
-- [ ] Record the real `mfb build -q packages/timezones` time and `.mfp` size in
+  - [x] Every returned string has exactly two `|` separators.
+  - [x] `tzdbVersion()` is `"2026d"`.
+- [x] Record the real `mfb build -q packages/timezones` time and `.mfp` size in
       Corrections if they differ materially from the probe's 0.05 s / 363,531 B.
+      (`/usr/bin/time -p mfb build -q packages/timezones` → `real 0.09`; `.mfp` 527,392 B.
+      Recorded in Corrections.)
 
 Acceptance: every tzdb name reaches data through the generated dispatcher, and nothing
 else does.
@@ -508,6 +513,13 @@ Commit: —
   `typecnt`. The footer must hold no `"` or `\`. Without the last check, a footer could
   break the MFBASIC string literal that `zoneN()` returns. All three hold for 2026d,
   and the statistics line is unchanged.
+- **Phase 3: the real package is larger than the probe.** `/usr/bin/time -p mfb build -q
+  packages/timezones` → `real 0.09`, and `timezones.mfp` is 527,392 B, against the probe's
+  0.05 s and 363,531 B. The generated `data.mfb` is 337,535 B, against the probe's
+  279,910 B. The probe predates the owner's case-insensitive `canonicalName` decision.
+  That decision adds a second 20-bucket dispatcher with 598 `CASE` arms, and lower-cases
+  every `MATCH` literal. The build is still well under a second, and `zoneNames()` built
+  as one 598-string literal, so no bucket split was needed.
 
 ## Summary
 

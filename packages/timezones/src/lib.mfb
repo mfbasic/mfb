@@ -1,0 +1,31 @@
+' ---------------------------------------------------------------------------
+' timezones/lib.mfb — the package's public API.
+'
+' The package answers named-zone questions ("what offset does America/New_York
+' apply at this instant?") from IANA tzdb rules committed to this repository,
+' and from nothing else. The rules are compiled ahead of time into data.mfb by
+' tools/tzdb/gen_timezones_data.py, and a CI gate keeps that file in step with
+' the vendored release.
+'
+' The one decision worth reading the rest of the package for is that the host
+' is never consulted -- not /usr/share/zoneinfo, not TZ, not a platform time
+' zone API. A program built on macOS and run on Linux gets the same answer,
+' and an answer never depends on how up to date the machine's zone database is.
+' datetime::local() remains the way to ask the host what ITS clock says.
+' ---------------------------------------------------------------------------
+
+IMPORT datetime
+
+DOC
+  PACKAGE
+  DESC Named IANA time zones, such as `America/New_York` or `Europe/London`,
+  DESC answered from a tzdb release committed with the package.
+  DESC
+  DESC The rules are IANA tzdb 2026d, vendored unmodified and compiled by the
+  DESC release's own `zic`. The package never reads the host's zone database,
+  DESC the `TZ` variable, or a platform time zone API, so every host and every
+  DESC target returns the same answer for the same question.
+  DESC
+  DESC To ask what the machine running the program considers local time, use
+  DESC `datetime::local()` instead. That answer is host-scoped by design.
+END DOC
