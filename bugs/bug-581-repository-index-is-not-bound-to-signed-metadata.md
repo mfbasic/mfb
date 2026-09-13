@@ -5,9 +5,13 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Security / supply-chain integrity
 
-Status: **PARTIAL.** Phase 1 (route binding) landed in `ed87c111a`.
-Phase 2 (binding the index to signed snapshot state) is root-caused below and is
-an OPEN DESIGN DECISION — it is a signed-metadata format change, not a bug fix.
+Status: **CLOSED — won't fix Phase 2 (owner decision, 2026-09-12).** Phase 1 (route
+binding) landed in `ed87c111a` and stays: an index response is bound to the exact package
+requested. Phase 2 (binding the index to signed snapshot state, to defeat a registry that
+serves a correctly-identified but stale or truncated version list) will not be done. The
+owner's reasoning: "this is an issue but not a fixable issue. you have to trust the registry
+at some point, or dont use it." A registry that can omit a version is trusted by design;
+the analysis below is kept as the record of that residual risk.
 Regression Test: `client::tests::fetch_index_rejects_a_validly_signed_response_for_another_ident`
 and `client::tests::fetch_index_accepts_an_honest_response_whose_owner_case_differs`
 in `repository/src/client.rs`.

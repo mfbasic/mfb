@@ -38,7 +38,7 @@ Round 4 (594) was verified the same way: artifact gate 0 diffs; merged release u
 4137 passed; `cli_macos_app_term_draw_text` 3 passed (the gate is blind to app mode).
 
 **In flight:** nothing. No agents are running. Every bug worked this stretch has landed;
-the ones that stay open (540, 564, 599, 601, 581) are blocked only on the owner decisions
+the ones that stay open (540, 564, 599, 601, 602) are blocked only on the owner decisions
 below. The remaining open docs (484, 520, 536) are large planned work, not quick fixes.
 
 **Filed this stretch:** 601 (HIGH — a `MUT` copy of a non-flat list aliases its source and
@@ -75,8 +75,10 @@ neither filed it), 594 (macOS `drawText` column), 592.
   resource record plan-52-B deliberately never frees (aliases read its closed flag).
   Reclaiming it moves a lifetime.
 
-- **bug-581 Phase 2**: what a client does when `snapshot.json` carries no per-package
-  commitment. Fail closed breaks every deployed registry; fail open makes the fix a no-op.
+- ~~**bug-581 Phase 2**~~ — **DECIDED 2026-09-12: won't fix; bug closed.** Binding a
+  package index to signed snapshot state would defeat a registry that omits a version, but
+  the owner ruled it not fixable in practice: "you have to trust the registry at some point,
+  or dont use it." Phase 1 (route binding, `ed87c111a`) stays.
 - **`collections::sum` (bug-590) and `set` (bug-563) declared errors**: whether an error
   raised at the CALLER's observation boundary belongs in the callee's `errors` list. The
   list drives inline-`TRAP` fallibility, so it moves more than a man page.
@@ -159,13 +161,14 @@ it**. The instrument is the `mfb_repository` unit suite and its loopback-HTTP
 stub registry. Say so explicitly in any future repository bug — a green gate
 there proves nothing at all.
 
-**The repository security intake is CLOSED.** Nine bugs: eight landed, one
-(581) partial by design. `repository/` is free for other work.
+**The repository security intake is CLOSED.** Nine bugs: eight landed, and 581
+closed after Phase 1 (Phase 2 won't be done — owner decision 2026-09-12). `repository/` is
+free for other work.
 
 | Bug | Sev | Outcome |
 |---|---|---|
 | 578 | HIGH | **Landed** `f2368455b` — absolute MFPC section/pool/export/meta ceilings. |
-| 581 | HIGH | **PARTIAL** `ed87c111a` — route binding landed; Phase 2 is an open design decision (below). |
+| 581 | HIGH | **CLOSED** — route binding landed `ed87c111a`; Phase 2 won't be done (owner decision 2026-09-12: the registry is trusted by design). |
 | 582 | HIGH | **Landed** `ac1a6ec79` — every log-pin advance is consistency-proof-gated. |
 | 583 | MED | **Landed** `01d3529d1` — pairing approval is the CODE, not the relay-visible lookup. |
 | 585 | MED | **Landed** `c7e7f1fec` — a redirect hostname is resolved before the hop is followed. |
@@ -266,7 +269,10 @@ the stated non-goal. Allowing one key to authenticate as two accounts is a polic
 decision, not a drive-by edit; the current behaviour is now asserted so a change
 is deliberate.
 
-### bug-581 Phase 2 is an OPEN DECISION — do not dispatch it as a bug fix
+### bug-581 Phase 2 — CLOSED as won't fix (owner decision, 2026-09-12)
+
+The owner ruled: "this is an issue but not a fixable issue. you have to trust the registry at
+some point, or dont use it." The analysis below is kept as the record of the residual risk.
 
 Phase 1 closed *substitution*. *Staleness/truncation* (a correctly-identified
 version list with a newer version omitted) is not closed, and cannot be with the
@@ -296,9 +302,10 @@ the bug doc.
 
 ## 2026-09-11 — repository protocol-audit intake
 
-- ~~**581 HIGH**~~ — **PARTIAL, `ed87c111a`.** `fetch_index` accepted an index
-  not bound to its requested ident. Route binding landed; binding to signed
-  snapshot metadata is Phase 2, an open design decision (above).
+- ~~**581 HIGH**~~ — **CLOSED, `ed87c111a`.** `fetch_index` accepted an index
+  not bound to its requested ident. Route binding landed. Binding to signed snapshot
+  metadata (Phase 2) won't be done: the owner ruled on 2026-09-12 that the registry is
+  trusted by design.
 - ~~**582 HIGH**~~ — **LANDED `ac1a6ec79`.** Larger signed transparency-log
   forks overwrote a client pin without a consistency proof, and publish
   inclusion used that unsafe path — which made it reachable from `pkg install
@@ -407,16 +414,16 @@ Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
 539 and 545. **Do not re-dispatch these** — the table that used to sit here said
 "agent running" for all three and was stale for a full session.
 
-## Tier 2 — HIGH: two open, both blocked on an owner decision
+## Tier 2 — HIGH: one open, blocked on planned work
 
 *(Updated 2026-09-12. This heading used to read "there is NO open HIGH", which stopped
 being true when 601 was filed.)*
 
 - **601** — a `MUT` copy of a non-flat list aliases its source, so an in-place `append`
-  on the copy segfaults and a short variant silently computes a wrong value. It is decided
-  together with 599; see Open decisions at the top.
-- **581** — Phase 1 landed (`ed87c111a`). Phase 2, what a client does when `snapshot.json`
-  carries no per-package commitment, is an Open decision.
+  on the copy segfaults and a short variant silently computes a wrong value. Decided with
+  599 (flatten); planned as **plan-132**.
+- ~~**581**~~ — **CLOSED 2026-09-12.** Phase 1 landed (`ed87c111a`); Phase 2 won't be done
+  (the registry is trusted by design).
 
 bug-536 has **no actionable work**: shapes A, B and B-2 are fixed (B-2 landed
 `b845db0de`, 2026-09-06) and shape C is a design decision, not a bug fix. **Do
