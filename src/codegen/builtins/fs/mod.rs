@@ -126,8 +126,12 @@ return a `File` (`fs::openWithin` opens a caller-supplied relative name that mus
 stay beneath a trusted directory);
 `fs::readLine`, `fs::readAll`, `fs::readAllBytes`, `fs::writeAll`,
 `fs::writeAllBytes`, and `fs::eof` act on one. Portable open modes are
-`"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A `File` is a handle that closes itself when its binding goes out of scope; call `fs::close` only to release it earlier. Using a
-`File` after it is closed fails.
+`"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A `File` is a handle that closes itself when its binding goes out of scope; call `fs::close` only to release it earlier. A
+second `fs::close` raises `ErrResourceClosed`. A `File` that has been closed —
+explicitly or when its binding ends — cannot be used again: a use the compiler
+can see is rejected at compile time, and one it cannot see raises
+`ErrResourceClosed`. A `File` may be handed to another thread with
+`thread::transfer`.
 
 Each `File` handle can independently opt in to output buffering. It is off by
 default, so `fs::writeAll`/`fs::writeAllBytes` reach the OS immediately;

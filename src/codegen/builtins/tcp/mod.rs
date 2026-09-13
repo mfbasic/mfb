@@ -144,10 +144,12 @@ passing an address to `tcp::connect` or `tcp::listen`, and calling `tcp::read` o
 `Socket` and `Listener` are opaque handles that close themselves when their
 binding goes out of scope. `tcp::close` closes one earlier — to release a
 listening port for reuse, to let a peer observe the end of the stream promptly,
-or to bound how many connections a long-running program holds open at once.
+or to bound how many connections a long-running program holds open at once. Calling `tcp::close` again on a handle it already closed raises
+`ErrResourceClosed`, as does any other use of a closed handle, and a `Socket`
+may be handed to another thread with `thread::transfer`.
 
 `tcp::read` returns bytes and never text: a stream read stops wherever the
-network divided it, which need not be a character boundary, so decoding belongs
+network divided it, which need not be a Unicode-scalar boundary, so decoding belongs
 to `encoding` once a whole message has been assembled. `tcp::write` does accept a
 `String` directly as a second overload and sends its UTF-8 bytes.
 

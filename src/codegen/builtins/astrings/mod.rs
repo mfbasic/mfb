@@ -134,7 +134,9 @@ would for its visible `String`. The ones that change the text — `left`, `right
 `repeat`, and `replace` — return an `AttributedString` whose styling follows the
 text it was attached to. `upper`, `lower`, `caseFold`, and `normalizeNfc` change the
 text but drop the styling. `a & b` joins two `AttributedString` values, text and
-styling together; there is no mixing with a plain `String`. See `mfb man strings`."#;
+styling together; there is no mixing with a plain `String`. See `mfb man strings`.
+
+Import the package with `IMPORT astrings`; it needs no manifest dependency."#;
 
 /// Register the `astrings` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {

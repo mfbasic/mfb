@@ -205,6 +205,13 @@ everything after it.
 | a close function's parameter | **takes … and closes it** | "consumes" | `link` |
 | a closure's captured `LET` | **gets its own copy** | "by value", "deep-copies" | `lambda` |
 | a `forEach` lambda changing an outer `MUT` | **changes the outer binding itself** | "borrow", "loaned" | `lambda` |
+| the unit a `String` is measured and split in | **Unicode scalar** | "character" (ambiguous with a grapheme) | Phase 4 vocabulary #1: `tcp`, `tls`, `udp` |
+| a second explicit close of a handle | **raises `ErrResourceClosed`** (state the exception where one exists, e.g. canvas `destroy*`) | "the same contract every resource has" unless it is | Phase 4 handles #1 |
+| a handle that cannot cross threads | **stays on the thread that opened it** | "thread-local", "not sendable" | `types` pages of `audio`, `canvas`, `process` |
+| a handle that can | **may be handed to another thread with `thread::transfer`** | "sendable", "moved to a thread" | `types` pages of `fs`, `tcp`, `udp`, `tls` |
+| a resource overview's lifecycle paragraph | in this order: **scope close; early close; second close; later use; thread rule** | per-package ad-hoc order | Phase 4 handles #2 |
+| map iteration order | **implementation-defined but stable for an unchanged map** | "insertion order" as a promise | Phase 4 guide-package #2 |
+| a package overview's import line | **"Import it with `IMPORT <pkg>`"** | leaving it implicit | Phase 4 overview-shape #1 |
 
 #### Phase 1 ledger — Codex iteration 1 (`planning/plan-125-findings/B-phase1/`)
 
@@ -406,11 +413,45 @@ Acceptance measured at `7f4ff371b`:
       `./scripts/man-manual.sh --condensed` (C-6, `29da2a4ef`): 62 pages
       (31 + 21 types + 10), 7,205 lines, byte-identical across two runs, empty
       stderr. The reviewers regenerate it themselves in `{{SCRATCH}}`.
-- [ ] Run the four dimension-scoped reviews.
-- [ ] Apply each finding **as a class** across every affected unit; record in
-      the ledger which units each class touched.
-- [ ] Re-run `--reconcile` over the full 39-unit list plus the four
-      consistency runs.
+- [x] Run the four dimension-scoped reviews. `B-phase4` manifest: 4/4
+      `exit 0`, `clean` (112–212 s), prompt `man-consistency.txt` (C-6).
+- [x] Apply each finding **as a class** across every affected unit; record in
+      the ledger which units each class touched. Ledger below.
+
+#### Phase 4 ledger — cross-package consistency (`planning/plan-125-findings/B-phase4/`)
+
+7 findings in 5 classes. All were confirmed and applied; one also filed as a bug.
+
+| Dimension | # | Verdict | Evidence | Class applied to (units) |
+|---|---|---|---|---|
+| guide-package | 1 | CONFIRMED → **bug-610** | spec §15: "a second close is a defined no-op reported as `ErrResourceClosed`"; `canvas/func_destroy_image.rs`/`func_destroy_font.rs` do an unconditional closed-flag store and say "the same contract every resource has", but `fs`/`tcp`/`udp`/`tls`/`audio` close raise | `canvas destroyImage`, `canvas destroyFont`: second close documented as the exception it is; "same contract every resource has" removed |
+| handles | 1 | CONFIRMED (same class) | as above | same two pages + `canvas` overview |
+| guide-package | 2 | CONFIRMED | `mfb spec language collections` §12: map order "implementation-defined stable"; `types map` promised "the same insertion order" | `types map`: "the same order". `collections keys`/`values` already qualify insertion order as "the current implementation's behavior rather than a guarantee": checked, unchanged |
+| handles | 2 | CONFIRMED | only `tls`'s overview answered all five lifecycle questions. Thread rules from each `types` page: `fs`/`tcp`/`udp`/`tls` "May be handed to another thread with `thread::transfer`"; `audio` streams, `canvas::Image` and `process::Process` "Stays on the thread that opened it". `mfb man process detach`: "every later `process::` call on it … raises `ErrResourceClosed`" | overviews of `audio`, `canvas`, `fs`, `tcp`, `udp`, `process` get scope close, early close, second close, later use and thread rule (`tls` already complete). `canvas::Font` has no stated thread rule, so none is invented |
+| handles | 3 | CONFIRMED | `fs` overview "Using a `File` after it is closed fails" vs `mfb man variable` "refused at compile time … reported as `ErrResourceClosed`" | `fs` overview names both outcomes |
+| overview-shape | 1 | CONFIRMED | the reviewer's `rg` split: 23 overviews name their own `IMPORT`; `astrings`, `process`, `tls` none; `canvas` only `IMPORT color` | `astrings`, `canvas`, `process`, `tls`: "Import it with `IMPORT <pkg>`" |
+| vocabulary | 1 | CONFIRMED | `grep -ci 'Unicode scalar'` 23 vs "character boundary" 2 and "character in half" 1 in the condensed artifact; `strings` establishes Unicode scalars | `tcp` overview + `tcp read`, `tls` overview + `tls read`, `udp` overview (5 prose sites; 2 code comments left alone) |
+
+Found while applying, not raised by a reviewer: the `canvas` overview's `Paint`
+fragment wrote `LET glow AS Paint = … { blend := BlendMode.Add }`. A
+compile-only probe (`/tmp/p125-ex/canvaspaint`, `mfb build --app`) failed with
+`SYMBOL_UNKNOWN_TYPE` for `Paint` and `SYMBOL_UNKNOWN_IDENTIFIER` for
+`BlendMode`. It now reads `canvas::Paint` / `canvas::BlendMode.Add`, and the probe
+builds. `grep -E '(AS|OF) (Paint|DrawItem|…)\b'` over canvas finds bare names only
+in the package's internal MFBASIC bodies, where they are correct.
+- [x] Re-run `--reconcile` over the full 39-unit list plus the four
+      consistency runs. The harness keeps one manifest per letter, so the 39
+      units (`planning/plan-125-units/B-all.txt`) reconcile as three runs:
+      `B-phase1` 10, `B-phase2` 8 and `B-phase3` 21, each `unaccounted=0
+      orphans=0`. The consistency runs: `B-phase4` 4, `unaccounted=0
+      orphans=0`.
+
+Acceptance measured: four consistency runs in the manifest; all 7 findings
+confirmed, each with the units it was applied to (ledger above); every
+`--reconcile` exits with `unaccounted=0`. The terminology table gained seven
+rows from this phase, and letters C–G conform to it. After apply:
+`--memory-scope` 0 unclassified, `--scope` 0, leak check 0/0, and all 10 touched
+units render.
 
 Acceptance: four consistency runs in the manifest; every finding has a verdict
 and, if confirmed, a list of the units it was applied to; `--reconcile` exits

@@ -23,8 +23,9 @@ font.** Text in a presented scene that names a released font draws as nothing
 rather than faulting. Measuring a released font with `canvas::measureText` raises
 `ErrResourceClosed`.
 
-Closing twice is the defined no-op, and using a closed font afterwards raises the
-universal `ErrResourceClosed` — the same contract every resource has.
+Calling `destroyFont` again on a font it already closed does nothing — unlike
+`fs::close` or `tcp::close`, which raise `ErrResourceClosed` for a second close.
+Any other use of a closed font raises `ErrResourceClosed`.
 
 Unlike the rest of `canvas`, `destroyFont` does **not** require `app::Mode.Canvas`: a
 program leaving canvas mode must still be able to close what it opened, and closing

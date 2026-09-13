@@ -21,8 +21,9 @@ and the scope is long.
 image.** A scene carries the id, not the image, so destroying the image leaves
 the scene intact — the runtime simply stops drawing that item.
 
-Closing twice is the defined no-op, and using a closed image afterwards raises the
-universal `ErrResourceClosed` — the same contract every resource has.
+Calling `destroyImage` again on an image it already closed does nothing — unlike
+`fs::close` or `tcp::close`, which raise `ErrResourceClosed` for a second close.
+Any other use of a closed image raises `ErrResourceClosed`.
 
 Unlike the rest of `canvas`, `destroyImage` does **not** require `app::Mode.Canvas`: a
 program leaving canvas mode must still be able to close the images it made, and

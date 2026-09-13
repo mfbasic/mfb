@@ -55,7 +55,7 @@ helper calls produce a new value.
 
 Map iteration order is implementation-defined but stable for a given unchanged
 map value during one program run: repeated `keys`, `values`, and `FOR EACH`
-traversal of the same unchanged map use the same insertion order. Creating a
+traversal of the same unchanged map use the same order. Creating a
 changed map value may choose a different order. `FOR EACH` over a map yields
 `MapEntry OF K TO V` values:
 

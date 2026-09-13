@@ -94,7 +94,11 @@ const MODULE_DESC: &str = r#"The `process` package runs and controls child proce
 is not copied — a second name for one is an alias — and it may be a field of a
 record or an element of a collection (a `List OF RES process::Process` is how you
 supervise several children). It closes itself when its binding goes out of
-scope.
+scope, and closing a live child that way force-kills and reaps it (below). There
+is no early close: `process::detach` ends the handle instead, and every later
+`process::` call on a detached handle raises `ErrResourceClosed`. A `Process`
+stays on the thread that started it. Import the package with `IMPORT process`;
+it needs no manifest dependency.
 
 
 A child is created two ways. `process::spawn` runs a program directly from an
