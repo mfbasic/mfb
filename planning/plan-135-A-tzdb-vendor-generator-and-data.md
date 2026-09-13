@@ -71,12 +71,12 @@ The whole plan-135 family (A–D) is gated here. Letters B–D point to this tab
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-135 number unclaimed elsewhere | `git log --all --oneline --grep plan-135; ls planning planning/completed \| grep plan-135` → only this family | MET (2026-09-13: both empty before these files were written) |
-| No `timezones` package exists | `ls -d packages/timezones` → `No such file or directory` | MET (2026-09-13) |
-| The release compiler builds and tests a source package | `target/release/mfb init-pkg /tmp/p135 && target/release/mfb build -q /tmp/p135` → `Wrote package` | MET (2026-09-13, `/tmp/tzpkgprobe`) |
-| The generator host has Python ≥ 3.9 (`zoneinfo`), `cc`, `make` | `python3 --version; cc --version; make --version` | MET locally (2026-09-13: Python 3.14.5; tzcode `make zic` built a 107,728-byte `zic`) |
-| **Gates D only:** bug-520 closed, with the offset writer printing seconds | `ls bugs/completed/bug-520-*` → one file, **and** a probe printing `datetime::toIso(datetime::toLocal(datetime::instant(-3771144000, 0)))` under `TZ=America/New_York` → `1850-07-01T07:03:58.000-04:56:02` | NOT MET (2026-09-13: bug open; probe prints `-04:56`) |
-| **Gates D's cross-target proof only:** boxes 2223, 2227, 2229 reachable | `for p in 2223 2227 2229; do ssh -o ConnectTimeout=8 -o BatchMode=yes -p $p test@127.0.0.1 true && echo $p ok; done` → three `ok` | NOT PROBED |
+| plan-135 number unclaimed elsewhere | `git log --all --oneline --grep plan-135; ls planning planning/completed \| grep plan-135` → only this family | MET (2026-09-13, follow-plan re-run: `git log` → only `93500e25d`, the commit that wrote this family; `ls` → only the four plan-135-A..D files) |
+| No `timezones` package exists | `ls -d packages/timezones` → `No such file or directory` | MET (2026-09-13, follow-plan re-run: `No such file or directory`) |
+| The release compiler builds and tests a source package | `target/release/mfb init-pkg /tmp/p135 && target/release/mfb build -q /tmp/p135` → `Wrote package` | MET (2026-09-13, follow-plan re-run: `Wrote package to /tmp/p135/p135.mfp`) |
+| The generator host has Python ≥ 3.9 (`zoneinfo`), `cc`, `make` | `python3 --version; cc --version; make --version` | MET locally (2026-09-13, follow-plan re-run: Python 3.14.5, Apple clang 17.0.0, GNU Make 3.81) |
+| **Gates D only:** bug-520 closed, with the offset writer printing seconds | `ls bugs/completed/bug-520-*` → one file, **and** a probe printing `datetime::toIso(datetime::toLocal(datetime::instant(-3771144000, 0)))` under `TZ=America/New_York` → `1850-07-01T07:03:58.000-04:56:02` | NOT MET (2026-09-13, follow-plan re-run: `bugs/completed/` has no bug-520, `bugs/bug-520-datetime-is-not-correct-standalone.md` is open; the probe, built with the main checkout's release `mfb`, prints `1850-07-01T07:03:58.000-04:56`) |
+| **Gates D's cross-target proof only:** boxes 2223, 2227, 2229 reachable | `for p in 2223 2227 2229; do ssh -o ConnectTimeout=8 -o BatchMode=yes -p $p test@127.0.0.1 true && echo $p ok; done` → three `ok` | MET (2026-09-13, follow-plan re-run: `2223 ok`, `2227 ok`, `2229 ok`) |
 
 Everything below assumes the rows gating a letter hold before that letter starts. There
 are no hedges for the world where they don't.
