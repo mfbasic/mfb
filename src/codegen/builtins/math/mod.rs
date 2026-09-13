@@ -95,8 +95,10 @@ transcendentals, `pow`, and `atan2`. `floor`/`ceil`/`round` give back an
 bounds; `seed` returns nothing.
 
 **Constants.** Each is written `math::<name>` and needs no call parentheses.
-Every one comes in a `Float` form and a `Fixed` form with the same value, so you
-can stay in whichever type your program already uses:
+Every one comes in a `Float` form and a `Fixed` form, so you can stay in whichever
+type your program already uses. The values below are the `Float` forms. A `Fixed`
+form is the nearest value `Fixed` can hold, which agrees with the `Float` form to
+at least nine significant digits (`math::piFixed` is `3.141592653701081`):
 
 | Float | Fixed | Value |
 |---|---|---|

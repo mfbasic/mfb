@@ -7,8 +7,9 @@ use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Base-10 logarithm of a Float or Fixed value or list."#;
 const DESC: &str = r#"`log10` returns the base-10 logarithm of `value`, echoing the operand type (`Float`
 or `Fixed`), plus the `List OF Float`/`List OF Fixed` forms. A non-positive argument
-is outside the domain and raises `ErrFloatDomain` (scalar) or `ErrInvalidArgument`
-(array)."#;
+is outside the domain: a `Float` or `List OF Float` argument raises
+`ErrFloatDomain`, and a `Fixed` or `List OF Fixed` argument raises
+`ErrInvalidArgument`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io

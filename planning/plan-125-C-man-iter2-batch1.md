@@ -152,14 +152,24 @@ that is new to review last, with pace known).
 - [~] Every example compiled and run; precision claims probe-verified.
       Examples: `math` 21/21 built and ran at `7f4ff371b`. My probes so far
       (`/tmp/p125-ex/mathconst`, `/tmp/p125-ex/mathclaims`):
-      - **Wrong, to apply:** the overview says every constant "comes in a `Float`
+      - **Wrong, applied:** the overview said every constant "comes in a `Float`
         form and a `Fixed` form with the same value". No pair is equal
         (`toFloat(x) = f` is `FALSE` for all 7); `math::piFixed` prints
-        `3.141592653701081`, the nearest Q32.32 value, not `3.141592653589793`.
-      - **Wrong, to apply:** `asin`, `acos`, `log` and `log10` say their list form
-        raises `ErrInvalidArgument`. `math::asin([0.5, 2.0])` and
-        `math::log([1.0, -1.0])` raise `77050012` (`ErrFloatDomain`), the same
-        code as the scalar form.
+        `3.141592653701081`. The overview now says the table shows the `Float`
+        forms, and a `Fixed` form is the nearest value `Fixed` can hold, agreeing
+        to at least nine significant digits. Measured per pair: `ln10` differs in
+        the ninth decimal place, so "ninth decimal" would have been wrong.
+      - **Wrong, applied:** `asin`, `acos`, `log` and `log10` said the scalar
+        form raises `ErrFloatDomain` and the list form `ErrInvalidArgument`. The
+        split is by element type, not by list:
+        - `/tmp/p125-ex/mathclaims` and `/tmp/p125-ex/mathlist`:
+          `asin`/`acos`/`log`/`log10` on a `Float` or `List OF Float` raise
+          `77050012` (`ErrFloatDomain`);
+        - `log`/`log10` on a `Fixed` or `List OF Fixed`, and `asin` on a
+          `Fixed`, raise `77050002` (`ErrInvalidArgument`);
+        - `/tmp/p125-ex/acosfixed`: `acos` on a `Fixed` raises `77050002`.
+
+        All four pages now state the element-type split.
       - Confirmed as documented:
         - `sqrt(-1.0)` raises `ErrFloatDomain`; `sqrt` of a negative `Fixed`
           raises `ErrInvalidArgument`.
