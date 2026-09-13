@@ -442,6 +442,15 @@ some target). Not a defect at HEAD — a design question for the plan.
 
 ---
 
+**Every normal ending already passes through `_mfb_shutdown`:** normal return, `EXIT PROGRAM`, untrapped errors, and SIGINT/SIGTERM on Unix console builds.
+**Some endings skip it:**
+- closing an app-mode window while the program is still running (macOS, GTK, Windows);
+- Ctrl-C on Windows;
+- SIGPIPE on a stdout write, and crashes.
+- On those paths nothing would be printed.
+
+---
+
 ## Memory
 
 `src/docs/spec/memory/04_arenas.md` describes the arena correctly; the implementation in
@@ -568,3 +577,4 @@ No testing needed:
     `type_is_memcpy_copyable` and `type_is_arena_transferable`.
 14. **`threading/08_queue-semantics.md:170`** says the runtime bulk-reclaims the worker arena
     at teardown; nothing does (same gap as 1).
+
