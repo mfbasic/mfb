@@ -34,6 +34,11 @@ Verification (macOS aarch64, worktree `target/release/mfb`):
 - `spec-census.sh --links` → 0 unresolved; the new citations are not among the
   `--citations` misses, and the 61/2 misses there are plan-125-N's recorded baseline.
 - `cargo fmt --all -- --check` clean in the root and `repository/` workspaces.
+- After merging `main` (bug-609, `man.rs`/`man-census.sh` only, no file overlap):
+  `test-accept.sh` → `acceptance tests passed (1464 test(s) ran)`; the `datetime` man
+  pages render the same Errors tables; both man-census scopes 0; fmt clean. The
+  post-merge `cargo test` was stopped before completion at the owner's request, so the
+  5540-passed figure above is from before the merge.
 - Linux and Windows were not run. The change is descriptor metadata and doc text only,
   and emits no code. The new fixture's program exercises the existing datetime bodies,
   and the per-backend corpus runs it in CI.
