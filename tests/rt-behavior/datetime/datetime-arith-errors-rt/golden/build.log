@@ -1,0 +1,42 @@
+$ mfb build -ast -ir tests/rt-behavior/datetime/datetime-arith-errors-rt
+Wrote AST to tests/rt-behavior/datetime/datetime-arith-errors-rt/datetime-arith-errors-rt.ast
+Wrote IR to tests/rt-behavior/datetime/datetime-arith-errors-rt/datetime-arith-errors-rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/datetime/datetime-arith-errors-rt
+Wrote executable to tests/rt-behavior/datetime/datetime-arith-errors-rt/build/datetime-arith-errors-rt.out
+[exit 0]
+$ tests/rt-behavior/datetime/datetime-arith-errors-rt/build/datetime-arith-errors-rt.out
+add=TRUE
+subtract=TRUE
+plus=TRUE
+minus=TRUE
+negate=TRUE
+between=TRUE
+instant2=TRUE
+instant3=TRUE
+instant4=TRUE
+instant5=TRUE
+duration2=TRUE
+duration3=TRUE
+duration4=TRUE
+duration5=TRUE
+toMillis=TRUE
+toNanos=TRUE
+addDaysOverflow=TRUE
+addDaysLocal=TRUE
+addMonthsOverflow=TRUE
+addMonthsLocal=TRUE
+startOfDayOverflow=TRUE
+startOfDayLocal=TRUE
+withZoneOverflow=TRUE
+withZoneLocal=TRUE
+dayOfYear=TRUE
+weekday=TRUE
+resolve=TRUE
+formatToken=TRUE
+formatOverflow=TRUE
+formatDuration=TRUE
+toIso1=TRUE
+toIso2=TRUE
+quiet=TRUE
+[exit 0]
