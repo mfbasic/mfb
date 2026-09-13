@@ -37,8 +37,10 @@ date fields, time fields, and resolved offset of `dt`; it does not consult
 `dt`'s zone name, apply any zone conversion, or shift the moment. `dt` is read
 only and is not modified.
 
-Apart from a `digits` outside the allowed set, `toIso` emits a result for every
-`datetime::DateTime` and is pure: it reads no host state and has no side effects."#;
+A `datetime::DateTime` from the constructors always renders; only a `digits`
+outside the allowed set raises. A `datetime::DateTime` record you build yourself
+with an offset at the edge of the `Integer` range raises `ErrOverflow`. `toIso` is
+pure: it reads no host state and has no side effects."#;
 const EX: &str = r#"Render the current instant in UTC, yielding a `...Z` suffix:
 
 ```

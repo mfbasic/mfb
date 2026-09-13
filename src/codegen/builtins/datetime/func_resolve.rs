@@ -10,7 +10,7 @@ an absolute instant onto the wall-clock fields an observer in a zone reads,
 `resolve` collapses those wall-clock fields — together with the UTC offset already
 pinned on `dt` — back onto the single point on the UTC timeline they denote.
 
-The computation is total and needs no zone lookup. `resolve` first converts the
+The computation needs no zone lookup. `resolve` first converts the
 civil date (`dt.date.year`, `dt.date.month`, `dt.date.day`) to a day count with
 the proleptic Gregorian calendar, multiplies by `86400` to get seconds, and adds
 the time-of-day contribution (`dt.time.hour * 3600 + dt.time.minute * 60 +
@@ -25,7 +25,10 @@ zone, `resolve` is unambiguous even across daylight-saving transitions: it
 reproduces exactly the instant a `datetime::DateTime` was built from. For any instant `at`
 and zone `z`, `datetime::resolve(datetime::inZone(at, z))` returns `at` unchanged.
 The `seconds` field participates in the date/time arithmetic; the `nanos` field is
-copied through verbatim. `resolve` is pure and reads no host state."#;
+copied through verbatim. A `datetime::DateTime` from the constructors always
+resolves. A `datetime::DateTime` record you build yourself with a year far enough
+from the epoch that the second count leaves the `Integer` range raises
+`ErrOverflow`. `resolve` is pure and reads no host state."#;
 const EX: &str = r#"Round-trip an instant through a civil `datetime::DateTime` and back:
 
 ```

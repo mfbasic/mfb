@@ -56,11 +56,17 @@ each multiplying by `60 / 3600 / 86400` as appropriate. Arithmetic
 (`add`, `subtract`, `between`, `plus`, `minus`, `negate`) adds or subtracts the
 raw field pairs and re-normalizes; comparison (`compare`, `isBefore`, `isAfter`,
 `equals`) orders on `seconds` then `nanos`. [[src/codegen/builtins/datetime/mod.rs:__datetime_normInstant]]
+The builders with more than one argument and every arithmetic member use checked
+`Integer` arithmetic, so a sum or product outside the `Integer` range raises
+`ErrOverflow` (`77050010`). The one-argument `instant`/`duration` store the value
+unchanged and never raise; comparison never raises.
+[[src/codegen/builtins/datetime/func_add.rs:__datetime_add]]
 
-`fromMillis` converts against the epoch with the same borrow logic;
-`toMillis`/`toNanos` are a straight multiply-add on the already-canonical pair.
-Both use checked `Integer` arithmetic, so a value outside the `Integer` range
-surfaces `ErrOverflow` (`77050010`).
+`fromMillis` converts against the epoch with the same borrow logic. It only
+divides, so it never raises. `toMillis`/`toNanos` are a straight multiply-add on
+the already-canonical pair, so a value outside the `Integer` range raises
+`ErrOverflow` (`77050010`).
+[[src/codegen/builtins/datetime/func_from_millis.rs:__datetime_fromMillis]]
 [[src/codegen/builtins/datetime/func_to_millis.rs:__datetime_toMillis]]
 
 ## Monotonic vs wall clock
