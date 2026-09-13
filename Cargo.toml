@@ -711,6 +711,10 @@ name = "rt_recursive_value_drop_symmetry"
 path = "tests/runtime/rt_recursive_value_drop_symmetry.rs"
 
 [[test]]
+name = "rt_recursive_value_collection_drops"
+path = "tests/runtime/rt_recursive_value_collection_drops.rs"
+
+[[test]]
 name = "rt_recursive_value_copies"
 path = "tests/runtime/rt_recursive_value_copies.rs"
 

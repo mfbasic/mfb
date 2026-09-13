@@ -6102,3 +6102,89 @@ fn a_looped_recursive_closure_capture_runs_at_constant_rss() {
 fn a_looped_recursive_get_result_runs_at_constant_rss() {
     assert_flat("c_recursive_get", SHAPE_C_GET, 400_000, 800_000);
 }
+
+// ---------------------------------------------------------------- shape C / plan-134-H
+
+/// plan-134-H: parsing the same 480 003-byte JSON document K times costs its tree once.
+/// `tools/recursive-value-bench/programs/json_repeat` with K = {N}: 204 / 402 / 799 MB at
+/// K = 1 / 2 / 4 before plan-134 (plan-134-A §2.1).
+const SHAPE_C_JSON_REPEAT: &str = r#"IMPORT io
+IMPORT json
+SUB main()
+  MUT text AS String = "["
+  MUT j AS Integer = 0
+  WHILE j < 20000
+    text = text & "{\u{22}a\u{22}:[1,2,3],\u{22}b\u{22}:\u{22}xyz\u{22}},"
+    j = j + 1
+  END WHILE
+  text = text & "0]"
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET v AS json::Json = json::parse(text)
+    i = i + 1
+  END WHILE
+  io::print("bytes=" & toString(len(text)))
+END SUB
+"#;
+
+/// plan-134-H: a 100 000-character `regex::findAll` repeated K times costs its matcher graphs
+/// once. `tools/recursive-value-bench/programs/regex_repeat` with K = {N}: 345 / 673 / 1329 MB
+/// at K = 1 / 2 / 4 before plan-134.
+const SHAPE_C_REGEX_REPEAT: &str = r#"IMPORT io
+IMPORT regex
+SUB main()
+  MUT subject AS String = ""
+  MUT j AS Integer = 0
+  WHILE j < 10000
+    subject = subject & "abcab1234 "
+    j = j + 1
+  END WHILE
+  MUT hits AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    hits = len(regex::findAll(subject, "[a-c]+[0-9]+"))
+    i = i + 1
+  END WHILE
+  io::print("hits=" & toString(hits))
+END SUB
+"#;
+
+/// plan-134-H (from plan-134-G): the json form of the unbound recursive temp. After G a
+/// `--debug` build leaves `live_bytes 2912000` per 1 000 iterations whether `json::parse`'s
+/// result is bound or not — blocks left inside json's list-building helpers.
+const SHAPE_C_JSON_UNBOUND_TEMP: &str = r#"IMPORT io
+IMPORT json
+SUB main()
+  LET t AS String = "[1,{\u{22}a\u{22}:[2,3]}]"
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    acc = acc + len(json::stringify(json::parse(t)))
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_repeated_json_parse_of_one_document_runs_at_constant_rss() {
+    assert_flat("c_recursive_json_repeat", SHAPE_C_JSON_REPEAT, 1, 4);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_repeated_regex_find_all_runs_at_constant_rss() {
+    assert_flat("c_recursive_regex_repeat", SHAPE_C_REGEX_REPEAT, 1, 4);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_unbound_recursive_json_temp_runs_at_constant_rss() {
+    assert_flat(
+        "c_recursive_json_unbound_temp",
+        SHAPE_C_JSON_UNBOUND_TEMP,
+        400_000,
+        800_000,
+    );
+}

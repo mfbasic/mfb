@@ -18,7 +18,8 @@ References: plan-134-A (baselines); plan-134-F (drop walker); plan-134-G (regist
 `src/codegen/error/emission/park_error_helper.rs::lower_drop_owned_collection_helper`;
 `src/codegen/collection/assign/builder_inplace_assign.rs` (`G24`); `.ai/collections.md`.
 
-Prerequisites: see plan-134-A; plan-134-G complete (`ls planning/completed/plan-134-G-*`).
+Prerequisites: see plan-134-A; plan-134-G complete (`ls planning/completed/plan-134-G-*`). — MET
+2026-09-13 (`planning/completed/plan-134-G-drop-registration.md`).
 
 ## 1. Goal
 
@@ -72,15 +73,60 @@ both.
 
 ### Phase 1 — census and RED
 
-- [ ] List every in-place and rebuild arm that discards an element
+- [x] List every in-place and rebuild arm that discards an element
       (`grep -rn "fn try_inplace_\|fn lower_.*remove\|fn lower_.*set" src/codegen/collection
-      --include='*.rs'`), with whether it frees the old element today; record the count.
-- [ ] Measure whether a `List OF json::Json` declared in user code has a walker kind (build it
-      with `--ncode`, look for the kind in `_mfb_rt_graph_drop`'s dispatch).
-- [ ] `tests/runtime/rt_recursive_value_collection_drops.rs` (register in `Cargo.toml`): per
+      --include='*.rs'`), with whether it frees the old element today; record the count. —
+      **33 functions, 17 discard an element, 0 free anything of it.** (Read-only sweep of every
+      body; `G24` lines re-checked by `grep -n "G24\|type_participates_in_cycle" …`.)
+      - Helpers:
+        - `lower_map_set_in_place`: overwrites, or leaves dead slack.
+        - `lower_map_remove_key_in_place`: shifts entries; the data is left as slack.
+        - `lower_list_set_in_place`: overwrites or shifts.
+        - `lower_list_remove_at`: rebuild; skips the hole and byte-copies survivors.
+        - `lower_list_remove_at_in_place`: compacts over the hole.
+      - In-place arms: `try_inplace_{remove_key,record_field_remove_key,record_field_remove_at,
+        record_field_set_remove,record_field_set,state_remove_key,state_set,state_remove_at,
+        state_set_remove,set,remove_at,set_remove}_assign`.
+      - Only the three removeAt arms decline a recursive element (`G24`, `type_participates_in_cycle`
+        at `builder_inplace_assign.rs:434`, `:1111`, `:2006`). `try_inplace_set_assign` and the
+        map/set arms have no gate.
+      - Rebuilding builtins (`func_set.rs::lower_set`, `func_remove_at.rs`, `func_remove_key.rs`,
+        `func_remove.rs`) free nothing of the element. Their `free_intermediate_collection` /
+        `emit_free_pre_grow_buffer` frees return early for any non-flat type (`if
+        !self.is_freeable_flat_value(type_)`).
+      - The other 16 (append, insert, prepend, splice, concat, set add, literal) discard nothing.
+- [x] Measure whether a `List OF json::Json` declared in user code has a walker kind (build it
+      with `--ncode`, look for the kind in `_mfb_rt_graph_drop`'s dispatch). — Yes for a type
+      that takes part in a cycle, no for one that only reaches one. `/tmp/p134-h-kind`
+      (`LET xs AS List OF json::Json`, `LET rs AS List OF Rep` for `TYPE Rep / child AS
+      json::Json`), `mfb build -ncode` → the per-type shims (one per walker kind) are
+      `List_OF_json_Json`, `Map_OF_String_TO_json_Json`, `json_JsonArr`, `json_JsonObj` and
+      `json_Json`. No kind for `Rep` or `List OF Rep`. **Gap confirmed:** a reaching-but-not-
+      participating type has no kind, so `owns_graph` is false for it and it still leaks. Phase
+      2's "walker kinds generated from `type_reaches_cycle`" is needed.
+- [x] `tests/runtime/rt_recursive_value_collection_drops.rs` (register in `Cargo.toml`): per
       arm, a `--debug` program that builds a list/map of recursive values, discards elements that
       way, and asserts `arena.live_bytes` back at its start; plus the json and regex K = 1/2/4
-      `assert_flat` cases in `rt_scope_drop_leaks.rs`. Confirm they fail today.
+      `assert_flat` cases in `rt_scope_drop_leaks.rs`. Confirm they fail today. — Eight cases.
+      Each discards and re-adds one element per iteration (constant size). Built with
+      `--debug`, each asserts final `live_bytes` equal at 1 000 and 2 000 iterations,
+      `double_free_skips` 0 and equal output. Against the plan-134-G build, **7 failed**:
+
+      | case | `live_bytes` growth / 1 000 discards |
+      |---|---|
+      | list `set` in place | +144 000 |
+      | map `set` over a key | +144 000 |
+      | map `removeKey` | +279 216 |
+      | record-field list `set` | +656 000 |
+      | record-field `removeAt` | +816 000 |
+      | record-field map `removeKey` | +1 056 000 |
+      | `List OF Rep`, element only reaches a cycle | +272 000 |
+
+      `a_list_remove_at_frees_the_removed_element` already **passes**: the local removeAt takes
+      the `G24` rebuild. E's `own_collection_payload_edges` gives the survivors their own graphs,
+      and G's `Assign` graph-drops the old list, removed element included. It stays as a pin.
+      The json/regex `assert_flat` cases: json K = 1 → 4 grew 1077 MB (fails); regex is already
+      flat (Corrections).
 - [ ] Added by plan-134-G: the json form of G's unbound-temp case,
       `acc = acc + len(json::stringify(json::parse(t)))` for `t = [1,{"a":[2,3]}]`, as an
       `assert_flat` case in `rt_scope_drop_leaks.rs` (400 000 / 800 000). Measured after G:
@@ -159,7 +205,24 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Prerequisite re-run** (2026-09-13): `ls planning/completed/plan-134-G-*` → one file — MET.
+- **`regex_repeat` is already flat after plan-134-G, so its RED case cannot fail.**
+  `cargo test --release --test rt_scope_drop_leaks -- json_parse_of_one regex_find_all
+  unbound_recursive_json` → `a_repeated_regex_find_all_runs_at_constant_rss ... ok`.
+  The other two fail:
+  - `c_recursive_json_repeat`: peak RSS grew 1077 MB between K = 1 and 4 (528 → 1605 MB);
+  - `c_recursive_json_unbound_temp`: grew 5345 MB between 400k and 800k.
+
+  The regex case stays as the regression pin for the goal. Phase 1's "confirm they fail" holds
+  for json only.
+- **`STATE` arms are outside the class.** A resource's `STATE` holding recursive values is
+  resource-bearing: `type_contains_resource` walks the `STATE` clause, so `needs_graph_copy` and
+  `owns_graph` are false for it. The three `try_inplace_state_*` discarding arms leak as before
+  and get no per-arm case here.
+- **A set cannot hold a recursive value, so the set arms need no case.** Measured, not
+  assumed. `/tmp/p134-h-set` (`LET s AS Set OF Node = Set OF Node { Node[kids := [], tag := 1] }`)
+  → `error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: Set element type requires a comparable type,
+  got Node`. The three set-remove discarding arms can therefore never see a recursive element.
 
 ## Summary
 
