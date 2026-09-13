@@ -86,11 +86,7 @@ pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
                     .function(page_name)
                     .filter(|function| !function.internal_only);
                 if *page_name == "types" && function.is_none() {
-                    print_markdown(&format!(
-                        "The `{}` package has no public types.\n\nRun `mfb man {}` to list its functions.\n",
-                        package.import_name(),
-                        package.import_name(),
-                    ));
+                    print_markdown(&render_no_types_markdown(package));
                     return Ok(());
                 }
                 let function = function.ok_or_else(|| {
@@ -374,6 +370,15 @@ fn has_public_types(package: &RegistryPackage) -> bool {
         || package.unions().iter().any(|union| union.export)
         || package.enums().iter().any(|r#enum| r#enum.export)
         || package.resources().iter().any(|resource| resource.export)
+}
+
+/// The page `mfb man <pkg> types` shows for a package with no public types.
+fn render_no_types_markdown(package: &RegistryPackage) -> String {
+    format!(
+        "The `{}` package has no public types.\n\nRun `mfb man {}` to list its functions.\n",
+        package.import_name(),
+        package.import_name(),
+    )
 }
 
 /// Build the consolidated *types* page for a package: every exported record (with a
