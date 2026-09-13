@@ -267,7 +267,7 @@ UNMEASURED row.
   Check: that command → 9 programs, exit 0 for all but `deep_chain` at n ≥ 70 000 (exit 139)
   and `regex_chain group:500001` (exit 3, the pending limit) (est. 3 min).
   Result: met — 9 programs; RSS rows within 0.1 %; exits exactly as stated.
-Commit: —
+Commit: c9bcec1ae
 
 ## Validation Plan (this letter)
 

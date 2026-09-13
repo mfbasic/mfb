@@ -652,11 +652,11 @@ impl CodeBuilder<'_> {
         // A recursive value (e.g. `dom::Node`, whose `ElementNode.children` is
         // `List OF Node`) is a pointer-linked graph; copying it inline would make
         // the code generator recurse over the *type* without bound (bug-391).
-        // Route it through a per-type runtime deep-copy function instead, so the
-        // recursion runs at run time over the finite *data* and terminates. Every
-        // such function's body is `emit_thread_copy_real`, whose own field/element
-        // edges come back here — so a recursive sub-edge becomes a call, not more
-        // inline code. Non-recursive values are unaffected (copied inline as before).
+        // Route it through its per-type entry point instead, which runs the
+        // module's non-recursive walker (`graph_copy.rs`, plan-134-B): the walker
+        // copies one block at a time and keeps the pending edges on an arena work
+        // stack, so neither the compiler nor the program recurses per level of the
+        // data. Non-recursive values are unaffected (copied inline as before).
         if type_participates_in_cycle(&self.type_model, type_) {
             return self.emit_thread_copy_call(type_, source);
         }
@@ -1690,25 +1690,32 @@ impl CodeBuilder<'_> {
                 source_payload_slot,
             ));
             self.emit(abi::load_u64(&scratch10, &scratch9, 0));
-            let copied = self.copy_value_to_current_arena(payload_type, &scratch10)?;
-            // Stash before reloading the destination pointer: `copied` may be x9.
-            let payload_copied_slot = self.allocate_stack_object("thread_copy_payload_field", 8);
-            self.emit(abi::store_u64(
-                &copied,
-                abi::stack_pointer(),
-                payload_copied_slot,
-            ));
-            self.emit(abi::load_u64(
-                &scratch9,
-                abi::stack_pointer(),
-                dest_payload_slot,
-            ));
-            self.emit(abi::load_u64(
-                &scratch10,
-                abi::stack_pointer(),
-                payload_copied_slot,
-            ));
-            self.emit(abi::store_u64(&scratch10, &scratch9, 0));
+            // plan-134-B: inside the walker a cycle-typed payload is pushed, with the
+            // payload word of the new block as its destination.
+            if let Some(kind) = self.graph_copy_edge_kind(payload_type)? {
+                self.emit_graph_copy_push(kind, &scratch10, dest_payload_slot, 0)?;
+            } else {
+                let copied = self.copy_value_to_current_arena(payload_type, &scratch10)?;
+                // Stash before reloading the destination pointer: `copied` may be x9.
+                let payload_copied_slot =
+                    self.allocate_stack_object("thread_copy_payload_field", 8);
+                self.emit(abi::store_u64(
+                    &copied,
+                    abi::stack_pointer(),
+                    payload_copied_slot,
+                ));
+                self.emit(abi::load_u64(
+                    &scratch9,
+                    abi::stack_pointer(),
+                    dest_payload_slot,
+                ));
+                self.emit(abi::load_u64(
+                    &scratch10,
+                    abi::stack_pointer(),
+                    payload_copied_slot,
+                ));
+                self.emit(abi::store_u64(&scratch10, &scratch9, 0));
+            }
         } else if self.type_model.record_fields.contains_key(payload_type) {
             self.emit(abi::load_u64(
                 &scratch9,
@@ -1779,6 +1786,11 @@ impl CodeBuilder<'_> {
             }
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
             self.emit(abi::load_u64(&scratch10, &scratch9, index * 8));
+            // plan-134-B: inside the walker a cycle-typed edge is pushed, not copied.
+            if let Some(kind) = self.graph_copy_edge_kind(field_type)? {
+                self.emit_graph_copy_push(kind, &scratch10, destination_slot, index * 8)?;
+                continue;
+            }
             let copied = self.copy_value_to_current_arena(field_type, &scratch10)?;
             // Stash before reloading the destination pointer: `copied` may be x9.
             self.emit(abi::store_u64(&copied, abi::stack_pointer(), copied_slot));
@@ -1922,6 +1934,16 @@ impl CodeBuilder<'_> {
             for (index, (_, field_type)) in fields.iter().enumerate() {
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
                 self.emit(abi::load_u64(&scratch10, &scratch9, 8 * (index + 1)));
+                // plan-134-B: inside the walker a cycle-typed edge is pushed.
+                if let Some(kind) = self.graph_copy_edge_kind(field_type)? {
+                    self.emit_graph_copy_push(
+                        kind,
+                        &scratch10,
+                        destination_slot,
+                        8 * (index + 1),
+                    )?;
+                    continue;
+                }
                 let copied = self.copy_value_to_current_arena(field_type, &scratch10)?;
                 // Stash before reloading the destination pointer: `copied` may be x9.
                 self.emit(abi::store_u64(

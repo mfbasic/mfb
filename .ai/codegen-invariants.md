@@ -110,6 +110,12 @@ A **native reader** of a record argument must rebase: a `String` or flat-composi
 
 A value that is not `type_is_memcpy_copyable` gets **no owning copy at a bind and no drop anywhere**. The pointer-string records were that class until plan-132 — every such value leaked (bug-599), and a `MUT` copy of a list shared its source so an in-place arm emptied or freed it (bug-601). Recursive types are still in it (bug-536 shape C). Do not add a drop for such a class on its own: it double-frees the shared block.
 
+## A recursive value's deep copy must never recurse on the native stack
+
+The depth of a recursive value is data, not type: a user tree, a `json::parse` result, or the regex backtracker's `__regex_Choices` chain (up to 500 000 deep, `__REGEX_PENDING_LIMIT`). The per-type copy functions (`thread_copy_symbol`) used to call each other once per edge, and a chain about 60 000 deep overflowed the 8 MiB stack (plan-134-A §2.1). Since plan-134-B each per-type symbol is a shim into ONE module-level walker, `_mfb_rt_graph_copy` (`src/codegen/memory/arena/graph_copy.rs`), which copies one block at a time and keeps pending edges on an arena work stack.
+
+How to apply: when emitting code that deep-copies a pointer edge, route it through the edge-site check (`graph_copy_edge_kind` → `emit_graph_copy_push`), as `copy_record_fields_into_existing`, `copy_union_fields_into_existing` and `fix_collection_transfer_payload` do. A new edge site that calls `copy_value_to_current_arena` directly for a cycle type reintroduces one native frame per level of the data — `graph_copy_edges_match_the_copy_calls` fails for it, and `tests/runtime/rt_recursive_value_copy_depth.rs` crashes. The drop walker (plan-134-F) has the same constraint.
+
 Why it bites: the caller sizes/copies a record by walking the data region contiguously (`emit_record_block_size_to_slot` ignores the stored offsets when sizing), so hand-built code that stores a pointer and omits the region makes the caller read garbage as a length and add 9 → `ldr x11,[x10]; add x11,x11,#9`. Huge garbage → "Allocation failed" (7-701-0001); small-but-wrong → SIGSEGV at a different address every run. A scalar-only record hides this completely — `8*n` is then exactly right, so scalar tests passing proves nothing about the String path.
 
 Note `8*i` means records can never be C structs — `SF_INFO.channels` lands at 12 in C, 16 in a record.

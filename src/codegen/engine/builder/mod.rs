@@ -506,6 +506,11 @@ pub(crate) struct CodeBuilder<'a> {
     /// stays sound throughout (no mid-body clear needed). UNSOUND elision = silent
     /// OOB — gated by the whole-body-unmodified proof AND mandatory negative fixtures.
     pub(crate) provable_index_locals: HashMap<String, (String, i64)>,
+    /// plan-134-B: set only while `_mfb_rt_graph_copy`'s body is emitted. The copy's
+    /// edge sites read it to push a cycle-typed edge onto the walker's work stack
+    /// instead of calling a per-type copy function. `None` in every other builder.
+    pub(crate) graph_copy_walker:
+        Option<crate::codegen::memory::arena::graph_copy::GraphCopyWalker>,
 }
 
 impl<'a> CodeBuilder<'a> {
@@ -602,6 +607,7 @@ impl<'a> CodeBuilder<'a> {
             len_of_local: HashMap::new(),
             provable_index_locals: HashMap::new(),
             enclosing_loop_reassigned: Vec::new(),
+            graph_copy_walker: None,
         }
     }
 }
@@ -1701,12 +1707,12 @@ pub(crate) fn lower_module_for_platform(
             type_model.clone(),
         )?);
     }
-    // A per-type runtime deep-copy function for every recursive type, so a
+    // A per-type runtime deep-copy entry point for every recursive type, so a
     // recursive value (e.g. `dom::Node`) can be transferred out of a worker arena
     // — `copy_value_to_current_arena` routes such a value's copy to a call to
     // `thread_copy_symbol(type)` rather than recursing over the type inline
-    // (bug-391). The functions reference one another for their sub-edges; the
-    // set is closed under that reference.
+    // (bug-391). plan-134-B: each is a shim into the one non-recursive walker,
+    // `_mfb_rt_graph_copy`, passing its index in this set's order as the kind.
     let recursive_copy_types = recursive_transfer_types(&type_model);
     // Their `arena_alloc`-failure path builds an error with an empty message, so
     // the empty-string data object must exist even if the module's own code did
@@ -1718,14 +1724,15 @@ pub(crate) fn lower_module_for_platform(
     {
         data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
     }
-    for type_ in recursive_copy_types {
+    for (kind, type_) in recursive_copy_types.iter().enumerate() {
         // `recursive_transfer_types` returns rendered names (the emission ORDER
         // is observable in the `.ncode`); parse each back once, here, for the
         // typed emitters below.
-        let type_ = ParameterType::declared(&type_);
+        let type_ = ParameterType::declared(type_);
         let symbol = thread_copy_symbol(&type_);
         code_functions.push(lower_thread_copy_function(
             &type_,
+            kind,
             &symbol,
             &function_symbols,
             &functions,
@@ -1737,6 +1744,36 @@ pub(crate) fn lower_module_for_platform(
             &string_symbols,
             type_model.clone(),
         )?);
+    }
+    if !recursive_copy_types.is_empty() {
+        let kinds: Vec<String> = recursive_copy_types.iter().cloned().collect();
+        code_functions.push(
+            crate::codegen::memory::arena::graph_copy::lower_graph_copy_walker(
+                &kinds,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?,
+        );
+        code_functions.push(
+            crate::codegen::memory::arena::graph_copy::lower_graph_stack_grow(
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?,
+        );
     }
     // plan-130-B: the arena hot path times itself exactly when the `--debug` perf
     // section is active for this module.

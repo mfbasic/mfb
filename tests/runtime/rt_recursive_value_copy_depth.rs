@@ -100,6 +100,51 @@ FUNC main AS Integer
 END FUNC
 ";
 
+/// The walker's copy is the same value as its source, not merely a value of the right
+/// depth: a three-level `json::Json` with arrays, objects, strings and literals copied
+/// by `collections::get` stringifies exactly like the original, and stays whole after
+/// the list slot it was copied from is overwritten in place.
+const JSON_COPY_SOURCE: &str = "IMPORT io
+IMPORT json
+IMPORT collections
+
+FUNC main AS Integer
+  LET doc AS json::Json = json::parse(\"{\\u{22}a\\u{22}:[1,{\\u{22}b\\u{22}:[true,null,\\u{22}x\\u{22}]}],\\u{22}c\\u{22}:{\\u{22}d\\u{22}:{\\u{22}e\\u{22}:[2.5]}}}\")
+  MUT xs AS List OF json::Json = [doc]
+  LET copied AS json::Json = collections::get(xs, 0)
+  LET empty AS json::Json = json::JsonNull[NOTHING]
+  xs = collections::set(xs, 0, empty)
+  io::print(\"copy=\" & json::stringify(copied))
+  io::print(\"source=\" & json::stringify(doc))
+  io::print(\"slot=\" & json::stringify(collections::get(xs, 0)))
+  RETURN 0
+END FUNC
+";
+
+#[cfg(unix)]
+#[test]
+fn a_copied_json_tree_equals_its_source_and_is_independent_of_the_list() {
+    let project = common::temp_project("p134b_json_copy_value", JSON_COPY_SOURCE);
+    let exe = common::build_project(&project);
+    let (status, stdout, _rss) = common::run_bounded_with_rss(
+        &exe,
+        Duration::from_secs(60),
+        "the json copy probe did not finish",
+    );
+    assert!(
+        status.success(),
+        "the json copy probe {}.\nstdout:\n{stdout}",
+        common::exit_description(&status)
+    );
+    let tree = r#"{"a":[1,{"b":[true,null,"x"]}],"c":{"d":{"e":[2.5]}}}"#;
+    assert_eq!(
+        stdout.trim(),
+        format!("copy={tree}\nsource={tree}\nslot=null"),
+        "a deep copy must reproduce every level of its source"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_100000_deep_chain_copies_through_collections_get() {

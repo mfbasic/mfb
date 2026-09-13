@@ -105,24 +105,41 @@ Commit: —
 
 ### Phase 2 — the walker
 
-- [ ] `src/codegen/memory/arena/builder_arena_transfer.rs`: split each
+- [x] `src/codegen/memory/arena/builder_arena_transfer.rs`: split each
       `copy_*_fields_into_existing` into "copy this block one level" + "enumerate this block's
-      cycle-type edges as (kind, slot offset)"; keep the non-cycle edges inline.
-- [ ] `src/codegen/engine/builder/mod.rs`: assign kind indices over `recursive_transfer_types`;
+      cycle-type edges as (kind, slot offset)"; keep the non-cycle edges inline. — done as a
+      push at each of the three edge sites (`graph_copy_edge_kind` → `emit_graph_copy_push`),
+      not a split; see Corrections. Non-cycle edges keep the inline copy.
+- [x] `src/codegen/engine/builder/mod.rs`: assign kind indices over `recursive_transfer_types`;
       emit `_mfb_rt_graph_copy` (work stack, loop, dispatch); turn each per-type copy function
-      into the push-root-and-run shim.
-- [ ] Unit test beside the emitter: the walker's edge list for `TYPE Node (kids AS List OF
+      into the push-root-and-run shim. — walker and `_mfb_rt_graph_stack_grow` in
+      `src/codegen/memory/arena/graph_copy.rs`, emitted by `engine/builder/mod.rs` when the set is
+      non-empty; kinds = enumeration order of the set; `lower_thread_copy_function` takes `kind`
+      and calls the walker. `node_copies -ncode` emits `_mfb_rt_graph_copy`,
+      `_mfb_rt_graph_stack_grow` and the two shims. `deep_chain` (macOS): 50 000 / 100 000 /
+      1 000 000 → `top=<n>`, exit 0 (was 139 from 70 000).
+- [x] Unit test beside the emitter: the walker's edge list for `TYPE Node (kids AS List OF
       Node)` and for `json::Json` equals the pointer fields `copy_*_fields_into_existing` visits
-      (a table test over `TypeModel::builtin_records()` and a hand-built model).
-- [ ] Tests: the Phase 1 cases pass; add a positive pin to the same file — a copied `json::Json`
+      (a table test over `TypeModel::builtin_records()` and a hand-built model). —
+      `graph_copy_edges_match_the_copy_calls` (hand-built models, see Corrections): `cargo test
+      --release --bin mfb -- graph_copy` → `1 passed; 0 failed`.
+- [x] Tests: the Phase 1 cases pass; add a positive pin to the same file — a copied `json::Json`
       tree (3 levels, arrays and objects) prints identically to its source, and mutating a
-      `MUT` copy of the list holding it leaves the source intact.
+      `MUT` copy of the list holding it leaves the source intact. — both depth cases pass;
+      `a_copied_json_tree_equals_its_source_and_is_independent_of_the_list` added (the source
+      list's slot is overwritten instead of a `MUT` copy mutated — see Corrections).
 
 Acceptance: deep copies succeed at any depth and existing copies are unchanged in value.
   Check: `cargo test --release --test rt_recursive_value_copy_depth` → all passed;
   `cargo test --release --test rt_scope_drop_leaks` and every `thread` rt test (`cargo test
   --release rt_thread`) → passed (est. 12 min; the thread tests are the only other callers of
   the copy, so nothing smaller covers them).
+  Result: met. `cargo test --release --no-fail-fast --test rt_recursive_value_copy_depth` →
+  `3 passed; 0 failed`. Scoped suites (Corrections) → `rt_recursive_get_alias` 2 passed,
+  `rt_recursive_map_transfer` 1, `rt_recursive_thread_transfer` 1, `rt_scope_drop_leaks` 118,
+  `rt_thread_accept_res_drop_closes` 1, `rt_thread_send_cross_arena` 2,
+  `rt_tls_listener_thread_transfer` 1 — 0 failed anywhere. `cargo test --release --bin mfb --
+  graph_copy` → 1 passed.
 Commit: —
 
 ### Phase 3 — goldens and Linux
@@ -132,8 +149,11 @@ Commit: —
       fixture declaring one). Localize each package that moves to the copy functions/walker by
       building its `-ncode` before and after; regenerate with `bash
       scripts/regen-native-goldens.sh target/release/mfb`.
-- [ ] Cross-build `deep_chain` for `linux-aarch64` and run it on box 2223 at n = 1 000 000
-      (native aarch64 box — plan-134 needs no x86 behaviour here).
+- [x] Cross-build `deep_chain` for `linux-aarch64` and run it on box 2223 at n = 1 000 000
+      (native aarch64 box — plan-134 needs no x86 behaviour here). — `mfb build -target
+      linux-aarch64 tools/recursive-value-bench/programs/deep_chain`, `deep_chain-glibc.out`
+      copied to 2223 (`Linux aarch64`): `1000000` → `top=1000000 exit=0`; `70000` →
+      `top=70000 exit=0`.
 
 Acceptance: the gate's diffs are confined to modules with a recursive type, each explained;
 box 2223 prints `top=1000000`, exit 0.
@@ -171,6 +191,32 @@ Commit: —
   model through the importing module's NIR). The edge-table unit test therefore uses
   hand-built models: a user `TYPE Node`, a Json-shaped recursive union, and a cycle member with a
   non-cycle field that reaches a second cycle.
+- **The json value pin cannot mutate a `MUT` copy of the list yet.** Phase 2's last task asks
+  that "mutating a `MUT` copy of the list holding it leaves the source intact". That is
+  bug-601's shape, which this letter does not fix: `MUT ys = xs` over a recursive list still
+  shares `xs`'s block until letter D (`tools/recursive-value-bench/run.sh … tree_alias` →
+  `ys=6 xs=112`). The pin instead overwrites the SOURCE list's slot in place
+  (`collections::set(xs, 0, json::JsonNull[NOTHING])`) after taking the copy, then reads the
+  copy — the independence this letter's walker is responsible for. Letter D's
+  `rt_recursive_value_copies.rs` owns the `MUT`-copy shape.
+- **"Split each `copy_*_fields_into_existing` into copy-one-level + enumerate-edges" was done
+  without a split.** The three edge sites (`copy_record_fields_into_existing`,
+  `copy_union_fields_into_existing`'s variant-field loop, `fix_collection_transfer_payload`'s
+  pointer payload) ask `graph_copy_edge_kind` before copying an edge and, inside the walker,
+  push instead. The walker's per-kind body is the unchanged `emit_thread_copy_real`, which
+  copies one block and reaches exactly those sites. That meets the design's own constraint
+  ("generated from the same per-field predicates, never re-derived") more strictly than a split
+  would: there is one enumeration, and the push replaces the call at the same site. Outside the
+  walker `graph_copy_edge_kind` returns `None` without emitting anything, so non-recursive
+  codegen is untouched. Checked by `graph_copy_edges_match_the_copy_calls` (pushes == calls,
+  per kind, over three models).
+- **Scoped regression suites instead of `cargo test --release rt_thread`.** That name filter
+  compiles every integration binary to select by test-function name. The copy's only callers
+  are thread send/result and `collections::get`, so Phase 2 runs the targets that exercise them
+  by name: `rt_recursive_get_alias`, `rt_recursive_map_transfer`, `rt_recursive_thread_transfer`,
+  `rt_thread_send_cross_arena`, plus `rt_thread_accept_res_drop_closes`,
+  `rt_tls_listener_thread_transfer` and `rt_scope_drop_leaks`. `rt_canvas_graphics_thread` is
+  left out: it drives the desktop (a GUI test) and contains no recursive value.
 
 ## Summary
 

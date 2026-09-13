@@ -108,7 +108,9 @@ Two rules from it that are easy to get wrong:
   `materialize_owned_element` exists to provide (plan-02 Phase 8). It now routes
   the class through the per-type runtime deep copy (`copy_value_to_current_arena`
   → bug-391's `thread_copy_symbol`, which is emitted for every recursive type in
-  the module whether or not the program has a thread in it).
+  the module whether or not the program has a thread in it). Since plan-134-B each
+  of those symbols is a shim into the module's non-recursive walker
+  `_mfb_rt_graph_copy`, so the copy succeeds at any depth.
 
   Two details worth carrying forward:
 
