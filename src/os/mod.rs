@@ -1,6 +1,11 @@
 /// Platform-neutral app-icon decode/validate/render, shared by the macOS `.icns`
 /// pipeline and the Linux AppDir PNG set (plan-51-A §4.2).
 pub(crate) mod icon;
+/// The `contentSignature` a signed executable carries: the digest it covers and
+/// the seal every linker applies to its finished image.
+pub(crate) mod content_signature;
+/// Bounds-checked ELF/Mach-O/PE reader for the provenance note and `.mfbsign`.
+pub(crate) mod inspect;
 /// AArch64 relocation encoders and bounds-checked byte emit/patch helpers shared
 /// by the Mach-O and ELF linkers (bug-335 A4/A5). The instruction-encoding
 /// constants are ISA facts; only per-target relocation dispatch stays per platform.

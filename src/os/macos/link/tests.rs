@@ -312,7 +312,9 @@ fn writes_mfb_sign_section_to_mach_o() {
         imports: Vec::new(),
         entry: "_main".to_string(),
         initializers: Vec::new(),
-        signing_metadata: Some(br#"{"owner":"alice"}"#.to_vec()),
+        signing_metadata: Some(crate::arch::image::ExecutableSigning::unsealed(
+            br#"{"owner":"alice"}"#,
+        )),
         rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
@@ -411,7 +413,9 @@ fn provenance_note_coexists_with_the_mfb_sign_segment() {
         imports: Vec::new(),
         entry: "_main".to_string(),
         initializers: Vec::new(),
-        signing_metadata: Some(br#"{"owner":"alice"}"#.to_vec()),
+        signing_metadata: Some(crate::arch::image::ExecutableSigning::unsealed(
+            br#"{"owner":"alice"}"#,
+        )),
         rpaths: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
@@ -432,8 +436,10 @@ fn provenance_note_coexists_with_the_mfb_sign_segment() {
 /// or change runtime behavior. `codesign -v` passing proves the `LC_NOTE` payload
 /// lies inside `codeLimit` (a payload past it, or an `LC_NOTE` the two-pass sign
 /// settle sized inconsistently, breaks verification); exit 7 proves dyld still
-/// loads the image and reaches `_main`. Both the plain and the `--sign`
-/// (`__MFB`/`.mfbsign`) shapes, since the marker is orthogonal to that feature.
+/// loads the image and reaches `_main`. The plain, the `--sign`
+/// (`__MFB`/`.mfbsign`), and the sealed shapes — the content signature is filled
+/// into the blob before the ad-hoc signature hashes it, so sealing must leave
+/// `codesign -v` passing too.
 #[cfg(target_os = "macos")]
 #[test]
 fn noted_mach_o_verifies_and_runs() {
@@ -446,9 +452,23 @@ fn noted_mach_o_verifies_and_runs() {
     for word in words {
         put_u32(&mut text, word);
     }
+    let sealed = crate::arch::image::ExecutableSigning {
+        metadata: format!(
+            "{{\"contentSignature\":\"{}\"}}",
+            crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER
+        )
+        .into_bytes(),
+        signing_private: Some(mfb_repository::crypto::generate_keypair().1),
+    };
     for (name, metadata) in [
         ("noted_run", None),
-        ("noted_run_signed", Some(br#"{"owner":"ada"}"#.to_vec())),
+        (
+            "noted_run_signed",
+            Some(crate::arch::image::ExecutableSigning::unsealed(
+                br#"{"owner":"ada"}"#,
+            )),
+        ),
+        ("noted_run_sealed", Some(sealed)),
     ] {
         let image = EncodedImage {
             text: text.clone(),

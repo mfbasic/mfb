@@ -100,6 +100,16 @@ pub fn attestation_signing_input(attestation_json: &[u8]) -> Vec<u8> {
 /// `"MFP-PACKAGE-v2\0" || SHA-256(header bytes [0 .. offset of signature))`
 /// (plan-23 §4). The caller passes the raw signed prefix; the hash is taken
 /// here so every signer/verifier agrees on the construction.
+/// Domain-tagged signing input for an executable's content signature:
+/// `"MFB-EXECUTABLE-v1\0" || SHA-256(image with its .mfbsign blob zeroed)`. The
+/// caller hashes the image, since which bytes are covered is a linker fact.
+pub fn executable_signing_input(content_sha256: &[u8; 32]) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"MFB-EXECUTABLE-v1\0");
+    message.extend_from_slice(content_sha256);
+    message
+}
+
 pub fn package_signing_input(signed_prefix: &[u8]) -> Vec<u8> {
     let mut message = Vec::new();
     message.extend_from_slice(b"MFP-PACKAGE-v2\0");

@@ -384,7 +384,11 @@ pub(super) fn encode_dynamic_elf(
     bytes.extend_from_slice(data);
     bytes.extend_from_slice(&dynamic.bytes);
     bytes.resize(file_size, 0);
-    if let Some(metadata) = image.signing_metadata.as_deref() {
+    if let Some(metadata) = image
+        .signing_metadata
+        .as_ref()
+        .map(|signing| signing.metadata.as_slice())
+    {
         append_elf_signing_section(&mut bytes, metadata);
     }
     Ok(bytes)

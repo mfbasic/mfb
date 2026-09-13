@@ -148,33 +148,30 @@ fn encode_executable_bytes(
         &import_locations,
     )?;
     let entry_offset = main_entry_offset;
+    let metadata = image
+        .signing_metadata
+        .as_ref()
+        .map(|signing| signing.metadata.as_slice());
     // The output shape is chosen by the target ISA: x86-64 (plan-00-H) uses raw
     // syscalls (no imports) → a static, writable-data ELF; AArch64 links libc
     // dynamically (a static ELF only when a build happens to import nothing).
-    let bytes = if image.imports.is_empty() {
+    let mut bytes = if image.imports.is_empty() {
         // No libc imports (a build using only raw syscalls) → a static,
         // interpreter-less ELF; otherwise link libc dynamically (PLT/GOT +
         // interpreter). x86 uses raw syscalls for the primitives but pulls in
         // libc for what has no syscall (snprintf, signal, …).
         if arch == "x86_64" {
-            encode_static_elf_x86(
-                entry_offset,
-                &text,
-                &image.data,
-                image.signing_metadata.as_deref(),
-            )
+            encode_static_elf_x86(entry_offset, &text, &image.data, metadata)
         } else {
-            encode_static_elf(
-                arch,
-                entry_offset,
-                &text,
-                &image.data,
-                image.signing_metadata.as_deref(),
-            )
+            encode_static_elf(arch, entry_offset, &text, &image.data, metadata)
         }
     } else {
         encode_dynamic_elf(arch, flavor, entry_offset, &text, &image.data, image)?
     };
+    // The image is complete: seal the content signature over it.
+    if let Some(signing) = &image.signing_metadata {
+        crate::os::content_signature::seal(&mut bytes, signing)?;
+    }
     Ok(bytes)
 }
 

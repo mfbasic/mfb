@@ -350,12 +350,22 @@ fn is_blocked_redirect_ip(ip: std::net::IpAddr) -> bool {
 /// `server.pub` on first contact; a later mismatch is refused (plan-23 index
 /// §10.3). Every online flow calls this before touching other routes.
 pub fn ensure_server_key(repo_url: &str, paths: &LocalPaths) -> Result<Vec<u8>, String> {
+    let server_key = fetch_server_key(repo_url)?;
+    local::pin_server_key(paths, &server_key)?;
+    Ok(server_key)
+}
+
+/// Fetch the registry public key from `GET /ident` and check it against the
+/// fingerprint the response names — with no local state: nothing is pinned or
+/// compared against a pin. Authenticated by transport only; a caller that holds
+/// a signed claim about the key (an attestation's `repoFingerprint`) must compare
+/// against that.
+pub fn fetch_server_key(repo_url: &str) -> Result<Vec<u8>, String> {
     let response = get_json::<ServerIdentResponse>(repo_url, "/ident")?;
     let server_key = crypto::decode_bytes(&response.server_key, "serverKey")?;
     if crypto::fingerprint(&server_key) != response.server_fingerprint {
         return Err("repository /ident fingerprint does not match its key".to_string());
     }
-    local::pin_server_key(paths, &server_key)?;
     Ok(server_key)
 }
 
@@ -1427,6 +1437,19 @@ pub fn fetch_index(
     // If a signed-metadata root is pinned (plan-10-C2), the chain must verify
     // and delegate this server key before we trust anything the index says.
     verify_pinned_metadata(repo_url, paths)?;
+    fetch_index_with_key(repo_url, &server_key, owner, package)
+}
+
+/// [`fetch_index`] against a server key the caller already trusts, with no local
+/// state: the route binding, the identKey/fingerprint cross-check and the
+/// name-binding signature are all checked under `server_key`.
+pub fn fetch_index_with_key(
+    repo_url: &str,
+    server_key: &[u8],
+    owner: &str,
+    package: &str,
+) -> Result<IndexResponse, String> {
+    validate_owner_name(owner)?;
     let ident = format!("{owner}#{package}");
     let response =
         get_json::<IndexResponse>(repo_url, &format!("/index/{}", percent_encode(&ident)))?;
@@ -1475,11 +1498,13 @@ pub fn fetch_index(
     }
     let signature = crypto::decode_bytes(&response.name_binding_signature, "nameBindingSignature")?;
     crypto::verify(
-        &server_key,
+        server_key,
         &crypto::name_binding_message(&response.owner, &response.ident_fingerprint),
         &signature,
     )
-    .map_err(|_| "registry name binding does not verify under the pinned server key".to_string())?;
+    .map_err(|_| {
+        "registry name binding does not verify under the registry server key".to_string()
+    })?;
     Ok(response)
 }
 
@@ -4741,7 +4766,7 @@ mod tests {
         let err = fetch_index(&stub3.url, &paths3, "alice", "pkg").unwrap_err();
         assert_eq!(
             err,
-            "registry name binding does not verify under the pinned server key"
+            "registry name binding does not verify under the registry server key"
         );
     }
 
