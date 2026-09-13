@@ -123,7 +123,7 @@ state); localize it by building one fixture's `-ncode` before and after.
   Result: met — `2013 golden(s) checked, 0 diff(s)`. The release build's only warnings are the
   20 "never used" warnings in `last_use.rs` (`grep "^  --> " … | grep -vc last_use.rs` → 0),
   the expected consequence of no callers until letter D.
-Commit: —
+Commit: 7a3f67ff6
 
 ## Validation Plan
 
