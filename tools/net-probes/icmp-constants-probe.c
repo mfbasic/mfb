@@ -7,7 +7,7 @@
  * platform's own headers so the values committed to
  * `CodegenPlatform` are transcribed from a measurement rather than recalled.
  *
- *     cc -O0 -o /tmp/icmp-consts scripts/icmp-constants-probe.c && /tmp/icmp-consts
+ *     cc -O0 -o /tmp/icmp-consts tools/net-probes/icmp-constants-probe.c && /tmp/icmp-consts
  *
  * Run it on each supported POSIX target and compare against the table in
  * `planning/plan-110-A-network-contract-and-ping.md` §Corrections C5.

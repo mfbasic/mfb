@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drift gate for the vector FUNC bodies (bug-339 A1, post-split form).
 
-`scripts/gen_vector_package.py` is still the single source of truth for the
+`tools/vector-gen/gen_vector_package.py` is still the single source of truth for the
 `__vector_*` member arithmetic, but the checked-in bodies now live as `BODY*`
 raw-string consts spread across `src/codegen/builtins/vector/func_*.rs` and
 `helper_*.rs` (one FUNC per const). This checker regenerates the FUNC tail,
@@ -17,13 +17,13 @@ import re
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PKG = os.path.join(ROOT, "src/codegen/builtins/vector")
 
 
 def generated_funcs():
     out = subprocess.run(
-        [sys.executable, os.path.join(ROOT, "scripts/gen_vector_package.py")],
+        [sys.executable, os.path.join(ROOT, "tools/vector-gen/gen_vector_package.py")],
         capture_output=True,
         text=True,
         check=True,
@@ -65,7 +65,7 @@ def main():
             continue
         if strip_comments(gbody) != strip_comments(checked[name]):
             print(
-                f"DRIFT: {name} differs between scripts/gen_vector_package.py "
+                f"DRIFT: {name} differs between tools/vector-gen/gen_vector_package.py "
                 f"and its checked-in BODY const",
                 file=sys.stderr,
             )
@@ -74,7 +74,7 @@ def main():
         print(f"DRIFT: {name} checked in but not generated", file=sys.stderr)
         status = 1
     if status == 0:
-        print(f"ok: {len(gen)} vector FUNC bodies match scripts/gen_vector_package.py")
+        print(f"ok: {len(gen)} vector FUNC bodies match tools/vector-gen/gen_vector_package.py")
     return status
 
 

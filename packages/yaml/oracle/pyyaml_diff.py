@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""yaml_oracle_diff.py — differential-test `packages/yaml` against PyYAML.
+"""pyyaml_diff.py — differential-test `packages/yaml` against PyYAML.
 
 The SECOND of two independent oracles. The first is `packages/yaml/oracle`, a
 Node project built on eemeli/yaml pinned to YAML **1.2 Core** — the same
@@ -23,8 +23,8 @@ needs PyYAML installed.
     mkdir -p examples/yaml-json/packages
     cp packages/yaml/yaml.mfp examples/yaml-json/packages/yaml.mfp
     mfb build examples/yaml-json
-    python3 scripts/yaml_oracle_diff.py          # every mode
-    python3 scripts/yaml_oracle_diff.py corpus   # one mode
+    python3 packages/yaml/oracle/pyyaml_diff.py          # every mode
+    python3 packages/yaml/oracle/pyyaml_diff.py corpus   # one mode
 
 Modes:
 
@@ -52,7 +52,7 @@ try:
 except ImportError:  # pragma: no cover - the message IS the handling
     sys.exit("this script needs PyYAML as an independent oracle: pip install pyyaml")
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 BIN = os.path.join(ROOT, "examples", "yaml-json", "build", "yamljson.out")
 SCRATCH = os.path.join(ROOT, "target", "yaml-oracle")
 

@@ -9,7 +9,7 @@
  * socket and is probed by inspecting `IPHLPAPI.DLL`'s exports; see C1.
  *
  * Build and run:
- *     cc -O0 -w -o /tmp/icmp-probe scripts/icmp-capability-probe.c
+ *     cc -O0 -w -o /tmp/icmp-probe tools/net-probes/icmp-capability-probe.c
  *     /tmp/icmp-probe                 # local + default-route probes
  *     /tmp/icmp-probe 1.1.1.1         # override the off-link target
  *

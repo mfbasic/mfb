@@ -18,7 +18,7 @@ which pins `actions/setup-python` to 3.14) reproduce it there. Regenerate under
 Python 3.14 after a Unicode bump -- a different interpreter silently drifts the
 table:
 
-    python3.14 scripts/gen_unicode_gencat_table.py > src/codegen/string/unicode/unicode_gencat_ranges.txt
+    python3.14 tools/unicode-tables/gen_unicode_gencat_table.py > src/codegen/string/unicode/unicode_gencat_ranges.txt
 
 Why this table is NOT the vendored utf8proc property trie, which already ships a
 general-category field: measured 2026-09-01, utf8proc 2.11.3's categories
@@ -62,7 +62,7 @@ def main():
 
     out = []
     out.append("# GENERATED FILE — do not edit by hand.")
-    out.append("# Source: scripts/gen_unicode_gencat_table.py")
+    out.append("# Source: tools/unicode-tables/gen_unicode_gencat_table.py")
     out.append(f"# Pinned Unicode version: {unicodedata.unidata_version}")
     out.append("# One line per run, ascending and contiguous over 0 .. 0x10FFFF:")
     out.append("# `<last codepoint of the run, decimal> <two-letter category>`")

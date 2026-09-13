@@ -23,7 +23,7 @@ See plan-131-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-131-B complete | `ls planning/plan-131-B-* 2>/dev/null` → no match | NOT MET |
+| plan-131-B complete | `ls planning/plan-131-B-* 2>/dev/null` → no match | MET (2026-09-12: B archived to `planning/completed/` in the same commit as C) |
 | Vector-generator Open Decision answered by the user | recorded in plan-131-A Open Decisions | MET (2026-09-12: move to `tools/vector-gen/`) |
 
 ## 1. Goal
@@ -114,26 +114,40 @@ abandon the move.
 
 ### Phase 1 — Probes, rvv, yaml oracle (no generated output)
 
-- [ ] `git mv scripts/icmp-{capability,constants}-probe.c tools/net-probes/`. Fix the build
+- [x] `git mv scripts/icmp-{capability,constants}-probe.c tools/net-probes/`. Fix the build
       command in each file's header. Build each once with that command (the cc line from the
       header) → exit 0. Write `tools/net-probes/README.md`. Update the comments in `gen_ping.rs`,
       `linux_common/code.rs` and `macos_aarch64/code.rs`.
-- [ ] `git mv scripts/rvv-qemu-runner.sh scripts/rvv-ulp-two-profile.sh tools/math-kernels/`. Fix
+- [x] `git mv scripts/rvv-qemu-runner.sh scripts/rvv-ulp-two-profile.sh tools/math-kernels/`. Fix
       the `RUNNER`/`ULP` paths and the header. Update `.ai/remote_systems.md`,
       `tools/math-kernels/README.md` and `scripts/README.md`.
-- [ ] Prove the rvv move: run `tools/math-kernels/rvv-ulp-two-profile.sh` on box 2232 with the
+- [~] Prove the rvv move: run `tools/math-kernels/rvv-ulp-two-profile.sh` on box 2232 with the
       smallest `--limit` it accepts (read the script) → the same `primary` summary under both
       profiles. Record it.
       Check: `LIMIT=5 FNS=exp bash tools/math-kernels/rvv-ulp-two-profile.sh` from `/tmp` →
       `all kernels bit-identical across both cpu profiles` (est. <5 min; the script takes `LIMIT`/`FNS`
       env, not a `--limit` flag; one kernel proves the moved `ROOT`/`RUNNER` paths resolve, which is
       all a move can break). Box 2232 is an emulated riscv64 VM, so keep it to one kernel.
-- [ ] `git mv scripts/yaml_oracle_diff.py packages/yaml/oracle/pyyaml_diff.py` and fix `ROOT`
+      NOT RUN: box 2232 refused connections at every probe on 2026-09-12
+      (`ssh -o ConnectTimeout=6 -p 2232 test@127.0.0.1 true` → exit 255). Remaining: that one
+      command once 2232 is up. Syntax: `bash -n` on both moved rvv scripts → ok.
+- [x] `git mv scripts/yaml_oracle_diff.py packages/yaml/oracle/pyyaml_diff.py` and fix `ROOT`
       depth. Before the move, run `python3 scripts/yaml_oracle_diff.py corpus > /tmp/y-old`; after,
       run the new path `> /tmp/y-new`; `diff` → empty. (Needs `pyyaml` and `examples/yaml-json`
       built. If `pyyaml` is absent, install it into a venv under `/tmp`; do not skip.) Update
       `packages/yaml/README.md`, `packages/yaml/oracle/README.md`, `examples/yaml-json/smoke.sh`
       and `scripts/README.md`.
+
+Evidence 2026-09-12:
+- `cc -O0 -w -o /tmp/p131-icmp-probe tools/net-probes/icmp-capability-probe.c` → exit 0;
+  `cc -O0 -o /tmp/p131-icmp-consts tools/net-probes/icmp-constants-probe.c` → exit 0 (both also
+  built from the old paths before the move). `tools/net-probes/README.md` written; the three
+  `src/` comments repointed.
+- `python3 packages/yaml/oracle/pyyaml_diff.py corpus` (ROOT four `dirname`s up) vs the pre-move
+  `python3 scripts/yaml_oracle_diff.py corpus` → `diff` empty, 11 lines, exit 0 both (the example
+  was built fresh: `mfb build packages/yaml`, copy `yaml.mfp`, `mfb build examples/yaml-json`).
+- Only comments/prose changed in `src/`: the `git diff -U0 HEAD -- src` filter leaves one line,
+  the Markdown sentence in `src/docs/spec/stdlib/08_encoding.md` naming the generator path.
 
 Acceptance:
 - Both probes build from their new paths.
@@ -145,7 +159,7 @@ Commit: —
 
 ### Phase 2 — Generators (codepage, unicode)
 
-- [ ] `git mv` the 3 codepage scripts into `tools/codepage-index/`:
+- [x] `git mv` the 3 codepage scripts into `tools/codepage-index/`:
       - fix the root depth and each generator's header string;
       - run `python3 tools/codepage-index/gen_codepage_tables.py`, then
         `git diff src/codegen/builtins/encoding/helper_codepage_table.rs` → only lines naming the
@@ -153,19 +167,29 @@ Commit: —
       - run `audit_codepage_index.py` from the new path → exit 0;
       - update `check-generated.sh`, `encoding/mod.rs` comments, `08_encoding.md` (spec sync),
         `tools/codepage-index/README.md` and `scripts/README.md`.
-- [ ] `git mv` the 3 unicode generators into `tools/unicode-tables/` together:
+- [x] `git mv` the 3 unicode generators into `tools/unicode-tables/` together:
       - fix the `third_party` path and the `sys.path` import;
       - regenerate all three outputs under Python 3.14 (per the header pin), then
         `git diff src/codegen/string/unicode/` → only header path lines change;
       - update `check-generated.sh`, `src/unicode/range_tables.rs` comments, `.gitignore` comment
         and `scripts/README.md`;
       - write `tools/unicode-tables/README.md`.
-- [ ] Resolve the UNVERIFIED `REM` question. ~~`artifact-gate.sh all` + a three-filter
+- [x] Resolve the UNVERIFIED `REM` question. ~~`artifact-gate.sh all` + a three-filter
       `test-accept.sh` run~~ — replaced 2026-09-12. Cheapest check that fails if the header text reaches
       a golden: `grep -rlF 'gen_regex_scripts.py' tests/` → no file (est. seconds). If a golden does name
       it, run only that fixture: `bash scripts/test-accept.sh target/release/mfb /tmp/accept-131c
       '<that fixture>'` (est. <1 min), inspect the diff, and record in Corrections whether to keep the
       old header wording or fix the leak.
+
+Evidence 2026-09-12:
+- `sh scripts/check-generated.sh` → exit 0: `unicode_gencat_ranges.txt`, `unicode_script_ranges.txt`,
+  `unicode_script_names.mfb` and `helper_codepage_table.rs` each match their generator under
+  `tools/`. The artifacts' header/doc lines were edited to the new generator path and the gate
+  confirms they are byte-identical to what the moved generators emit, so no Python-version
+  regeneration was needed.
+- `python3 tools/codepage-index/audit_codepage_index.py` → exit 0 (27 files, 3342 mappings, 0 dups).
+- REM question: `grep -rlF 'gen_regex_scripts.py' tests/` → exit 1, no file; the header line
+  cannot reach a golden. `tools/unicode-tables/README.md` written.
 
 Acceptance:
 - `sh scripts/check-generated.sh` exits 0.
@@ -176,15 +200,21 @@ Commit: —
 
 ### Phase 3 — Vector generator (per the user's decision)
 
-- [ ] **If move:** `git mv` both files to `tools/vector-gen/`. Fix `check_vector_bodies.py`'s root
+- [x] **If move:** `git mv` both files to `tools/vector-gen/`. Fix `check_vector_bodies.py`'s root
       depth and its subprocess path to the generator. Fix the stale "Source companion … GENERATED"
       header text in `gen_vector_package.py` that describes the deleted `src/builtins/*.mfb`.
       Update `check-generated.sh`, `.gitattributes` and `scripts/README.md`. Write a README.
-- [ ] **If delete:** `git rm` both. Remove their block from `check-generated.sh` and `.gitattributes`.
+- [x] (moot — the user chose **move**, plan-131-A Open Decisions) **If delete:** `git rm` both. Remove their block from `check-generated.sh` and `.gitattributes`.
       Add a line to `src/codegen/builtins/vector/mod.rs`'s module doc saying the `BODY*` consts are
       the only source.
-- [ ] Mutation check (move case): change one character inside one `BODY*` const, run
+- [x] Mutation check (move case): change one character inside one `BODY*` const, run
       `sh scripts/check-generated.sh` → it must fail; revert.
+
+Evidence 2026-09-12: `check-generated.sh` → `ok: 173 vector FUNC bodies match
+tools/vector-gen/gen_vector_package.py`, exit 0. `check_vector_bodies.py` ROOT three `dirname`s
+up and its subprocess path point at `tools/vector-gen/`; the stale "Source companion" header now
+says what the text is. Mutation (`/tmp/p131-vecmut.sh`: one `RETURN` → `RETURM` in a `BODY`
+const in `func_abs.rs`): `check-generated.sh` exit 1, `DRIFT: __vector_abs_float2 differs between tools/vector-gen/gen_vector_package.py and its checked-in BODY const`; restored (`cmp` identical), then exit 0. `tools/vector-gen/README.md` written.
 
 Acceptance:
 - `sh scripts/check-generated.sh` exits 0.
@@ -194,23 +224,36 @@ Commit: —
 
 ### Phase 4 — bench-lowering and the census scan root
 
-- [ ] `tests/gate/gate_lock_covers_every_writer.rs`:
+- [x] `tests/gate/gate_lock_covers_every_writer.rs`:
       - scan `scripts/*.sh` and `tools/*/*.sh`;
       - key `CLASSIFICATION` by repo-relative path;
       - keep the `gate-lock.sh`/`artifact-kinds.sh` skip.
       Run it before the move → green.
-- [ ] `git mv scripts/bench-lowering.sh tools/bench-lowering/bench-lowering.sh` and
+- [x] `git mv scripts/bench-lowering.sh tools/bench-lowering/bench-lowering.sh` and
       `git mv scripts/bench-probes tools/bench-lowering/probes`. Fix the `gate-lock.sh` source path
       to `$ROOT/scripts/gate-lock.sh`, plus `GATE_LOCK_TREE`, the `cd` and `PROBES_DIR`. Update the
       census row key, the `operand.rs` comment and `scripts/README.md`. Write the README.
-- [ ] Census mutation: in the working tree only, delete the `gate_lock_acquire` line from the moved
+- [x] Census mutation: in the working tree only, delete the `gate_lock_acquire` line from the moved
       script → `cargo test --test gate_lock_covers_every_writer` must fail naming it. Revert.
-- [ ] Run `tools/bench-lowering/bench-lowering.sh` once from `/tmp` → it completes and prints its
+- [x] Run `tools/bench-lowering/bench-lowering.sh` once from `/tmp` → it completes and prints its
       table. Record the wall time.
       Check: read its usage for a probe/subset argument and run it on ONE probe from `/tmp` → the table
       prints (est. <5 min). If it has no subset and a full run is >10 min, `bash -n` plus the census
       mutation above is the check (the move can only break paths, which the census and one invocation
       of its argument parsing exercise); record the reason.
+      Recorded: it takes no arguments (`# Usage: bash tools/bench-lowering/bench-lowering.sh`) and
+      always builds the debug AND release compilers and runs `mfb test tests/acceptance`, far over
+      10 minutes. Check used: `bash -n` → ok, plus the census mutation above (the moved script is
+      still found, and its lock line is still checked).
+
+Evidence 2026-09-12: `cargo test --test gate_lock_covers_every_writer --no-fail-fast` → 1 passed,
+exit 0, scanning `scripts/*.sh` + `tools/*/*.sh` with `CLASSIFICATION` keyed by repo-relative path
+(`tools/math-kernels/*.sh` name no dump flag, so only `tools/bench-lowering/bench-lowering.sh` joins).
+Census mutation: `gate_lock_acquire` line removed from the moved script → exit 101, panic
+`"tools/bench-lowering/bench-lowering.sh: classified locking (…) but the script says otherwise"`;
+restored, `cmp` identical. Old-path grep `git grep -n -E 'scripts/(gen_unicode|…|yaml_oracle_diff)'`
+outside archives → exit 1. Stale-path loop over `.ai tools scripts .github .gitattributes src
+packages examples` → only the selftest's runtime `.selftest-*` copies.
 
 Acceptance:
 - The census tests pass.
@@ -236,6 +279,15 @@ Commit: —
 See plan-131-A (the vector generator decision gates Phase 3).
 
 ## Corrections
+
+- **2026-09-12: generated artifacts were header-edited, not regenerated.** Each artifact's
+  generator-path header line was changed to the new `tools/` path, and `check-generated.sh` (which
+  re-runs every moved generator and byte-compares) is the proof they match. This avoided a
+  Python 3.14 requirement for `gen_unicode_gencat_table.py` without weakening anything.
+- **2026-09-12: the rvv proof is blocked on box 2232 being down** (`[~]`, one command remaining).
+- **2026-09-12: the `src/` change is not comment-only.** `src/docs/spec/stdlib/08_encoding.md`
+  gained one prose line naming `tools/codepage-index/gen_codepage_tables.py`; it is embedded
+  documentation, not code, so no golden or dump can change.
 
 ## Summary
 

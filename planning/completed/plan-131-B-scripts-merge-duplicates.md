@@ -203,7 +203,7 @@ Acceptance:
 - `git grep -n -e coverage-bins.sh -e coverage-src- -- ':!planning/completed' ':!planning/plan-131-*'` → 0.
   (Met: see the Phase 1 commit's grep, exit 1.)
 
-Commit: —
+Commit: e95229e4d, 3771fe8e9, 92dd19a37
 
 ### Phase 2 — TLS loopback merge
 

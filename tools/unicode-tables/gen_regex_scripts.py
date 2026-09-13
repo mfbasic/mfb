@@ -22,7 +22,7 @@ only that committed file — never the network or the interpreter's Unicode tabl
 `scripts/check-generated.sh` verifies it the same way it verifies the other
 generated artifacts.
 
-    python3 scripts/gen_regex_scripts.py > src/codegen/string/unicode/unicode_script_names.mfb
+    python3 tools/unicode-tables/gen_regex_scripts.py > src/codegen/string/unicode/unicode_script_names.mfb
 """
 import os
 import sys
@@ -30,6 +30,7 @@ import sys
 MAX = 0x110000
 SCRIPTS_TXT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
+    "..",
     "..",
     "third_party",
     "unicode",
@@ -87,7 +88,7 @@ def main():
 
     out = []
     out.append("REM GENERATED FILE — do not edit by hand.")
-    out.append("REM Source: scripts/gen_regex_scripts.py")
+    out.append("REM Source: tools/unicode-tables/gen_regex_scripts.py")
     out.append(f"REM Pinned Unicode version: {version}")
     out.append("REM Data: third_party/unicode/Scripts-16.0.0.txt (UCD Script property).")
     out.append("REM Maps a lowercased script name to its canonical spelling, for `\\p{Script=…}`.")

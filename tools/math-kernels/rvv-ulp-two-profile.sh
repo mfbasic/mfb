@@ -11,14 +11,14 @@
 # guarantees is that v=true == v=false, which this asserts.
 #
 # Runs qemu-user on the riscv64 box (2232). Reproducible invocations:
-#   MFB_QEMU_CPU='rv64,v=true,vlen=128'  runtime_ulp.py <fn> --target linux-riscv64 --runner scripts/rvv-qemu-runner.sh
+#   MFB_QEMU_CPU='rv64,v=true,vlen=128'  runtime_ulp.py <fn> --target linux-riscv64 --runner tools/math-kernels/rvv-qemu-runner.sh
 #   MFB_QEMU_CPU='rv64,v=false'          runtime_ulp.py <fn> ...
 # vlen=128 is the minimum guaranteed V width — it exercises the 2×f64 (vl=2)
 # assumption at the narrowest VLEN.
 set -u
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MFB="${MFB:-$ROOT/target/release/mfb}"
-RUNNER="$ROOT/scripts/rvv-qemu-runner.sh"
+RUNNER="$ROOT/tools/math-kernels/rvv-qemu-runner.sh"
 ULP="$ROOT/tools/math-kernels/runtime_ulp.py"
 LIMIT="${LIMIT:-150}"
 FNS="${FNS:-exp log log10 pow tan atan2 asin acos}"

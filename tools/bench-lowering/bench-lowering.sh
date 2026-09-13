@@ -23,7 +23,7 @@
 # instruction + vreg count (via the `MFB_BENCH_LOWERING` size probe in
 # regalloc::allocate).
 #
-# Usage: bash scripts/bench-lowering.sh
+# Usage: bash tools/bench-lowering/bench-lowering.sh
 set -euo pipefail
 
 # bug-470: this script drives `mfb build` against fixtures INSIDE the tree, so it
@@ -31,16 +31,16 @@ set -euo pipefail
 # and must take the same per-tree lock. A run in a different worktree is not
 # affected.
 GATE_LOCK_HOLDER="bench-lowering.sh"
-GATE_LOCK_TREE="$(cd "$(dirname "$0")/.." && pwd)"
+GATE_LOCK_TREE="$(cd "$(dirname "$0")/../.." && pwd)"
 # shellcheck source=gate-lock.sh
-. "$(dirname "$0")/gate-lock.sh"
+. "$(dirname "$0")/../../scripts/gate-lock.sh"
 gate_lock_acquire || exit $?
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 DEBUG=target/debug/mfb
 RELEASE=target/release/mfb
-PROBES_DIR=scripts/bench-probes
+PROBES_DIR=tools/bench-lowering/probes
 
 # Build both compilers untimed — we measure probe compile time, not the time to
 # build the compiler itself.

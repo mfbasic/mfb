@@ -35,7 +35,7 @@ of expected-to-differ inputs. Pinned to 1.2 Core, this oracle agrees with
 `packages/yaml` on everything except the handful of constructs the package
 deliberately refuses — so a divergence is nearly always a finding.
 
-(`scripts/yaml_oracle_diff.py` keeps PyYAML around as a *second*, differently-
+(`pyyaml_diff.py`, in this directory, keeps PyYAML around as a *second*, differently-
 wrong opinion, which is worth having: the two references do not agree with each
 other either, and where they disagree is exactly where the spec is worth
 re-reading.)

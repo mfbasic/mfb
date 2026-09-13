@@ -149,3 +149,15 @@ in-tree Rust kernel tests against the same `.ref` files.
   `verify`, regenerate the affected Rust constants and goldens.
 - Determinism: `gen_inputs.py` and the Remez fit are fully deterministic (seeded
   PRNG, fixed precision) — same inputs in, same vectors/coefficients out.
+
+## RVV dual-path proof (plan-32-D)
+
+- **rvv-qemu-runner.sh** — a `runtime_ulp.py --runner` that ships a `linux-riscv64`
+  executable to the riscv64 box (ssh port `MFB_RV_PORT`, default 2232) and runs it
+  under `qemu-riscv64 -cpu $MFB_QEMU_CPU`, so one binary is scored under `v=true`
+  (native RVV arm) and `v=false` (scalar arm).
+- **rvv-ulp-two-profile.sh** — runs `runtime_ulp.py` for each kernel in `FNS` under
+  both profiles (`LIMIT` vectors each) and requires identical summaries: the
+  dual-path lowering must not change a result bit.
+
+Both need qemu-user on the box (`.ai/remote_systems.md`, RISC-V Vector section).

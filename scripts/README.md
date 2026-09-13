@@ -101,68 +101,16 @@ unintentionally) across a refactor.
 
 ## Generated sources
 
-- **gen_unicode_gencat_table.py** — Generates
-  `src/codegen/string/unicode/unicode_gencat_ranges.txt`, the pinned Unicode
-  general-category runs that `regex::genCat` / `strings::genCat` binary-search in
-  the emitted program's read-only data. Output is tied to the interpreter's
-  Unicode version, so regenerate only under Python 3.14 (Unicode 16.0.0).
-- **gen_unicode_script_table.py** — Generates
-  `src/codegen/string/unicode/unicode_script_ranges.txt`, the same shape for the
-  Script property behind `\p{Script=…}`. Imports `gen_regex_scripts.runs()`
-  rather than re-reading the UCD, so the script run table and the script name
-  table cannot disagree about a scalar.
-- **gen_regex_scripts.py** — Generates
-  `src/codegen/string/unicode/unicode_script_names.mfb`, the canonical spelling of
-  each script name (looked up once per pattern compile, by name), from the
-  vendored `third_party/unicode/Scripts-16.0.0.txt` — never the interpreter's
-  tables, so any Python 3 reproduces it.
-- **gen_vector_package.py** — Generates `src/builtins/vector_package.mfb`: the
-  nine vector records and ~170 overloaded geometry/utility functions, keeping the
-  per-(element-type, dimension) patterns and evaluation order uniform.
-- **gen_codepage_tables.py** — Generates
-  `src/codegen/builtins/encoding/helper_codepage_table.rs`: the `encoding::Codepage`
-  enum's variant list *and* the 27 WHATWG legacy single-byte tables behind
-  `codepageDecode`/`codepageEncode`, emitted together from one list so a variant
-  cannot exist without a table. Reads the vendored index files under
-  `tools/codepage-index/`, never the network.
-- **fetch_codepage_index.py** — Re-fetches those index files from
-  <https://encoding.spec.whatwg.org/>. Run it, `git diff tools/codepage-index/` to
-  review what upstream changed, then re-run `gen_codepage_tables.py`.
-- **audit_codepage_index.py** — Checks the three data premises the codepage design
-  rests on: U+FFFD is a safe "unmapped" sentinel (no table maps it), every mapping
-  is one BMP scalar, and no code point repeats within a file (so the encoder's
-  reverse lookup is unambiguous). Exits non-zero if any fails.
 - **check-generated.sh** — Generated-artifact integrity gate: re-runs each
   generator and fails if the checked-in artifact no longer matches, so "re-run the
   generator" is always safe and drift can't land.
 
 ## Packages
 
-- **yaml_oracle_diff.py** — Differential-tests `packages/yaml` against PyYAML as
-  a SECOND independent oracle; the first is `packages/yaml/oracle`, a Node project
-  on eemeli/yaml pinned to YAML 1.2 Core (see its README). Four modes: a
-  hand-written corpus covering the whole supported subset, random values dumped by
-  PyYAML and read by both, the `examples/yaml-json` emitter's output read by
-  PyYAML, and an emitter → reader round trip. Not a gate — it needs `pip install
-  pyyaml`, and `examples/yaml-json` built first. PyYAML is YAML **1.1** while the
-  package is YAML **1.2 Core**, so the inputs the two versions genuinely disagree
-  about are listed in the script's `EXPECTED` table and checked to disagree *for
-  the stated reason*; a case that stops diverging fails too. Two differently-wrong
-  references beat one — where the two oracles disagree with *each other* is where
-  the spec is worth re-reading. Usage:
-  `python3 scripts/yaml_oracle_diff.py [corpus|fuzz|emit|roundtrip]`.
 - **sync-package-mfp.sh** — Rebuilds every buildable package fixture from source
   and overwrites every committed copy of its `.mfp` (consumer and golden copies),
   which otherwise go stale when the binary-representation format changes. Skips the
   deliberately-tampered security fixtures.
-
-## Benchmarks
-
-- **bench-lowering.sh** — Repeatable lowering/register-allocation benchmark for
-  the trivial, one-regex, and full-acceptance workloads. It originated as a
-  plan-78 measurement harness but remains the shared before/after performance
-  gate used by later middle-end work. Usage: `bench-lowering.sh`.
-- **bench-probes/** — Fixed source projects consumed by `bench-lowering.sh`.
 
 ## Network / riscv validation helpers
 
@@ -175,13 +123,3 @@ unintentionally) across a refactor.
 - **net_blackhole_server.py** — Helper for the above: a TCP server that saturates
   a tiny accept backlog so new connects get no SYN-ACK and block until their
   deadline. Prints its port and sleeps; started in the background by the check.
-- **rvv-qemu-runner.sh** — The permanent RVV dual-path validation runner, created
-  by plan-32: a `runtime_ulp.py --runner` that runs a `linux-riscv64`
-  mfb executable under qemu-user on the riscv64 box under a chosen CPU profile, so
-  the same binary can be scored under emulated `v=true` (native RVV) and `v=false`
-  (scalar).
-- **rvv-ulp-two-profile.sh** — The corresponding permanent plan-32 regression
-  gate. It drives the ULP harness to prove the one
-  `linux-riscv64` binary is bit-identical and ≤1 ULP under both `v=true` and
-  `v=false` for every math kernel, asserting the dual-path lowering changes no
-  result bit.

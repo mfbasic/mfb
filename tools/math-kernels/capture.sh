@@ -11,7 +11,7 @@
 #
 # Each output file carries a provenance header (OS + libm/system version, the
 # generator command, capture date) so the pin is auditable, mirroring the
-# generated-Unicode-table precedent (scripts/gen_unicode_gencat_table.py).
+# generated-Unicode-table precedent (tools/unicode-tables/gen_unicode_gencat_table.py).
 #
 # Usage:
 #   ./capture.sh [OUT_DIR]

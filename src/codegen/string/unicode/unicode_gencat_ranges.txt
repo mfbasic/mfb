@@ -1,5 +1,5 @@
 # GENERATED FILE — do not edit by hand.
-# Source: scripts/gen_unicode_gencat_table.py
+# Source: tools/unicode-tables/gen_unicode_gencat_table.py
 # Pinned Unicode version: 16.0.0
 # One line per run, ascending and contiguous over 0 .. 0x10FFFF:
 # `<last codepoint of the run, decimal> <two-letter category>`

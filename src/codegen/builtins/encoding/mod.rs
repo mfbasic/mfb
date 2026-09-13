@@ -198,7 +198,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_puny_decode_label::register(&mut pkg);
     helper_label_has_non_ascii::register(&mut pkg);
     // Generated: registers the `Codepage` enum AND `__encoding_codepageTable`,
-    // from one `scripts/gen_codepage_tables.py` source of truth.
+    // from one `tools/codepage-index/gen_codepage_tables.py` source of truth.
     helper_codepage_table::register(&mut pkg);
 
     // The two overloaded names first, then the non-overloaded codecs, mirroring the
@@ -451,7 +451,7 @@ mod tests {
 /// WHATWG index files (plan-123-A).
 ///
 /// The tables are this feature's whole correctness surface and nobody can eyeball
-/// 3,342 mappings, so they are never reviewed by hand: `scripts/gen_codepage_tables.py`
+/// 3,342 mappings, so they are never reviewed by hand: `tools/codepage-index/gen_codepage_tables.py`
 /// derives `helper_codepage_table.rs` from `tools/codepage-index/`, and the tests
 /// below re-derive the same answer independently at test time and compare every
 /// scalar of every table. A whole table shifted by one fails here; a spot check

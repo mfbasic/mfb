@@ -4,7 +4,7 @@
 The files are vendored so the build is network-free and the generated tables are
 auditable by `diff` against upstream. Run this only to refresh them; then `git diff`
 tools/codepage-index/ to review what upstream changed, and re-run
-`scripts/gen_codepage_tables.py`.
+`tools/codepage-index/gen_codepage_tables.py`.
 
 `ISO-8859-8-I` has no index file of its own (HTTP 404) and shares `ISO-8859-8`'s
 table; it is reported as `shares ISO-8859-8` rather than as a failure.
@@ -15,7 +15,7 @@ import os
 import sys
 import urllib.request
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT = os.path.join(ROOT, "tools", "codepage-index")
 ENCODINGS_JSON = "https://encoding.spec.whatwg.org/encodings.json"
 INDEX_URL = "https://encoding.spec.whatwg.org/index-{}.txt"

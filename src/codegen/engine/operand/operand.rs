@@ -423,7 +423,7 @@ mod tests {
 
     /// A round-trip corpus of real operand strings. The physical-register,
     /// immediate, boolean, symbol, type-name, and label rows were harvested from
-    /// the `-ncode` dumps of `scripts/bench-probes/{trivial,one-regex}` on
+    /// the `-ncode` dumps of `tools/bench-lowering/probes/{trivial,one-regex}` on
     /// 2026-08-02 (`-ncode` is post-allocation, so it carries no `%v`/`%f`
     /// sentinels); the virtual-register rows use the real `vreg_name`/
     /// `fp_vreg_name` spellings, and the stack-offset sentinels are the

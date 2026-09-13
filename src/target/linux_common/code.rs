@@ -1323,7 +1323,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         "8" // SO_RCVBUF on Linux
     }
 
-    // plan-110-A §C5: measured with `scripts/icmp-constants-probe.c` on 2227
+    // plan-110-A §C5: measured with `tools/net-probes/icmp-constants-probe.c` on 2227
     // (x86_64 musl), 2228 (x86_64 glibc), 2229 (riscv64 musl) and 2223 (aarch64
     // glibc) — identical on all four, so one Linux row is correct for every ISA.
 

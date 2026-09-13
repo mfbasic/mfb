@@ -18,7 +18,7 @@ import glob
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 INDEX_DIR = os.path.join(ROOT, "tools", "codepage-index")
 SENTINEL = 0xFFFD
 

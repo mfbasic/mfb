@@ -9,7 +9,7 @@ the vendored `third_party/unicode/Scripts-16.0.0.txt`, never the network or the
 interpreter's tables, so the output is reproducible under any Python 3 —
 `scripts/check-generated.sh` verifies it the same way it verifies the .mfb.
 
-    python3 scripts/gen_unicode_script_table.py > src/codegen/string/unicode/unicode_script_ranges.txt
+    python3 tools/unicode-tables/gen_unicode_script_table.py > src/codegen/string/unicode/unicode_script_ranges.txt
 """
 import os
 import sys
@@ -27,7 +27,7 @@ def main():
 
     out = []
     out.append("# GENERATED FILE — do not edit by hand.")
-    out.append("# Source: scripts/gen_unicode_script_table.py")
+    out.append("# Source: tools/unicode-tables/gen_unicode_script_table.py")
     out.append(f"# Pinned Unicode version: {version}")
     out.append("# Data: third_party/unicode/Scripts-16.0.0.txt (UCD Script property).")
     out.append("# One line per run, ascending and contiguous over 0 .. 0x10FFFF:")

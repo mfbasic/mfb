@@ -911,7 +911,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         "4098" // SO_RCVBUF (0x1002) on Darwin
     }
 
-    // plan-110-A §C5: measured with `scripts/icmp-constants-probe.c` on this host,
+    // plan-110-A §C5: measured with `tools/net-probes/icmp-constants-probe.c` on this host,
     // not transcribed from memory — Darwin renumbers all three against Linux.
 
     fn ipproto_ip(&self) -> &'static str {
