@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-state-unknown-param-invalid
+   4 | IMPORT io
+   5 | 
+   6 | SUB use(RES f AS fs::File STATE Nonexistent)
+     | ^
+tests/syntax/resources/resource-state-unknown-param-invalid/src/main.mfb:6 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+               Type `Nonexistent` is not a built-in or top-level project type.
+[exit 1]

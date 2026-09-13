@@ -1,0 +1,29 @@
+{
+  "project": "resource_state_qualified_import_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 4 },
+    { "module": "http", "line": 5 },
+    { "module": "io", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "http.PendingState", "name": "s", "type": "http.Stream", "value": { "kind": "call", "callee": "http.startRead", "arguments": [{ "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "string", "value": "http://example.com/" }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "bound" }] }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

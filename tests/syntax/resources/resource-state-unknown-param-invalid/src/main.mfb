@@ -1,0 +1,12 @@
+' bug-595: a parameter STATE clause was never resolved, so an unknown name on
+' an uncalled SUB was accepted with NO diagnostic at all (measured: exit 0).
+IMPORT fs
+IMPORT io
+
+SUB use(RES f AS fs::File STATE Nonexistent)
+  io::print("use")
+END SUB
+
+SUB main()
+  io::print("main")
+END SUB
