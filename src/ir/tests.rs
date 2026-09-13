@@ -434,6 +434,83 @@ mod binary_repr_tests {
         assert_eq!(base.link_cstructs.len(), before, "cstructs not deduped");
     }
 
+    // bug-613: packages initialize dependencies-first and before the consumer,
+    // whatever the merge (manifest) order. `top` imports `left` and `right`, which
+    // both import `bottom`; `loner` depends on nothing. Merged in the worst order
+    // — importers before what they import — the global initializer must still
+    // store `bottom` first, keep `loner` in its merge position relative to the
+    // other roots, keep each package's declaration order, and end with the
+    // consumer's own bindings in theirs.
+    #[test]
+    fn package_bindings_initialize_dependencies_first() {
+        use std::collections::HashSet;
+        fn binding(name: &str) -> crate::ir::IrBinding {
+            crate::ir::IrBinding {
+                name: name.to_string(),
+                visibility: "public".to_string(),
+                mutable: false,
+                type_: crate::types::ParameterType::Integer,
+                value: None,
+                loc: crate::ir::IrSourceLoc { line: 1, column: 1 },
+                file: String::new(),
+                explicit_type: true,
+            }
+        }
+        fn set(names: &[&str]) -> HashSet<String> {
+            names.iter().map(|name| name.to_string()).collect()
+        }
+        fn package(
+            bindings: &[&str],
+            exports: &[&str],
+            references: &[&str],
+        ) -> crate::ir::PackageInitialization {
+            crate::ir::PackageInitialization {
+                bindings: set(bindings),
+                exports: set(exports),
+                references: set(references),
+            }
+        }
+        let packages = [
+            package(&["i.top.T"], &["top.T"], &["left.l", "right.R"]),
+            package(
+                &["i.left.L1", "i.left.L2"],
+                &["left.L1", "left.L2", "left.l"],
+                &["bottom.b"],
+            ),
+            package(&["i.loner.X"], &["loner.X"], &["io.print"]),
+            package(&["i.right.R"], &["right.R"], &["bottom.B"]),
+            package(&["i.bottom.B"], &["bottom.B", "bottom.b"], &[]),
+        ];
+        let mut bindings: Vec<_> = [
+            "own1",
+            "own2",
+            "i.top.T",
+            "i.left.L2",
+            "i.left.L1",
+            "i.loner.X",
+            "i.right.R",
+            "i.bottom.B",
+        ]
+        .into_iter()
+        .map(binding)
+        .collect();
+        crate::ir::order_bindings_dependencies_first(&mut bindings, &packages);
+        let order: Vec<&str> = bindings.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(
+            order,
+            vec![
+                "i.bottom.B",
+                "i.left.L2",
+                "i.left.L1",
+                "i.right.R",
+                "i.top.T",
+                "i.loner.X",
+                "own1",
+                "own2",
+            ]
+        );
+    }
+
     // A stateful link function (`return_state_type`/`bind_state`) rides the
     // optional STATE trailer, and its `BIND IN` block rides the positional
     // record — both must survive the encode/decode round trip (plan-53 / plan-50-E).

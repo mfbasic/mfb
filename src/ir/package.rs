@@ -24,21 +24,13 @@ pub fn prefix_package_symbols(pir: &mut IrProject, id: &str) {
         own_fns.insert(format!("{}.{}", link.alias, link.name));
     }
 
+    visit_project_targets_mut(pir, &mut |target| {
+        qualify_owned_target(target, &own_fns, &own_globals, &prefix)
+    });
     for function in &mut pir.functions {
-        for op in &mut function.body {
-            rewrite_op_targets(op, &own_fns, &own_globals, &prefix);
-        }
-        for param in &mut function.params {
-            if let Some(default) = &mut param.default {
-                rewrite_value_targets(default, &own_fns, &own_globals, &prefix);
-            }
-        }
         function.name = format!("{prefix}.{}", function.name);
     }
     for binding in &mut pir.bindings {
-        if let Some(value) = &mut binding.value {
-            rewrite_value_targets(value, &own_fns, &own_globals, &prefix);
-        }
         binding.name = format!("{prefix}.{}", binding.name);
     }
     if let Some(entry) = &mut pir.entry {
@@ -92,21 +84,153 @@ pub fn apply_package_identity(
     globals: &HashSet<String>,
     id: &str,
 ) {
+    visit_project_targets_mut(project, &mut |target| {
+        qualify_owned_target(target, fns, globals, id)
+    });
+}
+
+/// A function or global name an IR reference points at, as the package rewrite
+/// and the initialization-order analysis both see it.
+enum Target<'a> {
+    /// A call target, function reference or closure body name.
+    Function(&'a mut String),
+    /// A global read or an assignment's global target.
+    Global(&'a mut String),
+}
+
+fn qualify_owned_target(
+    target: Target<'_>,
+    fns: &HashSet<String>,
+    globals: &HashSet<String>,
+    pkg: &str,
+) {
+    match target {
+        Target::Function(name) if fns.contains(name) => qualify_target(name, pkg),
+        Target::Global(name) if globals.contains(name) => qualify_target(name, pkg),
+        _ => {}
+    }
+}
+
+/// Every reference in `project`'s function bodies, parameter defaults and
+/// binding initializers.
+fn visit_project_targets_mut(project: &mut IrProject, f: &mut impl FnMut(Target<'_>)) {
     for function in &mut project.functions {
         for op in &mut function.body {
-            rewrite_op_targets(op, fns, globals, id);
+            visit_op_targets_mut(op, f);
         }
         for param in &mut function.params {
             if let Some(default) = &mut param.default {
-                rewrite_value_targets(default, fns, globals, id);
+                visit_value_targets_mut(default, f);
             }
         }
     }
     for binding in &mut project.bindings {
         if let Some(value) = &mut binding.value {
-            rewrite_value_targets(value, fns, globals, id);
+            visit_value_targets_mut(value, f);
         }
     }
+}
+
+/// bug-613: the `package.symbol` names `package` references, collected BEFORE
+/// `prefix_package_symbols` so they are spelled the way another package's
+/// [`package_qualified_reference_names`] spells its definitions. A package
+/// whose references meet another's names depends on it, and its initializer has
+/// to run after that one's ([`order_bindings_dependencies_first`]). Takes `&mut`
+/// only to share the rewrite's walk; nothing is changed.
+pub fn package_referenced_names(package: &mut IrProject) -> HashSet<String> {
+    let mut names = HashSet::new();
+    visit_project_targets_mut(package, &mut |target| match target {
+        Target::Function(name) | Target::Global(name) => {
+            names.insert(name.clone());
+        }
+    });
+    names
+}
+
+/// One merged package, as [`order_bindings_dependencies_first`] needs it.
+pub struct PackageInitialization {
+    /// The package's binding names after `prefix_package_symbols`.
+    pub bindings: HashSet<String>,
+    /// The `package.symbol` names other projects reach it by
+    /// ([`package_qualified_reference_names`], functions and globals together).
+    pub exports: HashSet<String>,
+    /// The `package.symbol` names it reaches ([`package_referenced_names`]).
+    pub references: HashSet<String>,
+}
+
+/// bug-613: reorder the merged `bindings` so every package initializes before
+/// every project that imports it, and the consumer's own bindings initialize
+/// last. The global initializer stores bindings in vector order, and the merge
+/// appends each package's after the consumer's, in manifest order — so a
+/// consumer initializer, or a package initializer calling into another package,
+/// read a slot that still held zero.
+///
+/// `packages` is in merge order. A package depends on another when its
+/// references meet that package's exports; packages are emitted in depth-first
+/// post-order over that relation, starting from each package in merge order, so
+/// unrelated packages keep their merge order. The manifest resolver already
+/// refuses a dependency cycle; one that reaches here anyway (two packages
+/// sharing a name look mutually dependent) is broken at the back edge rather
+/// than looping. Within one project the declaration order is untouched, and a
+/// binding no package owns — the consumer's — keeps its relative order at the
+/// end.
+pub fn order_bindings_dependencies_first(
+    bindings: &mut Vec<IrBinding>,
+    packages: &[PackageInitialization],
+) {
+    if packages.is_empty() {
+        return;
+    }
+    let depends_on = |from: usize, to: usize| {
+        from != to
+            && packages[from]
+                .references
+                .iter()
+                .any(|name| packages[to].exports.contains(name))
+    };
+    #[derive(Clone, Copy, PartialEq)]
+    enum Mark {
+        New,
+        Open,
+        Done,
+    }
+    fn visit(
+        index: usize,
+        marks: &mut [Mark],
+        order: &mut Vec<usize>,
+        depends_on: &impl Fn(usize, usize) -> bool,
+    ) {
+        if marks[index] != Mark::New {
+            return;
+        }
+        marks[index] = Mark::Open;
+        for dependency in 0..marks.len() {
+            if depends_on(index, dependency) {
+                visit(dependency, marks, order, depends_on);
+            }
+        }
+        marks[index] = Mark::Done;
+        order.push(index);
+    }
+    let mut marks = vec![Mark::New; packages.len()];
+    let mut order = Vec::with_capacity(packages.len());
+    for index in 0..packages.len() {
+        visit(index, &mut marks, &mut order, &depends_on);
+    }
+
+    let mut remaining: Vec<Option<IrBinding>> =
+        std::mem::take(bindings).into_iter().map(Some).collect();
+    for index in order {
+        for slot in &mut remaining {
+            if slot
+                .as_ref()
+                .is_some_and(|binding| packages[index].bindings.contains(&binding.name))
+            {
+                bindings.push(slot.take().expect("slot checked above"));
+            }
+        }
+    }
+    bindings.extend(remaining.into_iter().flatten());
 }
 
 /// Merge a namespaced package `IrProject` into `project`. Functions and globals
@@ -174,67 +298,65 @@ fn qualify_target(name: &mut String, pkg: &str) {
     *name = format!("{pkg}.{name}");
 }
 
-fn rewrite_op_targets(op: &mut IrOp, fns: &HashSet<String>, globals: &HashSet<String>, pkg: &str) {
+fn visit_op_targets_mut(op: &mut IrOp, f: &mut impl FnMut(Target<'_>)) {
     match op {
         IrOp::Bind { value, .. } => {
             if let Some(v) = value {
-                rewrite_value_targets(v, fns, globals, pkg);
+                visit_value_targets_mut(v, f);
             }
         }
         IrOp::Assign { value, .. }
         | IrOp::StateAssign { value, .. }
         | IrOp::Eval { value, .. }
-        | IrOp::Fail { error: value, .. } => rewrite_value_targets(value, fns, globals, pkg),
+        | IrOp::Fail { error: value, .. } => visit_value_targets_mut(value, f),
         IrOp::AssignGlobal { name, value, .. } => {
-            if globals.contains(name) {
-                qualify_target(name, pkg);
-            }
-            rewrite_value_targets(value, fns, globals, pkg);
+            f(Target::Global(name));
+            visit_value_targets_mut(value, f);
         }
         IrOp::Return { value, .. } => {
             if let Some(v) = value {
-                rewrite_value_targets(v, fns, globals, pkg);
+                visit_value_targets_mut(v, f);
             }
         }
         IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
-        IrOp::ExitProgram { code, .. } => rewrite_value_targets(code, fns, globals, pkg),
+        IrOp::ExitProgram { code, .. } => visit_value_targets_mut(code, f),
         IrOp::If {
             condition,
             then_body,
             else_body,
             ..
         } => {
-            rewrite_value_targets(condition, fns, globals, pkg);
+            visit_value_targets_mut(condition, f);
             for op in then_body.iter_mut().chain(else_body.iter_mut()) {
-                rewrite_op_targets(op, fns, globals, pkg);
+                visit_op_targets_mut(op, f);
             }
         }
         IrOp::Match { value, cases, .. } => {
-            rewrite_value_targets(value, fns, globals, pkg);
+            visit_value_targets_mut(value, f);
             for case in cases {
                 match &mut case.pattern {
                     IrMatchPattern::Else => {}
-                    IrMatchPattern::Value(v) => rewrite_value_targets(v, fns, globals, pkg),
+                    IrMatchPattern::Value(v) => visit_value_targets_mut(v, f),
                     IrMatchPattern::OneOf(vs) => {
                         for v in vs {
-                            rewrite_value_targets(v, fns, globals, pkg);
+                            visit_value_targets_mut(v, f);
                         }
                     }
                 }
                 if let Some(guard) = &mut case.guard {
-                    rewrite_value_targets(guard, fns, globals, pkg);
+                    visit_value_targets_mut(guard, f);
                 }
                 for op in &mut case.body {
-                    rewrite_op_targets(op, fns, globals, pkg);
+                    visit_op_targets_mut(op, f);
                 }
             }
         }
         IrOp::While {
             condition, body, ..
         } => {
-            rewrite_value_targets(condition, fns, globals, pkg);
+            visit_value_targets_mut(condition, f);
             for op in body {
-                rewrite_op_targets(op, fns, globals, pkg);
+                visit_op_targets_mut(op, f);
             }
         }
         IrOp::For {
@@ -244,60 +366,48 @@ fn rewrite_op_targets(op: &mut IrOp, fns: &HashSet<String>, globals: &HashSet<St
             body,
             ..
         } => {
-            rewrite_value_targets(start, fns, globals, pkg);
-            rewrite_value_targets(end, fns, globals, pkg);
-            rewrite_value_targets(step, fns, globals, pkg);
+            visit_value_targets_mut(start, f);
+            visit_value_targets_mut(end, f);
+            visit_value_targets_mut(step, f);
             for op in body {
-                rewrite_op_targets(op, fns, globals, pkg);
+                visit_op_targets_mut(op, f);
             }
         }
         IrOp::DoUntil {
             body, condition, ..
         } => {
             for op in body {
-                rewrite_op_targets(op, fns, globals, pkg);
+                visit_op_targets_mut(op, f);
             }
-            rewrite_value_targets(condition, fns, globals, pkg);
+            visit_value_targets_mut(condition, f);
         }
         IrOp::ForEach { iterable, body, .. } => {
-            rewrite_value_targets(iterable, fns, globals, pkg);
+            visit_value_targets_mut(iterable, f);
             for op in body {
-                rewrite_op_targets(op, fns, globals, pkg);
+                visit_op_targets_mut(op, f);
             }
         }
         IrOp::Trap { body, .. } => {
             for op in body {
-                rewrite_op_targets(op, fns, globals, pkg);
+                visit_op_targets_mut(op, f);
             }
         }
     }
 }
 
-fn rewrite_value_targets(
-    value: &mut IrValue,
-    fns: &HashSet<String>,
-    globals: &HashSet<String>,
-    pkg: &str,
-) {
+fn visit_value_targets_mut(value: &mut IrValue, f: &mut impl FnMut(Target<'_>)) {
     // Descend through the shared in-place value seam (bug-328); the per-node
-    // work below qualifies a reference whose name belongs to this package. The
-    // seam has no depth cap, matching this rewrite's original unbounded walk.
+    // work below reports each reference. The seam has no depth cap, matching
+    // this walk's original unbounded recursion — a capped walk would leave a
+    // deep reference unqualified, or a deep dependency unseen.
     crate::ir::value::visit_value_mut(value, &mut |value| match value {
         IrValue::Call { target, .. } | IrValue::CallResult { target, .. } => {
-            if fns.contains(target) {
-                qualify_target(target, pkg);
-            }
+            f(Target::Function(target))
         }
         IrValue::FunctionRef { name, .. } | IrValue::Closure { name, .. } => {
-            if fns.contains(name) {
-                qualify_target(name, pkg);
-            }
+            f(Target::Function(name))
         }
-        IrValue::Global(name) => {
-            if globals.contains(name) {
-                qualify_target(name, pkg);
-            }
-        }
+        IrValue::Global(name) => f(Target::Global(name)),
         _ => {}
     });
 }

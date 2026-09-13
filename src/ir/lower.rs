@@ -508,7 +508,11 @@ fn lower_binding(binding: &HirTopLevelBinding, context: &mut LowerContext<'_>) -
         column: 1,
     };
     context.current_loc = loc;
-    let locals = context.binding_types.clone();
+    // A top-level initializer has no locals (bug-612). Seeding this scope with
+    // `binding_types` made every global it read lower as `IrValue::Local`, which
+    // nothing defines: the `Identifier` arm consults `locals` before its
+    // `binding_types` arms, and the package merge qualifies only `Global`s.
+    let locals = HashMap::new();
     let type_ = if binding.explicit_type {
         binding.type_.clone()
     } else {
