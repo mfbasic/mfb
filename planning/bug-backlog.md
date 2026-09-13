@@ -9,6 +9,7 @@ Open bugs: **9** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
 
 | Bug | Sev | On main | Outcome |
 |---|---|---|---|
+| 599 | MED | `c70c6d5d8` | PARTIAL: the address builders free their `inet_ntop` buffer and `net::lookup` its temp record (−38% growth per lookup, −57% per `tcp::localAddress`) — **stays OPEN**: the list/record/host `String` still have no owner (decision below); filed bug-601 (HIGH, the aliasing crash that blocks a drop) |
 | 564 | MED | `8dbefee94` | sighting 2 fixed: macOS tls handlers publish the error domain before the gate with `stlr`, `tls::write` loads its gates with `ldar` (matched pair 19/600 → 0/600) — **stays OPEN** for the half-close write decision below |
 | 600 | MED | `7bb602d1d` | a timed-out test run kills its program's whole process group, not just the program — a hung RED run's pipeline had orphaned and spun ~5 days (found when the user spotted two leftover probes, since killed) |
 | 593 | MED | `8413676c0` | an inline `TRAP`'s `Result` wrapper over a non-flat `T` has an owner (RSS pins 17 → 313 MB and 13 → 313 MB on base, flat fixed); residual closed-record growth is plan-52-B by design; the `List OF net::Address` leak it uncovered is bug-599 |

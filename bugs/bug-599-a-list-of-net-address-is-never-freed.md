@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-12
 Effort: large — the list's own drop needs a design decision (see "Decision needed"); two
-helper-internal leaks in the same shapes are fixed on branch `bug-599-list-of-net-address-drop`
+helper-internal leaks in the same shapes are fixed and **landed on main in `c70c6d5d8`**
 Severity: MEDIUM — unbounded growth in any loop that resolves a host or asks a socket for an
 address, successful or not
 Class: Memory
