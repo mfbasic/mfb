@@ -606,7 +606,23 @@ pub(crate) fn emit_address_from_sockaddr(
         abi::branch_eq(addr_fail),
     ]);
     emit_address_host_and_record(ctx, prefix, dst_off, len_off, host_off, alloc_fail, &v);
+    // bug-599: the `inet_ntop` buffer is this builder's own scratch. Its bytes were
+    // just copied into the host `String`, and nothing — not the record, not any
+    // caller (every `dst_off` is declared a scratch slot and read nowhere else) —
+    // holds its pointer, so it was orphaned on every address built: 64 bytes per
+    // `net::lookup` element, `tcp`/`udp`/`tls::localAddress`, `udp::receive` and
+    // `net::ping`. Free it with the size it was allocated with. `_mfb_arena_free`
+    // clobbers every caller-saved register, so the record pointer is parked in the
+    // now-dead `dst_off` slot across the call and reloaded.
     ctx.instructions.extend([
+        abi::load_u64(&v.cursor, abi::stack_pointer(), dst_off),
+        abi::store_u64(&v.record, abi::stack_pointer(), dst_off),
+        abi::move_register(abi::c_arg(0), &v.cursor),
+        abi::move_immediate(abi::c_arg(1), "Integer", &ADDR_STR_CAP.to_string()),
+    ]);
+    emit_arena_free(symbol, ctx.instructions, ctx.relocations);
+    ctx.instructions.extend([
+        abi::load_u64(&v.record, abi::stack_pointer(), dst_off),
         // port = (sockaddr[2] << 8) | sockaddr[3]
         abi::load_u64(&v.cursor, abi::stack_pointer(), sockaddr_off),
         abi::load_u8(&v.len, &v.cursor, 2),
@@ -614,6 +630,8 @@ pub(crate) fn emit_address_from_sockaddr(
         abi::shift_left_immediate(&v.len, &v.len, 8),
         abi::or_registers(&v.len, &v.len, &v.src),
         abi::store_u64(&v.len, &v.record, 8),
+        // Every caller reads the record from `x1`, which the free clobbered.
+        abi::move_register(abi::mfb_return(1), &v.record),
     ]);
     Ok(())
 }
