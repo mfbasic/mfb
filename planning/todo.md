@@ -460,9 +460,23 @@ wrong.
 
 ### 1. Build the measurement harness
 
-1. **RSS over time per thread**, not just strace map counts. strace slowed the browser worker
-   enough that one Wikipedia load never finished, so check its overhead against the plan-67-F
-   perf rows before trusting any absolute number.
+**In place (plan-130, `planning/completed/plan-130-*`):** `mfb build --debug` / `mfb test --debug`
+make the program print a report to stderr as the last thing `_mfb_shutdown` does
+(`mfb spec tooling debug-report`). On every target it gives:
+
+- per-arena counters for the main, worker and graphics arenas: maps, bytes, alloc/free calls,
+  live and peak-live bytes, and which path served each allocation;
+- `process.peak_rss_bytes`;
+- on macOS, the perf timings.
+
+Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` reports
+`arena.0.maps 12`, equal to strace's 12 executable-IP anonymous maps. Programs that never reach
+`_mfb_shutdown` print nothing (app-window close, Windows Ctrl-C, SIGPIPE, crashes).
+
+**Still open — none of these three is delivered by plan-130:**
+
+1. **RSS over time per thread.** The report has only end-of-run values (per-arena
+   `peak_live_bytes`, process `peak_rss_bytes`), not a time series.
 2. **Measure the entropy-fill cost** on grow and free (fill on vs off), to know its share of
    every number below. Measurement only; the fill stays.
 3. **Add an app-sized soak test**: a large parse or long server loop whose peak RSS must stay
@@ -477,12 +491,30 @@ wrong.
 2. **Alloc vs free call counts** during one browser page load (gdb breakpoint counts on
    box 2223, or the plan-67-F perf rows on macOS). A free count near the alloc count means
    reuse is the problem; a tiny free count means values are never freed.
-   **Measured (plan-130-C, `mfb build --debug`, 2223, Wikipedia Main_Page):**
-   - The worker arena made 109.6 M allocations and 67.9 M frees (62%). It kept 841 MB live
-     at the end, peaking at 842 MB, over 192,271 maps. The worker made 0 flushes.
-   - The main arena kept 112 MB live.
-   - Values are freed but volume stays live; see plan-130-C Phase 3 for the full report.
-   - The load then crashed with an index-bounds error (normal builds too).
+   **Measured 2026-09-12** (main at `f31de1d37`, `mfb build --debug --target linux-aarch64`,
+   box 2223, 120x40 pty, load the page, wait 40 s, `q`). Both pages loaded and rendered and
+   the program exited 0. The index-bounds crash plan-130-C hit on `Main_Page` was fixed by
+   `6a29185d3` (an in-place `collections::set` widening an empty string).
+
+   | page | arena | maps | mapped | alloc calls | free calls | freed | live at exit | peak live |
+   |---|---|---:|---:|---:|---:|---:|---:|---:|
+   | Main_Page | main | 15,236 | 174 MB | 290,570 | 194,790 | 67% | 112 MB | 115 MB |
+   | Main_Page | worker | 192,273 | 895 MB | 109,560,293 | 67,918,823 | 62% | 841 MB | 842 MB |
+   | BASIC | main | 15,052 | 140 MB | 175,730 | 101,950 | 58% | 127 MB | 128 MB |
+   | BASIC | worker | 194,378 | 941 MB | 112,504,257 | 71,072,133 | 63% | 856 MB | 858 MB |
+
+   - `process.peak_rss_bytes`: 1,083,760,640 (Main_Page) and 1,095,602,176 (BASIC).
+   - The worker requests 4.0 GB (Main_Page) / 4.3 GB (BASIC) for one page, and 61–63% of its
+     allocations are quick-bin hits. `flushes 0` and `insert_free_calls 0` in every arena.
+   - When the worker returns, the page has already been copied into the main arena
+     (112–127 MB live there), yet the worker still holds 841–856 MB live. Nothing reads that
+     memory again. It is never reclaimed (Bucket List 1).
+   - The Main_Page worker's numbers equal plan-130-C's crash-time run: the same 109,560,293
+     allocations, and live bytes within 16 B. The crash was in rendering on the main thread,
+     after the worker finished.
+   - Reading (not yet proven): freed memory is being reused (quick-bin hit rate, no
+     flushes), and the growth is values the worker never frees. Item 1 above is the test
+     that confirms or refutes this.
 
 If values are never freed, allocator changes will not move the browser's numbers: judge the
 A/B tests in section 3 on the other workloads and treat the browser as a separate problem.
