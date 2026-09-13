@@ -95,10 +95,10 @@ process environment array and splitting each `NAME=VALUE` entry at its first `=`
 an `=` inside a value is preserved as part of the value. The map is an ordinary
 value taken at the moment of the call and does not track later mutations.
 
-`os::setEnv` and `os::unsetEnv` mutate process-global state. They are **not**
-synchronized against a concurrent `os::getEnv`/`os::environ` running in another
-`thread::` worker — this is the classic `getenv`/`setenv` data race and is the
-caller's responsibility to avoid. All returned `String`, `Boolean`, and
+`os::setEnv` and `os::unsetEnv` change process-global state. The `os`
+environment calls take turns: an `os::getEnv`, `os::hasEnv`, or `os::environ` in
+another `thread::` worker sees the environment either before or after a change,
+never halfway through. A map returned by `os::environ` is a snapshot. All returned `String`, `Boolean`, and
 `Map OF String TO String` values behave like any other value; the
 package holds no resource handles."#;
 

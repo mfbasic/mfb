@@ -90,8 +90,8 @@ together with 14 constants.
 
 Most members take a single number or a `List OF` that number and give back the
 same type they were given: `abs`, `min`/`max`/`clamp`, `sqrt`, the
-transcendentals, `pow`, and `atan2`. `floor`/`ceil`/`round` always give back an
-`Integer`. `rand` gives an `Integer`, or a `Money` when called with two `Money`
+transcendentals, `pow`, and `atan2`. `floor`/`ceil`/`round` give back an
+`Integer`, or a `List OF Integer` for their list forms. `rand` gives an `Integer`, or a `Money` when called with two `Money`
 bounds; `seed` returns nothing.
 
 **Constants.** Each is written `math::<name>` and needs no call parentheses.

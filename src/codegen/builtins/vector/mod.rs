@@ -82,7 +82,9 @@ const DESC: &str = r#"The `vector` package provides nine fixed-width math-vector
 2D functions over them (`length`, `normalize`, `distance`, `dot`, `cross`,
 `reflect`, `project`, `reject`, `angle`, `lerp`/`lerp_unclamped`/`slerp`,
 `clamp_length`, `scale`, `min`/`max`, `abs`, `perpendicular`, `rotate_2d`) and a set
-of record constants (`zero`/`one`/`up`/`right`/`forward` in each type).
+of record constants: `zero`, `one`, `up`, and `right` for every type, and
+`forward` (+z) for the 3D and 4D types only. A constant is named by its base name
+followed by the type, as in `vector::zeroFloat3` or `vector::upInteger2`.
 
 Each function is overloaded by the exact argument record type: a member takes a
 vector of one of the nine types and returns either that type or its scalar element

@@ -635,7 +635,16 @@ const DESC: &str =
 program without an `IMPORT`: `error`, `len`, `typeName`, the numeric conversions \
 (`toString`/`toInt`/`toFloat`/`toFixed`/`toByte`/`toMoney`/`toScalar`), and the \
 predicates (`isNumeric`/`isEven`/…/`isNotEmpty`). They are written as bare names and \
-have no `general::` spelling.";
+have no `general::` spelling.
+
+Each conversion accepts several source types, and its page lists every form. \
+`toString` takes `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Scalar`, \
+or `List OF Byte` (`Float` and `Fixed` also take an optional `Byte` second argument). \
+`toInt` takes `String` (with an optional `Integer` base), `Byte`, `Float`, `Fixed`, \
+`Money`, or `Scalar`. `toFloat` takes `String`, `Integer`, `Fixed`, or `Money`; \
+`toFixed` takes `String`, `Integer`, `Float`, or `Money`. `toByte` takes `Integer`, \
+`Money`, or `Scalar`. `toMoney` takes `String`, `Integer`, `Float`, `Fixed`, or \
+`Byte`. `toScalar` takes `Integer`, `String`, or `Byte`.";
 
 /// Register the `general` package on the clean-room registry. See the module docs for
 /// why it is a real-named-but-unqualified-global package and why `error` is irregular.

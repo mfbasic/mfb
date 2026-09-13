@@ -137,9 +137,9 @@ Imports are not transitive and a package cannot re-export another's types (see
 `mfb spec language modules-and-packages`), so `net::Address` is only nameable in a
 file that imports the package declaring it. Passing the whole value on still
 works without it — `tcp::connect(bound)` compiles — but `bound.host` and
-`bound.port` are refused there. Only the address-valued members are affected:
-`tcp::connect`, `tcp::listen`, `tcp::read`, and `tcp::write` need nothing but
-`IMPORT tcp`.
+`bound.port` are refused there. Only reading an address's fields needs it:
+passing an address to `tcp::connect` or `tcp::listen`, and calling `tcp::read` or
+`tcp::write`, need nothing but `IMPORT tcp`.
 
 `Socket` and `Listener` are opaque handles that close themselves when their
 binding goes out of scope. `tcp::close` closes one earlier — to release a

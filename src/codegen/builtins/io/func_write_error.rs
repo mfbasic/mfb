@@ -38,7 +38,7 @@ routing covers standard output alone.
 
 The underlying write loops until every byte has been transferred: a short write
 advances the cursor and re-issues, and an interruption is resumed rather than losing
-bytes. A zero-byte or failing write raises `ErrOutput`. Output goes to standard error
+bytes. A zero-byte or failing write raises `ErrWriteFailed`. Output goes to standard error
 in a console program, and to the application transcript in app mode
 (`mfb build --app`)."#;
 const EX: &str = r#"Emit a progress marker on the error stream without breaking the line:

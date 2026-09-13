@@ -148,7 +148,7 @@ const MODULE_DESC: &str = r#"The `net` package names hosts. `net::lookup` resolv
 `net::Address` values, and `net::ping` sends one ICMP echo request and reports how the
 host answered. Nothing in this package opens a connection.
 
-`net::Address` is the shared endpoint record every transport speaks: an address from
+`net::Address` is the shared endpoint record of `tcp`, `udp`, and `tls`: an address from
 `net::lookup`, from a received datagram's `from` field, or from a socket's local
 or remote address query can be handed straight to any of them. **A program that
 names a `net::Address` must `IMPORT net` as well as its transport** — imports are not
@@ -187,7 +187,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: URL_TYPE,
         export: true,
-        description: "A parsed URL, produced by `net::toUrl` and rendered back with `net::toString`. Each component is stored decomposed for direct access.",
+        description: "A parsed URL, produced by `net::toUrl` and rendered back with `toString`. Each component is stored decomposed for direct access.",
         props: vec![
             RecordProp {
                 name: "scheme",

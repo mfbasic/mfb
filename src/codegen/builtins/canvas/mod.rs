@@ -155,12 +155,13 @@ item draw nothing, rather than failing the frame.
 RES logo AS canvas::Image = canvas::createImage(w, h, pixels)
 ```
 
-The value types — `canvas::DrawItem`, `canvas::Paint` and the rest — are referenced bare.
+The value types — `canvas::DrawItem`, `canvas::Paint` and the rest — are
+package-qualified too; a bare `DrawItem` is not a known type.
 The one colour type a canvas program names, `color::Color`, belongs to `color` and
 needs its own `IMPORT color`.
 An image closes itself when its binding goes out of scope, or earlier with
 `canvas::destroyImage`; destroying one that a presented scene still draws is
-safe, because the scene holds only its id."#;
+safe."#;
 
 /// Register the `canvas` package on the clean-room registry.
 ///

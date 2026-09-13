@@ -15,7 +15,7 @@ numbers into three cases with no overlap and no gap, so testing "is it positive"
 is not the same as testing "is it not negative" — for zero the two disagree.
 That is the whole reason the third predicate exists.
 
-It accepts any of the numeric types, not just `Integer`.
+It accepts `Integer`, `Float`, or `Fixed`.
 
 `isPositive` never fails and changes nothing."#;
 

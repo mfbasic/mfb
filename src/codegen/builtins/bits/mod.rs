@@ -46,13 +46,13 @@ const MODULE_INTRO: &str = r#"Integer bitwise, shift, and rotate operations"#;
 const MODULE_DESC: &str = r#"The `bits` package provides the bitwise integer operations the language operator
 set intentionally omits. The reserved words `AND`, `OR`, `XOR`, and `NOT` are
 logical (Boolean) operators, so byte-level codecs and other bit-twiddling are
-written with these functions instead. The Boolean operations are named
+written with these functions instead. The bitwise operations are named
 `band`/`bor`/`bxor`/`bnot` precisely because `and`/`or`/`xor`/`not` are reserved
 logical keywords and cannot be package member identifiers.
 
 Every operand and result is a raw two's-complement 64-bit `Integer` bit pattern.
-The functions do not interpret sign except where a signature says so — `sra`, the
-arithmetic right shift. Every function takes and returns `Integer`, never Float,
+The functions treat their inputs as bit patterns, except `sra`, the arithmetic
+right shift, which shifts its value as a signed two's-complement quantity. Every function takes and returns `Integer`, never Float,
 String, or a collection.
 
 These are primitive operations, like `math::abs`: they have no side effects and

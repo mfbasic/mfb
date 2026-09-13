@@ -41,7 +41,11 @@ and the join is opened with the same whole-path no-symlink resolution as
 macOS `O_NOFOLLOW_ANY`. Because the canonical root is symlink-free and every
 component is re-checked at open time, a component swapped to a symbolic link
 *after* canonicalization is **rejected** rather than followed, so the open cannot
-be redirected outside `root`.
+be redirected outside `root`. On a Linux kernel too old for `openat2` (`ENOSYS`,
+pre-5.6, or a restrictive seccomp filter) the open falls back to `O_NOFOLLOW`,
+which refuses only a symlinked *final* component, exactly as
+`fs::openFileNoFollow` does; the whole-path guarantee holds only where `openat2`
+is available.
 
 A `relPath` is therefore refused when it is absolute, contains a `..` component,
 or traverses a symbolic link at any component. `relPath` is always interpreted

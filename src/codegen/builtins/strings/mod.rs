@@ -97,7 +97,8 @@ trimming and case mapping (`trim`, `trimStart`, `trimEnd`, `trimChars`, `upper`,
 `graphemes`, `graphemeAt`, `graphemesCount`), tests and search (`startsWith`,
 `endsWith`, `contains`, `startsWithAny`, `endsWithAny`, `find`, `count`), slicing
 and reshaping (`left`, `right`, `mid`, `stripPrefix`, `stripSuffix`, `split`,
-`join`, `replace`, `repeat`, `padLeft`, `padRight`), length and byte queries
+`join`, `replace`, `repeat`, `padLeft`, `padRight`), terminal display width
+(`displayWidth`, `padLeftToWidth`, `padRightToWidth`), length and byte queries
 (`byteLen`, `toBytes`), and the Unicode-scalar seam (`toScalars`, `fromScalars`,
 and the `Scalar` classifiers `isLetter`, `isDigit`, `isWhitespace`, `isUpper`,
 `isLower`).

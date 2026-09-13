@@ -60,6 +60,7 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 24 | `collections::values` | `The projection walks the lookup-entry array directly, and that array is maintained in insertion order; the hash bucket index is separate derived metadata that does not reorder it.` and `are the same traversal over the same entries and differ only in which payload field of each entry they copy` | `internals` | memory | OPEN | — |
 | 25 | `collections::contains` | `on a `Set` membership is an O(1)-average hash probe for a probe-eligible element type and a linear scan otherwise.` / `An empty list always yields `FALSE`, since the loop exits on the first bounds check.` | `internals` | memory | OPEN | — |
 | 26 | `fs::writeText` ×8 write functions | `The text payload is written directly from the `String`'s packed byte data.` / `The byte payload is written directly from the byte list's packed data region.` | `internals` | memory | OPEN | — |
+| 27 | `canvas (overview)` | `destroying one that a presented scene still draws is safe, because the scene holds only its id.` (the reason clause) | `internals` | app | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused

@@ -114,13 +114,16 @@ Whole-file functions operate directly on a path. `fs::readText` and
 `fs::readBytes` read the entire file in one call; `fs::writeText` and
 `fs::writeBytes` replace its contents; `fs::appendText` and `fs::appendBytes` add
 to it; and the `fs::writeTextAtomic` and `fs::writeBytesAtomic` variants stage
-the new contents in a temporary file and swap it in with an OS rename so readers
-never observe a partial write. Text functions require and produce well-formed
+the new contents in a temporary file and swap it in with an OS rename, so on a filesystem
+with atomic rename readers see either the old file or the complete new one (the
+atomic-write pages give the caveats). Text functions require and produce well-formed
 UTF-8; byte functions transfer a `List OF Byte` verbatim, with no encoding or
 newline translation, and so suit binary data.
 
 Handle functions work through the opaque `File` resource type. `fs::open`,
-`fs::openFile`, `fs::openFileNoFollow`, and `fs::createTempFile` return a `File`;
+`fs::openFile`, `fs::openFileNoFollow`, `fs::openWithin`, and `fs::createTempFile`
+return a `File` (`fs::openWithin` opens a caller-supplied relative name that must
+stay beneath a trusted directory);
 `fs::readLine`, `fs::readAll`, `fs::readAllBytes`, `fs::writeAll`,
 `fs::writeAllBytes`, and `fs::eof` act on one. Portable open modes are
 `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A `File` is a handle that closes itself when its binding goes out of scope; call `fs::close` only to release it earlier. Using a

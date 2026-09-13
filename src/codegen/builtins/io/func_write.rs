@@ -36,7 +36,7 @@ first — for example with `toString`.
 The underlying write loops until every byte has been transferred: a short write
 advances the cursor and re-issues, and an interruption is resumed rather than losing
 bytes. A zero-byte or failing write is a failure and raises
-`ErrOutput`.
+`ErrWriteFailed`.
 
 With standard-output buffering enabled by `io::setBuffered(TRUE)` the text is
 appended to a per-thread 4 KiB buffer rather than written immediately, so it may

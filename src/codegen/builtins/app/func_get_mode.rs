@@ -56,8 +56,8 @@ flow analysis).
 Reading the mode is as cheap as reading a local variable, so a program may call
 `app::getMode` freely rather than caching the answer.
 
-The `app::Mode` enum is referenced bare, like every other builtin type: write
-`app::Mode.Console`, not `app::Mode.Console`."#;
+Name the enum package-qualified, as in `app::Mode.Console`; a bare `Mode` is not a
+known type."#;
 const EX: &str = r#"Branch on the mode currently in effect:
 
 ```

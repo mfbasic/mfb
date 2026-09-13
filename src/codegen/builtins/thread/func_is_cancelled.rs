@@ -12,9 +12,10 @@ passing the `ThreadWorker` handle the entry point was given, and it answers
 `TRUE` once someone has called `thread::cancel` on that thread.
 
 This is the only thing that makes cancellation work. `thread::cancel` only
-raises a flag; nothing stops until the worker asks about it and acts. A worker
-that never calls `isCancelled` cannot be cancelled at all, so any long-running
-loop should check it and return early when it goes `TRUE`.
+raises a flag; running code does not stop until the worker asks about it and
+acts, so any long-running loop should check it and return early when it goes
+`TRUE`. A worker blocked in `thread::receive` or `thread::accept` is the
+exception: it wakes and fails with `ErrInterrupted`.
 
 It returns immediately, never waits, and never raises. Once the answer is
 `TRUE` it stays `TRUE`.

@@ -302,7 +302,7 @@ Commit: a1cd1f9f7 (first five), 17d9cac4c (retry three)
 
 ### Phase 3 — the remaining 20 packages
 
-- [~] `collections`, `fs`, `strings`, `encoding`, `math`, `vector`, `os`,
+- [x] `collections`, `fs`, `strings`, `encoding`, `math`, `vector`, `os`,
       `general`, `bits`, `io`, `audio`, `tcp`, `testing`, `thread`, `udp`,
       `net`, `csv`, `money`, `regex`, `app`, `errorCode` (21 names; `color` is
       A's pilot — 20 units remain here after Phase 2's eight).
@@ -316,10 +316,77 @@ Commit: a1cd1f9f7 (first five), 17d9cac4c (retry three)
       - Rendered dotted type names: 6 cells, bug-605.
       - Belongs-in-spec rows 21–26.
 
-      **Remaining: the 21 Codex reviews
-      (`planning/plan-125-units/B-phase3.txt`), triage and apply.**
-- [ ] Apply every class-level finding from Phases 1–2 across these units as
-      part of the pass, not as a separate sweep.
+      Codex: all 21 reviewed, 37 findings, ledger below.
+- [x] Apply every class-level finding from Phases 1–2 across these units as
+      part of the pass, not as a separate sweep. One grep over all registry
+      prose covered the Phase 1–2 classes:
+      - thread entries described as "exported" (Phase 1 lambda #1);
+      - the nonexistent `mfb run` (Phase 1 tour #1);
+      - the removed `RESULT` clause (Phase 1 link #2);
+      - `FOR EACH` described as List and Map only (Phase 1 flow #1);
+      - "referenced bare" (Phase 2 datetime #1);
+      - an "unlike `x::close`" contrast (Phase 2 tls #1).
+
+      Two more hits, both fixed:
+      - `os::sleep`'s example said a thread entry "must be an exported
+        `ISOLATED FUNC`";
+      - the `canvas` overview said its value types are "referenced bare" while
+        spelling them `canvas::DrawItem`. It also carried the scene-id reason
+        (belongs-in-spec row 27).
+
+      Phase 3's own new class, a sentence contrasting a spelling with itself
+      (`money` #1), found 3 more in `app`.
+
+#### Phase 3 ledger — Codex iteration 1 (`planning/plan-125-findings/B-phase3/`)
+
+Manifest: 21/21 units `exit 0`, all `clean`; `--reconcile` `unaccounted=0
+orphans=0`. 37 findings. 32 were confirmed and applied as prose; 5 were confirmed
+as compiler or renderer defects and filed as bugs, with no prose change that
+would hide them. None rejected.
+
+| Unit | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| collections | 1 | CONFIRMED | the function table lists `toSet`/`union`/`isSubset`…; the reviewer ran their examples | INTRO "List, Map, and Set helper functions"; overview gains the Set group |
+| encoding | 1 | CONFIRMED → **bug-606** | `/tmp/p125-ex/pctdecode`: `percentDecode("%")` and `formUrlDecode("%")` TRAP `77050003`, yet both descriptors declare `errors: vec![]` | none: the declared-error list is compiler data |
+| fs | 1 | CONFIRMED | `mfb man fs openWithin` returns `fs::File`, but it is missing from the overview's list | overview handle list + purpose clause |
+| fs | 2 | CONFIRMED | `writeTextAtomic`/`writeBytesAtomic` pages qualify: "atomic when the host filesystem supports atomic rename" | overview sentence conditional |
+| fs | 3 | CONFIRMED | `gen_open.rs:lower_fs_open_within_helper` compares `openat2`'s errno with `38` (`ENOSYS`), then does a plain open | `openWithin` DESC: Linux fallback caveat |
+| os | 1 | CONFIRMED | `emit_env_lock`/`unlock` in `setEnv`, `unsetEnv`, `environ`, `hasEnv`, `userName`, and `getEnv`'s path | overview + `setEnv` + `unsetEnv`: the env calls take turns |
+| strings | 1 | CONFIRMED | `displayWidth`, `padLeftToWidth` and `padRightToWidth` are registered but missing from the catalog | catalog gains the terminal-width group |
+| vector | 1 | CONFIRMED | `mod.rs` registers `forward` for 3D/4D only (42 = 5 × 9 − 3) | overview constants sentence |
+| vector | 2 | CONFIRMED | reviewer probe ran `vector::zeroFloat3`, `upInteger2`, `forwardFixed3` | overview gives the naming rule; the renderer shows no constants → **bug-609** |
+| vector | 3 | CONFIRMED | `length` and `distance` pages also say "never raises `ErrInvalidArgument`" | `cross` no longer claims "only" |
+| math | 1 | CONFIRMED | `floor`/`ceil`/`round` list forms return `List OF Integer` | overview |
+| math | 2 | CONFIRMED | `entry.rs` seeds each thread's PCG64 from OS entropy; reviewer probe drew differently across two runs | `seed` DESC |
+| general | 1 | CONFIRMED | `general/mod.rs:expected_arguments` holds the real accepted types; the pages show one form each | overview: accepted source types per conversion |
+| general | 2 | CONFIRMED | `mfb man general toInt`: "`isNumeric` is not a safe guard for `toInt`"; `isNumeric`'s example guarded `toInt` | DESC: a guard for decimal conversions only; example uses `toFloat` (output unchanged) |
+| general | 3 | CONFIRMED | `expected_arguments`: `IS_POSITIVE \| IS_NEGATIVE \| IS_ZERO => "Integer, Float, or Fixed"` | `isPositive`, `isNegative` |
+| bits | 1 | CONFIRMED | `band`/`bor`/`bxor`/`bnot` take `Integer` | "bitwise operations" |
+| bits | 2 | CONFIRMED | reviewer probe: `40 AND -40` is `TYPE_BINARY_OPERATOR_MISMATCH` | `ctz`: `bits::band(value, -value)` |
+| bits | 3 | CONFIRMED | `sra`'s declaration carries no sign annotation | overview wording |
+| io | 1 | CONFIRMED | `mfb spec diagnostics error-codes` has `ErrEndOfFile`/`ErrWriteFailed`; `ErrEof`/`ErrOutput` do not exist | 9 names across 8 pages |
+| audio | 1 | CONFIRMED | `func_xruns.rs` DESC: "never raises `ErrAudioUnavailable` even on a Linux host without ALSA" | overview: device-needing calls; `render` and `xruns` excepted |
+| audio | 2 | CONFIRMED | `func_play.rs` mixes MML tracks (`__audio_mmlMix`) | overview: no *raw-PCM* mixing |
+| testing | 1 | CONFIRMED → **bug-607** | `mfb man testing expectEqual` and `mfb man general len` render `testing::`/`general::` declarations | none: renderer |
+| testing | 2 | CONFIRMED | spec 22 Structure/Running/Coverage; `/tmp/p125-ex/testfw` ran the new example: `Tests: 2 Pass: 2 Fail: 0` | overview section. My first draft used `expectTrap(10 / 0)`, which is `TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE`; the probe caught it and it is now `toInt("x")` |
+| thread | 1 | CONFIRMED | `lowering.rs` routes worker `receive`/`accept` through the cancellation-checking helper; `tests/rt-behavior/threads/thread-queue-timeout-cancel` exists; reviewer ran it: `receive interrupted` | overview, `isCancelled`, `cancel` |
+| tcp | 1 | CONFIRMED | `func_poll.rs`: the list form returns a socket or raises `ErrTimeout` | `setReadTimeout` DESC |
+| tcp | 2 | CONFIRMED | reviewer probe: passing an address compiles without `IMPORT net`; reading `.port` does not | overview |
+| udp | 1 | CONFIRMED → **bug-608** | 9 forms declare `errors: vec![]`; `gen_io.rs` raises 7 distinct errors | none: compiler data |
+| net | 1 | CONFIRMED | reviewer probe: `net::toString(u)` "does not export"; the universal `toString` renders a URL | `Url` record description |
+| net | 2 | CONFIRMED | `grep -rln 'net::Address\|ADDRESS_TYPE' src/codegen/builtins/http` is empty | overview names `tcp`, `udp`, `tls` |
+| csv | 1 | CONFIRMED | reviewer probe: `parse("a,b", ",;")` gives 2 fields; `stringify` writes `a,;b` | `parse`, `parseStream` |
+| money | 1 | CONFIRMED | the sentence read "write `money::Rounding.Banker`, not `money::Rounding.Banker`"; reviewer probe: bare `Rounding` is `SYMBOL_UNKNOWN_TYPE` | `getRounding`, `setRounding` |
+| regex | 1 | CONFIRMED | `mfb man regex language` is an unknown function; `mfb spec stdlib regex` exits 0 | route fixed |
+| regex | 2 | CONFIRMED | `mfb man regex count` has `[start AS Integer]` | `count` added to the list |
+| app | 1 | CONFIRMED | reviewer probe built `app::setMode(app::Mode.Canvas)` | `setMode` DESC + `mode` parameter |
+| app | 2 | CONFIRMED | `mfb man canvas` is set up by `setMode(app::Mode.Canvas)` | `setMode` routes to `mfb man canvas` |
+| errorCode | 1 | CONFIRMED → **bug-609** | 52 `add_constant` rows, none rendered | none: renderer (the overview already routes to `mfb spec diagnostics error-codes`) |
+| errorCode | 2 | CONFIRMED → **bug-609** | `src/cli/man.rs`'s types fallback always says "list its functions" | none: renderer |
+
+Class sweep from `money` #1: a sentence contrasting a spelling with itself.
+`python3 /tmp/p125-ex/selfcontra.py` over all registry and topic prose found 3
+more, all `app` (`setMode`, `getMode`, overview). All fixed.
 
 Acceptance: every remaining unit in the manifest with `exit 0`; ledgers
 recorded; `./scripts/man-census.sh --fill` still 100%, `--memory-scope` 0

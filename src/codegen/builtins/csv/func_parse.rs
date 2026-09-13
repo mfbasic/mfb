@@ -22,8 +22,9 @@ result is the same either way.
 The dialect is RFC-4180-aligned. The field delimiter defaults to a comma (scalar
 `44`) but can be overridden with the optional `delimiter` argument; the quote
 character defaults to the double quote (`34`) but can be overridden with the
-optional `quote` argument. Each must be a non-empty single character, and only its
-first Unicode scalar is used. A record separator is a line feed (LF, `10`) or a
+optional `quote` argument. Each must be non-empty, and parsing uses only its first
+Unicode scalar; `csv::stringify` writes the whole text, so pass exactly one scalar
+when the same dialect must read back what it wrote. A record separator is a line feed (LF, `10`) or a
 carriage-return/line-feed pair (CRLF, `13` then `10`) regardless of dialect; a
 bare CR not followed by LF is ordinary data inside the current field. A field may
 be wrapped in the quote character: the opening quote must be the first character

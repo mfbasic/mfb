@@ -1,0 +1,22 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-pkg:collections	0	76	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:fs	0	96	25	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:encoding	0	98	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:strings	0	105	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:os	0	53	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:vector	0	101	25	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:math	0	149	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:general	0	140	25	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:bits	0	104	25	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:io	0	75	8	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:audio	0	78	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:testing	0	60	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:thread	0	70	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:tcp	0	104	18	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:udp	0	83	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:net	0	91	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:csv	0	90	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:regex	0	63	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:money	0	111	7	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:app	0	73	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-pkg:errorCode	0	53	16	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

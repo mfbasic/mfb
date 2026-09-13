@@ -8,7 +8,9 @@ use crate::types::ParameterType::{Integer, Nothing};
 use super::{overload, req};
 const INTRO: &str = r#"Reseed this thread's random generator."#;
 const DESC: &str = r#"`seed(value)` resets this thread's random sequence so a subsequent sequence of
-`math::rand` draws is reproducible. It returns Nothing. Seeding is per-execution
+`math::rand` draws is reproducible. It returns Nothing. Until a program calls
+`seed`, the sequence starts from a fresh, automatically chosen seed, so unseeded
+draws differ from run to run. Seeding is per-execution
 context: a worker thread inherits the spawning thread's stream and then diverges
 independently."#;
 const EX: &str = r#"```

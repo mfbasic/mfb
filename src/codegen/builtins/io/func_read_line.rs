@@ -44,7 +44,7 @@ check; an ill-formed sequence fails rather than yielding a replacement character
 End of input is reported as an error, not as an empty result — but only when it
 arrives before any byte of the line. Input that ends mid-line is not lost: those
 bytes come back as the final, unterminated line, and the *next* call raises
-`ErrEof`. Standard input is a per-thread broadcast log;
+`ErrEndOfFile`. Standard input is a per-thread broadcast log;
 a thread other than the main thread must subscribe with `thread::openStdIn` before
 reading, or the call raises `ErrInvalidContext`."#;
 const EX: &str = r#"Read a line and echo it back:

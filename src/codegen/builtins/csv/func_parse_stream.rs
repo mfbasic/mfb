@@ -20,7 +20,7 @@ materialized. The rows a `parseStream`/`readRow` loop yields are identical to
 `csv::parse(value)`.
 
 The optional `delimiter` and `quote` select the input dialect exactly as for
-`csv::parse` (defaults `,` and `"`); each must be a non-empty single character —
+`csv::parse` (defaults `,` and `"`); each must be non-empty, and only its first Unicode scalar is used —
 an empty `delimiter` or `quote` raises `ErrInvalidFormat` when the reader is
 opened. The output-only dialect option (`newline`) does not apply to reading.
 

@@ -105,7 +105,9 @@ that handle again raises `ErrResourceClosed`.
 
 `thread::cancel` asks a thread to stop. It is a request, not a kill: the worker
 notices by calling `thread::isCancelled` and decides what to do about it. A
-thread that never asks runs to completion.
+thread that never asks keeps running its own code to completion. The one
+exception is a worker blocked in `thread::receive` or `thread::accept`: it wakes
+and fails with `ErrInterrupted`, which it may trap to shut down in order.
 
 `thread::openStdIn` and `thread::closeStdIn` let more than one thread read
 standard input. Every subscriber gets its own view of the stream, so a line read

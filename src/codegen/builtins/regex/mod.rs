@@ -96,7 +96,7 @@ regular-expression dialect that is MFBASIC's own. Its syntax and semantics are
 defined entirely by `mfb spec stdlib regex` and produce byte-for-byte identical
 results on every target, never deferring to a host libc, locale, or OS regex
 library. `regex` is a built-in package: `IMPORT regex` needs no manifest
-dependency. For the full pattern language, run `mfb man regex language`.
+dependency. For the full pattern language, run `mfb spec stdlib regex`.
 
 The package defines two value types, `regex::MatchInfo` and `regex::Group`, which are
 how a match reports what it covered; run `mfb man regex types` for their fields.
@@ -163,8 +163,8 @@ whenever the matched text is needed: a pattern's match length is an output, not
 something the caller knows in advance, so a start index alone cannot be sliced.
 
 Every search is unanchored and leftmost: the reported match is the one beginning
-at the smallest position where any match exists. `find`, `findAll`, `findMatch`
-and `findAllMatches` take an optional `start` (default `0`) restricting only
+at the smallest position where any match exists. `count`, `find`, `findAll`,
+`findMatch` and `findAllMatches` take an optional `start` (default `0`) restricting only
 where a match may begin — the absolute anchors `\A`, `\z`, and unflagged
 `^`/`$` are still evaluated against the whole value. A zero-length match is
 valid; iteration advances one scalar past an empty match so it always

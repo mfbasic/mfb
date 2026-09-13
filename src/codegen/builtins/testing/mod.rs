@@ -63,6 +63,34 @@ These are **unqualified global** builtins: you write them as bare names
 (`expectEqual(actual, expected)`), never `testing::expectEqual`, and there is no
 `IMPORT testing`.
 
+Tests live in a `TESTING` block, which may appear anywhere a top-level
+declaration may, in any source file, any number of times. Inside it, `TGROUP`
+groups cases and `TCASE` holds one case's statements; both take a string
+description that appears in the report, and groups nest as deeply as you like:
+
+```
+TESTING
+  TGROUP "arithmetic"
+    TCASE "adds"
+      expectEqual(1 + 1, 2)
+    END TCASE
+    TGROUP "conversion"
+      TCASE "bad text raises"
+        expectTrap(toInt("x"))
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING
+```
+
+`mfb test [path]` builds the project with its `TESTING` blocks and runs them,
+printing each case as `[P]` or `[F]` under its group, then a
+`Tests: <n>  Pass: <n>  Fail: <n>` line. It exits `0` only when no case failed,
+so it works as a CI gate. A runtime error inside a case counts as that case's
+failure and the other cases still run. `mfb test --coverage` also writes
+`coverage.html`, showing which lines the tests ran. `TGROUP` and `TCASE` are
+keywords only inside a `TESTING` block.
+
 An assertion is only valid inside a `TCASE` body; using one anywhere else is a
 compile error. Each returns nothing, and the **first failed assertion ends its
 case** — later lines in that `TCASE` do not run, while sibling cases and groups
@@ -92,10 +120,9 @@ Which assertion to reach for:
   whether evaluating an expression raises. `expectTrap` can also pin the exact
   `error.code`.
 
-Tests live in a `TESTING … END TESTING` block, which `mfb build` drops entirely
-— a release binary is identical to one with the tests deleted — and which
-`mfb test` compiles and runs. See `mfb spec language test-framework` for the
-block structure."#;
+`mfb build` drops every `TESTING` block entirely — a release binary is identical
+to one with the tests deleted. See `mfb spec language test-framework` for the full
+rules."#;
 
 /// One assertion's parameter list: `actual` and `expected`, both of operand type
 /// `ty` (a concrete scalar for the typed families, or `Var("T")` for the generic
