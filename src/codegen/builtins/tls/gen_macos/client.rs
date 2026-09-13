@@ -1587,9 +1587,16 @@ pub(crate) fn lower_tls_write_macos(
     // Network.framework has moved the connection to `failed` (4; never 5) by
     // then. Reporting `ErrConnectionClosed` once and `ErrTlsFailed` forever
     // after, for one disconnect, is what this bug is about.
+    //
+    // bug-564: this is a GATE read and `write_classify` reads the payload
+    // (`CTX_EDOM`) after it, both unlocked against the handler thread. The
+    // handler publishes the payload first and the gate by store-release. The
+    // gate is loaded by load-acquire, which runs before every later load, so the
+    // `CTX_EDOM` load cannot run early against memory older than the gate.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
-        abi::load_u32(&v10, &v9, CTX_STATE),
+        abi::add_immediate(&v10, &v9, CTX_STATE),
+        abi::load_acquire_u32(&v10, &v10),
         abi::compare_immediate(&v10, "4"),
         abi::branch_ge(&write_classify),
     ]);
@@ -1661,9 +1668,11 @@ pub(crate) fn lower_tls_write_macos(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONTENT),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::branch_link_register(&v9),
-        // A non-null error means the send failed.
+        // A non-null error means the send failed. bug-564: a gate, so
+        // load-acquire, for the reason given at the terminal-state guard.
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
-        abi::load_u64(&v10, &v9, CTX_ERROR),
+        abi::add_immediate(&v10, &v9, CTX_ERROR),
+        abi::load_acquire_u64(&v10, &v10),
         abi::compare_immediate(&v10, "0"),
         abi::branch_ne(&write_classify),
         abi::label(&empty),

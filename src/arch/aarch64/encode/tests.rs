@@ -266,6 +266,70 @@ fn encodes_fp_scalar_spill_load_store() {
     assert_eq!(encoder.text, expected);
 }
 
+#[test]
+fn encodes_load_acquire_store_release() {
+    // bug-564. The oracle words come from Apple clang 17 on the macOS host:
+    // `clang -c -arch arm64` of these exact lines, then `otool -t`. A64 has no
+    // offset form for either instruction, so the base is a register alone.
+    let op = |mnemonic: &str, rt_field: &'static str, rt: &str, base: &str| {
+        CodeInstruction::new(mnemonic)
+            .field(rt_field, rt)
+            .field("base", base)
+    };
+    for (instruction, word, spelling) in [
+        (
+            op("stlr_u64", "src", "x9", "x10"),
+            0xc89f_fd49_u32,
+            "stlr x9, [x10]",
+        ),
+        (
+            op("stlr_u64", "src", "x1", "x19"),
+            0xc89f_fe61,
+            "stlr x1, [x19]",
+        ),
+        (
+            op("stlr_u64", "src", "x30", "x0"),
+            0xc89f_fc1e,
+            "stlr x30, [x0]",
+        ),
+        (
+            op("stlr_u64", "src", "xzr", "sp"),
+            0xc89f_ffff,
+            "stlr xzr, [sp]",
+        ),
+        (
+            op("ldar_u64", "dst", "x9", "x10"),
+            0xc8df_fd49,
+            "ldar x9, [x10]",
+        ),
+        (
+            op("ldar_u64", "dst", "x0", "sp"),
+            0xc8df_ffe0,
+            "ldar x0, [sp]",
+        ),
+        (
+            op("ldar_u32", "dst", "w9", "x10"),
+            0x88df_fd49,
+            "ldar w9, [x10]",
+        ),
+        (
+            op("ldar_u32", "dst", "x10", "x9"),
+            0x88df_fd2a,
+            "ldar w10, [x9]",
+        ),
+    ] {
+        assert_eq!(encode_one(&instruction), word, "{spelling}");
+        assert_eq!(instruction_size(&instruction).unwrap(), 4, "{spelling}");
+    }
+    for (mnemonic, op) in [
+        ("stlr_u64", CodeOp::StlrU64),
+        ("ldar_u64", CodeOp::LdarU64),
+        ("ldar_u32", CodeOp::LdarU32),
+    ] {
+        assert_eq!(CodeInstruction::new(mnemonic).op, op);
+    }
+}
+
 fn fresh_encoder() -> Encoder {
     // Delegates to the one shared constructor (bug-341-C2); the struct literal
     // lives only in `InstructionEncoder::new` now (bug-341-B1).

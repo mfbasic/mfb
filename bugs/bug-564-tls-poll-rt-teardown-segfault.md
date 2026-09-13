@@ -6,14 +6,20 @@ Severity: **MEDIUM** — use-after-munmap in the `tls::close` path on macOS, rea
 by any program that closes a TLS socket shortly before exiting.
 Class: Runtime / teardown
 
-Status: **Sighting 1 DIAGNOSED AND FIXED. Sighting 2 REPRODUCED, mechanism
-CONFIRMED, fix BLOCKED.** A correct fix needs a store-release (`STLR`) or `DMB`
-instruction, and this ABI layer cannot emit either. See "Why this is BLOCKED
-rather than fixed".
+Status: **Sighting 1 FIXED. Sighting 2 FIXED** (branch
+`bug-564-s2-store-release`: `fd8ba0620`, `d474a4830`, `c60873a7e`,
+`c39e7177a`, `9ab9a10ae`). The encoder gained store-release and load-acquire. The handlers
+publish the domain before the gate with `stlr`, and `tls::write` loads the gate
+with `ldar`. See "Sighting 2: FIXED". **One finding stays OPEN**, and it is not
+the ordering race: on macOS a `tls::write` after the peer's clean
+`close_notify` never raises. It fails the same way on the pre-fix compiler.
+See "OPEN: a write after a clean close_notify never raises".
 Regression Test: `codegen::builtins::tls::gen_macos::tests::close_drains_to_cancelled`
-(sighting 1; RED before the fix, GREEN after). Sighting 2 has a runtime RED
-(interposed matched pair: 6 of 600 `raised=FALSE`) and a parked unit pin; neither is
-on this branch.
+(sighting 1). For sighting 2:
+`codegen::builtins::tls::gen_macos::tests::{trampolines_publish_the_error_domain_before_the_gate,
+write_loads_its_gates_by_load_acquire}` and
+`arch::aarch64::encode::tests::encodes_load_acquire_store_release`, with the
+positive runtime pin `rt_macos_tls_write_after_clean_close`.
 
 ## The sighting
 
@@ -310,7 +316,7 @@ byte-identical to HEAD before the change, so all three diffs are this change's:
 `linux-{aarch64,x86_64,riscv64}` and `windows-x86_64` re-summed SAME for all three.
 Controls `byte-identity/strings` and `byte-identity/net` re-summed SAME.
 
-## Sighting 2: REPRODUCED and diagnosed; the fix is BLOCKED on a release store
+## Sighting 2: REPRODUCED and diagnosed (history; it was blocked on a release store until "Sighting 2: FIXED" below)
 
 The doc records sighting 2 as a "behavioural flip … whether it raises". It is not.
 The fixture prints
@@ -531,7 +537,161 @@ SIGSEGV in CI on a Linux box leaves no equivalent, and `test-accept.sh` does not
 copy the macOS report next to the failing `build.log`. That is worth doing and is
 not done here.
 
-## Parked work (sighting 2), NOT for merge
+## Sighting 2: FIXED (2026-09-12)
+
+Branch `bug-564-s2-store-release`. It carries option (1) from "Options and their
+costs", with the reorder ported from the parked `fc60ae253`.
+
+### The ordering argument, from the ARMv8 model
+
+Sullivan, *Compiling a Calculus for Relaxed Memory* (arXiv 1904.05389), §5.4,
+states the fences exactly: "Store-Release writes become visible after all
+program-order prior stores and all stores observed by program-order prior loads
+… Load-Acquire reads, on the other hand, execute before all program-order
+successors." Arm ARM DDI0487 section B2.6.11, "Load-Acquire, Load-AcquirePC, and
+Store-Release", is the normative source. Its page was located by search but could
+not be retrieved as text here.
+
+The writer publishes `CTX_EDOM` (a plain store), then the gate. The reader loads
+the gate, then `CTX_EDOM`. The bad view needs the reader's `CTX_EDOM` load to
+see memory older than its gate load saw.
+
+* **Writer side: `stlr` on each gate.** The gate becomes visible only after
+  every program-order-prior store, `CTX_EDOM` included. So whenever a gate is
+  visible, the domain already is. The payload store can stay a plain `str`.
+* **Reader side: `ldar` on each gate load, which is needed too.** A plain load
+  may execute early, so the `CTX_EDOM` load could run before the gate load,
+  against memory from before either store. A load-acquire on the gate executes
+  before every program-order-later load. So `t(gate load) <= t(CTX_EDOM load)`,
+  and a visible gate implies a visible domain at that time.
+
+The fix therefore touches both sides:
+
+* `fd8ba0620` adds the `CodeOp`s `StlrU64`, `LdarU64` and `LdarU32`, which are
+  AArch64-only and base-register-only (A64 has no offset form). It also adds
+  the `abi::store_release_u64` / `load_acquire_u64` / `load_acquire_u32`
+  builders. These are new instructions, not lowering variants.
+* `d474a4830` changes `state_invoke_function` / `send_invoke_function` to park
+  their arguments, classify, then `add` + `stlr` `CTX_ERROR` (and
+  `CTX_STATE`). It also changes `lower_tls_write_macos` to `add` + `ldar` its
+  two gate loads (`CTX_STATE` u32 at the terminal-state guard, `CTX_ERROR` u64
+  after the send wait).
+
+The disassembled fixture built by this compiler has 3 `stlr` (two in
+`STATE_INVOKE`, one in `SEND_INVOKE`) and 4 `ldar` (two gate loads in each of
+`tls_write` and `tls_writeText`). The pre-fix build has 0 of either
+(`otool -tv … | grep -E 'stlr|ldar'`).
+
+### Encoding oracle
+
+`encodes_load_acquire_store_release` pins eight words assembled by Apple clang 17
+on this host (`clang -c -arch arm64` then `otool -t`):
+
+| instruction | word |
+|---|---|
+| `stlr x9, [x10]` | `c89ffd49` |
+| `stlr x1, [x19]` | `c89ffe61` |
+| `stlr x30, [x0]` | `c89ffc1e` |
+| `stlr xzr, [sp]` | `c89fffff` |
+| `ldar x9, [x10]` | `c8dffd49` |
+| `ldar x0, [sp]` | `c8dfffe0` |
+| `ldar w9, [x10]` | `88dffd49` |
+| `ldar w10, [x9]` | `88dffd2a` |
+
+(A from-memory guess of `LDAR` as `…7c00` was wrong. `o0` is 1 for both
+instructions, and the oracle is what caught it.)
+
+### RED, then GREEN
+
+Both REDs were run in throwaway `git worktree add --detach` trees at
+`d474a4830`, with only the behaviour files swapped. Command:
+`cargo test --no-fail-fast --bin mfb -- gen_macos::tests`.
+
+* **RED A**: `tls.rs` and `client.rs` from main `a76bcb8e6`. Exit 101, 2
+  failed. The messages were "`_mfb_tls_nw_state_invoke` must store CTX_EDOM
+  (index 15) BEFORE the gate at offset 16 (stores [(6, StrU64)])" and
+  "tls::write … must load the gate at offset 16 with LdarU32 (loads [(158,
+  LdrU32)])".
+* **RED B**: the parked plain-`str` reorder (`tls.rs` from `fc60ae253`). Exit
+  101, 2 failed. The order check passes, and the new kind check fails:
+  "`_mfb_tls_nw_state_invoke` must publish the gate at offset 16 with a
+  store-release (stores [(20, StrU64)])".
+* **GREEN** on the branch: `-- gen_macos::tests encode::tests ops::tests
+  mir::tests` gave 256 passed, 0 failed, exit 0.
+
+### Matched pair on the final build
+
+This was the fixture `tls-write-peer-closed-raises-rt`, built once by main's
+release compiler and once by this branch's. Command:
+`B564_DYLIB=interpose3.dylib B564_LOG=1 loop.sh <bin> 600 8 <out>`. Both
+ran side by side on the macOS host while the full artifact gate also ran,
+with load averages 54–65. Each run was classified by the return address of
+its first `domain=` line (pre-fix: STATE `…76b8`, SEND `…770c`; fix: STATE
+`…76c8`, SEND `…7734`).
+
+| build | runs × concurrency | `write raised=FALSE` | STATE-first (FALSE among them) | SEND-first | exit≠0 |
+|---|---|---|---|---|---|
+| pre-fix (main `a76bcb8e6`) | 600 × 8 | **19** | 98 (**19**) | 502 | 0 |
+| fix (`d474a4830`) | 600 × 8 | **0** | 120 (**0**) | 480 | 0 |
+
+Every pre-fix failure was a STATE-first run, as before. The other three
+fixture lines (`cert`, `empty`, `deadline`) held in all 1,200 runs.
+
+### Containment: 3 goldens, 4 functions each
+
+* **Baseline.** `artifact-gate.sh <main mfb> all` from a detached `a76bcb8e6`
+  worktree: 1431 tests, 2009 goldens, **0 diffs**. Every diff below is
+  therefore this branch's.
+* **Branch, before regen.** **3 diffs**. All are `macos-aarch64`, and all are
+  fixtures that `IMPORT tls`. It is the same set sighting 1's fix moved:
+
+      byte-identity/http/golden/http_codegen_cover_rt.macos-aarch64.ncodesum
+      byte-identity/resource-xfer-slots/golden/resource_xfer_slots_cover_rt.macos-aarch64.ncodesum
+      byte-identity/tls/golden/tls_codegen_cover_rt.macos-aarch64.ncodesum
+
+  Each was localized by building `-ncode` with both compilers and diffing per
+  function. In all three, exactly four functions changed, and none appeared or
+  vanished (`functions=120/162/99`). `_mfb_tls_nw_state_invoke` and
+  `_mfb_tls_nw_send_invoke` changed because of the `stlr` publication order.
+  `_mfb_rt_tls_tls_write` and `_mfb_rt_tls_tls_writeText` changed because of
+  the `ldar` gate loads. `linux-*` and `windows-x86_64` did not move: those
+  backends do not emit these functions.
+* **Regen.** `bash scripts/regen-ncodesum.sh target/release/mfb` refreshed 144
+  goldens; `git status` changed only those 3. No `.run` golden moved, and no
+  `.ir`/`.ast`/`build.log` moved.
+* **Branch, after regen.** Same command: 2009 goldens, **0 diffs**, exit 0.
+
+### OPEN: a write after `tls::read` has already reported the close never raises
+
+This is a separate defect, and it is not the ordering race. It turned up while
+building the positive pin and was measured on BOTH compilers.
+
+* **Shape that fails.** An `openssl s_client -msg` peer sends close_notify (its
+  trace shows `>>> TLS 1.3, Alert … warning close_notify`) and exits. The
+  server calls `tls::read` until it raises `ErrConnectionClosed`, and THEN writes.
+  With this branch's compiler, 2000 writes of 64 KiB printed
+  `after=COMPLETED writes=2000`, and a later read printed `77070004`
+  (`ErrConnectionClosed`). With 20000 writes (1.28 GiB) the process had already
+  exited within a second. `netstat -an -p tcp` showed only the peer's side in
+  `TIME_WAIT` and no server-side row, so nothing was transmitted. No
+  `nw_error` ever reached a trampoline (the interposer logged no `domain=`
+  call). Main's release compiler gives the same `after=COMPLETED`.
+* **Shape that holds.** This is the parked probe's shape: no read before the
+  write, and the write released only after s_client has exited. On BOTH
+  compilers the first write raises: `after=TRUE code=77070004 writes=0`. A
+  later read gives `77070004`.
+
+So Network.framework completes `nw_connection_send` with a null error once the
+receive side has delivered the peer's close, and the macOS `tls::write` never
+learns the peer is gone. That breaks `mfb spec stdlib transports` §17 for this
+sequence. A fix needs a decision this bug does not own: whether a received
+close_notify alone should fail later writes, given that TLS 1.3 permits
+half-close. It also needs a probe of what Network.framework exposes. Commit
+`c39e7177a`'s message overstates this as "never raises" after close_notify in
+general. The shape above is the correct statement, and `rt_macos_tls_write_after_clean_close`
+pins the holding shape.
+
+## Parked work (sighting 2) — superseded by "Sighting 2: FIXED"
 
 Branch `bug-564-s2-program-order-wip` holds three things. It must not merge on its
 own, for the reason in "Why this is BLOCKED rather than fixed".

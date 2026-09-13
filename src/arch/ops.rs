@@ -104,6 +104,18 @@ pub(crate) enum CodeOp {
     StrU32,
     StrU16,
     StrU8,
+    /// AArch64 store-release / load-acquire (`stlr Xt,[Xn]`, `ldar Xt,[Xn]`,
+    /// `ldar Wt,[Xn]`), base register only, no offset (bug-564). A plain
+    /// `str`/`ldr` may be observed by another core out of program order under
+    /// the ARMv8 memory model; these are its one-way fences. A store-release
+    /// becomes visible only after every program-order-prior store, and a
+    /// load-acquire executes before every program-order-later load. They exist
+    /// for a gate-then-payload publication shared with a thread the program does
+    /// not own (the macOS Network.framework handlers). Never emitted for x86-64
+    /// or riscv64.
+    StlrU64,
+    LdarU64,
+    LdarU32,
     /// 64-bit FP scalar load/store (`ldr d`/`str d`), used to spill and reload an
     /// FP-class virtual register (plan-03 Stage C).
     LdrD,
@@ -313,6 +325,9 @@ impl CodeOp {
             CodeOp::StrU32 => "str_u32",
             CodeOp::StrU16 => "str_u16",
             CodeOp::StrU8 => "str_u8",
+            CodeOp::StlrU64 => "stlr_u64",
+            CodeOp::LdarU64 => "ldar_u64",
+            CodeOp::LdarU32 => "ldar_u32",
             CodeOp::LdrD => "ldr_d",
             CodeOp::StrD => "str_d",
             CodeOp::Adrp => "adrp",
@@ -472,6 +487,9 @@ impl CodeOp {
             "str_u32" => Ok(CodeOp::StrU32),
             "str_u16" => Ok(CodeOp::StrU16),
             "str_u8" => Ok(CodeOp::StrU8),
+            "stlr_u64" => Ok(CodeOp::StlrU64),
+            "ldar_u64" => Ok(CodeOp::LdarU64),
+            "ldar_u32" => Ok(CodeOp::LdarU32),
             "ldr_d" => Ok(CodeOp::LdrD),
             "str_d" => Ok(CodeOp::StrD),
             "adrp" => Ok(CodeOp::Adrp),
@@ -644,6 +662,9 @@ mod tests {
             CodeOp::StrU32,
             CodeOp::StrU16,
             CodeOp::StrU8,
+            CodeOp::StlrU64,
+            CodeOp::LdarU64,
+            CodeOp::LdarU32,
             CodeOp::LdrD,
             CodeOp::StrD,
             CodeOp::Adrp,
