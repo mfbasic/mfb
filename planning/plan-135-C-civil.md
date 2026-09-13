@@ -212,7 +212,7 @@ Commit: ec6178ce1
 Acceptance: `civil` agrees with `zoneinfo` on every transition edge of every zone, and
 each of the two disambiguation branches is shown to be exercised.
   Check: `packages/timezones/oracle/run.sh '' civil; echo EXIT=$?` → `0 mismatches`, `EXIT=0`; the two mutation runs → mismatches > 0 each (est. UNMEASURED until the corpus exists — set it from the line count; the edge set is the only coverage of both branches, so it is not sampled down).
-Commit: —
+Commit: b86f68aba
 
 ## Validation Plan
 

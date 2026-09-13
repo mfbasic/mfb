@@ -402,7 +402,7 @@ Commit: bd0c5a22b
 Acceptance: the package agrees with `zoneinfo` on the whole corpus, and a broken
 evaluator is caught.
   Check: `packages/timezones/oracle/run.sh '' offsets; echo EXIT=$?` → `0 mismatches`, `EXIT=0`; the mutation run → mismatches > 0 (est. UNMEASURED — set from the corpus line count × the measured 50 µs per lookup, plus the Python side; if > 10 min, record why the full corpus is needed: the future-transition sweep is the only coverage of every DST footer).
-Commit: —
+Commit: b86f68aba
 
 ## Validation Plan
 
