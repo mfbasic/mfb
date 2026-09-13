@@ -38,11 +38,11 @@ The whole plan-130 family (A–E) is gated here; letters B–E point to this tab
 
 | Must be true | Command | Status |
 |---|---|---|
-| No `--debug` option exists | `git grep -n '"--debug"' -- src tests` → no matches | MET (2026-09-12) |
-| plan-130 number unclaimed elsewhere | `git log --all --oneline --grep plan-130` → only this family | MET (2026-09-12) |
-| Tree green at the base commit | `cargo test --no-fail-fast -- --skip artifact_gate_all > /tmp/p130-base.log 2>&1; echo EXIT=$?` → `EXIT=0` | UNMEASURED — run before Phase 1 |
-| Artifact gate baseline at the base commit | `scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)` | UNMEASURED — run before Phase 1 |
-| Remote boxes reachable | `for p in 2223 2227 2228 2229 2230; do ssh -o ConnectTimeout=8 -p $p test@127.0.0.1 true && echo $p ok; done` → five `ok` | UNMEASURED — 2223 and 2227 answered on 2026-09-12; 2228/2229/2230 not probed |
+| No `--debug` option exists | `git grep -n '"--debug"' -- src tests` → no matches | MET (2026-09-12, re-run by follow-plan: no matches) |
+| plan-130 number unclaimed elsewhere | `git log --all --oneline --grep plan-130` → only this family | MET (2026-09-12, re-run: only `dc57f2ce5`) |
+| Tree green at the base commit | `cargo test --no-fail-fast -- --skip artifact_gate_all > /tmp/p130-base.log 2>&1; echo EXIT=$?` → `EXIT=0` | MET (2026-09-12, base `b0899e778`: `EXIT=0`, 165 `test result: ok`, 0 `FAILED`) |
+| Artifact gate baseline at the base commit | `scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)` | MET (2026-09-12, base `b0899e778`: `1436 tests, 1602 build(s), 2011 golden(s) checked, 0 diff(s)`) |
+| Remote boxes reachable | `for p in 2223 2227 2228 2229 2230; do ssh -o ConnectTimeout=8 -p $p test@127.0.0.1 true && echo $p ok; done` → five `ok` | **NOT MET** (2026-09-12, follow-plan run with `-o BatchMode=yes`): 2223 ok, 2227 ok, 2229 ok; **2228 and 2230 `Connection refused`** — `lsof -nP -iTCP -sTCP:LISTEN` shows QEMU listeners only on 2223/2227/2229, i.e. the 2228 (Ubuntu x86_64 glibc) and 2230 (Win11) VMs are not running; `utmctl list` cannot start them from this session (OSStatus -1743) |
 
 A red baseline row is recorded here with the failing test names before Phase 1 starts;
 it is not this plan's to fix and its failures are not this plan's regressions.

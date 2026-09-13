@@ -28,8 +28,8 @@ See plan-130-A § Prerequisites. Additionally:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-130-D complete | `ls planning/completed/plan-130-D-*` → one match | NOT MET |
-| The helper-source gating mechanism (Open Decision 1) is decided by the user and recorded in this file | the Open Decisions entry reads `DECIDED:` | NOT MET |
-| Canvas suites green at the base | `cargo test --release --test 'rt_canvas_*'` → all pass | UNMEASURED |
+| The helper-source gating mechanism (Open Decision 1) is decided by the user and recorded in this file | the Open Decisions entry reads `DECIDED:` | **NOT MET** (2026-09-12, `grep -n DECIDED planning/plan-130-E-*.md` → only the instruction line; no decision recorded) |
+| Canvas suites green at the base | `cargo test --release --test 'rt_canvas_*'` → all pass | MET (2026-09-12, base `b0899e778`, run with `--no-fail-fast`: `EXIT=0`, 9 binaries, 153 passed, 0 failed) |
 
 ## 1. Goal
 
