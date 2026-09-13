@@ -290,6 +290,10 @@ const RUNTIME_CALLS: &[&str] = &[
     "big.divide",
     "big.remainder",
     "big.divMod",
+    "big.pow",
+    "big.gcd",
+    "big.factorial",
+    "big.modPow",
     "crypto.seal",
     "crypto.open",
     // TLS client + server over Schannel (plan-47-J).

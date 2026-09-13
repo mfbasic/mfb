@@ -2037,3 +2037,64 @@ pub(crate) fn emit_build_div_result(
     ));
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Values from `Integer`s (plan-127-C Phase 3).
+// ---------------------------------------------------------------------------
+
+/// A normalized `big::Int` equal to the `Integer` in `value_slot`, in
+/// `RESULT_VALUE_REGISTER`: the absolute value as eight little-endian bytes (two's
+/// complement negation read unsigned, exact even for `Integer`'s minimum), trimmed by
+/// `emit_build_int`. Branches to `alloc_fail` when the block cannot be made. This is
+/// `big::fromInteger`'s body, shared with the members that build intermediate values from
+/// an `Integer` counter.
+pub(crate) fn emit_int_from_integer(
+    builder: &mut CodeBuilder,
+    vregs: &mut Vregs,
+    value_slot: usize,
+    tag: &str,
+    alloc_fail: &str,
+) {
+    let symbol = builder.current_symbol.clone();
+    let capacity = builder.allocate_stack_object(&format!("big_{tag}_capacity"), 8);
+    let negative = builder.allocate_stack_object(&format!("big_{tag}_negative"), 8);
+    let positive = format!("{symbol}_{tag}_positive");
+    let write_loop = format!("{symbol}_{tag}_write");
+    let write_done = format!("{symbol}_{tag}_write_done");
+    let eight = vregs.next();
+    builder.instructions.extend([
+        abi::move_immediate(&eight, "Integer", "8"),
+        abi::store_u64(&eight, abi::stack_pointer(), capacity),
+    ]);
+    let result = emit_alloc_magnitude(builder, vregs, capacity, tag, alloc_fail);
+    let (value, flag, zero, cursor, index) = (
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+    );
+    builder.instructions.extend([
+        abi::load_u64(&value, abi::stack_pointer(), value_slot),
+        abi::move_immediate(&flag, "Integer", "0"),
+        abi::compare_immediate(&value, "0"),
+        abi::branch_ge(&positive),
+        abi::move_immediate(&flag, "Integer", "1"),
+        abi::move_immediate(&zero, "Integer", "0"),
+        abi::subtract_registers(&value, &zero, &value),
+        abi::label(&positive),
+        abi::store_u64(&flag, abi::stack_pointer(), negative),
+        abi::load_u64(&cursor, abi::stack_pointer(), result.data),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::label(&write_loop),
+        abi::compare_immediate(&index, "8"),
+        abi::branch_eq(&write_done),
+        abi::store_u8(&value, &cursor, 0),
+        abi::shift_right_immediate(&value, &value, 8),
+        abi::add_immediate(&cursor, &cursor, 1),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&write_loop),
+        abi::label(&write_done),
+    ]);
+    emit_build_int(builder, vregs, &result, capacity, negative, tag);
+}

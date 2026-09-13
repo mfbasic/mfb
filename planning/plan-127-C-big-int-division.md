@@ -248,7 +248,7 @@ The highest-risk work, gated on a property test before anything depends on it.
 Acceptance: the 10,000-pair property test passes with a recorded seed, **and** each
 targeted case passes. A failure here is root-caused in Algorithm D, not worked around
 by weakening the property.
-Commit: —
+Commit: 5ff478ffd
 
 ### Phase 2 — the division members
 
@@ -270,23 +270,42 @@ Commit: —
 
 Acceptance: all three declare exactly `["ErrInvalidArgument"]` in their registry `errors`
 vector (plan-127-A Corrections C1); the agreement and sign tests pass.
-Commit: —
+Commit: 5ff478ffd (shared with Phase 1, C-C2)
 
 ### Phase 3 — the members built on division
 
-- [ ] `func_pow.rs`, `func_gcd.rs`, `func_factorial.rs`, `func_mod_pow.rs`.
-- [ ] `modPow`, `pow` and `factorial` each declare `ErrInvalidArgument`; `gcd` declares
-      nothing.
-- [ ] `modPow`'s, `compare`'s and `equals`'s descriptors carry the §4.5 advisory.
+- [x] `func_pow.rs`, `func_gcd.rs`, `func_factorial.rs`, `func_mod_pow.rs`. (With
+      `emit_int_from_integer`; `cargo build --release -p mfb --all-targets` → no warnings or
+      errors; `cargo test --release -p mfb --bin mfb codegen::builtins::big` → `8 passed; 0
+      failed`.)
+- [x] `modPow`, `pow` and `factorial` each declare `ErrInvalidArgument`; `gcd` declares
+      nothing. (`errors:` `vec!["ErrInvalidArgument"]` ×3, `func_gcd.rs` `vec![]`.)
+- [x] `modPow`'s, `compare`'s and `equals`'s descriptors carry the §4.5 advisory.
       Amending `compare`/`equals` (landed in plan-127-A) is in scope for this phase.
-- [ ] Tests: `pow(x, 0)` is `1` and `pow(x, 1)` is `x`; `pow` agrees with folded
+      (`grep -i constant-time` → `func_mod_pow.rs:31`, `func_compare.rs:26`,
+      `func_equals.rs:27`; compare/equals point at `crypto::constantTimeEqual`;
+      `mfb man big modPow` renders "Not constant-time — never use it with a secret".)
+- [x] Tests: `pow(x, 0)` is `1` and `pow(x, 1)` is `x`; `pow` agrees with folded
       `multiply` for small exponents; `gcd` is non-negative, divides both operands, and
       `gcd(0, 0)` is `0`; `factorial(0)` is `1`, `factorial(20)` matches the exact
       `Integer` value, `factorial(100)` matches an independently computed constant;
       `modPow(b, e, m)` agrees with `remainder(pow(b, e), m)` for small `e`;
       `modPow` with `modulus = 0` raises `ErrInvalidArgument`;
       negative `exponent`/`n` each raise `ErrInvalidArgument`.
-- [ ] Admit the four members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`powers_gcd_factorial_and_mod_pow_match_an_independent_oracle`, all literals from
+      Python — spot-rechecked with `python3 -c "math.factorial(100) …"`: factorial(100),
+      `2432902008176640000`, `6 7 0`, `965115194`, `2^100`, `(-3)^41` identical — prints
+      `1`, `1`, factorial(20), factorial(100), `pow(7,0)=1`, `pow(0,0)=1`, `pow(-13,1)=-13`,
+      gcd cases including the shared-factor pair and consecutive Fibonacci numbers (`1`),
+      `modPow vs remainder(pow): 0 of 390`, `pow vs folded multiply: 0 of 41`, `raised
+      77050002` ×4 for `pow(2,-1)`, `factorial(-1)`, `modPow(3,-1,7)`, `modPow(3,2,0)`;
+      `cargo test --release --test rt_big_int powers_gcd_factorial` → `1 passed; 0 failed`.
+      C-C7.)
+- [x] Admit the four members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `29` in each backend list.)
+- [x] Doc (added): `scripts/man-run-examples.sh big --run divide remainder divMod pow gcd
+      factorial modPow` → `examples: 7 built: 7 ran: 7 failed: 0`; `man-census --fill big` →
+      `29 29 29 29 49/49 11 6/6`.
 
 Acceptance: `factorial(100)` matches a constant computed outside MFB and committed as a
 test literal; `modPow` agrees with the `pow`+`remainder` reference on every small case;
@@ -322,6 +341,8 @@ Commit: —
 2. **`gcd(0, 0)`.** **Recommend: return `0`** — the standard convention and the one that
    keeps `gcd` total. Alternative: raise `ErrInvalidArgument`, which makes `gcd`
    fallible for an input that has a defined answer.
+   **RESOLVED (Phase 3): return `0`.** `gcd` declares `errors: vec![]`; `gcd(0, 0)` prints `0`
+   and results are never negative (`gcd(-12, 18)` → `6`).
 
 ## Corrections
 
@@ -353,6 +374,14 @@ Commit: —
   1–64 bytes (`math::seed(128)`) in all sign combinations. `divide`, `remainder` and `divMod`
   share one lowering (`emit_div_mod_int`), so agreement is a routing check, not an arithmetic
   one; the arithmetic is the Phase 1 property.
+- **C-C5 — `modPow` reduces the running base too,** not only the accumulator (§4.4 names
+  neither): both products are reduced after every step, so no intermediate exceeds about twice
+  the modulus. With truncated remainders the result equals `remainder(pow(base, e), m)`,
+  including its sign — which the 390-case agreement check pins.
+- **C-C7 — "`gcd` divides both operands" is pinned by oracle values, not a separate
+  divisibility loop.** Each `gcd` expectation is Python's `math.gcd`, which is the greatest
+  common divisor by definition; the cases cover mixed signs (`gcd(-12, 18) = 6`), a zero operand
+  (`gcd(0, -7) = 7`), `gcd(0, 0) = 0`, a large shared factor, and consecutive Fibonacci numbers.
 - **Test scope.** Per the user's instruction, each phase runs only its new tests by name
   (`cargo test --release --test rt_big_int division`) and the `big` registry/lowering unit
   tests; earlier phases' runtime tests are not re-run until the single end-of-plan full suite.

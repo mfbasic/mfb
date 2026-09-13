@@ -21,7 +21,11 @@ The order is the ordinary numeric one over every value, negative, zero and posit
 Two values that spell the same number compare equal even when one was built by hand
 with trailing zero bytes in its `magnitude`, or with `negative` set on zero.
 
-Use `big::equals` when only equality matters. The call never raises."#;
+Use `big::equals` when only equality matters. The call never raises.
+
+**Not constant-time.** `big::compare` stops at the first byte that differs, so how long it
+takes depends on the values. Never use it to check a secret; compare secret bytes with
+`crypto::constantTimeEqual`."#;
 const EX: &str = r#"Order a negative and a positive value:
 
 ```

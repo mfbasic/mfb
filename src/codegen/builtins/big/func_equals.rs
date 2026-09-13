@@ -22,7 +22,11 @@ by hand with trailing zero bytes in its `magnitude`, or with `negative` set on z
 equals the canonical value it denotes. `big::equals(a, b)` is `TRUE` exactly when
 `big::compare(a, b)` is `0`.
 
-The call never raises."#;
+The call never raises.
+
+**Not constant-time.** `big::equals` stops at the first byte that differs, so how long it
+takes depends on the values. Never use it to check a secret; compare secret bytes with
+`crypto::constantTimeEqual`."#;
 const EX: &str = r#"A hand-built value with a trailing zero byte still equals the canonical one:
 
 ```

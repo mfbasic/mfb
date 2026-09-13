@@ -19,12 +19,16 @@ mod func_compare;
 mod func_div_mod;
 mod func_divide;
 mod func_equals;
+mod func_factorial;
 mod func_from_bytes;
 mod func_from_integer;
+mod func_gcd;
 mod func_is_zero;
+mod func_mod_pow;
 mod func_multiply;
 mod func_negate;
 mod func_parse;
+mod func_pow;
 mod func_product;
 mod func_remainder;
 mod func_shift_left;
@@ -179,6 +183,11 @@ pub(crate) fn register(r: &mut Registry) {
     func_divide::register(&mut pkg);
     func_remainder::register(&mut pkg);
     func_div_mod::register(&mut pkg);
+    // Built on division (plan-127-C Phase 3).
+    func_pow::register(&mut pkg);
+    func_gcd::register(&mut pkg);
+    func_factorial::register(&mut pkg);
+    func_mod_pow::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -266,6 +275,10 @@ mod tests {
         ("big.divide", &["ErrInvalidArgument"]),
         ("big.remainder", &["ErrInvalidArgument"]),
         ("big.divMod", &["ErrInvalidArgument"]),
+        ("big.pow", &["ErrInvalidArgument"]),
+        ("big.gcd", &[]),
+        ("big.factorial", &["ErrInvalidArgument"]),
+        ("big.modPow", &["ErrInvalidArgument"]),
     ];
 
     #[test]
@@ -379,6 +392,7 @@ SUB main()
   io::print(big::toString(prod) & big::toRadixString(left, 16) & big::toString(right) & big::toString(parsed))
   LET parts AS big::DivResult = big::divMod(p, b)
   io::print(big::toString(big::divide(p, b)) & big::toString(big::remainder(p, b)) & big::toString(parts.quotient))
+  io::print(big::toString(big::pow(a, 5)) & big::toString(big::gcd(p, b)) & big::toString(big::factorial(12)) & big::toString(big::modPow(p, b, c)))
 END SUB
 "#;
         for target in crate::testutil::CodeTarget::ALL {
