@@ -391,7 +391,7 @@ Commit: eb196488c
 
 Acceptance: every row above has its recorded stderr tail in the Corrections-adjacent
 proof log below with the exact §4.4 block; artifact gate `0 diff(s)`.
-Commit: —
+Commit: 92d57d5d8
 
 ### Phase 4 — spec, docs, and the full gate
 
@@ -414,7 +414,7 @@ Commit: —
 
 Acceptance: all three commands green (acceptance: no mismatch beyond the recorded
 baseline); `cargo test -p mfb --bins citations_resolve` green.
-Commit: —
+Commit: 0376a587a
 
 ## Validation Plan
 
