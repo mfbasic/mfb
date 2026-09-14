@@ -187,7 +187,7 @@ Acceptance: RED fixtures fail as described; the positive pin passes; the census 
   Check: `scripts/test-accept.sh target/release/mfb /tmp/p136c-p1-accept
   local-shadows-top-level-binding-invalid duplicate-local-at-every-binding-site-invalid
   local-names-distinct-from-top-level-valid` → two mismatches, one pass (est. 2 min).
-Commit: —
+Commit: 74077337e (landed together with Phase 2 — see Phase 2's measured line)
 
 ### Phase 2 — the rule
 
@@ -231,14 +231,14 @@ Acceptance: fixtures pass; resolver unit tests pass.
   (the command as written is rejected by cargo — Corrections) → `test result: ok. 121 passed; 0
   failed`. Phases 1 and 2 land in ONE commit: their ticks share this file and the fixtures' real
   goldens are Phase 2's output, so the two cannot be split into honest separate commits.
-Commit: —
+Commit: 74077337e
 
 ### Phase 3 — migrate the tests the rule makes invalid
 
 For each, the four AGENTS.md answers are recorded here; the owner's 2026-09-13 ruling (spec §5
 enforced against top-level bindings) is the proof in answer 4.
 
-- [ ] `tests/rt-behavior/trap/trap-body-local-shadows-private-rt` — (1) bug-285; (2) a local that
+- [x] `tests/rt-behavior/trap/trap-body-local-shadows-private-rt` — (1) bug-285; (2) a local that
       shares a file `PRIVATE`'s name must win inside the function-level `TRAP` body, so adding an
       unrelated `PRIVATE` never silently changes behavior; (3) no other test depends on it
       (`grep -rn 'trap-body-local-shadows-private' tests src scripts`) — **corrected: the
@@ -250,31 +250,52 @@ enforced against top-level bindings) is the proof in answer 4.
       `tests/rt-behavior/trap/trap-body-local-lambda-shadows-private-func-rt`: a `PRIVATE FUNC
       helper()` returning 42, a body `LET helper = LAMBDA() -> 7`, the `TRAP` body prints
       `helper()` → `7` (the scope rewriter still renames function references, so the bug-285 seeding
-      is still exercised).
-- [ ] `ast::scope_privates` tests `locals_shadow_private_names_and_are_left_alone` and
+      is still exercised). Done: moved with `git mv` (via `/tmp/p136c-move.sh`; the worktree guard
+      refuses inline commands containing `trap`), project renamed
+      `trap_body_local_shadows_private_invalid`, `.ast`/`.ir`/`.run` goldens dropped, comment
+      rewritten; its golden `build.log` → one `main.mfb:15 error[2-201-0022
+      SYMBOL_SHADOWS_TOP_LEVEL_BINDING] … `x` is already a top-level binding (declared at
+      src/main.mfb:12)`. New runtime fixture (leaf unused: `find tests -name
+      trap-body-local-lambda-shadows-private-func-rt | wc -l` → `0`) builds and prints `7`; its `.ast`
+      keeps the TRAP body's `helper()` callee bare while the declaration is `#…$helper` (a regression
+      would print `42`). `CORPUS` entry replaced; `every_backend_lowers_the_corpus_to_the_same_program
+      ... ok` and `no_corpus_function_lowers_to_an_empty_body ... ok`.
+- [x] `ast::scope_privates` tests `locals_shadow_private_names_and_are_left_alone` and
       `a_local_shadowing_a_private_keeps_its_state_assign_target_bare` — (1) bug-396 / bug-285;
       (2) the rewriter leaves a local that shadows a `PRIVATE` unrenamed; (3) only the rewriter
       (`scope_privates` runs before the resolver, so it still sees these programs); (4) the rewriter
       behavior stays correct and live for function names, and these unit tests call the rewriter
       directly without the resolver — **keep them unchanged** if they still pass; add a sibling
       asserting the same for a `PRIVATE FUNC` name. Only if a test fails, record why here before
-      touching it.
-- [ ] `tests/runtime/rt_parameter_default_scope.rs`
+      touching it. Both kept unchanged and passing; sibling
+      `a_local_named_like_a_private_func_is_left_alone` added (the declaration is mangled, a local
+      lambda's `helper()` call stays bare). `cargo test --release --bin mfb -- scope_privates corpus`
+      → `test result: ok. 67 passed; 0 failed`, all three `... ok` by name.
+- [x] `tests/runtime/rt_parameter_default_scope.rs`
       `a_default_reading_a_global_ignores_a_callers_same_named_local` (plan-136-A) — (1)
       plan-136-A Phase 1, bug-614's program; (2) a default reads the declaration's global, not a
       caller's same-named local; (3) nothing else; (4) the caller's `LET limit` is now invalid. The
       same property stays pinned by `a_default_calling_a_function_ignores_a_callers_same_named_local`
       (function names are not covered by this rule). Change the case to assert the build fails with
       `SYMBOL_SHADOWS_TOP_LEVEL_BINDING`, and rename it
-      `a_caller_local_named_like_a_defaults_global_is_refused`.
-- [ ] Every other entry in the Phase 1 census list: rename the offending local (a fixture whose
+      `a_caller_local_named_like_a_defaults_global_is_refused`. Done (asserts no executable, and the
+      output names the rule and `` `limit` ``); `cargo test --release --test rt_parameter_default_scope
+      -- --test-threads=1` → `test result: ok. 9 passed; 0 failed`.
+- [x] ~~Every other entry in the Phase 1 census list: rename the offending local (a fixture whose
       subject is not shadowing) or convert it as above (a fixture whose subject is shadowing), each
-      with its four answers here.
+      with its four answers here.~~ — moot: the exact census has no other entry. Of 1471 acceptance
+      tests only bug-285's fixture fired a rule; 0 of 9 packages failed (§Measured populations).
 
 Acceptance: every census entry resolved; converted fixtures pass.
   Check: `cargo build --release && cargo test --release --test rt_parameter_default_scope --
   --test-threads=1` → ok; `scripts/test-accept.sh target/release/mfb /tmp/p136c-p3-accept trap
   scope` → pass (est. 7 min); `cargo test --release --bin mfb scope_privates` → ok (est. 3 min).
+  **Measured 2026-09-13:** `cargo build --release --bin mfb` → `Finished`; `cargo test --release
+  --test rt_parameter_default_scope -- --test-threads=1` → `test result: ok. 9 passed; 0 failed`;
+  the acceptance filter as written matched nothing (Corrections) — with `'*/trap/*' '*/scope/*'` →
+  `acceptance tests passed (35 test(s) ran)`; `cargo test --release --bin mfb -- scope_privates
+  corpus` (widened to the `CORPUS` tests this phase edits) → `test result: ok. 67 passed; 0 failed`;
+  `rustfmt --check` on the three changed Rust files → no diff.
 Commit: —
 
 ### Phase 4 — docs, the plan-wide gate, closeout
@@ -364,6 +385,13 @@ Commit: —
   single TESTNAME before `--`. The same filters go after the separator: `cargo test --release --bin
   mfb -- resolver:: rules::`. The single-filter checks elsewhere in this letter (`scope_privates`,
   `spec`) are unaffected.
+- **Phase 3's acceptance filter matched nothing (same miscalibration as plan-136-A Phase 3).**
+  `scripts/test-accept.sh target/release/mfb /tmp/p136c-p3-accept trap scope` → `no tests matched
+  filter: trap scope`, exit 2: `matches_filter` treats each argument as a shell glob against the
+  relative path or basename, so a bare word matches only a leaf of that exact name. Corrected check:
+  `'*/trap/*' '*/scope/*'`. (The harness command is run from a script file: the worktree guard
+  refuses an inline command containing the word `trap`, the same reason the fixture move ran from
+  `/tmp/p136c-move.sh`.)
 - **Built-in package source files are exempt from the top-level rule (design read).** The resolver
   resolves built-in package sources in the same project; with `visible_from` alone, a user's
   `PUBLIC LET count` would be "visible" to a built-in's own local `count`. `check_new_local` skips the

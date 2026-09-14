@@ -863,6 +863,26 @@ END TESTING
     }
 
     #[test]
+    fn a_local_named_like_a_private_func_is_left_alone() {
+        // plan-136-C: a local may no longer share a name with a top-level LET/MUT,
+        // but it may still share one with a FUNC, so the rewriter must keep leaving a
+        // local that shadows a PRIVATE FUNC unrenamed. Here a local lambda is called
+        // by the function's name: the declaration is mangled, the call stays bare.
+        let src = "PRIVATE FUNC helper() AS Integer\n  RETURN 42\nEND FUNC\n\nFUNC f() AS Integer\n  LET helper = LAMBDA() -> 7\n  RETURN helper()\nEND FUNC\n";
+        let mut project = project_from_src(src);
+        scope_privates(&mut project);
+        let json = project.to_json();
+        assert!(
+            json.contains(&mangled("helper")),
+            "the PRIVATE FUNC declaration is still mangled:\n{json}"
+        );
+        assert!(
+            json.contains("\"callee\": \"helper\""),
+            "the local lambda's call must stay bare:\n{json}"
+        );
+    }
+
+    #[test]
     fn rewrite_type_str_is_identity_when_no_private_types() {
         // The early-out path: no private *types* means every type string passes
         // through untouched (empty `types` map).

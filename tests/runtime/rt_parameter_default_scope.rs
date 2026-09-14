@@ -122,10 +122,15 @@ fn a_default_calling_a_function_ignores_a_callers_same_named_local() {
     );
 }
 
-/// P1: bug-614's own program — a default reading a global.
+/// P1: bug-614's own program — a default reading a global, with a caller local of
+/// the same name. plan-136-C made that caller local itself an error (a local may not
+/// reuse a visible top-level binding's name), so the program no longer builds.
+/// `a_default_calling_a_function_ignores_a_callers_same_named_local` keeps pinning
+/// that a default is never captured by a caller's local (function names are not
+/// covered by the rule).
 #[test]
-fn a_default_reading_a_global_ignores_a_callers_same_named_local() {
-    let output = run_program(
+fn a_caller_local_named_like_a_defaults_global_is_refused() {
+    let (executable, output, root) = build_program(
         "default_global_scope",
         "",
         "IMPORT io\n\
@@ -142,11 +147,15 @@ fn a_default_reading_a_global_ignores_a_callers_same_named_local() {
         \x20 RETURN 0\n\
          END FUNC\n",
     );
-    assert_eq!(
-        lines(&output),
-        vec!["5"],
-        "the default must read the global `limit`:\n{output}"
+    assert!(
+        executable.is_none(),
+        "a caller local named like the default's global must not build:\n{output}"
     );
+    assert!(
+        output.contains("SYMBOL_SHADOWS_TOP_LEVEL_BINDING") && output.contains("`limit`"),
+        "the refusal must be the located top-level-binding rule naming `limit`:\n{output}"
+    );
+    let _ = fs::remove_dir_all(&root);
 }
 
 /// A named-argument call leaves an earlier defaulted parameter to its default.

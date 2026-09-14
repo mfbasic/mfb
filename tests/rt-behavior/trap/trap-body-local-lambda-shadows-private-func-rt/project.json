@@ -1,5 +1,5 @@
 {
-  "name": "trap_body_local_shadows_private_rt",
+  "name": "trap_body_local_lambda_shadows_private_func_rt",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",
