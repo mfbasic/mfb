@@ -33,6 +33,8 @@ If you ever contaminate a dirty tree, do NOT blanket `git checkout`. Prove each 
 ### Zero blanket dead-code allows
 All eight file-level `#![allow(dead_code)]` attributes were removed (they had covered 2,634 lines) and the tree builds warning-free; `cargo check --all-targets` is clean. That state is the regression guard: a new dead item is reported the moment it appears. The rule is written into `AGENTS.md`.
 
+`cargo check --all-targets` is also the only command that shows warnings in test code: `cargo build --release` never compiles test targets, and `cargo test` prints their warnings without failing. Run it at the END of a refactor too — a stranded `#[cfg(test)]` helper is usually the last survivor of the pattern the refactor removed.
+
 If an item must stay without a reader, give it a **targeted** `#[allow(dead_code)]` (or `#[cfg(test)]`) plus a comment naming what makes it load-bearing — a spec `[[path:symbol]]` anchor, a layout slot, an integrity guard. Never justify with "consumed by a later phase": a dozen such promises had their phases land by another route or be dropped, and three attributes were outright false (the suppressed item had 3–76 references).
 
 Two traps:
@@ -57,6 +59,10 @@ The working cross-ship pattern (`scripts/linux-runtime-proof.sh`): cross-build e
 - **Fixtures address data files by REPO-ROOT-relative path**, because `test-accept.sh` runs every binary with the repo root as cwd. Ship the `tests/` tree and run from it, or every fs fixture silently reports "not found" and still exits 0 — looks like a real regression but is pure harness error.
 - **The `[exit N]` marker is not always on its own line.** It's appended with `echo`, so a program whose last write lacks a trailing newline (every `term::` fixture) yields `...[0m[exit 0]` on one line. Compare the golden tail verbatim.
 
+Two traps shipping a working tree from the Mac, both of which fail far from their cause:
+- **BSD `tar` writes AppleDouble `._<name>` sidecars** for xattr-bearing files; GNU tar extracts them as real files and the build globs them (`'.../._package.md' wasn't a utf-8 file`). Use `COPYFILE_DISABLE=1 tar -czf tree.tgz -T <(git ls-files)`, or `git archive HEAD` when only committed state matters.
+- **An unanchored `rsync --exclude target` also drops `src/target/`** (a real source directory). The sync succeeds and the build fails ~80 minutes later with `file not found for module linux_common`. Anchor it: `--exclude '/target'`.
+
 Single-core boxes exist — keep JOBS low there.
 
 Some boxes have known pre-existing failures unrelated to your change (e.g. a glibc 2.42 box: 21 `rt-behavior` fixtures — the `resources/*` cluster plus fs tempfile/buffered ones — segfault at teardown after printing correct output; proven pre-existing since byte-identical binaries from the pre-refactor compiler fail identically).
@@ -80,6 +86,22 @@ Any test/fixture that renders its `libraries` `vendor` locator from `BuildTarget
 **Non-obvious domain invariant:** a Linux native **console** build emits BOTH libc flavors (glibc + musl) from one invocation (`native_libs.rs` `emitted_link_targets`); each resolves the linked library independently and **hard-errors on a no-match**, and both blobs share the one flat `build/vendor/` (`vendor_output_dirs`, whose comment notes filenames must be unique so a glibc blob and a musl blob never collide). So a single logical library needs **two** vendor locators (glibc + musl) with **distinct source filenames**, and **two** copies land in `build/vendor/`. macOS has no libc axis → one locator, one copy.
 
 **How to apply:** any test/fixture built from `BuildTarget::host()` os/arch is untested on the other OSes; the coverage gate runs on Linux, so verify the Linux shape. Cross-check: run the built `mfb` on a linux-only-locator project.json on macOS — validation is host-independent, so acceptance shows as "no PROJECT_JSON_LIBRARY_INVALID, only advisory NATIVE_LIBRARY_TARGET_UNCOVERED".
+
+**Which executable to run.** A Linux console build writes `build/<name>-glibc.out` and `build/<name>-musl.out`, never `build/<name>.out` (only macOS writes that), so a test hardcoding `<name>.out` fails on every Linux row. Pick the flavor by the RUNNER's libc, not `cfg!(target_env = "musl")` of the test binary — a musl-flavored output on a glibc runner dies in the loader with exit 127. `tests/common/mod.rs::build_project` takes the first "Wrote executable to" line (glibc); a shell harness taking the last line gets musl.
+
+## Concurrent cargo runs corrupt each other
+
+- **Source edits poison an in-flight `cargo build`/`cargo test`**: each crate compiles whatever is on disk at that moment, producing a hybrid. Freeze edits until a background build finishes.
+- **`pkill -f 'cargo test'` orphans its `rustc` children** (reparented to PID 1, still writing `target/<profile>/deps/`), and they clobber the next build's artifacts. Kill `rustc` too, and check that the only `rustc` left has the new cargo as its parent.
+- **Two `cargo test` runs in one worktree deadlock on the target lock**: neither prints `test result:`, and the log just stops. `ps aux | grep "[c]argo test"` showing two lines for one worktree is the tell.
+
+## A bare `[[ ... ]]` in a shell gate never fails on macOS
+
+macOS's bash 3.2.57 does not abort on a false bare `[[ ... ]]` under `set -euo pipefail`, so a gate made of bare `[[ ]]` assertions always exits 0 (`packages/cli/smoke.sh` carries a comment from finding this). Write `[[ ... ]] || fail "msg"`, and make a new gate go RED once by breaking what it checks.
+
+## Deleting a Rust item leaves its `///` and `#[attributes]` behind
+
+Deleting an item does not delete the doc comment or attributes above it; they attach silently to the next item. A stale `///` is only wrong prose, but an orphaned `#[cfg(unix)]` changes what compiles: it now gates the next item (e.g. `mod common;`), and `cargo check` on the host can't see it because that cfg is true there. It shows up as an `unresolved import` on the Windows CI row. After deleting lines under an attribute, check which item each `#[cfg]` governs before vs after. The inverse also happens: inserting a function right after an attribute block makes the previous `#[test]` apply to the new function, so check the test COUNT, not just pass/fail.
 
 ## libsnd vendor rebuild mechanics
 
