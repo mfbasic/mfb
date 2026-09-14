@@ -13,7 +13,8 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Divide one `big::Int` by another, returning the quotient and remainder together."#;
+const INTRO: &str =
+    r#"Divide one `big::Int` by another, returning the quotient and remainder together."#;
 const DESC: &str = r#"`big::divMod(a, b)` divides `a` by `b` once and returns a `big::DivResult` holding
 both answers. Its `quotient` is truncated toward zero and its `remainder` takes the sign
 of the dividend `a`, exactly as `big::divide` and `big::remainder` return them, so
@@ -94,7 +95,14 @@ pub(crate) fn lower_div_mod(
         &zero_divisor,
         &alloc_fail,
     );
-    emit_build_div_result(builder, &mut vregs, quotient, remainder, "parts", &alloc_fail)?;
+    emit_build_div_result(
+        builder,
+        &mut vregs,
+        quotient,
+        remainder,
+        "parts",
+        &alloc_fail,
+    )?;
     builder.instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),

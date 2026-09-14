@@ -1,8 +1,8 @@
 //! `big::factorial` — `n!` as a `big::Int`.
 
 use super::gen_big::{
-    emit_int_from_integer, emit_load_int, emit_mul_int, emit_reject_negative,
-    emit_release_int, emit_spill_args,
+    emit_int_from_integer, emit_load_int, emit_mul_int, emit_reject_negative, emit_release_int,
+    emit_spill_args,
 };
 use super::INT_TYPE_ID;
 use crate::codegen::engine::builder::*;

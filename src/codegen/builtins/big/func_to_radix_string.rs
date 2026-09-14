@@ -88,7 +88,14 @@ pub(crate) fn lower_to_radix_string(
         abi::branch_gt(&invalid),
     ]);
     let value = emit_load_int(builder, &mut vregs, arg_slots[0], "v");
-    emit_int_to_string(builder, &mut vregs, &value, arg_slots[1], "text", &alloc_fail);
+    emit_int_to_string(
+        builder,
+        &mut vregs,
+        &value,
+        arg_slots[1],
+        "text",
+        &alloc_fail,
+    );
     builder.instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),

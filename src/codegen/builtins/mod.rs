@@ -582,9 +582,9 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 /// `net::connectTcp(1, 80)` reported `TYPE_CALL_ARGUMENT_MISMATCH`. Any new
 /// package needs a row here.
 const ARGUMENT_CHECKED_PACKAGES: &[&str] = &[
-    "encoding", "astrings", "crypto", "strings", "math", "bits", "big", "fs", "os", "net", "tcp", "tls",
-    "audio", "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http", "udp",
-    "vector", "color",
+    "encoding", "astrings", "crypto", "strings", "math", "bits", "big", "fs", "os", "net", "tcp",
+    "tls", "audio", "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http",
+    "udp", "vector", "color",
 ];
 
 /// Whether a builtin call (canonical `package.member` name) is checked by the

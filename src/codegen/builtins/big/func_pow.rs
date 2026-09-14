@@ -1,8 +1,8 @@
 //! `big::pow` — a `big::Int` raised to a non-negative `Integer` power.
 
 use super::gen_big::{
-    emit_int_from_integer, emit_load_int, emit_mul_int, emit_reject_negative,
-    emit_release_int, emit_spill_args,
+    emit_int_from_integer, emit_load_int, emit_mul_int, emit_reject_negative, emit_release_int,
+    emit_spill_args,
 };
 use super::INT_TYPE_ID;
 use crate::codegen::engine::builder::*;
@@ -60,7 +60,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "exponent",
-                    desc: "The power. Zero or more; a negative exponent raises `ErrInvalidArgument`.",
+                    desc:
+                        "The power. Zero or more; a negative exponent raises `ErrInvalidArgument`.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

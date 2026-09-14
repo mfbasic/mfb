@@ -96,9 +96,11 @@ pub(crate) fn lower_gcd(
         .push(abi::store_u64(abi::ZERO, abi::stack_pointer(), zero_sign));
     let a = emit_load_int(builder, &mut vregs, arg_slots[0], "a");
     emit_copy_int(builder, &mut vregs, &a, zero_sign, "x", &alloc_fail);
-    builder
-        .instructions
-        .push(abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), x_slot));
+    builder.instructions.push(abi::store_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        x_slot,
+    ));
     let b = emit_load_int(builder, &mut vregs, arg_slots[1], "b");
     emit_copy_int(builder, &mut vregs, &b, zero_sign, "y", &alloc_fail);
     builder.instructions.extend([

@@ -103,7 +103,14 @@ pub(crate) fn emit_load_int(
         abi::load_u64(&negative, &record, INT_OFFSET_NEGATIVE),
         abi::store_u64(&data, abi::stack_pointer(), slots.data),
     ]);
-    emit_trim(builder, vregs, &data, &count, &negative, &format!("{symbol}_{tag}_load"));
+    emit_trim(
+        builder,
+        vregs,
+        &data,
+        &count,
+        &negative,
+        &format!("{symbol}_{tag}_load"),
+    );
     builder.instructions.extend([
         abi::store_u64(&count, abi::stack_pointer(), slots.count),
         abi::store_u64(&negative, abi::stack_pointer(), slots.negative),
@@ -211,7 +218,14 @@ pub(crate) fn emit_build_int(
         abi::load_u64(&count, abi::stack_pointer(), count_slot),
         abi::load_u64(&negative, abi::stack_pointer(), negative_slot),
     ]);
-    emit_trim(builder, vregs, &data, &count, &negative, &format!("{symbol}_{tag}_build"));
+    emit_trim(
+        builder,
+        vregs,
+        &data,
+        &count,
+        &negative,
+        &format!("{symbol}_{tag}_build"),
+    );
     builder.instructions.extend([
         abi::load_u64(&record, abi::stack_pointer(), result.record),
         abi::add_immediate(&block, &record, INT_MAGNITUDE_BLOCK),
@@ -606,7 +620,14 @@ pub(crate) fn emit_add_int(
     // Equal effective signs: add the magnitudes.
     let (sum, sum_count) =
         emit_add_magnitude(builder, vregs, a, b, &format!("{tag}_sum"), alloc_fail);
-    emit_build_int(builder, vregs, &sum, sum_count, sign_a, &format!("{tag}_sum"));
+    emit_build_int(
+        builder,
+        vregs,
+        &sum,
+        sum_count,
+        sign_a,
+        &format!("{tag}_sum"),
+    );
     builder
         .instructions
         .extend([abi::branch(&joined), abi::label(&opposing)]);
@@ -810,7 +831,13 @@ pub(crate) fn emit_fold_list(
         abi::store_u64(&scratch, abi::stack_pointer(), capacity),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), negative),
     ]);
-    let start = emit_alloc_magnitude(builder, vregs, capacity, &format!("{tag}_identity"), alloc_fail);
+    let start = emit_alloc_magnitude(
+        builder,
+        vregs,
+        capacity,
+        &format!("{tag}_identity"),
+        alloc_fail,
+    );
     if multiply {
         let data = vregs.next();
         let one = vregs.next();
@@ -820,7 +847,14 @@ pub(crate) fn emit_fold_list(
             abi::store_u8(&one, &data, 0),
         ]);
     }
-    emit_build_int(builder, vregs, &start, capacity, negative, &format!("{tag}_identity"));
+    emit_build_int(
+        builder,
+        vregs,
+        &start,
+        capacity,
+        negative,
+        &format!("{tag}_identity"),
+    );
 
     let fold_loop = format!("{symbol}_{tag}_fold");
     let fold_done = format!("{symbol}_{tag}_fold_done");
@@ -860,9 +894,24 @@ pub(crate) fn emit_fold_list(
     let acc = emit_load_int(builder, vregs, acc_slot, &format!("{tag}_acc"));
     let element = emit_load_int(builder, vregs, element_slot, &format!("{tag}_element"));
     if multiply {
-        emit_mul_int(builder, vregs, &acc, &element, &format!("{tag}_step"), alloc_fail);
+        emit_mul_int(
+            builder,
+            vregs,
+            &acc,
+            &element,
+            &format!("{tag}_step"),
+            alloc_fail,
+        );
     } else {
-        emit_add_int(builder, vregs, &acc, &element, false, &format!("{tag}_step"), alloc_fail);
+        emit_add_int(
+            builder,
+            vregs,
+            &acc,
+            &element,
+            false,
+            &format!("{tag}_step"),
+            alloc_fail,
+        );
     }
     // Release the accumulator this step replaced, at the size it was made with.
     let old = vregs.next();
@@ -1113,13 +1162,23 @@ pub(crate) fn emit_int_to_string(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), work_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
-    emit_alloc(&symbol, &mut builder.instructions, &mut builder.relocations, alloc_fail);
+    emit_alloc(
+        &symbol,
+        &mut builder.instructions,
+        &mut builder.relocations,
+        alloc_fail,
+    );
     builder.instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), work_slot),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), digits_size),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
-    emit_alloc(&symbol, &mut builder.instructions, &mut builder.relocations, alloc_fail);
+    emit_alloc(
+        &symbol,
+        &mut builder.instructions,
+        &mut builder.relocations,
+        alloc_fail,
+    );
     builder.instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), digits_slot),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), written_slot),
@@ -1263,7 +1322,12 @@ pub(crate) fn emit_int_to_string(
         abi::add_immediate(abi::return_register(), abi::return_register(), 9),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
-    emit_alloc(&symbol, &mut builder.instructions, &mut builder.relocations, alloc_fail);
+    emit_alloc(
+        &symbol,
+        &mut builder.instructions,
+        &mut builder.relocations,
+        alloc_fail,
+    );
     let reverse_loop = format!("{symbol}_{tag}_reverse");
     let reversed = format!("{symbol}_{tag}_reversed");
     let string = vregs.next();
@@ -1551,16 +1615,28 @@ pub(crate) fn emit_div_mod_magnitude(
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
     }
-    emit_alloc(&symbol, &mut builder.instructions, &mut builder.relocations, alloc_fail);
+    emit_alloc(
+        &symbol,
+        &mut builder.instructions,
+        &mut builder.relocations,
+        alloc_fail,
+    );
     builder.instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), vn_slot),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), un_size_slot),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
-    emit_alloc(&symbol, &mut builder.instructions, &mut builder.relocations, alloc_fail);
-    builder
-        .instructions
-        .push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), un_slot));
+    emit_alloc(
+        &symbol,
+        &mut builder.instructions,
+        &mut builder.relocations,
+        alloc_fail,
+    );
+    builder.instructions.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        un_slot,
+    ));
     let made = emit_alloc_magnitude(builder, vregs, m1_slot, &format!("{tag}_dq"), alloc_fail);
     emit_adopt_result(builder, vregs, &made, &out.quotient);
     emit_move_slot(builder, vregs, m1_slot, out.quotient_count);
@@ -1997,7 +2073,10 @@ pub(crate) fn emit_build_div_result(
     let symbol = builder.current_symbol.clone();
     let quotient_size = builder.allocate_stack_object(&format!("big_{tag}_quotient_size"), 8);
     let remainder_size = builder.allocate_stack_object(&format!("big_{tag}_remainder_size"), 8);
-    for (record_slot, size_slot) in [(quotient_slot, quotient_size), (remainder_slot, remainder_size)] {
+    for (record_slot, size_slot) in [
+        (quotient_slot, quotient_size),
+        (remainder_slot, remainder_size),
+    ] {
         let (record, size) = (vregs.next(), vregs.next());
         builder.instructions.extend([
             abi::load_u64(&record, abi::stack_pointer(), record_slot),

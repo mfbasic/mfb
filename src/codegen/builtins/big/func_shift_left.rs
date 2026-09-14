@@ -1,8 +1,7 @@
 //! `big::shiftLeft` — multiply a `big::Int` by a power of two.
 
 use super::gen_big::{
-    emit_build_int, emit_load_int, emit_reject_negative, emit_shift_left_magnitude,
-    emit_spill_args,
+    emit_build_int, emit_load_int, emit_reject_negative, emit_shift_left_magnitude, emit_spill_args,
 };
 use super::INT_TYPE_ID;
 use crate::codegen::engine::builder::*;

@@ -403,9 +403,7 @@ END SUB
                     .functions
                     .iter()
                     .find(|f| f.name.contains("big") && f.name.ends_with(member))
-                    .unwrap_or_else(|| {
-                        panic!("{}: no lowered body for {name}", target.name())
-                    });
+                    .unwrap_or_else(|| panic!("{}: no lowered body for {name}", target.name()));
                 assert!(
                     !body.instructions.is_empty(),
                     "{}: {name} lowered to an empty body",
@@ -425,9 +423,11 @@ END SUB
             model,
             &ParameterType::list_of(ParameterType::Byte)
         ));
-        assert!(!crate::codegen::collection::layout::record_field_is_inlined(
-            model,
-            &ParameterType::Boolean
-        ));
+        assert!(
+            !crate::codegen::collection::layout::record_field_is_inlined(
+                model,
+                &ParameterType::Boolean
+            )
+        );
     }
 }

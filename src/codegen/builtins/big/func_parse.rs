@@ -156,7 +156,18 @@ pub(crate) fn lower_parse(
     // Pass 1: every remaining byte must be a digit below the radix.
     let check_loop = format!("{symbol}_check");
     let checked = format!("{symbol}_checked");
-    emit_digit_value(builder, &mut vregs, text_slot, radix_slot, start, &check_loop, &checked, &invalid_text, None, &symbol);
+    emit_digit_value(
+        builder,
+        &mut vregs,
+        text_slot,
+        radix_slot,
+        start,
+        &check_loop,
+        &checked,
+        &invalid_text,
+        None,
+        &symbol,
+    );
 
     let result = emit_alloc_magnitude(builder, &mut vregs, capacity, "r", &alloc_fail);
     builder
@@ -237,7 +248,11 @@ fn emit_digit_value(
     accumulate: Option<(&super::gen_big::ResultSlots, usize)>,
     symbol: &str,
 ) {
-    let tag = if accumulate.is_some() { "fold" } else { "check" };
+    let tag = if accumulate.is_some() {
+        "fold"
+    } else {
+        "check"
+    };
     let lower = format!("{symbol}_{tag}_lower");
     let upper = format!("{symbol}_{tag}_upper");
     let valued = format!("{symbol}_{tag}_valued");

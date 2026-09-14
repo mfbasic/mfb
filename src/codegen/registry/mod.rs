@@ -6454,10 +6454,10 @@ mod raw_result_block_ownership {
     /// binding. bug-566 asks that same question at the site the `TRAP` desugar
     /// bypassed.
     const CALLER_ARENA_BLOCK_RESULTS: &[&str] = &[
-        "app.getMode",              // app.Mode
-        "audio.devices",            // List OF audio.AudioDevice
-        "audio.read",               // List OF Byte
-        "audio.readTimeout",        // List OF Byte
+        "app.getMode",       // app.Mode
+        "audio.devices",     // List OF audio.AudioDevice
+        "audio.read",        // List OF Byte
+        "audio.readTimeout", // List OF Byte
         // plan-127: every `big` result is made by `emit_alloc_magnitude` (or, for the text
         // members, `emit_alloc`; for `toBytes`, `emit_build_byte_list`; for `divMod`, the
         // record marshaller) on this thread's arena and published once — no member hands

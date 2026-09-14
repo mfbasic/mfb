@@ -916,7 +916,10 @@ END SUB
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(lines[0], "pairs 10000", "{stdout}");
     // Both shapes of divisor were exercised, and every quadrant was drawn.
-    let shorter: usize = lines[1].trim_start_matches("shorter ").parse().expect("shorter count");
+    let shorter: usize = lines[1]
+        .trim_start_matches("shorter ")
+        .parse()
+        .expect("shorter count");
     assert!(shorter > 1000 && shorter < 9000, "{stdout}");
     let quadrants: Vec<usize> = lines[2]
         .trim_start_matches("quadrants ")
@@ -924,7 +927,11 @@ END SUB
         .map(|q| q.parse().expect("quadrant count"))
         .collect();
     assert!(quadrants.iter().all(|&q| q > 1000), "{stdout}");
-    assert_eq!(&lines[3..], &["identity 0", "bound 0", "sign 0"], "{stdout}");
+    assert_eq!(
+        &lines[3..],
+        &["identity 0", "bound 0", "sign 0"],
+        "{stdout}"
+    );
 }
 
 /// plan-127-C Phase 2: `divide`/`remainder` agree with the matching `divMod` field across a

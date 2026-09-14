@@ -16,7 +16,8 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Raise a `big::Int` to a power modulo another, without building the full power."#;
+const INTRO: &str =
+    r#"Raise a `big::Int` to a power modulo another, without building the full power."#;
 const DESC: &str = r#"`big::modPow(base, exponent, modulus)` returns `base` raised to `exponent`, reduced
 by `modulus`. It gives the same value as
 `big::remainder(big::pow(base, exponent), modulus)` — so a non-zero result takes the sign
@@ -66,7 +67,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "exponent",
-                    desc: "The power. Zero or more; a negative exponent raises `ErrInvalidArgument`.",
+                    desc:
+                        "The power. Zero or more; a negative exponent raises `ErrInvalidArgument`.",
                     aliases: &[],
                     ty: ParameterType::named(INT_TYPE_ID),
                     default: DefaultValue::None,
@@ -132,17 +134,39 @@ pub(crate) fn lower_mod_pow(
 
     // acc = 1 mod m
     emit_int_from_integer(builder, &mut vregs, one_slot, "one", &alloc_fail);
-    builder
-        .instructions
-        .push(abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), seed_slot));
+    builder.instructions.push(abi::store_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        seed_slot,
+    ));
     let seed = emit_load_int(builder, &mut vregs, seed_slot, "seed");
-    emit_div_mod_int(builder, &mut vregs, &seed, &modulus, quotient_slot, acc_slot, "reduce_one", &invalid, &alloc_fail);
+    emit_div_mod_int(
+        builder,
+        &mut vregs,
+        &seed,
+        &modulus,
+        quotient_slot,
+        acc_slot,
+        "reduce_one",
+        &invalid,
+        &alloc_fail,
+    );
     emit_release_int(builder, &mut vregs, quotient_slot);
     emit_release_int(builder, &mut vregs, seed_slot);
 
     // base = base mod m
     let base = emit_load_int(builder, &mut vregs, arg_slots[0], "base");
-    emit_div_mod_int(builder, &mut vregs, &base, &modulus, quotient_slot, base_slot, "reduce_base", &invalid, &alloc_fail);
+    emit_div_mod_int(
+        builder,
+        &mut vregs,
+        &base,
+        &modulus,
+        quotient_slot,
+        base_slot,
+        "reduce_base",
+        &invalid,
+        &alloc_fail,
+    );
     emit_release_int(builder, &mut vregs, quotient_slot);
 
     builder.instructions.push(abi::label(&step));
@@ -169,11 +193,23 @@ pub(crate) fn lower_mod_pow(
     let acc = emit_load_int(builder, &mut vregs, acc_slot, "acc");
     let factor = emit_load_int(builder, &mut vregs, base_slot, "factor");
     emit_mul_int(builder, &mut vregs, &acc, &factor, "times", &alloc_fail);
-    builder
-        .instructions
-        .push(abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), product_slot));
+    builder.instructions.push(abi::store_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        product_slot,
+    ));
     let product = emit_load_int(builder, &mut vregs, product_slot, "product");
-    emit_div_mod_int(builder, &mut vregs, &product, &modulus, quotient_slot, remainder_slot, "reduce_times", &invalid, &alloc_fail);
+    emit_div_mod_int(
+        builder,
+        &mut vregs,
+        &product,
+        &modulus,
+        quotient_slot,
+        remainder_slot,
+        "reduce_times",
+        &invalid,
+        &alloc_fail,
+    );
     emit_release_int(builder, &mut vregs, quotient_slot);
     emit_release_int(builder, &mut vregs, product_slot);
     emit_release_int(builder, &mut vregs, acc_slot);
@@ -187,11 +223,23 @@ pub(crate) fn lower_mod_pow(
     let first = emit_load_int(builder, &mut vregs, base_slot, "square_a");
     let second = emit_load_int(builder, &mut vregs, base_slot, "square_b");
     emit_mul_int(builder, &mut vregs, &first, &second, "squared", &alloc_fail);
-    builder
-        .instructions
-        .push(abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), product_slot));
+    builder.instructions.push(abi::store_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        product_slot,
+    ));
     let squared = emit_load_int(builder, &mut vregs, product_slot, "squared_value");
-    emit_div_mod_int(builder, &mut vregs, &squared, &modulus, quotient_slot, remainder_slot, "reduce_square", &invalid, &alloc_fail);
+    emit_div_mod_int(
+        builder,
+        &mut vregs,
+        &squared,
+        &modulus,
+        quotient_slot,
+        remainder_slot,
+        "reduce_square",
+        &invalid,
+        &alloc_fail,
+    );
     emit_release_int(builder, &mut vregs, quotient_slot);
     emit_release_int(builder, &mut vregs, product_slot);
     emit_release_int(builder, &mut vregs, base_slot);
