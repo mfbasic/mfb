@@ -420,8 +420,32 @@ fn collect_diagnostics_with(
                 if !matches!(expected, ParameterType::Unknown | ParameterType::Nothing)
                     && !expected.name().is_empty()
                 {
-                    if let Some(actual) = env.infer_type(default, &no_locals) {
-                        if !env.expression_compatible(&expected, &actual, default) {
+                    // plan-136-A: a computed default is a call to its hidden default
+                    // function, annotated with the parameter type by construction, so
+                    // the default's own type is that function's returned value.
+                    let checked = match default {
+                        IrValue::Call { target, args, .. }
+                            if args.is_empty()
+                                && crate::internal_name::is_hidden_default_function(target) =>
+                        {
+                            project
+                                .functions
+                                .iter()
+                                .find(|hidden| hidden.name == *target)
+                                .and_then(|hidden| {
+                                    hidden.body.iter().rev().find_map(|op| match op {
+                                        IrOp::Return {
+                                            value: Some(value), ..
+                                        } => Some(value),
+                                        _ => None,
+                                    })
+                                })
+                                .unwrap_or(default)
+                        }
+                        _ => default,
+                    };
+                    if let Some(actual) = env.infer_type(checked, &no_locals) {
+                        if !env.expression_compatible(&expected, &actual, checked) {
                             let (actual, expected) = (actual.name(), expected.name());
                             env.emit(
                                 "TYPE_DEFAULT_VALUE_MISMATCH",

@@ -3691,6 +3691,147 @@ END FUNC
         assert!(!function(&ir, "main").body.is_empty());
     }
 
+    #[test]
+    fn a_computed_default_lowers_to_a_hidden_function_call() {
+        // plan-136-A (bug-614): a computed default is lowered once, in the
+        // declaration's scope, into a hidden default function. The parameter's
+        // default and every call that omits the argument call it, so the caller's
+        // local lambda named `helper` is never what the default calls.
+        let ir = lower_src(
+            "FUNC helper() AS Integer\n\
+             \x20 RETURN 5\n\
+             END FUNC\n\
+             FUNC f(x AS Integer = helper()) AS Integer\n\
+             \x20 RETURN x\n\
+             END FUNC\n\
+             FUNC main() AS Integer\n\
+             \x20 LET helper = LAMBDA() -> 99\n\
+             \x20 LET other = helper()\n\
+             \x20 RETURN f()\n\
+             END FUNC\n",
+        );
+        let hidden = crate::internal_name::hidden_default_function_name("f", 0);
+        assert!(matches!(
+            &function(&ir, "f").params[0].default,
+            Some(IrValue::Call { target, args, .. }) if *target == hidden && args.is_empty()
+        ));
+        let hidden_function = function(&ir, &hidden);
+        assert_eq!(hidden_function.visibility, "private");
+        assert!(hidden_function.params.is_empty());
+        assert_eq!(
+            hidden_function.returns,
+            crate::types::ParameterType::Integer
+        );
+        assert!(matches!(
+            hidden_function.body.as_slice(),
+            [IrOp::Return { value: Some(IrValue::Call { target, .. }), .. }] if target == "helper"
+        ));
+        let returned = main_body(&ir)
+            .iter()
+            .find_map(|op| match op {
+                IrOp::Return {
+                    value: Some(value), ..
+                } => Some(value),
+                _ => None,
+            })
+            .expect("main returns f()");
+        assert!(
+            matches!(
+                returned,
+                IrValue::Call { target, args, .. }
+                    if target == "f"
+                        && matches!(
+                            args.as_slice(),
+                            [IrValue::Call { target: filled, args: none, .. }]
+                                if *filled == hidden && none.is_empty()
+                        )
+            ),
+            "the omitted argument must be the hidden default call"
+        );
+    }
+
+    #[test]
+    fn a_literal_default_lowers_as_a_constant() {
+        // plan-136-A: a name-free literal default keeps lowering to its constant —
+        // at the declaration and at the call site — and gets no hidden function.
+        let ir = lower_src(
+            "FUNC greet(name AS String, greeting AS String = \"Hello\") AS String\n\
+             \x20 RETURN greeting & name\n\
+             END FUNC\n\
+             FUNC main() AS Integer\n\
+             \x20 RETURN len(greet(\"Ada\"))\n\
+             END FUNC\n",
+        );
+        assert!(matches!(
+            &function(&ir, "greet").params[1].default,
+            Some(IrValue::Const { value, .. }) if value == "Hello"
+        ));
+        assert!(!ir
+            .functions
+            .iter()
+            .any(|candidate| crate::internal_name::is_hidden_default_function(&candidate.name)));
+    }
+
+    #[test]
+    fn default_kind_is_literal_only_for_name_free_constants() {
+        use super::super::lower::{default_kind, DefaultKind};
+        use crate::hir::HirExpression;
+        let imports = std::collections::HashMap::from([
+            ("m".to_string(), "math".to_string()),
+            ("vec".to_string(), "vector".to_string()),
+        ]);
+        let literals = [
+            HirExpression::String("text".to_string()),
+            HirExpression::Number("1.5".to_string()),
+            HirExpression::Scalar(65),
+            HirExpression::Boolean(true),
+            HirExpression::Identifier("NOTHING".to_string()),
+            HirExpression::Identifier("math.pi".to_string()),
+            // A package constant through an import alias is canonicalized against
+            // the declaring file's imports.
+            HirExpression::Identifier("m.pi".to_string()),
+        ];
+        for literal in &literals {
+            assert_eq!(
+                default_kind(literal, &imports),
+                DefaultKind::Literal,
+                "{literal:?}"
+            );
+        }
+        let name = |text: &str| Box::new(HirExpression::Identifier(text.to_string()));
+        let computed = [
+            // A global (bug-614's own shape).
+            HirExpression::Identifier("limit".to_string()),
+            // A record constant inlines a constructor, not a `Const`.
+            HirExpression::Identifier("vec.zeroFloat3".to_string()),
+            // `-5` lowers as a unary, not a constant (Open Decisions).
+            HirExpression::Unary {
+                operator: crate::operators::UnaryOp::Negate,
+                operand: Box::new(HirExpression::Number("5".to_string())),
+                line: 1,
+                column: 1,
+            },
+            HirExpression::Call {
+                callee: "helper".to_string(),
+                arguments: Vec::new(),
+                line: 1,
+                column: 1,
+            },
+            HirExpression::ListLiteral(vec![HirExpression::Number("1".to_string())]),
+            HirExpression::MemberAccess {
+                target: name("point"),
+                member: "x".to_string(),
+            },
+        ];
+        for value in &computed {
+            assert_eq!(
+                default_kind(value, &imports),
+                DefaultKind::Computed,
+                "{value:?}"
+            );
+        }
+    }
+
     // ---- plan-68 coverage: ops_read_local handler arms (no `e` read) -----
     //
     // Each handler below deliberately *never* references the trap binding `e`,

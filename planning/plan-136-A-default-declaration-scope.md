@@ -408,30 +408,55 @@ Acceptance: both syntax fixtures pass with located errors; rules census passes.
   `Finished`; `scripts/test-accept.sh target/release/mfb /tmp/p136a-p2-accept-2
   default-names-a-parameter-invalid lambda-parameter-default-invalid` → `acceptance tests passed (2
   test(s) ran)`; `cargo test --release --bin mfb rules::` → `test result: ok. 17 passed; 0 failed`.
-Commit: —
+Commit: d120048a2
 
 ### Phase 3 — hidden default functions and call-site filling
 
-- [ ] `src/internal_name.rs`: `hidden_default_function_name`, `is_hidden_default_function`, and
+- [x] `src/internal_name.rs`: `hidden_default_function_name`, `is_hidden_default_function`, and
       `display_name` handling so a user-facing message never shows `$default$` (per the Phase 1
-      lambda measurement), with unit tests.
-- [ ] `ir::lower`: `DefaultKind` + `default_kind` (total match, unit-tested per literal form and
-      one computed form of each shape the grep finds).
-- [ ] `ir::lower`: synthesize hidden default functions for each concrete function's computed
-      defaults (§4.2); set `IrParam.default` to the zero-argument call.
-- [ ] `ir::lower`: `CallParam.default: Option<CallDefault>`; `function_params` builds it;
-      `lower_local_call_arguments` fills per §4.3.
-- [ ] `ir::lower` / `ir::lower_link`: LINK calls fill omitted defaulted arguments through the same
-      path; a computed LINK default gets its hidden function.
-- [ ] Apply every change the Phase 1 audit found (readers that assumed a value tree or a
-      parameter scope).
-- [ ] Update the stale comments that state the old model: `ir::verify` ("evaluated in the caller's
-      frame") and `optimizer::opt1::local_rewrites` ("Defaults are lowered at call sites").
-- [ ] Unit tests in `src/ir/tests.rs`: `a_computed_default_lowers_to_a_hidden_function_call`,
+      lambda measurement), with unit tests. `display_name("$default$<fn>$<i>")` → `display_name(<fn>)`
+      (index taken after the LAST `$`, so a monomorphized name survives). `internal_name::tests::
+      hidden_default_function_names_round_trip_and_display_as_their_function ... ok`.
+- [x] `ir::lower`: `DefaultKind` + `default_kind` (total match, unit-tested per literal form and
+      one computed form of each shape the grep finds). No wildcard arm; `pub(super)` so
+      `ir::tests` can reach it. `default_kind_is_literal_only_for_name_free_constants ... ok`: every
+      literal form, `math.pi` directly and through `IMPORT math AS m`, and Computed for a global,
+      the `vector.zeroFloat3` record constant, `-5`, a call, a list literal, a member access.
+- [x] `ir::lower`: synthesize hidden default functions for each concrete function's computed
+      defaults (§4.2); set `IrParam.default` to the zero-argument call. `lower_param` →
+      `lower_parameter_default` (a `RETURN <default>` lowered through `lower_statement` with no locals
+      and the parameter type as the return type, pushed onto `context.lambdas`). Evidence: the
+      inspected `user-function-default-args-result-valid` `.ir` diff (Corrections) shows
+      `$default$compute$1`/`$2`, private, no parameters; `a_generic_function_default_is_filled_per_instantiation`
+      → `ok` (one hidden function per concrete instance).
+- [x] `ir::lower`: `CallParam.default: Option<CallDefault>`; `function_params` builds it;
+      `lower_local_call_arguments` fills per §4.3 (`lower_call_default`). A literal's package
+      constant is canonicalized against the DECLARING file's imports (`canonical_import_name_in`).
+      Evidence: `cargo test --release --test rt_parameter_default_scope -- --test-threads=1` →
+      `test result: ok. 9 passed; 0 failed` (P11, P1, named, SUB, generic all print `5`/`51`).
+- [x] `ir::lower` / `ir::lower_link`: LINK calls fill omitted defaulted arguments through the same
+      path; a computed LINK default gets its hidden function. New `link_params` table (keyed
+      `alias.func`, like `function_types`) consulted in the call arm after the written arguments;
+      `lower_link_defaults` synthesizes the hidden functions. Evidence:
+      `a_link_function_fills_an_omitted_default` → `ok` (`absval()` prints `5`).
+- [x] Apply every change the Phase 1 audit found (readers that assumed a value tree or a
+      parameter scope): rows 7–9 (`lower_param`, `function_params`, `lower_local_call_arguments`)
+      above; row 10 `target::shared::validate::body::validate_function` validates a default with an
+      empty map; rows 13, 16, 23, 37, 43, 44 landed in Phase 2. Plus `ir::verify` reads through a
+      hidden call for `TYPE_DEFAULT_VALUE_MISMATCH` and `check_return_type` skips hidden default
+      functions (Corrections). Evidence: `types-default-value-invalid` passed in the eight-fixture
+      acceptance run (its two located `2-203-0027` errors unchanged).
+- [x] Update the stale comments that state the old model: `ir::verify` ("evaluated in the caller's
+      frame" → the plan-136-A model, landed in Phase 2) and `optimizer::opt1::local_rewrites`
+      ("Defaults are lowered at call sites" → literal at the call site or a hidden call).
+- [x] Unit tests in `src/ir/tests.rs`: `a_computed_default_lowers_to_a_hidden_function_call`,
       `a_literal_default_lowers_as_a_constant`; re-run the existing default tests
       (`local_call_named_and_default_arguments_lower_in_param_order`,
       `lowers_default_argument_padding_for_local_call`, `call_with_named_and_default_arguments`) —
       if one fails, answer AGENTS.md's four questions in this file before touching it.
+      `cargo test --release --bin mfb -- ir:: internal_name::` → `test result: ok. 913 passed; 0
+      failed`; all five named tests `... ok` by name in the log. None of the existing tests needed a
+      change.
 
 Acceptance: all `rt_parameter_default_scope` cases pass; literal-default fixtures byte-identical;
 the only golden diff is `user-function-default-args-result-valid`.
@@ -441,6 +466,18 @@ the only golden diff is `user-function-default-args-result-valid`.
   functions` → the only mismatch is `user-function-default-args-result-valid`'s `.ir`, whose diff
   is exactly two hidden functions plus the two call sites (inspect it, then `sync-goldens.sh` that
   one fixture) (est. 3 min).
+  **Measured 2026-09-13:** runtime → `test result: ok. 9 passed; 0 failed; … finished in 71.41s`;
+  `cargo test --release --bin mfb -- ir:: internal_name::` (the `ir::` run widened to include the
+  `internal_name` tests this phase adds) → `test result: ok. 913 passed; 0 failed`. The acceptance
+  filter as written matched nothing (Corrections); corrected runs: the eight default-bearing
+  fixtures by leaf → `acceptance tests failed: 1 mismatch(es) (8 test(s) ran)` and
+  `'*default*' '*named*' '*/functions/*'` → `acceptance tests failed: 1 mismatch(es) (77 test(s)
+  ran)`, the single mismatch both times `user-function-default-args-result-valid`'s `.ir`, inspected
+  (Corrections: five fills, not two), then `bash scripts/sync-goldens.sh ./target/release/mfb
+  user-function-default-args-result-valid` → `synced 3 golden file(s) across 1 test(s)`, `git status`
+  → only that `.ir` modified. Literal-default fixtures (`types-default-value-invalid`,
+  `user-function-default-args-invalid`, both `project-entry-func-named-args-*`,
+  `types-declaration-shapes-invalid`) are byte-identical.
 Commit: —
 
 ### Phase 4 — spec and man sync
@@ -505,6 +542,37 @@ Commit: —
   strengthened check is the `git log main -G` query, not the table tail.
 - **LINK defaults are never resolved (Phase 1 audit).** `resolve_link_block` resolves parameter
   types only; added a Phase 2 task so a LINK default gets the same declaration-scope resolution.
+- **Phase 3's acceptance filter matched nothing.** `scripts/test-accept.sh target/release/mfb
+  /tmp/p136a-p3-accept default named functions` → `no tests matched filter: default named
+  functions`, exit 2. `matches_filter` (`scripts/test-accept.sh`) matches each argument as a shell
+  GLOB against the relative test path (`syntax/functions/<leaf>`) or its basename, so a bare word
+  matches only a leaf of exactly that name. Corrected check: the eight default-bearing fixtures by
+  leaf (the seven `grep -rEl --include='*.mfb' '\b(FUNC|SUB)\b[^(]*\([^)]*[^:<>=!]=[^=>]' tests`
+  finds, plus `lambda-parameter-default-invalid`), then the plan's intended wider set as globs:
+  `'*default*' '*named*' '*/functions/*'`.
+- **The one expected `.ir` diff is larger than "two call sites" (Phase 3, prediction miscalibrated).**
+  Eight default-bearing fixtures → `acceptance tests failed: 1 mismatch(es) (8 test(s) ran)`, the one
+  mismatch being `user-function-default-args-result-valid`'s `.ir` (its `build.log` — the program's
+  printed output — matched). `diff` of golden vs actual, inspected line by line: (1) `compute`'s two
+  parameter defaults `mark(…)` → `$default$compute$1()` / `$default$compute$2()`; (2) the two hidden
+  functions appended, each `RETURN mark(…)` at line 8, `private`, no parameters; (3) **five** call-site
+  fills in `main` (the three calls omit 2, 1 and 2 arguments), each now a `callResult` of the hidden
+  function; (4) the inline-`TRAP` desugar ops around those fills carry the CALLER's statement line
+  (16/21/26) instead of the default's declaration line 8 — the lifted call's `loc` is now the call site,
+  which is where those ops live. Nothing else moved. The plan predicted "two hidden functions plus the
+  two call sites"; the count is five fills plus their lines.
+- **Hidden default functions need no `Fallibility` entry (Phase 3).** `ir::fallible::analyze` runs
+  over HIR functions and `call_is_fallible` is asked about HIR call targets; a hidden
+  `$default$…` call exists only in lowered IR, so no HIR-level desugar ever asks about it.
+  Measured: `/tmp/p136-probe-trap-default` (`FUNC f(x AS Integer = parsed("nope"))`, where
+  `parsed` calls `toInt`, used as `LET v = f() TRAP(e) RECOVER 7 END TRAP`) prints `7` both with
+  main's pre-change binary and with this letter's binary.
+- **Where a computed default's type mismatch is reported (Phase 3 design detail).** The hidden
+  call is annotated with the parameter type by construction, so `ir::verify` reads THROUGH a
+  zero-argument call to a hidden default function to its `RETURN` value before applying
+  `TYPE_DEFAULT_VALUE_MISMATCH` at the parameter's line, and `check_return_type`
+  (`ir/verify/compat.rs`) skips hidden default functions — so the one report stays the existing
+  parameter-level rule, never a `TYPE_RETURN_MISMATCH` inside a function the user did not write.
 
 ## Summary
 

@@ -45,7 +45,9 @@ pub(crate) fn apply(module: &mut NirModule) {
         let mut scopes = Scopes::new();
         for param in &mut function.params {
             if let Some(default) = &mut param.default {
-                // Defaults are lowered at call sites, outside this body's scope.
+                // A default is evaluated outside this body's scope: a name-free
+                // literal lowered at each call site, or a call to its hidden
+                // default function (plan-136-A).
                 rows.rewrite_value(default, &Scopes::new());
             }
             scopes.insert(param.name.clone(), param.type_.clone());
