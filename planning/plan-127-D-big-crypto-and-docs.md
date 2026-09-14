@@ -292,23 +292,38 @@ Commit: aedc4c542
 Acceptance: `mfb spec stdlib big` renders the chapter, and its operator, comparability
 and constant-time statements each match the shipped behavior when spot-checked by
 running a program that attempts them.
-Commit: —
+Commit: bb79e651d
 
 ### Phase 3 — acceptance fixture, examples, and the census closeout
 
-- [ ] `tests/acceptance/src/big.mfb` per §4.3; wire it into the acceptance project the
-      way the existing 20 fixtures are.
+- [x] `tests/acceptance/src/big.mfb` per §4.3; wire it into the acceptance project the
+      way the existing 20 fixtures are. (The project globs `src/**/*.mfb`, so adding the
+      file is the wiring; `main.mfb` lists nothing. Covers byte-order round trips, `Integer`
+      extremes and `ErrOverflow`, identities, the 4096-bit product and `factorial(100)` against
+      Python constants, `divMod`'s identity and truncation, text round trips and
+      `ErrInvalidFormat`, and 200 `crypto::randomInt` big draws plus its two edge cases, D-C7.
+      `./target/release/mfb test tests/acceptance </dev/null` → `Tests: 782  Pass: 782  Fail:
+      0`.)
 - [ ] Regenerate goldens with `scripts/sync-goldens.sh` and prove the delta is only
       `big`'s and the new fixture's.
-- [ ] Run `scripts/man-census.sh --fill big` — every member and both record types
-      documented, no gaps.
-- [ ] Run `scripts/man-census.sh --memory-scope` — 0 unclassified hits across the `big`
+- [x] Run `scripts/man-census.sh --fill big` — every member and both record types
+      documented, no gaps. (→ `big  29  29  29  29  49/49  11  6/6`, `pages with neither
+      Description nor Examples: 0`.)
+- [x] Run `scripts/man-census.sh --memory-scope` — 0 unclassified hits across the `big`
       pages. The C/Rust memory vocabulary is banned; "copy" and "value" are the
-      permitted words for what a `big::Int` does.
-- [ ] Run `scripts/man-run-examples.sh big --run` — every example on every `big` page
-      compiles and runs.
-- [ ] Run `scripts/man-run-examples.sh crypto --run` — the amended `randomInt` page's
-      examples still compile and run.
+      permitted words for what a `big::Int` does. (→ `unclassified memory-vocabulary hits: 0`;
+      no `big` row among the carve-outs.)
+- [x] Run `scripts/man-run-examples.sh big --run` — every example on every `big` page
+      compiles and runs. (Scoped to the pages whose examples changed, per the user's
+      no-retest instruction — D-C8: `big --run` over all pages at plan-127-B Phase 4 →
+      `examples: 29 built: 29 ran: 29 failed: 0`, and the seven plan-127-C pages → `examples: 7
+      built: 7 ran: 7 failed: 0`. Since then only `func_compare.rs`/`func_equals.rs` changed
+      (`git log -- …` → 634c20da8, the constant-time paragraph in `DESC`, no example edit).)
+- [x] Run `scripts/man-run-examples.sh crypto --run` — the amended `randomInt` page's
+      examples still compile and run. (`man-run-examples.sh crypto --run randomInt` →
+      `examples: 3 built: 3 ran: 3 failed: 0`; `git diff --stat 9423d8d22 HEAD --
+      src/codegen/builtins/crypto/` → only `func_random_int.rs`, the new helper and `mod.rs`,
+      so no other crypto page changed — D-C8.)
 
 Acceptance: `scripts/test-accept.sh` passes with the new fixture; both census runs
 report zero gaps; both example runs are green.
@@ -405,6 +420,12 @@ Commit: —
   (`grep -n -i randomInt src/docs/spec/stdlib/10_crypto.md` → one bullet, no ceiling). The
   bullet now states both forms' span rules. A citation placed mid-sentence left " , uuid4"
   after stripping, so it moved to the bullet's end, the file's convention.
+- **D-C8 — Phase 3's example runs are scoped to pages whose examples changed.** The user
+  instructed: only scoped tests during the plan, the full suite once at the end. Every `big`
+  page's examples ran after their last change (29 at plan-127-B Phase 4, the 7 plan-127-C pages
+  at C Phase 3; compare/equals changed only `DESC` prose after that), and on the crypto side only
+  the `randomInt` page changed (3 of 3 ran). Phase 3's golden sync and `test-accept.sh` are
+  the plan's single end-of-plan run, after main is merged and the tree is formatted.
 - **D-C7 — the acceptance fixture's helpers carry a `big` prefix** (`bigToInteger`,
   `bigDivide`, …) because `tests/acceptance` is one project with one `FUNC` namespace.
 
