@@ -43,14 +43,20 @@ All public types are flat, copyable value records and enums — `datetime::Insta
 `datetime::Duration`, `datetime::Date`, `datetime::Time`, `datetime::Zone`, `datetime::DateTime`, and the enums `datetime::ZoneKind`,
 `datetime::Weekday`, and `datetime::Month`. There are no resources and no hidden global state, and the
 types are always written package-qualified (`datetime::Instant`, `datetime::Date`, …); a bare
-`Instant` is `SYMBOL_UNKNOWN_TYPE`. Calendar
-arithmetic produces identical results on every target. The operations that read
-host state are the wall clock (`now` and `nowNanos`), the monotonic counter
-(`monotonic` and `monotonicNanos`), and local-zone offset resolution (`local`,
-`localOffset`, and any projection through a local zone); everything else is a
+`Instant` is `SYMBOL_UNKNOWN_TYPE`. The constructors and arithmetic
+return normalized values, but a record you build directly is not checked:
+`datetime::Date[2026, 13, 32]` keeps month 13 and day 32, and an `Instant` or
+`Duration` keeps a `nanos` outside `0 .. 999_999_999`.
+
+The wall clock (`now` and `nowNanos`) and the monotonic counter (`monotonic` and
+`monotonicNanos`) read host clocks. Every operation that resolves a
+`datetime::local()` zone reads the host's zone rules: `localOffset`, `civil`,
+`inZone`/`toLocal`, `addDays`, and `addMonths`. The same call can therefore
+give a different result on a host set to a different zone, while UTC and
+fixed-offset arguments give the same result everywhere. Everything else is a
 pure function of its arguments.
 
-Zones come in three kinds. `datetime::utc()` is fixed at offset 0;
+The zone constructors produce three kinds. `datetime::utc()` is fixed at offset 0;
 `datetime::fixedOffset(...)` builds a constant offset rendered as `+HH:MM`; and
 `datetime::local()` resolves the host's zone per-instant, so it is DST-correct at
 the moment it projects. Named IANA zones are not supported in this version.
@@ -68,7 +74,33 @@ share a pattern mini-language: a pattern is literal text with token runs, where 
 run of the same letter is one token whose length selects width or style, and
 literal letters are wrapped in single quotes. `format` renders a `datetime::DateTime`,
 `parse` reads one back, and `toIso`/`parseIso` handle RFC 3339 / ISO 8601 with a
-required offset."#;
+required offset.
+
+Project an instant into a fixed-offset zone, move it by calendar days, and
+resolve it back:
+
+```
+IMPORT io
+IMPORT datetime
+
+SUB main()
+  LET at AS datetime::Instant = datetime::instant(1772884800)
+  LET tokyo AS datetime::Zone = datetime::fixedOffset(9, 0)
+  LET local AS datetime::DateTime = datetime::inZone(at, tokyo)
+  io::print(datetime::format(local, "yyyy-MM-dd HH:mm:ss ZZ"))
+  LET later AS datetime::DateTime = datetime::addDays(local, 30)
+  io::print(datetime::toIso(later))
+  io::print(toString(datetime::resolve(local).seconds = at.seconds))
+END SUB
+```
+
+prints:
+
+```
+2026-03-07 21:00:00 +09:00
+2026-04-06T21:00:00.000+09:00
+TRUE
+```"#;
 
 /// Register the `datetime` package on the clean-room registry.
 ///
@@ -100,7 +132,7 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "nanos",
                 ty: ParameterType::Integer,
-                description: "Sub-second part in nanoseconds, in the range 0..999_999_999.",
+                description: "Sub-second part in nanoseconds, 0..999_999_999 in every value the package returns (not checked in a record built directly).",
             },
         ],
     });
@@ -118,14 +150,14 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "nanos",
                 ty: ParameterType::Integer,
-                description: "The sub-second part in nanoseconds, in the range 0..999_999_999.",
+                description: "The sub-second part in nanoseconds, 0..999_999_999 in every value the package returns (not checked in a record built directly).",
             },
         ],
     });
     pkg.add_record(RegistryRecord {
         name: "Date",
         export: true,
-        description: "A proleptic-Gregorian calendar date, without any time or zone.",
+        description: "A proleptic-Gregorian calendar date, without any time or zone. `datetime::date` checks the month and the day against that month's length; a `Date` record built directly is not checked.",
         props: vec![
             RecordProp {
                 name: "year",
@@ -147,7 +179,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Time",
         export: true,
-        description: "A wall-clock time of day, without any date or zone.",
+        description: "A wall-clock time of day, without any date or zone. `datetime::time` checks the field ranges below; a `Time` record built directly is not checked.",
         props: vec![
             RecordProp {
                 name: "hour",
@@ -167,14 +199,14 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "nanos",
                 ty: ParameterType::Integer,
-                description: "The sub-second part in nanoseconds, in the range 0..999_999_999.",
+                description: "The sub-second part in nanoseconds, 0..999_999_999.",
             },
         ],
     });
     pkg.add_record(RegistryRecord {
         name: "Zone",
         export: true,
-        description: "A time zone, described by its offset from UTC together with the kind of zone and a display label.",
+        description: "A time zone, described by its offset from UTC together with the kind of zone and a display label. Build one with `datetime::utc`, `datetime::fixedOffset`, or `datetime::local`; a `Zone` record built directly is not checked, and any `kind` other than `ZoneKind.Local` is treated as a constant offset.",
         props: vec![
             RecordProp {
                 name: "offsetSeconds",
@@ -184,7 +216,7 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "kind",
                 ty: ParameterType::Integer,
-                description: "Which kind of zone this is: `datetime::ZoneKind.Utc`, `datetime::ZoneKind.FixedOffset`, or `datetime::ZoneKind.Local`.",
+                description: "Which kind of zone this is: `datetime::ZoneKind.Utc`, `datetime::ZoneKind.FixedOffset`, or `datetime::ZoneKind.Local` for a zone from the constructors. The field is a plain `Integer`.",
             },
             RecordProp {
                 name: "label",
@@ -196,7 +228,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "DateTime",
         export: true,
-        description: "A zoned date-and-time: a `datetime::Date` and `datetime::Time` interpreted in a `datetime::Zone`, with the resolved UTC offset cached alongside.",
+        description: "A zoned date-and-time: a `datetime::Date` and `datetime::Time` interpreted in a `datetime::Zone`, with a UTC offset stored alongside. `datetime::civil` and `datetime::inZone` store the resolved offset; a `DateTime` record built directly is not checked, and `datetime::resolve` uses its stored offset as given.",
         props: vec![
             RecordProp {
                 name: "date",

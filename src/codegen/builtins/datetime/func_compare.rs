@@ -6,7 +6,11 @@
 const INTRO: &str = r#"Order two instants on the UTC timeline as a three-way sign."#;
 const DESC: &str = r#"`datetime::compare` returns the sign of `a - b` as a three-way ordering: `-1`
 when `a` is before `b`, `0` when the two instants name the same point, and `1`
-when `a` is after `b`. The result is the standard comparator value suitable for
+when `a` is after `b`. This holds for normalized instants, which is every
+`datetime::Instant` the package returns. An `Instant` record built directly with a
+`nanos` outside `0 .. 999_999_999` is compared on its stored fields, so
+`datetime::Instant[0, 1_000_000_000]` compares as before `datetime::Instant[1, 0]`
+although both name the same point. The result is the standard comparator value suitable for
 driving a sort or a branch on ordering, and it never returns any value other
 than `-1`, `0`, or `1`.
 

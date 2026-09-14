@@ -3,12 +3,10 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Shift a civil `datetime::DateTime` by a whole number of calendar days, preserving its wall-clock time and zone."#;
-const DESC: &str = r#"`datetime::addDays` advances `dt` by a whole number of calendar days and returns
-the resulting `datetime::DateTime`. It converts `dt`'s calendar date to a serial day count,
-adds `days`, converts that count back to a year-month-day date, and rebuilds the
-`datetime::DateTime` from the new date, `dt`'s original wall-clock time, and `dt`'s original
-zone.
+const INTRO: &str = r#"Shift a civil `datetime::DateTime` by a whole number of calendar days, keeping its zone and, where that local time exists, its wall-clock time."#;
+const DESC: &str = r#"`datetime::addDays` moves `dt` by a whole number of calendar days and returns
+the resulting `datetime::DateTime`, with the date that many days later or earlier,
+`dt`'s wall-clock time, and `dt`'s zone.
 
 For a `datetime::local` zone `addDays` is daylight-saving aware: the wall-clock
 time of day is preserved and the UTC offset is worked out for the new date, so
@@ -23,14 +21,21 @@ carried through unchanged.
 
 `days` is a signed count: a positive value moves `dt` later in the calendar and a
 negative value moves it earlier. Adding zero days returns a `datetime::DateTime` equal to
-`dt`. The operation works purely in whole days and never alters the hour, minute,
-second, or nanosecond fields; for month-length-aware shifts use
+`dt`. The hour, minute, second, and nanosecond fields are kept, except when the result
+falls in a local zone's spring-forward gap: that wall-clock time does not exist, so
+it moves forward the way `datetime::civil` resolves a gap (under
+`TZ=America/New_York`, 2026-03-07 02:30 -05:00 plus one day is 2026-03-08
+03:30 -04:00). For month-length-aware shifts use
 `datetime::addMonths`, and for uniform physical-time arithmetic on a `datetime::Instant`
 use `datetime::add`. `addDays` has no side effects. For a UTC or fixed-offset zone
 the same `datetime::DateTime` and day count always yield the same result. For a
 `datetime::local` zone the offset comes from the host's time-zone rules, so the
 same `dt` can yield a different absolute instant on a host configured for a
-different zone or DST rule."#;
+different zone or DST rule.
+
+A `days` count that moves the date or its second count past the `Integer` range
+raises `ErrOverflow`. For a local zone, a result time the host cannot convert
+raises `ErrInvalidArgument`, as `datetime::localOffset` does."#;
 const EX: &str = r#"Advance a `datetime::DateTime` by one week:
 
 ```

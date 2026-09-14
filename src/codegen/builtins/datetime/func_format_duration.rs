@@ -14,8 +14,10 @@ ninety seconds renders as `00:01:30.000` and a zero span as `00:00:00.000`.
 
 
 The span is reduced to whole milliseconds before formatting: the value used is
-`d.seconds * 1000 + d.nanos / 1000000`, so any sub-millisecond remainder in the
-`nanos` field is truncated and does not appear in the output. A negative span is
+`d.seconds * 1000 + d.nanos / 1000000`. The stored `nanos` is never negative, so
+this rounds toward earlier time: a positive sub-millisecond span renders as
+`00:00:00.000`, but a negative one, such as `datetime::duration(0, -1)`, renders as
+`-00:00:00.001`. A negative span is
 rendered as its absolute magnitude prefixed with a single leading minus sign; the
 hour, minute, second, and millisecond fields are taken from the absolute value and
 never carry their own sign. The day count is the full number of whole days and is
@@ -28,7 +30,7 @@ the remaining whole hours modulo 24, the minute field the remaining minutes modu
 string, and it has no side effects. Because the reduction to milliseconds is
 ordinary signed `Integer` arithmetic, a span whose second count is large enough
 that multiplying by 1000 (or negating the reduced total) leaves the signed
-`Integer` range traps rather than formatting."#;
+`Integer` range raises `ErrOverflow` rather than formatting."#;
 const EX: &str = r#"Render a sub-day span:
 
 ```

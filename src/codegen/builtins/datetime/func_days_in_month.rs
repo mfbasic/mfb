@@ -94,14 +94,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "year",
-                    desc: "The calendar year. It matters: February has 29 days in a leap year and 28 otherwise.",
+                    desc: "The calendar year. Zero and negative years are accepted. It matters only for February, which has 29 days in a leap year and 28 otherwise.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "month",
-                    desc: "The month, 1 through 12.",
+                    desc: "The month number. 1 through 12 name calendar months; every other value returns 31.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,

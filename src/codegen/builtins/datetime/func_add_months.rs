@@ -5,13 +5,12 @@
 
 const INTRO: &str = r#"Shift a civil `datetime::DateTime` by a whole number of calendar months, clamping the day-of-month to the target month's length."#;
 const DESC: &str = r#"`datetime::addMonths` advances `dt` by a whole number of calendar months and
-returns the resulting `datetime::DateTime`. It collapses `dt`'s year and month into a
-single month index (`year * 12 + month - 1`), adds `months`, and splits the sum
-back into a target year and month with a flooring divide so that crossing year
-boundaries in either direction is handled correctly. The wall-clock time of day
-and the zone are taken unchanged from `dt`. `dt`'s UTC offset is kept whenever it
-is still valid at the new date and time, and otherwise re-resolved through `dt`'s
-zone the way `datetime::civil` resolves a local time.
+returns the resulting `datetime::DateTime`. Crossing a year boundary works in either
+direction: one month after December 15 is January 15 of the next year. The
+wall-clock time of day and the zone are taken from `dt`. For a UTC or fixed-offset
+zone the result keeps `dt`'s stored offset as it is. For a `datetime::local` zone
+the offset is kept when it still applies at the new date and time, and otherwise
+the new local time is resolved the way `datetime::civil` resolves it.
 
 
 Because months vary in length, the day of month is clamped to the number of days
@@ -23,9 +22,11 @@ exactly. The day is never carried over into the following month.
 
 `months` is a signed count: a positive value moves `dt` later in the calendar and
 a negative value moves it earlier; adding zero months returns a `datetime::DateTime`
-equal to `dt`. The operation works purely in whole months and never
-alters the hour, minute, second, or nanosecond fields; the sub-second nanosecond
-component is carried through unchanged. For a `datetime::local` zone `addMonths`
+equal to `dt`. The hour, minute, second, and nanosecond fields are kept, except
+when the result falls in a local zone's spring-forward gap: that wall-clock time
+does not exist, so it moves forward the way `datetime::civil` resolves a gap
+(under `TZ=America/New_York`, 2026-02-08 02:30 -05:00 plus one month is
+2026-03-08 03:30 -04:00). For a `datetime::local` zone `addMonths`
 is daylight-saving aware: the wall-clock time is preserved while the underlying
 instant absorbs any offset change for the new date, and a result in a fall-back
 overlap stays on the side `dt`'s offset names when that offset is one of the two.
@@ -34,7 +35,11 @@ arithmetic on a `datetime::Instant` use `datetime::add`. `addMonths` has no side
 effects. For a UTC or fixed-offset zone the same `datetime::DateTime` and month
 count always yield the same result. For a `datetime::local` zone the offset comes
 from the host's time-zone rules, so the same `dt` can yield a different absolute
-instant on a host configured for a different zone or DST rule."#;
+instant on a host configured for a different zone or DST rule.
+
+A `months` count that moves the date or its second count past the `Integer`
+range raises `ErrOverflow`. For a local zone, a result time the host cannot
+convert raises `ErrInvalidArgument`, as `datetime::localOffset` does."#;
 const EX: &str = r#"Advance a `datetime::DateTime` by one month:
 
 ```
@@ -98,7 +103,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
                 super::Parameter {
                     name: "months",
-                    desc: "How many months to add. Negative subtracts. A day that does not exist in the target month is clamped to that month's last day — 31 January plus one month is 28 or 29 February, not 3 March.",
+                    desc: "How many months to add. Negative subtracts; zero returns a date-time equal to `dt`. A day that does not exist in the target month is clamped to that month's last day — 31 January plus one month is 28 or 29 February, not 3 March.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,

@@ -1,0 +1,3 @@
+NO FINDINGS for man-page:datetime/date
+
+Probe `main.mfb` compiled and ran with the specified release binary; it printed valid leap, April, year-zero, and Integer-limit dates unchanged, while invalid February/April days, months 0/13, day 0, and negative day printed the documented `datetime:` range errors. The rendered invalid-date example also compiled and printed `rejected: datetime: day out of range for month`.

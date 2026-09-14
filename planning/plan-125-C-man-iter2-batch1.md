@@ -451,8 +451,37 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
 ### Phase 3 — datetime (46 units)
 
 - [ ] 44 function pages + overview + the 40-description types page.
-- [ ] Classify the 15 carve-out-1 arithmetic-borrow lines **once**, in this
+      **Progress (2026-09-14):** 17 of 46 reviewed and applied: overview, types,
+      add, addDays, addMonths, between, civil, compare, date, dayOfYear,
+      daysInMonth, duration, equals, fixedOffset, format, formatDuration,
+      fromMillis. The Codex usage limit stopped the batch; the other 29 are in
+      `planning/plan-125-units/C-phase3-retry.txt`. Every accepted finding was
+      probe-verified: `/tmp/p125-ex/dtraw`, `dtraw2`, `dtgap`, `dtmisc`, `dtfmt`,
+      `dtms`, and `dtdst` run under `TZ=America/New_York` and
+      `TZ=Pacific/Honolulu`.
+      Rejected: overview #4–6, generic derived Errors-table rows; types #6,
+      covered by the new overview example; fromMillis #1, already on the page.
+      Probing found bug-629: a built-in member accepts an argument of the wrong
+      record type, e.g. `toMillis(DateTime)` compiles and returns garbage. Also
+      as-is and documented, not filed: records built directly are not validated;
+      `compare`/`equals` read stored fields; `daysInMonth` returns 31 for any
+      month outside 1..12; a quoted pattern literal cannot hold an apostrophe.
+- [x] Classify the 15 carve-out-1 arithmetic-borrow lines **once**, in this
       ledger, not per page.
+      `./scripts/man-census.sh --memory-scope datetime` → 0 unclassified, 15
+      CARVE-1, unchanged after the plan-135 merge. All 15 are the **subtraction
+      borrow of nanosecond normalization**: when a nanosecond difference goes
+      negative, one whole second is taken from the seconds field so `nanos` stays
+      in `0 .. 999_999_999`. None describes memory or ownership, so all stay as
+      written. The lines, re-measured after the 17-page edit:
+      - `add` 54;
+      - `between` 43, 44;
+      - `duration` 35 (the new `nanos` parameter row), 66;
+      - `fromMillis` 39;
+      - `instant` 57;
+      - `minus` 38, 48, 49;
+      - `negate` 40;
+      - `subtract` 39, 52, 53, 54.
 - [ ] Every example compiled and run; every zone/DST/leap claim probe-verified
       (these are the claims most likely to be true-by-reasoning and false in
       fact).
