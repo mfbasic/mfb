@@ -1,7 +1,5 @@
 # plan-93-B: Client-side gzip/deflate response decoding
 
-> **ARCHIVED 2026-09-13 — never executed, not to be used.** Kept only as a historical record; nothing in this plan landed. Its prerequisite gates (`ls planning/completed/plan-93-*`) are NOT satisfied by this move.
-
 Last updated: 2026-08-09
 Effort: medium (1h–2h)
 Depends on: plan-93-A (the `compress::` package must exist and round-trip)

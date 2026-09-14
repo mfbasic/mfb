@@ -1,7 +1,5 @@
 # plan-93-D: JS/static MIME types by file extension
 
-> **ARCHIVED 2026-09-13 — never executed, not to be used.** Kept only as a historical record; nothing in this plan landed. Its prerequisite gates (`ls planning/completed/plan-93-*`) are NOT satisfied by this move.
-
 Last updated: 2026-08-09
 Effort: small (<1h)
 Depends on: nothing (independent of the gzip and cookie letters)

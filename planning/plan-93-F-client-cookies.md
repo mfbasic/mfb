@@ -1,7 +1,5 @@
 # plan-93-F: Client-side cookie jar (`Set-Cookie` capture + `Cookie` attach)
 
-> **ARCHIVED 2026-09-13 — never executed, not to be used.** Kept only as a historical record; nothing in this plan landed. Its prerequisite gates (`ls planning/completed/plan-93-*`) are NOT satisfied by this move.
-
 Last updated: 2026-08-09
 Effort: large (3h–1d)
 Depends on: plan-93-E (reuses its `__http_serializeCookie`/attribute parsing and
