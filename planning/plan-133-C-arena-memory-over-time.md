@@ -150,7 +150,7 @@ program). Both are covered by exact tests.
       series off: median `load_ms=7914` (7983, 7854, 7914); +1.4 %.
 
 Acceptance: `cargo test --release --test rt_debug_arena series` → 2 passed (~3 min).
-Commit: 2375c9fef, e12c1b45f (task 5's record: the commit after e12c1b45f)
+Commit: 2375c9fef, 6c0926c14 (task 5's record)
 
 ### Phase 2 — the other four targets
 
@@ -179,14 +179,18 @@ Commit: e12c1b45f
       browser's worker series from one 2223 run pasted as the first data. It has the
       series-on A/B run's `arena.1` series: 188 samples, 8 rows selected, last `mapped_bytes`
       818.9 MiB equal to `arena.1.mapped_bytes 858677248`, and `unmaps 0`.
-- [ ] Full suite once for plan-133:
+- [x] Full suite once for plan-133 (on the tree merged with main `caf191edd`): `EXIT=0`,
+      180 test binaries, 5,630 passed, 0 failed, 11 ignored; gate `artifact-gate [all]:
+      1441 tests, 1607 build(s), 2021 golden(s) checked, 0 diff(s)`; `acceptance tests
+      passed (1464 test(s) ran)`, `ACCEPT=0`, with no baseline failures.
+      `cargo fmt --all --check` in both workspaces showed no diffs.
       `cargo test --no-fail-fast -- --skip artifact_gate_all > /tmp/p133.log 2>&1; echo EXIT=$?`
       (~25 min, the only run that sees every rt test after three letters of debug-path
       changes), `scripts/artifact-gate.sh target/release/mfb all` (~20 min, proves normal
       builds are unchanged), `scripts/test-accept.sh target/release/mfb /tmp/p133-accept`.
 
 Acceptance: `EXIT=0`; gate `0 diff(s)`; acceptance passes except the recorded baseline.
-Commit: —
+Commit: 6c0926c14 (the suite record's commit is named in the archive commit)
 
 ## Validation Plan
 
@@ -346,6 +350,11 @@ Commit: —
   `series.count 0`. So the clock read and `getrusage` on each of 194,779 grows cost about
   108 ms, or +1.4 %. That is small enough to keep the § 1 goal (the last sample is the most
   recent grow), which Corrections above had made conditional on this measurement.
+- **2026-09-13 — Phase 3: main was merged before the full suite, so one run serves Phase 3
+  and the finish step.** `git rev-list --count HEAD..main` was 1: `caf191edd` (plan-136
+  planning docs and a bug doc, no source). `git merge --no-edit main` was clean, and the
+  suite, gate and acceptance ran on the merged tree once, instead of before and again after
+  the merge.
 - **2026-09-13 — Phase 2: the four box runs.** The program is
   `/tmp/plan-133-c/bursts/src/main.mfb`: three times, `LET burst = fs::readBytes` of an 8 MiB
   file, append it to a retained list, `os::sleep(200)`; print the list's length. The Windows
