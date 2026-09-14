@@ -530,21 +530,36 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        // newDataCapacity = max(step(dataCapacity), dataLength + need).
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(
-            &scratch10,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_CAPACITY,
-        ));
-        self.emit_geometric_step(
-            &scratch10,
-            &scratch14,
-            &scratch15,
-            COLLECTION_GROW_DATA_INIT,
-            COLLECTION_GROW_DATA_TAPER,
-            "append_grow_dcap",
-        );
+        // newDataCapacity = max(newCapacity * width, dataLength + need) for a
+        // fixed-width list (bug-621), max(step(dataCapacity), dataLength + need)
+        // otherwise. The overflow label is taken here only when the product needs
+        // it, so a variable-width list keeps its label numbering.
+        let fixed_size_overflow = match list_element_is_fixed_width(element_type) {
+            Some(width) => {
+                let overflow = self.label("list_append_size_overflow");
+                self.emit_fixed_width_data_capacity(
+                    &scratch14, &scratch14, &scratch15, width, &overflow,
+                );
+                Some(overflow)
+            }
+            None => {
+                self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+                self.emit(abi::load_u64(
+                    &scratch10,
+                    &scratch8,
+                    COLLECTION_OFFSET_DATA_CAPACITY,
+                ));
+                self.emit_geometric_step(
+                    &scratch10,
+                    &scratch14,
+                    &scratch15,
+                    COLLECTION_GROW_DATA_INIT,
+                    COLLECTION_GROW_DATA_TAPER,
+                    "append_grow_dcap",
+                );
+                None
+            }
+        };
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(
             &scratch11,
@@ -576,7 +591,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        let size_overflow = self.label("list_append_size_overflow");
+        let size_overflow =
+            fixed_size_overflow.unwrap_or_else(|| self.label("list_append_size_overflow"));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
@@ -980,21 +996,33 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        // newDataCapacity = max(step(dataCapacity), align(dataLength)+need).
-        load_sub(self, &scratch8);
-        self.emit(abi::load_u64(
-            &scratch10,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_CAPACITY,
-        ));
-        self.emit_geometric_step(
-            &scratch10,
-            &scratch14,
-            &scratch15,
-            COLLECTION_GROW_DATA_INIT,
-            COLLECTION_GROW_DATA_TAPER,
-            "inline_append_grow_dcap",
-        );
+        // newDataCapacity = max(newCapacity * width, align(dataLength)+need) for a
+        // fixed-width list (bug-621), max(step(dataCapacity), align(dataLength)+need)
+        // otherwise.
+        if let Some(width) = list_element_is_fixed_width(element_type) {
+            self.emit_fixed_width_data_capacity(
+                &scratch14,
+                &scratch14,
+                &scratch15,
+                width,
+                &size_overflow,
+            );
+        } else {
+            load_sub(self, &scratch8);
+            self.emit(abi::load_u64(
+                &scratch10,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_CAPACITY,
+            ));
+            self.emit_geometric_step(
+                &scratch10,
+                &scratch14,
+                &scratch15,
+                COLLECTION_GROW_DATA_INIT,
+                COLLECTION_GROW_DATA_TAPER,
+                "inline_append_grow_dcap",
+            );
+        }
         load_sub(self, &scratch8);
         self.emit(abi::load_u64(
             &scratch11,
@@ -1532,21 +1560,32 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        // newDataCapacity = max(step(dataCapacity), need_data).
-        load_sub(self, &scratch8, &scratch16);
-        self.emit(abi::load_u64(
-            &scratch10,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_CAPACITY,
-        ));
-        self.emit_geometric_step(
-            &scratch10,
-            &scratch14,
-            &scratch15,
-            COLLECTION_GROW_DATA_INIT,
-            COLLECTION_GROW_DATA_TAPER,
-            "inline_bulk_grow_dcap",
-        );
+        // newDataCapacity = max(newCapacity * width, need_data) for a fixed-width
+        // list (bug-621), max(step(dataCapacity), need_data) otherwise.
+        if let Some(width) = list_element_is_fixed_width(element_type) {
+            self.emit_fixed_width_data_capacity(
+                &scratch14,
+                &scratch14,
+                &scratch15,
+                width,
+                &size_overflow,
+            );
+        } else {
+            load_sub(self, &scratch8, &scratch16);
+            self.emit(abi::load_u64(
+                &scratch10,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_CAPACITY,
+            ));
+            self.emit_geometric_step(
+                &scratch10,
+                &scratch14,
+                &scratch15,
+                COLLECTION_GROW_DATA_INIT,
+                COLLECTION_GROW_DATA_TAPER,
+                "inline_bulk_grow_dcap",
+            );
+        }
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -2072,21 +2111,36 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        // newDataCapacity = max(step(dataCapacity), need_data).
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(
-            &scratch10,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_CAPACITY,
-        ));
-        self.emit_geometric_step(
-            &scratch10,
-            &scratch14,
-            &scratch15,
-            COLLECTION_GROW_DATA_INIT,
-            COLLECTION_GROW_DATA_TAPER,
-            "bulk_append_grow_dcap",
-        );
+        // newDataCapacity = max(newCapacity * width, need_data) for a fixed-width
+        // list (bug-621), max(step(dataCapacity), need_data) otherwise. The overflow
+        // label is taken here only when the product needs it, so a variable-width
+        // list keeps its label numbering.
+        let fixed_size_overflow = match list_element_is_fixed_width(element_type) {
+            Some(width) => {
+                let overflow = self.label("list_bulk_append_size_overflow");
+                self.emit_fixed_width_data_capacity(
+                    &scratch14, &scratch14, &scratch15, width, &overflow,
+                );
+                Some(overflow)
+            }
+            None => {
+                self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+                self.emit(abi::load_u64(
+                    &scratch10,
+                    &scratch8,
+                    COLLECTION_OFFSET_DATA_CAPACITY,
+                ));
+                self.emit_geometric_step(
+                    &scratch10,
+                    &scratch14,
+                    &scratch15,
+                    COLLECTION_GROW_DATA_INIT,
+                    COLLECTION_GROW_DATA_TAPER,
+                    "bulk_append_grow_dcap",
+                );
+                None
+            }
+        };
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -2109,7 +2163,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        let size_overflow = self.label("list_bulk_append_size_overflow");
+        let size_overflow =
+            fixed_size_overflow.unwrap_or_else(|| self.label("list_bulk_append_size_overflow"));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
@@ -2589,20 +2644,36 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(
-            &scratch10,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_CAPACITY,
-        ));
-        self.emit_geometric_step(
-            &scratch10,
-            &scratch14,
-            &scratch15,
-            COLLECTION_GROW_DATA_INIT,
-            COLLECTION_GROW_DATA_TAPER,
-            &format!("{prefix}_grow_dcap"),
-        );
+        // newDataCapacity = max(newCapacity * width, align(dataLength)+need) for a
+        // fixed-width list (bug-621), max(step(dataCapacity), align(dataLength)+need)
+        // otherwise. The overflow label is taken here only when the product needs
+        // it, so a variable-width list keeps its label numbering.
+        let fixed_size_overflow = match list_element_is_fixed_width(element_type) {
+            Some(width) => {
+                let overflow = self.label(&format!("list_{prefix}_size_overflow"));
+                self.emit_fixed_width_data_capacity(
+                    &scratch14, &scratch14, &scratch15, width, &overflow,
+                );
+                Some(overflow)
+            }
+            None => {
+                self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+                self.emit(abi::load_u64(
+                    &scratch10,
+                    &scratch8,
+                    COLLECTION_OFFSET_DATA_CAPACITY,
+                ));
+                self.emit_geometric_step(
+                    &scratch10,
+                    &scratch14,
+                    &scratch15,
+                    COLLECTION_GROW_DATA_INIT,
+                    COLLECTION_GROW_DATA_TAPER,
+                    &format!("{prefix}_grow_dcap"),
+                );
+                None
+            }
+        };
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(
             &scratch11,
@@ -2633,7 +2704,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        let size_overflow = self.label(&format!("list_{prefix}_size_overflow"));
+        let size_overflow = fixed_size_overflow
+            .unwrap_or_else(|| self.label(&format!("list_{prefix}_size_overflow")));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",

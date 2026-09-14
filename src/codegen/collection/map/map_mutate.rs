@@ -1,4 +1,5 @@
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::list_element_is_fixed_width;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
@@ -787,21 +788,46 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(
-            &scratch10,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_CAPACITY,
-        ));
-        self.emit_geometric_step(
-            &scratch10,
-            &scratch14,
-            &scratch15,
-            COLLECTION_GROW_DATA_INIT,
-            COLLECTION_GROW_DATA_TAPER,
-            "mapset_grow_dcap",
-        );
-        // newDataCapacity = max(step(dataCapacity), newDataLength).
+        // bug-621: when key and value are both fixed-width every entry's data is one
+        // constant stride — the key aligned to `key_align`, then the value aligned
+        // to `value_align` — and a fixed-width payload's alignment divides its
+        // width, so the stride is a multiple of both alignments and every entry
+        // starts where the previous one's stride ends. The data capacity is then
+        // `newCapacity * stride`; otherwise it steps on its own. The overflow label
+        // is taken here only when the product needs it, so every other map keeps
+        // its label numbering.
+        let fixed_entry_data = list_element_is_fixed_width(key_type)
+            .zip(list_element_is_fixed_width(value_type))
+            .map(|(key_width, value_width)| {
+                (key_width.next_multiple_of(value_align) + value_width).next_multiple_of(key_align)
+            });
+        let fixed_size_overflow = match fixed_entry_data {
+            Some(stride) => {
+                let overflow = self.label("map_grow_size_overflow");
+                self.emit_fixed_width_data_capacity(
+                    &scratch14, &scratch14, &scratch15, stride, &overflow,
+                );
+                Some(overflow)
+            }
+            None => {
+                self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
+                self.emit(abi::load_u64(
+                    &scratch10,
+                    &scratch8,
+                    COLLECTION_OFFSET_DATA_CAPACITY,
+                ));
+                self.emit_geometric_step(
+                    &scratch10,
+                    &scratch14,
+                    &scratch15,
+                    COLLECTION_GROW_DATA_INIT,
+                    COLLECTION_GROW_DATA_TAPER,
+                    "mapset_grow_dcap",
+                );
+                None
+            }
+        };
+        // newDataCapacity = max(that, newDataLength).
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -823,7 +849,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        let size_overflow = self.label("map_grow_size_overflow");
+        let size_overflow =
+            fixed_size_overflow.unwrap_or_else(|| self.label("map_grow_size_overflow"));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",

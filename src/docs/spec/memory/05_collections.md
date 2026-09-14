@@ -255,10 +255,17 @@ path over-allocates so `capacity > count` and `dataCapacity > dataLength`, and a
 later append into the same uniquely-owned `MUT` buffer writes into the spare slot
 and bumps `count`/`dataLength` in place — amortized **O(1)** append instead of a
 realloc-and-copy per item. The growth shape (an implementation tuning detail, not
-an observable contract): lookup slots start at 4, double until 1024, then ×1.5;
-data bytes start at 32, double until 64 KiB, then ×1.5; each grows to at least
-what the appended element needs. Fixed-width element lists grow lookup and data
-in lockstep; variable-width lists grow them independently.
+an observable contract): lookup slots start at 4, double until 1024, then ×1.5.
+For a fixed-width payload — a fixed-width list element, or a `Map`/`Set` entry
+whose key and value are both fixed-width — the data region is sized from the
+lookup capacity, `dataCapacity = capacity × stride`, where the stride is the
+element width, or for a map entry the key and value each padded to their
+alignment. A variable-width payload's data bytes grow on their own step instead:
+start at 32, double until 64 KiB, then ×1.5. Either way data grows to at least
+what the operation needs. Stepping a fixed-width payload's data independently
+would let it drift to about 19 bytes per slot, whatever the width, because the
+grows the count triggers would step it too (bug-621).
+[[src/codegen/collection/buffer/collection_buffer.rs:emit_fixed_width_data_capacity]]
 
 Headroom is a property of a **mutable working buffer, never of a value**:
 
@@ -516,8 +523,10 @@ iterator, unlike a beyond-`count` append, so that case takes the value path.
   (`removeKey` + concat). A miss writes the key+value into a spare lookup slot and
   the spare data tail — the entry packed exactly like a literal entry (key then
   value, each aligned to its payload alignment) — and bumps `count`/`dataLength`,
-  growing the buffer geometrically (capacity and `dataCapacity` stepped
-  independently, entries and data copied verbatim against the capacity-based base)
+  growing the buffer geometrically (capacity stepped, `dataCapacity` sized from it
+  for a fixed-width key and value and stepped independently otherwise — see
+  *Capacity Headroom and Growth* — entries and data copied verbatim against the
+  capacity-based base)
   when full. Insertion order is preserved, and the new key is folded into the hash
   index per *Map Hash Index* (incremental `_mfb_rt_map_bucket_put` when built, or
   `bucketsReady = 0` when a grow moved the bucket region).
