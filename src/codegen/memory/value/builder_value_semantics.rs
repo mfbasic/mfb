@@ -420,6 +420,13 @@ impl CodeBuilder<'_> {
                     record_slot,
                 ));
                 let register = self.emit_wrap_record_in_union(&variant, tag, record_slot)?;
+                // The wrap copied the record's bytes into the union, so the record block itself
+                // is dead: every inline-`TRAP` bind of a union leaked it (16 B per bind).
+                let union_slot = self.allocate_stack_object("default_union_block", 8);
+                self.emit(abi::store_u64(&register, abi::stack_pointer(), union_slot));
+                self.emit_shallow_block_free(&variant, record_slot)?;
+                let register = self.allocate_register();
+                self.emit(abi::load_u64(&register, abi::stack_pointer(), union_slot));
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
