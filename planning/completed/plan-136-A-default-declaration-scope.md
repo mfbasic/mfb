@@ -518,7 +518,7 @@ Acceptance: `mfb spec language functions` states the rule with resolving citatio
   **Measured 2026-09-13** (release rebuilt after the doc edits, since `mfb spec`/`mfb man` embed
   them at compile time): `test result: ok. 43 passed; 0 failed`; the grep → rendered lines 20, 26
   and 30 are the new sentences.
-Commit: —
+Commit: 2a25541f2
 
 ## Validation Plan
 

@@ -695,7 +695,7 @@ fn package_export_signature(export: &binary_repr::BinaryReprExport) -> ir::Exter
             .map(|param| ir::ExternalFunctionParam {
                 name: param.name.clone(),
                 type_: param.type_.clone(),
-                has_default: param.has_default,
+                has_default: param.default.is_some(),
             })
             .collect(),
         returns: export.return_type.clone(),
@@ -1538,12 +1538,12 @@ mod tests {
                 binary_repr::BinaryReprExportParam {
                     name: "a".to_string(),
                     type_: crate::types::ParameterType::Integer,
-                    has_default: false,
+                    default: binary_repr::BinaryReprExportDefault::None,
                 },
                 binary_repr::BinaryReprExportParam {
                     name: "b".to_string(),
                     type_: crate::types::ParameterType::String,
-                    has_default: false,
+                    default: binary_repr::BinaryReprExportDefault::None,
                 },
             ],
             return_type: crate::types::ParameterType::Boolean,
@@ -1591,7 +1591,7 @@ mod tests {
         let param = |type_: &str| binary_repr::BinaryReprExportParam {
             name: "p".to_string(),
             type_: crate::types::ParameterType::parse(type_),
-            has_default: false,
+            default: binary_repr::BinaryReprExportDefault::None,
         };
         // (param types, return type, isolated) -> the hand-formatted spelling.
         let cases: Vec<(Vec<&str>, &str, bool)> = vec![

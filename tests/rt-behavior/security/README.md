@@ -37,6 +37,7 @@ description of that dual meaning lives where the harness acts on it —
 | `pkg-05-alloc-count` | PKG-05 | MED | `0xFFFFFFFF` string-pool count → clean truncation error (no gigabyte `with_capacity`) |
 | `pkg-06-duplicate-section` | PKG-06 | MED | duplicate MFPC section id → `duplicate MFPC section id 1` |
 | `pkg-07-need-overflow` | PKG-07 | LOW | `0xFFFFFFFF`-byte MFBR string length → overflow-safe `need` reports truncation (no wrap/panic) |
+| `pkg-08-default-function` | plan-136-B | HIGH | a computed default's parameter record re-pointed at an exported one-parameter function → `has an invalid default function` (an importer's omitted argument can never call the wrong function) |
 
 PKG-02 (semantic verification of decoded IR) is tracked in
 `planning/old-plans/plan-19-ir-semantic-verification.md`; three fixtures now

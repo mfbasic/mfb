@@ -139,6 +139,14 @@ const FUNCTION_FLAG_PRIVATE: u16 = 1 << 1;
 const FUNCTION_FLAG_SUB: u16 = 1 << 3;
 const FUNCTION_FLAG_RETURNS_NOTHING: u16 = 1 << 5;
 
+/// Parameter record flag: the parameter declares a default.
+const PARAM_FLAG_DEFAULT: u32 = 1 << 0;
+/// Parameter record flag (plan-136-B): the default is COMPUTED, and the record's
+/// `defaultConst` field holds the `FUNCTION_TABLE` index of the parameter's hidden
+/// default function rather than a `CONST_POOL` id. Always set together with
+/// [`PARAM_FLAG_DEFAULT`]. Bits 1 and 2 are reserved (`mfb spec package functions`).
+const PARAM_FLAG_DEFAULT_FUNCTION: u32 = 1 << 3;
+
 // ===== Public API: exported types =====
 // The decoded surfaces `read_package_*` return and the metadata the builders
 // take. The public entry-point functions follow, after all the types
@@ -219,7 +227,32 @@ pub enum BinaryReprExportKind {
 pub struct BinaryReprExportParam {
     pub name: String,
     pub type_: crate::types::ParameterType,
-    pub has_default: bool,
+    /// What an importer passes when a call omits this argument (plan-136-B).
+    pub default: BinaryReprExportDefault,
+}
+
+/// An exported parameter's default, decoded from its parameter record
+/// (plan-136-B).
+#[derive(Clone, Debug, PartialEq)]
+pub enum BinaryReprExportDefault {
+    /// No default: the argument is required.
+    None,
+    /// A literal default decoded from `CONST_POOL`, as the `IrValue::Const` type
+    /// and value spelling lowering gives the same literal.
+    Literal {
+        type_: crate::types::ParameterType,
+        value: String,
+    },
+    /// A computed default: the package-local name of the parameter's hidden
+    /// default function, called with no arguments.
+    Function(String),
+}
+
+impl BinaryReprExportDefault {
+    /// Whether the parameter declares any default.
+    pub fn is_some(&self) -> bool {
+        !matches!(self, BinaryReprExportDefault::None)
+    }
 }
 
 #[derive(Clone)]
