@@ -106,6 +106,10 @@ natively lowered, none of them documented in `mfb spec`.
   (`src/codegen/registry/mod.rs:514-542`). `ParameterType::Integer` and
   `Named("big.Int")` do not unify with each other, so adding the `big::Int` row cannot
   capture an existing `Integer` call site. Phase 1 asserts this rather than assuming it.
+  **FALSE as written (D-C4):** they do not unify STRICTLY, but lenient `leaf_matches`
+  accepts a scalar against a nominal in either direction, so on the lenient return-type
+  path the earlier `Integer` row captured the `big::Int` call. The `Integer` call site was
+  never at risk (strict and lenient both pick row 1 for it); the `big::Int` call site was.
 - **`crypto` implements its own field and scalar arithmetic and does not need a general
   bignum.** VERIFIED by reading the helper inventory: `helper_mod_l.rs`,
   `helper_ed448_mod_l.rs`, `helper_inv25519.rs`, `helper_gf448_inv.rs`,
@@ -257,16 +261,33 @@ new `crypto::randomInt` big overload's range membership.
 
 Acceptance: the distribution test passes, the `Integer` overload's return type and error
 set are unchanged, and `mfb man crypto randomInt` renders both signatures.
-Commit: —
+Commit: aedc4c542
 
 ### Phase 2 — the spec chapter
 
-- [ ] `src/docs/spec/stdlib/19_big.md` per §4.2; register it in
-      `src/docs/spec/stdlib/spec.md`.
-- [ ] Update `src/docs/spec/stdlib/10_crypto.md` where `randomInt`'s span ceiling is
-      described, to name the big overload.
-- [ ] Verify: `mfb spec stdlib big` renders; every claim in it is checked against the
-      shipped descriptors rather than against plan-127-A/B/C.
+- [x] `src/docs/spec/stdlib/19_big.md` per §4.2; register it in
+      `src/docs/spec/stdlib/spec.md`. (Reading-order entry `big` after `transports`; covers the
+      value, canonical form, value-not-handle, operators/keys/elements, the total/fallible
+      split, division, and timing. `cargo test --release -p mfb --bin mfb docs::spec::` → `8
+      passed; 0 failed`, including `spec_citations_resolve` over its five `[[…]]` citations.)
+- [x] Update `src/docs/spec/stdlib/10_crypto.md` where `randomInt`'s span ceiling is
+      described, to name the big overload. (The "Secure random and identifiers" bullet names
+      the `Integer` form's span limit and the `big::Int` form's none, citing
+      `helper_random_int_big.rs:BODY`. The chapter never stated the ceiling before, so it is
+      stated here with the way past it — D-C6.)
+- [x] Verify: `mfb spec stdlib big` renders; every claim in it is checked against the
+      shipped descriptors rather than against plan-127-A/B/C. (Renders; the fallible table
+      and total list match each member's `errors:` vector (`grep -n 'errors:'
+      src/codegen/builtins/big/func_*.rs`). Probe programs `/tmp/p127-spec-probe` built with the
+      release `mfb`: `a = b`/`a <> b` → `2-203-0061 TYPE_REQUIRES_COMPARABLE`; `a < b`, `a + b`,
+      `a / b` → `2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH`; `Map OF big::Int TO Integer` and
+      `Set OF big::Int` → `2-203-0061`; the accepted program printed `TRUE 0` (a MUT default is
+      zero), `-7 TRUE` (hand-built `big::Int[[7, 0, 0], TRUE]` reads as -7), `0 0` (negative zero
+      reads as zero) and `1` (a `toString`-keyed map). Timing: `big::compare` on 64 KB values →
+      `top byte differs: 10 us for 2000 compares`, `bottom byte differs: 79321 us`. First render
+      showed two defects, fixed before ticking: bullets whose text held `<>`/`<` lost their
+      continuation indent (rewritten as single-line bullets) and backticks inside bold rendered
+      literally (D-C6).)
 
 Acceptance: `mfb spec stdlib big` renders the chapter, and its operator, comparability
 and constant-time statements each match the shipped behavior when spot-checked by
@@ -376,6 +397,16 @@ Commit: —
   released), `emit_int_to_string`'s `emit_alloc`, `toBytes`'s `emit_build_byte_list`, and
   `divMod`'s `emit_build_inlined_record_sized`. No path returns an argument or rodata, so all 26
   are added (sorted) with a comment naming the allocation.
+- **D-C6 — Phase 2 docs: two render defects and one unstated ceiling.** (a) In
+  `19_big.md` a wrapped bullet whose text held `` `<>` `` / `` `<` `` rendered its continuation
+  line unindented under `mfb spec stdlib big`; the two bullets are single source lines now.
+  Backticks inside a bold run rendered literally ("Nothing in `big`"); the bold sentence has no
+  code span now. (b) §2 says `10_crypto.md` describes `randomInt`'s span ceiling; it did not
+  (`grep -n -i randomInt src/docs/spec/stdlib/10_crypto.md` → one bullet, no ceiling). The
+  bullet now states both forms' span rules. A citation placed mid-sentence left " , uuid4"
+  after stripping, so it moved to the bullet's end, the file's convention.
+- **D-C7 — the acceptance fixture's helpers carry a `big` prefix** (`bigToInteger`,
+  `bigDivide`, …) because `tests/acceptance` is one project with one `FUNC` namespace.
 
 ## Summary
 
