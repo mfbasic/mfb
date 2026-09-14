@@ -103,6 +103,12 @@ macOS's bash 3.2.57 does not abort on a false bare `[[ ... ]]` under `set -euo p
 
 Deleting an item does not delete the doc comment or attributes above it; they attach silently to the next item. A stale `///` is only wrong prose, but an orphaned `#[cfg(unix)]` changes what compiles: it now gates the next item (e.g. `mod common;`), and `cargo check` on the host can't see it because that cfg is true there. It shows up as an `unresolved import` on the Windows CI row. After deleting lines under an attribute, check which item each `#[cfg]` governs before vs after. The inverse also happens: inserting a function right after an attribute block makes the previous `#[test]` apply to the new function, so check the test COUNT, not just pass/fail.
 
+## `git mv` does not stage your edits
+
+`git mv old new` renames the file in the index using its last *staged* content. Edits you made before the move go to the new path on disk but stay unstaged, so the next `git commit` records the rename with the OLD text. Archiving a bug doc with `git mv bugs/x.md bugs/completed/x.md && git commit` landed it without its just-written close-out section. The only sign was `git worktree remove` refusing: "contains modified or untracked files".
+
+After a `git mv` of a file you have edited, `git add` the new path, or check that `git status --short` shows no ` M` for it before committing. Read the leftover diff before `--force`-removing a worktree; it may be your own unlanded work.
+
 ## libsnd vendor rebuild mechanics
 
 Rebuilding a `bindings/libsnd/vendor/` library for a Linux box:

@@ -827,6 +827,14 @@ The reverse: when a codegen-inspection `rt_*` test goes red after a layout or AB
 
 Peak-RSS growth per iteration is about 4× smaller on Linux, and the arena chunk floor hides it entirely at low counts. Calibrate at 200k iterations or more and confirm on a Linux box. Measure RSS with `--test-threads=1`; parallel tests produce bogus failures.
 
+## Pin an allocation formula with `--debug` `alloc_bytes`, not RSS
+
+A `mfb build --debug` program prints a report on STDERR, between `mfb.debug.begin` and `mfb.debug.end 1` (on Linux, run the `-glibc.out`). Its `arena.0.alloc_bytes` is the sum of every request the arena served, freed or not, alongside `alloc_calls` and `peak_live_bytes`. Unlike RSS, these counters are exact and the same on every host: a 16 MiB append program reported identical `alloc_bytes` and `peak_live_bytes` on macos-aarch64 and linux-aarch64-glibc, while its peak RSS differed.
+
+So a test can bound them by a formula with no tuned slack. Replay the growth sequence, sum each generation's block size rounded up to 16 bytes, and add the same program's `alloc_bytes` at n = 0. `tests/runtime/rt_list_append_growth_bounds.rs` does this for every in-place grow arm. A model built this way matched measurements to within that rounding, so a miss is a real finding. The first miss there was exactly 16 bytes per generation: a record-field grow reallocates the record's field-slot prefix along with the list.
+
+A Byte-vs-Integer element contrast shows a reservation that ignores element width, but on its own it can miss one. A bulk append of 8-byte chunks binds on data before count, so it measured Byte < Integer while still over-reserving. Pair the contrast with the formula bound.
+
 ## A grep census under-reports
 
 Each of these was found after a census was declared complete, and re-running the same command reproduced the blind spot:
