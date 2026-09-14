@@ -304,8 +304,15 @@ Commit: bb79e651d
       `ErrInvalidFormat`, and 200 `crypto::randomInt` big draws plus its two edge cases, D-C7.
       `./target/release/mfb test tests/acceptance </dev/null` → `Tests: 782  Pass: 782  Fail:
       0`.)
-- [ ] Regenerate goldens with `scripts/sync-goldens.sh` and prove the delta is only
-      `big`'s and the new fixture's.
+- [x] Regenerate goldens with `scripts/sync-goldens.sh` and prove the delta is only
+      `big`'s and the new fixture's. (End-of-plan run on the merged, formatted tree @ 9f9001122:
+      `scripts/sync-goldens.sh target/release/mfb` → `synced 3369 golden file(s) across 1441
+      test(s)`, then `git status --short tests/ | wc -l` → `0` — the delta is empty: no golden
+      moved, and the new fixture is behavioral with no golden dir. The sync discards
+      `test-accept.sh`'s verdict (D-C9), so `scripts/test-accept.sh target/release/mfb
+      /tmp/p127-accept-actual acceptance` → `acceptance tests passed (1 test(s) ran)`, its
+      `test.log` → `Tests: 782  Pass: 782  Fail: 0` with every `Builtin: big` case `[P]` (14 of
+      14).)
 - [x] Run `scripts/man-census.sh --fill big` — every member and both record types
       documented, no gaps. (→ `big  29  29  29  29  49/49  11  6/6`, `pages with neither
       Description nor Examples: 0`.)
@@ -327,7 +334,7 @@ Commit: bb79e651d
 
 Acceptance: `scripts/test-accept.sh` passes with the new fixture; both census runs
 report zero gaps; both example runs are green.
-Commit: —
+Commit: b7b680e45 (fixture + census ticks; golden sync lands in the final-run commit)
 
 ## Validation Plan
 
@@ -426,6 +433,12 @@ Commit: —
   at C Phase 3; compare/equals changed only `DESC` prose after that), and on the crypto side only
   the `randomInt` page changed (3 of 3 ran). Phase 3's golden sync and `test-accept.sh` are
   the plan's single end-of-plan run, after main is merged and the tree is formatted.
+- **D-C9 — `sync-goldens.sh` is not an acceptance verdict.** It runs `test-accept.sh …
+  >/dev/null 2>&1` and ignores its exit status (except the lock refusal 98), printing only the
+  synced count. Zero golden diffs proves the golden-backed fixtures match; the behavioral
+  `tests/acceptance` project needs `test-accept.sh` itself, run filtered to `acceptance` after the
+  sync. Its first attempt exited 98 while the full `cargo test` was running (the `tests/gate/`
+  lock tests take the tree lock); the retry passed.
 - **D-C7 — the acceptance fixture's helpers carry a `big` prefix** (`bigToInteger`,
   `bigDivide`, …) because `tests/acceptance` is one project with one `FUNC` namespace.
 
