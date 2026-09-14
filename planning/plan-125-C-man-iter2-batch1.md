@@ -307,7 +307,7 @@ Measured at the closing commit:
 - `math` examples 21/21 ran.
 
 Bugs filed from this phase: bug-615, bug-616, bug-617, bug-618.
-Commit: —
+Commit: db12d70c3 (unit lists), 21027ab02, 0399377a5, 604bc95c9, 3caf47763, e63a903d3 (closed)
 
 ### Phase 2 — encoding (32 units)
 
