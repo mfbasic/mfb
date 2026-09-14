@@ -27,7 +27,9 @@ Each byte is handled as follows:
 - Every other byte is copied through unchanged.
 
 After the whole input has been decoded, the resulting byte sequence is
-validated as UTF-8 and returned as a `String`. The empty string decodes to the
+validated as UTF-8 and returned as a `String`. Malformed input raises
+`ErrInvalidFormat`: a `%` not followed by two hexadecimal digits (`x%4`, `x%G0`),
+or decoded bytes that are not valid UTF-8 (`%FF`). The empty string decodes to the
 empty string. Hexadecimal digits in escapes may be upper- or lowercase."#;
 #[rustfmt::skip]
 const BODY: &str =

@@ -76,8 +76,30 @@ the shared rejecting percent decoder, which raises `ErrInvalidFormat`.
 
 ## Blast-radius audit
 
-- Every other `encoding` decoder: `grep -n 'errors: vec!' src/codegen/builtins/encoding/func_*decode*.rs`
-  — audit each against its body in Phase 1. `codepageDecode` already declares it.
+- **Every other `encoding` decoder has the same defect**, audited by plan-125-C
+  Phase 2. `grep -n 'errors: vec!' src/codegen/builtins/encoding/func_*decode*.rs`
+  finds **12** decoders declaring `errors: vec![]`. Only `codepageDecode` and
+  `punycodeDecode` declare `ErrInvalidFormat`. Each of the 12 is confirmed to
+  raise `77050003`:
+
+  | Decoder | Evidence it raises `ErrInvalidFormat` |
+  |---|---|
+  | `base64Decode` | 2 `FAIL error(77050003, …)` in its body; probe `base64Decode("QQ")` → `77050003` |
+  | `base32Decode` | 4 in its body; probe `base32Decode("A=======")` → `77050003` |
+  | `base64UrlDecode` | 1 in its body plus the shared `__encoding_base64Symbols` |
+  | `hexDecode` | 2 in its body; probe `hexDecode("zz")` → `77050003` |
+  | `percentDecode`, `formUrlDecode` | the shared `__encoding_percentDecodeBytes`; probe (this bug's reproduction) |
+  | `uleb128Decode` | 3 in its body |
+  | `sleb128Decode` | 3 in its body |
+  | `varintDecode` | through `__encoding_uleb128Decode`; probe `varintDecode([128])` → `77050003` |
+  | `utf8Decode` | `helper_utf8_decode.rs`; probe `utf8Decode([255])` and `utf8Decode([195])` → `77050003` |
+  | `utf16Decode` | 4 in its body; probe on a lone surrogate `[0xD800]` → `77050003` |
+  | `utf32Decode` | 2 in its body |
+  | `htmlUnescape` (not named `*Decode`, same defect) | 2 `FAIL error(77050003, …)` in its body: probes `&#;`, `a &amp b`, `&#1114112;` and `&nosuch;` → `77050003`. It also raises **`ErrEncoding`** for a surrogate reference (`&#55296;` → `77020004`); that error is not declared either (`/tmp/p125-ex/enchtml`) |
+
+  Probes: `/tmp/p125-ex/encclaims`, `/tmp/p125-ex/encb32`, `/tmp/p125-ex/utf8err`.
+  In the meantime, the man pages of the decoders reviewed so far name
+  `ErrInvalidFormat` in their Description prose.
 - Other packages: a member whose body can raise an error its descriptor does not
   declare is the same class. A census that walks each descriptor's body for
   `FAIL`/raising calls against its `errors` list is out of scope here and

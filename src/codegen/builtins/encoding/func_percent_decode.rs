@@ -25,8 +25,8 @@ encoding.
 
 The empty string decodes to the empty string. The function is a strict decoder:
 a `%` with fewer than two following bytes, a `%` followed by a non-hex digit, or
-a decoded byte sequence that is not valid UTF-8 all raise an error rather than
-being passed through or replaced."#;
+a decoded byte sequence that is not valid UTF-8 all raise `ErrInvalidFormat`
+rather than being passed through or replaced."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_percentDecode(text AS String) AS String

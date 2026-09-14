@@ -1,0 +1,3 @@
+NO FINDINGS for man-page:encoding/overview
+
+Probe `/tmp/plan-125-scratch/C-phase2/man-page-encoding-overview/probe-project/src/main.mfb` printed `00`, `00`, then `77050003` for invalid Base64, invalid Base32, and an unpaired UTF-16 surrogate. This confirms both documented non-canonical final groups decode to one zero byte while malformed input raises `ErrInvalidFormat`. I also traced the overview claims through `src/codegen/builtins/encoding/mod.rs` and the individual codec bodies.

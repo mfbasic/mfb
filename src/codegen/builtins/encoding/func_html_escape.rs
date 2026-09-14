@@ -11,8 +11,10 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Escape the five HTML/XML metacharacters in a `String`."#;
 const DESC: &str = r#"`encoding::htmlEscape` produces a form of `text` that is safe to embed inside
-HTML/XML element content and attribute values. It replaces each of the five
-metacharacters with its named character reference:
+HTML/XML element content and inside a **quoted** attribute value. It is not enough
+for an unquoted attribute: text such as `x onmouseover=alert(1)` contains none of
+the five characters and comes back unchanged, so always quote the attribute. It
+replaces each of the five metacharacters with its named character reference:
 
 
 - `&` (ampersand) becomes `&amp;`

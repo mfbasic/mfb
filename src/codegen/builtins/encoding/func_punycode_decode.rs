@@ -12,8 +12,10 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Decode an ASCII Punycode hostname back to its Unicode form."#;
 const DESC: &str = r#"`encoding::punycodeDecode` converts an ASCII hostname in the internationalized
 domain name (IDNA) representation back to Unicode, reversing the Punycode
-Bootstring algorithm of RFC 3492. It is the inverse of
-`encoding::punycodeEncode`.
+Bootstring algorithm of RFC 3492. It reverses `encoding::punycodeEncode` for
+Unicode hostnames, but not for text whose ASCII labels already begin with `xn--`:
+`punycodeEncode` leaves such a label unchanged, and this function then decodes it
+(`punycodeDecode(punycodeEncode("xn--mnchen-3ya.de"))` is `münchen.de`).
 
 The hostname is split on `.` into labels, and each label is processed
 independently; the results are rejoined with `.` so the dot structure of the
@@ -33,13 +35,15 @@ The reconstructed code points are re-encoded to a UTF-8 `String` on return.
 The input is expected to be well-formed Punycode. Malformed input — a basic
 (pre-delimiter) byte at or above `128`, a variable-length integer that is
 truncated before it terminates or that would overflow, a byte that is not a
-valid base-36 digit, a decoded scalar value outside the Unicode range, or an
-encoded label longer than 1024 octets — raises `ErrInvalidFormat` rather than
-producing a partial result. The length bound exists because RFC 3492's insertion
-is quadratic in the label's length; 1024 octets is sixteen times the 63-octet DNS
-label limit (RFC 1034 §3.1, RFC 5890 §2.3.1) and well past the RFC's own sample
-strings, so no host label or round trip through `punycodeEncode` of ordinary
-text can reach it."#;
+valid base-36 digit, a decoded scalar value outside the Unicode range, or a
+Punycode payload longer than 1024 octets (not counting the `xn--` prefix) — raises
+`ErrInvalidFormat` rather than producing a partial result. A payload that decodes
+to a surrogate (`U+D800`–`U+DFFF`) raises `ErrEncoding` instead
+(`punycodeDecode("xn--ib9b")`). The length bound limits the decoder's work, since
+RFC 3492's insertion is quadratic in the label's length. It is far above the
+63-octet DNS label limit (RFC 1034 §3.1, RFC 5890 §2.3.1), but `punycodeEncode`
+has no such limit: encoding 1023 `ü` gives a 1029-octet label that this function
+rejects."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_punycodeDecode(asciiDomain AS String) AS String
@@ -95,7 +99,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "asciiDomain",
-                desc: "The ASCII (Punycode) domain name to decode.",
+                desc: "The ASCII (Punycode) domain name to decode. The empty string gives the empty string.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

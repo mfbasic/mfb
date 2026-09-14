@@ -312,10 +312,95 @@ Commit: db12d70c3 (unit lists), 21027ab02, 0399377a5, 604bc95c9, 3caf47763, e63a
 ### Phase 2 — encoding (32 units)
 
 - [ ] 30 function pages + overview + the 29-description types page.
-- [ ] Every example compiled and run; every round-trip claim
+- [~] Every example compiled and run; every round-trip claim
       (`hexEncode`/`hexDecode`, `varint`, `punycode`, `codepage`) verified by
       probe in both directions.
-- [ ] Ledger recorded.
+      My pass, done:
+      - `./scripts/man-run-examples.sh encoding --run` → 62/62 built and ran;
+        `--memory-scope encoding` 0; `--scope encoding` 0.
+      - Round-trips, both directions (`/tmp/p125-ex/encroundtrip`):
+        - hex `00ff7f80`;
+        - `varint` 300 → `d804` → 300, and -1 → -1;
+        - `uleb128` 624485 → `e58e26` → 624485;
+        - `sleb128` -123456 → `c0bb78` → -123456;
+        - `punycode` `bücher.example` ↔ `xn--bcher-kva.example`;
+        - `Windows1252` `café€` → `636166e980` → `café€`;
+        - `Koi8R` `привет` round-trips.
+      - Types page, all counts exact (128 high bytes decoded per codepage):
+        - `Iso8859_3` 7 undefined, `Iso8859_6` 83 defined, `Iso8859_7` 3
+          undefined, `Iso8859_8` 92 defined;
+        - `Iso8859_8I` identical to `Iso8859_8` on 128/128 bytes;
+        - `Windows874` 120 defined, `Windows1253` 3 undefined, `Windows1255` 118
+          defined, `Windows1257` 2 undefined;
+        - `Iso8859_15` 0xA4 is `€` (`Windows1252` has `¤` there).
+      - Decoder and escape claims (`/tmp/p125-ex/encclaims`): all confirmed.
+      - `varintEncode(300)` is `d804`, the ZigZag form (a plain protobuf varint of
+        300 is `ac02`). The pages already say ZigZag (`varintDecode` INTRO and
+        DESC), so no page defect. To check against its review: the DESC writes the
+        mapping as `(u >> 1) XOR -(u AND 1)`, and MFBASIC's `AND`/`XOR` are
+        Boolean-only (the letter-B `bits::ctz` class).
+      - **Remaining: the 32 Codex reviews, dispatched.**
+- [~] Ledger recorded. **Partial:** 22 of 32 reviews are triaged below. **Remaining:
+      `uleb128Decode`, `uleb128Encode`, `utf16Decode`, `utf16Encode`,
+      `utf32Decode`, `utf32Encode`, `utf8Decode`, `utf8Encode`,
+      `varintDecode`, `varintEncode`**. These 10 hit the Codex usage limit
+      (their `.log` files); `--reconcile --letter C-phase2` reports
+      `unaccounted=10`.
+
+#### Phase 2 ledger — Codex iteration 2 (`planning/plan-125-findings/C-phase2/`)
+
+Probes: `/tmp/p125-ex/encclaims`, `encroundtrip`, `encb32`, `encb64`, `utf8err`.
+The "input unchanged" suggestions are rejected as a class: no call can change an
+argument value (`mfb man variable`), so saying it on one page restates a
+language rule.
+
+| Page | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| overview | — | NO FINDINGS | — | — |
+| types | 1 | CONFIRMED | `Iso8859_8I` decodes 128/128 high bytes identically to `Iso8859_8`; "differ only in display direction" implied a behavior difference | `Iso8859_8I` description |
+| types | 2 | CONFIRMED | probe: `Iso8859_3` byte 165 and `Windows1257` byte 161 → `77050003`; all eight counts exact (encroundtrip) | the 8 counted codepages add "Decoding one of those undefined bytes raises `ErrInvalidFormat`" |
+| base32Decode | 1 | CONFIRMED (prose) + **bug-606** | `base32Decode("A=======")` → `77050003`; the descriptor declares `errors: vec![]` | DESC names `ErrInvalidFormat`; bug-606 extended to all 12 decoders |
+| base32Encode | 1 | CONFIRMED | probe: `base32Encode(base32Decode("my======"))` → `MY======` | "inverse" replaced |
+| base32Encode | 2 | CONFIRMED | probe: `base32Encode([])` → empty | parameter |
+| base32Encode | 3 | REJECTED | input-unchanged class (above) | — |
+| base64Decode | 1, 2 | CONFIRMED | probe: `base64Decode("====")` → 0 bytes; `"AB=="` → `00` → `base64Encode` `AA==` | DESC: lenient decoding stated; "each non-padding character" |
+| base64Decode | 3 | CONFIRMED (prose) + **bug-606** | `base64Decode("QQ")` → `77050003` | DESC names `ErrInvalidFormat` |
+| base64Encode | 1 | REJECTED | input-unchanged class | — |
+| base64UrlDecode | 1, 2 | CONFIRMED | probe: `"AB=="` → `00` → `base64UrlEncode` `AA`; `"Zg=="` → `66` | DESC |
+| base64UrlDecode | 3 | CONFIRMED (prose) + **bug-606** | `base64UrlDecode("Z")` → `77050003` | DESC names `ErrInvalidFormat` |
+| base64UrlEncode | 1 | CONFIRMED | probe: `base64UrlEncode([])` → empty | parameter |
+| base64UrlEncode | 2 | REJECTED | input-unchanged class | — |
+| codepageEncode | 1, 3 | CONFIRMED | probe: `codepageEncode(Utf8, "e\u{0301}")` → `65cc81` | INTRO and `codepage` parameter mention `Codepage.Utf8` |
+| codepageEncode | 2 | CONFIRMED | probe: `codepageEncode(Iso8859_7, "A")` → `41` (ASCII is its own byte); `"世"` → `77050003` | example narrowed to non-Greek letters above U+007F |
+| codepageDecode | 1 | CONFIRMED | probe: `codepageDecode(Windows874, [0xDB])` → `77050003`; a browser substitutes a replacement character | browser claim limited to defined bytes |
+| formUrlDecode | 1 | CONFIRMED (prose) + **bug-606** | probe: `x%4`, `x%G0`, `%FF` → `77050003` | DESC names `ErrInvalidFormat` and its triggers |
+| formUrlEncode | 1 | CONFIRMED | probe: `formUrlEncode("*-._~")` → `%2A%2D%2E%5F%7E` (a browser leaves `*-._`); `formUrlDecode` of either spelling → `*-._` | opening no longer claims the browser rule set |
+| hexEncode | 1 | REJECTED | input-unchanged class | — |
+| hexEncode | 2 | CONFIRMED | probe: `hexEncode([])` → empty | parameter |
+| hexDecode | 1, 2 | CONFIRMED (prose) + **bug-606** | probe: `hexDecode("0")` and `hexDecode("zz")` → `77050003` | DESC names `ErrInvalidFormat` for bad digits and odd length |
+| htmlEscape | 1 | CONFIRMED | probe: `htmlEscape("x onmouseover=alert(1)")` comes back unchanged, so the result is unsafe in an unquoted attribute | DESC: element content and **quoted** attribute values only |
+| htmlEscape | 2 | REJECTED | input-unchanged class | — |
+| htmlUnescape | 1 | CONFIRMED | probe: `htmlUnescape("&#55296;")` → `77020004` (`ErrEncoding`); the page said surrogates are accepted | DESC: surrogates raise `ErrEncoding` |
+| htmlUnescape | 2 | CONFIRMED (prose) + **bug-606** | probe: `&#;`, `a &amp b`, `&#1114112;`, `&nosuch;` → `77050003`; the descriptor declares `errors: vec![]` | DESC names both errors; bug-606 row added |
+| percentDecode | 1 | CONFIRMED (prose) + **bug-606** | probe: `percentDecode("%2")` → `77050003` | DESC names `ErrInvalidFormat` |
+| percentEncode | 1 | REJECTED | input-unchanged class | — |
+| punycodeEncode | 1 | CONFIRMED | probe: `punycodeEncode("a b.example")` unchanged; `"foo\u{3002}bar"` → `xn--foobar-rr3e` (no IDNA dot mapping) | DESC: plain RFC 3492 per ASCII-`.` label, no IDNA mapping or validation |
+| punycodeEncode | 2 | CONFIRMED | probe: `"e\u{0301}.example"` → `xn--e-xbb.example`; "the package's UTF-8 decoder" was an implementation route | DESC: scalars, not graphemes |
+| punycodeEncode | 3 | CONFIRMED | probe: empty → empty | parameter |
+| punycodeDecode | 1 | CONFIRMED | probe: `punycodeDecode(punycodeEncode("xn--mnchen-3ya.de"))` → `münchen.de` | DESC: inverse only for labels not already beginning `xn--` |
+| punycodeDecode | 2 | CONFIRMED | probe: empty → empty | parameter |
+| punycodeDecode | 3 | CONFIRMED | probe: `punycodeDecode("xn--ib9b")` → `77020004` (`ErrEncoding`) | DESC: surrogate payload raises `ErrEncoding` |
+| punycodeDecode | 4 | CONFIRMED | `func_punycode_decode.rs` strips `xn--` before `helper_puny_decode_label.rs` checks `len > 1024` | DESC: the bound excludes the prefix |
+| punycodeDecode | 5 | CONFIRMED | probe: 1023 × `ü` → a 1029-octet label, which `punycodeDecode` rejects with `77050003` | DESC: `punycodeEncode` can exceed the bound |
+| sleb128Decode | 1, 2 | CONFIRMED (prose) + **bug-606** | probe: `sleb128Decode([])` and `[0x80]` → `77050003`; 11 bytes → `77050003` | DESC + parameter name the error and the rules |
+| sleb128Decode | 3 | CONFIRMED → **bug-619** | probe: nine `0x80` + `0x02` → `0`, no error; `IF shift > 63` is checked before the read; `uleb128Decode` has the same check | DESC no longer promises overflow detection |
+| sleb128Encode | 1 | CONFIRMED | probe: the `Integer` minimum round-trips in 10 bytes; `0` → `00`, `-1` → `7f` | parameter and DESC: every `Integer` is valid |
+| sleb128Encode | 2 | REJECTED | the shift sentence explains why negative values terminate, the observable contract; not internals | — |
+| sleb128Encode | 3 | CONFIRMED | probe: `sleb128Encode(64)` → `c000`, `uleb128Encode(64)` → `40`; no separate sign byte | DESC: sign bit in the last group, so one more byte |
+
+Found while applying, not raised by a reviewer, and left for letter G's
+re-integration (no cross-page reconciliation here): `base32Decode`'s own
+description still calls it "the inverse of `encoding::base32Encode`".
 
 Acceptance: 32 units `exit 0`; sweeps clean for `encoding`; every type
 description verified against the record/resource it describes.

@@ -24,9 +24,10 @@ result length is always a multiple of eight. An empty list yields the empty
 string.
 
 The function is **total**: every `List OF Byte`, including the empty list,
-encodes successfully, and it never raises a runtime error. The inverse operation
-is `encoding::base32Decode`, which parses a Base32 string back into a
-`List OF Byte`."#;
+encodes successfully, and it never raises a runtime error. Decode Base32 text
+with `encoding::base32Decode`. Decoding accepts more than this function writes —
+lowercase letters and non-canonical final symbols — so decoding then re-encoding
+gives the canonical uppercase form (`my======` comes back as `MY======`)."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_base32Encode(data AS List OF Byte) AS String
@@ -69,7 +70,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "data",
-                desc: "The bytes to encode.",
+                desc: "The bytes to encode. An empty list gives the empty string.",
                 aliases: &[],
                 ty: ParameterType::list_of(ParameterType::Byte),
                 default: DefaultValue::None,

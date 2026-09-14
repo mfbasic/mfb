@@ -30,13 +30,14 @@ and `;`:
   under "Named references" below are recognised; any other name — including
   common HTML ones such as `&alpha;` — raises `ErrInvalidFormat`.
 
-The resolved code point is emitted as UTF-8 text. Any code point in the range
-`0`–`1114111` (`0x10FFFF`) is accepted, including surrogate values, which are
-not screened out.
+The resolved code point is emitted as UTF-8 text. A code point in the range
+`0`–`1114111` (`0x10FFFF`) is accepted, except a surrogate (`55296`–`57343`),
+which has no UTF-8 form and raises `ErrEncoding` (`&#55296;`).
 
-The function is **not total**: it fails on a reference that has no `;`
-terminator, on a numeric reference whose digits are empty or non-numeric, on an
-unknown entity name, and on a numeric reference whose value exceeds `1114111`.
+The function is **not total**. It raises `ErrInvalidFormat` for a reference
+that has no `;` terminator, a numeric reference whose digits are empty or
+non-numeric, an unknown entity name, and a numeric reference whose value exceeds
+`1114111`; a surrogate reference raises `ErrEncoding`, as above.
 The empty string yields the empty string. `encoding::htmlUnescape` is the
 inverse of `encoding::htmlEscape`.
 

@@ -10,12 +10,17 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"Decode a standard Base64 `String` into a `List OF Byte`."#;
-const DESC: &str = r#"`encoding::base64Decode` parses `text` as standard Base64 (RFC 4648 §4) and
-returns the bytes it encodes. Each character selects a 6-bit value from the
-alphabet `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/`; the
-values are concatenated most-significant bit first into a continuous bit stream
-and emitted eight bits at a time, so leftover bits that do not fill a final byte
-are discarded. This is the inverse of `encoding::base64Encode`.
+const DESC: &str = r#"`encoding::base64Decode` decodes `text` written in the standard Base64 alphabet
+(RFC 4648 §4) and returns the bytes it encodes. Each non-padding character selects
+a 6-bit value from the alphabet
+`ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/`; the values are
+concatenated most-significant bit first into a continuous bit stream and emitted
+eight bits at a time, so leftover bits that do not fill a final byte are discarded.
+It decodes everything `encoding::base64Encode` writes, and it is more lenient than
+the RFC: it does not check the padding count or that discarded bits are zero, so
+`"===="` decodes to the empty list and `"AB=="` decodes to one zero byte, which
+`base64Encode` writes back as `"AA=="`. Do not use a decode round-trip to check that
+text is canonical Base64.
 
 The alphabet is the standard variant using `+` and `/` for values `62` and `63`;
 it is case-sensitive (`A`–`Z` map to `0`–`25`, `a`–`z` to `26`–`51`, `0`–`9` to
@@ -26,8 +31,10 @@ and contribute no bits.
 The total input length (including padding) must be a multiple of four
 characters. In addition, the number of non-padding symbols cannot be exactly one
 more than a multiple of four (a symbol count whose remainder modulo four is `1`),
-because no well-formed Base64 group ends on a single 6-bit symbol. The empty
-string decodes to the empty list. For the URL- and filename-safe variant that
+because no well-formed Base64 group ends on a single 6-bit symbol. Every rejection
+— an invalid character, a symbol after `=`, or a bad length — raises
+`ErrInvalidFormat`. The empty string decodes to the empty list. For the URL- and
+filename-safe variant that
 uses `-` and `_`, use `encoding::base64UrlDecode`."#;
 #[rustfmt::skip]
 const BODY: &str =
