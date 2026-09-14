@@ -5,8 +5,23 @@ Effort: large (3h–1d) — the sizing change is small; the `.ncodesum` regenera
 Severity: MEDIUM
 Class: Other (memory overhead — output is correct)
 
-Status: Open
-Regression Test: `tests/runtime/rt_list_append_growth_bounds.rs` (to be written, Phase 1)
+Status: Fixed
+Regression Test: `tests/runtime/rt_list_append_growth_bounds.rs`
+
+> **STATUS: FIXED (48e02e827)** — 2026-09-14. Landed on `main` with test `5a79f013d`,
+> goldens `f3964723b`, merged with `main` at `eaa7fa925`. Every in-place grow arm
+> (list append/insert/prepend, bulk append, both record-field arms, map/Set `set`) now
+> sizes a fixed-width payload's data capacity as `newCapacity × stride`. A 16 MiB
+> append-built `List OF Byte` peaked at 53,051,392 bytes RSS instead of 981,975,040
+> (macOS; 52,781,056 on linux-aarch64-glibc).
+>
+> Deviations from the Fix Design:
+> - The map arm is included, as Open Decisions recommended.
+> - The `max(.., required)` clamp is kept on every fixed-width branch, so correctness
+>   does not depend on `dataLength == count × width`.
+> - The regression test bounds `--debug` `arena.0.alloc_bytes` per arm, which is exact
+>   and identical on macOS and Linux. Only the filed 16 MiB case uses RSS.
+> - The record-field bound gained the record's field-slot prefix (see Phase 2 notes).
 
 Appending to a function-local `List OF Byte` with `data = collections::append(data, b)`
 takes the in-place path (amortized O(1), correct output), but every grow sizes the new
@@ -235,7 +250,7 @@ region exactly per append (breaks amortized O(1)).
 
 Acceptance: `cargo test --test rt_list_append_growth_bounds` fails on the `byte < integer`
 assertion; every Blast Radius line carries a measured verdict.
-Commit: —
+Commit: 5a79f013d
 
 **Phase 1 results (2026-09-13, macos-aarch64, compiler at `a74de5975`).** Each site was
 probed with a `--debug` program at n = 1,048,576 (prepend: 65,536, since each prepend
@@ -306,7 +321,12 @@ generation, and the bound now includes it. The pre-fix compiler still overshoots
 Acceptance: `cargo test --test rt_list_append_growth_bounds` passes; the four nearest guards
 (`rt_scope_drop_leaks`, `rt_res_state_inplace_mutation`, `codegen_inplace_record_field`,
 `codegen_inplace_append_call_result`) pass.
-Commit: —
+Commit: 48e02e827
+
+Acceptance measured: `rt_list_append_growth_bounds` 8/8 pass. Guards, run serially
+with `--test-threads=1`, all pass: `codegen_inplace_append_call_result` 5/5,
+`codegen_inplace_record_field` 10/10, `rt_res_state_inplace_mutation` 24/24,
+`rt_scope_drop_leaks` 131/131.
 
 ### Phase 3 — regenerate expected outputs + full validation
 
@@ -334,8 +354,24 @@ json, regex, …) append bytes, which is why the cover fixtures move.
 86 golden(s) rewritten, 0 failure(s)`; git shows 83 `.ncodesum` and 1 `.ncode`
 changed, and no `.ast`, `.ir` or `build.log`. A rerun of `artifact-gate.sh <fixed mfb> all`
 afterwards reported `2021 golden(s) checked, 0 diff(s)`.
-- [ ] `cargo test --no-fail-fast > /tmp/bug621.log 2>&1; echo EXIT=$?` and
+
+**Pre-merge gates (branch at `b6ad3f676`, forked from `a74de5975`):**
+- `cargo test --no-fail-fast`: EXIT=0 across 180 test binaries, 5,634 passed, 0 failed, 6 ignored.
+- `scripts/test-accept.sh`: `acceptance tests passed (1464 test(s) ran)`.
+
+`main` had advanced to `57727136f` in the meantime (plan-133-C, a plan-136 merge,
+`.ai` lesson fold). It was merged into the branch as `eaa7fa925` with no conflicts.
+On the merged tree, the release build succeeded and `artifact-gate.sh all` reported
+`1448 tests, 1614 build(s), 2023 golden(s) checked, 0 diff(s)`; none of main's new
+fixtures needed regeneration. `scripts/test-accept.sh` on the merged tree reported
+`acceptance tests passed (1472 test(s) ran)`, EXIT=0.
+- [x] `cargo test --no-fail-fast > /tmp/bug621.log 2>&1; echo EXIT=$?` and
       `scripts/test-accept.sh target/release/mfb /tmp/bug621-accept`.
+
+      Merged tree `eaa7fa925`: `cargo test --no-fail-fast` EXIT=0 across 183 test
+      binaries, 5,671 passed, 0 failed, 11 ignored. `test-accept.sh` passed all 1,472
+      tests. `artifact-gate.sh all`: 2023 goldens checked, 0 diffs.
+      `cargo fmt --all` (plus the `repository/` pass) changed nothing.
 - [x] Re-run the reproduction on macos-aarch64 and on box 2223 (linux-aarch64 glibc), and
       record the new numbers in this file.
 
@@ -362,7 +398,7 @@ bytes.
 
 Acceptance: full suite and acceptance green; golden delta is native-dump-only; the
 reproduction's peak live bytes fall by the factor the formula predicts.
-Commit: —
+Commit: f3964723b (goldens); eaa7fa925 (merge of `main`, re-verified)
 
 ## Validation Plan
 
@@ -376,8 +412,10 @@ Commit: —
 
 ## Open Decisions
 
-- Map capacity grow (`mapset_grow_cap`/`mapset_grow_dcap`) — include if Phase 1's probe
-  shows the same width-independence (recommended), vs. leave to a follow-up.
+- ~~Map capacity grow (`mapset_grow_cap`/`mapset_grow_dcap`) — include if Phase 1's probe
+  shows the same width-independence (recommended), vs. leave to a follow-up.~~
+  **Resolved: included.** The probe measured `Map OF Integer TO Byte` and `TO Integer` at
+  the same 340,213,376 bytes, and 326,809,296 were predicted after the fix.
 
 ## Summary
 
