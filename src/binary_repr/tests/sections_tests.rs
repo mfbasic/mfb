@@ -4,6 +4,59 @@
 
 use super::*;
 
+/// plan-136-B: a computed default hashes as its own marker — distinct from no
+/// default and from a literal one — and NOT as its function index, because a
+/// default expression is not ABI.
+#[test]
+fn function_sig_hash_distinguishes_a_function_default() {
+    let strings = vec![String::new(), "x".to_string()];
+    let types = TypeTable::new();
+    let mut constants = ConstPool::new();
+    let literal = constants
+        .add(
+            &mut StringPool::new(),
+            &IrValue::Const {
+                type_: crate::types::ParameterType::Integer,
+                value: "7".to_string(),
+            },
+        )
+        .expect("literal constant");
+    let hash = |flags: u32, default_const: u32| {
+        let function = Function {
+            name: 0,
+            kind: FUNCTION_BINARY_REPR,
+            flags: 0,
+            return_type: TYPE_INTEGER,
+            params: vec![Param {
+                name: 1,
+                type_id: TYPE_INTEGER,
+                flags,
+                default_const,
+            }],
+            registers: vec![],
+            cleanups: vec![],
+        };
+        function_sig_hash(
+            &function,
+            BinaryReprExportKind::Func,
+            &strings,
+            &types,
+            &constants,
+        )
+        .expect("sigHash")
+    };
+    let absent = hash(0, u32::MAX);
+    let constant = hash(PARAM_FLAG_DEFAULT, literal);
+    let computed = hash(PARAM_FLAG_DEFAULT | PARAM_FLAG_DEFAULT_FUNCTION, 3);
+    assert_ne!(computed, absent);
+    assert_ne!(computed, constant);
+    assert_eq!(
+        computed,
+        hash(PARAM_FLAG_DEFAULT | PARAM_FLAG_DEFAULT_FUNCTION, 9),
+        "the hidden function's index is not part of the ABI"
+    );
+}
+
 #[test]
 fn string_pool_interns_and_dedups() {
     let mut pool = StringPool::new();

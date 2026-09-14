@@ -16,6 +16,7 @@
 //! `mfb.debug.begin` block in stderr.
 
 pub(crate) mod arena;
+mod clock;
 mod perf;
 pub(crate) mod process;
 mod shutdown;

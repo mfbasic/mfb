@@ -197,7 +197,9 @@ its own callback returning 1, so it reports 62 where the emitted code reports 18
 `CERT_CHAIN_POLICY_PARA::dwFlags` gains **only**
 `CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG`. Never the sibling
 `..._IGNORE_INVALID_NAME`/`..._INVALID_DATE`, never clear `pwszServerName`, and
-`dwError == 0` is still required.
+`dwError == 0` is still required. To see what Windows is refusing, ask it directly:
+PowerShell's `X509Chain` → `.Build()` → `.ChainStatus` names the condition (e.g.
+`UntrustedRoot`).
 
 **Network.framework.** A `sec_protocol_options_set_verify_block` block that
 re-runs the *whole* SSL policy with the peer's own root as the anchor
@@ -215,6 +217,19 @@ anchors — the keychain exemption does not apply to a programmatic anchor and
 there is no opt-out. A 10-year self-signed certificate therefore works on Linux
 and Windows and fails on macOS *even with the flag*. Generate test and example
 certificates with `-days 397 -addext extendedKeyUsage=serverAuth`.
+
+## Proving a per-backend TLS change at runtime
+
+Byte-identity shows the code was emitted, not that a handshake works on that backend.
+Run it on 2223 (OpenSSL), 2230 (Schannel) and the Mac (Network.framework):
+
+- `scripts/gen-test-tls-identity.sh <dir>` makes a throwaway CA and a `127.0.0.1` server
+  leaf, in PKCS#1 and PKCS#8 (`SecItemImport` accepts only PKCS#1).
+- A server proof needs a client that isn't MFB, or it only shows the code agreeing with
+  itself. Linux has `openssl s_client`; 2230 has no openssl, so use a PowerShell
+  `SslStream` client, which also reports the presented certificate.
+- There is no preprocessor, so bake each target's absolute cert paths and ports into the
+  fixture source with `sed`.
 
 ## There is no `tls::wrap`, and the reason is macOS-specific
 

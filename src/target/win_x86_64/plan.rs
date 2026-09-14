@@ -738,6 +738,13 @@ impl NativePlanPlatform for Platform {
         ]
     }
 
+    fn debug_clock_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![
+            import("QueryPerformanceCounter", KERNEL32, required_by),
+            import("QueryPerformanceFrequency", KERNEL32, required_by),
+        ]
+    }
+
     fn native_call_imports(&self, _target: &str, _required_by: &str) -> Vec<PlatformImport> {
         Vec::new()
     }

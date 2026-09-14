@@ -397,6 +397,31 @@ advertises a spelling a developer cannot type. Those 30 pages are real
 surface reached by bare name. **`scripts/man-manual.sh` is the complete
 artifact**; use it, not raw `--all`, for any whole-surface sweep.
 
+Three harness traps:
+
+- **`mfb pkg doc <file>.mfp` does not print the docs.** It writes `doc.html` into the
+  current directory and prints only `Wrote documentation to doc.html`, so
+  `mfb pkg doc … | grep -c` counts 0. Pass `--out /tmp/<name>.html`, and check
+  `git status` for a stray `doc.html` afterwards.
+- **`man-run-examples.sh`'s timeout kills only the example process** (`run_bounded`
+  sends `kill -9` to one pid). A server the example started can survive holding its
+  port, and the next example that binds it fails as if it were broken. Check
+  `lsof -nP -iTCP:<port> -sTCP:LISTEN` before believing a bind failure.
+- **Don't edit a harness script while a run of it is going.** The shell reads the file
+  as it executes, so the run can pick up a mix of old and new code.
+
+### DOC blocks in package source
+
+`DOC … END DOC` blocks are validated by the build but never rendered by it:
+
+- `ARG` and `RET` are one line each. A second line is `DOC_ARG_DUPLICATE` /
+  `DOC_DUPLICATE_RET`; only `DESC`/`INFO`/`WARN`/`SEC` continue across lines.
+- Consecutive `INFO` (or `WARN`/`SEC`) lines form ONE callout, not one per line.
+- The header must name a `FUNC`, `SUB`, `TYPE`, `UNION`, `ENUM`, `RESOURCE` or
+  `PACKAGE`; a `LET` is `DOC_BAD_HEADER`.
+- `EXAMPLE` code is not compiled. Render with `mfb pkg doc <file>.mfp --out …` and
+  build every example yourself.
+
 ## 9. The narrative guide topics
 
 The 10 topics under `src/docs/man/**` — `errors`, `flow`, `lambda`, `link`,

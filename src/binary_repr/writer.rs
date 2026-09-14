@@ -332,6 +332,7 @@ pub(super) fn lower_project_with_external_functions(
             &mut strings,
             &mut types,
             &mut constants,
+            &function_ids,
             external_function_abi_hashes,
             &mut used_imported_functions,
         )?);
@@ -655,6 +656,69 @@ pub(super) fn collect_resource_names_in_value(
     }
 }
 
+/// A parameter record's `(flags, defaultConst)` pair (plan-136-B).
+///
+/// A literal default (`IrValue::Const`) is a `CONST_POOL` id under
+/// [`PARAM_FLAG_DEFAULT`], exactly as before this plan, so an existing package's
+/// bytes and `sigHash` are unchanged. A computed default is the zero-argument call
+/// to its hidden default function (`ir::lower::lower_parameter_default`), stored as
+/// that function's `FUNCTION_TABLE` index under `PARAM_FLAG_DEFAULT |
+/// PARAM_FLAG_DEFAULT_FUNCTION`. Every other value shape is a lowering defect and is
+/// refused here, naming the function and parameter, rather than written.
+fn lower_param_default(
+    function: &IrFunction,
+    param: &crate::ir::IrParam,
+    strings: &mut StringPool,
+    constants: &mut ConstPool,
+    function_ids: &HashMap<String, u32>,
+) -> Result<(u32, u32), String> {
+    let refuse = |shape: &str| {
+        Err(format!(
+            "function `{}` parameter `{}`: a package can store a default only as a constant \
+             or a call to its hidden default function, not {shape}",
+            function.name, param.name
+        ))
+    };
+    let Some(default) = &param.default else {
+        return Ok((0, u32::MAX));
+    };
+    match default {
+        IrValue::Const { .. } => Ok((PARAM_FLAG_DEFAULT, constants.add(strings, default)?)),
+        IrValue::Call { target, args, .. }
+            if args.is_empty() && crate::internal_name::is_hidden_default_function(target) =>
+        {
+            let Some(index) = function_ids.get(target) else {
+                return refuse(&format!(
+                    "a call to `{target}`, which is not in the function table"
+                ));
+            };
+            Ok((PARAM_FLAG_DEFAULT | PARAM_FLAG_DEFAULT_FUNCTION, *index))
+        }
+        IrValue::Call { .. } => refuse("a call to an ordinary function"),
+        IrValue::Local(_)
+        | IrValue::Global(_)
+        | IrValue::LocalRef { .. }
+        | IrValue::FunctionRef { .. }
+        | IrValue::Closure { .. }
+        | IrValue::Capture { .. }
+        | IrValue::CallResult { .. }
+        | IrValue::Checked { .. }
+        | IrValue::Constructor { .. }
+        | IrValue::UnionWrap { .. }
+        | IrValue::UnionExtract { .. }
+        | IrValue::ResultIsOk { .. }
+        | IrValue::ResultValue { .. }
+        | IrValue::ResultError { .. }
+        | IrValue::WithUpdate { .. }
+        | IrValue::ListLiteral { .. }
+        | IrValue::SetLiteral { .. }
+        | IrValue::MapLiteral { .. }
+        | IrValue::MemberAccess { .. }
+        | IrValue::Binary { .. }
+        | IrValue::Unary { .. } => refuse("a non-constant value"),
+    }
+}
+
 /// Lower an `IrFunction` to its container *metadata* (`Function`): name, kind,
 /// flags, return type, and parameter signatures. Function *bodies* are no longer
 /// flattened to opcodes here — they are carried verbatim in the structured
@@ -666,20 +730,20 @@ pub(super) fn lower_function(
     strings: &mut StringPool,
     types: &mut TypeTable,
     constants: &mut ConstPool,
+    function_ids: &HashMap<String, u32>,
     external_function_abi_hashes: &HashMap<String, [u8; ABI_HASH_LEN]>,
     used_imported_functions: &mut HashSet<String>,
 ) -> Result<Function, String> {
     let mut params = Vec::new();
     for param in &function.params {
         let type_id = types.type_id(strings, &param.type_);
+        let (flags, default_const) =
+            lower_param_default(function, param, strings, constants, function_ids)?;
         params.push(Param {
             name: strings.intern(&param.name),
             type_id,
-            flags: if param.default.is_some() { 1 } else { 0 },
-            default_const: match &param.default {
-                Some(default) => constants.add(strings, default)?,
-                None => u32::MAX,
-            },
+            flags,
+            default_const,
         });
     }
 

@@ -42,6 +42,10 @@ pub fn strip_sigil(name: &str) -> Option<&str> {
 /// file-scoped PRIVATE name (`#<hash>$name`, see [`mangle_private`]) demangles to
 /// its plain source name. Non-internal names are returned unchanged.
 pub fn display_name(name: &str) -> std::borrow::Cow<'_, str> {
+    // A hidden default function reads as the function whose default it computes.
+    if let Some((function, _)) = hidden_default_function_parts(name) {
+        return std::borrow::Cow::Owned(display_name(function).into_owned());
+    }
     match strip_sigil(name) {
         Some(rest) => match strip_private_hash(rest) {
             Some(plain) => std::borrow::Cow::Owned(plain.to_string()),
@@ -49,6 +53,38 @@ pub fn display_name(name: &str) -> std::borrow::Cow<'_, str> {
         },
         None => std::borrow::Cow::Borrowed(name),
     }
+}
+
+/// Prefix of a hidden default function (plan-136-A). `$` is never part of a user
+/// identifier, so no source declaration can take the name.
+const HIDDEN_DEFAULT_PREFIX: &str = "$default$";
+
+/// The name of the hidden function that computes parameter `index`'s default of
+/// the concrete function `function`: `$default$<function>$<index>`.
+///
+/// A computed parameter default (anything but a name-free literal) is lowered
+/// into this private, parameterless function in the declaration's scope, and
+/// every call that omits the argument calls it — so the default's names resolve
+/// where the function is declared and it is evaluated on each such call.
+pub fn hidden_default_function_name(function: &str, index: usize) -> String {
+    format!("{HIDDEN_DEFAULT_PREFIX}{function}${index}")
+}
+
+/// Whether `name` is a [`hidden_default_function_name`].
+pub fn is_hidden_default_function(name: &str) -> bool {
+    hidden_default_function_parts(name).is_some()
+}
+
+/// The function and parameter index a hidden default function name encodes. The
+/// index is the text after the LAST `$`, because a monomorphized function name
+/// may itself contain `$`.
+fn hidden_default_function_parts(name: &str) -> Option<(&str, usize)> {
+    let rest = name.strip_prefix(HIDDEN_DEFAULT_PREFIX)?;
+    let (function, index) = rest.rsplit_once('$')?;
+    if function.is_empty() || index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some((function, index.parse().ok()?))
 }
 
 /// Width of the hex file-scope hash embedded in a mangled PRIVATE name.
@@ -145,5 +181,30 @@ mod tests {
         let plain = display_name("parse");
         assert_eq!(plain, "parse");
         assert!(matches!(plain, std::borrow::Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn hidden_default_function_names_round_trip_and_display_as_their_function() {
+        let plain = hidden_default_function_name("compute", 1);
+        assert_eq!(plain, "$default$compute$1");
+        assert!(is_hidden_default_function(&plain));
+        assert_eq!(display_name(&plain), "compute");
+        // A monomorphized function name carries `$` itself; the index is the last part.
+        let generic = hidden_default_function_name("firstPlus$List$OF$Integer", 0);
+        assert!(is_hidden_default_function(&generic));
+        assert_eq!(display_name(&generic), "firstPlus$List$OF$Integer");
+        // A PRIVATE function's hidden default displays as the plain source name.
+        let private = hidden_default_function_name(
+            &mangle_private(&file_scope_hash("src/a.mfb"), "helper"),
+            2,
+        );
+        assert!(is_hidden_default_function(&private));
+        assert_eq!(display_name(&private), "helper");
+        // Neither a lambda nor a malformed name is a hidden default function.
+        assert!(!is_hidden_default_function("$lambda0"));
+        assert!(!is_hidden_default_function("$default$compute"));
+        assert!(!is_hidden_default_function("$default$$0"));
+        assert!(!is_hidden_default_function("$default$compute$x"));
+        assert!(!is_hidden_default_function("compute"));
     }
 }

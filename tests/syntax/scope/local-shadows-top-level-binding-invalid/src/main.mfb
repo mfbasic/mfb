@@ -1,0 +1,82 @@
+' plan-136-C: a local binding may not share a name with a VISIBLE top-level LET/MUT.
+' One offending binding of each of the nine kinds against a same-file LET, a
+' parameter against a same-file PRIVATE MUT, and a LET against a binding declared
+' in a second file (src/other.mfb).
+IMPORT io
+IMPORT fs
+
+TYPE Circle
+  radius AS Integer
+END TYPE
+TYPE Rect
+  w AS Integer
+  h AS Integer
+END TYPE
+UNION Shape
+  Circle
+  Rect
+END UNION
+
+LET alpha AS Integer = 1
+LET beta AS Integer = 2
+LET gamma AS Integer = 3
+LET delta AS Integer = 4
+LET epsilon AS Integer = 5
+LET zeta AS Integer = 6
+LET eta AS Integer = 7
+LET theta AS Integer = 8
+LET iota AS Integer = 9
+PRIVATE MUT kappa AS Integer = 10
+
+' Function parameter.
+FUNC byParameter(alpha AS Integer) AS Integer
+  RETURN alpha
+END FUNC
+
+' Function parameter against a same-file PRIVATE MUT.
+FUNC byPrivateParameter(kappa AS Integer) AS Integer
+  RETURN kappa
+END FUNC
+
+' Function-level TRAP binding.
+FUNC byFunctionTrap() AS Integer
+  RETURN toInt("nope")
+  TRAP(beta)
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  ' LET / MUT / RES bindings.
+  LET gamma AS Integer = 30
+  MUT delta AS Integer = 40
+  RES epsilon AS fs::File = fs::createTempFile()
+  ' FOR variable.
+  FOR zeta = 1 TO 2
+    io::print(toString(zeta))
+  NEXT
+  ' FOR EACH variable.
+  FOR EACH eta IN [1, 2]
+    io::print(toString(eta))
+  NEXT
+  ' Lambda parameter.
+  LET twice = LAMBDA(theta AS Integer) -> theta * 2
+  LET s AS Shape = Circle[3]
+  MATCH s
+    ' MATCH guard binding (the case has a WHEN guard).
+    CASE Circle(iota) WHEN iota.radius > 1
+      io::print("big")
+    ' MATCH case binding (no guard).
+    CASE Rect(alpha)
+      io::print("rect")
+    CASE ELSE
+      io::print("other")
+  END MATCH
+  ' Inline-TRAP binding.
+  LET parsed AS Integer = toInt("7") TRAP(beta)
+    RECOVER 0
+  END TRAP
+  ' A LET against a binding declared in another file.
+  LET omega AS Integer = 1
+  RETURN gamma + delta + parsed + twice(1) + byParameter(1) + byPrivateParameter(1) + byFunctionTrap() + omega
+END FUNC

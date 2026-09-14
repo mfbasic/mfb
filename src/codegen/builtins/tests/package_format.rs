@@ -45,6 +45,13 @@ const CORRUPT_PACKAGES: &[(&str, &str, &str)] = &[
         "sec_signed.mfp",
         "package description is not valid UTF-8",
     ),
+    // plan-136-B: a computed default's parameter record re-pointed at an exported
+    // function that takes a parameter.
+    (
+        "pkg-08-default-function",
+        "sec_default.mfp",
+        "has an invalid default function",
+    ),
 ];
 
 fn package_path(fixture: &str, file: &str) -> PathBuf {

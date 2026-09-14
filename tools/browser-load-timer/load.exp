@@ -1,0 +1,77 @@
+#!/usr/bin/expect -f
+# load.exp <browser.out> <url> — one timed page load (see README.md).
+# Prints `load_ms=<n> exit=<status>`, or `load_ms=timeout exit=<status>`.
+set prog [lindex $argv 0]
+set url [lindex $argv 1]
+set stty_init "rows 40 columns 120"
+set env(TERM) xterm-256color
+log_user 0
+match_max 400000
+set seen ""
+set dead 0
+# MFB_TIMER_LOG=<file> keeps every byte the browser drew, to see what a run waited on.
+if {[info exists env(MFB_TIMER_LOG)]} { log_file -a -noappend $env(MFB_TIMER_LOG) }
+
+if {[info exists env(MFB_TIMER_STDERR)]} {
+    spawn -noecho sh -c "exec \"\$0\" 2>\"\$1\"" $prog $env(MFB_TIMER_STDERR)
+} else {
+    spawn -noecho $prog
+}
+
+# Drain pending output so the program never blocks on a full pty, keeping a running copy.
+proc drain {} {
+    global dead seen
+    expect -timeout 0 eof {append seen $expect_out(buffer); set dead 1} \
+        -re {.+} {append seen $expect_out(buffer); exp_continue -continue_timer}
+}
+proc pause_ms {ms} {
+    global dead
+    set end [expr {[clock milliseconds] + $ms}]
+    while {!$dead && [clock milliseconds] < $end} { after 20; drain }
+}
+proc k {s} { global dead; if {!$dead} { catch {send -- $s} } }
+
+# Wait for the first frame (the footer's [Q]uit), then enter the address.
+set end [expr {[clock milliseconds] + 15000}]
+while {!$dead && [clock milliseconds] < $end && ![string match "*uit*" $seen]} { after 20; drain }
+k g; pause_ms 300
+k [string repeat "\x7f" 120]; pause_ms 300
+k $url; pause_ms 300
+
+# Start the clock at Enter; forget everything drawn so far.
+drain
+set seen ""
+set t0 [clock milliseconds]
+k "\r"
+set loaded 0
+set end [expr {$t0 + 120000}]
+# The browser redraws only changed cells, so a finished load shows up as the footer's
+# `Files: n/m` digits being rewritten on row 40 (cursor move, optional colour escapes, a
+# non-zero digit) — not as the `Files:` label or the padlock glyph, which are never re-sent.
+# Nothing else writes to row 40 while a page loads. Plain ASCII, so Tcl 8.5 and 8.6 agree.
+while {!$dead && [clock milliseconds] < $end} {
+    drain
+    if {[regexp {\x1b\[40;[0-9]+H(\x1b\[[0-9;]*m)*[1-9]} $seen]} {
+        set loaded 1
+        break
+    }
+    after 10
+}
+set t1 [clock milliseconds]
+
+# Quit and collect the exit status; stop it if it does not leave.
+pause_ms 500
+k q
+set end [expr {[clock milliseconds] + 10000}]
+while {!$dead && [clock milliseconds] < $end} { after 50; drain }
+if {!$dead} {
+    catch {exec kill -INT [exp_pid]}
+    pause_ms 3000
+}
+set status "?"
+if {![catch {wait} res]} { set status [lindex $res 3] }
+if {$loaded} {
+    puts "load_ms=[expr {$t1 - $t0}] exit=$status"
+} else {
+    puts "load_ms=timeout exit=$status"
+}

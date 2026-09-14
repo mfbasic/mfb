@@ -224,6 +224,13 @@ Two rules from it that are easy to get wrong:
     `lower_list_set_in_place`'s rebuild branch is *unreachable* (its own comment
     says so) and the sub-block route is sound. A variable-width element makes that
     branch reachable, so the arm must decline.
+  - **Read `COUNT` from the sub-block base before adding `COLLECTION_HEADER_SIZE`.**
+    Reading it past the header gives a garbage count, a huge entry copy and arena
+    corruption. Byte lists hide it (no entry array); String and entry lists show it.
+  - **`FOR EACH x IN rec.field` is an alias nothing tracks.** `for_each_iterable_locals`
+    tracks only a plain `Local` iterable, so growing that field inside the loop (or the
+    plain rebuild freeing the old block) frees the buffer mid-iteration — wrong results,
+    no crash. Decline the in-place path and skip the free while such an iterable is live.
 * **The third container is `RES … STATE`, and it differs from a record field by
   exactly one obligation (plan-121-D).** The reallocation split above transfers
   unchanged — it is a property of the operation, not of who owns the block — so
@@ -334,6 +341,14 @@ Two rules from it that are easy to get wrong:
   7.0 GB/s against a `-O0` C word loop's 7.36 — it is at the rate of the loop it
   emits, and what is left is that it shifts *while growing* into fresh buffers
   where `removeAt` shifts inside one that only gets hotter.
+
+## An accumulator must be a local of the function that writes it
+
+Every `try_inplace_*` arm resolves its destination through `self.locals`, so a collection threaded through a helper's parameter and return, or kept in a module-level `MUT`, misses the fast path and is copied whole on every write. Measured on 20,000 writes into a 200,000-byte `List OF Byte`: 5 ms as a same-function local, ~1.2 s through a helper or a global (290×). This holds for `append`, `set`, `add`, `removeKey`, bulk append and the record-field `WITH` append alike.
+
+A call as the written item can also miss it: `static_item_type` (`src/codegen/memory/value/builder_value_semantics.rs`) knows user and package return types plus a hand-written list of builtins, so `keep = collections::append(keep, fs::readText(p))` copies per element. Bind the call to a `LET` first.
+
+`String` behaves the same way: `out = out & piece` on the same local is amortized O(1) (`try_inplace_concat_assign`), but returning it through a recursive helper copies it at every level (`packages/mustache`: over 120 s, versus 0.18 s once each level returned only its own output). And `out = out & ch` in a loop beats `List OF String` plus one `strings::join` by ~3.5×, so don't switch to the list form out of O(n²) habit.
 
 ## In-place map mutation: branch arg order, dead slack, BUCKETS_READY
 

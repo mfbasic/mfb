@@ -312,6 +312,46 @@ pub(crate) fn money_raw_from_decimal(value: &str) -> Result<i64, String> {
     Ok(money_conversion_from_decimal(value)?.raw)
 }
 
+/// The exact decimal spelling of a `Fixed` raw 32.32 value — the inverse of
+/// [`fixed_raw_from_decimal`], which maps it back to the same raw (plan-136-B: an
+/// imported package's literal `Fixed` default is decoded from its `CONST_POOL` raw).
+///
+/// `frac / 2^32` is a finite decimal of at most 32 places (`frac * 5^32` digits),
+/// so no rounding happens here; trailing zeros are trimmed.
+pub(crate) fn fixed_decimal_from_raw(raw: i64) -> String {
+    const FRACTION_BITS: u32 = 32;
+    const FIVE_POW_32: u128 = 23_283_064_365_386_962_890_625;
+    let magnitude = u128::from(raw.unsigned_abs());
+    let whole = magnitude >> FRACTION_BITS;
+    let fraction = magnitude & ((1_u128 << FRACTION_BITS) - 1);
+    decimal_text(raw < 0, whole, fraction * FIVE_POW_32, 32)
+}
+
+/// The exact decimal spelling of a `Money` raw value (`raw / MONEY_SCALE`) — the
+/// inverse of [`money_raw_from_decimal`] (plan-136-B).
+pub(crate) fn money_decimal_from_raw(raw: i64) -> String {
+    let magnitude = u128::from(raw.unsigned_abs());
+    let scale = MONEY_SCALE as u128;
+    decimal_text(raw < 0, magnitude / scale, magnitude % scale, 5)
+}
+
+/// `[-]whole[.fraction]`, the fraction zero-padded to `places` digits and then
+/// stripped of trailing zeros.
+fn decimal_text(negative: bool, whole: u128, fraction: u128, places: usize) -> String {
+    let sign = if negative && (whole != 0 || fraction != 0) {
+        "-"
+    } else {
+        ""
+    };
+    let digits = format!("{fraction:0places$}");
+    let digits = digits.trim_end_matches('0');
+    if digits.is_empty() {
+        format!("{sign}{whole}")
+    } else {
+        format!("{sign}{whole}.{digits}")
+    }
+}
+
 /// Like [`money_raw_from_decimal`] but also reports whether excess fractional
 /// precision was rounded away, for the literal-precision diagnostic.
 pub(crate) fn money_conversion_from_decimal(value: &str) -> Result<MoneyConversion, String> {
@@ -654,6 +694,51 @@ mod tests {
             default_to_string_text(&crate::types::ParameterType::Float, "not-a-number"),
             None
         );
+    }
+
+    #[test]
+    fn fixed_decimal_from_raw_round_trips_through_the_parser() {
+        let mut raws = vec![
+            0,
+            1,
+            -1,
+            1 << 32,
+            -(1 << 32),
+            (1 << 32) + 1,
+            i64::MAX,
+            i64::MIN,
+        ];
+        for literal in ["0.1", "-2.5", "123.456", "0.0000000001", "-7"] {
+            raws.push(fixed_raw_from_decimal(literal).expect("literal parses"));
+        }
+        for raw in raws {
+            let text = fixed_decimal_from_raw(raw);
+            assert_eq!(
+                fixed_raw_from_decimal(&text),
+                Ok(raw),
+                "raw {raw} spelled `{text}` must parse back to itself"
+            );
+        }
+        assert_eq!(fixed_decimal_from_raw(-(3 << 31)), "-1.5");
+        assert_eq!(fixed_decimal_from_raw(5 << 32), "5");
+    }
+
+    #[test]
+    fn money_decimal_from_raw_round_trips_through_the_parser() {
+        let mut raws = vec![0, 1, -1, 150_000, -150_000, i64::MAX, i64::MIN];
+        for literal in ["1.23457", "-0.00001", "42"] {
+            raws.push(money_raw_from_decimal(literal).expect("literal parses"));
+        }
+        for raw in raws {
+            let text = money_decimal_from_raw(raw);
+            assert_eq!(
+                money_raw_from_decimal(&text),
+                Ok(raw),
+                "raw {raw} spelled `{text}` must parse back to itself"
+            );
+        }
+        assert_eq!(money_decimal_from_raw(150_000), "1.5");
+        assert_eq!(money_decimal_from_raw(-1), "-0.00001");
     }
 
     #[test]

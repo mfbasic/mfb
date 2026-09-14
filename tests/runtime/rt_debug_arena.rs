@@ -11,11 +11,11 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-use std::path::PathBuf;
+use common::debug_report::{arena_lines, build_debug, build_debug_project, counter, run_ok};
 use std::process::Command;
 
 /// Every counter each registered arena reports, in report order.
-const COUNTERS: [&str; 18] = [
+const COUNTERS: [&str; 22] = [
     "maps",
     "mapped_bytes",
     "unmaps",
@@ -34,64 +34,11 @@ const COUNTERS: [&str; 18] = [
     "flushes",
     "insert_free_calls",
     "double_free_skips",
+    "fill_grow_calls",
+    "fill_grow_bytes",
+    "fill_free_calls",
+    "fill_free_bytes",
 ];
-
-/// Build `project` with `--debug` (plus `extra` flags) and return the executable
-/// (the host libc's on Linux).
-fn build_debug_project(name: &str, project: &PathBuf) -> PathBuf {
-    let output = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("--debug")
-        .arg(project)
-        .output()
-        .expect("run mfb build --debug");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    assert!(
-        output.status.success(),
-        "{name} failed to build:\n{stdout}\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let written: Vec<&str> = stdout
-        .lines()
-        .filter_map(|line| line.strip_prefix("Wrote executable to "))
-        .collect();
-    let chosen = written
-        .iter()
-        .find(|path| path.ends_with("-glibc.out"))
-        .or_else(|| written.first())
-        .unwrap_or_else(|| panic!("{name}: no executable in build output:\n{stdout}"));
-    PathBuf::from(chosen)
-}
-
-fn build_debug(name: &str, source: &str) -> PathBuf {
-    let project = common::temp_project(name, source);
-    build_debug_project(name, &project)
-}
-
-/// Run `exe`, require success, and return `(stdout, stderr)`.
-fn run_ok(name: &str, exe: &PathBuf) -> (String, String) {
-    let output = Command::new(exe).output().expect("run the program");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    assert!(
-        output.status.success(),
-        "{name} failed:\n{stdout}\n{stderr}"
-    );
-    (stdout, stderr)
-}
-
-/// The `arena.` lines of the (last) report block on `stderr`.
-fn arena_lines(case: &str, stderr: &str) -> Vec<String> {
-    let at = stderr
-        .rfind("mfb.debug.begin ")
-        .unwrap_or_else(|| panic!("{case}: no report block on stderr:\n{stderr}"));
-    stderr[at..]
-        .lines()
-        .take_while(|line| *line != "mfb.debug.end 1")
-        .filter(|line| line.starts_with("arena."))
-        .map(str::to_string)
-        .collect()
-}
 
 /// The registration shape: totals and each arena's kind, with every counter of every
 /// arena present as an integer.
@@ -123,16 +70,6 @@ fn registration(case: &str, lines: &[String]) -> Vec<String> {
         })
         .cloned()
         .collect()
-}
-
-/// `arena.<index>.<counter>` of `lines`.
-fn counter(case: &str, lines: &[String], index: usize, name: &str) -> u64 {
-    let key = format!("arena.{index}.{name} ");
-    lines
-        .iter()
-        .find_map(|line| line.strip_prefix(&key))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or_else(|| panic!("{case}: no `{key}<n>` in {lines:?}"))
 }
 
 /// Three `thread::start` workers plus the main thread: four arenas, registered in
@@ -365,5 +302,184 @@ fn retained_values_raise_peak_live_bytes_and_churn_does_not() {
     assert!(
         churn_growth < retained_growth / 4,
         "short-lived values must not accumulate: churn grew {churn_growth}, retained grew {retained_growth}"
+    );
+}
+
+/// A loop that builds and drops one 8-`Integer` record per iteration: one 64 B chunk freed
+/// per iteration (a 6-field record is a 48 B chunk, plan-133-B § Corrections).
+fn record_churn_source(n: usize) -> String {
+    format!(
+        "IMPORT io\n\nTYPE R8\n  a AS Integer\n  b AS Integer\n  c AS Integer\n  d AS Integer\n  e AS Integer\n  f AS Integer\n  g AS Integer\n  h AS Integer\nEND TYPE\n\nFUNC mk(i AS Integer) AS R8\n  RETURN R8[i, i, i, i, i, i, i, i]\nEND FUNC\n\nFUNC main AS Integer\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    LET r AS R8 = mk(i)\n    total = total + r.h\n  NEXT\n  io::print(toString(total))\n  RETURN 0\nEND FUNC\n"
+    )
+}
+
+/// plan-133-B: the fill counters count exactly the bytes the entropy fill is handed.
+/// A fresh block is filled over its usable region (`mapped − 32` per block), so over a
+/// run `fill_grow_bytes == mapped_bytes − 32 × grow` with one fill per grow. A freed
+/// chunk is scrubbed past its 16-byte node, so each extra 64 B record adds one fill of
+/// 48 B.
+#[test]
+fn fill_counters_match_known_allocations() {
+    // Grow path: a 1 MiB read maps at least one block beyond the first.
+    let name = "dbg_arena_fill_grow";
+    let project = common::temp_project(name, "");
+    let data = project.join("big.bin");
+    std::fs::write(&data, vec![0x5au8; 1 << 20]).expect("write the 1 MiB input");
+    std::fs::write(
+        project.join("src/main.mfb"),
+        format!(
+            "IMPORT fs\nIMPORT io\n\nFUNC main AS Integer\n  LET b AS List OF Byte = fs::readBytes(\"{}\")\n  io::print(toString(len(b)))\n  RETURN 0\nEND FUNC\n",
+            common::mfb_path_literal(&data)
+        ),
+    )
+    .expect("write the program");
+    let exe = build_debug_project(name, &project);
+    let (stdout, stderr) = run_ok(name, &exe);
+    assert_eq!(stdout, "1048576\n", "the program read the whole file");
+    let lines = arena_lines(name, &stderr);
+    let grow = counter(name, &lines, 0, "grow");
+    assert!(grow >= 1, "a 1 MiB read must grow the arena:\n{stderr}");
+    assert_eq!(
+        counter(name, &lines, 0, "fill_grow_calls"),
+        grow,
+        "one grow-path fill per grow:\n{stderr}"
+    );
+    assert_eq!(
+        counter(name, &lines, 0, "fill_grow_bytes"),
+        counter(name, &lines, 0, "mapped_bytes") - 32 * grow,
+        "the grow-path fill covers each block's usable bytes (mapped − 32-byte header):\n{stderr}"
+    );
+
+    // Free path: 1000 more 64 B records add exactly 1000 scrubs of 48 B.
+    let small = main_arena("dbg_arena_fill_free_1000", &record_churn_source(1000));
+    let large = main_arena("dbg_arena_fill_free_2000", &record_churn_source(2000));
+    let delta =
+        |name: &str| counter("fill 2000", &large, 0, name) - counter("fill 1000", &small, 0, name);
+    assert_eq!(
+        delta("free_calls"),
+        1000,
+        "each extra iteration frees exactly one block: {small:?} / {large:?}"
+    );
+    assert_eq!(
+        delta("free_bytes"),
+        64 * 1000,
+        "each freed record is a 64 B chunk: {small:?} / {large:?}"
+    );
+    assert_eq!(
+        delta("fill_free_calls"),
+        1000,
+        "each freed 64 B chunk is scrubbed once: {small:?} / {large:?}"
+    );
+    assert_eq!(
+        delta("fill_free_bytes"),
+        48 * 1000,
+        "each scrub covers the chunk past its 16-byte node: {small:?} / {large:?}"
+    );
+}
+
+/// plan-133-C: `arena.<index>.series.*` of `lines` — the reported sample count and each
+/// sample's `[t_ns, mapped_bytes, live_bytes, peak_rss_bytes]`, oldest first.
+fn series(case: &str, lines: &[String], index: usize) -> (u64, Vec<[u64; 4]>) {
+    let count = counter(case, lines, index, "series.count");
+    let samples = (0..count)
+        .map(|sample| {
+            ["t_ns", "mapped_bytes", "live_bytes", "peak_rss_bytes"]
+                .map(|field| counter(case, lines, index, &format!("series.{sample}.{field}")))
+        })
+        .collect();
+    (count, samples)
+}
+
+/// plan-133-C: three bursts of retained memory, 200 ms apart, show as three separated
+/// rises in the main arena's series.
+#[test]
+fn the_series_rises_in_three_bursts() {
+    let name = "dbg_arena_series_bursts";
+    let project = common::temp_project(name, "");
+    let data = project.join("burst.bin");
+    std::fs::write(&data, vec![0x5au8; 8 << 20]).expect("write the 8 MiB input");
+    std::fs::write(
+        project.join("src/main.mfb"),
+        format!(
+            // The read is bound to a `LET` before the append: appending the call result
+            // directly copies the whole list on every append (bug-626).
+            "IMPORT collections\nIMPORT fs\nIMPORT io\nIMPORT os\n\nFUNC main AS Integer\n  MUT keep AS List OF List OF Byte = []\n  FOR i = 1 TO 3\n    LET burst AS List OF Byte = fs::readBytes(\"{}\")\n    keep = collections::append(keep, burst)\n    os::sleep(200)\n  NEXT\n  io::print(toString(len(keep)))\n  RETURN 0\nEND FUNC\n",
+            common::mfb_path_literal(&data)
+        ),
+    )
+    .expect("write the program");
+    let exe = build_debug_project(name, &project);
+    let (stdout, stderr) = run_ok(name, &exe);
+    assert_eq!(stdout, "3\n", "the program kept three buffers");
+    let lines = arena_lines(name, &stderr);
+    let (count, samples) = series(name, &lines, 0);
+    assert!(
+        count >= 3,
+        "three bursts need at least three samples, got {count}:\n{stderr}"
+    );
+    assert!(
+        samples.windows(2).all(|pair| pair[0][0] < pair[1][0]),
+        "t_ns must strictly increase: {samples:?}"
+    );
+    let long_gaps = samples
+        .windows(2)
+        .filter(|pair| pair[1][0] - pair[0][0] >= 150_000_000)
+        .count();
+    assert!(
+        long_gaps >= 2,
+        "the 200 ms sleeps must separate the rises by at least 150 ms twice, got {long_gaps}: {samples:?}"
+    );
+}
+
+/// plan-133-C: 4,000 grows halve the series several times; it stays at most 256 samples,
+/// in grow order, and ends on the most recent grow. Each recursion level keeps one string
+/// slightly larger than an arena block alive until the recursion unwinds, so every level
+/// maps exactly one fresh 8 KiB block (measured: 4,000 levels → `grow 4000`,
+/// `mapped_bytes 32768000`). A retaining list does not work as a generator: its own
+/// doubling reallocations leave space the retained values refill (plan-133-C Corrections).
+#[test]
+fn the_series_stays_bounded_and_ordered() {
+    let case = "series bounded";
+    let source = concat!(
+        "IMPORT io\n",
+        "IMPORT strings\n",
+        "\n",
+        "FUNC build(n AS Integer) AS Integer\n",
+        "  IF n = 0 THEN RETURN 0\n",
+        "  LET s AS String = strings::repeat(\"x\", 4200 + (n MOD 97))\n",
+        "  RETURN build(n - 1) + len(s)\n",
+        "END FUNC\n",
+        "\n",
+        "FUNC main AS Integer\n",
+        "  io::print(toString(build(4000)))\n",
+        "  RETURN 0\n",
+        "END FUNC\n",
+    );
+    let exe = build_debug("dbg_arena_series_bounded", source);
+    let (stdout, stderr) = run_ok(case, &exe);
+    assert_eq!(stdout, "16991172\n", "the recursion ran to depth 4000");
+    let lines = arena_lines(case, &stderr);
+    let grow = counter(case, &lines, 0, "grow");
+    assert!(
+        grow >= 4000,
+        "every recursion level must map a block, so at least 4000 grows, got {grow}:\n{stderr}"
+    );
+    let (count, samples) = series(case, &lines, 0);
+    assert!(
+        (2..=256).contains(&count),
+        "the series must stay bounded at 256 samples, got {count}:\n{stderr}"
+    );
+    assert!(
+        samples.windows(2).all(|pair| pair[0][1] < pair[1][1]),
+        "mapped_bytes must strictly increase from sample to sample: {samples:?}"
+    );
+    assert!(
+        samples[0][0] <= samples[samples.len() - 1][0],
+        "the first sample must not be later than the last: {samples:?}"
+    );
+    assert_eq!(
+        samples[samples.len() - 1][1],
+        counter(case, &lines, 0, "mapped_bytes"),
+        "the last sample is the most recent grow, so it has the arena's final mapped_bytes"
     );
 }

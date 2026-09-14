@@ -61,6 +61,15 @@ as ordinary merged functions (emitted under the normal `_mfb_fn_…` symbol
 namespace), not as `_mfb_pkg_*` imports. The only true NIR imports are native
 `LINK` thunks and platform symbols.[[src/target/shared/nir/lower.rs:merge_packages]]
 
+An importer's call that omits a defaulted argument of a package function is filled
+before the merge, from the export signature decoded out of the package's
+parameter records, exactly as a call to the project's own function is filled: a
+literal default passes the exporting package's constant, and a computed default
+calls the package's private hidden default function as `package.$default$<fn>$<i>`,
+a `package.symbol` reference the merge qualifies like any other. The default is
+therefore evaluated on each call in the package's own scope.
+[[src/manifest/package.rs:package_export_signature]] [[src/ir/lower.rs:lower_facts]]
+
 The per-package identity that `read_package_ir_with_identity` produces is a hash
 over the MFPC container; its byte derivation is documented in
 `./mfb spec package ir-section`.

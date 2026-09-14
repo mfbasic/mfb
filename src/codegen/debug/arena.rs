@@ -4,8 +4,14 @@
 //!
 //! The registry is a region mapped on first registration through the platform's
 //! `emit_arena_map` seam (system memory, never an arena), holding a
-//! `{count, overflow}` header and [`ARENA_DEBUG_SLOTS`] fixed-size slots
-//! `{state_ptr, kind, counters[18]}`; its base lives in a writable global. Registration
+//! `{count, overflow, t0}` header and [`ARENA_DEBUG_SLOTS`] fixed-size slots
+//! `{state_ptr, kind, counters[22], series}`; its base lives in a writable global.
+//! `t0` is the monotonic clock when the main arena registered. The series (plan-133-C)
+//! is `{count, stride, until, pending}` and 257 samples `{t_ns, mapped_bytes,
+//! live_bytes, peak_rss_bytes}`: every grow writes the entry after the kept ones
+//! through `_mfb_debug_arena_sample`, keeps it when the grow count reaches `until`,
+//! and when 256 are kept halves them (the even entries plus the latest) and doubles the
+//! stride, so the series stays bounded and spans the whole run. Registration
 //! is the only locked operation (a statically initialized process-global mutex, so it
 //! exists before the region does). Counters are written only by the thread that owns
 //! the arena — the allocator helpers find their slot by the arena register — so they
@@ -19,6 +25,8 @@
 
 use std::collections::HashMap;
 
+use super::clock::{emit_debug_monotonic_nanos, CLOCK_BUFFER_SIZE};
+use super::process::{emit_debug_peak_rss, PEAK_RSS_BUFFER_SIZE};
 use super::write::{
     emit_debug_key_value, emit_prepend_decimal, emit_prepend_object, emit_write_window, key_object,
     DEBUG_LINE_BUFFER_SIZE,
@@ -28,7 +36,7 @@ use crate::codegen::engine::builder::{internal_branch, EmitCtx};
 use crate::codegen::engine::types::{
     CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, CodegenPlatform, PlatformFamily,
 };
-use crate::codegen::engine::util::{finalize_vreg_body_with_locals, finalize_vreg_helper, Vregs};
+use crate::codegen::engine::util::{finalize_vreg_body_with_locals, Vregs};
 use crate::codegen::error::constants::ARENA_STATE_REGISTER;
 use crate::codegen::memory::data::{push_symbol_address, string_data_object};
 use crate::codegen::runtime::thread::emit_thread_external_call;
@@ -41,6 +49,11 @@ pub(crate) const ARENA_SECTION: &str = "arena";
 
 /// `_mfb_debug_arena_register(state, kind)`: record one arena state in the registry.
 pub(crate) const DEBUG_ARENA_REGISTER_SYMBOL: &str = "_mfb_debug_arena_register";
+
+/// `_mfb_debug_arena_sample(slot)`: record one memory-series sample for the arena whose
+/// registry slot is `slot` (0: an unregistered arena, nothing recorded). Called by the
+/// allocator's grow path in a `--debug` build (plan-133-C).
+pub(crate) const DEBUG_ARENA_SAMPLE_SYMBOL: &str = "_mfb_debug_arena_sample";
 
 /// The `kind` argument of the register helper (and the slot word it stores).
 pub(crate) const ARENA_KIND_MAIN: &str = "0";
@@ -57,13 +70,18 @@ const ARENA_KIND_SUFFIX_SYMBOL: &str = "_mfb_rt_debug_arena_key_kind";
 const ARENA_TOKEN_MAIN_SYMBOL: &str = "_mfb_rt_debug_arena_token_main";
 const ARENA_TOKEN_WORKER_SYMBOL: &str = "_mfb_rt_debug_arena_token_worker";
 const ARENA_TOKEN_GRAPHICS_SYMBOL: &str = "_mfb_rt_debug_arena_token_graphics";
+const ARENA_SERIES_INFIX_SYMBOL: &str = "_mfb_rt_debug_arena_series_infix";
+const ARENA_SERIES_COUNT_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_series_key_count";
 
 /// Registry capacity. A program that registers more arenas than this loses their
 /// slots (and so their counts); `arena.registry_overflow` reports how many.
 const ARENA_DEBUG_SLOTS: usize = 1024;
 const REGION_COUNT_OFFSET: usize = 0;
 const REGION_OVERFLOW_OFFSET: usize = 8;
-const REGION_HEADER_SIZE: usize = 16;
+/// The monotonic clock (nanoseconds) when the main arena registered: every series
+/// sample's `t_ns` is measured from it.
+const REGION_T0_OFFSET: usize = 16;
+const REGION_HEADER_SIZE: usize = 24;
 const SLOT_KIND_OFFSET: usize = 8;
 
 /// Counter words of a slot, after `state_ptr` (+0) and `kind` (+8).
@@ -85,9 +103,15 @@ pub(crate) const COUNTER_GROW: usize = 128;
 pub(crate) const COUNTER_FLUSHES: usize = 136;
 pub(crate) const COUNTER_INSERT_FREE_CALLS: usize = 144;
 pub(crate) const COUNTER_DOUBLE_FREE_SKIPS: usize = 152;
+/// plan-133-B: entropy-fill calls and bytes, on the grow path (a fresh block's usable
+/// region) and the free path (a freed chunk's payload past its 16-byte node).
+pub(crate) const COUNTER_FILL_GROW_CALLS: usize = 160;
+pub(crate) const COUNTER_FILL_GROW_BYTES: usize = 168;
+pub(crate) const COUNTER_FILL_FREE_CALLS: usize = 176;
+pub(crate) const COUNTER_FILL_FREE_BYTES: usize = 184;
 
 /// Every counter, in slot and report order: `(report name, slot offset)`.
-const ARENA_COUNTERS: [(&str, usize); 18] = [
+const ARENA_COUNTERS: [(&str, usize); 22] = [
     ("maps", COUNTER_MAPS),
     ("mapped_bytes", COUNTER_MAPPED_BYTES),
     ("unmaps", COUNTER_UNMAPS),
@@ -106,14 +130,47 @@ const ARENA_COUNTERS: [(&str, usize); 18] = [
     ("flushes", COUNTER_FLUSHES),
     ("insert_free_calls", COUNTER_INSERT_FREE_CALLS),
     ("double_free_skips", COUNTER_DOUBLE_FREE_SKIPS),
+    ("fill_grow_calls", COUNTER_FILL_GROW_CALLS),
+    ("fill_grow_bytes", COUNTER_FILL_GROW_BYTES),
+    ("fill_free_calls", COUNTER_FILL_FREE_CALLS),
+    ("fill_free_bytes", COUNTER_FILL_FREE_BYTES),
 ];
 
-/// One slot: `state_ptr`, `kind`, and the counters.
-const SLOT_SIZE: usize = 16 + ARENA_COUNTERS.len() * 8;
+/// plan-133-C: the memory series after the counters — how many samples are kept, the
+/// grow-count stride between kept samples, the grow count that keeps the next one,
+/// whether the entry after the kept ones holds an unkept latest grow, then the entries.
+const SERIES_COUNT_OFFSET: usize = 192;
+const SERIES_STRIDE_OFFSET: usize = 200;
+const SERIES_UNTIL_OFFSET: usize = 208;
+const SERIES_PENDING_OFFSET: usize = 216;
+const SERIES_SAMPLES_OFFSET: usize = 224;
+/// Kept samples before the series halves; one more entry holds the latest unkept grow.
+const SERIES_CAPACITY: usize = 256;
+const SERIES_SAMPLE_SIZE: usize = 32;
+/// One sample's words, in report order: `(report name, offset in the entry)`.
+const SERIES_FIELDS: [(&str, usize); 4] = [
+    ("t_ns", 0),
+    ("mapped_bytes", 8),
+    ("live_bytes", 16),
+    ("peak_rss_bytes", 24),
+];
+
+/// One slot: `state_ptr`, `kind`, the counters, and the series.
+const SLOT_SIZE: usize = SERIES_SAMPLES_OFFSET + (SERIES_CAPACITY + 1) * SERIES_SAMPLE_SIZE;
 const REGION_SIZE: usize = REGION_HEADER_SIZE + ARENA_DEBUG_SLOTS * SLOT_SIZE;
 
-// The counter offsets are contiguous words ending exactly at the slot's end.
-const _: () = assert!(COUNTER_DOUBLE_FREE_SKIPS + 8 == SLOT_SIZE && SLOT_SIZE == 160);
+// The counter offsets are contiguous words ending where the series starts, and the
+// series fills the rest of the slot.
+const _: () = assert!(
+    16 + ARENA_COUNTERS.len() * 8 == SERIES_COUNT_OFFSET
+        && COUNTER_FILL_FREE_BYTES + 8 == SERIES_COUNT_OFFSET
+        && SLOT_SIZE == 8448
+);
+
+/// The key-suffix data object of a series sample's field (`.t_ns ` …).
+fn series_field_suffix_symbol(name: &str) -> String {
+    format!("_mfb_rt_debug_arena_series_key_{name}")
+}
 
 /// The key-suffix data object of a counter's report line (`.maps ` …).
 fn counter_suffix_symbol(name: &str) -> String {
@@ -359,6 +416,22 @@ fn lower_register(
         abi::branch_lt(unlock),
         abi::move_register(&base, abi::return_register()),
         abi::store_u64(&base, &global, 0),
+    ]);
+    // plan-133-C: the first registration (the main arena, at program entry) records the
+    // series' time origin `t0`.
+    let t0 = vregs.next();
+    emit_debug_monotonic_nanos(
+        symbol,
+        &t0,
+        0,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+        &mut vregs,
+    )?;
+    instructions.extend([
+        abi::store_u64(&t0, &base, REGION_T0_OFFSET),
         abi::label(have_region),
         abi::load_u64(&count, &base, REGION_COUNT_OFFSET),
         abi::compare_immediate(&count, &ARENA_DEBUG_SLOTS.to_string()),
@@ -388,13 +461,19 @@ fn lower_register(
         &mut relocations,
     )?;
     instructions.push(abi::return_());
-    Ok(finalize_vreg_helper(
-        "runtime.debug_arena_register",
-        symbol,
-        "Nothing",
+    // The clock's `timespec` (or the Windows counter words) for `t0` lives in the frame.
+    let (frame, stack_slots) =
+        finalize_vreg_body_with_locals(&mut instructions, &[], CLOCK_BUFFER_SIZE);
+    Ok(CodeFunction {
+        name: "runtime.debug_arena_register".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame,
         instructions,
         relocations,
-    ))
+        stack_slots,
+    })
 }
 
 /// `arena.<index><suffix><value>\n` in the helper's window: right to left, the value
@@ -455,6 +534,102 @@ fn emit_slot_line(
         &prefix,
         &cursor,
         &format!("debug_arena_{tag}_pfx"),
+        instructions,
+        vregs,
+    );
+    emit_write_window(
+        symbol,
+        &cursor,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )
+}
+
+/// `arena.<index>.series.<sample><suffix><value>\n` (plan-133-C), assembled right to left
+/// like [`emit_slot_line`]: the value digits, the field suffix (`.t_ns ` …), the sample
+/// digits, `.series.`, the arena index digits, `arena.`.
+#[allow(clippy::too_many_arguments)]
+fn emit_series_line(
+    symbol: &str,
+    index: &str,
+    sample: &str,
+    suffix_symbol: &str,
+    value: &str,
+    tag: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let cursor = vregs.next();
+    let newline = vregs.next();
+    let suffix = vregs.next();
+    let infix = vregs.next();
+    let prefix = vregs.next();
+    instructions.extend([
+        abi::add_immediate(&cursor, abi::stack_pointer(), DEBUG_LINE_BUFFER_SIZE),
+        abi::subtract_immediate(&cursor, &cursor, 1),
+        abi::move_immediate(&newline, "Integer", "10"),
+        abi::store_u8(&newline, &cursor, 0),
+    ]);
+    emit_prepend_decimal(
+        value,
+        &cursor,
+        &format!("debug_arena_series_{tag}_val"),
+        instructions,
+        vregs,
+    );
+    push_symbol_address(symbol, suffix_symbol, &suffix, instructions, relocations);
+    emit_prepend_object(
+        &suffix,
+        &cursor,
+        &format!("debug_arena_series_{tag}_sfx"),
+        instructions,
+        vregs,
+    );
+    emit_prepend_decimal(
+        sample,
+        &cursor,
+        &format!("debug_arena_series_{tag}_smp"),
+        instructions,
+        vregs,
+    );
+    push_symbol_address(
+        symbol,
+        ARENA_SERIES_INFIX_SYMBOL,
+        &infix,
+        instructions,
+        relocations,
+    );
+    emit_prepend_object(
+        &infix,
+        &cursor,
+        &format!("debug_arena_series_{tag}_inf"),
+        instructions,
+        vregs,
+    );
+    emit_prepend_decimal(
+        index,
+        &cursor,
+        &format!("debug_arena_series_{tag}_idx"),
+        instructions,
+        vregs,
+    );
+    push_symbol_address(
+        symbol,
+        ARENA_PREFIX_SYMBOL,
+        &prefix,
+        instructions,
+        relocations,
+    );
+    emit_prepend_object(
+        &prefix,
+        &cursor,
+        &format!("debug_arena_series_{tag}_pfx"),
         instructions,
         vregs,
     );
@@ -639,6 +814,65 @@ fn lower_report(
             &mut vregs,
         )?;
     }
+    // plan-133-C: the memory series — `arena.<n>.series.count <k>`, then each sample's
+    // four values, oldest first. `k` counts the kept samples plus the latest unkept grow.
+    let kept = vregs.next();
+    let pending = vregs.next();
+    let total = vregs.next();
+    let sample = vregs.next();
+    let width = vregs.next();
+    let entry = vregs.next();
+    let series_rows = "debug_arena_series_rows";
+    let series_done = "debug_arena_series_done";
+    instructions.extend([
+        abi::load_u64(&kept, &slot, SERIES_COUNT_OFFSET),
+        abi::load_u64(&pending, &slot, SERIES_PENDING_OFFSET),
+        abi::add_registers(&total, &kept, &pending),
+    ]);
+    emit_slot_line(
+        symbol,
+        &index,
+        ARENA_SERIES_COUNT_KEY_SYMBOL,
+        &total,
+        "series_count",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &mut vregs,
+    )?;
+    instructions.extend([
+        abi::move_immediate(&sample, "Integer", "0"),
+        abi::move_immediate(&width, "Integer", &SERIES_SAMPLE_SIZE.to_string()),
+        abi::label(series_rows),
+        abi::compare_registers(&sample, &total),
+        abi::branch_ge(series_done),
+        abi::multiply_registers(&entry, &sample, &width),
+        abi::add_registers(&entry, &entry, &slot),
+        abi::add_immediate(&entry, &entry, SERIES_SAMPLES_OFFSET),
+    ]);
+    for (name, offset) in SERIES_FIELDS {
+        let value = vregs.next();
+        instructions.push(abi::load_u64(&value, &entry, offset));
+        emit_series_line(
+            symbol,
+            &index,
+            &sample,
+            &series_field_suffix_symbol(name),
+            &value,
+            name,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        )?;
+    }
+    instructions.extend([
+        abi::add_immediate(&sample, &sample, 1),
+        abi::branch(series_rows),
+        abi::label(series_done),
+    ]);
     instructions.extend([
         abi::add_immediate(&index, &index, 1),
         abi::branch(rows),
@@ -649,6 +883,173 @@ fn lower_report(
         finalize_vreg_body_with_locals(&mut instructions, &[], DEBUG_LINE_BUFFER_SIZE);
     Ok(CodeFunction {
         name: "runtime.debug_report_arena".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame,
+        instructions,
+        relocations,
+        stack_slots,
+    })
+}
+
+/// `_mfb_debug_arena_sample(slot)` (plan-133-C): write this grow's sample into the entry
+/// after the kept ones, then keep it when the slot's grow count has reached `until`.
+/// Keeping the 256th sample halves the series in place — the even entries, then the one
+/// just kept — and doubles the stride. An unkept grow sets `pending`, so the report shows
+/// the latest grow as the last sample either way.
+fn lower_sample(
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<CodeFunction, String> {
+    let symbol = DEBUG_ARENA_SAMPLE_SYMBOL;
+    let mut vregs = Vregs::new();
+    let slot = vregs.next();
+    let now = vregs.next();
+    let rss = vregs.next();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&slot, abi::c_arg(0)),
+        abi::compare_immediate(&slot, "0"),
+        abi::branch_eq("debug_sample_done"),
+    ];
+    let mut relocations = Vec::new();
+    emit_debug_monotonic_nanos(
+        symbol,
+        &now,
+        0,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+        &mut vregs,
+    )?;
+    emit_debug_peak_rss(
+        symbol,
+        &rss,
+        CLOCK_BUFFER_SIZE,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+        &mut vregs,
+    )?;
+    let global = vregs.next();
+    let base = vregs.next();
+    let t0 = vregs.next();
+    let count = vregs.next();
+    let width = vregs.next();
+    let entry = vregs.next();
+    let mapped = vregs.next();
+    let live = vregs.next();
+    let grow = vregs.next();
+    let until = vregs.next();
+    let stride = vregs.next();
+    let flag = vregs.next();
+    push_symbol_address(
+        symbol,
+        ARENA_BASE_SYMBOL,
+        &global,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::load_u64(&base, &global, 0),
+        abi::load_u64(&t0, &base, REGION_T0_OFFSET),
+        abi::subtract_registers(&now, &now, &t0),
+        // entry = slot + SERIES_SAMPLES_OFFSET + count * SERIES_SAMPLE_SIZE
+        abi::load_u64(&count, &slot, SERIES_COUNT_OFFSET),
+        abi::move_immediate(&width, "Integer", &SERIES_SAMPLE_SIZE.to_string()),
+        abi::multiply_registers(&entry, &count, &width),
+        abi::add_registers(&entry, &entry, &slot),
+        abi::add_immediate(&entry, &entry, SERIES_SAMPLES_OFFSET),
+        abi::load_u64(&mapped, &slot, COUNTER_MAPPED_BYTES),
+        abi::load_u64(&live, &slot, COUNTER_LIVE_BYTES),
+        abi::store_u64(&now, &entry, SERIES_FIELDS[0].1),
+        abi::store_u64(&mapped, &entry, SERIES_FIELDS[1].1),
+        abi::store_u64(&live, &entry, SERIES_FIELDS[2].1),
+        abi::store_u64(&rss, &entry, SERIES_FIELDS[3].1),
+        // Keep it once the grow count reaches `until` (0 before the first grow).
+        abi::load_u64(&grow, &slot, COUNTER_GROW),
+        abi::load_u64(&until, &slot, SERIES_UNTIL_OFFSET),
+        abi::compare_registers(&grow, &until),
+        abi::branch_lo("debug_sample_pending"),
+        abi::load_u64(&stride, &slot, SERIES_STRIDE_OFFSET),
+        abi::compare_immediate(&stride, "0"),
+        abi::branch_ne("debug_sample_stride"),
+        abi::move_immediate(&stride, "Integer", "1"),
+        abi::label("debug_sample_stride"),
+        abi::add_immediate(&count, &count, 1),
+        abi::compare_immediate(&count, &SERIES_CAPACITY.to_string()),
+        abi::branch_ne("debug_sample_keep"),
+    ]);
+    // Halve: entries[k] = entries[2k] for k < 128, then entries[128] = the entry just
+    // kept (index 255), so the latest grow survives; 129 kept, stride doubled.
+    let half = SERIES_CAPACITY / 2;
+    let k = vregs.next();
+    let first = vregs.next();
+    let double_width = vregs.next();
+    let from = vregs.next();
+    let to = vregs.next();
+    let word = vregs.next();
+    instructions.extend([
+        abi::add_immediate(&first, &slot, SERIES_SAMPLES_OFFSET),
+        abi::move_immediate(
+            &double_width,
+            "Integer",
+            &(2 * SERIES_SAMPLE_SIZE).to_string(),
+        ),
+        abi::move_immediate(&k, "Integer", "0"),
+        abi::label("debug_sample_halve"),
+        abi::compare_immediate(&k, &half.to_string()),
+        abi::branch_ge("debug_sample_halved"),
+        abi::multiply_registers(&from, &k, &double_width),
+        abi::add_registers(&from, &from, &first),
+        abi::multiply_registers(&to, &k, &width),
+        abi::add_registers(&to, &to, &first),
+    ]);
+    for (_, offset) in SERIES_FIELDS {
+        instructions.extend([
+            abi::load_u64(&word, &from, offset),
+            abi::store_u64(&word, &to, offset),
+        ]);
+    }
+    instructions.extend([
+        abi::add_immediate(&k, &k, 1),
+        abi::branch("debug_sample_halve"),
+        abi::label("debug_sample_halved"),
+        abi::add_immediate(&to, &first, half * SERIES_SAMPLE_SIZE),
+    ]);
+    for (_, offset) in SERIES_FIELDS {
+        instructions.extend([
+            abi::load_u64(&word, &entry, offset),
+            abi::store_u64(&word, &to, offset),
+        ]);
+    }
+    instructions.extend([
+        abi::move_immediate(&count, "Integer", &(half + 1).to_string()),
+        abi::add_registers(&stride, &stride, &stride),
+        abi::label("debug_sample_keep"),
+        abi::add_registers(&until, &grow, &stride),
+        abi::store_u64(&count, &slot, SERIES_COUNT_OFFSET),
+        abi::store_u64(&stride, &slot, SERIES_STRIDE_OFFSET),
+        abi::store_u64(&until, &slot, SERIES_UNTIL_OFFSET),
+        abi::move_immediate(&flag, "Integer", "0"),
+        abi::store_u64(&flag, &slot, SERIES_PENDING_OFFSET),
+        abi::branch("debug_sample_done"),
+        abi::label("debug_sample_pending"),
+        abi::move_immediate(&flag, "Integer", "1"),
+        abi::store_u64(&flag, &slot, SERIES_PENDING_OFFSET),
+        abi::label("debug_sample_done"),
+        abi::return_(),
+    ]);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(
+        &mut instructions,
+        &[],
+        CLOCK_BUFFER_SIZE + PEAK_RSS_BUFFER_SIZE,
+    );
+    Ok(CodeFunction {
+        name: "runtime.debug_arena_sample".to_string(),
         symbol: symbol.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
@@ -700,6 +1101,14 @@ impl DebugFeature for ArenaFeature {
         for (name, _) in ARENA_COUNTERS {
             objects.push(text(&counter_suffix_symbol(name), &format!(".{name} ")));
         }
+        objects.push(text(ARENA_SERIES_COUNT_KEY_SYMBOL, ".series.count "));
+        objects.push(text(ARENA_SERIES_INFIX_SYMBOL, ".series."));
+        for (name, _) in SERIES_FIELDS {
+            objects.push(text(
+                &series_field_suffix_symbol(name),
+                &format!(".{name} "),
+            ));
+        }
         objects
     }
 
@@ -711,6 +1120,7 @@ impl DebugFeature for ArenaFeature {
     ) -> Result<Vec<CodeFunction>, String> {
         Ok(vec![
             lower_register(platform_imports, platform)?,
+            lower_sample(platform_imports, platform)?,
             lower_report(platform_imports, platform)?,
         ])
     }
@@ -725,10 +1135,12 @@ impl DebugFeature for ArenaFeature {
 
     fn os_imports(
         &self,
-        _platform: &dyn crate::target::shared::plan::NativePlanPlatform,
-        _required_by: &str,
+        platform: &dyn crate::target::shared::plan::NativePlanPlatform,
+        required_by: &str,
     ) -> Vec<crate::target::shared::plan::PlatformImport> {
-        Vec::new()
+        // plan-133-C: the series' clock (`t0` at registration, `t_ns` per sample). Its
+        // peak-RSS read uses the imports `process` already requests.
+        platform.debug_clock_imports(required_by)
     }
 
     fn lock_helpers(&self) -> &'static [&'static str] {

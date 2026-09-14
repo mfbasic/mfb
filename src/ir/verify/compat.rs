@@ -637,6 +637,13 @@ impl TypeEnv {
         value: &IrValue,
         locals: &HashMap<String, ParameterType>,
     ) {
+        // plan-136-A: a hidden default function returns its parameter's default,
+        // which is checked against the parameter as `TYPE_DEFAULT_VALUE_MISMATCH`
+        // at the parameter's line; a second report here would name no source
+        // construct the user wrote.
+        if crate::internal_name::is_hidden_default_function(&self.current_function.borrow()) {
+            return;
+        }
         let expected = self.current_return.borrow().clone();
         if matches!(expected, ParameterType::Nothing | ParameterType::Unknown)
             || expected.name().is_empty()

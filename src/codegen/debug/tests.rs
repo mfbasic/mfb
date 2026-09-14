@@ -19,15 +19,19 @@ use crate::testutil::CodeTarget;
 const SOURCE: &str = "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n";
 
 /// The imports the debug helpers resolve against on macOS: `_write` for every report
-/// line (every entry module carries it, `entry_error_imports`), and the mutex pair the
+/// line (every entry module carries it, `entry_error_imports`), the mutex pair the
 /// arena registry's register helper takes (a real plan attributes those to it through
-/// `DebugFeature::lock_helpers`, `plan::symbols::platform_imports`).
+/// `DebugFeature::lock_helpers`, `plan::symbols::platform_imports`), `_getrusage` for
+/// the peak RSS, and `_clock_gettime` for the arena memory series' clock (plan-133-C).
+/// A real macOS plan imports `_clock_gettime` for every program entry, for the
+/// arena-fill seed (`macos_aarch64/plan.rs`, `entry_imports`).
 fn imports() -> HashMap<String, String> {
     [
         "_write",
         "_pthread_mutex_lock",
         "_pthread_mutex_unlock",
         "_getrusage",
+        "_clock_gettime",
     ]
     .into_iter()
     .map(|symbol| (symbol.to_string(), "libSystem".to_string()))

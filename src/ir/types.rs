@@ -80,10 +80,31 @@ pub(crate) struct IrRecordUpdate {
 pub struct ExternalFunctionParam {
     pub name: String,
     pub type_: ParameterType,
-    /// Whether the exporting package declared a default for this parameter —
-    /// the fact the call-arity rule needs to tell an omitted optional argument
-    /// from a missing required one (plan-107-E).
-    pub has_default: bool,
+    /// What a call that omits this argument passes (plan-136-B). Whether it is
+    /// present is also the fact the call-arity rule needs to tell an omitted
+    /// optional argument from a missing required one (plan-107-E).
+    pub default: ExternalDefault,
+}
+
+/// An imported function parameter's default, decoded from the exporting
+/// package's parameter record (plan-136-B).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ExternalDefault {
+    /// No default: the argument is required.
+    None,
+    /// A literal default, as the `IrValue::Const` type and value spelling the
+    /// exporting package stored in `CONST_POOL`.
+    Literal { type_: ParameterType, value: String },
+    /// A computed default: the importer-side `package.name` of the parameter's
+    /// hidden default function, called with no arguments.
+    Function(String),
+}
+
+impl ExternalDefault {
+    /// Whether the parameter declares any default.
+    pub fn is_some(&self) -> bool {
+        !matches!(self, ExternalDefault::None)
+    }
 }
 
 /// One imported package function's signature, carried as **typed data** from the

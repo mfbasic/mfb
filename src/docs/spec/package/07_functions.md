@@ -68,7 +68,7 @@ The `returnType` is the declared success type. The effective runtime result is a
 
 ## Parameters
 
-Each parameter records its name, type, `paramFlags`, and a `defaultConst` (a `CONST_POOL` index, or `0xFFFFFFFF` when the parameter has no default).
+Each parameter records its name, type, `paramFlags`, and a `defaultConst`: a `CONST_POOL` index for a literal default, the `FUNCTION_TABLE` index of the parameter's hidden default function when bit 3 is set, or `0xFFFFFFFF` when the parameter has no default.
 
 Parameter flags (`paramFlags` u32):
 
@@ -76,9 +76,14 @@ Parameter flags (`paramFlags` u32):
 bit 0 = has default
 bit 1 = resource non-owning  (reserved; not currently emitted)
 bit 2 = resource consume     (reserved; not currently emitted)
+bit 3 = default function     (defaultConst is a FUNCTION_TABLE index)
 ```
 
-`lower_function` sets only bit 0, and only when the parameter has a default (in which case `defaultConst` is also populated). The non-owning/consume bits are defined by the format but are **not currently produced** — no per-parameter ownership annotation syntax (such as `MOVE`) exists, and resource ownership is enforced by the compiler rather than encoded in these per-parameter bits today.
+A default that names nothing (a string, number, scalar or boolean literal, `NOTHING`, or a built-in package constant) is stored as a `CONST_POOL` entry under bit 0 alone. Any other default is **computed**: the compiler lowers it into a private, parameterless hidden default function named `$default$<function>$<index>` that returns the parameter's type (`mfb spec language functions`), and the record sets bits 0 **and** 3 with `defaultConst` holding that function's index. The writer refuses any other default value shape. [[src/binary_repr/writer.rs:lower_param_default]]
+
+A package is untrusted input, and an importer calls the function a bit-3 record names on every call that omits the argument, so the reader refuses — never repairs — a record where bit 3 is set without bit 0, the index is outside the function table, or the target is not private, takes parameters, does not return the parameter's type, or is not named as a hidden default function. [[src/binary_repr/reader.rs:validate_default_functions]] An importer decodes each exported parameter's default (a literal back to its value, or the hidden function's name) and passes it when a call omits the argument. [[src/binary_repr/builder.rs:export_default]]
+
+The non-owning/consume bits are defined by the format but are **not currently produced** — no per-parameter ownership annotation syntax (such as `MOVE`) exists, and resource ownership is enforced by the compiler rather than encoded in these per-parameter bits today.
 
 ## See Also
 

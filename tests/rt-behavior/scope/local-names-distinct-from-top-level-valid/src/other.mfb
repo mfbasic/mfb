@@ -1,0 +1,7 @@
+' A file-scope PRIVATE binding: invisible to src/main.mfb, so main's local `secret`
+' does not collide with it.
+PRIVATE LET secret AS Integer = 42
+
+FUNC otherSecret() AS Integer
+  RETURN secret
+END FUNC

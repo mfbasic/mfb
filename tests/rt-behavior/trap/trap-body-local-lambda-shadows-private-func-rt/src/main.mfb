@@ -1,0 +1,28 @@
+' bug-285, plan-136-C form: a function-level TRAP body sees the function body's
+' locals, so a body local that shares a file PRIVATE's name must win inside the
+' TRAP body too. The scope rewriter once seeded the trap block with params + the
+' trap binding only, so `helper()` below was renamed to the file private and the
+' trap printed 42 instead of 7 — adding an unrelated PRIVATE silently changed an
+' existing function's behavior.
+'
+' plan-136-C forbids a local named like a top-level LET/MUT, so bug-285's
+' original `LET x` vs `PRIVATE LET x` program is now a compile error
+' (tests/syntax/trap/trap-body-local-shadows-private-invalid). Function names are
+' not covered by that rule, so the same trap-body scoping is pinned here through
+' a PRIVATE FUNC and a local lambda of the same name.
+IMPORT io
+
+PRIVATE FUNC helper() AS Integer
+  RETURN 42
+END FUNC
+
+FUNC main() AS Integer
+  LET helper = LAMBDA() -> 7
+  LET bad AS Integer = toInt("nope")
+  io::print(toString(bad))
+  RETURN 1
+  TRAP(e)
+    io::print(toString(helper()))
+    RETURN 0
+  END TRAP
+END FUNC

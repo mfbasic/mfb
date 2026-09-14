@@ -1,0 +1,3 @@
+' A top-level binding with default (PUBLIC) visibility: visible from src/main.mfb,
+' so main's local `omega` may not reuse its name.
+LET omega AS Integer = 99

@@ -1037,9 +1037,12 @@ impl<'a> Walker<'a> {
                 None => param.type_.clone(),
             };
             if let Some(default) = &param.default {
+                // plan-136-A: a default is lowered at the declaration with no
+                // locals, so it is walked with none.
+                let no_locals = HashMap::new();
                 self.current_line = param.line;
-                self.walk_expression(default, &locals);
-                if self.checker_types_unknown(default, &locals, Some(&param.type_)) {
+                self.walk_expression(default, &no_locals);
+                if self.checker_types_unknown(default, &no_locals, Some(&param.type_)) {
                     self.emit(
                         "TYPE_UNKNOWN_VALUE",
                         format!(
@@ -2217,7 +2220,7 @@ impl<'a> Walker<'a> {
                         .map(|param| ShapeParam {
                             name: param.name.clone(),
                             type_: param.type_.clone(),
-                            has_default: param.has_default,
+                            has_default: param.default.is_some(),
                         })
                         .collect(),
                 ));
@@ -3826,12 +3829,12 @@ mod tests {
                     crate::ir::ExternalFunctionParam {
                         name: "width".to_string(),
                         type_: ParameterType::Integer,
-                        has_default: false,
+                        default: crate::ir::ExternalDefault::None,
                     },
                     crate::ir::ExternalFunctionParam {
                         name: "height".to_string(),
                         type_: ParameterType::Integer,
-                        has_default: false,
+                        default: crate::ir::ExternalDefault::None,
                     },
                 ],
                 returns: ParameterType::Integer,

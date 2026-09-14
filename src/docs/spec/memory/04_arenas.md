@@ -273,6 +273,10 @@ stream needs no reproducibility. `arena_fill_random(ptr, len)` streams PRNG word
 (no syscall per fill); `arena_free` calls it after the coalescing insert (over
 the freed payload past the FreeNode words — see `arena_free` above), and
 `arena_alloc` calls it on a freshly mapped block's usable region before first use.
+A `--debug` build counts both kinds of fill for each arena in the debug report:
+`arena.<n>.fill_grow_calls`/`.fill_grow_bytes` for fresh blocks and
+`arena.<n>.fill_free_calls`/`.fill_free_bytes` for freed chunks (see
+`tooling/09_debug-report.md`).
 
 ## Cleanup and Reclamation
 

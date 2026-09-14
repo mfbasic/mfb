@@ -174,8 +174,10 @@ fn rewrite_item_refs(
                 if let Some(state) = param.state_type.as_mut() {
                     *state = rewrite_type_str(state, types);
                 }
+                // plan-136-A: a default resolves at the declaration, where no
+                // parameter is a local, so every PRIVATE name in it is rewritten.
                 if let Some(default) = param.default.as_mut() {
-                    rewrite_expr(default, rename, types, &locals);
+                    rewrite_expr(default, rename, types, &HashSet::new());
                 }
                 locals.insert(param.name.clone());
             }
@@ -248,6 +250,10 @@ fn rewrite_item_refs(
                     }
                     if let Some(state) = param.state_type.as_mut() {
                         *state = rewrite_type_str(state, types);
+                    }
+                    // plan-136-A: a LINK default reads the declaration scope too.
+                    if let Some(default) = param.default.as_mut() {
+                        rewrite_expr(default, rename, types, &HashSet::new());
                     }
                 }
                 if let Some(return_type) = function.return_type.as_mut() {
@@ -853,6 +859,26 @@ END TESTING
         assert!(
             json.contains("\"resource\": \"g\""),
             "a local state-assign target must stay bare:\n{json}"
+        );
+    }
+
+    #[test]
+    fn a_local_named_like_a_private_func_is_left_alone() {
+        // plan-136-C: a local may no longer share a name with a top-level LET/MUT,
+        // but it may still share one with a FUNC, so the rewriter must keep leaving a
+        // local that shadows a PRIVATE FUNC unrenamed. Here a local lambda is called
+        // by the function's name: the declaration is mangled, the call stays bare.
+        let src = "PRIVATE FUNC helper() AS Integer\n  RETURN 42\nEND FUNC\n\nFUNC f() AS Integer\n  LET helper = LAMBDA() -> 7\n  RETURN helper()\nEND FUNC\n";
+        let mut project = project_from_src(src);
+        scope_privates(&mut project);
+        let json = project.to_json();
+        assert!(
+            json.contains(&mangled("helper")),
+            "the PRIVATE FUNC declaration is still mangled:\n{json}"
+        );
+        assert!(
+            json.contains("\"callee\": \"helper\""),
+            "the local lambda's call must stay bare:\n{json}"
         );
     }
 
