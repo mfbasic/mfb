@@ -95,6 +95,7 @@ built-in package sources are Rust strings whose top-level bindings are `__`-inte
 | Unit tests that assert a local may shadow a `PRIVATE` | 2: `locals_shadow_private_names_and_are_left_alone`, `a_local_shadowing_a_private_keeps_its_state_assign_target_bare` | `grep -n 'fn locals_shadow_private\|fn a_local_shadowing_a_private' src/ast/scope_privates.rs` |
 | Exact compiler census (all nine sites, both rules) | **1** committed fixture: `tests/rt-behavior/trap/trap-body-local-shadows-private-rt` (bug-285) — the same one the text census found. Beyond it, only this letter's two new `-invalid` fixtures (placeholder goldens) fired a rule | `scripts/test-accept.sh /tmp/p136c-census/target/release/mfb /tmp/p136c-census-accept` → `acceptance tests failed: 5 mismatch(es) (1471 test(s) ran)`: the bug-285 fixture's `build.log` plus its two now-missing `.ast`/`.ir`, and the two new fixtures; `grep -rl 'SYMBOL_SHADOWS_TOP_LEVEL_BINDING\|SYMBOL_DUPLICATE_LOCAL' /tmp/p136c-census-accept --include=build.log` → those three `build.log`s only |
 | Reports on `local-shadows-top-level-binding-invalid` (census compiler) | **13** `SYMBOL_SHADOWS_TOP_LEVEL_BINDING`, one per offending binding (LET, MUT and RES count separately: 13 bindings), each at its own line (32, 37, 44, 51, 52, 53, 55, 59, 63, 67, 70, 76, 80) | a copy built with `/tmp/p136c-census/target/release/mfb build -ast -ir … \| grep -c SYMBOL_SHADOWS_TOP_LEVEL_BINDING` |
+| In-tree packages the rules reject, after merging main (Phase 4) | **0** of 9 — re-measured because main's `af9b1a591` turned json_schema/jwt/mustache/yaml error-code accessor FUNCs into `EXPORT LET` constants, exactly the names the plan's text census said locals share | `git merge main` (8 commits, no overlap with this branch), then `bash /tmp/p136c-package-census.sh target/release/mfb` with the rule-enabled compiler → `packages built: 9, failed: 0` |
 | In-tree packages the rules reject | **0** of 9 (baseline with the current compiler: 9 built, 0 failed) | `bash /tmp/p136c-package-census.sh <mfb>` (builds every `packages/*/`) with `target/release/mfb` → `packages built: 9, failed: 0`, and with the census compiler `/tmp/p136c-census/target/release/mfb` → `packages built: 9, failed: 0` |
 | Next free `2-201` code | `2-201-0022` (corrected 2-201-0019 → see plan-136-A Corrections: `0019` is retired by plan-115-B and never reused, `0013` by bug-216; plan-136-A took `0020`/`0021`) | `git log main -G'"2-201-00(19\|2[0-9]\|13)"' --oneline -- src/rules/table.rs` plus `grep -n '"2-201-00' src/rules/table.rs \| tail -1` — the table tail alone cannot see a retired code |
 
@@ -296,18 +297,33 @@ Acceptance: every census entry resolved; converted fixtures pass.
   `acceptance tests passed (35 test(s) ran)`; `cargo test --release --bin mfb -- scope_privates
   corpus` (widened to the `CORPUS` tests this phase edits) → `test result: ok. 67 passed; 0 failed`;
   `rustfmt --check` on the three changed Rust files → no diff.
-Commit: —
+Commit: fba131c10
 
 ### Phase 4 — docs, the plan-wide gate, closeout
 
-- [ ] `05_bindings-and-scope.md`: §5 states the rule against visible top-level `LET`/`MUT`
+- [x] `05_bindings-and-scope.md`: §5 states the rule against visible top-level `LET`/`MUT`
       bindings (visibility, own-file `PRIVATE`, not functions/types/imports), the nine sites, both
-      rule names, with citations to `check_new_local`.
-- [ ] `mfb man`: `tour` already says "no shadowing"; add to the `variable` topic
+      rule names, with citations to `check_new_local`. The scope bullet names both rules; "No
+      shadowing of an in-scope local" now lists every checking site (it said only LET and FOR); new
+      subsection "No local reuses a visible top-level binding's name" (what is and is not covered,
+      once-per-binding, example, `[[src/resolver/resolution.rs:check_new_local]]`). After a rebuild,
+      `target/release/mfb spec language bindings-and-scope | grep -n 'SYMBOL_SHADOWS_TOP_LEVEL_BINDING\|visible
+      from its file\|reuses a visible top-level'` → rendered lines 51, 117, 120, 131.
+- [x] `mfb man`: `tour` already says "no shadowing"; add to the `variable` topic
       (`src/docs/man/variable/package.md`) one sentence and a compiled example that a local cannot
       reuse a top-level binding's name; `scripts/man-census.sh --memory-scope` → 0 unclassified.
-- [ ] `cargo test --release --bin mfb spec` → ok; `scripts/spec-census.sh --citations` → no new
-      unresolved.
+      Added under "LET and MUT": the sentence, the refused program (introduced in prose as not
+      building), and the renamed version with its output. Both compiled with the release binary in
+      `/tmp`: the first → `main.mfb:6 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING] … `limit` is
+      already a top-level binding (declared at src/main.mfb:3)`; the second builds and prints `10`.
+      `scripts/man-census.sh --memory-scope` → `unclassified memory-vocabulary hits: 0`; §9.2b
+      citation-marker grep over `src/docs/man` → nothing; `mfb man variable` renders the section
+      (lines 58–72).
+- [x] `cargo test --release --bin mfb spec` → ok; `scripts/spec-census.sh --citations` → no new
+      unresolved. `cargo test --release --bin mfb spec` → `test result: ok. 43 passed; 0 failed`;
+      `scripts/spec-census.sh --citations` → 81 MISS rows (MISS-PATH 2, MISS-LINE 0, MISS-SYMBOL 61),
+      the same count as before Phase 4; `grep -E 'check_new_local|05_bindings'` over its output →
+      nothing.
 - [ ] **Final gate (plan-136, once):** `cargo build --release`, then
       `cargo test --release --no-fail-fast` (never piped to `tail`; read the per-target summary) and
       `scripts/test-accept.sh target/release/mfb /tmp/p136-final-accept` and
