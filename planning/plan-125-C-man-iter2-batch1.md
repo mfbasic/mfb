@@ -182,7 +182,35 @@ that is new to review last, with pace known).
         - `exp(1000.0)` raises `ErrFloatInf`.
         - `pow(-8.0, 0.5)` raises `ErrFloatNaN`. Its page says only "outside the
           domain", which is not wrong, but it names no error; decide when applying.
-      - Not yet probed: the trig and `atan2` claims.
+      - Trig and `atan2`, probed after the Codex reset
+        (`/tmp/p125-ex/mathtrig`, `/tmp/p125-ex/mathatan2`,
+        `/tmp/p125-ex/tanfixed`):
+        - **Wrong, applied:** `tan` said an argument near an odd multiple of
+          pi/2 "can overflow to a non-finite result (`ErrFloatInf`/
+          `ErrFloatNaN`)". A `Float` never does: `tan(math::pi2)` is
+          1.6e16 and `tan(3·pi2)` 5.4e15. A `Fixed` drifts from the `Float`
+          result as the angle nears pi/2 (37025580 vs 37262968 at 1.5707963).
+          At `math::pi2Fixed` it returns `-1431655767.666667`, no error, while
+          the true tangent is about +1.65e10, beyond `Fixed`'s range →
+          **bug-615**. The page states the current behavior and points to
+          `Float`.
+        - **Wrong, applied:** `atan2` said its result is in `(-pi, pi]`;
+          `atan2(-0.0, -1.0)` is exactly `-pi`. It is now `[-pi, pi]`, with the
+          negative-zero case spelled out.
+        - Confirmed as documented:
+          - `atan(±1e300)` is ±pi/2;
+          - `sin`/`cos`/`tan`/`atan` echo `Fixed`;
+          - `atan2`'s four quadrants, its `Fixed` form, and mismatched list
+            lengths → `ErrInvalidArgument`.
+      - Found while reading `atan2`: declarations render the placeholder
+        `AS Arg0`. `./scripts/man-manual.sh | grep -c -E
+        '\b(AS|OF|TO) Arg[0-9]+\b'` → 78 lines (66 `math`, 12 `collections`) →
+        **bug-616**, a renderer defect, not prose.
+      - Bug-number race: 611–614 are already used on other branches (`git log
+        --all --name-only`), so the two new bugs are 615 and 616. Another
+        session's unmerged t3 checkpoint also uses bug-603, for a `datetime`
+        bug added 2026-09-13 06:32. This branch's bug-603 (color hue,
+        `17872c5d1`, 2026-09-12 22:35) came first and keeps the number.
 - [ ] Ledger + example ledger recorded here.
 
 Acceptance: 22 units `exit 0` in the manifest; `--reconcile` clean for the
