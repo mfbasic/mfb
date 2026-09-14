@@ -478,28 +478,46 @@ the only golden diff is `user-function-default-args-result-valid`.
   → only that `.ir` modified. Literal-default fixtures (`types-default-value-invalid`,
   `user-function-default-args-invalid`, both `project-entry-func-named-args-*`,
   `types-declaration-shapes-invalid`) are byte-identical.
-Commit: —
+Commit: e102d1659
 
 ### Phase 4 — spec and man sync
 
-- [ ] `06_functions.md` "Default args": a default's names resolve at the declaration (globals,
+- [x] `06_functions.md` "Default args": a default's names resolve at the declaration (globals,
       functions, imports, own-file `PRIVATE` names), never a parameter or a caller local; it is
       evaluated on each call that omits the argument; literal vs computed; the two new rules;
-      `[[path:symbol]]` citations to `default_kind` and `hidden_default_function_name`.
-- [ ] `14_memory-semantics.md`: replace "Default arguments are evaluated at the call site" with the
-      per-call, declaration-scope rule.
-- [ ] `src/docs/spec/architecture/04_ir.md`: hidden `$default$` functions beside `$lambda`.
-- [ ] `mfb man`: find the narrative topic that teaches `FUNC` defaults (`grep -rln -i 'default'
+      `[[path:symbol]]` citations to `default_kind` and `hidden_default_function_name` (plus
+      `resolve_parameter_default`). Also states LINK parameters follow the same rules.
+      `target/release/mfb spec language functions | grep -n -i 'declar'` → rendered lines 20
+      ("…with the default's names resolved where the function is declared: the declaring…"), 26, 30.
+- [x] `14_memory-semantics.md`: replace "Default arguments are evaluated at the call site" with the
+      per-call, declaration-scope rule ("A default argument is evaluated on each call that omits the
+      argument, with its names resolved where the function is declared — never in the caller's
+      scope…").
+- [x] `src/docs/spec/architecture/04_ir.md`: hidden `$default$` functions beside `$lambda` — a
+      "Hidden default functions" paragraph closing §12 (lambda lifting), citing
+      `lower_parameter_default`, `lower_call_default`, `hidden_default_function_name`.
+- [x] `mfb man`: find the narrative topic that teaches `FUNC` defaults (`grep -rln -i 'default'
       src/docs/man/*/package.md`); add that a default cannot use the function's other parameters
       and is evaluated on each call, with a compiled example (build it in `/tmp`; man examples are
       unchecked — `.ai/man-content.md`); check `scripts/man-census.sh --memory-scope` → 0
-      unclassified.
-- [ ] Citations: `cargo test --release --bin mfb spec` → ok; `scripts/spec-census.sh --citations` →
-      no new unresolved.
+      unclassified. No topic taught defaults (Corrections); added to `mfb man tour` `## Functions`.
+      The block exactly as written, built in `/tmp/p136-man-default` → prints `Hello, Ada #1`,
+      `Hi, Bob #2`, `Hey, Cy #99` (its comments). `scripts/man-census.sh --memory-scope` →
+      `unclassified memory-vocabulary hits: 0`. §9.2b citation-marker grep over `src/docs/man` →
+      nothing; `mfb man tour` renders the paragraph and example.
+- [x] Citations: `cargo test --release --bin mfb spec` → ok; `scripts/spec-census.sh --citations` →
+      no new unresolved. `cargo test --release --bin mfb spec` → `test result: ok. 43 passed; 0
+      failed`. `scripts/spec-census.sh --citations` → 81 `MISS-` rows, and `grep -E
+      '06_functions|04_ir\.md|14_memory-semantics|default_kind|hidden_default_function_name|resolve_parameter_default|lower_parameter_default|lower_call_default'`
+      over its output → nothing: every new marker resolves, and no cited symbol was renamed or
+      removed by this letter (the only way an existing marker could newly miss).
 
 Acceptance: `mfb spec language functions` states the rule with resolving citations.
   Check: `cargo test --release --bin mfb spec` → `test result: ok` (est. 3 min);
   `target/release/mfb spec language functions | grep -n -i 'declar'` → the new sentences.
+  **Measured 2026-09-13** (release rebuilt after the doc edits, since `mfb spec`/`mfb man` embed
+  them at compile time): `test result: ok. 43 passed; 0 failed`; the grep → rendered lines 20, 26
+  and 30 are the new sentences.
 Commit: —
 
 ## Validation Plan
@@ -561,6 +579,17 @@ Commit: —
   (16/21/26) instead of the default's declaration line 8 — the lifted call's `loc` is now the call site,
   which is where those ops live. Nothing else moved. The plan predicted "two hidden functions plus the
   two call sites"; the count is five fills plus their lines.
+- **No man topic taught parameter defaults (Phase 4).** The plan's `grep -rln -i 'default'
+  src/docs/man/*/package.md` finds `errors`, `lambda`, `optimizations`, `tooling`, `tour`,
+  `variable`, `link`, `types`, but none of them teaches a `FUNC` parameter default (the hits are
+  "immutable by default", `defaultUser`, "safer defaults", …; `lambda` says lambda parameters cannot
+  declare one), and `grep -rln 'FUNC [a-zA-Z]*(.* AS [A-Za-z]* *= ' src/docs/man` → nothing. The
+  topic that teaches `FUNC`/`SUB` declarations is `mfb man tour` `## Functions`, so the paragraph
+  and example went there. (The §9.2c double-backtick grep's one hit,
+  `src/docs/man/types/string.md:42`, is not a defect and predates this plan: the line is INSIDE a
+  fenced code block — the grep only excludes lines that begin with the fence — and `mfb man types
+  string` renders it verbatim, `` `\`` `` and `` `中` `` included; `git diff main --stat --
+  src/docs/man/types/string.md` → empty.)
 - **Hidden default functions need no `Fallibility` entry (Phase 3).** `ir::fallible::analyze` runs
   over HIR functions and `call_is_fallible` is asked about HIR call targets; a hidden
   `$default$…` call exists only in lowered IR, so no HIR-level desugar ever asks about it.

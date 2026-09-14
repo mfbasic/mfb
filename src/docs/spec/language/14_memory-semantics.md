@@ -32,7 +32,7 @@ Function arguments are owned values. Passing an argument follows the same copy-o
 
 Returning a value moves it into the caller's return slot. Returning a local collection is valid because ownership leaves the callee before local scope cleanup. Returning a `MUT` collection freezes the mutable buffer into an immutable owned collection value. Returning a non-copyable local value moves it; the callee does not drop that moved-from binding.
 
-Default arguments are evaluated at the call site and then passed under the same rules as explicit arguments.
+A default argument is evaluated on each call that omits the argument, with its names resolved where the function is declared — never in the caller's scope (`mfb spec language functions`) — and is then passed under the same rules as explicit arguments.
 
 ## 14.3.1 Native heap value contract
 
