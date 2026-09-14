@@ -1,7 +1,8 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-13
-Open bugs: **9** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l` at `78550d5e0`)
+Open bugs: **10** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l` on `worktree-P-136`, after
+bug-628 was filed)
 
 ## 2026-09-13 — status of every open bug
 
@@ -11,6 +12,7 @@ below is read from the bug doc and `git log`; no repro was re-run for this updat
 | Bug | Sev | Effort | Status | Next |
 |---|---|---|---|---|
 | 614 | MED | x-large | **Planned: plan-136 A–C** (decided 2026-09-13). A default reads a caller's same-named local; package defaults are never filled (a literal one prints garbage or crashes), `LINK` defaults are never passed, lambda defaults are dropped | Work plan-136-A |
+| 628 | MED | medium | Filed 2026-09-13 during plan-136-B. An importer that lists only package B, whose code calls B's own dependency A, fails with the unlocated `NIR call target 'A.f' does not resolve` (pre-existing on main; listing A too works) | **Owner decision**: merge a package's dependencies transitively, or refuse with a located diagnostic |
 | 608 | MED | small–medium | Not started. Nine `udp` forms declare `errors: vec![]` but raise | Phase 1 must establish whether any form is inline-lowered (a deleted handler) |
 | 564 | MED | small | Both sightings fixed. A macOS `tls::write` after `tls::read` saw the close never raises. **Decided 2026-09-12**: raise `ErrConnectionClosed`. Not started | Network.framework side; measure Linux and Windows on the same sequence |
 | 540 | MED | large | WIN-01/04/05 fixed; WIN-02/03 (fixed 80x25, no `didResize`) remain | **Owner decision**: a test-only `term::` resize hook |

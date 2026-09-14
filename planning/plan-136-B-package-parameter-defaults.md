@@ -305,27 +305,43 @@ Acceptance: every `rt_package_parameter_defaults` case passes.
   64.64s`. The test code this phase changed (`ExternalFunctionParam` literals, the new
   `package_export_signature` argument) compiles and passes: `cargo test --release --bin mfb --
   ir::shape ir::tests manifest::package` → `test result: ok. 454 passed; 0 failed`.
-Commit: —
+Commit: 6136b5648
 
 ### Phase 4 — byte-identity of existing packages, spec sync
 
-- [ ] Regenerate every committed package: `scripts/sync-package-mfp.sh target/release/mfb` and the
+- [x] Regenerate every committed package: `scripts/sync-package-mfp.sh target/release/mfb` and the
       security generators (`python3 tools/security-package-sources/<pkg>/generate.py` for each
       existing one); then `git status --short -- '*.mfp' '*.info'` → **empty** (no committed package
       has a computed default, so none may change). Est. 10–15 min: it rebuilds 160 packages, and
       nothing smaller proves the literal path's bytes and `sigHash` are untouched across every shape
-      in the corpus.
-- [ ] `07_functions.md`: parameter flags (bit 3), `defaultConst` meaning for bit 3, the validation
-      rules, with citations.
-- [ ] `03_metadata-encoding.md`: the `sigHash` byte `2`.
-- [ ] `05_constant-pool.md`: a computed default is not a constant; point at the flag.
-- [ ] `05_binary-representation.md` (decode-and-merge): an imported call's omitted argument is
-      filled from the export signature.
-- [ ] `cargo test --release --bin mfb spec` → ok.
+      in the corpus. Measured with the release binary rebuilt from `6136b5648`: sync → `updated 4,
+      unchanged 116 (build-failed/skipped 5, no committed copy 12)`; all ten generators (pkg-01…08)
+      → no committed file changed. The 4 updated are NOT this letter's change (Corrections): for each
+      of `regex_thread_workers`, `xfer_tls_worker` (two copies), `xfer_listener_worker`, the package
+      built by main's pre-plan binary and by this letter's binary are `cmp`-identical, and both
+      differ from the committed copy — copies already stale on main. Restored with `git checkout`;
+      `git status --short -- '*.mfp' '*.info'` → 0 lines.
+- [x] `07_functions.md`: parameter flags (bit 3), `defaultConst` meaning for bit 3, the validation
+      rules, with citations (`writer::lower_param_default`, `reader::validate_default_functions`,
+      `builder::export_default`). `target/release/mfb spec package functions | grep -n 'bit 3\|default
+      function'` → rendered lines 95, 103, 108, 115, 117.
+- [x] `03_metadata-encoding.md`: the `sigHash` byte `2` (and that the index and expression are not
+      hashed).
+- [x] `05_constant-pool.md`: a computed default is not a constant; point at the flag.
+- [x] `05_binary-representation.md` (decode-and-merge): an imported call's omitted argument is
+      filled from the export signature (citing `package_export_signature`, `lower_facts`).
+      `scripts/spec-census.sh --citations` → 81 `MISS-` rows (unchanged from plan-136-A's count),
+      none naming an edited file or a new marker (grep exit 1).
+- [x] `cargo test --release --bin mfb spec` → ok. Release rebuilt after the doc edits first
+      (`Finished`); `test result: ok. 43 passed; 0 failed`.
 
 Acceptance: no committed `.mfp`/`.info` changes; spec describes the record.
   Check: the `git status` above → empty; `cargo test --release --bin mfb spec` → `test result: ok`
   (est. 3 min).
+  **Measured 2026-09-13:** `git status --short -- '*.mfp' '*.info'` → 0 lines (after restoring the
+  four copies that were stale on main — Corrections; this letter's compiler builds them
+  `cmp`-identical to main's); `cargo test --release --bin mfb spec` → `test result: ok. 43 passed; 0
+  failed`.
 Commit: —
 
 ## Compatibility / Format Impact
@@ -378,7 +394,18 @@ Commit: —
   merged, so the precedent chain test `rt_top_level_initializer_globals` lists both packages; the
   case now does too. The unlocated internal error for that program shape is a pre-existing defect
   no bug or plan records (`grep -rln "NIR call target .* does not resolve" bugs planning` → nothing);
-  it is captured as a bug after this phase lands, not fixed here.
+  it is captured as a bug after this phase lands, not fixed here. **Filed as bug-628**
+  (`bugs/bug-628-unlisted-transitive-package-call-fails-unlocated-nir.md`, backlog row added).
+- **"Regenerate every committed package → no diff" measures main's staleness, not this letter
+  (Phase 4).** Four committed copies were already stale before plan-136: the committed
+  `regex_thread_workers.mfp` dates to `031369cf7` (2026-08-29) and the xfer worker copies to
+  `99a6cafca` (2026-08-31), while the `regex`/`tls`/`tcp`/`thread` built-ins they compile in changed
+  on 2026-09-13 (`5d052ac7b` plan-134-I, plan-125-B). Measured per package: main's pre-plan binary
+  and this letter's binary build `cmp`-identical `.mfp`s, and both differ from the committed copy
+  (`differ: char 116` / `char 106`). The criterion that proves THIS letter changed no package's
+  bytes is "new build == main build" for every package the sync reports as updated (and
+  "unchanged" for the other 116) — met. The stale copies were restored rather than refreshed, to
+  keep this plan's diff scoped; refreshing them is ordinary `sync-package-mfp.sh` upkeep for main.
 
 ## Summary
 

@@ -188,7 +188,7 @@ The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed b
 * the export kind (u16),
 * the function flags **masked to `ISOLATED | SUB`** (u16) — only the isolated and sub bits are ABI-significant; other flags are excluded,
 * the parameter count (u32),
-* for each parameter, its structurally-serialized type, then a default-presence byte (`0`/`1`) and, when present, the serialized default constant,
+* for each parameter, its structurally-serialized type, then a default byte: `0` for no default; `1` followed by the serialized default constant for a literal default; or `2` for a computed default (parameter flag bit 3). Only a computed default's existence is hashed, not its hidden function's index or expression — a default expression is not ABI, so changing one inside a package is not an ABI break,
 * the structurally-serialized return type.
 
 Note what is **not** in the function hash today: parameter names, resource ownership/non-owning/consume annotations, and explicit error/result behaviour. Two functions that differ only in those respects currently hash identically.
