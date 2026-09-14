@@ -1,5 +1,7 @@
 # plan-93-E: Server-side cookies (request parse + `Set-Cookie` emit)
 
+> **ARCHIVED 2026-09-13 — never executed, not to be used.** Kept only as a historical record; nothing in this plan landed. Its prerequisite gates (`ls planning/completed/plan-93-*`) are NOT satisfied by this move.
+
 Last updated: 2026-08-09
 Effort: medium (1h–2h)
 Depends on: nothing for parsing; shares one cookie-attribute helper with plan-93-F
