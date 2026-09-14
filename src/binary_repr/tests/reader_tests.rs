@@ -267,6 +267,133 @@ fn read_type_entries_rejects_bad_bounds() {
     assert!(read_type_entries(&bytes, &[]).is_err());
 }
 
+/// plan-136-B: a computed default's parameter record round-trips as the
+/// default-function flag plus its hidden function's index, and decodes for an
+/// importer as that function's name; the literal default beside it is unchanged.
+#[test]
+fn read_binary_repr_package_round_trips_a_function_default() {
+    let bytes = encode_project(
+        &default_function_project(),
+        &BinaryReprMetadata::new("defaultpkg".to_string(), "1.0.0".to_string()),
+    );
+    let package = read_binary_repr_package(&bytes).expect("decode package");
+    let strings = &package.project.strings.values;
+    let f = package
+        .project
+        .functions
+        .iter()
+        .find(|function| string_at(strings, function.name) == Ok("f"))
+        .expect("f in the function table");
+    assert_eq!(
+        f.params[0].flags,
+        PARAM_FLAG_DEFAULT | PARAM_FLAG_DEFAULT_FUNCTION
+    );
+    assert_eq!(f.params[0].default_const, 3);
+    assert_eq!(f.params[1].flags, PARAM_FLAG_DEFAULT);
+    let exports = package_exports(&package).expect("exports");
+    let f = exports
+        .iter()
+        .find(|export| export.name == "f")
+        .expect("f export");
+    assert_eq!(
+        f.params[0].default,
+        BinaryReprExportDefault::Function(crate::internal_name::hidden_default_function_name(
+            "f", 0
+        ))
+    );
+    assert_eq!(
+        f.params[1].default,
+        BinaryReprExportDefault::Literal {
+            type_: crate::types::ParameterType::Integer,
+            value: "7".to_string(),
+        }
+    );
+}
+
+/// A function table the reader accepts: `f(x)` whose default is its hidden
+/// default function (index 1), and an exported one-parameter `one` (index 2).
+/// `mutate` edits it into each shape `validate_default_functions` must refuse.
+fn default_function_table(mutate: impl FnOnce(&mut Vec<Function>)) -> Result<(), String> {
+    let strings = vec![
+        String::new(),
+        "f".to_string(),
+        "x".to_string(),
+        crate::internal_name::hidden_default_function_name("f", 0),
+        "one".to_string(),
+    ];
+    let function = |name: u32, flags: u16, params: Vec<Param>| Function {
+        name,
+        kind: FUNCTION_BINARY_REPR,
+        flags,
+        return_type: TYPE_INTEGER,
+        params,
+        registers: vec![],
+        cleanups: vec![],
+    };
+    let param = |flags: u32, default_const: u32| Param {
+        name: 2,
+        type_id: TYPE_INTEGER,
+        flags,
+        default_const,
+    };
+    let mut functions = vec![
+        function(
+            1,
+            0,
+            vec![param(PARAM_FLAG_DEFAULT | PARAM_FLAG_DEFAULT_FUNCTION, 1)],
+        ),
+        function(3, FUNCTION_FLAG_PRIVATE, vec![]),
+        function(4, 0, vec![param(0, u32::MAX)]),
+    ];
+    mutate(&mut functions);
+    validate_default_functions(&functions, &strings)
+}
+
+#[test]
+fn validate_default_functions_accepts_what_the_writer_produces() {
+    assert_eq!(default_function_table(|_| {}), Ok(()));
+}
+
+#[test]
+fn validate_default_functions_refuses_each_invalid_record() {
+    let refusal = |mutate: fn(&mut Vec<Function>)| {
+        default_function_table(mutate).expect_err("a corrupt record must be refused")
+    };
+    let cases: [(fn(&mut Vec<Function>), &str); 6] = [
+        (
+            |functions| functions[0].params[0].flags = PARAM_FLAG_DEFAULT_FUNCTION,
+            "without the default flag",
+        ),
+        (
+            |functions| functions[0].params[0].default_const = 9,
+            "outside the function table",
+        ),
+        (|functions| functions[1].flags = 0, "is not private"),
+        (
+            |functions| {
+                functions[2].flags = FUNCTION_FLAG_PRIVATE;
+                functions[0].params[0].default_const = 2;
+            },
+            "takes parameters",
+        ),
+        (
+            |functions| functions[1].return_type = TYPE_BOOLEAN,
+            "does not return the parameter's type",
+        ),
+        (
+            |functions| functions[1].name = 4,
+            "is not a hidden default function",
+        ),
+    ];
+    for (mutate, expected) in cases {
+        let message = refusal(mutate);
+        assert!(
+            message.contains(expected) && message.contains("function `f` parameter `x`"),
+            "expected a refusal naming `f`/`x` and saying {expected:?}, got {message:?}"
+        );
+    }
+}
+
 #[test]
 fn read_function_table_rejects_flat_code_and_trailing() {
     // Trailing garbage after a zero-function table.

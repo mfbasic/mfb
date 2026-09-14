@@ -1,0 +1,9 @@
+{
+  "name": "sec_default",
+  "ident": "sec#default",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Benign base package for the PKG-08 security fixture.",
+  "sources": [{ "root": "src" }]
+}

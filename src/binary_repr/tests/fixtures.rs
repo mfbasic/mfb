@@ -180,6 +180,49 @@ pub(super) fn rich_project() -> IrProject {
     project
 }
 
+/// plan-136-B: a package whose exported `f` has a COMPUTED default (the call to
+/// its hidden default function, function index 3) next to a literal default, plus
+/// an exported one-parameter `one` a corrupt record could be re-pointed at.
+pub(super) fn default_function_project() -> IrProject {
+    let integer = || crate::types::ParameterType::parse("Integer");
+    let hidden = crate::internal_name::hidden_default_function_name("f", 0);
+    let mut project = empty_project("defaultpkg");
+    let mut one = fn_named("one", "export", "func", "Integer");
+    one.params = vec![IrParam {
+        name: "x".to_string(),
+        type_: integer(),
+        default: None,
+        loc: loc(),
+    }];
+    let mut f = fn_named("f", "export", "func", "Integer");
+    f.params = vec![
+        IrParam {
+            name: "x".to_string(),
+            type_: integer(),
+            default: Some(IrValue::Call {
+                target: hidden.clone(),
+                args: vec![],
+                type_: integer(),
+                loc: loc(),
+            }),
+            loc: loc(),
+        },
+        IrParam {
+            name: "y".to_string(),
+            type_: integer(),
+            default: Some(const_int("7")),
+            loc: loc(),
+        },
+    ];
+    project.functions = vec![
+        fn_named("helper", "export", "func", "Integer"),
+        one,
+        f,
+        fn_named(&hidden, "private", "func", "Integer"),
+    ];
+    project
+}
+
 /// Encode a project to inner MFPC bytes with the given metadata.
 pub(super) fn encode_project(project: &IrProject, metadata: &BinaryReprMetadata) -> Vec<u8> {
     build_binary_repr_bytes(project, metadata).expect("encode")

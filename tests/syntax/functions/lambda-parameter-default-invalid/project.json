@@ -1,0 +1,12 @@
+{
+  "name": "lambda_parameter_default_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src"
+    }
+  ],
+  "entry": "main"
+}

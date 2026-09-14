@@ -1168,7 +1168,13 @@ pub(super) fn function_sig_hash(
     serializer.put_u32(function.params.len() as u32);
     for param in &function.params {
         serializer.serialize_type(param.type_id)?;
-        if param.default_const == u32::MAX {
+        // plan-136-B: checked first, because a computed default's `defaultConst`
+        // is a function index, not a const id. Only the EXISTENCE of a computed
+        // default is ABI; its expression is not, so an internal change to one does
+        // not read as an ABI break.
+        if param.flags & PARAM_FLAG_DEFAULT_FUNCTION != 0 {
+            serializer.put_u8(2);
+        } else if param.default_const == u32::MAX {
             serializer.put_u8(0);
         } else {
             serializer.put_u8(1);

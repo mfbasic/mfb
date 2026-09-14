@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/syntax/security/pkg-08-default-function
+uses sec_default - [Unsigned]
+   5 | ' decode/verification rather than producing an executable.
+   6 | IMPORT io
+   7 | IMPORT sec_default AS sec_default
+     | ^
+tests/syntax/security/pkg-08-default-function/src/main.mfb:7 error[2-201-0001 IMPORT_PACKAGE_INVALID]: imported package binary could not be read
+               Package `sec_default` type exports could not be read: failed to read 'tests/syntax/security/pkg-08-default-function/packages/sec_default.mfp': function `f` parameter `x` has an invalid default function: the target function is not private
+[exit 1]

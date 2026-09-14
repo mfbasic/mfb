@@ -1,0 +1,8 @@
+' plan-136-A: a lambda parameter may not declare a default value.
+IMPORT io
+
+FUNC main() AS Integer
+  LET addTen = LAMBDA(x AS Integer = 4) -> x + 10
+  io::print(toString(addTen(5)))
+  RETURN 0
+END FUNC

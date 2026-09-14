@@ -337,6 +337,7 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
         &strings.values,
         &type_names,
     )?;
+    validate_default_functions(&functions, &strings.values)?;
     let binary_repr = SectionKind::BinaryRepr.require(&sections)?.to_vec();
     let exports = read_export_table(SectionKind::ExportTable.require(&sections)?)?;
     let resources = match SectionKind::ResourceTable.optional(&sections) {
@@ -909,6 +910,57 @@ pub(super) fn read_const_pool(bytes: &[u8]) -> Result<ConstPool, String> {
         return Err("invalid trailing bytes in const pool".to_string());
     }
     Ok(ConstPool { entries })
+}
+
+/// Validate every parameter record whose default is a hidden default function
+/// (`PARAM_FLAG_DEFAULT_FUNCTION`, plan-136-B).
+///
+/// A `.mfp` is untrusted input, and an importer calls the function such a record
+/// names on every call that omits the argument. So the reader refuses, and never
+/// repairs, a record that is not exactly what the writer produces: the flag
+/// without `PARAM_FLAG_DEFAULT`, an index outside the function table, or a target
+/// that is not a private, parameterless function returning the parameter's type
+/// and named as a hidden default function.
+pub(super) fn validate_default_functions(
+    functions: &[Function],
+    strings: &[String],
+) -> Result<(), String> {
+    for function in functions {
+        for param in &function.params {
+            if param.flags & PARAM_FLAG_DEFAULT_FUNCTION == 0 {
+                continue;
+            }
+            let refuse = |why: String| -> Result<(), String> {
+                Err(format!(
+                    "function `{}` parameter `{}` has an invalid default function: {why}",
+                    string_at(strings, function.name).unwrap_or("<invalid>"),
+                    string_at(strings, param.name).unwrap_or("<invalid>"),
+                ))
+            };
+            if param.flags & PARAM_FLAG_DEFAULT == 0 {
+                return refuse("the default-function flag is set without the default flag".into());
+            }
+            let Some(target) = functions.get(param.default_const as usize) else {
+                return refuse(format!(
+                    "function index {} is outside the function table",
+                    param.default_const
+                ));
+            };
+            if target.flags & FUNCTION_FLAG_PRIVATE == 0 {
+                return refuse("the target function is not private".into());
+            }
+            if !target.params.is_empty() {
+                return refuse("the target function takes parameters".into());
+            }
+            if target.return_type != param.type_id {
+                return refuse("the target function does not return the parameter's type".into());
+            }
+            if !crate::internal_name::is_hidden_default_function(string_at(strings, target.name)?) {
+                return refuse("the target function is not a hidden default function".into());
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn read_manifest(bytes: &[u8]) -> Result<BinaryReprManifest, String> {

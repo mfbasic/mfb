@@ -1,0 +1,16 @@
+' PKG-08 base (plan-136-B): `f`'s default is computed, so its parameter record
+' carries the default-function flag and points at `f`'s private, parameterless
+' hidden default function. The mutation re-points that record at the EXPORTED,
+' one-parameter `one`, which the reader must refuse.
+
+EXPORT FUNC helper() AS Integer
+  RETURN 5
+END FUNC
+
+EXPORT FUNC one(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+EXPORT FUNC f(x AS Integer = helper()) AS Integer
+  RETURN x
+END FUNC

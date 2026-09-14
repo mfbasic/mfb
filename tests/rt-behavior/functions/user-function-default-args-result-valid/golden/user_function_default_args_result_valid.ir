@@ -32,8 +32,8 @@
     "kind": "func",
     "params": [
     { "name": "value", "line": 8, "type": "Integer", "default": null },
-    { "name": "extra", "line": 8, "type": "Integer", "default": { "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "name": "multiplier", "line": 8, "type": "Integer", "default": { "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-multiplier" }, { "kind": "const", "type": "Integer", "value": "5" }] } }
+    { "name": "extra", "line": 8, "type": "Integer", "default": { "kind": "call", "type": "Integer", "target": "$default$compute$1", "args": [] } },
+    { "name": "multiplier", "line": 8, "type": "Integer", "default": { "kind": "call", "type": "Integer", "target": "$default$compute$2", "args": [] } }
     ],
     "returns": "Integer",
     "body": [
@@ -70,20 +70,20 @@
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
       "then": [
       { "op": "bind", "line": 16, "mutable": false, "name": "$trap_arg0", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res1" } } },
-      { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res3", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+      { "op": "bind", "line": 16, "mutable": false, "name": "$trap_res3", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "$default$compute$1", "args": [] } },
       {
         "op": "if",
-        "line": 8,
+        "line": 16,
         "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res3" } },
         "then": [
-        { "op": "bind", "line": 8, "mutable": false, "name": "$trap_arg2", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res3" } } },
-        { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res5", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-multiplier" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+        { "op": "bind", "line": 16, "mutable": false, "name": "$trap_arg2", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res3" } } },
+        { "op": "bind", "line": 16, "mutable": false, "name": "$trap_res5", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "$default$compute$2", "args": [] } },
         {
           "op": "if",
-          "line": 8,
+          "line": 16,
           "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res5" } },
           "then": [
-          { "op": "bind", "line": 8, "mutable": false, "name": "$trap_arg4", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res5" } } },
+          { "op": "bind", "line": 16, "mutable": false, "name": "$trap_arg4", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res5" } } },
           { "op": "bind", "line": 16, "mutable": false, "name": "$trap_res6", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "compute", "args": [{ "kind": "local", "name": "$trap_arg0" }, { "kind": "local", "name": "$trap_arg2" }, { "kind": "local", "name": "$trap_arg4" }] } },
           {
             "op": "if",
@@ -138,13 +138,13 @@
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res11" } },
       "then": [
       { "op": "bind", "line": 21, "mutable": false, "name": "$trap_arg10", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res11" } } },
-      { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res13", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+      { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res13", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "$default$compute$1", "args": [] } },
       {
         "op": "if",
-        "line": 8,
+        "line": 21,
         "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res13" } },
         "then": [
-        { "op": "bind", "line": 8, "mutable": false, "name": "$trap_arg12", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res13" } } },
+        { "op": "bind", "line": 21, "mutable": false, "name": "$trap_arg12", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res13" } } },
         { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res15", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "arg2-multiplier" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
         {
           "op": "if",
@@ -206,20 +206,20 @@
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res21" } },
       "then": [
       { "op": "bind", "line": 26, "mutable": false, "name": "$trap_arg20", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res21" } } },
-      { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res23", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+      { "op": "bind", "line": 26, "mutable": false, "name": "$trap_res23", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "$default$compute$1", "args": [] } },
       {
         "op": "if",
-        "line": 8,
+        "line": 26,
         "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res23" } },
         "then": [
-        { "op": "bind", "line": 8, "mutable": false, "name": "$trap_arg22", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res23" } } },
-        { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res25", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-multiplier" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+        { "op": "bind", "line": 26, "mutable": false, "name": "$trap_arg22", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res23" } } },
+        { "op": "bind", "line": 26, "mutable": false, "name": "$trap_res25", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "$default$compute$2", "args": [] } },
         {
           "op": "if",
-          "line": 8,
+          "line": 26,
           "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res25" } },
           "then": [
-          { "op": "bind", "line": 8, "mutable": false, "name": "$trap_arg24", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res25" } } },
+          { "op": "bind", "line": 26, "mutable": false, "name": "$trap_arg24", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res25" } } },
           { "op": "bind", "line": 26, "mutable": false, "name": "$trap_res26", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "compute", "args": [{ "kind": "local", "name": "$trap_arg20" }, { "kind": "local", "name": "$trap_arg22" }, { "kind": "local", "name": "$trap_arg24" }] } },
           {
             "op": "if",
@@ -266,6 +266,30 @@
     { "op": "assign", "line": 29, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "third" } } },
     { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] }] } },
     { "op": "return", "line": 32, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "$default$compute$1",
+    "line": 8,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 8, "value": { "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] } }
+    ]
+  },
+  {
+    "name": "$default$compute$2",
+    "line": 8,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 8, "value": { "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-multiplier" }, { "kind": "const", "type": "Integer", "value": "5" }] } }
     ]
   }
   ]

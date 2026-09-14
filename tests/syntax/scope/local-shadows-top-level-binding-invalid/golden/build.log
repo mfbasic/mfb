@@ -1,0 +1,80 @@
+$ mfb build -ast -ir tests/syntax/scope/local-shadows-top-level-binding-invalid
+  30 | 
+  31 | ' Function parameter.
+  32 | FUNC byParameter(alpha AS Integer) AS Integer
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:32 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `alpha` is already a top-level binding (declared at src/main.mfb:20); a local cannot reuse its name.
+  35 | 
+  36 | ' Function parameter against a same-file PRIVATE MUT.
+  37 | FUNC byPrivateParameter(kappa AS Integer) AS Integer
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:37 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `kappa` is already a top-level binding (declared at src/main.mfb:29); a local cannot reuse its name.
+  42 | FUNC byFunctionTrap() AS Integer
+  43 |   RETURN toInt("nope")
+  44 |   TRAP(beta)
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:44 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `beta` is already a top-level binding (declared at src/main.mfb:21); a local cannot reuse its name.
+  49 | FUNC main() AS Integer
+  50 |   ' LET / MUT / RES bindings.
+  51 |   LET gamma AS Integer = 30
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:51 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `gamma` is already a top-level binding (declared at src/main.mfb:22); a local cannot reuse its name.
+  50 |   ' LET / MUT / RES bindings.
+  51 |   LET gamma AS Integer = 30
+  52 |   MUT delta AS Integer = 40
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:52 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `delta` is already a top-level binding (declared at src/main.mfb:23); a local cannot reuse its name.
+  51 |   LET gamma AS Integer = 30
+  52 |   MUT delta AS Integer = 40
+  53 |   RES epsilon AS fs::File = fs::createTempFile()
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:53 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `epsilon` is already a top-level binding (declared at src/main.mfb:24); a local cannot reuse its name.
+  53 |   RES epsilon AS fs::File = fs::createTempFile()
+  54 |   ' FOR variable.
+  55 |   FOR zeta = 1 TO 2
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:55 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `zeta` is already a top-level binding (declared at src/main.mfb:25); a local cannot reuse its name.
+  57 |   NEXT
+  58 |   ' FOR EACH variable.
+  59 |   FOR EACH eta IN [1, 2]
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:59 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `eta` is already a top-level binding (declared at src/main.mfb:26); a local cannot reuse its name.
+  61 |   NEXT
+  62 |   ' Lambda parameter.
+  63 |   LET twice = LAMBDA(theta AS Integer) -> theta * 2
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:63 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `theta` is already a top-level binding (declared at src/main.mfb:27); a local cannot reuse its name.
+  65 |   MATCH s
+  66 |     ' MATCH guard binding (the case has a WHEN guard).
+  67 |     CASE Circle(iota) WHEN iota.radius > 1
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:67 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `iota` is already a top-level binding (declared at src/main.mfb:28); a local cannot reuse its name.
+  68 |       io::print("big")
+  69 |     ' MATCH case binding (no guard).
+  70 |     CASE Rect(alpha)
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:70 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `alpha` is already a top-level binding (declared at src/main.mfb:20); a local cannot reuse its name.
+  74 |   END MATCH
+  75 |   ' Inline-TRAP binding.
+  76 |   LET parsed AS Integer = toInt("7") TRAP(beta)
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:76 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `beta` is already a top-level binding (declared at src/main.mfb:21); a local cannot reuse its name.
+  78 |   END TRAP
+  79 |   ' A LET against a binding declared in another file.
+  80 |   LET omega AS Integer = 1
+     | ^
+tests/syntax/scope/local-shadows-top-level-binding-invalid/src/main.mfb:80 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `omega` is already a top-level binding (declared at src/other.mfb:3); a local cannot reuse its name.
+[exit 1]

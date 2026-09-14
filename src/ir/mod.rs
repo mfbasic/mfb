@@ -105,7 +105,7 @@ pub(crate) use types::{
     EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrParam, IrRecordUpdate, IrSourceLoc,
     IrType, IrVariant,
 };
-pub use types::{ExternalFunctionParam, ExternalSignature, IrProject};
+pub use types::{ExternalDefault, ExternalFunctionParam, ExternalSignature, IrProject};
 pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
 pub use verify::check as verify_semantics;
 pub use verify::collect_source_diagnostics as verify_source_diagnostics;

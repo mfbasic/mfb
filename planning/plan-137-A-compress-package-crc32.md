@@ -258,16 +258,22 @@ crypto's, `register` calls per file, and an in-module `#[cfg(test)]` block count
 
 ### 4.2 `crc32`
 
-- Reflected table-driven CRC: `crc = bxor(sr(crc, 8), T[band(bxor(crc, byte), 255)])`, with
-  `crc` initialised to `bxor(running, 0xFFFFFFFF)` and the result `bxor(crc, 0xFFFFFFFF)`.
-- `T` is a module-level `LET __COMPRESS_CRC32_TABLE AS List OF Integer = [...]` (256 entries).
-  The literal is **generated**, not typed: a `#[cfg(test)]` test in `compress/mod.rs` computes
-  the table from `0xEDB88320` and asserts the helper source's literal equals it, so a typo
-  cannot survive.
-- One byte-at-a-time loop in one function; the input list is only read.
+- Reflected CRC with **slicing-by-8** (decided 2026-09-13). While at least 8 bytes remain, fold
+  eight bytes per step: `x = bxor(crc, b0 + 256*b1 + 65536*b2 + 16777216*b3)`, then
+  `crc = T7[x & 255] ^ T6[(x >> 8) & 255] ^ T5[(x >> 16) & 255] ^ T4[x >> 24] ^ T3[b4] ^ T2[b5] ^ T1[b6] ^ T0[b7]`
+  (written with `bits::bxor` / `band` / `sr`). The remaining 0–7 bytes use the byte step
+  `crc = bxor(sr(crc, 8), T0[band(bxor(crc, byte), 255)])`. `crc` starts as
+  `bxor(running, 0xFFFFFFFF)`; the result is `bxor(crc, 0xFFFFFFFF)`.
+- `T0..T7` live in one module-level `LET __COMPRESS_CRC32_TABLES AS List OF Integer = [...]` of
+  2,048 entries (`T_k[i]` at index `k*256 + i`), so each lookup is one `collections::get` at a
+  computed index. `T0` is the standard table for `0xEDB88320`;
+  `T_k[i] = bxor(sr(T_(k-1)[i], 8), T0[band(T_(k-1)[i], 255)])`. The literal is **generated**,
+  not typed: a `#[cfg(test)]` test in `compress/mod.rs` computes all eight tables and asserts the
+  helper source's literal equals them, so a typo cannot survive.
+- One function owns the loop; the input list is only read. Because slicing-by-8 has two code
+  paths (8-byte steps and the tail), every test set includes each length 0–17, so every tail
+  length is exercised with and without a preceding 8-byte step.
 - `running < 0 OR running > 4294967295` → `FAIL error(77050002, "compress::crc32: running must be 0..4294967295")`.
-- Slicing-by-4/8 is **not** in this letter; if the bench shows `crc32` dominating `gzipDecode`
-  in B, B records it and E's Open Decisions carries it.
 
 ### 4.3 Size gating
 
@@ -348,7 +354,7 @@ Commit: —
       `scripts/regen-native-goldens.sh target/release/mfb tests/byte-identity/compress`.
 - [ ] `tests/interop/rt_compress_interop.rs` + `[[test]] rt_compress_interop` in `Cargo.toml`;
       `flate2 = "1"` in `[dev-dependencies]` with the "already in the lockfile" comment; test
-      `crc32_matches_crc32fast_over_a_generated_corpus` (seeded LCG, lengths 0..100,000, 200 cases,
+      `crc32_matches_crc32fast_over_a_generated_corpus` (every length 0–17, then seeded LCG lengths 0..100,000, 200 cases,
       one MFB process fed a job file, compared to `crc32fast::hash`/`Hasher` via `flate2`'s
       re-export or a direct `crc32fast` dev-dep if `flate2` does not re-export it — record which).
 
@@ -397,20 +403,26 @@ Commit: —
 - Doc sync: man descriptors **and** `20_compress.md` + `spec.md` reading order + §18 sentence.
 - Final gate: runs once at the end of plan-137 (plan-137-E). This letter's checks stay scoped.
 
-## Open Decisions (whole feature)
+## Decisions (whole feature)
 
-- **Trailing bytes after a complete stream** (`inflate`, `zlibDecode`; after the last gzip
-  member) — *refuse with `ErrInvalidFormat`* (recommended: a decoder that silently ignores
-  bytes hides truncation-by-concatenation bugs) vs. ignore. B Phase 1 records what Python and
-  Node do and the decision is written into `20_compress.md`. (B §4)
-- **gzip `FHCRC`** — *verify the header CRC-16 when the flag is set* (recommended) vs. skip. (B §4)
-- **zlib `FDICT`** — *refuse with `ErrInvalidFormat`* (recommended; no dictionary API exists) vs.
-  a dictionary parameter. (B §4)
+Decided by the user on 2026-09-13. These are settled; no letter re-opens them.
+
+- **Bytes after the end of a stream are ignored** by `inflate`, `zlibDecode` and `gzipDecode`.
+  For gzip, another member is decoded only while the remaining bytes begin with the magic
+  `1f 8b`; anything else after the last member is ignored. (B §4.3)
+- **`ignoreChecksum AS Boolean = FALSE`** on `zlibDecode` and `gzipDecode`. `FALSE`: a mismatched
+  zlib Adler-32, gzip header CRC-16 (when `FHCRC` is set), gzip CRC-32 or `ISIZE` raises
+  `ErrInvalidFormat`. `TRUE`: every checksum comparison is skipped. Structural checks apply
+  either way — the flag never makes a malformed stream decode. Raw `inflate` has no checksum
+  and no such parameter. (B §1, §4.3)
+- **zlib preset dictionaries are refused for now**: `FDICT` set → `ErrInvalidFormat`. A
+  `dictionary AS List OF Byte = []` parameter can be added later without breaking callers. (B §4.3)
+- **`crc32` uses slicing-by-8** from the start. (§4.2)
+
+## Open Decisions (whole feature)
 - **Canvas strictness after C** — *accept that malformed PNGs (bad Adler-32, over-subscribed
   trees) are now refused* (recommended: they are malformed, and zlib refuses them) vs. a lenient
   canvas mode. (C §4)
-- **`crc32` slicing-by-8** — *byte table first; revisit only if B's bench shows CRC dominating
-  `gzipDecode`* (recommended) vs. slicing now. (§4.2)
 - **bug-621 as a whole-feature prerequisite** — *whole feature* (recommended: the plan's
   RSS/time bounds would otherwise pin the bug) vs. letting A (which builds no large list) start
   first. Changing this is the user's call.

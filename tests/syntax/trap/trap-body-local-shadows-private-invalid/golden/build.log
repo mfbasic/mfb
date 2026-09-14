@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/trap/trap-body-local-shadows-private-invalid
+  13 | 
+  14 | FUNC main() AS Integer
+  15 |   LET x AS Integer = 7
+     | ^
+tests/syntax/trap/trap-body-local-shadows-private-invalid/src/main.mfb:15 error[2-201-0022 SYMBOL_SHADOWS_TOP_LEVEL_BINDING]: local binding reuses the name of a visible top-level binding
+               `x` is already a top-level binding (declared at src/main.mfb:12); a local cannot reuse its name.
+[exit 1]

@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/functions/default-names-a-parameter-invalid
+   2 | ' not name any parameter of that function -- an earlier one, itself, or a later one.
+   3 | 
+   4 | FUNC earlier(a AS Integer, b AS Integer = a) AS Integer
+     | ^
+tests/syntax/functions/default-names-a-parameter-invalid/src/main.mfb:4 error[2-201-0020 SYMBOL_DEFAULT_NAMES_PARAMETER]: parameter default value uses a parameter of its own function
+               The default value of `b` cannot use parameter `a`; a default is evaluated outside the function.
+   6 | END FUNC
+   7 | 
+   8 | FUNC itself(b AS Integer = b) AS Integer
+     | ^
+tests/syntax/functions/default-names-a-parameter-invalid/src/main.mfb:8 error[2-201-0020 SYMBOL_DEFAULT_NAMES_PARAMETER]: parameter default value uses a parameter of its own function
+               The default value of `b` cannot use parameter `b`; a default is evaluated outside the function.
+  10 | END FUNC
+  11 | 
+  12 | FUNC later(a AS Integer = c, c AS Integer = 1) AS Integer
+     | ^
+tests/syntax/functions/default-names-a-parameter-invalid/src/main.mfb:12 error[2-201-0020 SYMBOL_DEFAULT_NAMES_PARAMETER]: parameter default value uses a parameter of its own function
+               The default value of `a` cannot use parameter `c`; a default is evaluated outside the function.
+[exit 1]

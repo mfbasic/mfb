@@ -293,6 +293,24 @@ pub(super) const RULES: &[Rule] = &[
         message: "internal: two source file paths produced the same file-scope hash",
     },
     Rule {
+        code: "2-201-0020",
+        name: "SYMBOL_DEFAULT_NAMES_PARAMETER",
+        severity: Severity::Error,
+        message: "parameter default value uses a parameter of its own function",
+    },
+    Rule {
+        code: "2-201-0021",
+        name: "SYMBOL_LAMBDA_PARAMETER_DEFAULT",
+        severity: Severity::Error,
+        message: "lambda parameter declares a default value",
+    },
+    Rule {
+        code: "2-201-0022",
+        name: "SYMBOL_SHADOWS_TOP_LEVEL_BINDING",
+        severity: Severity::Error,
+        message: "local binding reuses the name of a visible top-level binding",
+    },
+    Rule {
         code: "2-203-0001",
         name: "TYPE_BINARY_OPERATOR_MISMATCH",
         severity: Severity::Error,

@@ -1,0 +1,23 @@
+' bug-285's original program, now refused (plan-136-C): the body's `LET x` reuses
+' the name of the file's `PRIVATE LET x`, which is visible in this file, so it is
+' SYMBOL_SHADOWS_TOP_LEVEL_BINDING at the LET.
+'
+' bug-285 itself: a function-level TRAP body sees the function body's locals, so
+' a body local sharing a file PRIVATE's name had to win there too; the scope
+' rewriter mangled `x` in the TRAP body to the private and printed 42 instead of 7.
+' That scoping stays pinned at runtime through a FUNC name, which the rule does
+' not cover: tests/rt-behavior/trap/trap-body-local-lambda-shadows-private-func-rt.
+IMPORT io
+
+PRIVATE LET x AS Integer = 42
+
+FUNC main() AS Integer
+  LET x AS Integer = 7
+  LET bad AS Integer = toInt("nope")
+  io::print(toString(bad))
+  RETURN 1
+  TRAP(e)
+    io::print(toString(x))
+    RETURN 0
+  END TRAP
+END FUNC

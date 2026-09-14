@@ -323,7 +323,24 @@ struct Resolver<'a> {
     /// knowledge", never "exports nothing" (bug-480).
     package_exports: HashMap<String, HashSet<String>>,
     active_template_params: HashSet<String>,
+    /// plan-136-A: set while a parameter default is being resolved. A default is
+    /// evaluated outside its function, so it resolves with no locals; a name it
+    /// cannot resolve that is one of the function's parameters is reported as
+    /// `SYMBOL_DEFAULT_NAMES_PARAMETER` rather than as an unknown identifier.
+    default_scope: Option<DefaultScope>,
+    /// plan-136-C: every top-level `LET`/`MUT` of a user (non-internal) file, keyed
+    /// by its bare display name — a file-scoped `PRIVATE` binding's key in
+    /// `top_levels` is its mangled `#<hash>$name` — to the `top_levels` keys that
+    /// carry that bare name. A local binding checks it (`check_new_local`).
+    top_level_bindings: HashMap<String, Vec<String>>,
     had_error: bool,
+}
+
+/// The parameter whose default is being resolved and every parameter name of its
+/// function (plan-136-A).
+struct DefaultScope {
+    parameter: String,
+    parameters: HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -389,6 +406,8 @@ impl<'a> Resolver<'a> {
             link_functions: HashMap::new(),
             package_exports: HashMap::new(),
             active_template_params: HashSet::new(),
+            default_scope: None,
+            top_level_bindings: HashMap::new(),
             had_error: false,
         };
         resolver.collect_top_level_symbols(hir);
@@ -428,12 +447,22 @@ impl<'a> Resolver<'a> {
             for item in &file.items {
                 match item {
                     HirItem::Binding(binding) => {
-                        self.insert_top_level(
+                        let inserted = self.insert_top_level(
                             file,
                             &binding.name,
                             binding.line,
                             binding.visibility,
                         );
+                        // plan-136-C: a built-in package's own bindings are not a
+                        // user's to collide with.
+                        if inserted && !file.internal {
+                            self.top_level_bindings
+                                .entry(
+                                    crate::internal_name::display_name(&binding.name).into_owned(),
+                                )
+                                .or_default()
+                                .push(binding.name.clone());
+                        }
                     }
                     HirItem::Function(function) => {
                         self.insert_function(file, function);
@@ -1214,6 +1243,93 @@ mod tests {
         let dir = std::path::Path::new(".");
         let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
         assert!(resolver.had_error);
+    }
+
+    /// plan-136-C: a top-level binding with the given visibility.
+    fn binding_with(name: &str, visibility: Visibility) -> HirItem {
+        HirItem::Binding(HirTopLevelBinding {
+            mutable: false,
+            resource: false,
+            state_type: None,
+            name: name.into(),
+            type_: ParameterType::Unknown,
+            explicit_type: false,
+            value: None,
+            visibility,
+            line: 3,
+        })
+    }
+
+    /// Collect `items` as the top level of file `a.mfb`, then introduce a local
+    /// `name` in `file`; whether `check_new_local` reported anything.
+    fn new_local_is_refused(items: Vec<HirItem>, file: &HirFile, name: &str) -> bool {
+        let hir = project_of(items);
+        let dir = std::path::Path::new(".");
+        let mut resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
+        assert!(!resolver.had_error, "the declarations themselves are valid");
+        quiet(|| resolver.check_new_local(file, name, 7, &HashMap::new(), "duplicate".to_string()));
+        resolver.had_error
+    }
+
+    fn private_secret() -> String {
+        crate::internal_name::mangle_private(
+            &crate::internal_name::file_scope_hash("a.mfb"),
+            "secret",
+        )
+    }
+
+    #[test]
+    fn a_local_named_like_an_own_file_private_binding_is_refused() {
+        assert!(new_local_is_refused(
+            vec![binding_with(&private_secret(), Visibility::Private)],
+            &hir_file("a.mfb"),
+            "secret"
+        ));
+    }
+
+    #[test]
+    fn a_local_named_like_another_files_private_binding_is_allowed() {
+        assert!(!new_local_is_refused(
+            vec![binding_with(&private_secret(), Visibility::Private)],
+            &hir_file("b.mfb"),
+            "secret"
+        ));
+    }
+
+    #[test]
+    fn a_local_named_like_a_public_binding_of_another_file_is_refused() {
+        assert!(new_local_is_refused(
+            vec![binding_with("limit", Visibility::Public)],
+            &hir_file("b.mfb"),
+            "limit"
+        ));
+    }
+
+    #[test]
+    fn a_local_named_like_a_function_is_allowed() {
+        assert!(!new_local_is_refused(
+            vec![HirItem::Function(func("helper", vec![]))],
+            &hir_file("a.mfb"),
+            "helper"
+        ));
+    }
+
+    #[test]
+    fn an_internal_name_or_a_built_in_source_file_is_exempt() {
+        // A compiler-internal local name no user can spell.
+        assert!(!new_local_is_refused(
+            vec![binding_with("limit", Visibility::Public)],
+            &hir_file("a.mfb"),
+            "$for_iter0"
+        ));
+        // A built-in package's source file: the user's bindings are not its own.
+        let mut built_in = hir_file("builtins/json.mfb");
+        built_in.internal = true;
+        assert!(!new_local_is_refused(
+            vec![binding_with("limit", Visibility::Public)],
+            &built_in,
+            "limit"
+        ));
     }
 
     #[test]

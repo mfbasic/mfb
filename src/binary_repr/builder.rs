@@ -93,7 +93,7 @@ pub(super) fn package_exports(
                                 &type_names,
                                 param.type_id,
                             )?),
-                            has_default: param.flags & 1 != 0,
+                            default: export_default(package, param)?,
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?,
@@ -105,6 +105,102 @@ pub(super) fn package_exports(
             Ok(built)
         })
         .collect()
+}
+
+/// Decode a parameter record's default for an importer (plan-136-B).
+///
+/// A default-function record names the parameter's hidden default function by its
+/// package-local name; `read_binary_repr_package` has already refused one that is
+/// not exactly what the writer produces (`validate_default_functions`). A literal
+/// record decodes its `CONST_POOL` entry back to the `IrValue::Const` type and value
+/// spelling — the inverse of `ConstPool::add`, kind by kind.
+fn export_default(
+    package: &PackageBinaryRepr,
+    param: &Param,
+) -> Result<BinaryReprExportDefault, String> {
+    use crate::types::ParameterType;
+    let strings = &package.project.strings.values;
+    if param.flags & PARAM_FLAG_DEFAULT == 0 {
+        return Ok(BinaryReprExportDefault::None);
+    }
+    if param.flags & PARAM_FLAG_DEFAULT_FUNCTION != 0 {
+        let function = package
+            .project
+            .functions
+            .get(param.default_const as usize)
+            .ok_or_else(|| {
+                format!(
+                    "parameter default references missing function {}",
+                    param.default_const
+                )
+            })?;
+        return Ok(BinaryReprExportDefault::Function(
+            string_at(strings, function.name)?.to_string(),
+        ));
+    }
+    let constant = package
+        .project
+        .constants
+        .entries
+        .get(param.default_const as usize)
+        .ok_or_else(|| {
+            format!(
+                "parameter default references missing constant {}",
+                param.default_const
+            )
+        })?;
+    let payload = &constant.payload;
+    let (type_, value) = match constant.kind {
+        1 => (ParameterType::Nothing, "NOTHING".to_string()),
+        2 => (
+            ParameterType::Boolean,
+            (const_payload::<1>(payload)?[0] != 0).to_string(),
+        ),
+        3 => (
+            ParameterType::Integer,
+            i64::from_le_bytes(const_payload(payload)?).to_string(),
+        ),
+        4 => (
+            ParameterType::Float,
+            format!(
+                "{:?}",
+                f64::from_bits(u64::from_le_bytes(const_payload(payload)?))
+            ),
+        ),
+        5 => (
+            ParameterType::Fixed,
+            crate::numeric::fixed_decimal_from_raw(i64::from_le_bytes(const_payload(payload)?)),
+        ),
+        6 => (
+            ParameterType::String,
+            string_at(strings, u32::from_le_bytes(const_payload(payload)?))?.to_string(),
+        ),
+        7 => (
+            ParameterType::Byte,
+            const_payload::<1>(payload)?[0].to_string(),
+        ),
+        kind if kind == TYPE_MONEY as u16 => (
+            ParameterType::Money,
+            crate::numeric::money_decimal_from_raw(i64::from_le_bytes(const_payload(payload)?)),
+        ),
+        kind if kind == TYPE_SCALAR as u16 => (
+            ParameterType::named("Scalar"),
+            u32::from_le_bytes(const_payload(payload)?).to_string(),
+        ),
+        kind => {
+            return Err(format!(
+                "parameter default references a constant of unknown kind {kind}"
+            ))
+        }
+    };
+    Ok(BinaryReprExportDefault::Literal { type_, value })
+}
+
+/// A constant's payload as exactly `N` bytes, or an error naming the mismatch.
+fn const_payload<const N: usize>(payload: &[u8]) -> Result<[u8; N], String> {
+    payload
+        .try_into()
+        .map_err(|_| format!("constant payload is {} bytes, expected {N}", payload.len()))
 }
 
 pub(super) fn package_info(package: &PackageBinaryRepr) -> Result<BinaryReprPackageInfo, String> {

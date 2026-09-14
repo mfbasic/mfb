@@ -1,7 +1,9 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-13
-Open bugs: **9** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l` at `78550d5e0`)
+Open bugs: **10** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l` on `worktree-P-136`, after
+bug-628 was filed, bug-614 closed by plan-136, and main's bug-621 (filed by plan-137-A) merged in;
+621 is not yet triaged into the table below)
 
 ## 2026-09-13 — status of every open bug
 
@@ -10,7 +12,7 @@ below is read from the bug doc and `git log`; no repro was re-run for this updat
 
 | Bug | Sev | Effort | Status | Next |
 |---|---|---|---|---|
-| 614 | MED | x-large | **Planned: plan-136 A–C** (decided 2026-09-13). A default reads a caller's same-named local; package defaults are never filled (a literal one prints garbage or crashes), `LINK` defaults are never passed, lambda defaults are dropped | Work plan-136-A |
+| 628 | MED | medium | Filed 2026-09-13 during plan-136-B. An importer that lists only package B, whose code calls B's own dependency A, fails with the unlocated `NIR call target 'A.f' does not resolve` (pre-existing on main; listing A too works) | **Owner decision**: merge a package's dependencies transitively, or refuse with a located diagnostic |
 | 608 | MED | small–medium | Not started. Nine `udp` forms declare `errors: vec![]` but raise | Phase 1 must establish whether any form is inline-lowered (a deleted handler) |
 | 564 | MED | small | Both sightings fixed. A macOS `tls::write` after `tls::read` saw the close never raises. **Decided 2026-09-12**: raise `ErrConnectionClosed`. Not started | Network.framework side; measure Linux and Windows on the same sequence |
 | 540 | MED | large | WIN-01/04/05 fixed; WIN-02/03 (fixed 80x25, no `didResize`) remain | **Owner decision**: a test-only `term::` resize hook |
@@ -27,13 +29,13 @@ P-125's own commits:
 `ErrOverflow`; **616 LOW** 78 man declarations render `AS Arg0` for the return type; **617 LOW**
 `math` overloads declare errors they cannot raise (extended in `3caf47763`).
 
-**Closed 2026-09-13, archived:** 520 (`633c258bb`), 536 (plan-134 A–H), 599 (plan-132), 601
+**Closed 2026-09-13, archived:** 614 (plan-136 A–C), 520 (`633c258bb`), 536 (plan-134 A–H), 599 (plan-132), 601
 (plan-132 + plan-134-D `41f5694d6`), 602 (not a defect, `c4279099d`), 603 (`333b23197`), 609
 (`5eaea6f15`), 611 (`81bd5400f`), 612 and 613 (`53f10b1fe`). 607 was closed as not a bug
 (`bugs/skipped/`). plan-134's final gate also fixed pre-existing bugs that never got a doc
 (`cb8424594`, `414ede12d`, `d2acb15e6`); see `planning/completed/plan-134-H-*`.
 
-**Suggested order:** 614 once its decision is made → the small declaration/help bugs
+**Suggested order:** the small declaration/help bugs
 608, 606, 604, 605 → 564 → 484. 540 and 610 wait on the owner.
 
 ## 2026-09-12 — integration rounds and what they taught
@@ -130,7 +132,7 @@ neither filed it), 594 (macOS `drawText` column), 592.
 - ~~**bug-614**~~ — **DECIDED 2026-09-13:** defaults resolve at the declaration and run on each
   call; they may not name a parameter; packages behave like executables (the `.mfp` carries
   non-constant defaults); and no local may share a name with a visible top-level `LET`/`MUT`.
-  Work is **plan-136** (A–C).
+  **Fixed by plan-136** (A–C); archived to `bugs/completed/`.
 - **A clippy CI job**: four deny-level errors reached main because nothing runs clippy.
 
 ### What the integration rounds taught
