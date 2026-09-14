@@ -531,6 +531,23 @@ Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` report
    false), and `DO WHILE i < n AND strings::mid(s, i, 1) <> "="` frees its condition temp once
    per loop instead of once per pass (8 blocks per call over a 9-character run). Also filed
    while probing: bug-624 (a package's private `TYPE` collides with a same-named program type).
+
+   **Do the stages account for the worker? Yes, within 1%** (plan-133-A Phase 3). One page load
+   runs parse + style links + attach css + resolve styles + index fields once, and the worker
+   also keeps the document it returns (its arena is never reclaimed, Bucket List 1).
+
+   | page | sum of stage leaks + returned document (host) | worker arena, one real run of the pipeline (host) | worker on box 2223 (2026-09-13) | host / 2223 |
+   |---|---:|---:|---:|---:|
+   | `BASIC` | 8,318,848 + 0 + 0 + 718,525,504 + 0 + 5,261,472 = 732,105,824 | 732,119,344 (`copyback` N=1) | 735,804,400 | 99.5% |
+   | `Main_Page` | — (stages not run separately) | 749,061,840 (`copyback_mp` N=1) | 751,305,088 | 99.7% |
+
+   With the bug-620/621 sites rewritten, the `Main_Page` worker arena ends holding 4,239,824 B,
+   the same size as the main arena's copy (4,246,928 B). So bug-620 and bug-621 own
+   744,822,016 B of the worker's 751 MB, and the rest is the returned page. The main arena's
+   per-load growth is bug-622, whose result copy is 4.2–5.3 MB per page. The worker figure on
+   2223 is 0.3–0.5% above the host's. Not measured why; a guess is that the pages changed
+   between the 2223 run and the host's fetch, or that the host run skipped something the live
+   fetch does (redirects, the HTTP response).
 2. **Alloc vs free call counts** during one browser page load (gdb breakpoint counts on
    box 2223, or the plan-67-F perf rows on macOS). A free count near the alloc count means
    reuse is the problem; a tiny free count means values are never freed.
@@ -650,6 +667,13 @@ Look into:
     requests of 43–129 MB, 611,160,064 bytes mapped in total.
 12. **Verify the spec's "O(1) amortized regardless of the size mix" claim** once 2–5 land;
     today a mix of large sizes defeats reuse.
+12a. **On Apple Silicon each 4 KiB default arena block costs a 16 KiB page** (plan-133-A,
+    2026-09-12). Page size: 16,384 on the macOS host (`sysctl -n hw.pagesize`) vs 4,096 on
+    box 2223 (`getconf PAGESIZE`). A `json::parse` loop over a 1,146,842-byte array (N=20,
+    before plan-134) mapped 269,946 blocks; `maps × 16,384` = 4,422,795,264 B against a peak
+    RSS of 4,452,155,392 B, so RSS ≈ 4× `mapped_bytes` on macOS and ≈ `mapped_bytes` on 2223.
+    Any RSS comparison across the two hosts is off by that factor; weigh it with A/B 5 (default
+    block size).
 
 No testing needed:
 

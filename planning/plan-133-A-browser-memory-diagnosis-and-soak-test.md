@@ -248,7 +248,7 @@ Decision 2):
 Acceptance: § 2 item 1 carries the four measurements and a one-line verdict; the control
 reads `live_bytes` equal at N=1 and N=2 (if it does not, the method is wrong — fix the
 harness before continuing).
-Commit: —
+Commit: ad6d737bc
 
 ### Phase 2 — every stage
 
@@ -276,14 +276,21 @@ Commit: —
 
 ### Phase 3 — reconcile with the real worker
 
-- [ ] Compare the 2026-09-13 `Main_Page` worker live bytes (751,305,088) with the sum of
+- [x] Compare the 2026-09-13 `Main_Page` worker live bytes (751,305,088) with the sum of
       per-stage leaks for one load (parse + style links + attach css + resolve styles +
       index fields, as the worker runs them). Check: arithmetic against § 2's table; no new
-      run.
-- [ ] If the sum is outside ±10%, run the largest-leaking stage inside a `thread::start`
+      run. — Stages were measured on `BASIC`, so that sum is compared with the `BASIC`
+      worker: 732,105,824 (stage leaks + returned document) against 735,804,400 on 2223
+      (99.5%) and 732,119,344 host `copyback` N=1. For `Main_Page`, one host run of the
+      worker pipeline (`copyback_mp`) gives 749,061,840 against 751,305,088 (99.7%); with the
+      bug-620/621 sites rewritten it drops to 4,239,824 (the returned page). Recorded in
+      `planning/todo.md` § 2 "Do the stages account for the worker?".
+- [x] ~~If the sum is outside ±10%, run the largest-leaking stage inside a `thread::start`
       worker on the host (one run, ~2 min) and record whether the worker context changes it;
       add a row naming any unexplained remainder and the next measurement that would
-      localize it.
+      localize it.~~ — moot: the sum is inside ±10% (99.5% `BASIC`, 99.7% `Main_Page`). The
+      worker-context run was done anyway as `copyback`/`copyback_mp`: it matches the
+      single-thread stage sum within 13,520 B (the program baseline).
 
 Acceptance: § 2 states whether the stages account for the worker's live bytes (within 10%)
 or names the remainder.
@@ -295,8 +302,10 @@ Commit: —
       Check: `cargo test --release --test rt_debug_soak -- --include-ignored` → the flat,
       json and (if flat) dom cases pass, and each bug-marked case fails with its bug's
       message (~3 min).
-- [ ] `planning/todo.md` Bucket List: add the page-size finding (4 KiB default block vs
-      16 KiB pages on Apple Silicon; the JSON probe numbers) under "Look into".
+- [x] `planning/todo.md` Bucket List: add the page-size finding (4 KiB default block vs
+      16 KiB pages on Apple Silicon; the JSON probe numbers) under "Look into". — item 12a
+      (page sizes 16,384 vs 4,096; 269,946 maps × 16,384 = 4,422,795,264 B vs peak RSS
+      4,452,155,392 B).
 - [ ] `planning/todo.md` § 1 item 3: record the test name and its status.
 
 Acceptance: the check above passes every unmarked case and fails every bug-marked case with
@@ -334,6 +343,27 @@ Commit: —
   worker's remaining live bytes; leaks are classified by bug, not against Shape C; the json
   soak case is a regression guard that passes today; a `dom::parse` case is added; plan-134
   is a met prerequisite; the reconciliation target is 751,305,088 B.
+- **2026-09-13 — Phase 1: a parse takes 36–39 s, not ~15 s.** Measured: `run.sh parse 1`
+  `secs=36`, `parse 2` `secs=39` (`--debug` build, macOS host). Consequence for Phase 2: every
+  stage after parse pays that setup, so N=1 / 2N=2 everywhere (the 2N runs take 38–75 s, over the
+  60 s target). A single N=1→2 difference is enough here: every flat stage reads exactly 0 B
+  per call, and the smallest leak is 384 B (fetch, confirmed linear at N=1/2/4).
+- **2026-09-13 — Phase 2: "a one-screen repro of the leaking value's type" was too narrow.**
+  Every leak turned out to come from a code shape, not from a value type: condition temps
+  (bug-620, bug-621), the thread result copy and plumbing (bug-622), and native transport
+  buffers (bug-623). Ownership was proven by an added task: the suspected sites were rewritten
+  in a scratch copy of the package, and the stage was measured again (`/tmp/plan-133-a/patch_dom.py`).
+- **2026-09-13 — Phase 2: the fetch stage has two numbers.** Over HTTPS to Wikipedia,
+  `http::read` leaks 384 B per call. Over plain HTTP it leaks 62,435 B, because `tcp::read`'s
+  64 KiB buffer is never freed (bug-623). The browser's worker uses HTTPS, so its share is 384 B.
+- **2026-09-13 — Phase 3 compared unlike inputs.** The task compared the `Main_Page` worker
+  with stages measured on `BASIC`. Corrected to compare like with like: `BASIC` stages against
+  the `BASIC` worker, plus one host run of the `Main_Page` pipeline against the `Main_Page` worker.
+- **2026-09-13 — §4.3 dom case at N=1 vs 2, not N=2 vs 4.** A parse takes ~40 s, so N=2/4 is
+  ~4 min for a case whose leak (8.3 MB per parse) exceeds the 1 MiB bound 8× at N=1/2.
+- **2026-09-13 — bug-619 was taken by a peer.** An uncommitted
+  `bugs/bug-619-leb128-decode-misses-overflow-on-tenth-byte.md` exists in the shared main
+  checkout, so this letter's bugs start at 620.
 
 ## Summary
 
