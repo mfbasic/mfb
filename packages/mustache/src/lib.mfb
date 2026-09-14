@@ -3,8 +3,9 @@
 '
 ' `render` and `renderWith` are the same function with and without partials;
 ' `escapeHtml` exposes the escaping a `{{name}}` tag applies, so a caller
-' building HTML around a rendered fragment can use the same rule; and
-' `limitCode` names the one failure with no `errorCode::` equivalent.
+' building HTML around a rendered fragment can use the same rule. The one
+' failure with no `errorCode::` equivalent is the exported constant
+' `ErrorLimit`, declared in core.mfb.
 '
 ' Nothing here touches the filesystem: read the template and the partials
 ' yourself and hand over the Strings, which is the same split `csv::parse`,
@@ -128,10 +129,21 @@ DOC
   DESC
   DESC `errorCode::ErrInvalidFormat` for a malformed template,
   DESC `errorCode::ErrDepthExceeded` for section nesting or partial recursion
-  DESC past the limits, and `mustache::limitCode()` (93120001) for a template or
-  DESC an output past its size limit. That last one is a generator-9 code, which
-  DESC is not globally unique, so match it only around a call you already know
-  DESC is this package's.
+  DESC past the limits, and `mustache::ErrorLimit` (93120001) for a template or
+  DESC an output past its size limit.
+  DESC
+  DESC `mustache::ErrorLimit` is an exported `Integer` constant: the one failure
+  DESC here with no `errorCode::` equivalent -- the registry models no "this
+  DESC input is larger than the reader will handle" -- so it takes a code from
+  DESC generator 9, the range reserved for codes a package defines for itself,
+  DESC written `9-312-0001`. Generator-9 codes carry no registry meaning and are
+  DESC not globally unique: two unrelated packages may both use this integer for
+  DESC unrelated failures. Match it with
+  DESC `IF problem.code = mustache::ErrorLimit THEN` only around a call you
+  DESC already know is this package's, never across a broad block. The two
+  DESC limits it reports are a template (or partial body) over 1048576 bytes
+  DESC and an output over 16777216 bytes; recursion is reported separately, as
+  DESC `errorCode::ErrDepthExceeded`.
 END DOC
 
 DOC
@@ -244,43 +256,4 @@ DOC
 END DOC
 EXPORT FUNC escapeHtml(text AS String) AS String
   RETURN escapeText(text)
-END FUNC
-
-DOC
-  FUNC limitCode
-  GROUP Rendering
-  DESC The error code this package raises when a template or its output passes
-  DESC a size limit: 93120001, written `9-312-0001`.
-  DESC
-  DESC It is the one failure here with no `errorCode::` equivalent -- the
-  DESC registry models no "this input is larger than the reader will handle" --
-  DESC so it takes a code from generator 9, the range reserved for codes a
-  DESC package defines for itself. Generator-9 codes carry no registry meaning
-  DESC and are not globally unique: two unrelated packages may both use this
-  DESC integer for unrelated failures. Match it only around a call you already
-  DESC know is this package's, never across a broad block.
-  DESC
-  DESC The two limits it reports are a template (or partial body) over 1048576
-  DESC bytes and an output over 16777216 bytes. Recursion is reported
-  DESC separately, as `errorCode::ErrDepthExceeded`.
-  RET 93120001.
-  EXAMPLE
-    IMPORT mustache
-    IMPORT json
-    IMPORT io
-
-    FUNC page(template AS String, context AS json::Json) AS String
-      LET html AS String = mustache::render(template, context) TRAP(problem)
-        IF problem.code = mustache::limitCode() THEN
-          io::printError("that template renders too much output")
-          RECOVER ""
-        END IF
-        PROPAGATE
-      END TRAP
-      RETURN html
-    END FUNC
-  END EXAMPLE
-END DOC
-EXPORT FUNC limitCode() AS Integer
-  RETURN ERR_LIMIT
 END FUNC

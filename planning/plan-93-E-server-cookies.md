@@ -1,9 +1,9 @@
 # plan-93-E: Server-side cookies (request parse + `Set-Cookie` emit)
 
-Last updated: 2026-08-09
+Last updated: 2026-09-13
 Effort: medium (1h–2h)
 Depends on: nothing for parsing; shares one cookie-attribute helper with plan-93-F
-(see Design). Independent of the gzip letters.
+(see Design).
 
 The server neither exposes incoming cookies nor helps a handler set one. This
 sub-plan parses the request `Cookie` header into a `req.cookies` map and adds a
@@ -25,9 +25,8 @@ References:
 
 ## Prerequisites
 
-Shared feature gate: plan-93-A's "tree builds & tests green". No dependency on the
-gzip letters. If plan-93-F (client cookies) is also planned, this letter lands
-first and owns the shared cookie-attribute serializer.
+If plan-93-F (client cookies) is also planned, this letter lands first and owns
+the shared cookie-attribute serializer.
 
 | Must be true | Command | Status |
 |---|---|---|

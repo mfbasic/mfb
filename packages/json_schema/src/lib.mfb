@@ -113,6 +113,33 @@ DOC
   DESC hundred bytes -- cannot buy more work than the instance is worth. A
   DESC schema is untrusted input in exactly the way an instance is, and none of
   DESC these bounds is reachable by a schema that terminates.
+  DESC
+  DESC Package error codes
+  DESC
+  DESC Three failures have no `errorCode::` equivalent, so they take codes from
+  DESC generator 9, the range reserved for codes a package defines for itself,
+  DESC and this package exports each as an `Integer` constant:
+  DESC
+  DESC `json_schema::ErrorInvalid` (93120003, `9-312-0003`) is what
+  DESC `json_schema::check` raises when an instance is not valid -- "this data
+  DESC does not satisfy this schema".
+  DESC
+  DESC `json_schema::ErrorBudget` (93120001, `9-312-0001`) is raised when
+  DESC compiling or validating exceeds its work budget. Reaching it means the
+  DESC schema was built to be expensive -- nested `anyOf`s multiply -- because
+  DESC an ordinary large document never does.
+  DESC
+  DESC `json_schema::ErrorReferenceCycle` (93120002, `9-312-0002`) is raised
+  DESC when a `$ref` re-enters the same subschema at the same instance
+  DESC location. That is a loop with no progress on either side, so it is
+  DESC distinct from the depth and budget failures: it is proven rather than
+  DESC merely suspected.
+  DESC
+  DESC Generator-9 codes carry no registry meaning and are not globally unique:
+  DESC two unrelated packages may use the same integer for unrelated failures.
+  DESC Match one -- for example
+  DESC `IF problem.code = json_schema::ErrorInvalid THEN` -- only around a call
+  DESC you already know is this package's.
 END DOC
 
 DOC
@@ -284,7 +311,7 @@ EXPORT FUNC check(compiled AS Schema, instance AS json::Json) AS Nothing
   FOR EACH problem IN problems
     lines = collections::append(lines, describeError(problem))
   NEXT
-  FAIL error(ERR_INVALID, "json_schema: the instance is not valid against the schema:\n" & strings::join(lines, "\n"))
+  FAIL error(ErrorInvalid, "json_schema: the instance is not valid against the schema:\n" & strings::join(lines, "\n"))
 END FUNC
 
 DOC
@@ -336,107 +363,6 @@ DOC
 END DOC
 EXPORT FUNC dialect() AS String
   RETURN DIALECT
-END FUNC
-
-DOC
-  FUNC invalidCode
-  GROUP Reporting
-  DESC The error code `json_schema::check` raises when an instance is not
-  DESC valid: 93120003, written `9-312-0003`.
-  DESC
-  DESC "This data does not satisfy this schema" has no `errorCode::`
-  DESC equivalent, so it takes a code from generator 9, the range reserved for
-  DESC codes a package defines for itself. Generator-9 codes carry no registry
-  DESC meaning and are not globally unique: two unrelated packages may use this
-  DESC integer for unrelated failures. Match it only around a call you already
-  DESC know is this package's.
-  RET 93120003.
-  EXAMPLE
-    IMPORT json_schema
-    IMPORT json
-    IMPORT io
-
-    FUNC load(schema AS json_schema::Schema, text AS String) AS Boolean
-      json_schema::check(schema, json::parse(text)) TRAP(problem)
-        IF problem.code = json_schema::invalidCode() THEN
-          io::printError(problem.message)
-          RECOVER
-        END IF
-        PROPAGATE
-      END TRAP
-      RETURN TRUE
-    END FUNC
-  END EXAMPLE
-END DOC
-EXPORT FUNC invalidCode() AS Integer
-  RETURN ERR_INVALID
-END FUNC
-
-DOC
-  FUNC budgetCode
-  GROUP Reporting
-  DESC The error code raised when compiling or validating exceeds its work
-  DESC budget: 93120001, written `9-312-0001`.
-  DESC
-  DESC Reaching it means the schema was built to be expensive -- nested
-  DESC `anyOf`s multiply, and a schema is untrusted input in exactly the way an
-  DESC instance is. The budget is 10000 subschema evaluations plus 100 per
-  DESC value in the instance, so an ordinary large document never reaches it. It
-  DESC is a generator-9 code, with the same caveats as
-  DESC `json_schema::invalidCode`.
-  RET 93120001.
-  EXAMPLE
-    IMPORT json_schema
-    IMPORT json
-    IMPORT io
-
-    FUNC safeIsValid(schema AS json_schema::Schema, instance AS json::Json) AS Boolean
-      LET answer AS Boolean = json_schema::isValid(schema, instance) TRAP(problem)
-        IF problem.code = json_schema::budgetCode() THEN
-          io::printError("that instance costs too much to validate")
-          RECOVER FALSE
-        END IF
-        PROPAGATE
-      END TRAP
-      RETURN answer
-    END FUNC
-  END EXAMPLE
-END DOC
-EXPORT FUNC budgetCode() AS Integer
-  RETURN ERR_BUDGET
-END FUNC
-
-DOC
-  FUNC referenceCycleCode
-  GROUP Reporting
-  DESC The error code raised when a `$ref` re-enters the same subschema at the
-  DESC same instance location: 93120002, written `9-312-0002`.
-  DESC
-  DESC That is a loop with no progress on either side, so no amount of further
-  DESC work would settle it. It is distinct from the depth and budget failures
-  DESC because it is proven rather than merely suspected. It is a generator-9
-  DESC code, with the same caveats as `json_schema::invalidCode`.
-  RET 93120002.
-  EXAMPLE
-    IMPORT json_schema
-    IMPORT json
-    IMPORT io
-
-    FUNC main() AS Integer
-      LET schema AS json_schema::Schema = json_schema::compileText("{\"$defs\":{\"loop\":{\"$ref\":\"#/$defs/loop\"}},\"$ref\":\"#/$defs/loop\"}")
-      LET answer AS Boolean = json_schema::isValid(schema, json::parse("1")) TRAP(problem)
-        IF problem.code = json_schema::referenceCycleCode() THEN
-          io::printError("that schema refers to itself forever")
-          RECOVER FALSE
-        END IF
-        PROPAGATE
-      END TRAP
-      RETURN 0
-    END FUNC
-  END EXAMPLE
-END DOC
-EXPORT FUNC referenceCycleCode() AS Integer
-  RETURN ERR_REF_CYCLE
 END FUNC
 
 DOC

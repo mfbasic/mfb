@@ -98,10 +98,25 @@ An untrusted template cannot exhaust memory or the stack.
 
 | Limit | Value | Failure |
 | --- | --- | --- |
-| Template (and each partial body) | 1 048 576 bytes | `mustache::limitCode()` (93120001) |
+| Template (and each partial body) | 1 048 576 bytes | `mustache::ErrorLimit` (93120001) |
 | Section nesting | 64 | `errorCode::ErrDepthExceeded` |
 | Partial expansion depth | 16 | `errorCode::ErrDepthExceeded` |
-| Rendered output | 16 777 216 bytes | `mustache::limitCode()` (93120001) |
+| Rendered output | 16 777 216 bytes | `mustache::ErrorLimit` (93120001) |
+
+`mustache::ErrorLimit` is an exported constant holding a generator-9 code,
+because no `errorCode::` value models "this input is larger than the reader will
+handle". Generator-9 codes are not globally unique, so match it only around a
+call you already know is this package's:
+
+```mfb
+LET html AS String = mustache::render(template, context) TRAP(problem)
+  IF problem.code = mustache::ErrorLimit THEN
+    io::printError("that template renders too much output")
+    RECOVER ""
+  END IF
+  PROPAGATE
+END TRAP
+```
 
 The partial limit is the load-bearing one. A partial may name any partial,
 including itself — the specification's own recursion test relies on it — so the
@@ -120,7 +135,7 @@ or `fs::openWithin` so that a `../` in a partial name cannot escape it.
 
 | File | What it holds |
 | --- | --- |
-| `src/lib.mfb` | The public API and its documentation: `render`, `renderWith`, `escapeHtml`, `limitCode`. |
+| `src/lib.mfb` | The public API and its documentation: `render`, `renderWith`, `escapeHtml`. `ErrorLimit` is declared in `src/core.mfb`. |
 | `src/parse.mfb` | The tokenizer and parser: template text to a flat node list, standalone-line stripping, section linking. |
 | `src/render.mfb` | The walk: sections, inverted sections, partials, partial re-indentation, the output limit. |
 | `src/context.mfb` | Name resolution against the context stack, truthiness, and what a value interpolates as. |

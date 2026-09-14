@@ -68,8 +68,9 @@ PUBLIC LET ERR_DEPTH AS Integer = 77050024
 
 ' 9-312-0001: a template or its output passed a size limit. No errorCode::
 ' value models "this input is larger than the reader will handle", so this is a
-' generator-9 (user-defined) code, per the encoding rule.
-PUBLIC LET ERR_LIMIT AS Integer = 93120001
+' generator-9 (user-defined) code, per the encoding rule. Exported so an importer
+' matches `mustache::ErrorLimit` rather than the integer.
+EXPORT LET ErrorLimit AS Integer = 93120001
 
 ' ---------------------------------------------------------------------------
 ' Node kinds. The parse produces one FLAT list of these; a section carries the

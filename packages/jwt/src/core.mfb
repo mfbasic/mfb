@@ -32,7 +32,8 @@ IMPORT encoding
 ' (`mfb spec diagnostics error-codes`). Five failures have no registry
 ' equivalent -- a token that is well-formed and correctly signed but that the
 ' caller's POLICY refuses -- so they take generator-9 (user-defined) codes,
-' which the package exports by name so a caller can match on them.
+' which the package exports as `EXPORT LET` constants so a caller can match on
+' them by name.
 ' ---------------------------------------------------------------------------
 
 ' 7-705-0003 errorCode::ErrInvalidFormat — the token is not a token: the wrong
@@ -56,18 +57,18 @@ PUBLIC LET ERR_UNSUPPORTED AS Integer = 77050007
 PUBLIC LET ERR_SIGNATURE AS Integer = 77050016
 
 ' 9-313-0001: the token's `exp` has passed.
-PUBLIC LET ERR_EXPIRED AS Integer = 93130001
+EXPORT LET ErrorExpired AS Integer = 93130001
 ' 9-313-0002: the token's `nbf` has not yet arrived.
-PUBLIC LET ERR_NOT_YET_VALID AS Integer = 93130002
+EXPORT LET ErrorNotYetValid AS Integer = 93130002
 ' 9-313-0003: a registered-claim check the caller asked for failed --
 ' `iss`, `aud`, `sub`, a required claim that is absent, or `maxAgeSeconds`.
-PUBLIC LET ERR_CLAIM AS Integer = 93130003
+EXPORT LET ErrorClaim AS Integer = 93130003
 ' 9-313-0004: the token's `alg` is not in the caller's allowlist, is `none`, or
 ' does not match the key that was offered for it.
-PUBLIC LET ERR_ALGORITHM AS Integer = 93130004
+EXPORT LET ErrorAlgorithm AS Integer = 93130004
 ' 9-313-0005: the token, or one of its segments, is larger than this package
 ' will read.
-PUBLIC LET ERR_TOO_LARGE AS Integer = 93130005
+EXPORT LET ErrorTooLarge AS Integer = 93130005
 
 ' ---------------------------------------------------------------------------
 ' Size limits. A JWT arrives from the network, so its size is chosen by whoever
@@ -150,7 +151,7 @@ PUBLIC FUNC decodeSegment(text AS String, what AS String) AS List OF Byte
   LET chars AS List OF Byte = strings::toBytes(text)
   LET count AS Integer = len(chars)
   IF count > MAX_SEGMENT_BYTES THEN
-    FAIL error(ERR_TOO_LARGE, "jwt: the " & what & " segment is " & toString(count) & " characters, past the " & toString(MAX_SEGMENT_BYTES) & "-character limit")
+    FAIL error(ErrorTooLarge, "jwt: the " & what & " segment is " & toString(count) & " characters, past the " & toString(MAX_SEGMENT_BYTES) & "-character limit")
   END IF
   IF count MOD 4 = 1 THEN
     FAIL error(ERR_FORMAT, "jwt: the " & what & " segment is " & toString(count) & " Base64url characters, and no group of 6-bit symbols has that length")
