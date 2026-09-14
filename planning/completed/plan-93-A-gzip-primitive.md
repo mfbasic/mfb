@@ -1,5 +1,7 @@
 # plan-93-A: Native gzip/deflate primitive (`compress::` package)
 
+> **REMOVED from plan-93 on 2026-09-13 — never executed, not to be used.** gzip/deflate left plan-93 to be re-planned without a system library (no dlopen of zlib). Kept only as a historical record; nothing here landed, and this move does not satisfy any `ls planning/completed/plan-93-*` gate.
+
 Last updated: 2026-08-09
 Overall Effort: x-large (1d–3d) — the whole plan-93 feature (gzip on client + server, JS MIME types, cookies on client + server)
 Effort: large (3h–1d)

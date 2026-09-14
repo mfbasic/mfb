@@ -1,6 +1,6 @@
 # plan-93-F: Client-side cookie jar (`Set-Cookie` capture + `Cookie` attach)
 
-Last updated: 2026-08-09
+Last updated: 2026-09-13
 Effort: large (3h–1d)
 Depends on: plan-93-E (reuses its `__http_serializeCookie`/attribute parsing and
 the cookie value rules). If plan-93-E is not complete, this plan cannot start,
@@ -28,10 +28,9 @@ References:
 
 ## Prerequisites
 
-Shared feature gate: plan-93-A's "tree builds & tests green". Plus:
-
 | Must be true | Command | Status |
 |---|---|---|
+| Tree builds & tests green | `cargo test` | UNMEASURED — run before starting |
 | plan-93-E complete (shared cookie serializer + rules exist) | `ls planning/completed/plan-93-E-*` | NOT MET |
 
 If plan-93-E is not complete, this plan cannot start, full stop — this letter does
@@ -166,7 +165,7 @@ Commit: —
 ## Validation Plan
 
 - Tests: fixtures under the http client test home; drive against a local
-  `http::server` (from plan-93-C/D/E) so capture→attach round-trips through real
+  `http::server` (from plan-93-D/E) so capture→attach round-trips through real
   wire bytes, plus unit fixtures feeding canned `Set-Cookie` lines to the jar.
 - Coverage check: green run with the cross-site non-leak and end-to-end auth
   fixtures present (they exercise domain-match and the full jar loop).
