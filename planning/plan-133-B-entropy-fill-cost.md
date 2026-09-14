@@ -28,7 +28,7 @@ See plan-133-A § Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-133-A complete | `ls planning/completed/plan-133-A-*` → one match | NOT MET |
+| plan-133-A complete | `ls planning/completed/plan-133-A-*` → one match | MET (2026-09-13: `planning/completed/plan-133-A-browser-memory-diagnosis-and-soak-test.md`) |
 
 ## 1. Goal
 

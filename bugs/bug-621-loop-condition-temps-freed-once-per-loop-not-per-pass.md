@@ -21,7 +21,7 @@ reproduction reports equal `live_bytes` at N=1000 and N=2000.
 References:
 
 - `src/docs/spec/memory/04_arenas.md`, the scope-drop contract.
-- Found by plan-133-A Phase 2 (`planning/plan-133-A-browser-memory-diagnosis-and-soak-test.md`).
+- Found by plan-133-A Phase 2 (`planning/completed/plan-133-A-browser-memory-diagnosis-and-soak-test.md`).
 - Sibling: bug-620 (the same drop, skipped by an early exit from an `IF` branch).
 - bug-440 (`tests/codegen/codegen_owned_drop_free_and_null.rs`): a record call in a `WHILE`
   condition, pinned for zero-after-free only, not for per-pass freeing.

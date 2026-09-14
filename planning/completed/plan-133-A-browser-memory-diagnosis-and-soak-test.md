@@ -331,7 +331,7 @@ Commit: aef062601
 
 Acceptance: the check above passes every unmarked case and fails every bug-marked case with
 its message; `git grep -n "rt_debug_soak" planning/todo.md` → one match.
-Commit: —
+Commit: 477c40624
 
 ## Validation Plan
 

@@ -24,7 +24,7 @@ References:
 
 - `src/docs/spec/memory/04_arenas.md`, the scope-drop contract (a value no binding owns is
   freed at the end of its statement).
-- Found by plan-133-A Phase 2 (`planning/plan-133-A-browser-memory-diagnosis-and-soak-test.md`).
+- Found by plan-133-A Phase 2 (`planning/completed/plan-133-A-browser-memory-diagnosis-and-soak-test.md`).
 - Sibling: bug-621 (the same statement-scope drop, missed on each pass of a loop condition).
 - Earlier fixes of the same family: bug-567 (a RETURN expression's own temps), bug-571
   (the FOR EACH item on an early exit).
