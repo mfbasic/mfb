@@ -479,6 +479,27 @@ Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` report
    `peak_live_bytes`, process `peak_rss_bytes`), not a time series.
 2. **Measure the entropy-fill cost** on grow and free (fill on vs off), to know its share of
    every number below. Measurement only; the fill stays.
+   **Measured 2026-09-13 (plan-133-B Phase 2), box 2223** (native aarch64, 4 KiB pages; load
+   0.16–0.45). The whole `benchmark/mfb` suite was built at `b31e6abf8` twice: normally, and
+   with a throwaway one-line patch that makes `_mfb_arena_fill_random` return at entry. Each
+   build ran `--run 3`, and per-`section.row` medians were compared with plan-130-C's script.
+   Checksums were identical in every run.
+
+   | pair (normal → fill-off) | geomean over 485 rows | rows ≥ 0.05 ms |
+   |---|---:|---:|
+   | normal first, fill-off second | x0.701 | x0.699 over 456 |
+   | fill-off first, normal second | x0.710 | — |
+   | noise: normal vs normal, across the two positions | x0.999 | — |
+   | noise: fill-off vs fill-off, across the two positions | x1.012 | — |
+
+   With the fill off, the suite runs about **29–30% faster by geomean**, the same in both run
+   orders. Summed medians fall from 4,103.2 to 3,271.1 ms. The ten arena-heavy rows (first
+   pair / swapped pair): bignum.modmul x1.034 / x0.999, bignum.modexp x1.036 / x1.006,
+   crypto.churn x0.939 / x0.924, arena.transient x0.941 / x0.898, arena.mixed x0.964 / x0.811,
+   arena.growshrink x0.828 / x0.710, scalarbench.listchurn x0.889 / x0.789, mapchurn.churn
+   x1.008 / x0.997, datetime.civil x0.888 / x0.956, datetime.iso x1.011 / x1.000. **Single rows
+   are noisy:** the same build against itself swings rows by up to x1.42 (`io.binary`), so only
+   the geomean is a result. Tables: `/tmp/plan-133-b/ab/2223-*.table`.
 3. **Add an app-sized soak test**: a large parse or long server loop whose peak RSS must stay
    flat across iteration counts. The existing leak tests only cover small code shapes, so
    none of the Bucket List was caught. It fails today and tells you when a fix works.

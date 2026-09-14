@@ -140,10 +140,17 @@ never landed.
 Acceptance: `cargo test --release --test rt_debug_arena fill_counters` → 1 passed (~2 min);
 `scripts/artifact-gate.sh target/release/mfb collections` → `0 diff(s)` (~1 min, a covered
 arena-heavy builtin, proving normal builds did not change).
-Commit: —
+Commit: b31e6abf8
 
 ### Phase 2 — the A/B, recorded
 
+- [x] Added task: a page-load timer for the browser A/B, `tools/browser-load-timer/`
+      (README, `load.exp`, `run.sh`; also used by plan-133-C Phase 1). The "load, wait 40 s,
+      `q`" driver plan-133-A describes exists on neither machine (Corrections). — Verified
+      under both Tcl versions: the host (expect 5.45, Tcl 8.5.9) gave `run 1 load_ms=12991
+      exit=0` for `BASIC`; 2223 (expect 5.45.4, Tcl 8.6.18) gave `run 1 load_ms=7451
+      exit=0` for `Main_Page`. The first version timed out (`load_ms=timeout`) while the page
+      had loaded; the fix is in Corrections.
 - [ ] Worktree `/tmp/p133-b-fill` at the base; throwaway early return in
       `lower_arena_fill_random`; release build (never committed; the worktree is removed
       afterwards).
@@ -152,7 +159,12 @@ Commit: —
       (bignum.modmul, bignum.modexp, crypto.churn, arena.transient, arena.mixed,
       arena.growshrink, scalarbench.listchurn, mapchurn.churn, datetime.civil,
       datetime.iso). ~20 min, because the suite has no row filter.
-- [ ] 2223: the same pair, cross-built for linux-aarch64 (~25 min on the box).
+- [x] 2223: the same pair, cross-built for linux-aarch64 (~25 min on the box). — Cross-built
+      on the host with each compiler (`benchmark-glibc.out`, 9,412,608 B each). Run
+      `--run 3` normal then fill-off (21:43:57 → 21:44:20), and again in swapped order
+      (21:47:15 → 21:47:38); all exits 0, checksums identical, load ≤ 0.45. Geomean normal →
+      fill-off x0.701 (first order) and x0.710 (swapped); same-build position noise x0.999 and
+      x1.012. Recorded in `planning/todo.md` § 1 item 2 with the ten named rows.
 - [ ] 2223: browser `Main_Page` load wall time, normal vs fill-off, 3 runs each (~5 min).
 - [ ] Record all of it in `planning/todo.md` § Memory § 1 item 2, with the counters from one
       `--debug` browser run (fill bytes as a share of `alloc_bytes`).
@@ -195,6 +207,29 @@ Commit: —
   `free_calls` 1,001 → 2,001, `free_bytes` 48,016 → 96,016, `live_bytes` 0). A 48 B chunk is
   scrubbed over 32 B, so `fill_free_bytes == 48 × N` needs a 64 B chunk: 8 `Integer` fields.
   The test compares N=1000 with N=2000, so the program's fixed setup frees cancel out.
+- **2026-09-13 — Phase 2: a `--run 3` suite run takes 10–18 s, not ~20–25 min.** Measured:
+  on 2223 the normal build ran 21:43:57 → 21:44:10 and fill-off → 21:44:20 (485 timed rows
+  each, `runs: 3`, checksums identical); on macOS 18:45:36 → 18:45:54 and → 18:46:05. The
+  estimates must have counted builds. Consequence: repeating a pair (for example with the
+  order swapped) costs seconds.
+- **2026-09-13 — Phase 2: the browser driver was gone, and a naive rebuild of it never sees a
+  load finish.** `drive-browser.exp` (plan-133-A § Measured populations) exists on neither
+  machine: `find ~ -maxdepth 5 -name '*.exp'` on 2223 found only the 2026-09-12 all-examples
+  strace harness `~/arena-maps/harness/drive.exp`, which uses fixed pauses; nothing on the
+  host under `/tmp` or in git. A timer that waited for the footer text `Files: n/m` or the
+  padlock timed out (`run 1 load_ms=timeout exit=0`) although the page loaded. A capture
+  (`MFB_TIMER_LOG`) showed why: the browser redraws only changed cells, so after the load
+  it sends `ESC[40;118H`, colour escapes, `3`, `ESC[40;120H`, `3`, and never re-sends the
+  label. The padlock bytes `F0 9F 94 92/93` never appear at all. Separately, the host's
+  `expect` 5.45 runs Tcl 8.5.9, which has no `\U` escape, while 2223 runs Tcl 8.6.18. The
+  driver now matches a cursor move to row 40 followed by a non-zero digit, in plain ASCII, and
+  on the host it measured `load_ms=12991 exit=0` for `BASIC`.
+- **2026-09-13 — Phase 2: the first macOS pair ran on a loaded host and is re-run.** The
+  load average was 8.96 → 12.93 on 12 CPUs: a peer session's `rustc` at ~400% CPU, plus
+  three UTM QEMU VMs that use ~2.7 cores permanently. The pair's spread showed it
+  (`mapchurn.churn` x0.528 next to `set (State-Dynamic).add` x1.644, geomean x0.615). Kept as
+  `/tmp/plan-133-b/ab/mac-*-loaded.*`. It is re-run once no `rustc`/`cargo` is running and the
+  1-minute load average is under 5.
 
 ## Summary
 
