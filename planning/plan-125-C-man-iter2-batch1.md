@@ -446,7 +446,7 @@ Measured at the closing commit:
 
 Bugs filed or extended from this phase: bug-606 (12 decoders, `uleb128Encode`,
 `htmlUnescape`) and bug-619 (LEB128 decoders miss overflow).
-Commit: —
+Commit: f12fca000 (22 of 32), 52495d384 (closed)
 
 ### Phase 3 — datetime (46 units)
 
