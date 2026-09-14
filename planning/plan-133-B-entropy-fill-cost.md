@@ -151,10 +151,24 @@ Commit: b31e6abf8
       exit=0` for `BASIC`; 2223 (expect 5.45.4, Tcl 8.6.18) gave `run 1 load_ms=7451
       exit=0` for `Main_Page`. The first version timed out (`load_ms=timeout`) while the page
       had loaded; the fix is in Corrections.
-- [ ] Worktree `/tmp/p133-b-fill` at the base; throwaway early return in
+- [x] Worktree `/tmp/p133-b-fill` at the base; throwaway early return in
       `lower_arena_fill_random`; release build (never committed; the worktree is removed
-      afterwards).
-- [ ] macOS: `benchmark/mfb` suite normal vs fill-off, `--run 3` each, back to back;
+      afterwards). — `git worktree add --detach /tmp/p133-b-fill b31e6abf8`. One line changed:
+      the entry's `abi::branch_eq("arena_fill_done")` became an unconditional
+      `abi::branch("arena_fill_done")`, so the fill loop and the PCG state write-back are
+      skipped and the helper returns at once (the label is followed directly by `return_`).
+      `cargo build --release --bin mfb` → `EXIT=0` (1m 31s). Never committed: `git -C
+      /tmp/p133-b-fill status --short` → ` M src/codegen/builtins/math/gen_rng_pcg64.rs` only;
+      `git log --oneline -S "plan-133-B THROWAWAY" b31e6abf8..HEAD` → no commits; `git grep -n
+      "plan-133-B THROWAWAY" HEAD -- src` → no match. Removed with `git worktree remove
+      --force /tmp/p133-b-fill`: absent from `git worktree list`, and `ls` reports "No such
+      file or directory".
+- [x] macOS: `benchmark/mfb` suite normal vs fill-off, `--run 3` each, back to back; — Plain
+      `mfb build` of each suite copy (not `run.sh`'s `-O1..3`; the same flags on both sides).
+      A re-run on a quiet host (`ab-macos.sh` 18:50:47 → 18:51:10, 1-minute load 4.08 → 4.21,
+      checksums identical) gave geomean x0.702 over 485 rows and the ten named rows in
+      `planning/todo.md` § 1 item 2. The first pair ran under a peer build and was discarded
+      (Corrections).
       per-row medians compared; geomean and the arena-heavy rows plan-130-C named
       (bignum.modmul, bignum.modexp, crypto.churn, arena.transient, arena.mixed,
       arena.growshrink, scalarbench.listchurn, mapchurn.churn, datetime.civil,
@@ -165,9 +179,18 @@ Commit: b31e6abf8
       (21:47:15 → 21:47:38); all exits 0, checksums identical, load ≤ 0.45. Geomean normal →
       fill-off x0.701 (first order) and x0.710 (swapped); same-build position noise x0.999 and
       x1.012. Recorded in `planning/todo.md` § 1 item 2 with the ten named rows.
-- [ ] 2223: browser `Main_Page` load wall time, normal vs fill-off, 3 runs each (~5 min).
-- [ ] Record all of it in `planning/todo.md` § Memory § 1 item 2, with the counters from one
-      `--debug` browser run (fill bytes as a share of `alloc_bytes`).
+- [x] 2223: browser `Main_Page` load wall time, normal vs fill-off, 3 runs each (~5 min). —
+      `tools/browser-load-timer/run.sh … Main_Page 3` for each linux-aarch64 browser
+      (21:50:31 → 21:51:21, load ≤ 0.49): normal 7,300 / 7,451 / 7,366 ms, median 7,366;
+      fill-off 6,192 / 6,077 / 6,097 ms, median 6,097; x0.828. Every exit 0.
+- [x] Record all of it in `planning/todo.md` § Memory § 1 item 2, with the counters from one
+      `--debug` browser run (fill bytes as a share of `alloc_bytes`). — Recorded: the 2223 suite
+      geomean in both run orders (x0.701, x0.710) and the same-build noise floor (x0.999,
+      x1.012); the macOS geomean x0.702; the ten named rows on both hosts; the browser medians
+      (7,366 → 6,097 ms, x0.828); and the counters from a `--debug` `Main_Page` load on 2223
+      (`load_ms=7832 exit=0`, report kept with `MFB_TIMER_STDERR`). Fill bytes are 85.4% of
+      `alloc_bytes` over both arenas (main 126.9%, worker 82.4%), and the counter identities
+      hold exactly.
 
 Acceptance: `planning/todo.md` § 1 item 2 carries both geomeans, the ten named rows on both
 hosts, the browser medians, and the counters; `git -C /tmp/p133-b-fill status` shows the

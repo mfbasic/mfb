@@ -500,6 +500,43 @@ Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` report
    x1.008 / x0.997, datetime.civil x0.888 / x0.956, datetime.iso x1.011 / x1.000. **Single rows
    are noisy:** the same build against itself swings rows by up to x1.42 (`io.binary`), so only
    the geomean is a result. Tables: `/tmp/plan-133-b/ab/2223-*.table`.
+
+   **macOS host** (16 KiB pages), the same two builds compiled natively and run normal then
+   fill-off, `--run 3` (18:50:47 → 18:51:10; 1-minute load 4.08 → 4.21, of which three UTM VMs
+   use ~2.7 cores all the time; checksums identical): geomean normal → fill-off **x0.702** over
+   485 rows, the same as 2223. Named rows: bignum.modmul x0.991, bignum.modexp x0.998,
+   crypto.churn x0.941, arena.transient x0.847, arena.mixed x0.899, arena.growshrink x0.701,
+   scalarbench.listchurn x0.783, mapchurn.churn x0.988, datetime.civil x0.856, datetime.iso
+   x0.980. An earlier pair that ran under a peer's `rustc` (load 8.96–12.93) read x0.615 and was
+   discarded (plan-133-B Corrections).
+
+   **Browser `Main_Page` load, box 2223**, normal vs fill-off browser builds, 3 runs each back
+   to back (21:50:31 → 21:51:21, load 0.09 → 0.49). Timed with `tools/browser-load-timer` from
+   Enter to the footer's file count, so it includes the live network fetch.
+
+   | build | runs (ms) | median |
+   |---|---|---:|
+   | normal | 7,300 / 7,451 / 7,366 | 7,366 ms |
+   | fill-off | 6,192 / 6,077 / 6,097 | 6,097 ms |
+
+   With the fill off, the page loads **~17% faster** (x0.828). The spread within each build
+   (≈150 ms and ≈115 ms) is small against the 1,269 ms gap.
+
+   **The fill counters from one `--debug` `Main_Page` load, box 2223** (normal compiler,
+   `load_ms=7832 exit=0`):
+
+   | arena | `alloc_bytes` | grow fill (calls / bytes) | free scrub (calls of `free_calls` / bytes) | fill bytes / `alloc_bytes` |
+   |---|---:|---|---|---:|
+   | main | 413,581,616 | 5,125 / 121,716,576 | 323,463 of 373,655 / 402,924,592 | 126.9% |
+   | worker | 5,887,087,504 | 189,654 / 852,608,320 | 23,813,366 of 70,951,911 / 4,000,551,824 | 82.4% |
+   | both | 6,300,669,120 | 194,779 / 974,324,896 | 24,136,829 of 71,325,566 / 4,403,476,416 | **85.4%** |
+
+   Over one page load the fill writes bytes equal to 85% of everything the program allocates.
+   The main arena reads over 100% because each grow fills a whole fresh block before the program
+   uses it. The counters check out exactly: `fill_grow_calls == grow`, `fill_grow_bytes ==
+   mapped_bytes − 32 × grow`, and `free_bytes − fill_free_bytes == 16 × free_calls` (5,978,480
+   and 1,135,230,576) in both arenas. Two of every three worker frees (47.1 M) are 16 B chunks,
+   which have no payload to scrub.
 3. **Add an app-sized soak test**: a large parse or long server loop whose peak RSS must stay
    flat across iteration counts. The existing leak tests only cover small code shapes, so
    none of the Bucket List was caught. It fails today and tells you when a fix works.
