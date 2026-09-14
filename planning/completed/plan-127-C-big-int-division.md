@@ -310,7 +310,7 @@ Commit: 5ff478ffd (shared with Phase 1, C-C2)
 Acceptance: `factorial(100)` matches a constant computed outside MFB and committed as a
 test literal; `modPow` agrees with the `pow`+`remainder` reference on every small case;
 `mfb man big modPow` renders the non-constant-time advisory.
-Commit: —
+Commit: 634c20da8
 
 ## Validation Plan
 

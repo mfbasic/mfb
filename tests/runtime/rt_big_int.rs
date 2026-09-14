@@ -2285,3 +2285,96 @@ END SUB
         ]
     );
 }
+
+/// plan-127-D Phase 1: the `big::Int` overload of `crypto::randomInt` — `max < min` raises
+/// `ErrInvalidArgument`, `min = max` returns `min`, 1,000 draws over a ±2^128 range (a span
+/// the `Integer` overload rejects) all land in range and nearly all past `Integer`, and
+/// 10,000 draws over `0..6` hit every outcome with no bucket more than 25% from the expected
+/// 1,429 — the check a modulo-reduction bias fails.
+#[test]
+fn crypto_random_int_big_overload_is_in_range_and_uniform() {
+    let lines = run(
+        "big_d_random_int",
+        r#"IMPORT io
+IMPORT big
+IMPORT crypto
+IMPORT collections
+
+FUNC tryDraw(low AS big::Int, high AS big::Int) AS String
+  RETURN big::toString(crypto::randomInt(low, high))
+  TRAP(e)
+    RETURN "raised " & toString(e.code)
+  END TRAP
+END FUNC
+
+SUB main()
+  io::print(tryDraw(big::fromInteger(5), big::fromInteger(4)))
+  LET huge AS big::Int = big::parse("123456789012345678901234567890")
+  io::print(tryDraw(huge, huge))
+
+  LET low AS big::Int = big::parse("-340282366920938463463374607431768211456")
+  LET high AS big::Int = big::parse("340282366920938463463374607431768211455")
+  LET integerMax AS big::Int = big::fromInteger(9223372036854775807)
+  MUT outside AS Integer = 0
+  MUT pastInteger AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 1000
+    LET x AS big::Int = crypto::randomInt(low, high)
+    IF big::compare(x, low) < 0 OR big::compare(x, high) > 0 THEN
+      outside = outside + 1
+    END IF
+    IF big::compare(big::abs(x), integerMax) > 0 THEN
+      pastInteger = pastInteger + 1
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("outside: " & toString(outside) & " of 1000")
+  io::print("past Integer: " & toString(pastInteger > 990))
+
+  LET zero AS big::Int = big::fromInteger(0)
+  LET six AS big::Int = big::fromInteger(6)
+  MUT counts AS List OF Integer = [0, 0, 0, 0, 0, 0, 0]
+  MUT j AS Integer = 0
+  WHILE j < 10000
+    LET v AS Integer = big::toInteger(crypto::randomInt(zero, six))
+    counts = collections::set(counts, v, collections::get(counts, v) + 1)
+    j = j + 1
+  END WHILE
+  MUT everyOutcome AS Boolean = TRUE
+  MUT withinTolerance AS Boolean = TRUE
+  MUT total AS Integer = 0
+  MUT shown AS String = ""
+  MUT k AS Integer = 0
+  WHILE k < 7
+    LET c AS Integer = collections::get(counts, k)
+    total = total + c
+    shown = shown & " " & toString(c)
+    IF c = 0 THEN
+      everyOutcome = FALSE
+    END IF
+    IF c < 1072 OR c > 1786 THEN
+      withinTolerance = FALSE
+    END IF
+    k = k + 1
+  END WHILE
+  io::print("draws: " & toString(total))
+  io::print("every outcome: " & toString(everyOutcome))
+  io::print("within 25% of 1429: " & toString(withinTolerance))
+  io::print("counts:" & shown)
+END SUB
+"#,
+    );
+    assert_eq!(
+        &lines[..7],
+        &[
+            "raised 77050002",
+            "123456789012345678901234567890",
+            "outside: 0 of 1000",
+            "past Integer: TRUE",
+            "draws: 10000",
+            "every outcome: TRUE",
+            "within 25% of 1429: TRUE"
+        ],
+        "{lines:?}"
+    );
+}

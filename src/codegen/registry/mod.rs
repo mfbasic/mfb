@@ -2911,10 +2911,16 @@ fn resolved_return_type(qualified: &str, call: &CallShape, strict: bool) -> Opti
     let function = registry().resolve_func(qualified)?.function;
     // `strict` (argument validation) rejects a scalar-for-nominal argument; the lenient
     // mode (return-type inference feeding IR lowering / codegen) coarsely accepts it.
+    // Lenient still prefers a STRICT match first, exactly as [`rewrite_target`] does:
+    // lenient `leaf_matches` accepts a scalar against a nominal in either direction, so
+    // an earlier `Integer` row captures a call whose arguments precisely name a later
+    // `big.Int` row (`crypto::randomInt`, plan-127-D). Without the preference the
+    // inferred return type (`Integer`) and the body that runs (`__crypto_randomIntBig`)
+    // would come from two different implementations.
     let selection = if strict {
         function.resolve(call)
     } else {
-        function.dispatch(call)
+        function.resolve(call).or_else(|| function.dispatch(call))
     };
     selection.map(|selection| selection.return_type)
 }
@@ -6452,6 +6458,32 @@ mod raw_result_block_ownership {
         "audio.devices",            // List OF audio.AudioDevice
         "audio.read",               // List OF Byte
         "audio.readTimeout",        // List OF Byte
+        // plan-127: every `big` result is made by `emit_alloc_magnitude` (or, for the text
+        // members, `emit_alloc`; for `toBytes`, `emit_build_byte_list`; for `divMod`, the
+        // record marshaller) on this thread's arena and published once — no member hands
+        // back an argument or a constant.
+        "big.abs",                  // big.Int
+        "big.add",                  // big.Int
+        "big.divMod",               // big.DivResult
+        "big.divide",               // big.Int
+        "big.factorial",            // big.Int
+        "big.fromBytes",            // big.Int
+        "big.fromInteger",          // big.Int
+        "big.gcd",                  // big.Int
+        "big.modPow",               // big.Int
+        "big.multiply",             // big.Int
+        "big.negate",               // big.Int
+        "big.parse",                // big.Int
+        "big.pow",                  // big.Int
+        "big.product",              // big.Int
+        "big.remainder",            // big.Int
+        "big.shiftLeft",            // big.Int
+        "big.shiftRight",           // big.Int
+        "big.subtract",             // big.Int
+        "big.sum",                  // big.Int
+        "big.toBytes",              // List OF Byte
+        "big.toRadixString",        // String
+        "big.toString",             // String
         "canvas.fontBlobUnchecked", // List OF Byte
         "canvas.fontBytes",         // List OF Byte
         "canvas.getBytes",          // List OF Byte
@@ -6634,6 +6666,8 @@ mod raw_result_block_ownership {
     /// helper reds here and forces the same caller's-arena confirmation
     /// `CALLER_ARENA_BLOCK_RESULTS` demands.
     const STRING_RESULT_HELPERS: &[&str] = &[
+        "big.toRadixString",
+        "big.toString",
         "fs.canonicalPath",
         "fs.currentDirectory",
         "fs.readAll",

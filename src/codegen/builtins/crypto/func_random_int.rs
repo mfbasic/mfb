@@ -20,6 +20,14 @@ raised. Because the count of outcomes is `max - min + 1`, a span so large that
 `ErrInvalidArgument`. Every other combination is valid, including negative bounds
 and the full width of the non-negative `Integer` range.
 
+**Past the 64-bit ceiling.** A second form takes and returns `big::Int`:
+`crypto::randomInt(min AS big::Int, max AS big::Int) AS big::Int`. It has no span
+limit at all — only `max < min` raises `ErrInvalidArgument` — and it samples the
+same way: it draws just enough fresh bytes to cover the span, keeps only the bits
+the span needs, and rejects any draw at or above the span rather than reducing it.
+The form is chosen by the argument types, so an `Integer` call is unaffected. It
+needs `IMPORT big` alongside `IMPORT crypto`.
+
 **Unbiased sampling.** The distribution is exactly uniform. Rather than reducing
 raw entropy modulo the range — which skews toward smaller values when the range
 does not divide the entropy space evenly — `randomInt` uses rejection sampling.
@@ -63,6 +71,21 @@ IMPORT crypto
 SUB main()
   LET x AS Integer = crypto::randomInt(42, 42)
 END SUB
+```
+
+A range wider than any `Integer`, through the `big::Int` form:
+
+```
+IMPORT crypto
+IMPORT big
+IMPORT io
+
+SUB main()
+  LET low AS big::Int = big::parse("-100000000000000000000000000000")
+  LET high AS big::Int = big::parse("100000000000000000000000000000")
+  LET x AS big::Int = crypto::randomInt(low, high)
+  io::print(toString(big::compare(x, low) >= 0 AND big::compare(x, high) <= 0))
+END SUB
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {
@@ -73,7 +96,8 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         example: EX,
         expected_arguments: None,
         internal_only: false,
-        implementations: vec![Implementation {
+        implementations: vec![
+            Implementation {
             params: vec![
                 Parameter {
                     name: "min",
@@ -94,6 +118,31 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             return_type: ParameterType::Integer,
             errors: vec!["ErrInvalidArgument", "ErrUnknown", "ErrOutOfMemory"],
             body: Body::Rewrite("__crypto_randomInt"),
-        }],
+        },
+            Implementation {
+                params: vec![
+                    Parameter {
+                        name: "min",
+                        desc: "Inclusive lower bound, a `big::Int`. Any size; may be negative.",
+                        aliases: &[],
+                        ty: ParameterType::named("big.Int"),
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "max",
+                        desc: "Inclusive upper bound, a `big::Int`. Must be `>= min`; there is no limit on `max - min`.",
+                        aliases: &[],
+                        ty: ParameterType::named("big.Int"),
+                        default: DefaultValue::None,
+                    },
+                ],
+                return_type: ParameterType::named("big.Int"),
+                // The same set as the `Integer` row: the helper draws through
+                // `crypto::randomBytes`, which raises `ErrUnknown` when the OS entropy
+                // source fails and `ErrOutOfMemory` when a draw cannot be made.
+                errors: vec!["ErrInvalidArgument", "ErrUnknown", "ErrOutOfMemory"],
+                body: Body::Rewrite("__crypto_randomIntBig"),
+            },
+        ],
     });
 }

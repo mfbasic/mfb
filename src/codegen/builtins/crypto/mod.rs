@@ -485,6 +485,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_rand62::register(&mut pkg);
     helper_rand63::register(&mut pkg);
     helper_random_int::register(&mut pkg);
+    helper_random_int_big::register(&mut pkg);
     helper_uuid4::register(&mut pkg);
     helper_gf0::register(&mut pkg);
     helper_gf1::register(&mut pkg);
@@ -914,6 +915,7 @@ mod helper_pow2523;
 mod helper_rand62;
 mod helper_rand63;
 mod helper_random_int;
+mod helper_random_int_big;
 mod helper_reduce;
 mod helper_rotl32;
 mod helper_rotr32;
@@ -1233,6 +1235,12 @@ mod tests {
             r("crypto.randomInt", &["Integer", "Integer"]),
             Some("Integer".into())
         );
+        // plan-127-D: the `big::Int` overload returns `big.Int`, and adding it did not move
+        // the two-`Integer` shape above.
+        assert_eq!(
+            r("crypto.randomInt", &["big.Int", "big.Int"]),
+            Some("big.Int".into())
+        );
         assert_eq!(
             r(
                 "crypto.verify",
@@ -1245,6 +1253,60 @@ mod tests {
             ),
             Some("Boolean".into())
         );
+    }
+
+    /// plan-127-D: `crypto::randomInt` is one member with two implementation rows. The
+    /// `Integer` row keeps its return type, error set and `__crypto_randomInt` body; the
+    /// `big::Int` row rewrites to the gated `__crypto_randomIntBig` helper and declares the
+    /// same errors, so the fallibility verdict is "fallible" for either argument shape.
+    #[test]
+    fn random_int_big_overload_registry_facts() {
+        let types = |args: &[&str]| -> Vec<crate::types::ParameterType> {
+            args.iter()
+                .map(|s| crate::types::ParameterType::declared(s))
+                .collect()
+        };
+        let integers = types(&["Integer", "Integer"]);
+        let bigs = types(&["big.Int", "big.Int"]);
+        assert_eq!(
+            registry::rewrite_target("crypto.randomInt", &integers),
+            Some("__crypto_randomInt")
+        );
+        assert_eq!(
+            registry::rewrite_target("crypto.randomInt", &bigs),
+            Some("__crypto_randomIntBig")
+        );
+        assert_eq!(
+            registry::resolve_call_typed("crypto.randomInt", &integers, true)
+                .map(|t| t.name().into_owned()),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            registry::resolve_call_typed("crypto.randomInt", &bigs, true)
+                .map(|t| t.name().into_owned()),
+            Some("big.Int".to_string())
+        );
+        let function = registry()
+            .resolve_func("crypto.randomInt")
+            .expect("crypto.randomInt is registered")
+            .function;
+        assert_eq!(function.implementations.len(), 2);
+        for implementation in &function.implementations {
+            assert_eq!(
+                implementation.errors,
+                vec!["ErrInvalidArgument", "ErrUnknown", "ErrOutOfMemory"],
+                "{:?}",
+                implementation.return_type
+            );
+        }
+        assert!(!crate::codegen::builtins::inline_builtin_is_infallible(
+            "crypto.randomInt",
+            &integers
+        ));
+        assert!(!crate::codegen::builtins::inline_builtin_is_infallible(
+            "crypto.randomInt",
+            &bigs
+        ));
     }
 
     #[test]

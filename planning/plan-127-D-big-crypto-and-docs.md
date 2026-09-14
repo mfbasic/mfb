@@ -30,8 +30,8 @@ Stated once in plan-127-A and unchanged. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-127-C is complete: Phases 1–3 ticked and their commits recorded | `grep -c '^- \[ \]' planning/plan-127-C-big-int-division.md` → `0` | NOT MET |
-| The members this letter's overload needs exist | `grep -rl 'name: "divMod"\|name: "compare"\|name: "subtract"\|name: "add"\|name: "bitLength"' src/codegen/builtins/big/ \| wc -l` → `5` | NOT MET |
+| plan-127-C is complete: Phases 1–3 ticked and their commits recorded | `grep -c '^- \[ \]' planning/completed/plan-127-C-big-int-division.md` → `0` | MET (2026-09-13, worktree-P-127 @ 634c20da8: `0`; plan archived to `planning/completed/`) |
+| The members this letter's overload needs exist | `grep -rl 'name: "divMod"\|name: "compare"\|name: "subtract"\|name: "add"\|name: "bitLength"' src/codegen/builtins/big/ \| wc -l` → `5` | MET (2026-09-13, @ 634c20da8: 5 files — `func_add`, `func_compare`, `func_subtract`, `func_div_mod`, `func_bit_length`) |
 
 If plan-127-C is not complete, this letter cannot start, full stop. Unbiased sampling
 over a big range needs `subtract` (span), `bitLength` (draw width), `compare`
@@ -211,23 +211,49 @@ new `crypto::randomInt` big overload's range membership.
 
 ### Phase 1 — the `crypto::randomInt` big overload (the only behavior change here)
 
-- [ ] Add the `big::Int` implementation row to `func_random_int.rs` per §4.1, as a
-      second `implementations` entry — not a new member and not a renamed one.
-- [ ] Extend the member's `DESC` where the 64-bit span ceiling is documented to name the
-      big overload as the way past it.
-- [ ] Test: an existing `crypto::randomInt(1, 10)` call site still selects the `Integer`
+- [x] Add the `big::Int` implementation row to `func_random_int.rs` per §4.1, as a
+      second `implementations` entry — not a new member and not a renamed one. (Rewrite row
+      to `__crypto_randomIntBig` + gated helper `helper_random_int_big.rs`, D-C1/D-C2;
+      `git status --short src/codegen/builtins/crypto/` → `func_random_int.rs`, `mod.rs` (helper
+      registration + tests), new `helper_random_int_big.rs`; the 14 internal arithmetic helpers
+      untouched. Required the D-C4 resolver fix.)
+- [x] Extend the member's `DESC` where the 64-bit span ceiling is documented to name the
+      big overload as the way past it. ("**Past the 64-bit ceiling.**" paragraph right after
+      "Range and errors", plus a `big::Int` example; `mfb man crypto randomInt` renders
+      `Overloads 1. …(min AS Integer, max AS Integer) AS Integer` / `2. …(min AS big::Int, max
+      AS big::Int) AS big::Int` and errors `1, 2` for all three codes.)
+- [x] Test: an existing `crypto::randomInt(1, 10)` call site still selects the `Integer`
       implementation and returns an `Integer` — `registry::call_return_type_typed`
       reports `Integer` for the two-`Integer` shape and `big.Int` for the two-`big.Int`
-      shape.
-- [ ] Test: `max < min` raises `ErrInvalidArgument` on the big overload; `min = max`
-      returns `min`.
-- [ ] Test: every result of 1,000 draws over a big range lies within `[min, max]`.
-- [ ] **Distribution test:** 10,000 draws over a small range (`0..6`) built from
+      shape. (`call_return_type_typed` takes no argument types, so the typed resolvers are
+      used: `random_int_big_overload_registry_facts` — `rewrite_target` →
+      `__crypto_randomInt` / `__crypto_randomIntBig`, strict `resolve_call_typed` → `Integer` /
+      `big.Int`, both rows' errors exact; `argument_typed_return_resolution` — lenient
+      `resolve_call` → `Integer` / `big.Int`, the latter red before D-C4. `cargo test --release
+      -p mfb --bin mfb -- codegen::registry:: codegen::builtins::crypto::tests
+      inline_builtin_fallibility_census` → `68 passed; 0 failed`.)
+- [x] Test: `max < min` raises `ErrInvalidArgument` on the big overload; `min = max`
+      returns `min`. (`crypto_random_int_big_overload_is_in_range_and_uniform` → `raised
+      77050002`, `123456789012345678901234567890`.)
+- [x] Test: every result of 1,000 draws over a big range lies within `[min, max]`. (Same
+      test, range `[-2^128, 2^128 - 1]` → `outside: 0 of 1000`, `past Integer: TRUE` (>990 of
+      1000 draws beyond `Integer`) — also the Validation Plan's runtime proof.)
+- [x] **Distribution test:** 10,000 draws over a small range (`0..6`) built from
       `big::Int` values; assert every outcome occurs and no bucket deviates from the
       expected count by more than a stated tolerance. A modulo-reduction bug fails this
-      and passes every other test in this phase.
-- [ ] Confirm the inline-`TRAP` fallibility census is green with the overloaded member
+      and passes every other test in this phase. (Same test: `draws: 10000`, `every outcome:
+      TRUE`, `within 25% of 1429: TRUE` (each bucket in 1072..1786, about 10 standard deviations
+      wide); `cargo test --release --test rt_big_int crypto_random_int_big_overload` → `1
+      passed; 0 failed`.)
+- [x] Confirm the inline-`TRAP` fallibility census is green with the overloaded member
       (both rows declare `ErrInvalidArgument`, so the verdicts agree).
+      (`inline_builtin_fallibility_census` passes, and `random_int_big_overload_registry_facts`
+      asserts `inline_builtin_is_infallible("crypto.randomInt", …)` is `false` for both
+      argument shapes.)
+- [x] Added: the two registry block-ownership census tests list the 26 `big` block-returning
+      members (D-C5) → both pass in the 68 above.
+- [x] Added: `scripts/man-run-examples.sh crypto --run randomInt` → `examples: 3 built: 3 ran: 3
+      failed: 0`, example 3 printing `TRUE` (it failed with `TYPE_BINDING_MISMATCH` before D-C4).
 
 Acceptance: the distribution test passes, the `Integer` overload's return type and error
 set are unchanged, and `mfb man crypto randomInt` renders both signatures.
@@ -303,6 +329,53 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **D-C1 — `crypto::randomInt` is a source-companion rewrite, so the overload is a second rewrite
+  row plus a gated helper.** §4.1 assumes a native member. The shipped `Integer` row is
+  `Body::Rewrite("__crypto_randomInt")` (MFBASIC in `crypto/helper_random_int.rs`). The big row
+  rewrites to `__crypto_randomIntBig` in `crypto/helper_random_int_big.rs`, registered with
+  `HelperGate::WhenBothImported("crypto", "big")` (precedent: the `term`/`astrings` bridge,
+  `term/helper_astrings_bridge.rs`) and carrying its own `IMPORT crypto`/`big`/`collections`.
+  `WhenImported("big")` would be wrong: it injects into a program importing `big` without
+  `crypto`.
+- **D-C2 — the big row's error set is not only `ErrInvalidArgument`.** §4.1 says "The only error
+  is `ErrInvalidArgument`". The helper draws through `crypto::randomBytes`, which declares
+  `ErrUnknown` and `ErrOutOfMemory`; the `Integer` row declares all three for the same reason, so
+  the big row declares the same three and the census verdicts agree.
+- **D-C3 — the helper composes native `big` members and does no digit arithmetic,** so
+  plan-127-A's "no MFBASIC-source implementation" non-goal (about the arithmetic) is not crossed.
+- **D-C4 — §2's "overload resolution returns the first implementation that unifies" was a
+  latent defect for this overload, and a Phase 1 prerequisite no task covered.** `ParameterType::
+  Integer` and `Named("big.Int")` DO unify on the lenient path: `leaf_matches` accepts a scalar
+  against a nominal in either direction when not strict. Lenient `dispatch` feeds return-type
+  inference (`resolved_return_type`), so `crypto::randomInt(bigA, bigB)` inferred `Integer`
+  (first row) while `rewrite_target` — already strict-first — ran the big body. Measured before
+  the fix: `LET x AS big::Int = crypto::randomInt(low, high)` failed with `2-203-0007
+  TYPE_BINDING_MISMATCH` (`man-run-examples.sh crypto --run randomInt`, example 3), the runtime
+  test failed at build, and `resolve_call("crypto.randomInt", ["big.Int","big.Int"], false)` →
+  `Some("Integer")`. Fix: `resolved_return_type`'s lenient arm is
+  `resolve(call).or_else(|| dispatch(call))`, the same preference `rewrite_target` uses.
+  Blast radius measured with a temporary in-crate census over every multi-implementation member,
+  each called with each implementation's own parameter types: `shapes=367 deltas=1`, the one delta
+  `randomInt(big.Int, big.Int) old=Some("Integer") new=Some("big.Int")`. The census was removed
+  after measuring; the pin is `argument_typed_return_resolution` (lenient) plus
+  `random_int_big_overload_registry_facts` (strict + rewrite targets).
+- **D-C5 — letters A–C left two registry census tests red; found here, fixed here.**
+  `codegen::registry::raw_result_block_ownership::every_block_returning_runtime_helper_is_classified`
+  and `every_string_returning_runtime_helper_is_marked_fresh` scrape the runtime-call catalog and
+  demand every block-returning call be listed in `CALLER_ARENA_BLOCK_RESULTS` (and every `String`
+  one in `STRING_RESULT_HELPERS`) after confirming its result is allocated in the caller's arena
+  and handed back as the only pointer — those lists license the caller to free an unbound result.
+  The per-phase scoped runs (`codegen::builtins::big`) never reached them. Measured: 26 `big`
+  names missing from the first list, `big.toString`/`big.toRadixString` from the second. Audit of
+  every result publisher in `gen_big.rs` and the member files (`grep -n
+  'RESULT_VALUE_REGISTER\|emit_alloc_magnitude(\|emit_alloc('`): results come only from
+  `emit_build_int` over an `emit_alloc_magnitude` block (`emit_alloc` →
+  `ARENA_ALLOC_SYMBOL = "_mfb_arena_alloc"`), the fold/`pow`/`factorial`/`gcd`/`modPow`
+  accumulators (each a fresh record; `pow`'s borrowed-argument square is never returned or
+  released), `emit_int_to_string`'s `emit_alloc`, `toBytes`'s `emit_build_byte_list`, and
+  `divMod`'s `emit_build_inlined_record_sized`. No path returns an argument or rodata, so all 26
+  are added (sorted) with a comment naming the allocation.
 
 ## Summary
 
