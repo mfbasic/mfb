@@ -214,7 +214,7 @@ Commit: 1f997e49a, ac00bef77
 
 Acceptance: `cargo test --bin mfb docs::spec` → green (~1 min; includes
 `spec_citations_resolve`).
-Commit: —
+Commit: efcce057b
 
 ## Validation Plan
 
