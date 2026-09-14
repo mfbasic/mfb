@@ -211,10 +211,10 @@ that is new to review last, with pace known).
         session's unmerged t3 checkpoint also uses bug-603, for a `datetime`
         bug added 2026-09-13 06:32. This branch's bug-603 (color hue,
         `17872c5d1`, 2026-09-12 22:35) came first and keeps the number.
-- [~] Ledger + example ledger recorded here. **Partial:** 6 of 22 reviews
-      completed before the second usage-limit stop (overview, `abs`, `acos`,
-      `asin`, `atan`, `atan2`); their 20 findings are triaged below. The other 16
-      units remain.
+- [~] Ledger + example ledger recorded here. **Partial:** 17 of 22 reviews
+      completed and triaged below: 6 in the first round, 11 in the retry round.
+      **Remaining: `pow`, `seed`, `sin`, `sqrt`, `tan`**, which hit the usage
+      limit again in the retry round.
 
 #### Phase 1 ledger — Codex iteration 2, partial (`planning/plan-125-findings/C-phase1/`)
 
@@ -237,6 +237,40 @@ that is new to review last, with pace known).
 | atan2 | 2 | CONFIRMED | probe: `atan2(±1, 0)` = ±pi/2, `atan2(0, 0)` = 0 | DESC axis and origin cases |
 | atan2 | 3 | DEFERRED | the NaN repro, `atan2((big*big)/(big*big), 1.0)`, may raise in its argument expression before `atan2` runs, so it does not isolate `atan2`; re-probe in the page's remaining review | — |
 | atan2 | 4 | CONFIRMED | `lower_simd_float_binary` allocates a separate result list | DESC: new list, inputs unchanged |
+
+Retry round (user: "send the next round"). The quota probe answered PONG, and
+16 units were dispatched from `planning/plan-125-units/C-phase1-retry.txt`:
+- 11 completed, exit 0: `ceil`, `clamp`, `cos`, `exp`, `floor`, `log`,
+  `log10`, `max`, `min`, `rand`, `round`.
+- 5 hit the usage limit again (`pow`, `seed`, `sin`, `sqrt`, `tan`: logs say
+  "try again at 11:13 AM"). They remain.
+
+Probes: `/tmp/p125-ex/mathc1b`, `/tmp/p125-ex/mathc1c`.
+
+| Page | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| ceil | 1 | CONFIRMED | "a deliberate dimension exit" is registry design vocabulary | DESC: returns an `Integer`; `Money` gives whole currency units |
+| ceil | 2 | CONFIRMED | probe: `ceil(2^63)` → `77050010`; `ceil(-2^63)`, a `Fixed` at 2147483647.5 and `Money` round normally | DESC: only a `Float` can overflow |
+| ceil | 3 | CONFIRMED | probe: `ceil([2.1, -1.5])` → `3,-1`, input unchanged; empty → 0 | DESC: new list, same order, empty → empty |
+| clamp | 1, 2 | CONFIRMED | probe: `clamp([-3,0,4,9], 0, 4)` → `0..4`, input unchanged; empty → 0 | DESC: scalar bounds for a list; new list |
+| clamp | 3 | REJECTED | `ErrOutOfMemory` for a result list that cannot be allocated is exhaustion, not a trappable domain error; plan-125-B (`collections::distinct`) does not document it as a per-call error | — |
+| cos | 1 | CONFIRMED | `cos` has only `List OF Float` | parameter: "or a `List OF Float` of them" |
+| cos | 2 (empty list), 3 | CONFIRMED | probe: empty → 0; `cos([0, 3.14159…])[1]` → `-1.00`, input unchanged | DESC: new list, empty → empty |
+| cos | 2 (non-finite), 4 | DEFERRED | the NaN repro builds NaN in its argument expression, so it does not isolate `cos` (same as atan2 #3) | — |
+| exp | 1 | CONFIRMED | probe: `exp(-800.0)` → `0`; `exp(710.0)` → `77050014`; `exp(30.0F)` → `77050010` (`typeName(30.0F)` is `Fixed`: uppercase `F`) | DESC: underflow to 0, `ErrFloatInf` vs `ErrOverflow` |
+| exp | 2 | CONFIRMED → **bug-617** | same probe | none: declared-error data |
+| floor | 1 | CONFIRMED → **bug-617** | same Float-only range check as `ceil` | none |
+| floor | 2, 3, 4 | CONFIRMED | shares `ceil`'s lowering and probe results; the reviewer's probe showed `2,-2,0` | DESC as `ceil`; parameter no longer implies a `Money` list |
+| log | 1, 2 | CONFIRMED → **bug-617** | `/tmp/p125-ex/mathlist` | none |
+| log | 3, 4 | CONFIRMED | reviewer probe: empty lists → 0; `log([e])` new list, input unchanged | DESC + parameter |
+| log10 | 1, 2 | CONFIRMED → **bug-617** | as `log` | none |
+| log10 | 3 | CONFIRMED | reviewer probe: empty → 0, order kept, input unchanged | DESC + parameter |
+| max | 1, 2, 3 | CONFIRMED | the `min` probe shares `lower_simd_binary`: new list, inputs unchanged, empty+empty → 0; mismatched → `77050002` (`/tmp/p125-ex/mathclaims`) | DESC + both parameters |
+| max | 4 | CONFIRMED → **bug-617** | `lower_math_min_max` has no raise path | none |
+| min | 1 | CONFIRMED → **bug-617** | as `max` | none |
+| min | 2, 3 | CONFIRMED | probe: `min([3,-5,7],[4,-2,1])` → `3,-5,1`, input unchanged; empty+empty → 0 | DESC + both parameters |
+| rand | 1, 2 | CONFIRMED | probe: `rand(0,0)` → 0, `rand(-10,-10)` → -10, `rand(-5,-1)` in range, `Money` -1.00 bounds work | both parameters: zero, negative and equal bounds valid |
+| round | 1, 2 | CONFIRMED | probe: `round([2.5,-2.5])` → `3,-3`, input unchanged; empty → 0 | DESC: new list, empty → empty; "dimension exit" replaced |
 
 Acceptance: 22 units `exit 0` in the manifest; `--reconcile` clean for the
 phase; `mfb man math --all` renders; `--memory-scope math`/`--scope math` → 0.

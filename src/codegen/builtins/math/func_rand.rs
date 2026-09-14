@@ -23,8 +23,8 @@ END SUB
 
 const MIN_A: &[&str] = &["minimum"];
 const MAX_A: &[&str] = &["maximum"];
-const MIN_D: &str = "The lowest value the result may take, inclusive.";
-const MAX_D: &str = "The highest value the result may take, inclusive. Must not be below `min`.";
+const MIN_D: &str = "The lowest value the result may take, inclusive. Zero and negative values are valid.";
+const MAX_D: &str = "The highest value the result may take, inclusive. Zero and negative values are valid; it must not be below `min`, and it may equal `min`.";
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     let impls: Vec<Implementation> = vec![

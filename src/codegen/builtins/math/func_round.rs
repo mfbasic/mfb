@@ -6,10 +6,11 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float, Money};
 const INTRO: &str = r#"Round to the nearest whole number, half away from zero."#;
 const DESC: &str = r#"`round` returns the nearest integer to `value`, rounding halves away from zero. It
-accepts `Float`, `Fixed`, and `Money` and returns `Integer` (a deliberate dimension
-exit — for `Money`, the whole-unit count under a fixed half-away rule, distinct from
-`money::round`), plus the `List OF Float`/`List OF Fixed` array forms returning
-`List OF Integer`. A magnitude too large for `Integer` raises `ErrOverflow`."#;
+accepts `Float`, `Fixed`, and `Money` and returns an `Integer`; for `Money` the
+result is a whole number of currency units, always rounding halves away from zero,
+unlike `money::round`. A `List OF Float` or `List OF Fixed` returns a new
+`List OF Integer` with each element rounded in the same order, leaving the input
+unchanged; an empty list gives an empty list. A magnitude too large for `Integer` raises `ErrOverflow`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io

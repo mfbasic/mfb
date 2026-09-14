@@ -1,0 +1,16 @@
+man-page:math/ceil
+man-page:math/clamp
+man-page:math/cos
+man-page:math/exp
+man-page:math/floor
+man-page:math/log
+man-page:math/log10
+man-page:math/max
+man-page:math/min
+man-page:math/pow
+man-page:math/rand
+man-page:math/round
+man-page:math/seed
+man-page:math/sin
+man-page:math/sqrt
+man-page:math/tan

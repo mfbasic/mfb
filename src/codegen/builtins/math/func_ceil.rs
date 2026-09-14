@@ -6,9 +6,11 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float, Money};
 const INTRO: &str = r#"Round toward positive infinity to a whole number."#;
 const DESC: &str = r#"`ceil` returns the least integer not less than `value`. It accepts `Float`, `Fixed`,
-and `Money` and returns `Integer` (a deliberate dimension exit — for `Money`, the
-whole-unit count), plus the `List OF Float`/`List OF Fixed` array forms returning
-`List OF Integer`. A magnitude too large for `Integer` raises `ErrOverflow`."#;
+and `Money` and returns an `Integer`; for `Money` the result is a whole number of
+currency units. A `List OF Float` or `List OF Fixed` returns a new `List OF Integer`
+with each element rounded up in the same order, leaving the input unchanged; an
+empty list gives an empty list. Only a `Float` can be too large for `Integer`, and
+then it raises `ErrOverflow`: a `Fixed` or `Money` result always fits."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io

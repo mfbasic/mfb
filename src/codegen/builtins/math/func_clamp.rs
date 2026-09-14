@@ -8,10 +8,12 @@ use crate::types::ParameterType::{self, Fixed, Float, Integer, Money};
 use super::{overload, req};
 const INTRO: &str = r#"Restrict a value or list to an inclusive [low, high] range."#;
 const DESC: &str = r#"`clamp` returns `value` restricted to `[low, high]`: `low` when `value < low`,
-`high` when `value > high`, and `value` otherwise. All three arguments must be the
-same numeric type (`Integer`, `Float`, `Fixed`, or `Money`), echoing that type. The
-array form clamps a `List OF Integer`/`Float`/`Fixed` against two scalar bounds of
-the element type. `low` must not exceed `high`, else `ErrInvalidArgument`."#;
+`high` when `value > high`, and `value` otherwise. For single values, all three
+arguments must be the same numeric type (`Integer`, `Float`, `Fixed`, or `Money`),
+echoing that type. For a `List OF Integer`, `Float`, or `Fixed`, `low` and `high` are
+single values of the list's element type, and the result is a new list with each
+element clamped in the same order; the input list is unchanged, and an empty list
+gives an empty list. `low` must not exceed `high`, else `ErrInvalidArgument`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io

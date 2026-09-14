@@ -20,6 +20,10 @@ leaves out which form raises which:
 | `math::acos` | `ErrFloatDomain` and `ErrInvalidArgument` on overloads 1–3 | `Float` and `List OF Float` raise `ErrFloatDomain` (`77050012`); `Fixed` raises `ErrInvalidArgument` (`77050002`) |
 | `math::asin` | `ErrFloatDomain` and `ErrInvalidArgument` on overloads 1–3 | same split as `acos` |
 | `math::atan` | `ErrFloatNaN` on overloads 1–3 | only the `Float` forms can; the `Fixed` lowering (`emit_fixed_atan2`) has no raise path |
+| `math::exp` | `ErrOverflow` on overloads 1–3 | `Float`/`List OF Float` raise `ErrFloatInf` (`math::exp(710.0)` → `77050014`); only `Fixed` raises `ErrOverflow` (`math::exp(30.0F)` → `77050010`) |
+| `math::floor` (and `ceil`, `round`, which share the lowering) | `ErrOverflow` on every overload | only `Float`/`List OF Float` (`emit_float_rounding_integer_range_check`); the `Fixed` and `Money` rounding paths always fit (`math::ceil(9223372036854775808.0)` → `77050010`, while a `Fixed` near its maximum rounds normally) |
+| `math::log`, `math::log10` | `ErrFloatDomain` and `ErrInvalidArgument` on overloads 1–4 | `Float`/`List OF Float` raise `ErrFloatDomain`; `Fixed`/`List OF Fixed` raise `ErrInvalidArgument` (`/tmp/p125-ex/mathlist`) |
+| `math::max`, `math::min` | `ErrInvalidArgument` on overloads 1–7 | only the three list forms, for mismatched lengths (`lower_simd_binary`); the scalar comparison (`lower_math_min_max`) has no raise path |
 
 This is the declared-error list, which is compiler data, not prose. Per
 `mfb spec language error-model` §8.6 rule 11 the compiler reads that list when it
