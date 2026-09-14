@@ -599,20 +599,35 @@ impl CodeBuilder<'_> {
                 .pending_temp_frees
                 .pop()
                 .expect("watermark within bounds");
-            if temp.shallow {
-                self.emit_shallow_block_free(&temp.type_, temp.slot)?;
-                continue;
-            }
-            self.emit_owned_value_drop(&OwnedValueCleanup {
-                type_: temp.type_,
-                stack_offset: temp.slot,
-                closure_captures: None,
-                capacity_slot: None,
-                loop_alias_slot: None,
-                result_wrapper: None,
-            })?;
+            self.emit_pending_temp_free(&temp)?;
         }
         Ok(())
+    }
+
+    /// Free every pending temporary on the path being emitted WITHOUT forgetting them: a
+    /// failing call's error exit leaves the statement, so the statement-end drop the
+    /// success path still reaches never runs on it. Each free nulls its slot, and every
+    /// slot joins the prologue zero-init, so a temp that path never wrote is skipped.
+    pub(crate) fn emit_pending_temp_frees_in_place(&mut self) -> Result<(), String> {
+        let temps = self.pending_temp_frees.clone();
+        for temp in temps.iter().rev() {
+            self.emit_pending_temp_free(temp)?;
+        }
+        Ok(())
+    }
+
+    fn emit_pending_temp_free(&mut self, temp: &PendingTemp) -> Result<(), String> {
+        if temp.shallow {
+            return self.emit_shallow_block_free(&temp.type_, temp.slot);
+        }
+        self.emit_owned_value_drop(&OwnedValueCleanup {
+            type_: temp.type_.clone(),
+            stack_offset: temp.slot,
+            closure_captures: None,
+            capacity_slot: None,
+            loop_alias_slot: None,
+            result_wrapper: None,
+        })
     }
 
     /// Discard pending temporaries above `watermark` WITHOUT freeing them.

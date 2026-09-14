@@ -6181,6 +6181,147 @@ SUB main()
 END SUB
 "#;
 
+/// plan-134 (final gate): an inline-`TRAP`ped `json::parse` of a document with nested
+/// children, both the Ok and the RECOVER path. The `Result` wrapper holds the value's top
+/// block inline and the graph below it: after plan-134-G the callee's block was
+/// graph-dropped under the wrapper (a use-after-free, `rt_union_trap_bind_default`), and
+/// the Ok wrapper — never released for a block payload (bug-593 `ErrorOnly`) — kept its
+/// graph for the life of the process.
+const SHAPE_C_JSON_TRAP_RECOVER: &str = r#"IMPORT io
+IMPORT json
+SUB main()
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET d AS json::Json = json::parse("[1,[2,3],{\u{22}a\u{22}:\u{22}xyz\u{22}}]") TRAP(e)
+      RECOVER json::JsonNull[NOTHING]
+    END TRAP
+    LET bad AS json::Json = json::parse("[oops") TRAP(e)
+      RECOVER json::JsonNull[NOTHING]
+    END TRAP
+    acc = acc + len(json::stringify(d)) + len(json::stringify(bad))
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// plan-134 (final gate): an inline-`TRAP` bind of a flat data union. The desugar's slot
+/// starts as the union's synthesized default, whose variant record was byte-copied into
+/// the union and never freed — 16 B per bind, the same on the pre-plan compiler.
+const SHAPE_TRAP_UNION_DEFAULT: &str = r#"IMPORT io
+TYPE Circle
+  radius AS Integer
+END TYPE
+TYPE Rect
+  w AS Integer
+  h AS Integer
+END TYPE
+UNION Shape
+  Circle
+  Rect
+END UNION
+FUNC makeShape(n AS Integer) AS Shape
+  IF n < 0 THEN FAIL error(90004440, "negative")
+  RETURN Circle[n]
+END FUNC
+FUNC score(s AS Shape) AS Integer
+  MATCH s
+    CASE Circle(c)
+      RETURN c.radius
+    CASE Rect(r)
+      RETURN r.w + r.h
+  END MATCH
+END FUNC
+SUB main()
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET ok AS Shape = makeShape(7) TRAP(e)
+      RECOVER Rect[1, 2]
+    END TRAP
+    LET bad AS Shape = makeShape(-1) TRAP(e)
+      RECOVER Rect[20, 22]
+    END TRAP
+    acc = acc + score(ok) + score(bad)
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// plan-134 (final gate): a fresh temporary passed to a call that FAILs. The statement-end
+/// free is jumped past by the call's error exit — 48 B per failure for the list literal,
+/// 32 B for the concat, the same on the pre-plan compiler.
+const SHAPE_FAILING_CALL_TEMP_ARGUMENT: &str = r#"IMPORT io
+FUNC boom(n AS Integer, xs AS List OF Integer) AS Integer
+  IF n >= 0 THEN FAIL error(90004440, "boom")
+  RETURN n + len(xs)
+END FUNC
+FUNC boomS(n AS Integer, s AS String) AS Integer
+  IF n >= 0 THEN FAIL error(90004440, "boom")
+  RETURN n + len(s)
+END FUNC
+FUNC holder(n AS Integer) AS Integer
+  LET v AS Integer = boom(n, [])
+  RETURN v + boomS(n, "a" & toString(n))
+END FUNC
+FUNC tryHolder(n AS Integer) AS Integer
+  RETURN holder(n)
+  TRAP(e)
+    RETURN 1
+  END TRAP
+END FUNC
+FUNC tryHolderS(n AS Integer) AS Integer
+  RETURN boomS(n, "a" & toString(n))
+  TRAP(e)
+    RETURN len(e.message)
+  END TRAP
+END FUNC
+SUB main()
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    acc = acc + tryHolder(i) + tryHolderS(i)
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_inline_trap_union_bind_runs_at_constant_rss() {
+    assert_flat(
+        "trap_union_default",
+        SHAPE_TRAP_UNION_DEFAULT,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_failing_call_with_a_temp_argument_runs_at_constant_rss() {
+    assert_flat(
+        "failing_call_temp_argument",
+        SHAPE_FAILING_CALL_TEMP_ARGUMENT,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_trapped_recursive_json_parse_runs_at_constant_rss() {
+    assert_flat(
+        "c_recursive_json_trap_recover",
+        SHAPE_C_JSON_TRAP_RECOVER,
+        200_000,
+        400_000,
+    );
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn a_repeated_json_parse_of_one_document_runs_at_constant_rss() {

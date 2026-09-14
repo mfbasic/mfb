@@ -113,6 +113,26 @@ impl CodeBuilder<'_> {
         self.emit_current_result_exit(ExitDestination::Return)
     }
 
+    /// The error exit of a call whose result is not trapped inline: free the statement's
+    /// pending temporaries, then leave as [`Self::emit_current_result_exit`] does.
+    ///
+    /// A fresh block an argument or an earlier operand produced is owned by its statement
+    /// and freed at the statement's end — which a failing call jumps past. `boom(n, [])`
+    /// leaked the empty list (48 B) and `boomS(n, "a" & toString(n))` the concat (32 B) on
+    /// every failure, and `json::parse` leaked 48 B per rejected document through
+    /// `__json_parseArrayItems(bytes, nextIndex, [], depth)`. Only a call's exit may do
+    /// this: a `FAIL`'s error adopts its message temp (`TransferTemps::AdoptedByTheCatcher`),
+    /// and a callee's error is its own block.
+    pub(crate) fn emit_call_error_exit(&mut self) -> Result<(), String> {
+        let destination = self.error_exit_destination();
+        if !self.pending_temp_frees.is_empty() {
+            self.store_pending_current_result();
+            self.emit_pending_temp_frees_in_place()?;
+            self.load_pending_result_registers();
+        }
+        self.emit_current_result_exit(destination)
+    }
+
     pub(crate) fn emit_current_result_exit(
         &mut self,
         destination: ExitDestination,
