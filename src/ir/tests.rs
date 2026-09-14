@@ -842,7 +842,7 @@ mod lower_tests {
         // `FUNC(Set OF Integer) AS Set OF Integer`, and returned, round-trips
         // byte-identically through parse → resolve → monomorph → lower.
         let ir = lower_src(
-            "FUNC identity(s AS Set OF Integer) AS Set OF Integer\n  RETURN s\nEND FUNC\n\
+            "FUNC identity(values AS Set OF Integer) AS Set OF Integer\n  RETURN values\nEND FUNC\n\
              MUT s AS Set OF Integer\n\
              LET t = identity(s)\n\
              SUB main\nEND SUB\n",

@@ -5,8 +5,36 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (silent wrong value)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (plan-136 A–C)
+Regression Test: `tests/runtime/rt_parameter_default_scope.rs`, `tests/runtime/rt_package_parameter_defaults.rs`
+
+> **STATUS: FIXED, 2026-09-13, by plan-136 A–C** (`planning/completed/plan-136-A-*`, `-B-*`,
+> `-C-*`). The fix follows the owner's decision below, not the Fix Design section (which predates
+> it):
+>
+> - **plan-136-A** (`fbe4f5168`, `d120048a2`, `e102d1659`, `2a25541f2`): a default resolves at the
+>   declaration. A computed default becomes a hidden function `$default$<fn>$<i>` that runs at each
+>   omitting call. A default that names a parameter is `SYMBOL_DEFAULT_NAMES_PARAMETER` (`2-201-0020`);
+>   a lambda parameter default is `SYMBOL_LAMBDA_PARAMETER_DEFAULT` (`2-201-0021`). `LINK` defaults
+>   are passed.
+> - **plan-136-B** (`6c6f85e64`, `ba303b258`, `6136b5648`, `dd5fde422`): the `.mfp` carries
+>   computed defaults (parameter flag bit 3 `PARAM_FLAG_DEFAULT_FUNCTION`), the reader validates
+>   them (security fixture `pkg-08-default-function`), and an importer fills every omitted package
+>   default. Existing packages are byte-identical.
+> - **plan-136-C** (`74077337e`, `fba131c10`, `60c725937`): a local may not reuse a visible
+>   top-level `LET`/`MUT` name (`SYMBOL_SHADOWS_TOP_LEVEL_BINDING`, `2-201-0022`). This bug's own
+>   reproduction is now a located compile error
+>   (`a_caller_local_named_like_a_defaults_global_is_refused`). Capture by a caller's local stays
+>   covered at runtime where the rule does not reach: a default `= helper()` with a caller's
+>   `LET helper = LAMBDA() -> 99` (the positional, named-argument and `SUB` cases in
+>   `rt_parameter_default_scope`).
+>
+> Tests: `rt_parameter_default_scope`, `rt_package_parameter_defaults` (also run on Linux aarch64
+> box 2223), and the fixtures `default-names-a-parameter-invalid`, `lambda-parameter-default-invalid`,
+> `pkg-08-default-function`, `local-shadows-top-level-binding-invalid`,
+> `duplicate-local-at-every-binding-site-invalid`, `local-names-distinct-from-top-level-valid`,
+> `trap-body-local-shadows-private-invalid`, `trap-body-local-lambda-shadows-private-func-rt`. The
+> final gate is recorded in plan-136-C Phase 4.
 
 A parameter default that names a global, such as `FUNC f(x AS Integer = limit)` with
 top-level `LET limit AS Integer = 5`, is evaluated **in the caller's scope**. If the
@@ -174,35 +202,40 @@ non-constant defaults through the `.mfp` would need a format change.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Runtime test: the reproduction asserts `5`. Confirm RED (prints `99`).
-- [ ] Runtime test: the named-argument form (`f(y := 1)` leaving `x` to its default)
-      with the same shadowing local.
-- [ ] Package-form test asserting the Open Decision 1 outcome. Confirm RED (internal
-      CONST_POOL error).
-- [ ] Audit every call path that fills an omitted default. Check whether a default
-      may reference an earlier parameter.
+- [x] Runtime test: the reproduction asserts `5`. Confirm RED (prints `99`). Done in plan-136-A
+      Phase 1; plan-136-C then made the reproduction a compile error, so the case now asserts the
+      located refusal (`a_caller_local_named_like_a_defaults_global_is_refused`).
+- [x] Runtime test: the named-argument form (`f(y := 1)` leaving `x` to its default)
+      with the same shadowing local. `a_named_call_fills_an_omitted_default_in_declaration_scope`.
+- [x] Package-form test asserting the Open Decision 1 outcome. Confirm RED (internal
+      CONST_POOL error). Decided outcome is "packages behave like executables":
+      `rt_package_parameter_defaults` (plan-136-B Phase 1).
+- [x] Audit every call path that fills an omitted default. Check whether a default
+      may reference an earlier parameter. plan-136-A Phase 1 reader audit; a default naming a
+      parameter is now `SYMBOL_DEFAULT_NAMES_PARAMETER`.
 
 Acceptance: tests RED for the documented reason; audit verdicts recorded.
-Commit: —
+Commit: fbe4f5168 (plan-136-A phase 1), 6c6f85e64 (plan-136-B phase 1)
 
 ### Phase 2 — the fix
 
-- [ ] `lower_local_call_arguments` (and audited siblings): lower defaults with the
-      declaration's scope.
-- [ ] Package form per Open Decision 1.
+- [x] `lower_local_call_arguments` (and audited siblings): lower defaults with the
+      declaration's scope. plan-136-A Phases 2–3 (computed defaults become hidden functions).
+- [x] Package form per Open Decision 1. plan-136-B Phases 2–3 (the `.mfp` carries computed
+      defaults; importers fill them).
 
 Acceptance: Phase 1 tests pass; literal-default coercion unchanged.
-Commit: —
+Commit: d120048a2, e102d1659 (plan-136-A); ba303b258, 6136b5648 (plan-136-B); 74077337e, fba131c10 (plan-136-C)
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `scripts/test-accept.sh`; any drifted golden inspected. None expected: no
+- [x] `scripts/test-accept.sh`; any drifted golden inspected. None expected: no
       passing fixture can depend on a captured caller local and still print the
-      right value.
-- [ ] `cargo test --release --no-fail-fast`.
+      right value. Run as plan-136-C Phase 4's final gate; the result is recorded there.
+- [x] `cargo test --release --no-fail-fast`. Same final gate, recorded in plan-136-C Phase 4.
 
 Acceptance: full suite green; golden delta empty or justified.
-Commit: —
+Commit: 2a25541f2, dd5fde422, 60c725937 (docs); closure recorded in the plan-136-C closeout commit
 
 ## Validation Plan
 

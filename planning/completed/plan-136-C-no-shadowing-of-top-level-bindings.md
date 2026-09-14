@@ -324,14 +324,23 @@ Commit: fba131c10
       `scripts/spec-census.sh --citations` → 81 MISS rows (MISS-PATH 2, MISS-LINE 0, MISS-SYMBOL 61),
       the same count as before Phase 4; `grep -E 'check_new_local|05_bindings'` over its output →
       nothing.
-- [ ] **Final gate (plan-136, once):** `cargo build --release`, then
+- [x] **Final gate (plan-136, once):** `cargo build --release`, then
       `cargo test --release --no-fail-fast` (never piped to `tail`; read the per-target summary) and
       `scripts/test-accept.sh target/release/mfb /tmp/p136-final-accept` and
       `scripts/artifact-gate.sh` — expected golden deltas: plan-136-A's
       `user-function-default-args-result-valid`, and the fixtures added/converted by A–C; anything
       else is root-caused on one fixture before it is re-baselined. Est. 60–90 min (guess from the
-      suite's size); this is the only whole-suite run in the plan.
-- [ ] Linux runtime proof on native aarch64 box 2223 (`.ai/remote_systems.md`): run
+      suite's size); this is the only whole-suite run in the plan. **Result** (`/tmp/p136-final-gate.sh`
+      on tree `a4b2c99f0`): `cargo build --release` → `BUILD_EXIT=0`; `cargo test --release
+      --no-fail-fast` → 180 targets `test result: ok`, one FAILED: the `mfb` bin, `4223 passed;
+      1 failed` (`set_type_round_trips_through_front_end`, a unit-test source this plan's rule makes
+      invalid; see Corrections). After renaming that parameter, `cargo test --release --no-fail-fast
+      --bin mfb` → `test result: ok. 4224 passed; 0 failed; 1 ignored`. `scripts/test-accept.sh
+      target/release/mfb /tmp/p136-final-accept` → `acceptance tests passed (1472 test(s) ran)`,
+      no golden deltas beyond those already committed by A–C. Artifact gate: the in-suite
+      `tests/gate/golden.rs:artifact_gate_all` (runs `scripts/artifact-gate.sh <mfb> all`) →
+      `test result: ok. 1 passed; 0 failed`.
+- [x] Linux runtime proof on native aarch64 box 2223 (`.ai/remote_systems.md`): run
       `rt_parameter_default_scope` and `rt_package_parameter_defaults` there (the LINK cases use
       `libc.so.6`, a different library path than macOS). Est. 15 min. x86_64 boxes are skipped:
       the change is IR-level, and the artifact gate covers the x86_64/riscv64 lowering of the new
@@ -340,18 +349,27 @@ Commit: fba131c10
       `rt_package_parameter_defaults`: `test result: ok. 7 passed; 0 failed`,
       `rt_parameter_default_scope`: `test result: ok. 9 passed; 0 failed`, `REMOTE_EXIT=0`
       (box probe: `/usr/bin/cargo`, 8 cores, aarch64). Phase 3 rewrites one
-      `rt_parameter_default_scope` case, so the tick waits for a rerun on the final tree.
-- [ ] Close bug-614: fill its Phases/Commit lines and a `STATUS: FIXED` block naming plan-136-A/B/C
+      `rt_parameter_default_scope` case, so the tick waits for a rerun on the final tree. **Rerun on
+      the final tree** `a4b2c99f0` (plan-136 A–C complete, main merged): `/tmp/p136-box2223.sh` →
+      `rt_package_parameter_defaults`: `test result: ok. 7 passed; 0 failed`,
+      `rt_parameter_default_scope`: `test result: ok. 9 passed; 0 failed`, `REMOTE_EXIT=0`.
+- [x] Close bug-614: fill its Phases/Commit lines and a `STATUS: FIXED` block naming plan-136-A/B/C
       commits and the tests; `git mv` it to `bugs/completed/`; update `planning/bug-backlog.md`
-      (open count, the 614 row, the Open decisions entry).
-- [ ] Archive: `git mv planning/plan-136-C-*.md planning/completed/` (A and B were archived when
-      they completed).
+      (open count, the 614 row, the Open decisions entry). Done: every Phases box resolved with its
+      plan-136 commit; `find bugs -maxdepth 1 -name 'bug-614-*'` → nothing, `find bugs/completed
+      -name 'bug-614-*'` → the doc; backlog 614 row removed, 614 added to the closed list, decision
+      entry says fixed. Open count re-measured → 10, not the 9 predicted: main's `bug-621` (filed by
+      plan-137-A, merged in with `18dba9d12`) is open and untriaged, so the count line names it.
+- [x] Archive: `git mv planning/plan-136-C-*.md planning/completed/` (A and B were archived when
+      they completed). Moved in the closeout commit together with the gate record and the
+      `set_type_round_trips_through_front_end` rename.
 
 Acceptance: full gate green with only the named golden deltas; box 2223 runs both runtime tests
 green; bug-614 archived.
   Check: the final-gate commands above → `test result: ok` for every target and `acceptance tests
   passed`; `ls bugs/bug-614-*` → no match.
-Commit: —
+Commit: 60c725937 (docs); the gate record, bug-614 closure and this archive land together in the
+commit that moves this file to `planning/completed/` (its hash cannot be written inside itself)
 
 ## Validation Plan
 
@@ -413,6 +431,28 @@ Commit: —
   `PUBLIC LET count` would be "visible" to a built-in's own local `count`. `check_new_local` skips the
   top-level check for `file.internal`, and the binding index records only non-internal bindings; the
   duplicate check still applies there.
+
+- **The compiler census missed MFB source embedded in Rust unit tests (final gate).** Phase 1's
+  census covered the acceptance tree and the packages, not program text inside `#[cfg(test)]`
+  modules. The final gate's `cargo test --release --no-fail-fast` → `mfb` bin `test result: FAILED.
+  4223 passed; 1 failed`: `ir::tests::lower_tests::set_type_round_trips_through_front_end` panics
+  `source must lower cleanly`, and running it alone prints `main.mfb:1 error[2-201-0022
+  SYMBOL_SHADOWS_TOP_LEVEL_BINDING] … `s` is already a top-level binding (declared at
+  src/main.mfb:4)`. The four questions: (1) written in `d101f726a plan-63-A Phase 2: thread the Set
+  OF T type shape through the front end`; (2) it protects a `Set OF Integer` type round-tripping
+  through parse → resolve → monomorph → lower, and the parameter's name `s` plays no part in that;
+  (3) nothing else depends on it (a self-contained unit test); (4) its source is now an invalid
+  program under the owner-decided rule (spec §5, "No local reuses a visible top-level binding's
+  name"): parameter `s` reuses the top-level `MUT s`. Fix: rename only the parameter (`s` →
+  `values`), which keeps every assertion unchanged. Because the fix is a test-source-only edit, the
+  gate is re-proven by rerunning the one failed target, `cargo test --release --bin mfb`, not the
+  whole suite.
+
+- **`scripts/artifact-gate.sh` needs arguments (final gate).** The gate task names it bare; run that
+  way it prints `Usage: artifact-gate.sh <mfb-exe> <builtin|all>` and exits 2 without checking
+  anything. The whole-tree form is `scripts/artifact-gate.sh target/release/mfb all`, which
+  `cargo test` already runs as `tests/gate/golden.rs:artifact_gate_all`. That in-suite result is the
+  one recorded, so the gate is not re-run standalone.
 
 ## Summary
 
