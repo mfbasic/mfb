@@ -152,12 +152,16 @@ Commit: —
 
 ### Phase 2 — the other four targets
 
-- [ ] linux-aarch64 on 2223 (native): run `the_series_rises_in_three_bursts`'s program,
-      cross-built; record the series lines.
-- [ ] linux-x86_64 on 2227 (musl; emulated x86 — needed because x86_64 is its own
-      backend): same.
-- [ ] linux-riscv64 on 2229: same.
-- [ ] windows-x86_64 on 2230 (QPC arm): same, via a CRLF `.cmd` wrapper.
+- [x] linux-aarch64 on 2223 (native): run `the_series_rises_in_three_bursts`'s program,
+      cross-built; record the series lines. `p133c/bursts-glibc.out` → stdout `3`, exit 0,
+      `series.count 5`, rises at 18.0 / 247.6 / 515.2 ms (Corrections).
+- [x] linux-x86_64 on 2227 (musl; emulated x86 — needed because x86_64 is its own
+      backend): same. `/tmp/p133c-bursts-musl.out` → `3`, `series.count 5`, rises at
+      281.2 / 835.4 / 1,573.8 ms.
+- [x] linux-riscv64 on 2229: same. The musl binary (the glibc one: `sh: … not found`) →
+      `3`, exit 0, `series.count 5`, rises at 65.1 / 332.8 / 646.2 ms.
+- [x] windows-x86_64 on 2230 (QPC arm): same, via a CRLF `.cmd` wrapper. `run-bursts.cmd`
+      → `exit=0`, stdout `3`, `series.count 8`, 8 MiB rises at 12.8 / 842.3 / 2,787.2 ms.
 
 Acceptance: each box's recorded series shows three rises separated by ≥ 150 ms, in this
 file's Corrections (one ~1 min run per box).
@@ -284,7 +288,9 @@ Commit: —
     `grow 4000`, `mapped_bytes 32768000`, `alloc_bytes 17057536`, 1.00 s, 68.3 MB RSS, which
     is linear. Both reported `series.count 252`, with the last sample's `mapped_bytes` equal to
     the arena's.
-  - Two other list-filling shapes were also quadratic in time, root cause not found (to be filed):
+  - Two other list-filling shapes were also quadratic in time, root cause not found (filed as
+    `bugs/bug-627-set-loop-over-a-string-list-is-quadratic-in-time.md`; the append copy is
+    `bugs/bug-626-append-of-a-builtin-call-result-copies-the-whole-list.md`):
     building a list with `append` of `""` then `collections::set` of bound strings took 2.6 s
     at 50,000 and 9.1 s at 100,000 entries; `strings::split` then the same `set` loop took
     9.7 s at 100,000 and 35.5 s at 200,000. `try_inplace_set_assign` has no exclusion for a
@@ -312,6 +318,34 @@ Commit: —
     been measured. The check is not weaker: the test also asserts that at least 4,000 grows
     happened (so the halving really ran) and that the last sample's `mapped_bytes` equals the
     arena's (§ 1's latest-grow goal).
+- **2026-09-13 — Phase 2: the four box runs.** The program is
+  `/tmp/plan-133-c/bursts/src/main.mfb`: three times, `LET burst = fs::readBytes` of an 8 MiB
+  file, append it to a retained list, `os::sleep(200)`; print the list's length. The Windows
+  copy (`bursts-win`) reads `C:/Users/test/p133c/burst.bin`. Built with
+  `target/release/mfb build --debug --target <t>` at `2375c9fef`. Every run printed `3` and
+  exited 0. The series (`t_ns` ms : `mapped_bytes`):
+  - **2223** linux-aarch64 glibc: 0.025 : 4,096 · 0.048 : 8,396,800 · 18.0 : 16,789,504 ·
+    247.6 : 33,570,816 · 515.2 : 58,740,736; `grow 5`, `series.count 5`.
+  - **2227** linux-x86_64 musl (emulated): 2.8 : 4,096 · 5.9 : 8,396,800 · 281.2 : 16,789,504
+    · 835.4 : 33,570,816 · 1,573.8 : 58,740,736; `grow 5`.
+  - **2229** linux-riscv64 musl: 2.2 : 4,096 · 3.7 : 8,396,800 · 65.1 : 16,789,504 · 332.8 :
+    33,570,816 · 646.2 : 58,740,736; `grow 5`. **The plan's box did not run the glibc binary:**
+    `/tmp/p133c-bursts-glibc.out` gave `sh: …: not found`, exit 127, so the box has no glibc
+    loader. The musl binary is the one recorded.
+  - **2230** windows-x86_64 (QPC): 8.4 : 4,096 · 9.9 : 73,728 · 12.8 : 8,466,432 · 183.3 :
+    16,859,136 · 722.6 : 16,928,768 · 842.3 : 33,710,080 · 2,658.0 : 33,779,712 · 2,787.2 :
+    58,949,632; `grow 8`, `series.count 8`. The extra grows are small blocks around each burst.
+    `live_bytes` falls between them (8,519,952 at 722.6 ms), so these are allocations made
+    while the list was copied.
+
+  On each box, the three 8 MiB bursts raise `mapped_bytes` at least 150 ms apart:
+  - 2223: 18.0 → 247.6 → 515.2 ms.
+  - 2227: 281.2 → 835.4 → 1,573.8 ms.
+  - 2229: 65.1 → 332.8 → 646.2 ms.
+  - 2230: 12.8 → 842.3 → 2,787.2 ms.
+
+  The first sample's `mapped_bytes` of 4,096 is the entry's first block, and `t_ns` rises
+  strictly on every box.
 
 ## Summary
 
