@@ -1,0 +1,14 @@
+' bug-536 Shape C, union form: bind a recursive-union value n times (n = first argument).
+' Peak RSS grows linearly with n while the value is never freed.
+IMPORT json
+IMPORT collections
+IMPORT os
+
+SUB main()
+  LET n AS Integer = toInt(collections::get(os::args(), 0))
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET v AS json::Json = json::JsonNull[NOTHING]
+    i = i + 1
+  END WHILE
+END SUB

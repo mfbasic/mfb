@@ -35,6 +35,8 @@ Any top-level `FUNC` declaration may use `ISOLATED`, at any visibility —
 
 Exported top-level `MUT` is allowed only when written explicitly as `EXPORT MUT`; it is package state visible to importers and must be surfaced by audit tooling. A top-level `MUT` without `EXPORT` is private or package-local according to its visibility annotation and remains discouraged for shared state.
 
+Top-level bindings initialize before `main`, and an imported package's bindings initialize before those of every project that imports it — its consumer's and any other package's — so a top-level `LET`/`MUT` initializer may read a package's `EXPORT`ed binding (`LET limit = pkg::Limit`) or call a package function that reads its own globals, and sees their initialized values. Within one project, bindings initialize in declaration order. [[src/ir/package.rs:order_bindings_dependencies_first]]
+
 Double-colon notation is reserved for package access. Dot notation is reserved for field access into data values and enum members:
 
 ```basic

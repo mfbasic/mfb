@@ -1,0 +1,35 @@
+' plan-134-A: bounds the depth of the backtracking state regex::findAll builds.
+'   regex_chain simple <r>  -- "[a-c]+[0-9]+" over r x "abcab1234 " (r hits)
+'   regex_chain group <r>   -- "(a)+" over r x "a" (one hit, r greedy group iterations)
+' `simple` compares the per-hit cost at r = 1 and r = 10 000 (build with --debug and read
+' arena.0.alloc_calls): matcher state that grew with the subject would make the per-hit
+' count grow with r. `group` pushes one choice point (kind 2) per iteration, so
+' r = 499 999 finishes and r = 500 001 raises at __REGEX_PENDING_LIMIT -- the pending
+' choice points are the data-dependent depth. (Until plan-134-I they were a linked
+' __regex_Choices chain, the deepest recursive value in the tree.)
+IMPORT io
+IMPORT regex
+IMPORT collections
+IMPORT os
+
+SUB main()
+  LET mode AS String = collections::get(os::args(), 0)
+  LET r AS Integer = toInt(collections::get(os::args(), 1))
+  MUT subject AS String = ""
+  MUT pattern AS String = "[a-c]+[0-9]+"
+  MUT unit AS String = "abcab1234 "
+  IF mode = "group" THEN
+    pattern = "(a)+"
+    unit = "a"
+  END IF
+  MUT j AS Integer = 0
+  WHILE j < r
+    subject = subject & unit
+    j = j + 1
+  END WHILE
+  LET hits AS Integer = len(regex::findAll(subject, pattern)) TRAP(e)
+    io::print("raised=" & e.message)
+    EXIT PROGRAM 3
+  END TRAP
+  io::print("chars=" & toString(len(subject)) & " hits=" & toString(hits))
+END SUB

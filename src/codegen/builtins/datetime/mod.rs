@@ -325,6 +325,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_offset_label_sep::register(&mut pkg);
     helper_offset_label::register(&mut pkg);
     helper_resolve_local::register(&mut pkg);
+    helper_civil_keep_offset::register(&mut pkg);
     helper_is_letter::register(&mut pkg);
     helper_pad_n::register(&mut pkg);
     helper_iso_weekday::register(&mut pkg);
@@ -574,6 +575,7 @@ mod func_with_zone;
 mod helper_build_from_fields;
 mod helper_check_fields;
 mod helper_civil_from_days;
+mod helper_civil_keep_offset;
 mod helper_days_from_civil;
 mod helper_expect;
 mod helper_floor_div;
@@ -936,5 +938,74 @@ mod tests {
             &source,
         )
         .expect("reassembled datetime source parses");
+    }
+
+    /// bug-611: every member's declared errors, per overload, are exactly the codes a
+    /// boundary probe saw it raise (Integer max/min, huge day/month counts, a Local zone
+    /// far from the epoch, a directly built `DateTime` record). The Errors table on
+    /// `mfb man datetime <member>` is rendered from these lists, so an empty list here
+    /// is a page claiming the call never fails. The runtime half is the
+    /// `datetime-arith-errors-rt` fixture. Members bug-520 declared are not repeated.
+    #[test]
+    fn members_declare_the_errors_they_raise() {
+        const OVERFLOW: &str = "ErrOverflow";
+        const INVALID_ARGUMENT: &str = "ErrInvalidArgument";
+        const INVALID_FORMAT: &str = "ErrInvalidFormat";
+        let cases: &[(&str, &[&[&str]])] = &[
+            ("datetime.add", &[&[OVERFLOW]]),
+            ("datetime.subtract", &[&[OVERFLOW]]),
+            ("datetime.plus", &[&[OVERFLOW]]),
+            ("datetime.minus", &[&[OVERFLOW]]),
+            ("datetime.negate", &[&[OVERFLOW]]),
+            ("datetime.between", &[&[OVERFLOW]]),
+            (
+                "datetime.instant",
+                &[&[], &[OVERFLOW], &[OVERFLOW], &[OVERFLOW], &[OVERFLOW]],
+            ),
+            (
+                "datetime.duration",
+                &[&[], &[OVERFLOW], &[OVERFLOW], &[OVERFLOW], &[OVERFLOW]],
+            ),
+            ("datetime.toMillis", &[&[OVERFLOW]]),
+            ("datetime.toNanos", &[&[OVERFLOW]]),
+            ("datetime.addDays", &[&[INVALID_ARGUMENT, OVERFLOW]]),
+            ("datetime.addMonths", &[&[INVALID_ARGUMENT, OVERFLOW]]),
+            ("datetime.startOfDay", &[&[INVALID_ARGUMENT, OVERFLOW]]),
+            ("datetime.withZone", &[&[INVALID_ARGUMENT, OVERFLOW]]),
+            ("datetime.dayOfYear", &[&[OVERFLOW]]),
+            ("datetime.weekday", &[&[OVERFLOW]]),
+            ("datetime.resolve", &[&[OVERFLOW]]),
+            ("datetime.format", &[&[INVALID_FORMAT, OVERFLOW]]),
+            ("datetime.formatDuration", &[&[OVERFLOW]]),
+            (
+                "datetime.toIso",
+                &[&[OVERFLOW], &[INVALID_ARGUMENT, OVERFLOW]],
+            ),
+            // Probed at their extremes and never raised.
+            ("datetime.fromMillis", &[&[]]),
+            ("datetime.toUtc", &[&[]]),
+            ("datetime.compare", &[&[]]),
+            ("datetime.equals", &[&[]]),
+            ("datetime.isBefore", &[&[]]),
+            ("datetime.isAfter", &[&[]]),
+            ("datetime.isLeapYear", &[&[]]),
+            ("datetime.daysInMonth", &[&[]]),
+            ("datetime.now", &[&[]]),
+            ("datetime.nowNanos", &[&[]]),
+            ("datetime.monotonic", &[&[]]),
+            ("datetime.monotonicNanos", &[&[]]),
+            ("datetime.local", &[&[]]),
+            ("datetime.utc", &[&[]]),
+        ];
+        for (member, expected) in cases {
+            let function = registry().resolve_func(member).expect(member).function;
+            let declared: Vec<Vec<&str>> = function
+                .implementations
+                .iter()
+                .map(|implementation| implementation.errors.clone())
+                .collect();
+            let expected: Vec<Vec<&str>> = expected.iter().map(|errors| errors.to_vec()).collect();
+            assert_eq!(declared, expected, "{member} declared errors per overload");
+        }
     }
 }

@@ -31,6 +31,7 @@ mod helper_class_match_one;
 mod helper_compile;
 mod helper_expand;
 mod helper_fail;
+mod helper_flatten;
 mod helper_init_caps;
 mod helper_is_ascii_punct;
 mod helper_is_counted_at;
@@ -40,7 +41,6 @@ mod helper_is_name_cont;
 mod helper_is_name_start;
 mod helper_is_pat_space;
 mod helper_is_script_name;
-mod helper_is_simple_node;
 mod helper_is_space_cp;
 mod helper_is_word;
 mod helper_is_word_cp;
@@ -73,7 +73,6 @@ mod helper_parse_quant_suffix;
 mod helper_posix_prop;
 mod helper_prop_match_item;
 mod helper_prop_test;
-mod helper_required_first_cp;
 mod helper_run;
 mod helper_scalar_to_cp;
 mod helper_script_canon;
@@ -610,190 +609,27 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
-    pkg.add_record(RegistryRecord {
-        name: "__regex_ContDone",
-        export: false,
-        description: "",
-        props: vec![RecordProp {
-            name: "dummy",
-            ty: ParameterType::Boolean,
-            description: "",
-        }],
-    });
-
-    pkg.add_record(RegistryRecord {
-        name: "__regex_ContSeq",
-        export: false,
-        description: "",
-        props: vec![
-            RecordProp {
-                name: "parts",
-                ty: ParameterType::list_of(ParameterType::named("__regex_Node")),
-                description: "",
-            },
-            RecordProp {
-                name: "idx",
-                ty: ParameterType::Integer,
-                description: "",
-            },
-            RecordProp {
-                name: "nxt",
-                ty: ParameterType::named("__regex_Cont"),
-                description: "",
-            },
-        ],
-    });
-
-    pkg.add_record(RegistryRecord {
-        name: "__regex_ContCap",
-        export: false,
-        description: "",
-        props: vec![
-            RecordProp {
-                name: "slot",
-                ty: ParameterType::Integer,
-                description: "",
-            },
-            RecordProp {
-                name: "nxt",
-                ty: ParameterType::named("__regex_Cont"),
-                description: "",
-            },
-        ],
-    });
-
-    pkg.add_record(RegistryRecord {
-        name: "__regex_ContRep",
-        export: false,
-        description: "",
-        props: vec![
-            RecordProp {
-                name: "rep",
-                ty: ParameterType::named("__regex_Repeat"),
-                description: "",
-            },
-            RecordProp {
-                name: "count",
-                ty: ParameterType::Integer,
-                description: "",
-            },
-            RecordProp {
-                name: "startPos",
-                ty: ParameterType::Integer,
-                description: "",
-            },
-            RecordProp {
-                name: "nxt",
-                ty: ParameterType::named("__regex_Cont"),
-                description: "",
-            },
-        ],
-    });
-
+    // plan-134-I: the matcher's leaf table. A leaf is read through a `get` the matcher only
+    // `MATCH`es, so it is borrowed in place (plan-86 E). The variants keep their
+    // `__regex_Node` order, so each record's union tag is the same in both unions.
     pkg.add_union(RegistryUnion {
-        name: "__regex_Cont",
+        name: "__regex_Leaf",
         export: false,
         variants: vec![
             UnionVariant {
-                name: "__regex_ContDone",
+                name: "__regex_Lit",
                 description: "",
             },
             UnionVariant {
-                name: "__regex_ContSeq",
+                name: "__regex_Any",
                 description: "",
             },
             UnionVariant {
-                name: "__regex_ContCap",
+                name: "__regex_Class",
                 description: "",
             },
             UnionVariant {
-                name: "__regex_ContRep",
-                description: "",
-            },
-        ],
-    });
-
-    // bug-510: the matcher's backtrack stack. A choice point is a record whose `nxt`
-    // is the choice below it -- a linked list, never a growable `List OF`, because a
-    // `collections::get` of a recursive-type element aliases the list's storage and a
-    // growing `append` frees it (bug-538). `__regex_run` documents the field roles.
-    pkg.add_record(RegistryRecord {
-        name: "__regex_NoChoice",
-        export: false,
-        description: "",
-        props: vec![RecordProp {
-            name: "none",
-            ty: ParameterType::Boolean,
-            description: "",
-        }],
-    });
-    pkg.add_record(RegistryRecord {
-        name: "__regex_Choice",
-        export: false,
-        description: "",
-        props: vec![
-            RecordProp {
-                name: "kind",
-                ty: ParameterType::Integer,
-                description: "",
-            },
-            RecordProp {
-                name: "alt",
-                ty: ParameterType::named("__regex_Node"),
-                description: "",
-            },
-            RecordProp {
-                name: "rep",
-                ty: ParameterType::named("__regex_Repeat"),
-                description: "",
-            },
-            RecordProp {
-                name: "cont",
-                ty: ParameterType::named("__regex_Cont"),
-                description: "",
-            },
-            RecordProp {
-                name: "pos",
-                ty: ParameterType::Integer,
-                description: "",
-            },
-            RecordProp {
-                name: "caps",
-                ty: ParameterType::list_of(ParameterType::Integer),
-                description: "",
-            },
-            RecordProp {
-                name: "i",
-                ty: ParameterType::Integer,
-                description: "",
-            },
-            RecordProp {
-                name: "count",
-                ty: ParameterType::Integer,
-                description: "",
-            },
-            RecordProp {
-                name: "p",
-                ty: ParameterType::Integer,
-                description: "",
-            },
-            RecordProp {
-                name: "nxt",
-                ty: ParameterType::named("__regex_Choices"),
-                description: "",
-            },
-        ],
-    });
-    pkg.add_union(RegistryUnion {
-        name: "__regex_Choices",
-        export: false,
-        variants: vec![
-            UnionVariant {
-                name: "__regex_NoChoice",
-                description: "",
-            },
-            UnionVariant {
-                name: "__regex_Choice",
+                name: "__regex_Anchor",
                 description: "",
             },
         ],
@@ -844,10 +680,46 @@ pub(crate) fn register(r: &mut Registry) {
         name: "__regex_Program",
         export: false,
         description: "",
+        // plan-134-I: the flattened pattern (`__regex_flatten` documents the op encoding).
         props: vec![
             RecordProp {
-                name: "root",
-                ty: ParameterType::named("__regex_Node"),
+                name: "kinds",
+                ty: ParameterType::list_of(ParameterType::Integer),
+                description: "",
+            },
+            RecordProp {
+                name: "opA",
+                ty: ParameterType::list_of(ParameterType::Integer),
+                description: "",
+            },
+            RecordProp {
+                name: "opB",
+                ty: ParameterType::list_of(ParameterType::Integer),
+                description: "",
+            },
+            RecordProp {
+                name: "opC",
+                ty: ParameterType::list_of(ParameterType::Integer),
+                description: "",
+            },
+            RecordProp {
+                name: "kids",
+                ty: ParameterType::list_of(ParameterType::Integer),
+                description: "",
+            },
+            RecordProp {
+                name: "leaves",
+                ty: ParameterType::list_of(ParameterType::named("__regex_Leaf")),
+                description: "",
+            },
+            RecordProp {
+                name: "start",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "firstCp",
+                ty: ParameterType::Integer,
                 description: "",
             },
             RecordProp {
@@ -1157,7 +1029,6 @@ pub(crate) fn register(r: &mut Registry) {
     helper_steps::register(&mut pkg);
     helper_step_budget::register(&mut pkg);
     helper_parse_depth_limit::register(&mut pkg);
-    helper_is_simple_node::register(&mut pkg);
     helper_simple_match_at::register(&mut pkg);
     helper_init_caps::register(&mut pkg);
     helper_try_at::register(&mut pkg);
@@ -1187,6 +1058,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_parse_quant_suffix::register(&mut pkg);
     helper_parse_concat::register(&mut pkg);
     helper_parse_alt::register(&mut pkg);
+    helper_flatten::register(&mut pkg);
     helper_compile::register(&mut pkg);
     helper_all_digits::register(&mut pkg);
     helper_lookup_num::register(&mut pkg);
@@ -1196,7 +1068,6 @@ pub(crate) fn register(r: &mut Registry) {
     helper_match_results::register(&mut pkg);
     helper_ascii_class_bitset::register(&mut pkg);
     helper_make_class::register(&mut pkg);
-    helper_required_first_cp::register(&mut pkg);
     helper_no_match::register(&mut pkg);
     helper_make_match::register(&mut pkg);
 

@@ -251,6 +251,11 @@ impl CodeBuilder<'_> {
         // whatever the stack held (benignly 0 on AArch64 in practice; stack
         // garbage — a wild free — on x86-64).
         self.owned_value_slots.push(cleanup.stack_offset);
+        // plan-134-G: a recursive value is a graph of blocks, which `_mfb_rt_graph_drop` frees
+        // whole and non-recursively (plan-134-F).
+        if cleanup.result_wrapper.is_none() && self.owns_graph(&cleanup.type_) {
+            return self.emit_graph_value_drop(&cleanup.type_, cleanup.stack_offset);
+        }
         // plan-118-E: the `String` drop is a pure function of the slot address —
         // null-test, header read, `+9`, free, null the slot — so all eleven
         // instructions live in `_mfb_rt_drop_owned_string` and the site is the
@@ -341,6 +346,9 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&tag, abi::c_arg(0), 0));
             self.emit(abi::compare_immediate(&tag, RESULT_OK_TAG));
             self.emit(abi::branch_eq(&skip));
+        }
+        if cleanup.result_wrapper == Some(ResultWrapperDrop::OkGraphPayload) {
+            self.emit_ok_result_payload_edges_drop(&cleanup.type_, cleanup.stack_offset)?;
         }
         let size_slot = self.allocate_stack_object("owned_value_free_size", 8);
         // The slot already holds the block pointer; size it from the type.
@@ -478,7 +486,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&env, "0"));
         self.emit(abi::branch_eq(&env_done));
         for (index, capture_type) in capture_types.iter().enumerate() {
-            if !self.is_freeable_flat_value(&capture_type) {
+            // plan-134-G: a recursive capture owns a graph (the env stored a copy of it).
+            let graph = self.owns_graph(capture_type);
+            if !self.is_freeable_flat_value(&capture_type) && !graph {
                 continue;
             }
             let env_reg = self.allocate_register();
@@ -490,6 +500,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_eq(&cap_skip));
             let cap_slot = self.allocate_stack_object("closure_free_cap", 8);
             self.emit(abi::store_u64(&cap, abi::stack_pointer(), cap_slot));
+            if graph {
+                self.emit_graph_value_drop(capture_type, cap_slot)?;
+                self.emit(abi::label(&cap_skip));
+                continue;
+            }
             let size_slot = self.allocate_stack_object("closure_free_cap_size", 8);
             self.emit_inlined_block_size_from_ptr_slot(&capture_type, cap_slot, size_slot)?;
             self.emit(abi::load_u64(

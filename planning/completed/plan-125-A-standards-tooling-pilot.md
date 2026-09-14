@@ -2030,7 +2030,7 @@ wrong lifetime `variable` #4 corrected. It belongs to the letter that reviews
 any finite hue beyond about 3.3e21 degrees fails — in `color::hsl`,
 `color::hsla` and `color::rotateHue`, none of which declares an error.
 
-**Filed as `bugs/bug-603-color-hue-wrap-overflows.md`, with the repro, root
+**Filed as `bugs/completed/bug-603-color-hue-wrap-overflows.md` (since fixed), with the repro, root
 cause, blast-radius audit and a one-line fix design (`hue MOD 360.0`, measured
 exact at `1e36`).** A fix, a RED fixture extension and a rebuild were started and
 then **reverted in full** (`git checkout --` of `helper_hsl.rs` and
@@ -2449,7 +2449,7 @@ What changed in response:
   `git checkout --` of exactly those two files (neither had been committed;
   `git status --porcelain` clean for both afterwards). No golden was touched and
   no gate was run.
-- The bug is filed as `bugs/bug-603-color-hue-wrap-overflows.md` and listed in
+- The bug is filed as `bugs/completed/bug-603-color-hue-wrap-overflows.md` (since fixed) and listed in
   `planning/bug-backlog.md`.
 - §3.5 and `.ai/spec-content.md` §7 now say: file with a repro, never fix; the
   page states current behavior until the bug lands.

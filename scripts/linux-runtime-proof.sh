@@ -158,9 +158,19 @@ run_fixture() {
     return 0
   fi
 
+  # A fixture's `run.env` (`NAME=value` lines, see test-accept.sh) applies to the
+  # run here too; without it a `TZ`-pinned fixture would run in the box's zone.
+  run_env=""
+  if [ -f "$proj/run.env" ]; then
+    while IFS= read -r envline || [ -n "$envline" ]; do
+      case "$envline" in '' | '#'*) continue ;; esac
+      run_env="$run_env '$envline'"
+    done <"$proj/run.env"
+  fi
+
   # cwd is the shipped repo root, exactly as under test-accept.sh.
   actual=$($SSH "cd $REMOTE/root && chmod +x '$remote_rel' && \
-      timeout $RUN_TIMEOUT '$remote_rel' </dev/null 2>&1; echo \"[exit \$?]\"" 2>&1)
+      timeout $RUN_TIMEOUT env$run_env '$remote_rel' </dev/null 2>&1; echo \"[exit \$?]\"" 2>&1)
   expected=$(expected_of "$proj/golden/build.log")
 
   if [ "$actual" = "$expected" ]; then

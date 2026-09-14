@@ -77,7 +77,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 default: super::DefaultValue::None,
             }],
             return_type: super::ParameterType::named("DateTime"),
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument", "ErrOverflow"],
             body: super::Body::mfb(BODY, "__datetime_startOfDay"),
         }],
     });

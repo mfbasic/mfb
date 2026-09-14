@@ -9,7 +9,8 @@ an explicit UTC offset. The result is a freshly built `String` of the shape
 `yyyy-MM-ddTHH:mm:ss.fffZ`, for example `2026-06-25T14:30:00.000+05:30`, where
 the literal `T` separates the date from the time and the trailing field is the
 offset carried by `dt`: the single letter `Z` when the offset is zero, otherwise
-a signed `+HH:MM` or `-HH:MM`. The fractional-second field is zero-padded to a
+a signed `+HH:MM` or `-HH:MM` (`+HH:MM:SS` when the offset is not a whole number
+of minutes, so the text never names a different instant from `dt`). The fractional-second field is zero-padded to a
 fixed width, so the output of a given form is always the same length and sorts
 correctly as text.
 
@@ -36,8 +37,10 @@ date fields, time fields, and resolved offset of `dt`; it does not consult
 `dt`'s zone name, apply any zone conversion, or shift the moment. `dt` is read
 only and is not modified.
 
-Apart from a `digits` outside the allowed set, `toIso` emits a result for every
-`datetime::DateTime` and is pure: it reads no host state and has no side effects."#;
+A `datetime::DateTime` from the constructors always renders; only a `digits`
+outside the allowed set raises. A `datetime::DateTime` record you build yourself
+with an offset at the edge of the `Integer` range raises `ErrOverflow`. `toIso` is
+pure: it reads no host state and has no side effects."#;
 const EX: &str = r#"Render the current instant in UTC, yielding a `...Z` suffix:
 
 ```
@@ -149,7 +152,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     default: super::DefaultValue::None,
                 }],
                 return_type: super::ParameterType::String,
-                errors: vec![],
+                errors: vec!["ErrOverflow"],
                 body: super::Body::mfb(BODY_1, "__datetime_toIso"),
             },
             super::Implementation {
@@ -170,7 +173,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::String,
-                errors: vec![],
+                errors: vec!["ErrInvalidArgument", "ErrOverflow"],
                 body: super::Body::mfb(BODY_2, "__datetime_toIso2"),
             },
         ],

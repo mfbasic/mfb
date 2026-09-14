@@ -5920,3 +5920,427 @@ fn a_looped_udp_receive_runs_at_constant_rss() {
         400_000,
     );
 }
+
+// ---------------------------------------------------------------- shape C / plan-134-G
+
+/// bug-536 shape C, union form: a recursive-union value bound each iteration. Before
+/// plan-134-G nothing freed a value whose type reaches a type cycle — 52.7 MB at 400k
+/// iterations, 104.3 MB at 800k (plan-134-A §2.2, `c_union_rss`).
+const SHAPE_C_UNION_BIND: &str = r#"IMPORT io
+IMPORT json
+SUB main()
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET v AS json::Json = json::JsonNull[NOTHING]
+    i = i + 1
+  END WHILE
+  io::print("done")
+END SUB
+"#;
+
+/// bug-536 shape C, record form (`c_record_rss`: 105.1 MB at 400k, 209.1 MB at 800k).
+const SHAPE_C_RECORD_BIND: &str = r#"IMPORT io
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+SUB main()
+  MUT i AS Integer = 0
+  MUT acc AS Integer = 0
+  WHILE i < {N}
+    LET nd AS Node = Node[kids := [], tag := i]
+    acc = acc + nd.tag
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// A recursive local overwritten each iteration: the old graph is the `Assign` free's.
+const SHAPE_C_REASSIGN: &str = r#"IMPORT io
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+SUB main()
+  MUT cur AS Node = Node[kids := [], tag := 0]
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    cur = Node[kids := [], tag := i]
+    i = i + 1
+  END WHILE
+  io::print("tag=" & toString(cur.tag))
+END SUB
+"#;
+
+/// A recursive global overwritten each iteration: the `StoreGlobal` old-value free.
+const SHAPE_C_GLOBAL: &str = r#"IMPORT io
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+MUT GN AS Node = Node[kids := [], tag := 0]
+SUB main()
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    GN = Node[kids := [], tag := i]
+    i = i + 1
+  END WHILE
+  io::print("tag=" & toString(GN.tag))
+END SUB
+"#;
+
+/// An unbound recursive temporary: a function's fresh result consumed as another call's
+/// argument inside one expression, freed at the end of the statement. (The
+/// `len(json::stringify(json::parse(t)))` form of this case belongs to plan-134-H: a
+/// `--debug` build leaks the same 2 912 B per iteration whether `json::parse`'s result is
+/// bound or unbound — blocks left inside json's list-building helpers, not the temp.)
+const SHAPE_C_UNBOUND_TEMP: &str = r#"IMPORT io
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+FUNC mk(t AS Integer) AS Node
+  RETURN Node[kids := [Node[kids := [], tag := t]], tag := t]
+END FUNC
+FUNC total(n AS Node) AS Integer
+  MUT sum AS Integer = n.tag
+  FOR EACH k IN n.kids
+    sum = sum + total(k)
+  NEXT
+  RETURN sum
+END FUNC
+SUB main()
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    acc = acc + total(mk(i))
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// A recursive value captured by a non-escaping closure: the closure drop frees the
+/// captured graph, and the capture's source is either copied or moved out of.
+const SHAPE_C_CLOSURE: &str = r#"IMPORT io
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+SUB main()
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET cap AS Node = Node[kids := [], tag := i]
+    LET f AS FUNC(Integer) AS Integer = LAMBDA(k AS Integer) -> k + cap.tag
+    acc = acc + f(1)
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// bug-538's owned copy out of a container: `collections::get` of a recursive element.
+const SHAPE_C_GET: &str = r#"IMPORT io
+IMPORT collections
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+SUB main()
+  LET xs AS List OF Node = [Node[kids := [], tag := 7]]
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET e AS Node = collections::get(xs, 0)
+    acc = acc + e.tag
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_union_bind_runs_at_constant_rss() {
+    assert_flat(
+        "c_recursive_union_bind",
+        SHAPE_C_UNION_BIND,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_record_bind_runs_at_constant_rss() {
+    assert_flat(
+        "c_recursive_record_bind",
+        SHAPE_C_RECORD_BIND,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_reassignment_runs_at_constant_rss() {
+    assert_flat("c_recursive_reassign", SHAPE_C_REASSIGN, 400_000, 800_000);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_global_overwrite_runs_at_constant_rss() {
+    assert_flat("c_recursive_global", SHAPE_C_GLOBAL, 400_000, 800_000);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_unbound_recursive_temp_runs_at_constant_rss() {
+    assert_flat(
+        "c_recursive_unbound_temp",
+        SHAPE_C_UNBOUND_TEMP,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_closure_capture_runs_at_constant_rss() {
+    assert_flat("c_recursive_closure", SHAPE_C_CLOSURE, 400_000, 800_000);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_recursive_get_result_runs_at_constant_rss() {
+    assert_flat("c_recursive_get", SHAPE_C_GET, 400_000, 800_000);
+}
+
+// ---------------------------------------------------------------- shape C / plan-134-H
+
+/// plan-134-H: parsing the same 480 003-byte JSON document K times costs its tree once.
+/// `tools/recursive-value-bench/programs/json_repeat` with K = {N}: 204 / 402 / 799 MB at
+/// K = 1 / 2 / 4 before plan-134 (plan-134-A §2.1).
+const SHAPE_C_JSON_REPEAT: &str = r#"IMPORT io
+IMPORT json
+SUB main()
+  MUT text AS String = "["
+  MUT j AS Integer = 0
+  WHILE j < 20000
+    text = text & "{\u{22}a\u{22}:[1,2,3],\u{22}b\u{22}:\u{22}xyz\u{22}},"
+    j = j + 1
+  END WHILE
+  text = text & "0]"
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET v AS json::Json = json::parse(text)
+    i = i + 1
+  END WHILE
+  io::print("bytes=" & toString(len(text)))
+END SUB
+"#;
+
+/// plan-134-H: a 100 000-character `regex::findAll` repeated K times costs its matcher graphs
+/// once. `tools/recursive-value-bench/programs/regex_repeat` with K = {N}: 345 / 673 / 1329 MB
+/// at K = 1 / 2 / 4 before plan-134.
+const SHAPE_C_REGEX_REPEAT: &str = r#"IMPORT io
+IMPORT regex
+SUB main()
+  MUT subject AS String = ""
+  MUT j AS Integer = 0
+  WHILE j < 10000
+    subject = subject & "abcab1234 "
+    j = j + 1
+  END WHILE
+  MUT hits AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    hits = len(regex::findAll(subject, "[a-c]+[0-9]+"))
+    i = i + 1
+  END WHILE
+  io::print("hits=" & toString(hits))
+END SUB
+"#;
+
+/// plan-134-H (from plan-134-G): the json form of the unbound recursive temp. After G a
+/// `--debug` build leaves `live_bytes 2912000` per 1 000 iterations whether `json::parse`'s
+/// result is bound or not — blocks left inside json's list-building helpers.
+const SHAPE_C_JSON_UNBOUND_TEMP: &str = r#"IMPORT io
+IMPORT json
+SUB main()
+  LET t AS String = "[1,{\u{22}a\u{22}:[2,3]}]"
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    acc = acc + len(json::stringify(json::parse(t)))
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// plan-134 (final gate): an inline-`TRAP`ped `json::parse` of a document with nested
+/// children, both the Ok and the RECOVER path. The `Result` wrapper holds the value's top
+/// block inline and the graph below it: after plan-134-G the callee's block was
+/// graph-dropped under the wrapper (a use-after-free, `rt_union_trap_bind_default`), and
+/// the Ok wrapper — never released for a block payload (bug-593 `ErrorOnly`) — kept its
+/// graph for the life of the process.
+const SHAPE_C_JSON_TRAP_RECOVER: &str = r#"IMPORT io
+IMPORT json
+SUB main()
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET d AS json::Json = json::parse("[1,[2,3],{\u{22}a\u{22}:\u{22}xyz\u{22}}]") TRAP(e)
+      RECOVER json::JsonNull[NOTHING]
+    END TRAP
+    LET bad AS json::Json = json::parse("[oops") TRAP(e)
+      RECOVER json::JsonNull[NOTHING]
+    END TRAP
+    acc = acc + len(json::stringify(d)) + len(json::stringify(bad))
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// plan-134 (final gate): an inline-`TRAP` bind of a flat data union. The desugar's slot
+/// starts as the union's synthesized default, whose variant record was byte-copied into
+/// the union and never freed — 16 B per bind, the same on the pre-plan compiler.
+const SHAPE_TRAP_UNION_DEFAULT: &str = r#"IMPORT io
+TYPE Circle
+  radius AS Integer
+END TYPE
+TYPE Rect
+  w AS Integer
+  h AS Integer
+END TYPE
+UNION Shape
+  Circle
+  Rect
+END UNION
+FUNC makeShape(n AS Integer) AS Shape
+  IF n < 0 THEN FAIL error(90004440, "negative")
+  RETURN Circle[n]
+END FUNC
+FUNC score(s AS Shape) AS Integer
+  MATCH s
+    CASE Circle(c)
+      RETURN c.radius
+    CASE Rect(r)
+      RETURN r.w + r.h
+  END MATCH
+END FUNC
+SUB main()
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    LET ok AS Shape = makeShape(7) TRAP(e)
+      RECOVER Rect[1, 2]
+    END TRAP
+    LET bad AS Shape = makeShape(-1) TRAP(e)
+      RECOVER Rect[20, 22]
+    END TRAP
+    acc = acc + score(ok) + score(bad)
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+/// plan-134 (final gate): a fresh temporary passed to a call that FAILs. The statement-end
+/// free is jumped past by the call's error exit — 48 B per failure for the list literal,
+/// 32 B for the concat, the same on the pre-plan compiler.
+const SHAPE_FAILING_CALL_TEMP_ARGUMENT: &str = r#"IMPORT io
+FUNC boom(n AS Integer, xs AS List OF Integer) AS Integer
+  IF n >= 0 THEN FAIL error(90004440, "boom")
+  RETURN n + len(xs)
+END FUNC
+FUNC boomS(n AS Integer, s AS String) AS Integer
+  IF n >= 0 THEN FAIL error(90004440, "boom")
+  RETURN n + len(s)
+END FUNC
+FUNC holder(n AS Integer) AS Integer
+  LET v AS Integer = boom(n, [])
+  RETURN v + boomS(n, "a" & toString(n))
+END FUNC
+FUNC tryHolder(n AS Integer) AS Integer
+  RETURN holder(n)
+  TRAP(e)
+    RETURN 1
+  END TRAP
+END FUNC
+FUNC tryHolderS(n AS Integer) AS Integer
+  RETURN boomS(n, "a" & toString(n))
+  TRAP(e)
+    RETURN len(e.message)
+  END TRAP
+END FUNC
+SUB main()
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    acc = acc + tryHolder(i) + tryHolderS(i)
+    i = i + 1
+  END WHILE
+  io::print("acc=" & toString(acc))
+END SUB
+"#;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_inline_trap_union_bind_runs_at_constant_rss() {
+    assert_flat(
+        "trap_union_default",
+        SHAPE_TRAP_UNION_DEFAULT,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_failing_call_with_a_temp_argument_runs_at_constant_rss() {
+    assert_flat(
+        "failing_call_temp_argument",
+        SHAPE_FAILING_CALL_TEMP_ARGUMENT,
+        400_000,
+        800_000,
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_trapped_recursive_json_parse_runs_at_constant_rss() {
+    assert_flat(
+        "c_recursive_json_trap_recover",
+        SHAPE_C_JSON_TRAP_RECOVER,
+        200_000,
+        400_000,
+    );
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_repeated_json_parse_of_one_document_runs_at_constant_rss() {
+    assert_flat("c_recursive_json_repeat", SHAPE_C_JSON_REPEAT, 1, 4);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_repeated_regex_find_all_runs_at_constant_rss() {
+    assert_flat("c_recursive_regex_repeat", SHAPE_C_REGEX_REPEAT, 1, 4);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_looped_unbound_recursive_json_temp_runs_at_constant_rss() {
+    assert_flat(
+        "c_recursive_json_unbound_temp",
+        SHAPE_C_JSON_UNBOUND_TEMP,
+        400_000,
+        800_000,
+    );
+}

@@ -1,0 +1,18 @@
+' Store one recursive value four ways: bind, list literal inside a record, append, and
+' LET c = a. run.sh counts the deep-copy calls _mfb_fn_main makes from the -ncode dump.
+IMPORT io
+IMPORT collections
+
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+
+SUB main()
+  LET a AS Node = Node[kids := [], tag := 1]
+  LET b AS Node = Node[kids := [a], tag := 2]
+  MUT xs AS List OF Node = []
+  xs = collections::append(xs, a)
+  LET c AS Node = a
+  io::print("b=" & toString(len(b.kids)) & " xs=" & toString(len(xs)) & " c=" & toString(c.tag) & " a=" & toString(a.tag))
+END SUB

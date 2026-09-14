@@ -1,6 +1,6 @@
 # plan-133-C: memory over time, per arena, in the `--debug` report
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 Effort: large (3h–1d)
 Depends on: plan-133-B
 
@@ -68,8 +68,8 @@ See plan-133-A § Prerequisites. Additionally:
 
 | What | Value | Command |
 |---|---|---|
-| Browser worker grows per `Main_Page` load | 192,273 | `arena.1.grow` in `planning/todo.md` § 2 |
-| Browser main-arena grows per load | 15,236 | `arena.0.grow`, same |
+| Browser worker grows per `Main_Page` load | 189,654 | `arena.1.grow`, 2223, main `db8e34157`, 2026-09-13 (plan-133-A § Measured populations; 192,273 before plan-134) |
+| Browser main-arena grows per load | 5,125 | `arena.0.grow`, same run (15,236 before plan-134) |
 | Existing per-slot counter words | 18 | `grep -c '^    ("' src/codegen/debug/arena.rs` over `ARENA_COUNTERS` (18 entries) |
 
 ### Verified properties

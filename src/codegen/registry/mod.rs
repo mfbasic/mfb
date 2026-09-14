@@ -1078,6 +1078,16 @@ pub(crate) struct RegistryPackage {
     /// documentation: `mfb man2 --all` skips such a package, because rendering a
     /// `# testing` / `testing::expect` page would advertise a spelling users cannot
     /// write. Defaults `false`; set via [`mark_unqualified_global`](Self::mark_unqualified_global).
+    ///
+    /// **`testing` and `general` are the globals holders, by design.** `testing` holds the
+    /// globals for testing; `general` holds the globals for the language. A program never
+    /// needs to write `testing::` or `general::` — the members *are* the globals and are
+    /// called bare (`expectEqual(a, b)`, `len(s)`). The package name is only their home in
+    /// the registry and their grouping in the documentation, so a `testing::expectEqual` /
+    /// `general::len` spelling on these packages' own man pages is expected, not a defect.
+    /// bug-607 reported it as one and was closed as NOT A BUG
+    /// (`bugs/skipped/bug-607-man-renders-unqualified-globals-with-package-prefix.md`);
+    /// do not re-file it.
     unqualified_global: bool,
 }
 
@@ -2183,6 +2193,7 @@ fn build() -> Registry {
     crate::codegen::builtins::app::register(&mut r);
     crate::codegen::builtins::astrings::register(&mut r);
     crate::codegen::builtins::audio::register(&mut r);
+    crate::codegen::builtins::big::register(&mut r);
     crate::codegen::builtins::bits::register(&mut r);
     crate::codegen::builtins::canvas::register(&mut r);
     crate::codegen::builtins::color::register(&mut r);
@@ -2900,10 +2911,16 @@ fn resolved_return_type(qualified: &str, call: &CallShape, strict: bool) -> Opti
     let function = registry().resolve_func(qualified)?.function;
     // `strict` (argument validation) rejects a scalar-for-nominal argument; the lenient
     // mode (return-type inference feeding IR lowering / codegen) coarsely accepts it.
+    // Lenient still prefers a STRICT match first, exactly as [`rewrite_target`] does:
+    // lenient `leaf_matches` accepts a scalar against a nominal in either direction, so
+    // an earlier `Integer` row captures a call whose arguments precisely name a later
+    // `big.Int` row (`crypto::randomInt`, plan-127-D). Without the preference the
+    // inferred return type (`Integer`) and the body that runs (`__crypto_randomIntBig`)
+    // would come from two different implementations.
     let selection = if strict {
         function.resolve(call)
     } else {
-        function.dispatch(call)
+        function.resolve(call).or_else(|| function.dispatch(call))
     };
     selection.map(|selection| selection.return_type)
 }
@@ -6437,10 +6454,36 @@ mod raw_result_block_ownership {
     /// binding. bug-566 asks that same question at the site the `TRAP` desugar
     /// bypassed.
     const CALLER_ARENA_BLOCK_RESULTS: &[&str] = &[
-        "app.getMode",              // app.Mode
-        "audio.devices",            // List OF audio.AudioDevice
-        "audio.read",               // List OF Byte
-        "audio.readTimeout",        // List OF Byte
+        "app.getMode",       // app.Mode
+        "audio.devices",     // List OF audio.AudioDevice
+        "audio.read",        // List OF Byte
+        "audio.readTimeout", // List OF Byte
+        // plan-127: every `big` result is made by `emit_alloc_magnitude` (or, for the text
+        // members, `emit_alloc`; for `toBytes`, `emit_build_byte_list`; for `divMod`, the
+        // record marshaller) on this thread's arena and published once — no member hands
+        // back an argument or a constant.
+        "big.abs",                  // big.Int
+        "big.add",                  // big.Int
+        "big.divMod",               // big.DivResult
+        "big.divide",               // big.Int
+        "big.factorial",            // big.Int
+        "big.fromBytes",            // big.Int
+        "big.fromInteger",          // big.Int
+        "big.gcd",                  // big.Int
+        "big.modPow",               // big.Int
+        "big.multiply",             // big.Int
+        "big.negate",               // big.Int
+        "big.parse",                // big.Int
+        "big.pow",                  // big.Int
+        "big.product",              // big.Int
+        "big.remainder",            // big.Int
+        "big.shiftLeft",            // big.Int
+        "big.shiftRight",           // big.Int
+        "big.subtract",             // big.Int
+        "big.sum",                  // big.Int
+        "big.toBytes",              // List OF Byte
+        "big.toRadixString",        // String
+        "big.toString",             // String
         "canvas.fontBlobUnchecked", // List OF Byte
         "canvas.fontBytes",         // List OF Byte
         "canvas.getBytes",          // List OF Byte
@@ -6623,6 +6666,8 @@ mod raw_result_block_ownership {
     /// helper reds here and forces the same caller's-arena confirmation
     /// `CALLER_ARENA_BLOCK_RESULTS` demands.
     const STRING_RESULT_HELPERS: &[&str] = &[
+        "big.toRadixString",
+        "big.toString",
         "fs.canonicalPath",
         "fs.currentDirectory",
         "fs.readAll",

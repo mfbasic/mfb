@@ -171,6 +171,7 @@ impl CodeBuilder<'_> {
             type_: result.type_.clone(),
             slot,
             location: location.clone(),
+            shallow: false,
         });
         Ok(ValueResult {
             origin: result.origin,

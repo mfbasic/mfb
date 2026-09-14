@@ -6,7 +6,8 @@ use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
-use crate::codegen::memory::arena::builder_arena_transfer::RawSuccessBlock;
+use crate::codegen::memory::arena::builder_arena_transfer::{PayloadEdgeShape, RawSuccessBlock};
+use crate::codegen::memory::arena::graph_drop::StoreShape;
 use crate::codegen::memory::arena::TrappedErrorSource;
 use crate::codegen::memory::data::*;
 use crate::operators::{BinaryOp, UnaryOp};
@@ -358,6 +359,7 @@ impl CodeBuilder<'_> {
             type_: result.type_.clone(),
             slot,
             location: result.location.clone(),
+            shallow: false,
         });
     }
 
@@ -394,7 +396,7 @@ impl CodeBuilder<'_> {
         type_: &ParameterType,
         fresh_string: bool,
     ) -> bool {
-        if !self.is_freeable_flat_value(type_)
+        if !(self.is_freeable_flat_value(type_) || self.owns_graph(type_))
             || self.value_needs_owning_copy(value)
             || Self::value_is_runtime_managed(value)
         {
@@ -443,6 +445,7 @@ impl CodeBuilder<'_> {
             type_: ParameterType::String,
             slot,
             location,
+            shallow: false,
         });
     }
 
@@ -527,10 +530,14 @@ impl CodeBuilder<'_> {
         // `ValueResult` names — the `Result` block the enclosing node yields is a
         // different operand — so `claim_pending_temp` can never mistake this temp
         // for the one an owning binding took over.
+        // plan-134: a recursive payload's top block was byte-copied into the `Result`, so
+        // the graph it points into moved with those bytes — only the block itself is dead.
+        let shallow = !self.is_freeable_flat_value(type_) && self.owns_graph(type_);
         self.pending_temp_frees.push(PendingTemp {
             type_: type_.clone(),
             slot,
             location: Operand::from(pointer.render()),
+            shallow,
         });
     }
 
@@ -592,16 +599,35 @@ impl CodeBuilder<'_> {
                 .pending_temp_frees
                 .pop()
                 .expect("watermark within bounds");
-            self.emit_owned_value_drop(&OwnedValueCleanup {
-                type_: temp.type_,
-                stack_offset: temp.slot,
-                closure_captures: None,
-                capacity_slot: None,
-                loop_alias_slot: None,
-                result_wrapper: None,
-            })?;
+            self.emit_pending_temp_free(&temp)?;
         }
         Ok(())
+    }
+
+    /// Free every pending temporary on the path being emitted WITHOUT forgetting them: a
+    /// failing call's error exit leaves the statement, so the statement-end drop the
+    /// success path still reaches never runs on it. Each free nulls its slot, and every
+    /// slot joins the prologue zero-init, so a temp that path never wrote is skipped.
+    pub(crate) fn emit_pending_temp_frees_in_place(&mut self) -> Result<(), String> {
+        let temps = self.pending_temp_frees.clone();
+        for temp in temps.iter().rev() {
+            self.emit_pending_temp_free(temp)?;
+        }
+        Ok(())
+    }
+
+    fn emit_pending_temp_free(&mut self, temp: &PendingTemp) -> Result<(), String> {
+        if temp.shallow {
+            return self.emit_shallow_block_free(&temp.type_, temp.slot);
+        }
+        self.emit_owned_value_drop(&OwnedValueCleanup {
+            type_: temp.type_.clone(),
+            stack_offset: temp.slot,
+            closure_captures: None,
+            capacity_slot: None,
+            loop_alias_slot: None,
+            result_wrapper: None,
+        })
     }
 
     /// Discard pending temporaries above `watermark` WITHOUT freeing them.
@@ -702,14 +728,18 @@ impl CodeBuilder<'_> {
                 }
                 None => None,
             };
-            self.emit_owned_value_drop(&OwnedValueCleanup {
-                type_: temp.type_,
-                stack_offset: temp.slot,
-                closure_captures: None,
-                capacity_slot: None,
-                loop_alias_slot: None,
-                result_wrapper: None,
-            })?;
+            if temp.shallow {
+                self.emit_shallow_block_free(&temp.type_, temp.slot)?;
+            } else {
+                self.emit_owned_value_drop(&OwnedValueCleanup {
+                    type_: temp.type_,
+                    stack_offset: temp.slot,
+                    closure_captures: None,
+                    capacity_slot: None,
+                    loop_alias_slot: None,
+                    result_wrapper: None,
+                })?;
+            }
             if let Some(kept) = kept {
                 self.emit(abi::label(&kept));
             }
@@ -756,6 +786,35 @@ impl CodeBuilder<'_> {
                 location: Operand::from(copied.render()),
                 text: result.text,
             });
+        }
+        // plan-134-D: a recursive value is a graph `copy_flat_block` cannot copy, so an
+        // aliasing source gets an independent graph from the walker — unless this store is
+        // the source's last read (plan-134-C), when handing the same graph over is a move
+        // and nothing else can observe it.
+        if self.value_needs_owning_copy(value)
+            && self.needs_graph_copy(&result.type_)
+            && !Self::is_fresh_trapped_result_wrapper(value, &result.type_)
+            && !self.store_is_last_use(value)
+            && !self.store_is_borrowed_view()
+        {
+            let copied = self.copy_value_to_current_arena(&result.type_, &result.location)?;
+            return Ok(ValueResult {
+                origin: None,
+                type_: result.type_,
+                location: Operand::from(copied.render()),
+                text: result.text,
+            });
+        }
+        // plan-134-G: the store took the graph at the source's last read, so the source
+        // gives it up.
+        if self.value_needs_owning_copy(value)
+            && self.owns_graph(&result.type_)
+            && !Self::is_fresh_trapped_result_wrapper(value, &result.type_)
+            && !self.store_is_borrowed_view()
+            && self.store_is_last_use(value)
+        {
+            self.release_moved_source(value, &result, false)?;
+            return Ok(result);
         }
         // A fresh value returned unchanged becomes this owner's block; claim its
         // pending-temp registration so the statement-scope free never double-frees
@@ -988,7 +1047,7 @@ impl CodeBuilder<'_> {
         result_type: &ParameterType,
     ) -> bool {
         !Self::runtime_call_result_is_foreign_arena(target)
-            && self.is_freeable_flat_value(result_type)
+            && (self.is_freeable_flat_value(result_type) || self.owns_graph(result_type))
     }
 
     /// bug-576: whether a runtime helper must MARK its result fresh
@@ -1155,6 +1214,242 @@ impl CodeBuilder<'_> {
                 || matches!(type_, ParameterType::ResultOf(_))
                 || self.type_model.record_fields.contains_key(type_)
                 || self.union_is_data(type_))
+    }
+
+    /// plan-134-D: whether an owning store of `type_` needs the graph deep copy — a value
+    /// whose type reaches a type cycle is a pointer-linked graph `copy_flat_block` cannot
+    /// copy — and may take it: a value with a resource anywhere inside it is move-only and
+    /// keeps today's alias. The one definition every store uses (`lower_value_owned`,
+    /// `lower_returned_value`, `materialize_owned_element`).
+    pub(crate) fn needs_graph_copy(&self, type_: &ParameterType) -> bool {
+        !self.is_freeable_flat_value(type_)
+            && crate::codegen::collection::layout::type_reaches_cycle(&self.type_model, type_)
+            && !crate::codegen::collection::layout::type_contains_resource(&self.type_model, type_)
+    }
+
+    /// plan-134-G: whether the owner of a `type_` value frees it, through `_mfb_rt_graph_drop`
+    /// (plan-134-F). This is the class `needs_graph_copy` defines, narrowed to the types with a
+    /// walker kind; a type that only reaches a cycle has none yet (plan-134-H) and keeps today's
+    /// leak. Every ownership gate of plan-134-G §2.1 asks this beside `is_freeable_flat_value`.
+    pub(crate) fn owns_graph(&self, type_: &ParameterType) -> bool {
+        self.needs_graph_copy(type_) && self.graph_drop_kind(type_).is_some()
+    }
+
+    /// plan-134-D: whether `value`, stored by the op being lowered, is that place's last
+    /// read (plan-134-C), so the store may hand the same graph over instead of copying it.
+    /// Only a local or a field of a local can be a site; a builder with no analysis (a
+    /// synthesized function) answers no, so its stores copy.
+    pub(crate) fn store_is_last_use(&self, value: &NirValue) -> bool {
+        use crate::codegen::engine::analysis::last_use::Place;
+        let (Some(sites), Some(op)) = (self.move_sites.as_ref(), self.current_op_key) else {
+            return false;
+        };
+        let place = match value {
+            NirValue::Local(name) => Place::Local(name.clone()),
+            NirValue::MemberAccess { target, member } => match target.as_ref() {
+                NirValue::Local(name) => Place::Field(name.clone(), member.clone()),
+                _ => return false,
+            },
+            _ => return false,
+        };
+        sites.is_last_use(op, &place) && self.move_source_is_owned(&place)
+    }
+
+    /// plan-134-D: whether the op being lowered binds a borrowed MATCH view (plan-134-C):
+    /// the bound local only inspects its source, so its bind needs no copy.
+    pub(crate) fn store_is_borrowed_view(&self) -> bool {
+        matches!(
+            (self.move_sites.as_ref(), self.current_op_key),
+            (Some(sites), Some(op)) if sites.is_borrow(op)
+        )
+    }
+
+    /// plan-134-E: lower a value a CONSTRUCTION store writes into another value — a
+    /// constructor argument, a `WITH` update, a union wrap, a collection literal element or
+    /// in-place item, a `STATE` replacement. The writers byte-copy a flat payload themselves,
+    /// so a flat value lowers exactly as `lower_value` does (no copy, and a fresh temp stays
+    /// registered for the statement-scope free). A value whose type reaches a type cycle holds
+    /// pointers the byte copy would share, so an aliasing source gets its own graph from the
+    /// walker — unless the store is the source's last read (plan-134-C), which moves.
+    pub(crate) fn lower_value_stored(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+        self.lower_value_stored_as(value, StoreShape::Payload)
+    }
+
+    /// plan-134-G: [`Self::lower_value_stored`] for a store that keeps the value's POINTER — a
+    /// record constructor argument or `WITH` update (a recursive field is never inlined) and a
+    /// resource `STATE` replacement.
+    pub(crate) fn lower_value_stored_field(
+        &mut self,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
+        self.lower_value_stored_as(value, StoreShape::Pointer)
+    }
+
+    /// plan-134-G: [`Self::lower_value_stored`] for a union wrap, which byte-copies the variant
+    /// record's block into the union.
+    pub(crate) fn lower_value_stored_inline(
+        &mut self,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
+        self.lower_value_stored_as(value, StoreShape::Inline)
+    }
+
+    /// plan-134-G: the ownership of a stored recursive value, now that its owners free it. A
+    /// store that keeps the pointer takes the whole graph. A store that byte-copies the top
+    /// block (a record or union payload, a union wrap) takes that block's children, and the
+    /// block it copied is freed shallowly at the end of the statement:
+    ///
+    /// * a fresh value — its pending temp is claimed (pointer) or made shallow (inline);
+    /// * the last read of an owning place (plan-134-C) — the place releases the graph
+    ///   ([`Self::release_moved_source`]);
+    /// * any other aliasing source — copied, and an inline store frees the copy's top block.
+    fn lower_value_stored_as(
+        &mut self,
+        value: &NirValue,
+        shape: StoreShape,
+    ) -> Result<ValueResult, String> {
+        let result = self.lower_value(value)?;
+        if !self.needs_graph_copy(&result.type_) {
+            return Ok(result);
+        }
+        let owned = self.owns_graph(&result.type_);
+        let inline = match shape {
+            StoreShape::Pointer => false,
+            StoreShape::Inline => true,
+            StoreShape::Payload => {
+                self.payload_edge_shape(&result.type_) != Some(PayloadEdgeShape::Pointer)
+            }
+        };
+        if !self.value_needs_owning_copy(value)
+            || Self::is_fresh_trapped_result_wrapper(value, &result.type_)
+        {
+            if owned {
+                if inline {
+                    self.make_pending_temp_shallow(&result);
+                } else {
+                    self.claim_pending_temp(&result);
+                }
+            }
+            return Ok(result);
+        }
+        if self.store_is_borrowed_view() {
+            return Ok(result);
+        }
+        if self.store_is_last_use(value) {
+            if owned {
+                self.release_moved_source(value, &result, inline)?;
+            }
+            return Ok(result);
+        }
+        let copied = self.copy_value_to_current_arena(&result.type_, &result.location)?;
+        let copied = ValueResult {
+            origin: None,
+            type_: result.type_,
+            location: Operand::from(copied.render()),
+            text: result.text,
+        };
+        if owned && inline {
+            self.register_shallow_temp(&copied);
+        }
+        Ok(copied)
+    }
+
+    /// plan-134-G: turn the pending temp `result` owns (the most recently registered, when its
+    /// location matches) into a shallow free.
+    fn make_pending_temp_shallow(&mut self, result: &ValueResult) {
+        if let Some(temp) = self
+            .pending_temp_frees
+            .last_mut()
+            .filter(|temp| temp.location == result.location)
+        {
+            temp.shallow = true;
+        }
+    }
+
+    /// plan-134-G: a statement-scope shallow free of `result`'s block.
+    fn register_shallow_temp(&mut self, result: &ValueResult) {
+        let slot = self.allocate_stack_object("shallow_temp", 8);
+        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
+        self.pending_temp_frees.push(PendingTemp {
+            type_: result.type_.clone(),
+            slot,
+            location: result.location.clone(),
+            shallow: true,
+        });
+    }
+
+    /// plan-134-G: a store took `value`'s graph at its place's last read, so the place gives it
+    /// up: its word is zeroed, which every drop of the place skips. An `inline` store copied
+    /// only the top block's bytes, so that block is also freed (shallowly) at the end of the
+    /// statement. `store_is_last_use` only answers yes for a place whose root local owns its
+    /// block and, for a field, a pointer field of a record (`move_source_is_owned`).
+    pub(crate) fn release_moved_source(
+        &mut self,
+        value: &NirValue,
+        result: &ValueResult,
+        inline: bool,
+    ) -> Result<(), String> {
+        if inline {
+            self.register_shallow_temp(result);
+        }
+        match value {
+            NirValue::Local(name) => {
+                let slot = self
+                    .locals
+                    .get(name)
+                    .map(|local| local.stack_offset)
+                    .ok_or_else(|| format!("moved local '{name}' is not bound"))?;
+                self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+                Ok(())
+            }
+            NirValue::MemberAccess { target, member } => {
+                let base = self.lower_value(target)?;
+                let offset = self
+                    .pointer_field_offset(&base.type_, member)
+                    .ok_or_else(|| {
+                        format!(
+                            "moved field '{member}' of '{}' is not a record pointer field",
+                            base.type_
+                        )
+                    })?;
+                self.emit(abi::store_u64(abi::ZERO, &base.location, offset));
+                Ok(())
+            }
+            _ => Err("a moved store source must be a local or a field of one".to_string()),
+        }
+    }
+
+    /// plan-134-G: the offset of record `type_`'s field `member` when it is a pointer field (a
+    /// separate allocation), `None` for an inlined field or a non-record.
+    fn pointer_field_offset(&self, type_: &ParameterType, member: &str) -> Option<usize> {
+        let fields = self.type_model.record_fields.get(type_)?;
+        let index = fields.iter().position(|(name, _)| name == member)?;
+        (!self.record_field_is_inlined(&fields[index].1)).then_some(8 * index)
+    }
+
+    /// plan-134-G: a place may be moved out of only if its root local owns its block — a live
+    /// `OwnedValue` cleanup at the local's slot, which is what `release_moved_source` gives up.
+    /// A `MATCH` view, a by-ref capture or any other alias owns nothing, so its store copies.
+    fn move_source_is_owned(
+        &self,
+        place: &crate::codegen::engine::analysis::last_use::Place,
+    ) -> bool {
+        use crate::codegen::engine::analysis::last_use::Place;
+        let (root, member) = match place {
+            Place::Local(name) => (name, None),
+            Place::Field(name, member) => (name, Some(member)),
+        };
+        let Some(local) = self.locals.get(root) else {
+            return false;
+        };
+        if local.by_ref {
+            return false;
+        }
+        let owns = self.active_cleanups.iter().any(|cleanup| {
+            matches!(cleanup, ActiveCleanup::OwnedValue(c) if c.stack_offset == local.stack_offset)
+        });
+        owns && member
+            .is_none_or(|member| self.pointer_field_offset(&local.type_, member).is_some())
     }
 
     /// plan-77 M6: the static type of a closure capture, used by the closure
@@ -2074,7 +2369,8 @@ impl CodeBuilder<'_> {
                 let mut arg_values = Vec::new();
                 let mut arg_slots = Vec::new();
                 for arg in args {
-                    let value = self.lower_value(arg)?;
+                    // plan-134-E: a recursive argument is stored into the new record.
+                    let value = self.lower_value_stored_field(arg)?;
                     // Observation boundary: a `Float` record/union field must be
                     // finite (plan-17).
                     self.observe_float(arg, &value)?;
@@ -2154,7 +2450,8 @@ impl CodeBuilder<'_> {
                 member_type,
                 value,
             } => {
-                let wrapped = self.lower_value(value)?;
+                // plan-134-E: the variant is stored into the new union block.
+                let wrapped = self.lower_value_stored_inline(value)?;
                 let wrapped_slot = self.allocate_stack_object("union_wrap_source", 8);
                 self.emit(abi::store_u64(
                     &wrapped.location,
@@ -2659,11 +2956,13 @@ impl CodeBuilder<'_> {
         // show that one builtin is responsible. Timed around the body only: arg
         // lowering above recurses into other builtins, and including it would
         // charge them to whichever call happened to enclose them.
-        crate::trace::timed_tally(
+        let lowered = crate::trace::timed_tally(
             "abi_inline builtin",
             || target.to_string(),
             || Some(lower(self, &arg_values, &ctx)),
-        )
+        )?;
+        // plan-134-E: a collection built out of other values owns its elements' graphs.
+        Some(lowered.and_then(|result| self.own_collection_payload_edges(result)))
     }
 
     /// Pre-lower each `NirValue` arg to a `ValueResult` for an `AbiInline` body

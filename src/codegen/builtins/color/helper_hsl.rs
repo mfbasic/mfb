@@ -34,12 +34,15 @@ FUNC __color_fractionChannel(value AS Float) AS Byte
 END FUNC
 
 FUNC __color_wrapHue(hue AS Float) AS Float
-  LET turns AS Float = hue / 360.0
-  LET wrapped AS Float = hue - toFloat(math::floor(turns)) * 360.0
+  LET wrapped AS Float = hue MOD 360.0
   IF wrapped < 0.0 THEN
-    RETURN wrapped + 360.0
+    LET up AS Float = wrapped + 360.0
+    IF up >= 360.0 THEN
+      RETURN 0.0
+    END IF
+    RETURN up
   END IF
-  IF wrapped >= 360.0 THEN
+  IF wrapped = 0.0 THEN
     RETURN 0.0
   END IF
   RETURN wrapped

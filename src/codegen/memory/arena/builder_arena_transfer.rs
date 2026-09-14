@@ -295,7 +295,13 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&copied, abi::stack_pointer(), payload_slot));
                 self.emit(abi::compare_registers(&produced, &copied));
                 self.emit(abi::branch_eq(&kept));
-                self.emit_free_flat_block_from_slot(&success, value_slot)?;
+                // plan-134: the copy above is a whole new graph, so a recursive producer
+                // frees its whole graph too.
+                if self.owns_graph(&success) {
+                    self.emit_graph_value_drop(&success, value_slot)?;
+                } else {
+                    self.emit_free_flat_block_from_slot(&success, value_slot)?;
+                }
                 self.emit(abi::label(&kept));
             }
         }
@@ -652,11 +658,11 @@ impl CodeBuilder<'_> {
         // A recursive value (e.g. `dom::Node`, whose `ElementNode.children` is
         // `List OF Node`) is a pointer-linked graph; copying it inline would make
         // the code generator recurse over the *type* without bound (bug-391).
-        // Route it through a per-type runtime deep-copy function instead, so the
-        // recursion runs at run time over the finite *data* and terminates. Every
-        // such function's body is `emit_thread_copy_real`, whose own field/element
-        // edges come back here — so a recursive sub-edge becomes a call, not more
-        // inline code. Non-recursive values are unaffected (copied inline as before).
+        // Route it through its per-type entry point instead, which runs the
+        // module's non-recursive walker (`graph_copy.rs`, plan-134-B): the walker
+        // copies one block at a time and keeps the pending edges on an arena work
+        // stack, so neither the compiler nor the program recurses per level of the
+        // data. Non-recursive values are unaffected (copied inline as before).
         if type_participates_in_cycle(&self.type_model, type_) {
             return self.emit_thread_copy_call(type_, source);
         }
@@ -1330,6 +1336,56 @@ impl CodeBuilder<'_> {
         self.record_field_is_pointer(field_type)
     }
 
+    /// plan-134-F: a record block's pointer edges — every field that is its own allocation —
+    /// as `(offset in the block, field type)`, in field order. The ONE enumeration the copy
+    /// (`copy_record_fields_into_existing`) and the drop (`graph_drop.rs`) both walk.
+    pub(crate) fn record_pointer_edges(
+        &self,
+        type_: &ParameterType,
+    ) -> Result<Vec<(usize, ParameterType)>, String> {
+        let fields = self.type_model.record_fields.get(type_).ok_or_else(|| {
+            format!("native thread transfer record type '{type_}' does not resolve")
+        })?;
+        Ok(fields
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, field_type))| self.record_field_is_pointer_in(field_type))
+            .map(|(index, (_, field_type))| (index * 8, field_type.clone()))
+            .collect())
+    }
+
+    /// plan-134-F: `union_base`'s variants with their tags and fields, in tag order — shared
+    /// by the copy's and the drop's tag dispatch.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn union_variants_by_tag(
+        &self,
+        union_base: &ParameterType,
+    ) -> Result<Vec<(ParameterType, usize, Vec<(String, ParameterType)>)>, String> {
+        let mut variants = self
+            .type_model
+            .variants_for_union(union_base)
+            .map(|variant| {
+                let tag = self
+                    .type_model
+                    .union_variant_tags
+                    .get(variant)
+                    .copied()
+                    .ok_or_else(|| {
+                        format!("native thread transfer union variant '{variant}' has no tag")
+                    })?;
+                let fields = self
+                    .type_model
+                    .union_variant_fields
+                    .get(variant)
+                    .cloned()
+                    .unwrap_or_default();
+                Ok((variant.clone(), tag, fields))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        variants.sort_by_key(|(_, tag, _)| *tag);
+        Ok(variants)
+    }
+
     fn record_needs_pointer_field_fix(&self, record_type: &ParameterType) -> bool {
         self.type_model
             .record_fields
@@ -1410,7 +1466,10 @@ impl CodeBuilder<'_> {
     /// would alias rather than deep-copy, so the per-payload transfer fix is
     /// still required. A collection whose key/value payloads are all inline
     /// (scalars, `String`) is already flat and copies generically.
-    fn collection_needs_transfer_fix(&self, type_: &ParameterType) -> Result<bool, String> {
+    pub(crate) fn collection_needs_transfer_fix(
+        &self,
+        type_: &ParameterType,
+    ) -> Result<bool, String> {
         let (key_type, value_type) = if let Some(value_type) = typed_list_element_type(type_) {
             (None, value_type)
         } else {
@@ -1519,6 +1578,25 @@ impl CodeBuilder<'_> {
         source_slot: usize,
         result_slot: usize,
     ) -> Result<(), String> {
+        for (payload_type, key_payload) in self.collection_payload_edges(type_)? {
+            self.fix_collection_transfer_payload(
+                source_slot,
+                result_slot,
+                &payload_type,
+                key_payload,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// plan-134-F: the payloads of a collection of `type_` whose entries hold pointer edges,
+    /// as `(payload type, is the key payload)` — the key first, then the value. The ONE
+    /// enumeration the copy (`fix_collection_transfer_payloads`) and the drop
+    /// (`graph_drop.rs`) both walk.
+    pub(crate) fn collection_payload_edges(
+        &self,
+        type_: &ParameterType,
+    ) -> Result<Vec<(ParameterType, bool)>, String> {
         let (key_type, value_type) = if let Some(value_type) = typed_list_element_type(type_) {
             (None, value_type)
         } else {
@@ -1527,15 +1605,68 @@ impl CodeBuilder<'_> {
             })?;
             (Some(key), value)
         };
-        if let Some(key_type) = key_type.as_ref() {
-            if self.collection_payload_needs_transfer_fix(key_type) {
-                self.fix_collection_transfer_payload(source_slot, result_slot, key_type, true)?;
+        let mut edges = Vec::new();
+        if let Some(key_type) = key_type {
+            if self.collection_payload_needs_transfer_fix(&key_type) {
+                edges.push((key_type.clone(), true));
             }
         }
         if self.collection_payload_needs_transfer_fix(&value_type) {
-            self.fix_collection_transfer_payload(source_slot, result_slot, &value_type, false)?;
+            edges.push((value_type.clone(), false));
         }
-        Ok(())
+        Ok(edges)
+    }
+
+    /// plan-134-F: where a payload of `payload_type` keeps its pointer edges — shared by the
+    /// copy's and the drop's per-entry walks, so the two cannot classify one payload two
+    /// ways. `None` for a payload that has none.
+    pub(crate) fn payload_edge_shape(
+        &self,
+        payload_type: &ParameterType,
+    ) -> Option<PayloadEdgeShape> {
+        if typed_is_collection_type(payload_type)
+            || matches!(payload_type, ParameterType::ResultOf(_))
+            || *payload_type == ParameterType::named("Error")
+        {
+            Some(PayloadEdgeShape::Pointer)
+        } else if self.type_model.record_fields.contains_key(payload_type) {
+            Some(PayloadEdgeShape::InlineRecord)
+        } else if self.type_model.union_names.contains(payload_type) {
+            Some(PayloadEdgeShape::InlineUnion)
+        } else {
+            None
+        }
+    }
+
+    /// plan-134-E: a native collection builtin (a rebuilding `append`/`insert`/`set`/`removeAt`,
+    /// `transform`, `filter`, a map projection, `mid`, `replace`, a slice) builds its result by
+    /// byte-copying element payloads out of its inputs, so each copied payload's recursive
+    /// edges still point at the source's children. Deep-copy them in place on the new block —
+    /// the thread-transfer payload fix with the result as both source and destination: each
+    /// edge is read before its copy is written back — so the result owns an independent graph.
+    /// Any other result (a flat collection, a non-collection, a resource-bearing element) is
+    /// returned untouched.
+    pub(crate) fn own_collection_payload_edges(
+        &mut self,
+        result: ValueResult,
+    ) -> Result<ValueResult, String> {
+        if !typed_is_collection_type(&result.type_)
+            || !self.needs_graph_copy(&result.type_)
+            || !self.collection_needs_transfer_fix(&result.type_)?
+        {
+            return Ok(result);
+        }
+        let slot = self.allocate_stack_object("collection_edge_copy", 8);
+        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
+        self.fix_collection_transfer_payloads(&result.type_, slot, slot)?;
+        let register = self.allocate_register();
+        self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
+        Ok(ValueResult {
+            origin: result.origin,
+            type_: result.type_,
+            location: Operand::from(register.render()),
+            text: result.text,
+        })
     }
 
     fn collection_payload_needs_transfer_fix(&self, type_: &ParameterType) -> bool {
@@ -1680,36 +1811,41 @@ impl CodeBuilder<'_> {
             dest_payload_slot,
         ));
 
-        if typed_is_collection_type(payload_type)
-            || matches!(payload_type, ParameterType::ResultOf(_))
-            || *payload_type == ParameterType::named("Error")
-        {
+        let shape = self.payload_edge_shape(payload_type);
+        if shape == Some(PayloadEdgeShape::Pointer) {
             self.emit(abi::load_u64(
                 &scratch9,
                 abi::stack_pointer(),
                 source_payload_slot,
             ));
             self.emit(abi::load_u64(&scratch10, &scratch9, 0));
-            let copied = self.copy_value_to_current_arena(payload_type, &scratch10)?;
-            // Stash before reloading the destination pointer: `copied` may be x9.
-            let payload_copied_slot = self.allocate_stack_object("thread_copy_payload_field", 8);
-            self.emit(abi::store_u64(
-                &copied,
-                abi::stack_pointer(),
-                payload_copied_slot,
-            ));
-            self.emit(abi::load_u64(
-                &scratch9,
-                abi::stack_pointer(),
-                dest_payload_slot,
-            ));
-            self.emit(abi::load_u64(
-                &scratch10,
-                abi::stack_pointer(),
-                payload_copied_slot,
-            ));
-            self.emit(abi::store_u64(&scratch10, &scratch9, 0));
-        } else if self.type_model.record_fields.contains_key(payload_type) {
+            // plan-134-B: inside the walker a cycle-typed payload is pushed, with the
+            // payload word of the new block as its destination.
+            if let Some(kind) = self.graph_copy_edge_kind(payload_type)? {
+                self.emit_graph_copy_push(kind, &scratch10, Some((dest_payload_slot, 0)))?;
+            } else {
+                let copied = self.copy_value_to_current_arena(payload_type, &scratch10)?;
+                // Stash before reloading the destination pointer: `copied` may be x9.
+                let payload_copied_slot =
+                    self.allocate_stack_object("thread_copy_payload_field", 8);
+                self.emit(abi::store_u64(
+                    &copied,
+                    abi::stack_pointer(),
+                    payload_copied_slot,
+                ));
+                self.emit(abi::load_u64(
+                    &scratch9,
+                    abi::stack_pointer(),
+                    dest_payload_slot,
+                ));
+                self.emit(abi::load_u64(
+                    &scratch10,
+                    abi::stack_pointer(),
+                    payload_copied_slot,
+                ));
+                self.emit(abi::store_u64(&scratch10, &scratch9, 0));
+            }
+        } else if shape == Some(PayloadEdgeShape::InlineRecord) {
             self.emit(abi::load_u64(
                 &scratch9,
                 abi::stack_pointer(),
@@ -1721,7 +1857,7 @@ impl CodeBuilder<'_> {
                 dest_payload_slot,
             ));
             self.copy_record_fields_into_existing(payload_type, &scratch9, &scratch10)?;
-        } else if self.type_model.union_names.contains(payload_type) {
+        } else if shape == Some(PayloadEdgeShape::InlineUnion) {
             self.emit(abi::load_u64(
                 &scratch9,
                 abi::stack_pointer(),
@@ -1750,14 +1886,7 @@ impl CodeBuilder<'_> {
         source: impl Into<Operand>,
         destination: impl Into<Operand>,
     ) -> Result<(), String> {
-        let fields = self
-            .type_model
-            .record_fields
-            .get(type_)
-            .cloned()
-            .ok_or_else(|| {
-                format!("native thread transfer record type '{type_}' does not resolve")
-            })?;
+        let edges = self.record_pointer_edges(type_)?;
         let source_slot = self.allocate_stack_object("thread_copy_record_inline_source", 8);
         let destination_slot =
             self.allocate_stack_object("thread_copy_record_inline_destination", 8);
@@ -1773,12 +1902,15 @@ impl CodeBuilder<'_> {
         let copied_slot = self.allocate_stack_object("thread_copy_into_field", 8);
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
-        for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_pointer_in(&field_type) {
+        for (offset, field_type) in &edges {
+            let offset = *offset;
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
+            self.emit(abi::load_u64(&scratch10, &scratch9, offset));
+            // plan-134-B: inside the walker a cycle-typed edge is pushed, not copied.
+            if let Some(kind) = self.graph_copy_edge_kind(field_type)? {
+                self.emit_graph_copy_push(kind, &scratch10, Some((destination_slot, offset)))?;
                 continue;
             }
-            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
-            self.emit(abi::load_u64(&scratch10, &scratch9, index * 8));
             let copied = self.copy_value_to_current_arena(field_type, &scratch10)?;
             // Stash before reloading the destination pointer: `copied` may be x9.
             self.emit(abi::store_u64(&copied, abi::stack_pointer(), copied_slot));
@@ -1788,7 +1920,7 @@ impl CodeBuilder<'_> {
                 destination_slot,
             ));
             self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), copied_slot));
-            self.emit(abi::store_u64(&scratch10, &scratch9, index * 8));
+            self.emit(abi::store_u64(&scratch10, &scratch9, offset));
         }
         Ok(())
     }
@@ -1804,28 +1936,7 @@ impl CodeBuilder<'_> {
         // clause names the uniform STATE record every resource variant carries.
         let union_base = type_.without_state();
         let union_state = type_.state();
-        let mut variants = self
-            .type_model
-            .variants_for_union(&union_base)
-            .map(|variant| {
-                let tag = self
-                    .type_model
-                    .union_variant_tags
-                    .get(variant)
-                    .copied()
-                    .ok_or_else(|| {
-                        format!("native thread transfer union variant '{variant}' has no tag")
-                    })?;
-                let fields = self
-                    .type_model
-                    .union_variant_fields
-                    .get(variant)
-                    .cloned()
-                    .unwrap_or_default();
-                Ok((variant.clone(), tag, fields))
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        variants.sort_by_key(|(_, tag, _)| *tag);
+        let variants = self.union_variants_by_tag(&union_base)?;
         let source_slot = self.allocate_stack_object("thread_copy_union_inline_source", 8);
         let destination_slot =
             self.allocate_stack_object("thread_copy_union_inline_destination", 8);
@@ -1922,6 +2033,15 @@ impl CodeBuilder<'_> {
             for (index, (_, field_type)) in fields.iter().enumerate() {
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
                 self.emit(abi::load_u64(&scratch10, &scratch9, 8 * (index + 1)));
+                // plan-134-B: inside the walker a cycle-typed edge is pushed.
+                if let Some(kind) = self.graph_copy_edge_kind(field_type)? {
+                    self.emit_graph_copy_push(
+                        kind,
+                        &scratch10,
+                        Some((destination_slot, 8 * (index + 1))),
+                    )?;
+                    continue;
+                }
                 let copied = self.copy_value_to_current_arena(field_type, &scratch10)?;
                 // Stash before reloading the destination pointer: `copied` may be x9.
                 self.emit(abi::store_u64(
@@ -1947,6 +2067,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
         Ok(())
     }
+}
+
+/// plan-134-F: where a collection payload keeps its pointer edges
+/// ([`CodeBuilder::payload_edge_shape`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PayloadEdgeShape {
+    /// The payload word points at a separate block: a nested collection, a `Result`, an
+    /// `Error`.
+    Pointer,
+    /// A record inlined in the data region; its pointer fields are the edges.
+    InlineRecord,
+    /// A data union inlined in the data region; its active variant's pointer fields are
+    /// the edges.
+    InlineUnion,
 }
 
 #[cfg(test)]

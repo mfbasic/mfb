@@ -1,0 +1,822 @@
+{
+  "project": "datetime-arith-errors-rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 3 },
+    { "module": "datetime", "line": 4 },
+    { "module": "errorCode", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "maxI",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "9223372036854775807" }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "minI",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "-", "left": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775807" } }, "right": { "kind": "number", "value": "1" } }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "bigDt",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "datetime.DateTime",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "datetime.DateTime", "arguments": [{ "kind": "constructor", "type": "datetime.Date", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, { "kind": "constructor", "type": "datetime.Time", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, { "kind": "call", "callee": "datetime.utc", "arguments": [] }, { "kind": "call", "callee": "minI", "arguments": [] }] }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "far",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "datetime.DateTime",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }] }] }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "epochLocal",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": "datetime.DateTime",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "datetime.inZone", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "0" }] }, { "kind": "call", "callee": "datetime.local", "arguments": [] }] }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "report",
+      "line": 28,
+      "params": [
+      { "name": "name", "type": "String", "default": null, "line": 28 },
+      { "name": "code", "type": "Integer", "default": null, "line": 28 },
+      { "name": "want", "type": "Integer", "default": null, "line": 28 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "name" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "code" }, "right": { "kind": "identifier", "value": "want" } }] } }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 30 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "add",
+      "line": 33,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Instant", "value": { "kind": "call", "callee": "datetime.add", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }] }, { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "1" }] }] }, "line": 34 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "add" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 35 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 36,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "add" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 37 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "subtract",
+      "line": 41,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Instant", "value": { "kind": "call", "callee": "datetime.subtract", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "minI", "arguments": [] }] }, { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "1" }] }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "subtract" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 43 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 44,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "subtract" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 45 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "plus",
+      "line": 49,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Duration", "value": { "kind": "call", "callee": "datetime.plus", "arguments": [{ "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }] }, { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "1" }] }] }, "line": 50 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "plus" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 51 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 52,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "plus" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 53 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "minus",
+      "line": 57,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Duration", "value": { "kind": "call", "callee": "datetime.minus", "arguments": [{ "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "call", "callee": "minI", "arguments": [] }] }, { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "1" }] }] }, "line": 58 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "minus" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 59 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 60,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "minus" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 61 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "negate",
+      "line": 65,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Duration", "value": { "kind": "call", "callee": "datetime.negate", "arguments": [{ "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "call", "callee": "minI", "arguments": [] }] }] }, "line": 66 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "negate" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 67 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 68,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "negate" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 69 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "between",
+      "line": 73,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Duration", "value": { "kind": "call", "callee": "datetime.between", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "minI", "arguments": [] }] }, { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }] }] }, "line": 74 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "between" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 75 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 76,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "between" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 77 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "instant2",
+      "line": 81,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }, { "kind": "number", "value": "1000000000" }] }, "line": 82 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "instant2" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 83 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 84,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "instant2" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 85 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "instant3",
+      "line": 89,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 90 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "instant3" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 91 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 92,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "instant3" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 93 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "instant4",
+      "line": 97,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 98 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "instant4" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 99 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 100,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "instant4" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 101 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "instant5",
+      "line": 105,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 106 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "instant5" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 107 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 108,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "instant5" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 109 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "duration2",
+      "line": 113,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Duration", "value": { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "call", "callee": "minI", "arguments": [] }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 114 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "duration2" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 115 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 116,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "duration2" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 117 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "duration3",
+      "line": 121,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Duration", "value": { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 122 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "duration3" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 123 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 124,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "duration3" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 125 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "duration4",
+      "line": 129,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Duration", "value": { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 130 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "duration4" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 131 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 132,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "duration4" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 133 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "duration5",
+      "line": 137,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Duration", "value": { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 138 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "duration5" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 139 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 140,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "duration5" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 141 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "toMillis",
+      "line": 145,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "callee": "datetime.toMillis", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }] }] }, "line": 146 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "toMillis" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 147 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 148,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "toMillis" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 149 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "toNanos",
+      "line": 153,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "callee": "datetime.toNanos", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "10000000000" }] }] }, "line": 154 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "toNanos" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 155 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 156,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "toNanos" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 157 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "addDaysOverflow",
+      "line": 161,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.addDays", "arguments": [{ "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "0" }] }] }, { "kind": "call", "callee": "maxI", "arguments": [] }] }, "line": 162 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "addDaysOverflow" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 163 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 164,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "addDaysOverflow" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 165 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "addDaysLocal",
+      "line": 169,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.addDays", "arguments": [{ "kind": "call", "callee": "epochLocal", "arguments": [] }, { "kind": "number", "value": "1000000000000" }] }, "line": 170 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "addDaysLocal" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 171 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 172,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "addDaysLocal" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" }] }, "line": 173 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "addMonthsOverflow",
+      "line": 177,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.addMonths", "arguments": [{ "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "0" }] }] }, { "kind": "call", "callee": "maxI", "arguments": [] }] }, "line": 178 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "addMonthsOverflow" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 179 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 180,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "addMonthsOverflow" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 181 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "addMonthsLocal",
+      "line": 185,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.addMonths", "arguments": [{ "kind": "call", "callee": "epochLocal", "arguments": [] }, { "kind": "number", "value": "100000000000" }] }, "line": 186 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "addMonthsLocal" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 187 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 188,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "addMonthsLocal" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" }] }, "line": 189 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "startOfDayOverflow",
+      "line": 193,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.startOfDay", "arguments": [{ "kind": "call", "callee": "far", "arguments": [] }] }, "line": 194 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "startOfDayOverflow" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 195 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 196,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "startOfDayOverflow" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 197 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "startOfDayLocal",
+      "line": 201,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "constructor", "type": "datetime.DateTime", "arguments": [{ "kind": "constructor", "type": "datetime.Date", "arguments": [{ "kind": "number", "value": "3000000000" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, { "kind": "constructor", "type": "datetime.Time", "arguments": [{ "kind": "number", "value": "12" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, { "kind": "call", "callee": "datetime.local", "arguments": [] }, { "kind": "number", "value": "0" }] }, "line": 202 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.startOfDay", "arguments": [{ "kind": "identifier", "value": "dt" }] }, "line": 203 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "startOfDayLocal" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 204 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 205,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "startOfDayLocal" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" }] }, "line": 206 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "withZoneOverflow",
+      "line": 210,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.withZone", "arguments": [{ "kind": "call", "callee": "far", "arguments": [] }, { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "number", "value": "3600" }] }] }, "line": 211 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "withZoneOverflow" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 212 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 213,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "withZoneOverflow" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 214 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "withZoneLocal",
+      "line": 218,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.withZone", "arguments": [{ "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "100000000000000000" }] }] }, { "kind": "call", "callee": "datetime.local", "arguments": [] }] }, "line": 219 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "withZoneLocal" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 220 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 221,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "withZoneLocal" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" }] }, "line": 222 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dayOfYear",
+      "line": 226,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "callee": "datetime.dayOfYear", "arguments": [{ "kind": "call", "callee": "bigDt", "arguments": [] }] }, "line": 227 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "dayOfYear" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 228 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 229,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "dayOfYear" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 230 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "weekday",
+      "line": 234,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Weekday", "value": { "kind": "call", "callee": "datetime.weekday", "arguments": [{ "kind": "call", "callee": "bigDt", "arguments": [] }] }, "line": 235 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "weekday" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 236 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 237,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "weekday" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 238 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "resolve",
+      "line": 242,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "datetime.Instant", "value": { "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "call", "callee": "bigDt", "arguments": [] }] }, "line": 243 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "resolve" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 244 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 245,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "resolve" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 246 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "formatToken",
+      "line": 250,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "0" }] }] }, { "kind": "string", "value": "q" }] }, "line": 251 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "formatToken" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 252 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 253,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "formatToken" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" }] }, "line": 254 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "formatOverflow",
+      "line": 258,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "call", "callee": "bigDt", "arguments": [] }, { "kind": "string", "value": "ZZ" }] }, "line": 259 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "formatOverflow" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 260 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 261,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "formatOverflow" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 262 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "formatDuration",
+      "line": 266,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "datetime.formatDuration", "arguments": [{ "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }] }] }, "line": 267 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "formatDuration" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 268 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 269,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "formatDuration" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 270 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "toIso1",
+      "line": 274,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "call", "callee": "bigDt", "arguments": [] }] }, "line": 275 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "toIso1" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 276 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 277,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "toIso1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 278 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "toIso2",
+      "line": 282,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "call", "callee": "bigDt", "arguments": [] }, { "kind": "number", "value": "9" }] }, "line": 283 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "toIso2" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 284 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 285,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "toIso2" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "identifier", "value": "errorCode.ErrOverflow" }] }, "line": 286 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "quiet",
+      "line": 291,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "datetime.Instant", "value": { "kind": "call", "callee": "datetime.fromMillis", "arguments": [{ "kind": "call", "callee": "minI", "arguments": [] }] }, "line": 292 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "datetime.Instant", "value": { "kind": "call", "callee": "datetime.fromMillis", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }] }, "line": 293 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }] }] }, "line": 294 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "minI", "arguments": [] }] }] }, "line": 295 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "Integer", "value": { "kind": "call", "callee": "datetime.compare", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "minI", "arguments": [] }] }, { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "call", "callee": "maxI", "arguments": [] }] }] }, "line": 296 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Boolean", "value": { "kind": "call", "callee": "datetime.isLeapYear", "arguments": [{ "kind": "call", "callee": "minI", "arguments": [] }] }, "line": 297 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "Integer", "value": { "kind": "call", "callee": "datetime.daysInMonth", "arguments": [{ "kind": "call", "callee": "minI", "arguments": [] }, { "kind": "number", "value": "2" }] }, "line": 298 },
+      { "kind": "binding", "mutable": false, "name": "h", "type": "Integer", "value": { "kind": "call", "callee": "datetime.dayOfYear", "arguments": [{ "kind": "call", "callee": "far", "arguments": [] }] }, "line": 299 },
+      { "kind": "binding", "mutable": false, "name": "i", "type": "datetime.Instant", "value": { "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "call", "callee": "far", "arguments": [] }] }, "line": 300 },
+      { "kind": "binding", "mutable": false, "name": "j", "type": "String", "value": { "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "call", "callee": "far", "arguments": [] }] }, "line": 301 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "quiet" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 302 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 303,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "quiet" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, { "kind": "number", "value": "0" }] }, "line": 304 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 308,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r1", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "add", "arguments": [] }, "right": { "kind": "call", "callee": "subtract", "arguments": [] } }, "right": { "kind": "call", "callee": "plus", "arguments": [] } }, "right": { "kind": "call", "callee": "minus", "arguments": [] } }, "right": { "kind": "call", "callee": "negate", "arguments": [] } }, "right": { "kind": "call", "callee": "between", "arguments": [] } }, "line": 309 },
+      { "kind": "binding", "mutable": false, "name": "r2", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "instant2", "arguments": [] }, "right": { "kind": "call", "callee": "instant3", "arguments": [] } }, "right": { "kind": "call", "callee": "instant4", "arguments": [] } }, "right": { "kind": "call", "callee": "instant5", "arguments": [] } }, "line": 310 },
+      { "kind": "binding", "mutable": false, "name": "r3", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "duration2", "arguments": [] }, "right": { "kind": "call", "callee": "duration3", "arguments": [] } }, "right": { "kind": "call", "callee": "duration4", "arguments": [] } }, "right": { "kind": "call", "callee": "duration5", "arguments": [] } }, "line": 311 },
+      { "kind": "binding", "mutable": false, "name": "r4", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "toMillis", "arguments": [] }, "right": { "kind": "call", "callee": "toNanos", "arguments": [] } }, "line": 312 },
+      { "kind": "binding", "mutable": false, "name": "r5", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "addDaysOverflow", "arguments": [] }, "right": { "kind": "call", "callee": "addDaysLocal", "arguments": [] } }, "right": { "kind": "call", "callee": "addMonthsOverflow", "arguments": [] } }, "right": { "kind": "call", "callee": "addMonthsLocal", "arguments": [] } }, "line": 313 },
+      { "kind": "binding", "mutable": false, "name": "r6", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "startOfDayOverflow", "arguments": [] }, "right": { "kind": "call", "callee": "startOfDayLocal", "arguments": [] } }, "right": { "kind": "call", "callee": "withZoneOverflow", "arguments": [] } }, "right": { "kind": "call", "callee": "withZoneLocal", "arguments": [] } }, "line": 314 },
+      { "kind": "binding", "mutable": false, "name": "r7", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "dayOfYear", "arguments": [] }, "right": { "kind": "call", "callee": "weekday", "arguments": [] } }, "right": { "kind": "call", "callee": "resolve", "arguments": [] } }, "line": 315 },
+      { "kind": "binding", "mutable": false, "name": "r8", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "formatToken", "arguments": [] }, "right": { "kind": "call", "callee": "formatOverflow", "arguments": [] } }, "right": { "kind": "call", "callee": "formatDuration", "arguments": [] } }, "right": { "kind": "call", "callee": "toIso1", "arguments": [] } }, "right": { "kind": "call", "callee": "toIso2", "arguments": [] } }, "line": 316 },
+      { "kind": "binding", "mutable": false, "name": "r9", "type": "Integer", "value": { "kind": "call", "callee": "quiet", "arguments": [] }, "line": 317 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 318 }
+      ]
+    }
+    ]
+  }
+  ]
+}

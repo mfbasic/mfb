@@ -1,0 +1,41 @@
+$ mfb build -ast -ir tests/rt-behavior/datetime/datetime-parse-strict-rt
+Wrote AST to tests/rt-behavior/datetime/datetime-parse-strict-rt/datetime-parse-strict-rt.ast
+Wrote IR to tests/rt-behavior/datetime/datetime-parse-strict-rt/datetime-parse-strict-rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/datetime/datetime-parse-strict-rt
+Wrote executable to tests/rt-behavior/datetime/datetime-parse-strict-rt/build/datetime-parse-strict-rt.out
+[exit 0]
+$ tests/rt-behavior/datetime/datetime-parse-strict-rt/build/datetime-parse-strict-rt.out
+isoTrailZ=77050003 format=TRUE
+isoTrailOffset=77050003 format=TRUE
+isoTrailSpace=77050003 format=TRUE
+patTrail=77050003 format=TRUE
+patTrailOffset=77050003 format=TRUE
+patTrailDigit=77050003 format=TRUE
+isoMin75=77050003 format=TRUE
+isoMin60=77050003 format=TRUE
+isoSec60=77050003 format=TRUE
+isoHour1=77050003 format=TRUE
+isoMin1=77050003 format=TRUE
+isoSec1=77050003 format=TRUE
+isoHourOnly=77050003 format=TRUE
+isoColonNoSec=77050003 format=TRUE
+patMin75=77050003 format=TRUE
+patHour1=77050003 format=TRUE
+isoPlus24=77050003 format=TRUE
+isoMinus24=77050003 format=TRUE
+isoPlus99=77050003 format=TRUE
+patPlus24=77050003 format=TRUE
+okZ=ACCEPTED 1767225600 off=0
+okLowerZ=ACCEPTED 1767225600 off=0
+okMax=ACCEPTED 1767139201 off=86399
+okMin=ACCEPTED 1767311999 off=-86399
+okCompactMax=ACCEPTED 1767311999 off=-86399
+okMinute59=ACCEPTED 1767204060 off=21540
+okZero=ACCEPTED 1767225600 off=0
+okFraction=ACCEPTED 1767222000 off=3600
+okPatNoOffset=ACCEPTED 1767225600 off=0
+okPatLiteralTail=ACCEPTED 1767225600 off=0
+okPatOffset=ACCEPTED 1767254400 off=-28800
+okPatSecondsOffset=ACCEPTED 1767221970 off=3630
+[exit 0]

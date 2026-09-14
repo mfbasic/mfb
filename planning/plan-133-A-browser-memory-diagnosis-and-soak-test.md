@@ -1,36 +1,37 @@
-# plan-133-A: where the browser's memory goes, and an app-sized soak test
+# plan-133-A: where the browser worker's remaining memory goes, and an app-sized soak test
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 Overall Effort: x-large (1d–3d)
 Effort: large (3h–1d)
 Depends on: nothing
 
 `planning/todo.md` § Memory § 2 asks why a browser page load leaves the fetch worker
-holding 841–856 MB it never reads again, and § 1 item 3 asks for an app-sized soak test
-that fails today and will say when a fix works. This letter answers § 2 with
-per-stage measurements from the plan-130 `--debug` report, classifies every leaking
-stage against the known open defect (bug-536 Shape C: a value of a recursive type is
-never freed), files a bug for every leak that is *not* Shape C, and lands the soak test.
+holding memory it never reads again, and § 1 item 3 asks for an app-sized soak test. When
+this plan was written (2026-09-12) the answer looked like bug-536 Shape C: a value of a
+recursive type was never freed. plan-134 (A–I, archived in `planning/completed/`) has
+since fixed Shape C. Re-measured on 2026-09-13, the main thread's growth is gone, but the
+worker still ends a page load holding **736–751 MB**, far more than the page it hands back.
+This letter finds where that memory is, stage by stage, files a bug for every leak it
+finds, and lands a soak test that guards the leaks plan-134 fixed.
 
-Behavioral outcome: `planning/todo.md` § 2 records, for each stage of a page load
-(fetch, parse, index, stylesheets, the copy back to the main thread, render), the
-live bytes it leaves per call and which defect owns them; and
-`tests/runtime/rt_debug_soak.rs` exists with a flat-workload control that passes and a
-recursive-workload soak case that fails on today's compiler for the documented reason.
+Behavioral outcome: `planning/todo.md` § 2 records, for each stage of a page load (parse,
+style links, attach css, resolve styles, index fields, the copy back to the main thread,
+links/fields, paint, fetch), the live bytes it leaves per call and the bug that owns them
+(or "flat"). `tests/runtime/rt_debug_soak.rs` exists: its flat cases pass, and every leak
+this letter files has a case marked with that bug's number.
 
-This letter diagnoses; it fixes nothing. Shape C's fix is a design plan of its own by
-the user's ruling (bug-536 § "USER DECISION (2026-09-06) — shape C leaves the bug
-backlog"), and this plan must not absorb it.
+This letter diagnoses; it fixes nothing.
 
 References — read these first:
 
 - `planning/todo.md` § Memory (§ 1 item 3, § 2).
-- `bugs/bug-536-scope-drop-leaks-recursive-types-return-constructor-string-temps.md`
-  — Shape C, and "Shape C is blocked on recursive COPY-insertion".
+- `planning/completed/plan-134-H-collection-element-drops-and-close-out.md` — what Shape C's
+  fix covers, and the `json_repeat` / `regex_repeat` flat cases it added to
+  `rt_scope_drop_leaks.rs`.
+- `bugs/completed/bug-536-scope-drop-leaks-recursive-types-return-constructor-string-temps.md`.
 - `src/docs/spec/tooling/09_debug-report.md` — the report's `arena.*` keys.
 - `tests/runtime/rt_debug_arena.rs` — build/run/parse helpers this letter reuses.
 - `tests/runtime/rt_scope_drop_leaks.rs` — the N vs 2N convention.
-- memory note `recursive-type-values-are-second-class`.
 
 ## Prerequisites
 
@@ -38,10 +39,11 @@ The plan-133 family (A–C) is gated here; B and C point to this table.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-130 landed (the `--debug` report exists) | `ls planning/completed/plan-130-E-*` → one match | MET (2026-09-12) |
-| plan-133 number unclaimed elsewhere | `git log --all --oneline --grep plan-133` → only this family | MET (2026-09-12) |
-| The browser Wikipedia crash is fixed | `git merge-base --is-ancestor 6a29185d3 main && echo yes` → `yes` | MET (2026-09-12) |
-| Box 2223 reachable with network | `ssh -p 2223 test@127.0.0.1 'curl -sS -m 10 -o /dev/null -w %{http_code} https://en.wikipedia.org/wiki/BASIC'` → `200` | MET (2026-09-12) |
+| plan-130 landed (the `--debug` report exists) | `ls planning/completed/plan-130-E-*` → one match | MET (2026-09-13) |
+| plan-134 landed (Shape C fixed) | `ls planning/completed/plan-134-H-*` → one match | MET (2026-09-13) |
+| plan-133 number unclaimed elsewhere | `git log --all --oneline --grep plan-133` → only this family | MET (2026-09-13) |
+| The browser Wikipedia crash is fixed | `git merge-base --is-ancestor 6a29185d3 main && echo yes` → `yes` | MET (2026-09-13) |
+| Box 2223 reachable with network | `ssh -p 2223 test@127.0.0.1 'curl -sS -m 10 -o /dev/null -w %{http_code} https://en.wikipedia.org/wiki/BASIC'` → `200` | MET (2026-09-13) |
 
 Everything below is written against the world where these hold.
 
@@ -56,18 +58,22 @@ Everything below is written against the world where these hold.
 
 - `planning/todo.md` § 2 item 1 ("never freed, or freed but not reused?") answered with a
   measurement on the browser's own `dom::parse`, on the main thread, at N=1 and N=2.
-- A per-stage table in § 2: live bytes left per call for each stage in §4.2, and the
-  owning defect (bug-536 Shape C, or a new bug number).
-- One `bugs/bug-NNN-*.md` per leaking stage that Shape C does not explain (zero if none).
-- `tests/runtime/rt_debug_soak.rs` with the two cases in §4.3.
+- A per-stage table in § 2: live bytes left per call for each stage in §4.2, and the owner
+  (a bug number, or "flat").
+- One `bugs/bug-NNN-*.md` per leaking stage (zero if none).
+- § 2 states whether the per-stage leaks account for the worker's measured live bytes
+  (751,305,088 B for `Main_Page`, within 10%), or names what is left.
+- `tests/runtime/rt_debug_soak.rs` with the cases in §4.3.
 - The Bucket List in `planning/todo.md` gains the Apple Silicon page-size finding (§2).
 
 ### Non-goals (explicit constraints)
 
-- No compiler, runtime, or allocator change. The only source changes are the new test
-  file and planning/bug documents.
-- No fix for Shape C or for any bug this letter files.
+- No compiler, runtime, or allocator change. The only source change is the new test file;
+  everything else is planning and bug documents.
+- No fix for any bug this letter files.
 - No change to `examples/browser` (it is the workload, not the defect).
+- Not worker-arena reclamation (Bucket List 1). That frees a finished worker's whole arena;
+  this letter asks why the worker holds live allocations in the first place.
 
 ## 2. Current State
 
@@ -76,10 +82,9 @@ Everything below is written against the world where these hold.
 `alloc_calls`, `free_calls`, `live_bytes`, `peak_live_bytes`, `hit_*`, `grow`,
 `flushes`, …) and `process.peak_rss_bytes` (`src/codegen/debug/process.rs`).
 
-**Shape C.** `is_freeable_flat_value` (`src/codegen/engine/value/builder_values.rs`)
-is false for a type that reaches itself, so a binding of such a type gets no scope-drop
-free. `json::Json`, `canvas::DrawItem`, the regex continuations, and — by the same rule
-— the browser's `dom::Node` are recursive (memory `recursive-type-values-are-second-class`).
+**Recursive values.** plan-134 made recursive values (`json::Json`, `dom::Node`, …)
+copied at owning stores and freed exactly once (`_mfb_rt_graph_drop`, letters F–H). The
+`json::parse` loop that leaked 53 MB per parse on 2026-09-12 is now flat (§ Measured).
 
 **The browser pipeline** (`examples/browser`): the worker `fetch::fetch`
 (`examples/browser/fetch/src/lib.mfb`) runs `http::read` (following redirects), then
@@ -93,28 +98,53 @@ Measured: `sed -n '/^FUNC pageResult/,/^END FUNC/p' examples/browser/fetch/src/l
 
 ### Measured populations
 
-| What | Value | Command |
+Browser runs: `mfb build --debug --target linux-aarch64` of `examples/browser` (its three
+packages rebuilt from source), run on box 2223 in a 120x40 pty by `drive-browser.exp`
+(load the page, wait 40 s, `q`). Every run below loaded and rendered the page and exited 0
+(checked by replaying the captured screen).
+
+| Run | Arena | maps | mapped B | alloc calls | alloc B | free calls | live at exit B | peak live B |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `Main_Page`, main `f31de1d37` (2026-09-12, before plan-134) | main | 15,236 | 174,211,072 | 290,570 | 268,876,176 | 194,790 | 112,143,664 | 114,652,480 |
+| same | worker | 192,273 | 895,041,536 | 109,560,293 | 4,006,566,864 | 67,918,823 | 841,424,896 | 842,257,648 |
+| `Main_Page`, main `db8e34157` (2026-09-13, after plan-134) | main | 5,125 | 121,880,576 | 378,914 | 413,522,096 | 372,100 | 4,678,544 | 33,909,584 |
+| same | worker | 189,654 | 858,677,248 | 113,507,047 | 5,887,193,872 | 70,952,128 | 751,305,088 | 775,704,320 |
+| `BASIC`, main `f31de1d37` (2026-09-12) | main | 15,052 | 140,185,600 | 175,730 | 207,729,408 | 101,950 | 126,885,440 | 128,348,752 |
+| same | worker | 194,378 | 940,584,960 | 112,504,257 | 4,309,203,872 | 71,072,133 | 856,035,392 | 857,598,432 |
+| `BASIC`, main `db8e34157` (2026-09-13) | main | 4,140 | 71,380,992 | 254,343 | 325,823,296 | 249,814 | 5,479,744 | 36,252,224 |
+| same | worker | 184,728 | 880,959,488 | 114,198,542 | 6,093,716,864 | 72,756,959 | 735,804,400 | 758,952,576 |
+
+`process.peak_rss_bytes`: 1,083,760,640 / 1,095,602,176 (2026-09-12, `Main_Page` / `BASIC`)
+→ 995,594,240 / 967,356,416 (2026-09-13).
+
+| Probe (macOS host, `--debug`) | Result | Command |
 |---|---|---|
-| Browser `Main_Page` load, box 2223, main `f31de1d37`, `--debug` | worker: 109,560,293 allocs, 67,918,823 frees, 841,424,896 B live at exit; main: 112,143,664 B live | `drive-browser.exp` run recorded in `planning/todo.md` § 2 (2026-09-12) |
-| Browser `BASIC` load, same | worker 856,035,392 B live; main 126,885,440 B live | same |
-| `json::parse` of a 1,146,842-byte array, loop N=20 vs N=40, macOS, `--debug` | `arena.0.live_bytes` 1,059,198,720 → 2,118,397,440 (linear, 52,959,936 B per parse); `maps` 269,946 → 539,886 | `/tmp/probe-json/p20`, `p40` (source in §4.3) → report lines |
-| `strings::split(text, ",")` of the same text, N=20 vs N=40 | `live_bytes` 0 → 0; `maps` 3 → 3; `alloc_calls` 23 → 43 = `free_calls` | `/tmp/probe-json/s20`, `s40` |
+| `json::parse` of a 1,146,842-byte array, loop N=20 vs N=40, main `f31de1d37` (2026-09-12) | `live_bytes` 1,059,198,720 → 2,118,397,440 (52,959,936 B per parse); `maps` 269,946 → 539,886; peak RSS 4,452,155,392 at N=20 | `/tmp/probe-json/p20`, `p40` |
+| same, main `78550d5e0` (2026-09-13, after plan-134; code identical to `db8e34157`, which added only a backlog doc) | `live_bytes` 0 → 0; `maps` 9,016 → 9,016; `alloc_calls` = `free_calls` (31,833,542 / 63,667,082); peak RSS 165,085,184 both | same programs, fresh release build |
+| `strings::split(text, ",")`, same text, N=20 vs N=40 (2026-09-12) | `live_bytes` 0 → 0; `maps` 3 → 3 | `/tmp/probe-json/s20`, `s40` |
 | Page size, macOS host vs box 2223 | 16,384 vs 4,096 | `sysctl -n hw.pagesize`; `ssh -p 2223 … getconf PAGESIZE` |
-| JSON probe N=20: maps × 16,384 vs peak RSS | 4,422,795,264 vs 4,452,155,392 | arithmetic on the row above |
+| JSON probe N=20 (2026-09-12): maps × 16,384 vs peak RSS | 4,422,795,264 vs 4,452,155,392 | arithmetic on the rows above |
 
 ### Verified properties
 
 - *The report's counters equal strace on a normal allocation workload* —
   `yamljson to-json samples/config.yaml --debug`: `arena.0.maps 12` equals the 12
   executable-IP anonymous maps counted by strace (2026-09-12).
-- *A flat value loop does not grow* — the `strings::split` row above.
-- *A recursive value loop grows linearly* — the `json::parse` row above. This is the
-  Shape C signature and the soak test's failing case.
+- *plan-134 removed the recursive-value leak on the JSON workload* — the two `json::parse`
+  rows above.
+- *plan-134 removed the main thread's growth in the browser* — main-arena live at exit
+  112,143,664 → 4,678,544 (`Main_Page`) and 126,885,440 → 5,479,744 (`BASIC`).
+- *The worker's remaining live bytes are not the page it returns* — the main arena, which
+  receives that page from `thread::waitFor`, never holds more than 33,909,584 B live
+  (`Main_Page`) or 36,252,224 B (`BASIC`), counting the render too. The worker ends with
+  751,305,088 B / 735,804,400 B. So at least 717,395,504 B (`Main_Page`) and 699,552,176 B
+  (`BASIC`) in the worker is something other than the returned document.
+- *plan-134's copies raised allocation volume* — the worker requests 5,887,193,872 B vs
+  4,006,566,864 B before (×1.47, `Main_Page`) and 6,093,716,864 B vs 4,309,203,872 B
+  (×1.41, `BASIC`).
 - *On Apple Silicon each 4 KiB arena block costs a 16 KiB page* — the page-size and
-  maps × 16,384 rows: RSS ≈ 4× `mapped_bytes` on macOS, ≈ `mapped_bytes` on 2223
-  (browser `Main_Page`: RSS 1,083,760,640 vs mapped 1,069,252,608).
-- UNVERIFIED — that `dom::Node` is recursive in the `is_freeable_flat_value` sense.
-  Phase 1's parse-twice run decides it by measurement.
+  maps × 16,384 rows: RSS ≈ 4× `mapped_bytes` on macOS, ≈ `mapped_bytes` on 2223.
+- UNVERIFIED — that `dom::parse` alone is flat after plan-134. Phase 1 decides it.
 - UNVERIFIED — that a scratch project can depend on `examples/browser/dom` as a source
   package with `"source": "file:packages/dom"` (the form documented at the top of
   `src/cli/build/source_packages.rs`). Phase 1's first task proves it.
@@ -128,21 +158,23 @@ nothing leaks. No instrumentation is added.
 
 Where each run happens: **the macOS host** for every per-stage measurement —
 `live_bytes`, `alloc_calls` and `free_calls` are page-size independent, and the host
-build is fastest. **Box 2223** (native aarch64, 4 KiB pages) only for the one full
-browser load that re-checks the attribution sums against the real worker.
+build is fastest. **Box 2223** (native aarch64, 4 KiB pages) only for the full browser
+load the stages are reconciled against (the 2026-09-13 rows above).
 
 **Risk:** misattribution — a stage measured in isolation may not leak the way it does
-inside the worker (e.g. only when the value crosses `thread::waitFor`). Phase 3 closes
-that by requiring the per-stage leaks to add up to the worker's measured live bytes
-within 10%; if they do not, the gap is itself a finding that gets a row.
+inside the worker (for example, only when the value crosses `thread::waitFor`, or only in
+a worker arena). Phase 3 closes that by requiring the per-stage leaks to add up to the
+worker's measured live bytes within 10%; if they do not, the gap is itself a finding that
+gets a row, and the next measurement runs the suspect stage inside a `thread::start` worker.
 
 ### Rejected alternatives
 
 - *Per-call-site allocation attribution in the report.* Correct but a codegen feature;
   the stage programs answer § 2 without touching the compiler.
-- *Fixing Shape C here.* Ruled out by the user (bug-536).
 - *Asserting RSS in the soak test.* RSS is page-size dependent (4× on Apple Silicon);
   `live_bytes` is not.
+- *Reclaiming the worker arena instead.* Bucket List 1 is a separate problem; it would hide
+  these live bytes from the report without explaining them.
 
 ## 4. Detailed Design
 
@@ -177,15 +209,20 @@ once, before the loop, on the saved input.
 ### 4.3 The soak test
 
 `tests/runtime/rt_debug_soak.rs`, reusing `rt_debug_arena.rs`'s helpers
-(`build_debug`, `run_ok`, `arena_lines`, `counter` — moved to `tests/common` if both
-files need them):
+(`build_debug`, `run_ok`, `arena_lines`, `counter` — moved to `tests/common` per Open
+Decision 2):
 
 - `a_flat_split_loop_keeps_live_bytes_constant` — `strings::split` over a generated
-  1 MiB string, N=20 vs N=40: `live_bytes` equal. Passes today.
-- `a_json_parse_loop_keeps_live_bytes_constant` — `json::parse` of a generated
-  ~1 MiB JSON array (built in Rust, same shape as the probe), N=20 vs N=40:
-  `live_bytes(40) − live_bytes(20) < 1 MiB`. **Fails today** (measured: +1,059,198,720 B).
-  Marked per Open Decision 1.
+  1 MiB string, N=20 vs N=40: `live_bytes` equal. The method's control; passes today.
+- `a_json_parse_loop_keeps_live_bytes_constant` — `json::parse` of a generated ~1 MiB JSON
+  array (built in Rust, the probe's shape), N=20 vs N=40: `live_bytes(40) − live_bytes(20)
+  < 1 MiB`. Guards plan-134's fix at an app-sized input. **Passes today** (measured 0 → 0);
+  it failed on 2026-09-12 with +1,059,198,720 B.
+- `a_dom_parse_loop_keeps_live_bytes_constant` — `dom::parse` of the saved `BASIC` HTML
+  (committed as a test input under `tests/runtime/data/`), N=2 vs N=4. Passes if Phase 1
+  finds `dom::parse` flat; otherwise it lands marked per Open Decision 1 with the bug Phase 2
+  files.
+- One case per leaking stage from Phase 2, same N vs 2N shape, marked per Open Decision 1.
 
 ## Phases
 
@@ -215,23 +252,25 @@ Commit: —
       under 60 s on the host; record N). Check per stage: two report files (~1–2 min each).
 - [ ] § 2 table: stage, N, leak per call (bytes), `alloc_calls`/`free_calls` per call,
       verdict.
-- [ ] For each leaking stage, decide ownership: build a one-screen repro of the leaking
-      value's type; if the type is recursive (reaches itself), it is Shape C; otherwise
-      run the write-bug skill and file `bugs/bug-NNN-<slug>.md` with the repro and both
-      measurements.
+- [ ] For each leaking stage, run the write-bug skill and file `bugs/bug-NNN-<slug>.md`
+      with a one-screen repro and both measurements. Before filing, check the open bugs and
+      `planning/bug-backlog.md` for the same shape (`grep -rli` on the leaking value's type
+      and operation), and cite the match instead if one exists.
 
-Acceptance: every stage has a row with an owner (Shape C or a bug number); every filed bug
+Acceptance: every stage has a row with an owner (a bug number, or "flat"); every filed bug
 has a failing reproduction per the write-bug skill.
 Commit: —
 
 ### Phase 3 — reconcile with the real worker
 
-- [ ] On box 2223 (native aarch64, 4 KiB pages), the recorded `Main_Page` worker live bytes
-      (841,424,896) vs the sum of per-stage leaks for one load (parse + style links + attach css +
-      resolve styles + index fields, as the worker runs them). Check: arithmetic against § 2's table; no new
-      run unless a stage's N-scaling needs confirming on Linux (then one stage run, ~2 min).
-- [ ] If the sum is outside ±10% of the worker's number, add a row naming the unexplained
-      remainder and the next measurement that would localize it.
+- [ ] Compare the 2026-09-13 `Main_Page` worker live bytes (751,305,088) with the sum of
+      per-stage leaks for one load (parse + style links + attach css + resolve styles +
+      index fields, as the worker runs them). Check: arithmetic against § 2's table; no new
+      run.
+- [ ] If the sum is outside ±10%, run the largest-leaking stage inside a `thread::start`
+      worker on the host (one run, ~2 min) and record whether the worker context changes it;
+      add a row naming any unexplained remainder and the next measurement that would
+      localize it.
 
 Acceptance: § 2 states whether the stages account for the worker's live bytes (within 10%)
 or names the remainder.
@@ -239,41 +278,54 @@ Commit: —
 
 ### Phase 4 — the soak test and the Bucket List
 
-- [ ] `tests/runtime/rt_debug_soak.rs` with both §4.3 cases, marked per Open Decision 1.
-      Check: `cargo test --release --test rt_debug_soak -- --include-ignored` → the flat
-      case passes and the json case fails with the §4.3 message (~3 min).
+- [ ] `tests/runtime/rt_debug_soak.rs` with the §4.3 cases, marked per Open Decision 1.
+      Check: `cargo test --release --test rt_debug_soak -- --include-ignored` → the flat,
+      json and (if flat) dom cases pass, and each bug-marked case fails with its bug's
+      message (~3 min).
 - [ ] `planning/todo.md` Bucket List: add the page-size finding (4 KiB default block vs
       16 KiB pages on Apple Silicon; the JSON probe numbers) under "Look into".
 - [ ] `planning/todo.md` § 1 item 3: record the test name and its status.
 
-Acceptance: the check above produces exactly one pass and one failure with the Shape C
-message; `git grep -n "rt_debug_soak" planning/todo.md` → one match.
+Acceptance: the check above passes every unmarked case and fails every bug-marked case with
+its message; `git grep -n "rt_debug_soak" planning/todo.md` → one match.
 Commit: —
 
 ## Validation Plan
 
-- Tests: `tests/runtime/rt_debug_soak.rs` (flat control active; json case per Open Decision 1).
-- Runtime proof: the stage measurements (host) and the reconciliation (2223) recorded in
-  `planning/todo.md` § 2.
+- Tests: `tests/runtime/rt_debug_soak.rs` (flat, json and dom cases active; one bug-marked
+  case per leak found).
+- Runtime proof: the stage measurements (host) and the reconciliation against the 2026-09-13
+  2223 run, recorded in `planning/todo.md` § 2.
 - Doc sync: `planning/todo.md` § 1, § 2, Bucket List; any filed bug documents.
 - Full suite: none for this letter — it changes no compiler code; the one new test file is
   checked by its own run above. The family's full suite runs once at the end of plan-133-C.
 
 ## Open Decisions
 
-1. **How the failing soak case lands** — recommended: `#[ignore = "bug-536 Shape C: a
-   recursive value is never freed; run with --include-ignored"]`, so CI stays green and the
-   case is one flag away; the Shape C plan removes the `#[ignore]` as its acceptance.
-   Alternative: land it active and red (breaks CI until Shape C lands); or pin today's leak
-   as the expected value (asserts the bug).
+1. **How a failing soak case lands** — recommended: `#[ignore = "bug-NNN: <one-line shape>;
+   run with --include-ignored"]`, so CI stays green and the case is one flag away; the fix for
+   bug-NNN removes the `#[ignore]` as its acceptance. Alternative: land it active and red
+   (breaks CI until the fix lands); or pin today's leak as the expected value (asserts the bug).
 2. **Where the shared test helpers live** — recommended: move `build_debug`, `run_ok`,
    `arena_lines`, `counter` from `rt_debug_arena.rs` into `tests/common` when the second
    file needs them; alternative: duplicate them in the new file.
 
 ## Corrections
 
+- **2026-09-13 — re-scoped after plan-134 landed.** The plan was written (2026-09-12)
+  assuming bug-536 Shape C owned the worker's 841–856 MB, and that the soak test's json case
+  would fail. plan-134 fixed Shape C. Re-measured the same day on `db8e34157`: the
+  `json::parse` probe is flat (`live_bytes` 0 → 0), the main thread's live bytes at exit
+  fell from 112–127 MB to 4.7–5.5 MB, but the worker still holds 736–751 MB, of which at
+  least 700–717 MB is not the returned page (§ Verified properties). Changes: the goal is the
+  worker's remaining live bytes; leaks are classified by bug, not against Shape C; the json
+  soak case is a regression guard that passes today; a `dom::parse` case is added; plan-134
+  is a met prerequisite; the reconciliation target is 751,305,088 B.
+
 ## Summary
 
-A measurement letter: the risk is misattributing a leak to the wrong stage, closed by
-reconciling against the real worker. No compiler code changes; everything learned lands in
-`planning/todo.md` and in bug documents.
+A measurement letter aimed at the one large retention plan-134 did not remove: the worker
+ends each page load holding ~740 MB that is not the page it returns. The risk is
+misattributing that memory to the wrong stage, closed by reconciling against the real worker.
+No compiler code changes; everything learned lands in `planning/todo.md` and bug documents,
+and the soak test keeps plan-134's fix from regressing.

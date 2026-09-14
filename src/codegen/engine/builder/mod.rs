@@ -506,6 +506,18 @@ pub(crate) struct CodeBuilder<'a> {
     /// stays sound throughout (no mid-body clear needed). UNSOUND elision = silent
     /// OOB — gated by the whole-body-unmodified proof AND mandatory negative fixtures.
     pub(crate) provable_index_locals: HashMap<String, (String, i64)>,
+    /// plan-134-B: set only while `_mfb_rt_graph_copy`'s body is emitted. The copy's
+    /// edge sites read it to push a cycle-typed edge onto the walker's work stack
+    /// instead of calling a per-type copy function. `None` in every other builder.
+    pub(crate) graph_copy_walker:
+        Option<crate::codegen::memory::arena::graph_copy::GraphCopyWalker>,
+    /// plan-134-D: which owning stores of the NIR function being lowered read their
+    /// source for the last time (plan-134-C). `None` in a synthesized builder, where
+    /// every store copies.
+    pub(crate) move_sites: Option<crate::codegen::engine::analysis::last_use::MoveSites>,
+    /// plan-134-D: the `op_key` of the op `lower_ops_inner` is lowering — what a store
+    /// asks `move_sites` about.
+    pub(crate) current_op_key: Option<usize>,
 }
 
 impl<'a> CodeBuilder<'a> {
@@ -602,6 +614,9 @@ impl<'a> CodeBuilder<'a> {
             len_of_local: HashMap::new(),
             provable_index_locals: HashMap::new(),
             enclosing_loop_reassigned: Vec::new(),
+            graph_copy_walker: None,
+            move_sites: None,
+            current_op_key: None,
         }
     }
 }
@@ -781,8 +796,8 @@ pub(crate) struct OwnedValueCleanup {
     /// wrapper an inline `TRAP` built for a `Result OF T` whose `T` is not a flat
     /// value (a resource, or a collection of a recursive type), so
     /// `is_freeable_flat_value` gave the bind no drop at all.
-    /// The drop frees the one wrapper block by the size word at +8 and never walks
-    /// into its payload; see [`ResultWrapperDrop`] for which paths it covers.
+    /// The drop frees the one wrapper block by the size word at +8, walking into its
+    /// payload only for a recursive one; see [`ResultWrapperDrop`] for which paths it covers.
     ///
     /// `None` everywhere else.
     pub(crate) result_wrapper: Option<ResultWrapperDrop>,
@@ -803,6 +818,13 @@ pub(crate) enum ResultWrapperDrop {
     /// (`ResultError` is an aliasing source) exactly as it does for a flat `T`,
     /// so it is released when the tag is not Ok.
     ErrorOnly,
+    /// plan-134: the Ok payload is a recursive value (`owns_graph`) inlined at +16 — its top
+    /// block's bytes, pointing into a graph only the wrapper holds. Nothing aliases into it:
+    /// `ResultValue` is an aliasing source, so every owning store graph-copies it
+    /// (`lower_value_owned`, plan-134-D). On the Ok path the payload's edges are dropped
+    /// (`_mfb_rt_graph_drop_edges`, its bytes stay with the wrapper), and the wrapper is
+    /// released whatever its tag.
+    OkGraphPayload,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free
@@ -815,6 +837,9 @@ pub(crate) struct PendingTemp {
     pub(crate) type_: ParameterType,
     pub(crate) slot: usize,
     pub(crate) location: Operand,
+    /// plan-134-G: free only this block, not the graph it points into — a recursive value whose
+    /// top block a store byte-copied, so its children now belong to that store's owner.
+    pub(crate) shallow: bool,
 }
 
 /// bug-572: a capturing `LAMBDA` built as a call ARGUMENT, awaiting the free
@@ -944,6 +969,11 @@ pub(crate) struct TypeModel {
     /// is a routing name resolved through `resolve_closer_symbol`, which is
     /// where bug-374 and bug-377 live, not a type.
     pub(crate) resource_closers: HashMap<ParameterType, String>,
+    /// plan-134-H: the recursive-value drop walker's kinds, as rendered type names —
+    /// `recursive_transfer_types` in its order, then the resource-free record, union and
+    /// collection types that only reach a cycle (`graph_drop_kind_names`). Empty for a model
+    /// built without a module.
+    pub(crate) graph_drop_kinds: Vec<String>,
 }
 
 pub(crate) fn lower_module_for_platform(
@@ -1701,12 +1731,12 @@ pub(crate) fn lower_module_for_platform(
             type_model.clone(),
         )?);
     }
-    // A per-type runtime deep-copy function for every recursive type, so a
+    // A per-type runtime deep-copy entry point for every recursive type, so a
     // recursive value (e.g. `dom::Node`) can be transferred out of a worker arena
     // — `copy_value_to_current_arena` routes such a value's copy to a call to
     // `thread_copy_symbol(type)` rather than recursing over the type inline
-    // (bug-391). The functions reference one another for their sub-edges; the
-    // set is closed under that reference.
+    // (bug-391). plan-134-B: each is a shim into the one non-recursive walker,
+    // `_mfb_rt_graph_copy`, passing its index in this set's order as the kind.
     let recursive_copy_types = recursive_transfer_types(&type_model);
     // Their `arena_alloc`-failure path builds an error with an empty message, so
     // the empty-string data object must exist even if the module's own code did
@@ -1718,25 +1748,95 @@ pub(crate) fn lower_module_for_platform(
     {
         data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
     }
-    for type_ in recursive_copy_types {
+    // plan-134-H: the drop walker's kinds are `recursive_transfer_types` in its order,
+    // then the types that only reach a cycle (`TypeModel::graph_drop_kinds`), so the copy
+    // walker's kinds are exactly their prefix. Fail closed if that ever stops holding: a
+    // kind index is shared by the shims and both walkers.
+    let copy_kind_count = recursive_copy_types.len();
+    if type_model.graph_drop_kinds.len() < copy_kind_count
+        || !recursive_copy_types
+            .iter()
+            .zip(&type_model.graph_drop_kinds)
+            .all(|(copy_kind, drop_kind)| copy_kind == drop_kind)
+    {
+        return Err("the graph drop kinds do not start with the graph copy kinds".to_string());
+    }
+    let mut typed_kinds: Vec<(String, ParameterType)> = Vec::new();
+    for (kind, name) in type_model.graph_drop_kinds.iter().enumerate() {
         // `recursive_transfer_types` returns rendered names (the emission ORDER
         // is observable in the `.ncode`); parse each back once, here, for the
-        // typed emitters below.
-        let type_ = ParameterType::declared(&type_);
-        let symbol = thread_copy_symbol(&type_);
-        code_functions.push(lower_thread_copy_function(
-            &type_,
-            &symbol,
-            &function_symbols,
-            &functions,
-            &package_return_types,
-            &platform_imports,
-            platform,
-            module.build_mode,
-            &globals,
-            &string_symbols,
-            type_model.clone(),
-        )?);
+        // typed emitters below — the per-type copy shims (cycle members only)
+        // and both walkers.
+        let type_ = ParameterType::declared(name);
+        if kind < copy_kind_count {
+            let symbol = thread_copy_symbol(&type_);
+            code_functions.push(lower_thread_copy_function(
+                &type_,
+                kind,
+                &symbol,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?);
+        }
+        typed_kinds.push((name.clone(), type_));
+    }
+    if !recursive_copy_types.is_empty() {
+        code_functions.push(
+            crate::codegen::memory::arena::graph_copy::lower_graph_copy_walker(
+                &typed_kinds[..copy_kind_count],
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?,
+        );
+        code_functions.push(
+            crate::codegen::memory::arena::graph_copy::lower_graph_stack_grow(
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?,
+        );
+        // plan-134-F: the walker's inverse, over the same work stack. plan-134-H: its kinds
+        // extend the copy walker's with the types that only reach a cycle, and a second
+        // variant drops the graph of an element inlined in a collection's data region.
+        use crate::codegen::memory::arena::graph_drop::{
+            lower_graph_drop_walker, GRAPH_DROP_EDGES_SYMBOL, GRAPH_DROP_SYMBOL,
+        };
+        for (symbol, free_root) in [(GRAPH_DROP_SYMBOL, true), (GRAPH_DROP_EDGES_SYMBOL, false)] {
+            code_functions.push(lower_graph_drop_walker(
+                symbol,
+                free_root,
+                &typed_kinds,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?);
+        }
     }
     // plan-130-B: the arena hot path times itself exactly when the `--debug` perf
     // section is active for this module.

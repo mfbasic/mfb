@@ -8,14 +8,17 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' Does a simple node match the single scalar at `pos`? Mirrors the Lit/Any/Class
-' arms of __regex_run exactly, so the iterative repeat path accepts precisely what
-' the general one does.
-FUNC __regex_simpleMatchAt(node AS __regex_Node, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
+r#"' Does the one-scalar leaf `leaves[at]` (Lit, Any or Class) match the scalar at `pos`?
+' Both the node visit and the greedy simple-repeat loop of __regex_run ask here, so the
+' two accept precisely the same scalars. plan-134-I: `leaves` is a parameter the helper
+' never rebinds and `leaf` is read only by the MATCH, so the `get` borrows the leaf in
+' place (plan-86 E) -- a visit copies nothing.
+FUNC __regex_simpleMatchAt(leaves AS List OF __regex_Leaf, at AS Integer, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
   IF pos >= ctx.n THEN
     RETURN FALSE
   END IF
-  MATCH node
+  LET leaf AS __regex_Leaf = collections::get(leaves, at)
+  MATCH leaf
     CASE __regex_Lit(litNode)
       RETURN __regex_charEq(litNode, collections::get(ctx.cps, pos))
     CASE __regex_Any(anyNode)

@@ -34,7 +34,11 @@ named local time occurs twice) takes the earlier, pre-transition offset.
 The sub-second `nanos` of `time` are carried through unchanged into the
 resulting `datetime::Instant` and `datetime::DateTime`; only the whole-second civil fields
 participate in offset resolution. `civil` is pure: beyond what `zone` itself
-resolves it reads no host state and has no side effects."#;
+resolves it reads no host state and has no side effects.
+
+A date so far from the epoch that its second count does not fit an `Integer`
+raises `ErrOverflow`. For a local zone, a wall-clock time outside the range the
+host can convert raises `ErrInvalidArgument`, as `datetime::localOffset` does."#;
 const EX: &str = r#"Combine a date and time into a `datetime::DateTime` in the local zone:
 
 ```
@@ -128,7 +132,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: super::ParameterType::named("DateTime"),
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument", "ErrOverflow"],
             body: super::Body::mfb(BODY, "__datetime_civil"),
         }],
     });

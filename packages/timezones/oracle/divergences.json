@@ -1,0 +1,32 @@
+[
+  {
+    "mode": "ixdtf",
+    "pattern": "\\[[+-][0-9]",
+    "reason": "A numeric time-zone annotation ([+03:00]). plan-135-D section 1 makes numeric annotations a non-goal: the package reads named zones, and datetime::parseIso already reads numeric offsets. So the package refuses it. Node 24.12's Temporal accepts one that agrees with the offset (and rejects one that does not, as the plan's table records for -04:00[+05:30])."
+  },
+  {
+    "mode": "ixdtf",
+    "pattern": "\\[![A-Za-z._]",
+    "reason": "A critical time-zone annotation ([!America/New_York]). RFC 9557 section 4.1 allows the critical flag on the zone, and the package accepts it. Node 24.12's Temporal rejects it (plan-135-D section 2 table)."
+  },
+  {
+    "mode": "ixdtf",
+    "pattern": "\\]\\[foo=bar\\]$",
+    "reason": "An elective unknown suffix tag. RFC 9557 section 3.3 says a recipient ignores an elective key it does not understand, so the package ignores it. Node 24.12's Temporal rejects it."
+  },
+  {
+    "mode": "ixdtf",
+    "pattern": "\\[u-ca=gregory\\]$",
+    "reason": "A non-ISO calendar. The package refuses any calendar but iso8601, even elective, because a calendar changes what the date means (plan-135-D section 4.2). Temporal accepts gregory."
+  },
+  {
+    "mode": "ixdtf",
+    "pattern": "\\[[a-z/_+-]*[0-9][a-z0-9/_+-]*\\]$",
+    "reason": "A lowercased zone name containing a digit (etc/gmt+5, est5edt, gmt0, pst8pdt). Names match ignoring case (owner decision 2026-09-13), so the package accepts it and returns the tzdb spelling. Node 24.12's Temporal matches most names case-insensitively but rejects these spellings. Measured 2026-09-13: all 36 such jobs, and no other shape."
+  },
+  {
+    "mode": "ixdtf",
+    "nameOnly": true,
+    "reason": "A link name, or a differently cased name. Both sides read the same instant and offset. Temporal reports the link's target (US/Eastern -> America/New_York). The package keeps the link, in its tzdb spelling (owner decision 2026-09-13)."
+  }
+]

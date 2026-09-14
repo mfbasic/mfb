@@ -948,8 +948,35 @@ details.hex[open] > summary .hx { display: none; }
 }
 .doc-index:has(.fold-cb:not(:checked)) .doc-index__groups { display: none; }
 .doc-index__group .eyebrow { margin: 0; }
+.doc-index__group .eyebrow a { color: inherit; }
 .doc-index__group ul { list-style: none; margin: 0.2rem 0 0; padding: 0; }
 .doc-index__group li { margin: 0.1rem 0; font-size: 0.9rem; overflow-wrap: anywhere; }
+.doc-group { scroll-margin-top: 1rem; }
+
+/* wide screens: the index becomes a sticky sidebar (Wikipedia-style) that
+   scrolls on its own. Folding it closed hands the whole width to the content.
+   Without :has() the index simply stays stacked above the content. */
+@media (min-width: 961px) {
+  .doc-layout:has(> .doc-index .fold-cb:checked) {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: 2.5rem;
+    align-items: start;
+  }
+  .doc-layout > .doc-index:has(.fold-cb:checked) {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin: 0;
+  }
+  .doc-layout > .doc-index .doc-index__groups {
+    display: block;
+  }
+  .doc-layout > .doc-index .doc-index__group + .doc-index__group { margin-top: 0.8rem; }
+  .doc-layout > .doc-index:has(.fold-cb:not(:checked)) .doc-index__groups { display: none; }
+}
 
 /* one declaration */
 .decl { margin: 1.25rem 0 2.25rem; max-width: 60rem; scroll-margin-top: 1rem; }

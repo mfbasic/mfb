@@ -113,6 +113,26 @@ impl CodeBuilder<'_> {
         self.emit_current_result_exit(ExitDestination::Return)
     }
 
+    /// The error exit of a call whose result is not trapped inline: free the statement's
+    /// pending temporaries, then leave as [`Self::emit_current_result_exit`] does.
+    ///
+    /// A fresh block an argument or an earlier operand produced is owned by its statement
+    /// and freed at the statement's end — which a failing call jumps past. `boom(n, [])`
+    /// leaked the empty list (48 B) and `boomS(n, "a" & toString(n))` the concat (32 B) on
+    /// every failure, and `json::parse` leaked 48 B per rejected document through
+    /// `__json_parseArrayItems(bytes, nextIndex, [], depth)`. Only a call's exit may do
+    /// this: a `FAIL`'s error adopts its message temp (`TransferTemps::AdoptedByTheCatcher`),
+    /// and a callee's error is its own block.
+    pub(crate) fn emit_call_error_exit(&mut self) -> Result<(), String> {
+        let destination = self.error_exit_destination();
+        if !self.pending_temp_frees.is_empty() {
+            self.store_pending_current_result();
+            self.emit_pending_temp_frees_in_place()?;
+            self.load_pending_result_registers();
+        }
+        self.emit_current_result_exit(destination)
+    }
+
     pub(crate) fn emit_current_result_exit(
         &mut self,
         destination: ExitDestination,
@@ -240,6 +260,50 @@ impl CodeBuilder<'_> {
                     },
                     true,
                 ));
+            }
+            // plan-134-D: a recursive value returned from an aliasing source (a field, a
+            // parameter, a global) gets an independent graph from the walker, so the
+            // caller never owns a graph the callee's source still reaches — unless the
+            // return is the source's last read (plan-134-C), which is a move.
+            if self.needs_graph_copy(&lowered.type_) && !self.store_is_last_use(value) {
+                // The same parameter-passthrough borrow as the flat branch above: the
+                // caller copies at its own owning store, so copying here too would be a
+                // second copy. plan-134-G: and with the flat branch's guard — a recursive
+                // local now owns an `OwnedValue` cleanup, so only a local that owns no
+                // block is the caller's argument.
+                if self.current_returns_param_borrow {
+                    if let NirValue::Local(name) = value {
+                        let owns_block = self.locals.get(name).is_some_and(|local| {
+                            let stack_offset = local.stack_offset;
+                            self.active_cleanups.iter().any(|cleanup| {
+                                matches!(cleanup, ActiveCleanup::OwnedValue(c)
+                                    if c.stack_offset == stack_offset)
+                            })
+                        });
+                        if !owns_block {
+                            return Ok((lowered, true));
+                        }
+                    }
+                }
+                let copied = self.copy_value_to_current_arena(&lowered.type_, &lowered.location)?;
+                return Ok((
+                    ValueResult {
+                        origin: None,
+                        type_: lowered.type_,
+                        location: Operand::from(copied.render()),
+                        text: lowered.text,
+                    },
+                    true,
+                ));
+            }
+            // plan-134-G: a return that is the owning source's last read moves the graph out.
+            // plan-134-H: the moved graph is already its own block — a local's, or a record's
+            // pointer field's — so it is reported standalone. Reporting it `false` made the
+            // exit re-materialize a data union's top block and orphan the moved one: 32 B per
+            // `json::parse` (`return parsed.value`).
+            if self.owns_graph(&lowered.type_) && self.store_is_last_use(value) {
+                self.release_moved_source(value, &lowered, false)?;
+                return Ok((lowered, true));
             }
             return Ok((lowered, false));
         }

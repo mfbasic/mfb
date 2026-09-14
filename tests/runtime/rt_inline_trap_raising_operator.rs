@@ -154,6 +154,35 @@ fn nested_division_by_zero_reaches_the_inline_handler() {
     assert_eq!(run(&exe), "caught code=77050002\nd=-1\n");
 }
 
+/// A raising root operator with an infallible builtin call AFTER the last fallible one.
+/// The root is wrapped in `Checked` once `inner` is lifted, and a `Checked` may hold no
+/// call — so the trailing call must be lifted too. Before the fix this failed to build
+/// with `Checked wraps a call to `len`` (measured on the pre-fix compiler; a trailing user
+/// call such as `outer(4)` built, so the case names `len`). The failing form proves a
+/// lifted tail still runs only on the Ok path.
+#[test]
+fn a_call_after_the_last_fallible_call_under_a_raising_operator_builds_and_runs_in_order() {
+    let root = unique_root("tail_call");
+    let exe = build(
+        &root,
+        concat!(
+            "FUNC main() AS Integer\n",
+            "  LET a = inner(3) + len(toString(outer(4))) TRAP(e)\n",
+            "    RECOVER -1\n",
+            "  END TRAP\n",
+            "  io::print(\"a=\" & toString(a))\n",
+            "  LET b = note(\"head\", 1) + inner(-1) + len(\"tail\") TRAP(e)\n",
+            "    io::print(\"caught code=\" & toString(e.code))\n",
+            "    RECOVER -1\n",
+            "  END TRAP\n",
+            "  io::print(\"b=\" & toString(b))\n",
+            "  RETURN 0\n",
+            "END FUNC\n",
+        ),
+    );
+    assert_eq!(run(&exe), "a=7\neval head\ncaught code=90000001\nb=-1\n");
+}
+
 /// An integer multiply that overflows raises `7-705-0010` from the same
 /// `emit_error_register_return` seam.
 #[test]

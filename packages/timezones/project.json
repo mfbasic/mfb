@@ -1,0 +1,14 @@
+{
+  "name": "timezones",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Named IANA time zones (America/New_York, Europe/London, ...) from a committed tzdb release, never the host's zone database. It answers the UTC offset and abbreviation a zone applies at an instant, turns a wall-clock reading in a zone into a datetime::DateTime, and writes and reads RFC 9557 zoned timestamps. The rules are IANA tzdb 2026d, vendored in this repository and compiled by the release's own zic, so every host gets the same answer.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": ["**/*.mfb"]
+    }
+  ]
+}

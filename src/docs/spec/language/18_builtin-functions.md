@@ -44,7 +44,7 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 All eighteen except `error` are **overridable** (see §18.3). Every other built-in
 member named below lives in an **import-gated standard package** and is *not*
 in scope without its `IMPORT`. The package set the resolver recognizes is fixed:
-`app`, `astrings`, `audio`, `bits`, `canvas`, `collections`, `color`, `crypto`,
+`app`, `astrings`, `audio`, `big`, `bits`, `canvas`, `collections`, `color`, `crypto`,
 `csv`, `datetime`, `encoding`, `errorCode`, `fs`, `http`, `io`, `json`, `math`,
 `money`, `net`, `os`, `process`, `regex`, `strings`, `tcp`, `term`, `thread`,
 `tls`, `udp`, `vector`. [[src/codegen/builtins/mod.rs:is_builtin_import]] A bare unqualified `find`, `get`, `append`, `print`,

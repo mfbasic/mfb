@@ -248,7 +248,7 @@ impl CodeBuilder<'_> {
                 let ok_label = self.label("call_ok");
                 self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
                 self.emit(abi::branch_eq(&ok_label));
-                self.emit_current_result_exit(self.error_exit_destination())?;
+                self.emit_call_error_exit()?;
                 self.emit(abi::label(&ok_label));
             }
             self.deactivate_moved_thread_arguments(target, args);
@@ -264,7 +264,7 @@ impl CodeBuilder<'_> {
             let ok_label = self.label("call_ok");
             self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
             self.emit(abi::branch_eq(&ok_label));
-            self.emit_current_result_exit(self.error_exit_destination())?;
+            self.emit_call_error_exit()?;
             self.emit(abi::label(&ok_label));
         }
         self.deactivate_moved_thread_arguments(target, args);
@@ -372,7 +372,7 @@ impl CodeBuilder<'_> {
             let ok_label = builder.label("call_value_ok");
             builder.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
             builder.emit(abi::branch_eq(&ok_label));
-            builder.emit_current_result_exit(builder.error_exit_destination())?;
+            builder.emit_call_error_exit()?;
             builder.emit(abi::label(&ok_label));
             Ok(())
         };
@@ -468,7 +468,7 @@ impl CodeBuilder<'_> {
         } else {
             self.emit_stamp_current_error_source()?;
         }
-        self.emit_current_result_exit(self.error_exit_destination())?;
+        self.emit_call_error_exit()?;
         self.emit(abi::label(&ok_label));
         self.deactivate_moved_thread_arguments(target, args);
         self.deactivate_moved_resource_arguments(target, args);

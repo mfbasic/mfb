@@ -44,7 +44,8 @@ impl CodeBuilder<'_> {
             return Ok(None);
         }
         let result = self.lower_list_slice_range(args, element_type)?;
-        Ok(Some(result))
+        // plan-134-E: the slice owns its elements' graphs.
+        Ok(Some(self.own_collection_payload_edges(result)?))
     }
 
     /// Build a new `List` holding the source entries `[start, stop)`. Adapts

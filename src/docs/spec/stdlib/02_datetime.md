@@ -56,11 +56,17 @@ each multiplying by `60 / 3600 / 86400` as appropriate. Arithmetic
 (`add`, `subtract`, `between`, `plus`, `minus`, `negate`) adds or subtracts the
 raw field pairs and re-normalizes; comparison (`compare`, `isBefore`, `isAfter`,
 `equals`) orders on `seconds` then `nanos`. [[src/codegen/builtins/datetime/mod.rs:__datetime_normInstant]]
+The builders with more than one argument and every arithmetic member use checked
+`Integer` arithmetic, so a sum or product outside the `Integer` range raises
+`ErrOverflow` (`77050010`). The one-argument `instant`/`duration` store the value
+unchanged and never raise; comparison never raises.
+[[src/codegen/builtins/datetime/func_add.rs:__datetime_add]]
 
-`fromMillis` converts against the epoch with the same borrow logic;
-`toMillis`/`toNanos` are a straight multiply-add on the already-canonical pair.
-Both use checked `Integer` arithmetic, so a value outside the `Integer` range
-surfaces `ErrOverflow` (`77050010`).
+`fromMillis` converts against the epoch with the same borrow logic. It only
+divides, so it never raises. `toMillis`/`toNanos` are a straight multiply-add on
+the already-canonical pair, so a value outside the `Integer` range raises
+`ErrOverflow` (`77050010`).
+[[src/codegen/builtins/datetime/func_from_millis.rs:__datetime_fromMillis]]
 [[src/codegen/builtins/datetime/func_to_millis.rs:__datetime_toMillis]]
 
 ## Monotonic vs wall clock
@@ -203,10 +209,15 @@ onto the post-transition offset.
 
 ### Calendar arithmetic stays DST-aware
 
-`addDays` and `addMonths` operate on the civil wall-clock fields, then
-re-resolve the offset through the value's own zone via `civil`, so they remain
+`addDays` and `addMonths` operate on the civil wall-clock fields and keep the
+value's offset when it is still valid for the new wall clock; only otherwise do
+they re-resolve through the value's own zone via `civil`. So they remain
 DST-correct (adding a day across a transition keeps the same wall time, not the
-same elapsed duration). `addMonths` clamps an overflowing day to the target
+same elapsed duration), a zero shift returns the value unchanged, and a result
+in a fall-back overlap stays on the side the original offset names when that
+offset is one of the overlap's two (bug-520 S6; Java's `ZonedDateTime.plusDays`
+rule). For a `Local` zone the result depends on the host's zone rules.
+[[src/codegen/builtins/datetime/helper_civil_keep_offset.rs:__datetime_civilKeepOffset]] `addMonths` clamps an overflowing day to the target
 month's length (e.g. Jan 31 + 1 month → Feb 28/29). `startOfDay` is `civil` at
 `00:00:00.0` in the value's zone. [[src/codegen/builtins/datetime/func_add_months.rs:__datetime_addMonths]]
 
@@ -230,7 +241,7 @@ An unrecognized letter run fails `ErrInvalidFormat` (`77050003`).
 | `f` | fractional second | first *run-length* digits of the 9-digit nanos |
 | `a` | AM/PM | from hour < 12 |
 | `E` | weekday name | `EEEE`+ = full, shorter = abbreviated |
-| `Z` | zone offset | `Z` = `Z` if offset 0 else `±HH:MM`; `ZZ` = always `±HH:MM`; `ZZZ`+ = `±HHMM` (compact) |
+| `Z` | zone offset | `Z` = `Z` if offset 0 else `±HH:MM`; `ZZ` = always `±HH:MM`; `ZZZ`+ = `±HHMM` (compact). An offset that is not whole minutes appends seconds: `±HH:MM:SS` / `±HHMMSS` |
 
 `toIso(dt)` is `format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")`. It is arity-split: the
 two-argument `toIso(dt, digits)` selects the fractional width from `{0, 3, 6, 9}`
@@ -249,8 +260,9 @@ Parsing is pattern-driven: a scanner walks `pattern` and `value` in lockstep,
 filling field accumulators in a `__datetime_Fields` record. Absent fields keep
 epoch/zero defaults (`year=1970, month=1, day=1`, all time fields `0`). A
 structural mismatch — wrong literal, missing digits, bad AM/PM, bad month name,
-bad offset — fails `ErrInvalidFormat` (`77050003`). The pattern letters mirror
-`format`. [[src/codegen/builtins/datetime/mod.rs:__datetime_parseFields]]
+bad offset, or text left over after the pattern ends — fails `ErrInvalidFormat`
+(`77050003`). The pattern must consume the whole value. The pattern letters
+mirror `format`. [[src/codegen/builtins/datetime/mod.rs:__datetime_parseFields]]
 
 Field-read rules:
 
@@ -264,14 +276,17 @@ Field-read rules:
 * `h` sets a 12-hour flag; `a` records AM/PM. `buildFromFields` then folds the
   12-hour clock: PM + hour < 12 adds 12; AM + hour 12 becomes 0.
 * `E` skips a weekday name (consumed but not validated against the date).
-* `Z` reads an offset via `readOffset`: `Z`/`z` → 0, else `±HH[:]MM`. When an
+* `Z` reads an offset via `readOffset`: `Z`/`z` → 0, else `±HH:MM[:SS]` or
+  `±HHMM[SS]`, every field exactly two digits. The seconds form is what `format`
+  writes for an offset that is not whole minutes, so writer and reader agree on
+  every offset (bug-520 S1/S2). When an
   offset is present the result is a fixed-offset `DateTime`; when absent, the
   fields are resolved through the supplied `zone` (default UTC) via `civil`.
 
 `parseIso(value)` is a dedicated, hand-rolled scanner for
 `YYYY-MM-DD(T|t| )HH:MM:SS[.frac][offset]`: a `.`-fractional part of any length
 is read then scaled (extra digits beyond 9 are skipped), and a trailing offset
-(`Z`/`z`/`±HH:MM`/`±HHMM`) is required. It always yields a fixed-offset `DateTime`.
+(`Z`/`z`/`±HH:MM[:SS]`/`±HHMM[SS]`) is required and must end the value. It always yields a fixed-offset `DateTime`.
 [[src/codegen/builtins/datetime/func_parse_iso.rs:__datetime_parseIso]]
 
 ### Decoded fields are range-checked
@@ -280,7 +295,10 @@ Both readers bound the decoded calendar fields before assembling them, against
 exactly the ranges the `date`/`time` constructors enforce (see §"Validation").
 `parse` checks in `buildFromFields`, after the 12-hour/AM-PM fold and before the
 `Date`/`Time` record literals; `parseIso` checks after the offset read, at the
-same point. A field out of range fails `ErrInvalidFormat` (`77050003`) — the
+same point. The offset is bounded as it is read: hours `00..23`, minutes and
+seconds `00..59`, each exactly two digits, so its magnitude is under 24 h and
+the zone constructor's `ErrInvalidArgument` is never reached (bug-520 S4/S5).
+[[src/codegen/builtins/datetime/helper_read_offset.rs:__datetime_readOffset]] A field out of range fails `ErrInvalidFormat` (`77050003`) — the
 structural-mismatch code, not the constructors' `ErrInvalidArgument`, because
 the argument is a well-formed `String` and it is the *text* that is malformed.
 [[src/codegen/builtins/datetime/helper_check_fields.rs:__datetime_checkFields]]

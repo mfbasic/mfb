@@ -40,6 +40,17 @@ FUNC main AS Integer
   io::print("wrapNeg320=" & color::toHex(color::rotateHue(b, -320.0)))
   ' A full turn is the identity.
   io::print("wrap360=" & color::toHex(color::rotateHue(b, 360.0)) & " base=" & color::toHex(b))
+  ' bug-603: a hue whose whole-turn count is past the Integer range still wraps.
+  ' 1e36 MOD 360 is 304, and -1e36 lands on 56. Each is printed beside the colour
+  ' built from its wrapped value; the two must match.
+  LET big AS Float = 1000000000000000000.0 * 1000000000000000000.0
+  io::print("hslaBig=" & color::toHexAlpha(color::hsla(big, 1.0, 0.5, 255)) & " hsla304=" & color::toHexAlpha(color::hsla(304.0, 1.0, 0.5, 255)))
+  io::print("hslNegBig=" & color::toHex(color::hsl(0.0 - big, 1.0, 0.5)) & " hsl56=" & color::toHex(color::hsl(56.0, 1.0, 0.5)))
+  io::print("rotateBig=" & color::toHex(color::rotateHue(color::rgb(255, 0, 0), big)) & " rotate304=" & color::toHex(color::rotateHue(color::rgb(255, 0, 0), 304.0)))
+  ' A negative whole number of turns wraps to +0.0, never -0.0.
+  io::print("negTurnHue=" & toString(color::toHsl(color::hsl(-360.0, 1.0, 0.5)).hue))
+  ' A tiny negative hue whose lift rounds to exactly 360.0 wraps to 0.0 (red).
+  io::print("tinyNeg=" & color::toHex(color::hsl(-0.00000000000000000001, 1.0, 0.5)))
   ' Saturation and lightness clamp instead of wrapping.
   io::print("satClampHigh=" & color::toHex(color::hsl(210.0, 9.0, 0.5)))
   io::print("satClampLow=" & color::toHex(color::hsl(210.0, -9.0, 0.5)))

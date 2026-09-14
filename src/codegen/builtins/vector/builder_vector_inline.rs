@@ -275,6 +275,7 @@ impl CodeBuilder<'_> {
             type_: block.type_.clone(),
             slot,
             location: block.location.clone(),
+            shallow: false,
         });
         Ok(block)
     }

@@ -318,23 +318,27 @@ fn remove_at_in_place_still_bounds_checks() {
     );
 }
 
-/// G24. The in-place `removeAt` COMPACTS the data region — it relocates
-/// surviving payloads inside the live buffer — which no other arm in the family
-/// does (`append` writes past the live data; `insert` and `prepend` shift only
-/// the 40-byte lookup entries). For a RECURSIVE element type that relocation is
-/// observable: `type_participates_in_cycle` marks exactly the values that are
-/// pointer-linked graphs needing a per-type runtime copy function, so an ordinary
-/// `collections::get` of one does not hand back the independent deep copy a
-/// String, record or nested-list element gets.
+/// G24, and its lifting by plan-134-H. The in-place `removeAt` COMPACTS the data
+/// region — it relocates surviving payloads inside the live buffer — which no other
+/// arm in the family does (`append` writes past the live data; `insert` and
+/// `prepend` shift only the 40-byte lookup entries). plan-121-B B7 found that
+/// relocation observable for a RECURSIVE element type: `collections::get` of one
+/// handed back an alias into the data region, so `get(xs, 0)` then
+/// `xs = removeAt(xs, 0)` then using the value read gave `?` for every element whose
+/// removal moved bytes. That arm declined for such a type until plan-134-H.
 ///
-/// Before this guard, `get(xs, 0)` then `xs = removeAt(xs, 0)` then using the
-/// value read gave `?` for every element whose removal moved bytes — correct only
-/// for the last, where `count == 1` makes the shift length zero. Behavior is
-/// pinned by `tests/rt-behavior/collections/p121b-removeat-recursive-union-rt`;
-/// this pins that the arm *declines*, which the fixture alone cannot show — it
-/// would pass either way if the copying path were also correct.
+/// Neither half of that holds any more. `get` of a recursive element returns an
+/// owned deep copy (bug-538, `materialize_owned_element`'s `needs_graph_copy`
+/// branch, plan-134-D), and the compaction frees the removed element's graph first
+/// (`lower_list_remove_at_in_place`, plan-134-H). The fixture that motivated the
+/// guard, `tests/rt-behavior/collections/p121b-removeat-recursive-union-rt`, prints
+/// its golden (`n=8 t0,t1,t2,t3,t4,t5,t6,t7,`) on the in-place path, and
+/// `a_fetched_recursive_element_survives_an_in_place_remove_and_a_growing_append`
+/// (`tests/runtime/rt_recursive_value_collection_drops.rs`) pins the fetch-remove-
+/// grow-read shape. This pins that the arm now TAKES the in-place path, which
+/// neither behavioural pin can show — both pass on the copying path too.
 #[test]
-fn remove_at_declines_for_a_recursive_element_type() {
+fn remove_at_takes_the_in_place_path_for_a_recursive_element_type() {
     let plan = ncode(
         "inplace_removeat_recursive",
         "IMPORT collections\n\
@@ -362,13 +366,11 @@ fn remove_at_declines_for_a_recursive_element_type() {
         \x20 RETURN drain(4)\n\
          END FUNC\n",
     );
-    assert_eq!(
-        label_count(&plan, "_mfb_fn_drain", "remove_inplace"),
-        0,
-        "`removeAt` on a list whose element type participates in a cycle must take \
-         the COPYING path: the in-place compaction relocates payloads, and a \
-         recursive element is a pointer-linked graph whose `get` result is not an \
-         independent deep copy, so a value already read would follow moved bytes."
+    assert!(
+        label_count(&plan, "_mfb_fn_drain", "remove_inplace") >= 1,
+        "plan-134-H lifted G24: `removeAt` on a list whose element type participates \
+         in a cycle takes the in-place path — `get` of a recursive element is an owned \
+         deep copy (plan-134-D), and the compaction frees the removed element's graph."
     );
 }
 

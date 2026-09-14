@@ -149,7 +149,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("Duration"),
-                errors: vec![],
+                errors: vec!["ErrOverflow"],
                 body: super::Body::mfb(BODY_2, "__datetime_duration2"),
             },
             super::Implementation {
@@ -177,7 +177,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("Duration"),
-                errors: vec![],
+                errors: vec!["ErrOverflow"],
                 body: super::Body::mfb(BODY_3, "__datetime_duration3"),
             },
             super::Implementation {
@@ -212,7 +212,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("Duration"),
-                errors: vec![],
+                errors: vec!["ErrOverflow"],
                 body: super::Body::mfb(BODY_4, "__datetime_duration4"),
             },
             super::Implementation {
@@ -254,7 +254,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("Duration"),
-                errors: vec![],
+                errors: vec!["ErrOverflow"],
                 body: super::Body::mfb(BODY_5, "__datetime_duration5"),
             },
         ],

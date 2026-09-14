@@ -1,0 +1,25 @@
+' Build an n-deep chain (n = first argument), store it in a list, and read it back with
+' collections::get, which deep-copies a recursive element. Before plan-134-B this crashed
+' at n >= 70 000 because the copy recursed on the native stack.
+IMPORT io
+IMPORT collections
+IMPORT os
+
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+
+SUB main()
+  LET n AS Integer = toInt(collections::get(os::args(), 0))
+  MUT cur AS Node = Node[kids := [], tag := 0]
+  MUT i AS Integer = 1
+  WHILE i <= n
+    cur = Node[kids := [cur], tag := i]
+    i = i + 1
+  END WHILE
+  MUT xs AS List OF Node = []
+  xs = collections::append(xs, cur)
+  LET top AS Node = collections::get(xs, 0)
+  io::print("top=" & toString(top.tag))
+END SUB

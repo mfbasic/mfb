@@ -1,0 +1,29 @@
+' bug-601's recursive row: a MUT copy of a List OF Tree (a recursive union), then five
+' in-place appends to the copy. The source must still hold one element (xs=1).
+IMPORT io
+IMPORT collections
+
+TYPE Leaf
+  v AS Integer
+END TYPE
+
+TYPE Branch
+  kids AS List OF Tree
+END TYPE
+
+UNION Tree
+  Leaf
+  Branch
+END UNION
+
+SUB main()
+  LET t AS Tree = Leaf[v := 1]
+  LET xs AS List OF Tree = [t]
+  MUT ys AS List OF Tree = xs
+  MUT i AS Integer = 0
+  WHILE i < 5
+    ys = collections::append(ys, t)
+    i = i + 1
+  END WHILE
+  io::print("ys=" & toString(len(ys)) & " xs=" & toString(len(xs)))
+END SUB

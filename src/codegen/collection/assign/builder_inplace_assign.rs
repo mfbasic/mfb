@@ -51,7 +51,7 @@ impl CodeBuilder<'_> {
             Some(item_type) if item_type == element_type => {}
             _ => return Ok(false),
         }
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         // Observation boundary: an in-place appended `Float` must be finite
         // (plan-17).
         self.observe_float(&target.args[1], &item)?;
@@ -134,7 +134,7 @@ impl CodeBuilder<'_> {
         }
 
         // Evaluate the appended value and spill it for the grow helper.
-        let rhs = self.lower_value(&target.args[1])?;
+        let rhs = self.lower_value_stored(&target.args[1])?;
         self.observe_float(&target.args[1], &rhs)?;
         let rhs = self.materialize_value(rhs)?;
         let rhs_slot = self.allocate_stack_object("inplace_recfield_rhs", 8);
@@ -235,7 +235,7 @@ impl CodeBuilder<'_> {
             Some(item_type) if item_type == element_type => {}
             _ => return Ok(false),
         }
-        let item = self.lower_value(&args[1])?;
+        let item = self.lower_value_stored(&args[1])?;
         // Observation boundary: an in-place added `Float` must be finite (plan-17).
         self.observe_float(&args[1], &item)?;
         let item = self.materialize_value(item)?;
@@ -428,15 +428,7 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        // `G24` — inherited from plan-121-B B7: this arm compacts the data region,
-        // and a recursive element type is a pointer-linked graph whose `get` does
-        // not produce an independent copy. See `try_inplace_remove_at_assign`.
-        if crate::codegen::collection::layout::type_participates_in_cycle(
-            &self.type_model,
-            &element_type,
-        ) {
-            return Ok(false);
-        }
+        // `G24` — lifted by plan-134-H; see `try_inplace_remove_at_assign`.
         // `G18` — removing from exactly this same field.
         if !self.value_is_record_field(&target.args[0], name, target.field) {
             return Ok(false);
@@ -512,7 +504,7 @@ impl CodeBuilder<'_> {
             field_index: target.field_index,
             write_back: None,
         };
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_recfield_set_remove", 8);
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
@@ -579,7 +571,7 @@ impl CodeBuilder<'_> {
             field_index: target.field_index,
             write_back: None,
         };
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         self.observe_float(&target.args[1], &item)?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_recfield_add_item", 8);
@@ -682,7 +674,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 index_slot,
             ));
-            let item = self.lower_value(&target.args[2])?;
+            let item = self.lower_value_stored(&target.args[2])?;
             // Observation boundary: an in-place replacement `Float` element must be
             // finite (plan-17).
             self.observe_float(&target.args[2], &item)?;
@@ -736,7 +728,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             key_slot,
         ));
-        let val = self.lower_value(&target.args[2])?;
+        let val = self.lower_value_stored(&target.args[2])?;
         // Observation boundary: an in-place `Float` map value must be finite (plan-17).
         self.observe_float(&target.args[2], &val)?;
         if val.type_ != value_type {
@@ -902,7 +894,7 @@ impl CodeBuilder<'_> {
 
         let dest = self.open_inplace_state_dest(resource, target.field_index)?;
         let block_slot = Self::inplace_dest_block_slot(&dest)?;
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         self.observe_float(&target.args[1], &item)?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_state_add_item", 8);
@@ -987,7 +979,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 index_slot,
             ));
-            let item = self.lower_value(&target.args[2])?;
+            let item = self.lower_value_stored(&target.args[2])?;
             // Observation boundary: an in-place replacement `Float` element must
             // be finite (plan-17).
             self.observe_float(&target.args[2], &item)?;
@@ -1044,7 +1036,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             key_slot,
         ));
-        let val = self.lower_value(&target.args[2])?;
+        let val = self.lower_value_stored(&target.args[2])?;
         // Observation boundary: an in-place `Float` map value must be finite (plan-17).
         self.observe_float(&target.args[2], &val)?;
         if val.type_ != value_type {
@@ -1107,13 +1099,7 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        // `G24` — inherited from plan-121-B B7 via plan-121-C.
-        if crate::codegen::collection::layout::type_participates_in_cycle(
-            &self.type_model,
-            &element_type,
-        ) {
-            return Ok(false);
-        }
+        // `G24` — lifted by plan-134-H; see `try_inplace_remove_at_assign`.
         // `G18` — removing from exactly this same field.
         if !self.value_is_state_field(&target.args[0], resource, target.field) {
             return Ok(false);
@@ -1171,7 +1157,7 @@ impl CodeBuilder<'_> {
         }
 
         let dest = self.open_inplace_state_dest(resource, target.field_index)?;
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_state_set_remove", 8);
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
@@ -1247,7 +1233,7 @@ impl CodeBuilder<'_> {
         } else {
             crate::codegen::collection::list::list_mutate::SpliceAt::Front
         };
-        let item = self.lower_value(&target.args[rhs_index])?;
+        let item = self.lower_value_stored(&target.args[rhs_index])?;
         self.observe_float(&target.args[rhs_index], &item)?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_state_splice_item", 8);
@@ -1363,7 +1349,7 @@ impl CodeBuilder<'_> {
         } else {
             crate::codegen::collection::list::list_mutate::SpliceAt::Front
         };
-        let item = self.lower_value(&target.args[rhs_index])?;
+        let item = self.lower_value_stored(&target.args[rhs_index])?;
         self.observe_float(&target.args[rhs_index], &item)?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_recfield_splice_item", 8);
@@ -1466,7 +1452,7 @@ impl CodeBuilder<'_> {
             Some(item_type) if item_type == list_type => {}
             _ => return Ok(false),
         }
-        let rhs = self.lower_value(&args[1])?;
+        let rhs = self.lower_value_stored(&args[1])?;
         if rhs.type_ != list_type {
             return Err(format!(
                 "native bulk append sublist must be {list_type}, got {}",
@@ -1556,7 +1542,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 index_slot,
             ));
-            let item = self.lower_value(&args[2])?;
+            let item = self.lower_value_stored(&args[2])?;
             // Observation boundary: an in-place replacement `Float` element must
             // be finite (plan-17).
             self.observe_float(&args[2], &item)?;
@@ -1606,7 +1592,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 key_slot,
             ));
-            let val = self.lower_value(&args[2])?;
+            let val = self.lower_value_stored(&args[2])?;
             // Observation boundary: an in-place `Float` map value must be finite
             // (plan-17).
             self.observe_float(&args[2], &val)?;
@@ -1690,7 +1676,7 @@ impl CodeBuilder<'_> {
         // `prepend` always takes a single element of the list element type
         // (a bulk form is rejected in `lower_collection_prepend`), so no static
         // gate is needed; the post-lowering check catches any mismatch.
-        let item = self.lower_value(&args[1])?;
+        let item = self.lower_value_stored(&args[1])?;
         // Observation boundary: an in-place prepended `Float` must be finite
         // (plan-17).
         self.observe_float(&args[1], &item)?;
@@ -1977,38 +1963,24 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        // G24 — decline for a RECURSIVE element type. Unlike every other arm in
-        // this family, `removeAt` compacts the data region: it moves surviving
-        // payloads *down* inside the live buffer. That is safe only while nothing
-        // else refers into those payloads.
+        // G24 — LIFTED by plan-134-H. `removeAt` compacts the data region: it moves
+        // surviving payloads *down* inside the live buffer, which is safe only while
+        // nothing else refers into those payloads. It used to decline a recursive
+        // element type (`type_participates_in_cycle`) because `collections::get` of
+        // one handed back an ALIAS into the data region: `get(xs, 0)` then
+        // `xs = removeAt(xs, 0)` then `MATCH` on the value read fell to `CASE ELSE` for
+        // every element whose removal moved bytes (plan-121-B B7).
         //
-        // `type_participates_in_cycle` is exactly the class where something does.
-        // Its own doc records why: a recursive value is a **pointer-linked graph**
-        // that inline copy codegen cannot reproduce, so it needs a per-type runtime
-        // copy function — which means an ordinary `collections::get` of such an
-        // element does not produce an independent deep copy the way a `String`,
-        // record or nested-list element does. Relocating the payload under a value
-        // already read out of the list leaves that value reading moved bytes.
-        //
-        // Measured, on `List OF Node` where `ElementNode.children` is `List OF Node`
-        // (the shape `tests/rt_recursive_thread_transfer.rs` builds):
-        // `get(xs, 0)` then `xs = removeAt(xs, 0)` then `MATCH` on the value read
-        // fell to `CASE ELSE` for every element whose removal actually moved bytes,
-        // and was correct only for the last one — where `count == 1` makes the
-        // shift length zero. Dropping `children` from the record (making the union
-        // non-recursive) makes the same program pass, which is what isolates the
-        // predicate.
-        //
-        // The copying path is unaffected because it never disturbs the original
-        // buffer, so declining restores exactly the previous behavior. `insert` and
-        // `prepend` need no such gate: they place the new payload at the data tail
-        // and shift only the 40-byte lookup entries, so no existing payload moves.
-        if crate::codegen::collection::layout::type_participates_in_cycle(
-            &self.type_model,
-            &element_type,
-        ) {
-            return Ok(false);
-        }
+        // Neither half holds any more. `get` of a recursive element returns an owned
+        // deep copy (bug-538, `materialize_owned_element`'s `needs_graph_copy` branch,
+        // plan-134-D), so nothing a program can hold points into the buffer. And the
+        // compaction now frees the removed element's graph before its entry is shifted
+        // away (`lower_list_remove_at_in_place`), so the in-place arm leaks nothing
+        // the rebuild would have freed. Pinned by
+        // `a_fetched_recursive_element_survives_an_in_place_remove_and_a_growing_append`
+        // (`tests/runtime/rt_recursive_value_collection_drops.rs`). `insert` and
+        // `prepend` never needed the gate: they place the new payload at the data tail
+        // and shift only the 40-byte lookup entries.
         let index = self.lower_value(&target.args[1])?;
         // E1 — the index is Integer by construction; a mismatch is a codegen
         // invariant violation, not a program to decline.
@@ -2074,7 +2046,7 @@ impl CodeBuilder<'_> {
             Some(t) if t == element_type => {}
             _ => return Ok(false),
         }
-        let item = self.lower_value(&target.args[1])?;
+        let item = self.lower_value_stored(&target.args[1])?;
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_set_remove_item", 8);
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
@@ -2140,7 +2112,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             index_slot,
         ));
-        let item = self.lower_value(&target.args[2])?;
+        let item = self.lower_value_stored(&target.args[2])?;
         // Observation boundary: an in-place spliced `Float` must be finite
         // (plan-17).
         self.observe_float(&target.args[2], &item)?;

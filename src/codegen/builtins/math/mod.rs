@@ -99,19 +99,12 @@ bounds; `seed` returns nothing.
 
 **Constants.** Each is written `math::<name>` and needs no call parentheses.
 Every one comes in a `Float` form and a `Fixed` form, so you can stay in whichever
-type your program already uses. The values below are the `Float` forms. A `Fixed`
-form is the nearest value `Fixed` can hold, which agrees with the `Float` form to
-at least nine significant digits (`math::piFixed` is `3.141592653701081`):
-
-| Float | Fixed | Value |
-|---|---|---|
-| `math::pi` | `math::piFixed` | 3.141592653589793 |
-| `math::pi2` | `math::pi2Fixed` | 1.5707963267948966 (pi/2) |
-| `math::pi4` | `math::pi4Fixed` | 0.7853981633974483 (pi/4) |
-| `math::twoOverPi` | `math::twoOverPiFixed` | 0.6366197723675814 (2/pi) |
-| `math::e` | `math::eFixed` | 2.718281828459045 |
-| `math::ln2` | `math::ln2Fixed` | 0.6931471805599453 |
-| `math::ln10` | `math::ln10Fixed` | 2.302585092994046 |
+type your program already uses: `math::pi` and `math::piFixed`, `math::pi2`
+(pi/2), `math::pi4` (pi/4), `math::twoOverPi` (2/pi), `math::e`, `math::ln2` and
+`math::ln10`, each with its `Fixed` twin. The Constants table below gives every
+value as written. A `Fixed` form holds the nearest value `Fixed` can represent,
+which agrees with the written value to at least nine significant digits
+(`math::piFixed` is `3.141592653701081`).
 
 A constant has no page of its own: `mfb man math pi` will not resolve, because
 `pi` is a value rather than a function.

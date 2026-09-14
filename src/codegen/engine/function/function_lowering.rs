@@ -1017,6 +1017,9 @@ pub(crate) fn lower_function(
         len_of_local: HashMap::new(),
         provable_index_locals: HashMap::new(),
         enclosing_loop_reassigned: Vec::new(),
+        graph_copy_walker: None,
+        move_sites: None,
+        current_op_key: None,
     };
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -1087,6 +1090,14 @@ pub(crate) fn lower_function(
     // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2).
     collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
     collect_value_used_locals(&function.body, &mut builder.value_used_locals);
+    // plan-134-D: the owning stores that read their source for the last time
+    // (plan-134-C), so a recursive value's store can move instead of copying.
+    builder.move_sites = Some(
+        crate::codegen::engine::analysis::last_use::collect_last_use_moves(
+            function,
+            &builder.type_model,
+        ),
+    );
     // plan-86 E: read-only `get`-borrow bindings (needs address_taken above).
     builder.borrow_get_locals =
         collect_borrow_get_locals(&function.body, &builder.address_taken_locals);
@@ -1465,6 +1476,9 @@ pub(crate) fn lower_abi_function_helper(
         len_of_local: HashMap::new(),
         provable_index_locals: HashMap::new(),
         enclosing_loop_reassigned: Vec::new(),
+        graph_copy_walker: None,
+        move_sites: None,
+        current_op_key: None,
     };
 
     // Hand the body its incoming ABI argument registers directly as `ValueResult`s
@@ -1523,13 +1537,18 @@ pub(crate) fn lower_abi_function_helper(
 
 /// The per-type thread-transfer deep-copy function (bug-391). Takes a pointer to
 /// a value of `type_` (a recursive type) in the first argument register and
-/// returns a pointer to a fresh, independent copy in the current arena. Its body
-/// is `emit_thread_copy_real`, whose recursive sub-edges call *these* functions,
-/// so the deep copy recurses at run time over the finite data instead of at
-/// compile time over the (infinite) type.
+/// returns a pointer to a fresh, independent copy in the current arena.
+///
+/// plan-134-B: the copy itself is the module's one non-recursive walker,
+/// `_mfb_rt_graph_copy` (`memory/arena/graph_copy.rs`); this entry point passes
+/// `type_`'s `kind` index and returns what the walker returns. Its body used to be
+/// `emit_thread_copy_real`, whose recursive sub-edges called these functions — a
+/// native call per level of the data, which overflowed the stack on a chain about
+/// 60 000 deep.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_thread_copy_function(
     type_: &ParameterType,
+    kind: usize,
     symbol: &str,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
@@ -1618,13 +1637,23 @@ pub(crate) fn lower_thread_copy_function(
         len_of_local: HashMap::new(),
         provable_index_locals: HashMap::new(),
         enclosing_loop_reassigned: Vec::new(),
+        graph_copy_walker: None,
+        move_sites: None,
+        current_op_key: None,
     };
 
-    // Capture the incoming source pointer in a vreg (spilled across the copy's
-    // internal calls), deep-copy it, and return the fresh pointer.
+    // Hand the source to the walker with this type's kind, and return its copy.
     let source = builder.allocate_register();
     builder.emit(abi::move_register(&source, &param.location));
-    let result = builder.emit_thread_copy_real(type_, &source)?;
+    builder.emit(abi::move_register(abi::c_arg(1), &source));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        &kind.to_string(),
+    ));
+    builder.emit_symbol_call(crate::codegen::memory::arena::graph_copy::GRAPH_COPY_SYMBOL);
+    let result = builder.allocate_register();
+    builder.emit(abi::move_register(&result, abi::return_register()));
     builder.emit(abi::move_register(abi::return_register(), &result));
     builder.emit(abi::return_());
 

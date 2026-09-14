@@ -1,6 +1,6 @@
 # plan-133-B: what the entropy fill costs
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 Effort: medium (1h–2h)
 Depends on: plan-133-A
 
@@ -69,9 +69,14 @@ See plan-133-A § Prerequisites. Additionally:
 
 | What | Value | Command |
 |---|---|---|
-| Fill call sites in the allocator | 2 | `git grep -n "branch_link(ARENA_FILL_RANDOM_SYMBOL)" -- src/codegen/memory/arena/arena.rs` → 2 |
-| Browser worker frees per `Main_Page` load | 67,918,823 | `arena.1.free_calls`, `planning/todo.md` § 2 |
-| Browser worker grows per `Main_Page` load | 192,273 | `arena.1.grow`, same |
+| Fill call sites in the allocator | 2 | `git grep -n "branch_link(ARENA_FILL_RANDOM_SYMBOL)" -- src/codegen/memory/arena/arena.rs` → 2 (re-check at Phase 1: plan-134 touched the allocator's neighbours) |
+| Browser worker frees per `Main_Page` load | 70,952,128 (5,135,888,784 B freed) | `arena.1.free_calls` / `free_bytes`, 2223, main `db8e34157`, 2026-09-13 (plan-133-A § Measured populations) |
+| Browser worker grows per `Main_Page` load | 189,654 | `arena.1.grow`, same run |
+| Browser worker bytes requested per `Main_Page` load | 5,887,193,872 (×1.47 the 4,006,566,864 before plan-134) | `arena.1.alloc_bytes`, same run vs 2026-09-12 |
+
+plan-134's copies raised the bytes the worker allocates and frees by 41–47% per page, so the
+free-path scrub — which fills `size − 16` bytes of every freed chunk over 16 B — has more to
+fill than when this plan was written. The A/B measures the current compiler.
 
 ### Verified properties
 

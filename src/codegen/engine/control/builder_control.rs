@@ -428,7 +428,7 @@ impl CodeBuilder<'_> {
         let dest = self.open_inplace_state_dest(resource, target.field_index)?;
 
         // Evaluate the appended value and spill it for the grow helper.
-        let rhs = self.lower_value(&target.args[1])?;
+        let rhs = self.lower_value_stored(&target.args[1])?;
         self.observe_float(&target.args[1], &rhs)?;
         let rhs = self.materialize_value(rhs)?;
         let rhs_slot = self.allocate_stack_object("inline_state_rhs", 8);
@@ -477,6 +477,11 @@ impl CodeBuilder<'_> {
             // plan-118-A: attribute the instructions this statement emits to its
             // op kind. The closure below is what makes the pairing safe — no `?`
             // can jump over the `exit`.
+            // plan-134-D: a store lowered for this op asks plan-134-C's analysis about
+            // THIS op; a nested body records its own and this op's key comes back after.
+            let enclosing_op_key = self
+                .current_op_key
+                .replace(crate::codegen::engine::analysis::last_use::op_key(op));
             crate::codegen::engine::expansion::enter(
                 || crate::codegen::engine::expansion::op_key(op).to_string(),
                 self.instructions.len(),
@@ -581,12 +586,18 @@ impl CodeBuilder<'_> {
                         let is_borrow_get = self.borrow_get_locals.contains(name)
                             && self.is_freeable_flat_value(type_)
                             && !matches!(type_, ParameterType::String);
+                        // plan-134-G: a recursive value's owner frees its graph — except a
+                        // borrowed `MATCH` view (plan-134-C), whose bind skips the graph copy
+                        // and so holds its source's graph without owning it.
+                        let borrowed_graph_view =
+                            self.owns_graph(type_) && self.store_is_borrowed_view();
                         let owns_freeable_value = !aliases_union_variant
                             && !by_ref_capture_slot
                             && !runtime_managed
                             && !promote_vector
                             && !is_borrow_get
-                            && self.is_freeable_flat_value(type_);
+                            && !borrowed_graph_view
+                            && (self.is_freeable_flat_value(type_) || self.owns_graph(type_));
                         // bug-593: the `$trap_resN : Result OF T = CallResult(..)` an
                         // inline `TRAP` binds is a `{tag, size, payload}` block THIS
                         // frame allocated (`fresh_trapped_result_value` is its only
@@ -596,9 +607,11 @@ impl CodeBuilder<'_> {
                         // carries the whole trapped `Error` inline. §14 preamble: every
                         // live value is owned by exactly one temporary; §14.7: it drops
                         // on every scope edge. This names the owner. It ADDS the one
-                        // wrapper free and moves no lifetime: the payload is never
-                        // walked, and the Ok wrapper of an inlined block payload — which
-                        // `ResultValue` hands the binding as an alias — is kept.
+                        // wrapper free and moves no lifetime: the Ok wrapper of an inlined
+                        // block payload — which `ResultValue` hands the binding as an
+                        // alias — is kept. A recursive payload is the exception: every
+                        // owning store graph-copies it, so the wrapper is its only owner
+                        // and drops its graph (plan-134, `OkGraphPayload`).
                         let result_wrapper = match (type_, value.as_ref()) {
                             (
                                 ParameterType::ResultOf(payload),
@@ -609,7 +622,9 @@ impl CodeBuilder<'_> {
                                 && !runtime_managed
                                 && !promote_vector =>
                             {
-                                Some(if self.result_payload_is_block(payload) {
+                                Some(if self.owns_graph(payload) {
+                                    ResultWrapperDrop::OkGraphPayload
+                                } else if self.result_payload_is_block(payload) {
                                     ResultWrapperDrop::ErrorOnly
                                 } else {
                                     ResultWrapperDrop::Always
@@ -986,7 +1001,8 @@ impl CodeBuilder<'_> {
                         // call). `lower_value_owned` deep-copied any aliasing source,
                         // so the new block never aliases the freed one — the free is
                         // sound and once-only.
-                        if self.is_freeable_flat_value(&value_type) {
+                        if self.is_freeable_flat_value(&value_type) || self.owns_graph(&value_type)
+                        {
                             let new_slot = self.allocate_stack_object("store_global_new", 8);
                             self.emit(abi::store_u64(
                                 &result.location,
@@ -1187,7 +1203,8 @@ impl CodeBuilder<'_> {
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)
                             } else if !by_ref
-                                && self.is_freeable_flat_value(&result.type_)
+                                && (self.is_freeable_flat_value(&result.type_)
+                                    || self.owns_graph(&result.type_))
                                 && !self.for_each_iterable_locals.iter().any(|n| n == name)
                                 // bug-430: a live `FOR EACH x IN name.field` holds an
                                 // alias into this record's block; freeing the block
@@ -1324,7 +1341,8 @@ impl CodeBuilder<'_> {
                         // STATE lives in the active variant's record at `+8`
                         // (plan-74). Concrete resources address their record directly.
                         let resource_type = local.type_.clone();
-                        let result = self.lower_value(value)?;
+                        // plan-134-E: the replacement is stored into the resource.
+                        let result = self.lower_value_stored_field(value)?;
                         // A register-native vector STATE payload materializes to its
                         // block here (identity otherwise; plan-01-vector).
                         let result = self.vector_value_as_block(result)?;
@@ -1675,7 +1693,13 @@ impl CodeBuilder<'_> {
                 Ok(())
             })();
             crate::codegen::engine::expansion::exit(self.instructions.len());
+            self.current_op_key = enclosing_op_key;
             result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
+            // plan-134-F: the drop walker's symmetry probe — emits nothing unless the
+            // build's environment names this local (`graph_drop.rs`).
+            if let NirOp::Bind { name, .. } | NirOp::Assign { name, .. } = op {
+                self.emit_test_graph_drop_hook(name)?;
+            }
             // plan-39 I1: after lowering the op, invalidate range facts. A `Bind`/
             // `Assign` drops just the reassigned local's bounds (its RHS, already
             // lowered above, used the valid pre-assignment bound). A loop / Match /

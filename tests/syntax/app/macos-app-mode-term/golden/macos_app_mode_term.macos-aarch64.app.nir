@@ -326,20 +326,29 @@
     ],
     "returns": "Float",
     "body": [
-    { "op": "bind", "mutable": false, "name": "turns", "type": "Float", "value": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "hue" }, "right": { "kind": "const", "type": "Float", "value": "360.0" } } },
-    { "op": "bind", "mutable": false, "name": "wrapped", "type": "Float", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "hue" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "call", "target": "toFloat", "args": [{ "kind": "call", "target": "math.floor", "args": [{ "kind": "local", "name": "turns" }] }] }, "right": { "kind": "const", "type": "Float", "value": "360.0" } } } },
+    { "op": "bind", "mutable": false, "name": "wrapped", "type": "Float", "value": { "kind": "binary", "op": "MOD", "left": { "kind": "local", "name": "hue" }, "right": { "kind": "const", "type": "Float", "value": "360.0" } } },
     {
       "op": "if",
       "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "wrapped" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } },
       "then": [
-      { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "wrapped" }, "right": { "kind": "const", "type": "Float", "value": "360.0" } } }
+      { "op": "bind", "mutable": false, "name": "up", "type": "Float", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "wrapped" }, "right": { "kind": "const", "type": "Float", "value": "360.0" } } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "up" }, "right": { "kind": "const", "type": "Float", "value": "360.0" } },
+        "then": [
+        { "op": "return", "value": { "kind": "const", "type": "Float", "value": "0.0" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "return", "value": { "kind": "local", "name": "up" } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "wrapped" }, "right": { "kind": "const", "type": "Float", "value": "360.0" } },
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "wrapped" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } },
       "then": [
       { "op": "return", "value": { "kind": "const", "type": "Float", "value": "0.0" } }
       ],
@@ -748,7 +757,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, "right": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "4" } } }, "right": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "6" } } }, "right": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "8" } } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "invalid hex colour length: " }, "right": { "kind": "local", "name": "text" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/color.mfb" }, { "kind": "const", "type": "Integer", "value": "248" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "invalid hex colour length: " }, "right": { "kind": "local", "name": "text" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/color.mfb" }, { "kind": "const", "type": "Integer", "value": "251" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -766,7 +775,7 @@
         "op": "if",
         "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
         "then": [
-        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "invalid hex colour digit: " }, "right": { "kind": "local", "name": "text" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/color.mfb" }, { "kind": "const", "type": "Integer", "value": "256" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "invalid hex colour digit: " }, "right": { "kind": "local", "name": "text" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/color.mfb" }, { "kind": "const", "type": "Integer", "value": "259" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
@@ -1191,7 +1200,7 @@
       "op": "if",
       "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "call", "target": "collections.hasKey", "args": [{ "kind": "global", "name": "#COLOR_NAMES", "type": "" }, { "kind": "local", "name": "key" }] } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "unknown colour name: " }, "right": { "kind": "local", "name": "name" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/color.mfb" }, { "kind": "const", "type": "Integer", "value": "403" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "unknown colour name: " }, "right": { "kind": "local", "name": "name" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/color.mfb" }, { "kind": "const", "type": "Integer", "value": "406" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -1214,7 +1223,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "<>", "left": { "kind": "call", "target": "toInt", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "alpha" }] }, "right": { "kind": "const", "type": "Integer", "value": "255" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "a colour with alpha " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "alpha" }] } }, "right": { "kind": "const", "type": "String", "value": " has no CSS name" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/color.mfb" }, { "kind": "const", "type": "Integer", "value": "410" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "a colour with alpha " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "alpha" }] } }, "right": { "kind": "const", "type": "String", "value": " has no CSS name" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/color.mfb" }, { "kind": "const", "type": "Integer", "value": "413" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -1250,7 +1259,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "best" }, "right": { "kind": "const", "type": "String", "value": "" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "no CSS name for " }, "right": { "kind": "call", "target": "#color_toHex", "args": [{ "kind": "local", "name": "base" }] } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/color.mfb" }, { "kind": "const", "type": "Integer", "value": "422" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "no CSS name for " }, "right": { "kind": "call", "target": "#color_toHex", "args": [{ "kind": "local", "name": "base" }] } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/color.mfb" }, { "kind": "const", "type": "Integer", "value": "425" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]

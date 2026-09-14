@@ -363,7 +363,7 @@ impl<'a> FileParser<'a> {
         // bug-551: `pkg::Name = value` — a write to an imported package's
         // `EXPORT MUT`. §13 calls an exported top-level `MUT` "package state
         // visible to importers", and the IR merge is already built for it:
-        // `ir::package::rewrite_op_targets` rewrites an `AssignGlobal` naming a
+        // `ir::package::visit_op_targets_mut` qualifies an `AssignGlobal` naming a
         // package global to the merged `<id>.package.Name` definition, which is
         // one physical slot (a consumer's write IS visible to the package's own
         // code). Only the parser was missing: `::` is its own token, so this

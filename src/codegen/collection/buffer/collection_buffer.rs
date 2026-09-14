@@ -16,19 +16,32 @@ impl CodeBuilder<'_> {
         type_: &ParameterType,
         result: ValueResult,
     ) -> Result<ValueResult, String> {
-        if !self.is_freeable_flat_value(type_) {
+        // plan-134-H: a collection of recursive values is freed too, but only its own block.
+        // Every intermediate here shares its elements' children with another owner:
+        // - a pre-grow buffer's payloads moved into the new buffer;
+        // - a `removeAt`/`without` product byte-copied its survivors from the source,
+        //   which still owns them;
+        // - a singleton byte-copied the item, whose children belong to the item's
+        //   temp or local.
+        // A builtin's result gets its own edges afterwards (`own_collection_payload_edges`).
+        let shallow = !self.is_freeable_flat_value(type_) && self.owns_graph(type_);
+        if !self.is_freeable_flat_value(type_) && !shallow {
             return Ok(result);
         }
         let keep = self.allocate_stack_object("intermediate_free_keep", 8);
         self.emit(abi::store_u64(&result.location, abi::stack_pointer(), keep));
-        self.emit_owned_value_drop(&OwnedValueCleanup {
-            type_: type_.clone(),
-            stack_offset: block_slot,
-            closure_captures: None,
-            capacity_slot: None,
-            loop_alias_slot: None,
-            result_wrapper: None,
-        })?;
+        if shallow {
+            self.emit_shallow_block_free(type_, block_slot)?;
+        } else {
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: type_.clone(),
+                stack_offset: block_slot,
+                closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            })?;
+        }
         let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), keep));
         Ok(ValueResult {

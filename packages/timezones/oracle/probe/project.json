@@ -1,0 +1,15 @@
+{
+  "name": "tzprobe",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Answers a timezones oracle job file with packages/timezones, one answer line per job line, so oracle/diff.py can compare it with Python zoneinfo.",
+  "sources": [
+    { "root": "src", "role": "main", "include": ["**/*.mfb"] }
+  ],
+  "packages": [
+    { "name": "timezones", "version": "=0.1.0", "source": "file:packages/timezones.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -1,7 +1,40 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-13
-Open bugs: **6** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Open bugs: **9** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l` at `78550d5e0`)
+
+## 2026-09-13 — status of every open bug
+
+**No open HIGH.** 601 closed when plan-134 merged, and 613 landed (`53f10b1fe`). Each status
+below is read from the bug doc and `git log`; no repro was re-run for this update.
+
+| Bug | Sev | Effort | Status | Next |
+|---|---|---|---|---|
+| 614 | MED | medium | Filed 2026-09-13, not started. A parameter default naming a global reads a caller's same-named local (silent wrong value); in an exported package function it fails with an unlocated `CONST_POOL` error | **Owner decision** (below): package form |
+| 608 | MED | small–medium | Not started. Nine `udp` forms declare `errors: vec![]` but raise | Phase 1 must establish whether any form is inline-lowered (a deleted handler) |
+| 564 | MED | small | Both sightings fixed. A macOS `tls::write` after `tls::read` saw the close never raises. **Decided 2026-09-12**: raise `ErrConnectionClosed`. Not started | Network.framework side; measure Linux and Windows on the same sequence |
+| 540 | MED | large | WIN-01/04/05 fixed; WIN-02/03 (fixed 80x25, no `didResize`) remain | **Owner decision**: a test-only `term::` resize hook |
+| 484 | MED | x-large | `canvas::Picture` draws nothing. **Unblocked 2026-09-13**: plan-116-I and -J landed. Not started | Largest open item |
+| 606 | LOW | small | Not started. `percentDecode`/`formUrlDecode` raise an undeclared `ErrInvalidFormat` | Quick win |
+| 604 | LOW | small | Not started. `mfb audit --help` misdescribes `--locked` and names `project.lock` | Quick win |
+| 605 | LOW | small | Not started. Man field tables print `color.Color` | Route every renderer through `ParameterType::display()` |
+| 610 | LOW | small–medium | Not started. A second `destroyImage`/`destroyFont` is silent; §15 says it raises | **Owner decision** (below): code or spec |
+
+**Filed on unmerged `worktree-P-125`** (plan-125-C, documentation-only, so filed and not fixed).
+They reach `bugs/` when that branch lands. `git log --all --grep` finds these numbers only on
+P-125's own commits:
+**615 MED** `math::tan` on a `Fixed` near pi/2 returns a wrong-signed value instead of
+`ErrOverflow`; **616 LOW** 78 man declarations render `AS Arg0` for the return type; **617 LOW**
+`math` overloads declare errors they cannot raise (extended in `3caf47763`).
+
+**Closed 2026-09-13, archived:** 520 (`633c258bb`), 536 (plan-134 A–H), 599 (plan-132), 601
+(plan-132 + plan-134-D `41f5694d6`), 602 (not a defect, `c4279099d`), 603 (`333b23197`), 609
+(`5eaea6f15`), 611 (`81bd5400f`), 612 and 613 (`53f10b1fe`). 607 was closed as not a bug
+(`bugs/skipped/`). plan-134's final gate also fixed pre-existing bugs that never got a doc
+(`cb8424594`, `414ede12d`, `d2acb15e6`); see `planning/completed/plan-134-H-*`.
+
+**Suggested order:** 614 once its decision is made → the small declaration/help bugs
+608, 606, 604, 605 → 564 → 484. 540 and 610 wait on the owner.
 
 ## 2026-09-12 — integration rounds and what they taught
 
@@ -37,7 +70,8 @@ release unit suite 4137 passed, 0 failed; merged `rt_scope_drop_leaks` 110 passe
 Round 4 (594) was verified the same way: artifact gate 0 diffs; merged release unit suite
 4137 passed; `cli_macos_app_term_draw_text` 3 passed (the gate is blind to app mode).
 
-**In flight:** nothing. No agents are running. Every bug worked this stretch has landed;
+*(2026-09-12 snapshot, superseded by the 2026-09-13 status above: 601, 536 and 520 have
+since closed.)* **In flight:** nothing. No agents are running. Every bug worked this stretch has landed;
 the ones that stay open (540, 564, 601) are blocked only on the owner decisions below
 (599 was fixed by plan-132; 602 was tested and closed as not a defect). The remaining
 open docs (484, 536) are large planned work, not quick fixes. 520 was re-scoped on
@@ -70,8 +104,9 @@ neither filed it), 594 (macOS `drawText` column), 592.
   `audio::AudioDevice` are built through the record marshaller onto the ordinary flat
   layout, every native reader rebases, and `is_pointer_string_record` is deleted. bug-599 is
   fixed and archived (a looped `net::lookup` held 1.2 → 1.4 MB over 200k → 400k iterations,
-  was 99.8 → 198.3 MB). bug-601 **stays OPEN** for its recursive-type row only (`List OF
-  Tree`, still aliases; rides on bug-536 shape C). The `Error`/`ErrorLoc` question
+  was 99.8 → 198.3 MB). bug-601's recursive-type row (`List OF Tree`) is **fixed by
+  plan-134-D** (2026-09-13: copy-insertion for recursive values at the owning stores) and the
+  bug is archived. The `Error`/`ErrorLoc` question
   (bug-602) is **closed, not a defect** (2026-09-13): both are ordinary flat records, every
   second-binding shape copies (bug-601's three list shapes on a `List OF Error` included, on
   the compiler before plan-132 as well), and `an_error_value_copy_is_independent_of_its_source`
@@ -89,6 +124,13 @@ neither filed it), 594 (macOS `drawText` column), 592.
   list drives inline-`TRAP` fallibility, so it moves more than a man page.
 - **bug-540 WIN-02/03**: proving a Windows resize needs a test-only `term::` resize hook —
   product surface. WIN-04 did not need it.
+- **bug-610** (added 2026-09-13): should an explicit second `canvas::destroyImage`/`destroyFont`
+  raise `ErrResourceClosed` like every other close, or should `mfb spec language
+  resource-management` §15 gain a canvas exception? Spec and code must agree either way.
+- **bug-614** (added 2026-09-13): should a package function's non-constant default that reads a
+  package global be carried in the `.mfp`, or refused at package build with a located
+  diagnostic? The doc recommends the diagnostic now, and a plan later if the form is wanted.
+  The non-package half (resolve defaults in declaration scope) needs no decision.
 - **A clippy CI job**: four deny-level errors reached main because nothing runs clippy.
 
 ### What the integration rounds taught
@@ -295,10 +337,11 @@ the bug doc.
 
 Filed, not fixed: plan-125 is documentation-only by user instruction.
 
-- **603 LOW** — `color::hsl`/`hsla`/`rotateHue` raise `ErrOverflow` for a finite
-  hue past ~3.3e21 degrees: `__color_wrapHue` takes the fractional turn through
-  `Integer`-returning `math::floor`. One-line fix (`hue MOD 360.0`); the golden
-  regeneration is the real cost.
+- ~~**603 LOW**~~ — **LANDED `333b23197`** (2026-09-13; archived to
+  `bugs/completed/`). `color::hsl`/`hsla`/`rotateHue` raised `ErrOverflow` for a finite
+  hue past ~3.3e21 degrees: `__color_wrapHue` took the fractional turn through
+  `Integer`-returning `math::floor`. Now `hue MOD 360.0`; 40 `.ir` goldens and 9
+  `.ncodesum`s regenerated, each proven to be only the helper.
 
 ## 2026-09-11 — repository security review intake
 
@@ -428,21 +471,23 @@ Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
 539 and 545. **Do not re-dispatch these** — the table that used to sit here said
 "agent running" for all three and was stale for a full session.
 
-## Tier 2 — HIGH: one open, blocked on planned work
+## Tier 2 — HIGH: none open
 
-*(Updated 2026-09-12. This heading used to read "there is NO open HIGH", which stopped
-being true when 601 was filed.)*
+*(Updated 2026-09-13. It read "one open, blocked on planned work" while 601 was open;
+plan-134 closed it. 613, HIGH, was filed and fixed on 2026-09-13.)*
 
-- **601** — a `MUT` copy of a non-flat list aliases its source, so an in-place `append`
-  on the copy segfaults and a short variant silently computes a wrong value. The
-  pointer-`String` records half (the crash) is fixed by **plan-132**; the recursive-type row
-  (`List OF Tree`, a wrong value) remains and rides on bug-536 shape C.
+- ~~**601**~~ — **CLOSED 2026-09-13.** A `MUT` copy of a non-flat list aliased its source.
+  The pointer-`String` records half was fixed by **plan-132**; the recursive-type row
+  (`List OF Tree`) by **plan-134-D** (`a_recursive_value_copy_is_independent_of_its_source`).
+  Construction stores of recursive values aliased until plan-134-E (fixed there).
 - ~~**581**~~ — **CLOSED 2026-09-12.** Phase 1 landed (`ed87c111a`); Phase 2 won't be done
   (the registry is trusted by design).
 
-bug-536 has **no actionable work**: shapes A, B and B-2 are fixed (B-2 landed
-`b845db0de`, 2026-09-06) and shape C is a design decision, not a bug fix. **Do
-not dispatch 536.**
+~~**536**~~ — **CLOSED 2026-09-13.** Shapes A (`f9be6e128`), B (`cd8699103`) and B-2
+(`b845db0de`) are fixed. Shape C was not a bug fix but the design plan it needed, and
+plan-134 (letters A–H) delivered it: recursive values are now copied at every store and
+freed by every owner, including the elements a collection discards in place. Archived to
+`bugs/completed/`.
 
 ### A correction, because this section was wrong twice in one day
 
@@ -503,9 +548,13 @@ Three of its four parts are done:
   is shape B one level up (`row = append(row, __csv_fieldValue(...))`). Needs a
   transitive `function_returns_fresh_string` NIR predicate; it is a
   **double-free** risk, not a leak risk, so it wants its own change and audit.
-- **Shape C** — a value of a recursive type is never freed. **Blocked**: it needs
-  recursive COPY-insertion, which does not exist, and the naive fix is a double
-  free. It is a design pass, not a bug fix. Do not dispatch it as one.
+- **Shape C** — a value of a recursive type was never freed. **FIXED by plan-134**
+  (2026-09-13). It needed recursive copy-insertion first (letters B–E: a
+  non-recursive graph copy at every owning and construction store, moves at a
+  source's last read). Only then could owners free their graphs (F's drop walker,
+  G's registration) and collections free discarded elements (H). The
+  `c_union_rss`/`c_record_rss` repros are flat (1.08 / 1.03 MB at 400k and 800k), and
+  `json_repeat` K = 1 → 4 is within `assert_flat`'s 8 MiB.
 
 514 is landed. 519, 532 and 535 are landed; 538 is landed and 539 also fixed a
 pre-existing GTK draw-callback SIGSEGV and put the Linux GTK app backend under
@@ -609,11 +658,15 @@ S2–S5 `parseIso`/`parse` accept an offset's `:SS`, trailing text, `+05:75`, an
 wrong code for `+24:00`; S6 `addDays(dt, 0)` moves a repeated hour; S7–S9 page claims
 ("pure", missing error lists, the `fixedOffset` formula); S10 no fixture sets `TZ`.
 Owner decisions: S1 **write seconds**; S6 **keep the offset** when it is still valid.
-The file is now `bugs/bug-520-datetime-is-not-correct-standalone.md`. **bug-603** was
-filed the same day for S1–S3 and merged into 520 — the number is used, no file exists.
-**Named zones moved out of 520** into **plan-135-A–D** (`packages/timezones`, a source
-package over vendored IANA tzdb 2026d, never the host's zone data; zone names match
-ignoring case). plan-135-D cannot start until 520 closes. 518, 519 and 521 are landed.
+The file is now `bugs/bug-520-datetime-is-not-correct-standalone.md`. A datetime
+**bug-603** was filed the same day for S1–S3 and merged into 520, with no file of its own.
+That number was already taken: the colour hue-wrap `bugs/completed/bug-603-color-hue-wrap-overflows.md`
+(plan-125 intake above) is a different bug.
+**Named zones moved out of 520** and are **delivered by plan-135-A–D**: `packages/timezones`,
+a source package over vendored IANA tzdb 2026d, never the host's zone data, with zone
+names matching ignoring case. It provides `offsetAt`, `toZone`, `civil` (compatible
+disambiguation), and RFC 9557 `toIso`/`parseIso`, checked against Python `zoneinfo` and
+Temporal (`packages/timezones/oracle`). 518, 519 and 521 are landed.
 
 **crypto**: the cluster is **complete**. **515 is landed (`b399e3363`)**, as are
 **511 (`e24914d5d`)** and **517 (`5c2024f71`)**.
@@ -663,8 +716,10 @@ so adding a curve fails until it is covered.
 - 543 (spawn fd parity): `e36ebcedf`
 - 488: CLOSED after its clean period (`e5f705c13`)
 
-**Still open:** only 484 (`picture::drawItem` never renders — x-large, sequenced AFTER
-plan-116-I) and 520 (named zones, huge — re-scoped 2026-09-13, see **datetime**).
+~~**Still open:** only 484 (`picture::drawItem` never renders — x-large, sequenced AFTER
+plan-116-I) and 520 (named zones, huge — re-scoped 2026-09-13, see **datetime**).~~
+**Updated 2026-09-13:** 520 is fixed and archived (`633c258bb`). 484 is still open but no
+longer sequenced behind anything, because plan-116-I and -J have landed.
 
 **Filed that day, all found while fixing something else — none is a regression — and
 all since landed:** 550 (55 `debug_assert!`s that never run, because CI builds release;

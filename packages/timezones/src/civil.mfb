@@ -1,0 +1,48 @@
+' ---------------------------------------------------------------------------
+' timezones/civil.mfb — a wall-clock reading in a named zone, as an instant.
+'
+' Twice a year a reading is skipped (spring forward) or happens twice (fall
+' back). The rule here is RFC 9557 / Temporal "compatible", which is also what
+' Python zoneinfo does with fold=0:
+'   - a skipped reading moves forward by the length of the gap, because it is
+'     read with the offset in force before the transition;
+'   - a repeated reading resolves to the earlier of its two instants.
+'
+' The offset in force is one of at most two values near the reading. Let L be
+' the reading counted as if it were UTC. Every candidate instant is L - utoff,
+' and plan-135-A's generator guarantees |utoff| < W = 172800 and that a zone's
+' transitions are more than 2W apart. So [L - W, L + W] holds both candidates
+' and at most one transition, and the offsets at its two ends are the offsets
+' either side of that transition.
+' ---------------------------------------------------------------------------
+
+IMPORT datetime
+
+FUNC zonedCivil(date AS datetime::Date, time AS datetime::Time, name AS String) AS datetime::DateTime
+  LET window AS Integer = 172800
+  ' Rebuilding both values validates every calendar field (77050002), so a
+  ' `datetime::Date[2026, 2, 30]` literal cannot slip through.
+  LET d AS datetime::Date = datetime::date(date.year, date.month, date.day)
+  LET t AS datetime::Time = datetime::time(time.hour, time.minute, time.second, time.nanos)
+  LET wall AS Integer = datetime::resolve(datetime::civil(d, datetime::time(t.hour, t.minute, t.second, 0), datetime::utc())).seconds
+
+  LET offsetBefore AS Integer = localTypeAt(name, wall - window).utoff
+  LET offsetAfter AS Integer = localTypeAt(name, wall + window).utoff
+  LET first AS Integer = wall - offsetBefore
+  LET second AS Integer = wall - offsetAfter
+  LET firstFits AS Boolean = localTypeAt(name, first).utoff = offsetBefore
+  MUT secondFits AS Boolean = FALSE
+  IF offsetAfter <> offsetBefore THEN secondFits = localTypeAt(name, second).utoff = offsetAfter
+
+  ' A gap, where neither candidate fits, keeps the pre-transition offset, so
+  ' the wall clock moves forward.
+  MUT chosen AS Integer = first
+  ' Only the second fits: the reading lies after the transition.
+  IF firstFits = FALSE AND secondFits THEN chosen = second
+  ' Both fit, an overlap: the earlier instant.
+  IF firstFits AND secondFits AND second < first THEN chosen = second
+
+  LET at AS datetime::Instant = datetime::instant(chosen, t.nanos)
+  LET found AS LocalType = localTypeAt(name, chosen)
+  RETURN datetime::inZone(at, datetime::Zone[found.utoff, 1, found.abbreviation])
+END FUNC

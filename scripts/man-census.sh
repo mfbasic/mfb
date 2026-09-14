@@ -396,7 +396,9 @@ mode_topics() {
 # not authored page prose. `ErrOutOfMemory`'s message is "Allocation failed.",
 # so every page that can raise it shows the banned word `allocation` in a cell
 # no page author can edit. Changing it would change program output and drift
-# goldens, which plan-108 is explicitly barred from doing.
+# goldens, which plan-108 is explicitly barred from doing. The same message is
+# derived again into the `errorCode` overview's Constants table (bug-609), a row
+# shaped `errorCode::ErrName │ Integer │ code │ message`, carved the same way.
 #
 # Both are classified and counted separately, never silently dropped.
 mode_memory_scope() {
@@ -421,7 +423,8 @@ mode_memory_scope() {
 			if [ "$pkg" = datetime ] && printf '%s' "$body" | grep -qiE 'borrow'; then
 				carve=$((carve + 1))
 				printf 'CARVE-1  %-28s %5s  %s\n' "$label" "$n" "$body"
-			elif printf '%s' "$body" | grep -qE '^.?.?.?.?[[:space:]]*[0-9]{8}[[:space:]]*.?.?.?.?[[:space:]]*Err[A-Za-z]'; then
+			elif printf '%s' "$body" | grep -qE '^.?.?.?.?[[:space:]]*[0-9]{8}[[:space:]]*.?.?.?.?[[:space:]]*Err[A-Za-z]' ||
+				{ [ "$pkg" = errorCode ] && printf '%s' "$body" | grep -qE '^│ errorCode::Err[A-Za-z]+[[:space:]]+│ Integer[[:space:]]+│ [0-9]{8}[[:space:]]+│'; }; then
 				carve2=$((carve2 + 1))
 				printf 'CARVE-2  %-28s %5s  %s\n' "$label" "$n" "$body"
 			elif [ "$label" = 'optimizations (guide)' ] && [ "$cat_hi" -gt 0 ] &&
