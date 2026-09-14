@@ -110,7 +110,7 @@ regex change by design and are regenerated after the corpus is green.
 
 Acceptance: the census is total; the bound fails on the H build.
   Check: `cargo test --release --test rt_regex_bounds -- find_all_cost_is_bounded` → failed.
-Commit: —
+Commit: ad1a4d1d6
 
 ### Phase 2 — the flat program and the index matcher
 
@@ -156,17 +156,35 @@ Acceptance: the DEC-02 bound holds and no regex answer changes.
   Check: `cargo test --release --no-fail-fast --test rt_regex_bounds --test rt_regex_span`
   plus every other `rt_regex_*` target (`ls tests/runtime/rt_regex_*`) and the plan-134 value
   suites → passed (est. 10 min).
-Commit: —
+Commit: 5d052ac7b
 
 ### Phase 3 — goldens, measurements, docs
 
 - [ ] Artifact gate; expected diffs: `byte-identity/regex` (and any fixture importing regex).
       Localize per function, regenerate, re-gate.
-- [ ] Re-measure against the pre-plan build: `rt_regex_bounds`' findAll program and `regex_repeat`
+- [x] Re-measure against the pre-plan build: `rt_regex_bounds`' findAll program and `regex_repeat`
       K = 1 (medians of 5, RSS); record them in plan-134-H's speed report and plan-134-A's
-      "After" table.
-- [ ] Doc comments of the rewritten helpers describe the flat program and the integer
-      continuation.
+      "After" table. — `bash /tmp/p134-i-measure/run.sh`, idle machine, the two compilers back
+      to back, same output from both:
+      - findAll: pre-plan 0.77 s / 2.06 GB → 0.55 s / 163 MB;
+      - `regex_repeat` K=1: pre-plan 0.11 s / 345 MB → 0.04 s / 18 MB;
+      - `--debug` `alloc_calls` 7 537 843 → 644.
+
+      `rows.sh` (single runs):
+      - `regex_repeat` K = 1 / 2 / 4 → 0.03 / 0.07 / 0.12 s, 18.3 MB flat;
+      - `regex_chain group:499999` → exit 0, 0.84 s, 671 MB (H: 11.4 s, 2.22 GB);
+      - `group:500001` → exit 3 at the pending limit.
+
+      Recorded in plan-134-H's speed report and in plan-134-A's "After" rows.
+- [x] Doc comments of the rewritten helpers describe the flat program and the integer
+      continuation. — In `5d052ac7b`:
+      - the module doc and body header of `helper_run.rs` cover the frame, choice and
+        snapshot tables and their bounds;
+      - `helper_flatten.rs` gives the op encoding;
+      - `helper_simple_match_at.rs` notes the borrowed leaf.
+
+      The same commit updates `src/docs/spec/stdlib/01_regex.md` (op and frame tables),
+      `.ai/codegen-invariants.md` and the `recursive-value-bench` README and program comments.
 
 Acceptance: goldens regenerated and re-gated clean; measurements recorded.
   Check: the gate (est. 15 min); the measurement script (est. 3 min).

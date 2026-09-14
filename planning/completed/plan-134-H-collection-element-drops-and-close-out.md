@@ -227,6 +227,19 @@ Commit: 586d51482
       pattern root and the current repeat as fields, and value semantics copies those graphs.
       H's frees add the matching drops (RSS 345 MB → 18 MB). The remedy is still the deferred
       regex helper rewrite. Output identical (`chars=100000 hits=10000`, `bytes=480003`).
+
+      **Regex, after plan-134-I (the rewrite, done in the final gate).** `bash
+      /tmp/p134-i-measure/run.sh` ran on an idle machine, pre-plan compiler then the plan-134-I
+      build, back to back. Medians of 5:
+
+      | probe | before (pre-plan) | after (plan-134-I) |
+      |---|---|---|
+      | `regex_repeat` K=1 | **0.11 s**, 345 MB | **0.04 s**, 18 MB |
+      | `rt_regex_bounds` findAll program | **0.77 s**, 2.06 GB | **0.55 s**, 163 MB |
+
+      Both print the same output (`chars=100000 hits=10000`, `raised 77050003`).
+      `--debug` `alloc_calls` for the findAll program: 7 537 843 pre-plan, 307 429 746 after
+      H, 644 after I. Regex is now inside both budgets and faster than the pre-plan compiler.
 - [x] Add a `json::get` / `json::getOr` path-walk probe to `tools/recursive-value-bench/` and
       measure it before and after plan-134 (median of 5): since plan-134-D the path walk copies the
       subtree at each step (`current = value`, `nextValue = current`, `current = nextValue` in
