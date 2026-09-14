@@ -489,38 +489,46 @@ pub fn docs_page(registry_id: &str, view: &DocsView) -> Markup {
             p { a."raw-link" href=(raw) { (raw) " — raw JSON" } }
 
             @match &view.page {
-                Some(page) => {
-                    @if let Some(message) = &page.package_deprecated {
-                        div."callout callout--warning" role="note" {
-                            strong."callout__label" { "Deprecated." }
-                            @if message.is_empty() {
-                                "This package is deprecated."
-                            } @else {
-                                (doc_inline(message))
+                // The sidebar layout: the index is the first grid column and
+                // stays in view while the declarations scroll beside it. Below
+                // the stylesheet's breakpoint (or with no CSS) the index stacks
+                // above the content, exactly as before.
+                Some(page) => div."doc-layout" {
+                    @if !page.public.is_empty() {
+                        (doc_index(&page.public))
+                    }
+                    div."doc-main" {
+                        @if let Some(message) = &page.package_deprecated {
+                            div."callout callout--warning" role="note" {
+                                strong."callout__label" { "Deprecated." }
+                                @if message.is_empty() {
+                                    "This package is deprecated."
+                                } @else {
+                                    (doc_inline(message))
+                                }
                             }
                         }
-                    }
-                    @if !page.intro.is_empty() {
-                        div."doc-intro" {
-                            (doc_prose(&page.intro))
+                        @if !page.intro.is_empty() {
+                            div."doc-intro" {
+                                (doc_prose(&page.intro))
+                            }
                         }
-                    }
-                    // Only the public groups. A declaration its author marked
-                    // `INTERNAL` is not part of the package's API — a consumer
-                    // cannot call it — so the registry does not present it
-                    // (plan-126-F Open Decision; `GET /packages/:ident/docs`
-                    // omits them identically).
-                    @if page.public.is_empty() {
-                        p."muted" {
-                            "This release documents the package itself but none of its \
-                             public declarations."
-                        }
-                    } @else {
-                        (doc_index(&page.public))
-                        @for group in &page.public {
-                            h2."section-title" { (group.title) }
-                            @for decl in &group.decls {
-                                (doc_decl(decl))
+                        // Only the public groups. A declaration its author marked
+                        // `INTERNAL` is not part of the package's API — a consumer
+                        // cannot call it — so the registry does not present it
+                        // (plan-126-F Open Decision; `GET /packages/:ident/docs`
+                        // omits them identically).
+                        @if page.public.is_empty() {
+                            p."muted" {
+                                "This release documents the package itself but none of its \
+                                 public declarations."
+                            }
+                        } @else {
+                            @for (index, group) in page.public.iter().enumerate() {
+                                h2."section-title doc-group" id=(doc_group_id(index)) { (group.title) }
+                                @for decl in &group.decls {
+                                    (doc_decl(decl))
+                                }
                             }
                         }
                     }
@@ -622,11 +630,20 @@ pub fn doc_element_id(anchor: &str) -> String {
     format!("doc-{anchor}")
 }
 
+/// The HTML element id for the heading of the `index`th public group. Group
+/// titles are publisher text and not unique, so the id is positional; it
+/// contains `_`, which [`doc_element_id`] never produces, so it cannot collide
+/// with a declaration.
+fn doc_group_id(index: usize) -> String {
+    format!("doc_group_{index}")
+}
+
 /// A no-script index of the declaration groups, folded with the checkbox + label
 /// pattern the Overview's target rows use. Rendered **checked** (open), so the
-/// index is visible by default and without CSS. The checkbox id contains `_`,
-/// which [`doc_element_id`] never produces, so it cannot collide with a
-/// declaration.
+/// index is visible by default and without CSS. On a wide screen the stylesheet
+/// pins it as a sidebar beside the declarations. Each group title links to its
+/// heading. The checkbox id contains `_`, which [`doc_element_id`] never
+/// produces, so it cannot collide with a declaration.
 fn doc_index(groups: &[mfb_wire::docpage::DocGroup]) -> Markup {
     let count: usize = groups.iter().map(|group| group.decls.len()).sum();
     html! {
@@ -639,9 +656,11 @@ fn doc_index(groups: &[mfb_wire::docpage::DocGroup]) -> Markup {
                 span."tgt-count" { (count) }
             }
             div."doc-index__groups" {
-                @for group in groups {
+                @for (index, group) in groups.iter().enumerate() {
                     div."doc-index__group" {
-                        p."eyebrow" { (group.title) }
+                        p."eyebrow" {
+                            a href={ "#" (doc_group_id(index)) } { (group.title) }
+                        }
                         ul {
                             @for decl in &group.decls {
                                 li {
@@ -1684,6 +1703,37 @@ mod tests {
         );
         assert!(!rendered.contains("<script"), "{rendered}");
         assert!(!rendered.contains("style="), "{rendered}");
+    }
+
+    /// The index renders before the content inside the sidebar layout, and each
+    /// group title in it links to that group's heading by a positional id that
+    /// occurs exactly once.
+    #[test]
+    fn the_sidebar_index_links_every_group_heading() {
+        let add = doc_decl_entry("func", "addUp", "Arithmetic");
+        let point = doc_decl_entry("type", "Point", "");
+        let page = doc_page_with_decls(vec![(0, "Sub.".to_string())], vec![add, point]);
+        let rendered = docs_page("reg", &docs_view(Some(page))).into_string();
+
+        let layout = rendered
+            .find(r#"<div class="doc-layout">"#)
+            .expect(&rendered);
+        let index = rendered.find(r#"<nav class="doc-index""#).expect(&rendered);
+        let main = rendered.find(r#"<div class="doc-main">"#).expect(&rendered);
+        assert!(layout < index && index < main, "{rendered}");
+        for (id, title) in [("doc_group_0", "Arithmetic"), ("doc_group_1", "Types")] {
+            assert!(
+                rendered.contains(&format!(r##"<a href="#{id}">{title}</a>"##)),
+                "{rendered}"
+            );
+            assert!(
+                rendered.contains(&format!(
+                    r#"<h2 class="section-title doc-group" id="{id}">{title}</h2>"#
+                )),
+                "{rendered}"
+            );
+            assert_eq!(rendered.matches(&format!(r#"id="{id}""#)).count(), 1);
+        }
     }
 
     /// A declaration its author marked `INTERNAL` is not rendered anywhere on the
