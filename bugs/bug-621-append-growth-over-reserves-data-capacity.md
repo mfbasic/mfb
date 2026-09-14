@@ -225,23 +225,83 @@ region exactly per append (breaks amortized O(1)).
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] `tests/runtime/rt_list_append_growth_bounds.rs` + `[[test]]` in `Cargo.toml`, modelled
+- [x] `tests/runtime/rt_list_append_growth_bounds.rs` + `[[test]]` in `Cargo.toml`, modelled
       on `tests/runtime/rt_json_bounds.rs` (`common::temp_project`, `common::build_project`,
       `common::run_bounded_with_rss`): the 16 MiB `List OF Byte` reproduction, the
       `List OF Integer` contrast, and the assertion `byte_rss < integer_rss`. Confirm it fails
       today (the two are equal).
-- [ ] Probe each UNVERIFIED site in Blast Radius with a same-shape `--debug` program (Byte vs
+- [x] Probe each UNVERIFIED site in Blast Radius with a same-shape `--debug` program (Byte vs
       Integer element); write each site's verdict into this file.
 
 Acceptance: `cargo test --test rt_list_append_growth_bounds` fails on the `byte < integer`
 assertion; every Blast Radius line carries a measured verdict.
 Commit: —
 
+**Phase 1 results (2026-09-13, macos-aarch64, compiler at `a74de5975`).** Each site was
+probed with a `--debug` program at n = 1,048,576 (prepend: 65,536, since each prepend
+shifts the whole list), Byte vs Integer element. A `--ncode` dump of each probe
+confirmed the arm's grow label is emitted (7 hits each), so the probe really reached
+that arm. `alloc_bytes`:
+
+| Site (grow label) | Byte | Integer | Verdict |
+| --- | --- | --- | --- |
+| `lower_list_append_in_place` (`append_grow_*`) | 86,029,216 | 86,029,216 | affected (width-independent) |
+| `lower_list_splice_in_place`, insert at `len` (`insert_grow_*`) | 86,029,216 | 86,029,216 | affected |
+| `lower_list_splice_in_place`, prepend (`prepend_grow_*`) | 4,974,304 | 4,974,304 | affected |
+| `lower_inline_list_append_in_place` (`inline_append_grow_*`) | 86,029,712 | 86,029,712 | affected |
+| `lower_list_bulk_append_in_place`, 8-element chunk (`bulk_append_grow_*`) | 435,784,064 | 653,708,112 | affected (≈52 B/element for bytes) |
+| `lower_inline_list_bulk_append_in_place` (`inline_bulk_grow_*`) | 435,784,624 | 653,708,672 | affected |
+| `lower_map_set_in_place`, `Map OF Integer TO Byte` vs `TO Integer` (`mapset_grow_*`) | 340,213,376 | 340,213,376 | affected (both 16 data B/entry) |
+
+The bulk arms are the one place the Byte/Integer contrast does not show it: an 8-byte
+chunk binds on data where an 8-element Integer chunk binds on count. Measured against
+the fixed-width rule, though, both overshoot. So the test asserts a per-arm bound
+derived from the rule, plus `byte < integer` for the single-element arms. A Python
+model of the old rule reproduced every figure above to within allocator rounding
+(e.g. 86,028,954 + the 64-byte n = 0 baseline vs 86,029,216 measured).
+
+Open Decision (map arm) resolved to the recommended option, include: the probe shows
+the same width-independence.
+
+The test is RED on the pre-fix compiler in all 8 cases, each for the stated reason.
+For example: `append: List OF Byte requested 86029216 bytes; the fixed-width rule allows
+4540336`, `16 MiB List OF Byte peaked at 981893120 bytes RSS; the fixed-width rule allows
+54909136`, `Map OF Integer TO Integer requested 340213376 bytes; the fixed-width rule allows
+326809536`.
+
 ### Phase 2 — the fix
 
-- [ ] `list_mutate.rs:lower_list_append_in_place`: fixed-width branch derives
+- [x] `list_mutate.rs:lower_list_append_in_place`: fixed-width branch derives
       `newDataCapacity` from `newCapacity × w`.
-- [ ] Same change at every site Phase 1 classified as affected.
+- [x] Same change at every site Phase 1 classified as affected.
+
+**Phase 2 as landed.** One helper,
+`collection_buffer.rs:emit_fixed_width_data_capacity`, computes
+`newCapacity × stride` with the existing overflow-checked multiply. Six arms use it:
+`lower_list_append_in_place`, `lower_inline_list_append_in_place`,
+`lower_list_bulk_append_in_place`, `lower_inline_list_bulk_append_in_place`,
+`lower_list_splice_in_place` and `lower_map_set_in_place`. For a map or `Set`, the
+stride applies when key and value are both fixed-width:
+`(keyWidth.next_multiple_of(valueAlign) + valueWidth).next_multiple_of(keyAlign)`,
+16 for `Integer → Integer`.
+
+Deviation from the Fix Design: the `max(.., required)` clamp is kept on every
+fixed-width branch, not just tolerated. Correctness then does not rest on
+`dataLength == count × width` holding for every block producer; the stride only
+decides how much is reserved.
+
+The overflow label is created inside the fixed-width branch only, so a
+variable-width payload keeps its label and vreg order. That was verified with
+`cmp` on `.ncode` from the pre-fix and fixed compilers: identical for a `List OF
+String` program exercising all six list shapes and for `Map`/`Set OF String`. In
+the fixed-width program only `_mfb_fn_main` differs.
+
+One correction to the Phase 1 test, found GREEN-side: the record-field arms grow
+the whole record block (`fieldOffset + HEADER + capacity × width`, per the
+lowering's own comment). Their first bound omitted `Box`'s 16-byte field-slot
+prefix. The measured excess was exactly 27 × 16 and 31 × 16 bytes, one prefix per
+generation, and the bound now includes it. The pre-fix compiler still overshoots it
+≈19×.
 
 Acceptance: `cargo test --test rt_list_append_growth_bounds` passes; the four nearest guards
 (`rt_scope_drop_leaks`, `rt_res_state_inplace_mutation`, `codegen_inplace_record_field`,
@@ -250,12 +310,55 @@ Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `scripts/regen-native-goldens.sh target/release/mfb` for the drifted fixtures; confirm
+- [x] `scripts/regen-native-goldens.sh target/release/mfb` for the drifted fixtures; confirm
       only `.ncodesum`/`.ncode` moved (`git diff --stat -- '*.ast' '*.ir' '*build.log'` empty).
+
+**Golden drift, classified before regenerating.**
+`scripts/artifact-gate.sh <mfb> all`, run from a detached `a74de5975` worktree with
+the pre-fix compiler, found `2021 golden(s) checked, 0 diff(s)`. The fixed compiler
+found `84 diff(s)`, so every diff is this change's. They span 18 fixtures:
+
+- 15 `tests/byte-identity/*_codegen_cover_rt`, 5 targets each;
+- `crypto-ec-valid`, 4 sums;
+- `macos-app-mode-term`, 4 app sums;
+- `list-ops-codegen-rt`, raw macOS `.ncode`.
+
+`/tmp` probe `loc.py` built each fixture on macOS with both compilers and compared
+per function: 316 functions changed across the 18. Every changed function has
+strictly fewer `*_grow_dcap_{double,init,after}` labels in the fixed dump. That is a
+fixed-width grow site losing its independent data step, which is exactly this fix;
+no other function moved. The builtin packages written in MFBASIC (crypto, encoding,
+json, regex, …) append bytes, which is why the cover fixtures move.
+
+`bash scripts/regen-native-goldens.sh <fixed mfb> <the 18 dirs>` reported `84 build(s),
+86 golden(s) rewritten, 0 failure(s)`; git shows 83 `.ncodesum` and 1 `.ncode`
+changed, and no `.ast`, `.ir` or `build.log`. A rerun of `artifact-gate.sh <fixed mfb> all`
+afterwards reported `2021 golden(s) checked, 0 diff(s)`.
 - [ ] `cargo test --no-fail-fast > /tmp/bug621.log 2>&1; echo EXIT=$?` and
       `scripts/test-accept.sh target/release/mfb /tmp/bug621-accept`.
-- [ ] Re-run the reproduction on macos-aarch64 and on box 2223 (linux-aarch64 glibc), and
+- [x] Re-run the reproduction on macos-aarch64 and on box 2223 (linux-aarch64 glibc), and
       record the new numbers in this file.
+
+**Reproduction after the fix** (`--debug`, n = 16,777,216). Box 2223 programs were
+cross-built on macOS with `-target linux-aarch64`, then the `-glibc.out` was copied
+over and run.
+
+| Target | Case | alloc_calls | alloc_bytes | peak_live_bytes | peak RSS |
+| --- | --- | --- | --- | --- | --- |
+| macos-aarch64 | Byte, before | 35 | 980,594,176 | 544,810,144 | 981,975,040 |
+| macos-aarch64 | Byte, after | 35 | 51,714,336 | 28,729,936 | 53,051,392 |
+| macos-aarch64 | Integer, before | 35 | 980,594,176 | 544,810,144 | 981,975,040 |
+| macos-aarch64 | Integer, after | 35 | 413,703,200 | 229,838,848 | 415,023,104 |
+| linux-aarch64-glibc | Byte, before | 35 | 980,594,176 | 544,810,144 | 981,704,704 |
+| linux-aarch64-glibc | Byte, after | 35 | 51,714,336 | 28,729,936 | 52,781,056 |
+| linux-aarch64-glibc | Integer, before | 35 | 980,594,176 | 544,810,144 | 981,749,760 |
+| linux-aarch64-glibc | Integer, after | 35 | 413,703,200 | 229,838,848 | 414,842,880 |
+
+Peak live bytes fell by 19.0× for bytes and 2.37× for integers, the ratios the Root
+Cause predicted (≈19 reserved bytes per slot → 1 or 8). `alloc_calls` is unchanged, so
+append is still amortized O(1). On both hosts peak RSS still tracks the *sum* of all
+generations (the separate, already-tracked arena-reuse effect), now 19× smaller for
+bytes.
 
 Acceptance: full suite and acceptance green; golden delta is native-dump-only; the
 reproduction's peak live bytes fall by the factor the formula predicts.
