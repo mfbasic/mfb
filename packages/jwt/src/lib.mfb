@@ -131,11 +131,32 @@ DOC
   DESC
   DESC Five failures are the caller's POLICY rather than the token's shape, and
   DESC the standard registry models none of them, so they take generator-9
-  DESC codes this package exports by name: `jwt::expiredCode()` (93130001),
-  DESC `jwt::notYetValidCode()` (93130002), `jwt::claimCode()` (93130003),
-  DESC `jwt::algorithmCode()` (93130004) and `jwt::tooLargeCode()` (93130005).
-  DESC Generator-9 codes are not globally unique, so match one only around a
-  DESC call you already know is this package's.
+  DESC codes this package exports as `Integer` constants:
+  DESC
+  DESC `jwt::ErrorExpired` (93130001, `9-313-0001`) when a token's `exp` has
+  DESC passed -- the registry models no "this was valid and no longer is".
+  DESC
+  DESC `jwt::ErrorNotYetValid` (93130002, `9-313-0002`) when a token's `nbf`
+  DESC has not yet arrived.
+  DESC
+  DESC `jwt::ErrorClaim` (93130003, `9-313-0003`) when a claim check the caller
+  DESC asked for failed -- `iss`, `aud`, `sub`, `maxAgeSeconds`, or a required
+  DESC claim that is absent.
+  DESC
+  DESC `jwt::ErrorAlgorithm` (93130004, `9-313-0004`) when a token's `alg` is
+  DESC not in the allowlist, or is `none`. This one is worth logging separately
+  DESC from the rest. A token whose algorithm is refused is not a client with a
+  DESC stale key -- it is a token that asked to be checked a different way than
+  DESC the deployment allows.
+  DESC
+  DESC `jwt::ErrorTooLarge` (93130005, `9-313-0005`) when a token, or one of its
+  DESC segments, is larger than this package reads: 1048576 bytes for a whole
+  DESC token and 262144 characters for one segment.
+  DESC
+  DESC Generator-9 codes are not globally unique: another package may use the
+  DESC same integer for something else, so match one -- for example
+  DESC `IF problem.code = jwt::ErrorExpired THEN` -- only around a call you
+  DESC already know is this package's, never across a broad block.
 END DOC
 
 ' What `jwt::verify` accepts, and what it checks.
@@ -398,7 +419,7 @@ DOC
     FUNC subjectOf(token AS String, keys AS List OF jwt::Key) AS String
       LET choices AS jwt::Options = WITH jwt::options(["ES256"]) { issuer := "https://issuer.example", requiredClaims := ["exp"] }
       LET checked AS jwt::Token = jwt::verify(token, keys, choices) TRAP(problem)
-        IF problem.code = jwt::expiredCode() THEN
+        IF problem.code = jwt::ErrorExpired THEN
           io::printError("that token has expired")
         END IF
         PROPAGATE
@@ -428,9 +449,9 @@ EXPORT FUNC verify(token AS String, keys AS List OF Key, choices AS Options) AS 
   END IF
   IF NOT collections::contains(choices.algorithms, algorithm) THEN
     IF algorithm = "none" THEN
-      FAIL error(ERR_ALGORITHM, "jwt: the token is an unsecured JWS (`alg: \"none\"`), which carries no signature to check")
+      FAIL error(ErrorAlgorithm, "jwt: the token is an unsecured JWS (`alg: \"none\"`), which carries no signature to check")
     END IF
-    FAIL error(ERR_ALGORITHM, "jwt: the token names `alg: \"" & algorithm & "\"`, which is not among the " & toString(len(choices.algorithms)) & " algorithm(s) this verification accepts (" & strings::join(choices.algorithms, ", ") & ")")
+    FAIL error(ErrorAlgorithm, "jwt: the token names `alg: \"" & algorithm & "\"`, which is not among the " & toString(len(choices.algorithms)) & " algorithm(s) this verification accepts (" & strings::join(choices.algorithms, ", ") & ")")
   END IF
   ' Refused even when the caller allowed it: `jwt::options` rejects an
   ' algorithm this package cannot check, and an `Options` built by hand must
@@ -844,98 +865,6 @@ EXPORT FUNC exportJwkSet(keys AS List OF Key, withPrivate AS Boolean) AS String
 END FUNC
 
 ' ---------------------------------------------------------------------------
-' Error codes
-' ---------------------------------------------------------------------------
-
-DOC
-  FUNC expiredCode
-  GROUP Error codes
-  DESC The code `jwt::verify` raises when a token's `exp` has passed:
-  DESC 93130001, written `9-313-0001`.
-  DESC
-  DESC It is generator-9 -- the range a package defines codes for itself in --
-  DESC because the standard registry models no "this was valid and no longer
-  DESC is". Generator-9 codes are not globally unique: another package may use
-  DESC this integer for something else, so match it only around a call you
-  DESC already know is this package's, never across a broad block.
-  RET 93130001.
-  EXAMPLE
-    IMPORT jwt
-    IMPORT json
-    IMPORT io
-
-    SUB report(token AS String, keys AS List OF jwt::Key)
-      LET checked AS jwt::Token = jwt::verify(token, keys, jwt::options(["HS256"])) TRAP(problem)
-        IF problem.code = jwt::expiredCode() THEN
-          io::print("that token has expired -- ask for a new one")
-          EXIT SUB
-        END IF
-        PROPAGATE
-      END TRAP
-      io::print("subject: " & json::stringify(json::get(checked.claims, ["sub"])))
-    END SUB
-  END EXAMPLE
-END DOC
-EXPORT FUNC expiredCode() AS Integer
-  RETURN ERR_EXPIRED
-END FUNC
-
-DOC
-  FUNC notYetValidCode
-  GROUP Error codes
-  DESC The code `jwt::verify` raises when a token's `nbf` has not yet arrived:
-  DESC 93130002, written `9-313-0002`. A generator-9 code; see
-  DESC `jwt::expiredCode` for what that means for matching it.
-  RET 93130002.
-END DOC
-EXPORT FUNC notYetValidCode() AS Integer
-  RETURN ERR_NOT_YET_VALID
-END FUNC
-
-DOC
-  FUNC claimCode
-  GROUP Error codes
-  DESC The code `jwt::verify` raises when a claim check the caller asked for
-  DESC failed -- `iss`, `aud`, `sub`, `maxAgeSeconds`, or a required claim that
-  DESC is absent: 93130003, written `9-313-0003`. A generator-9 code; see
-  DESC `jwt::expiredCode` for what that means for matching it.
-  RET 93130003.
-END DOC
-EXPORT FUNC claimCode() AS Integer
-  RETURN ERR_CLAIM
-END FUNC
-
-DOC
-  FUNC algorithmCode
-  GROUP Error codes
-  DESC The code `jwt::verify` raises when a token's `alg` is not in the
-  DESC allowlist, or is `none`: 93130004, written `9-313-0004`. A generator-9
-  DESC code; see `jwt::expiredCode` for what that means for matching it.
-  DESC
-  DESC This one is worth logging separately from the rest. A token whose
-  DESC algorithm is refused is not a client with a stale key -- it is a token
-  DESC that asked to be checked a different way than the deployment allows.
-  RET 93130004.
-END DOC
-EXPORT FUNC algorithmCode() AS Integer
-  RETURN ERR_ALGORITHM
-END FUNC
-
-DOC
-  FUNC tooLargeCode
-  GROUP Error codes
-  DESC The code `jwt::verify` raises when a token, or one of its segments, is
-  DESC larger than this package reads: 93130005, written `9-313-0005`. The
-  DESC limits are 1048576 bytes for a whole token and 262144 characters for one
-  DESC segment. A generator-9 code; see `jwt::expiredCode` for what that means
-  DESC for matching it.
-  RET 93130005.
-END DOC
-EXPORT FUNC tooLargeCode() AS Integer
-  RETURN ERR_TOO_LARGE
-END FUNC
-
-' ---------------------------------------------------------------------------
 ' Verification internals
 ' ---------------------------------------------------------------------------
 
@@ -987,10 +916,10 @@ PRIVATE FUNC checkTypeHeader(header AS json::Json, choices AS Options) AS Nothin
   IF choices.typeHeader = "" THEN RETURN NOTHING
   LET declared AS String = stringMember(header, "typ", "header")
   IF declared = "" THEN
-    FAIL error(ERR_CLAIM, "jwt: the header names no `typ`, and this verification requires `" & choices.typeHeader & "`")
+    FAIL error(ErrorClaim, "jwt: the header names no `typ`, and this verification requires `" & choices.typeHeader & "`")
   END IF
   IF mediaType(declared) <> mediaType(choices.typeHeader) THEN
-    FAIL error(ERR_CLAIM, "jwt: the header is `typ: \"" & declared & "\"`, and this verification requires `" & choices.typeHeader & "`")
+    FAIL error(ErrorClaim, "jwt: the header is `typ: \"" & declared & "\"`, and this verification requires `" & choices.typeHeader & "`")
   END IF
   RETURN NOTHING
 END FUNC
@@ -1017,29 +946,29 @@ PRIVATE FUNC checkClaims(claims AS json::Json, choices AS Options) AS Nothing
     LET expiry AS Integer = secondsMember(claims, "exp", "claims")
     ' RFC 7519 §4.1.4: the token must not be accepted ON or after `exp`.
     IF currentTime - choices.leewaySeconds >= expiry THEN
-      FAIL error(ERR_EXPIRED, "jwt: the token expired at " & toString(expiry) & " and it is now " & toString(currentTime) & describeLeeway(choices))
+      FAIL error(ErrorExpired, "jwt: the token expired at " & toString(expiry) & " and it is now " & toString(currentTime) & describeLeeway(choices))
     END IF
   END IF
   IF hasMember(claims, "nbf") THEN
     LET starts AS Integer = secondsMember(claims, "nbf", "claims")
     IF currentTime + choices.leewaySeconds < starts THEN
-      FAIL error(ERR_NOT_YET_VALID, "jwt: the token is not valid before " & toString(starts) & " and it is now " & toString(currentTime) & describeLeeway(choices))
+      FAIL error(ErrorNotYetValid, "jwt: the token is not valid before " & toString(starts) & " and it is now " & toString(currentTime) & describeLeeway(choices))
     END IF
   END IF
   IF choices.maxAgeSeconds > 0 THEN
     IF NOT hasMember(claims, "iat") THEN
-      FAIL error(ERR_CLAIM, "jwt: this verification bounds a token's age at " & toString(choices.maxAgeSeconds) & " seconds, and the token carries no `iat` to measure from")
+      FAIL error(ErrorClaim, "jwt: this verification bounds a token's age at " & toString(choices.maxAgeSeconds) & " seconds, and the token carries no `iat` to measure from")
     END IF
     LET issued AS Integer = secondsMember(claims, "iat", "claims")
     IF currentTime - issued > choices.maxAgeSeconds + choices.leewaySeconds THEN
-      FAIL error(ERR_CLAIM, "jwt: the token was issued at " & toString(issued) & ", which is " & toString(currentTime - issued) & " seconds ago, past the " & toString(choices.maxAgeSeconds) & "-second maximum")
+      FAIL error(ErrorClaim, "jwt: the token was issued at " & toString(issued) & ", which is " & toString(currentTime - issued) & " seconds ago, past the " & toString(choices.maxAgeSeconds) & "-second maximum")
     END IF
     IF issued - choices.leewaySeconds > currentTime THEN
       ' A token whose `iat` is in the future has no measurable age, so the
       ' bound the caller asked for cannot be applied to it. This is checked
       ' only alongside `maxAgeSeconds` -- `iat` on its own carries no validity
       ' rule in RFC 7519, and clocks disagree.
-      FAIL error(ERR_CLAIM, "jwt: the token says it was issued at " & toString(issued) & ", which is " & toString(issued - currentTime) & " seconds in the future, so its age cannot be bounded")
+      FAIL error(ErrorClaim, "jwt: the token says it was issued at " & toString(issued) & ", which is " & toString(issued - currentTime) & " seconds in the future, so its age cannot be bounded")
     END IF
   ELSEIF hasMember(claims, "iat") THEN
     ' Read it even when nothing compares it, so an `iat` that is not a
@@ -1051,7 +980,7 @@ PRIVATE FUNC checkClaims(claims AS json::Json, choices AS Options) AS Nothing
   IF choices.audience <> "" THEN checkAudience(claims, choices.audience)
   FOR EACH name IN choices.requiredClaims
     IF NOT hasMember(claims, name) THEN
-      FAIL error(ERR_CLAIM, "jwt: this verification requires the claim `" & name & "`, and the token has none")
+      FAIL error(ErrorClaim, "jwt: this verification requires the claim `" & name & "`, and the token has none")
     END IF
   NEXT
   RETURN NOTHING
@@ -1065,11 +994,11 @@ END FUNC
 PRIVATE FUNC checkStringClaim(claims AS json::Json, name AS String, wanted AS String) AS Nothing
   IF wanted = "" THEN RETURN NOTHING
   IF NOT hasMember(claims, name) THEN
-    FAIL error(ERR_CLAIM, "jwt: this verification requires `" & name & ": \"" & wanted & "\"`, and the token carries no `" & name & "`")
+    FAIL error(ErrorClaim, "jwt: this verification requires `" & name & ": \"" & wanted & "\"`, and the token carries no `" & name & "`")
   END IF
   LET held AS String = stringMember(claims, name, "claims")
   IF held <> wanted THEN
-    FAIL error(ERR_CLAIM, "jwt: the token's `" & name & "` is \"" & held & "\", and this verification requires \"" & wanted & "\"")
+    FAIL error(ErrorClaim, "jwt: the token's `" & name & "` is \"" & held & "\", and this verification requires \"" & wanted & "\"")
   END IF
   RETURN NOTHING
 END FUNC
@@ -1078,13 +1007,13 @@ END FUNC
 ' is for you if any of them names you.
 PRIVATE FUNC checkAudience(claims AS json::Json, wanted AS String) AS Nothing
   IF NOT hasMember(claims, "aud") THEN
-    FAIL error(ERR_CLAIM, "jwt: this verification requires `aud` to name \"" & wanted & "\", and the token carries no `aud`")
+    FAIL error(ErrorClaim, "jwt: this verification requires `aud` to name \"" & wanted & "\", and the token carries no `aud`")
   END IF
   LET held AS json::Json = collections::get(fieldsOf(claims), "aud")
   MATCH held
     CASE json::JsonStr(only)
       IF only.value = wanted THEN RETURN NOTHING
-      FAIL error(ERR_CLAIM, "jwt: the token's `aud` is \"" & only.value & "\", and this verification requires \"" & wanted & "\"")
+      FAIL error(ErrorClaim, "jwt: the token's `aud` is \"" & only.value & "\", and this verification requires \"" & wanted & "\"")
     CASE json::JsonArr(list)
       FOR EACH entry IN list.items
         MATCH entry
@@ -1094,7 +1023,7 @@ PRIVATE FUNC checkAudience(claims AS json::Json, wanted AS String) AS Nothing
             FAIL error(ERR_FORMAT, "jwt: an `aud` entry is a JSON " & jsonKind(entry) & ", and RFC 7519 §4.1.3 makes every one a string")
         END MATCH
       NEXT
-      FAIL error(ERR_CLAIM, "jwt: the token's `aud` names " & toString(len(list.items)) & " audience(s), none of them \"" & wanted & "\"")
+      FAIL error(ErrorClaim, "jwt: the token's `aud` names " & toString(len(list.items)) & " audience(s), none of them \"" & wanted & "\"")
     CASE ELSE
       FAIL error(ERR_FORMAT, "jwt: the token's `aud` is a JSON " & jsonKind(held) & ", and RFC 7519 §4.1.3 makes it a string or an array of strings")
   END MATCH

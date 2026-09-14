@@ -52,7 +52,8 @@ PUBLIC LET INDEX_NODE_LIMIT AS Integer = 200000
 ' (`mfb spec diagnostics error-codes`). Two failures have no registry
 ' equivalent -- blowing an evaluation budget, and a `$ref` that closes a loop
 ' with no instance progress -- so they take generator-9 (user-defined) codes,
-' which the package exports by name so a caller can match on them.
+' which the package exports as `EXPORT LET` constants so a caller can match on
+' them by name.
 ' ---------------------------------------------------------------------------
 
 ' 7-705-0003 errorCode::ErrInvalidFormat — the schema document is not a
@@ -73,14 +74,14 @@ PUBLIC LET ERR_DEPTH AS Integer = 77050024
 ' 9-312-0001: evaluation exceeded STEP_LIMIT or INDEX_NODE_LIMIT. No
 ' errorCode:: value models "this evaluation costs too much", so this is a
 ' generator-9 code per the encoding rule.
-PUBLIC LET ERR_BUDGET AS Integer = 93120001
+EXPORT LET ErrorBudget AS Integer = 93120001
 ' 9-312-0003: an instance is not valid against its schema. Only `check`
 ' raises it; `validate` returns the same information as data.
-PUBLIC LET ERR_INVALID AS Integer = 93120003
+EXPORT LET ErrorInvalid AS Integer = 93120003
 ' 9-312-0002: a `$ref` re-entered the same subschema at the same instance
-' location, so the evaluation cannot terminate. Distinct from ERR_BUDGET: the
+' location, so the evaluation cannot terminate. Distinct from ErrorBudget: the
 ' loop is proven, not merely expensive.
-PUBLIC LET ERR_REF_CYCLE AS Integer = 93120002
+EXPORT LET ErrorReferenceCycle AS Integer = 93120002
 
 ' The `$schema` this implementation validates against.
 PUBLIC LET DIALECT AS String = "https://json-schema.org/draft/2020-12/schema"
@@ -365,7 +366,7 @@ END FUNC
 PUBLIC FUNC charge(spent AS Integer, limit AS Integer, what AS String) AS Integer
   LET total AS Integer = spent + 1
   IF total > limit THEN
-    FAIL error(ERR_BUDGET, "json_schema: " & what & " exceeded the " & toString(limit) & "-step limit")
+    FAIL error(ErrorBudget, "json_schema: " & what & " exceeded the " & toString(limit) & "-step limit")
   END IF
   RETURN total
 END FUNC
@@ -376,7 +377,7 @@ END FUNC
 ' the limit itself does not have to be threaded through every call beside it.
 PUBLIC FUNC spend(remaining AS Integer) AS Integer
   IF remaining <= 0 THEN
-    FAIL error(ERR_BUDGET, "json_schema: this schema demands more subschema evaluations than the instance's size allows (" & toString(STEP_BASE) & " plus " & toString(STEP_PER_NODE) & " per instance node), so evaluating it is not bounded by the work the instance itself represents")
+    FAIL error(ErrorBudget, "json_schema: this schema demands more subschema evaluations than the instance's size allows (" & toString(STEP_BASE) & " plus " & toString(STEP_PER_NODE) & " per instance node), so evaluating it is not bounded by the work the instance itself represents")
   END IF
   RETURN remaining - 1
 END FUNC

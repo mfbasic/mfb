@@ -65,7 +65,7 @@ silently changes the data.
 | **Aliases are expanded; cyclic aliases are rejected** | An anchor is registered only once its own node is complete, so `&a [*a]` finds no anchor. A cycle has no `json::Json` representation and `json::stringify` could not terminate on one. | `errorCode::ErrNotFound` |
 | **Scalars use the YAML 1.2 Core Schema, named explicitly** | `true`/`false` are booleans; `null`, `~` and an empty value are null; `[-+]?[0-9]+`, `0x…`, `0o…` are integers; the decimal and exponent forms are floats; everything else is a string. | — |
 | **Values with no JSON equivalent are rejected, not converted** | `.inf`, `-.inf` and `.nan` are numbers YAML can write and JSON cannot, so they fail instead of becoming a string, a null, or a zero. | `errorCode::ErrUnsupported` |
-| **Depth, alias-expansion and total-node limits** | 100 levels of nesting, 10 000 alias expansions, 1 000 000 nodes. | `errorCode::ErrDepthExceeded`, `yaml::expansionLimitCode()` |
+| **Depth, alias-expansion and total-node limits** | 100 levels of nesting, 10 000 alias expansions, 1 000 000 nodes. | `errorCode::ErrDepthExceeded`, `yaml::ErrorExpansionLimit` |
 
 ### The 1.1 trap, on purpose
 
@@ -82,27 +82,20 @@ exponentially large tree ("billion laughs"): ten anchors, each a ten-element
 sequence of aliases to the previous one, is 10¹⁰ nodes. The node budget counts
 what an alias **expands to**, not the one line that writes it, which is what
 bounds that document. Blowing the alias or node budget raises the package's own
-code `93110001`, which `yaml::expansionLimitCode()` returns — a generator-9
+code `93110001`, exported as the constant `yaml::ErrorExpansionLimit` — a generator-9
 code, because no `errorCode::` value models "this input expands too far".
 Generator-9 codes are not globally unique, so match it only around a call you
 already know is this package's:
 
 ```mfb
 LET value AS json::Json = yaml::parse(text) TRAP(problem)
-  IF problem.code = yaml::expansionLimitCode() THEN
+  IF problem.code = yaml::ErrorExpansionLimit THEN
     io::printError("that YAML expands too far to read")
     RECOVER json::JsonObj[Map OF String TO json::Json {}]
   END IF
   PROPAGATE
 END TRAP
 ```
-
-(It is a function rather than an `EXPORT LET` constant because an exported
-package constant does not currently resolve for an importer — `cst::Answer`
-types as `Unknown` and dies with `TYPE_UNKNOWN_VALUE`, even though
-`mfb spec language modules-and-packages` says a constant is named like any other
-imported symbol. Filed separately; the accessor works today and would keep
-working if that were fixed.)
 
 ## Errors
 
@@ -115,7 +108,7 @@ working if that were fixed.)
 | `77050024` | `errorCode::ErrDepthExceeded` | More than 100 levels of nesting |
 | `77050025` | `errorCode::ErrInvalidSurrogate` | A `\u` escape encoding an unpaired surrogate |
 | `77050010` | `errorCode::ErrOverflow` | A number too large for `Float` |
-| `93110001` | `yaml::expansionLimitCode()` | Past the alias-expansion or total-node budget |
+| `93110001` | `yaml::ErrorExpansionLimit` | Past the alias-expansion or total-node budget |
 
 ## Building and using it
 

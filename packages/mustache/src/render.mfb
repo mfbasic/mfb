@@ -38,7 +38,7 @@ END FUNC
 ' Checking afterwards means never getting there.
 PUBLIC SUB guardOutput(out AS String)
   IF strings::byteLen(out) > OUTPUT_LIMIT THEN
-    FAIL error(ERR_LIMIT, "mustache: the rendered output passed the " & toString(OUTPUT_LIMIT) & "-byte limit")
+    FAIL error(ErrorLimit, "mustache: the rendered output passed the " & toString(OUTPUT_LIMIT) & "-byte limit")
   END IF
 END SUB
 
