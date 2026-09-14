@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (silent wrong value)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Closed
+Regression Test: `tests/runtime/rt_top_level_initializer_globals.rs`, `src/ir/tests.rs:package_bindings_initialize_dependencies_first`
 
 A program's top-level `LET`/`MUT` initializer that calls a package function reading
 that package's own global gets the global's **zero value**, not its declared
@@ -20,6 +20,10 @@ It is silent: nothing marks the value as uninitialized, and the same call made f
 **The single correct behavior a fix produces:** an imported package's top-level
 bindings are initialized before any binding of a project that imports it, so `top`
 prints `200`.
+
+## STATUS: FIXED (53f10b1fe)
+
+Deviation from the recommended site: ordering runs in `target/shared/nir/lower.rs:merge_packages` (`ir::order_bindings_dependencies_first`) after every package is merged, because a topological order needs the whole package set. It still runs before semantic verification, so the IR every backend lowers carries the order. The expected order-only golden drift did not occur: 0 diffs over 2019 goldens, and test-accept is clean.
 
 References:
 
@@ -115,30 +119,74 @@ inspected as an ORDER-only change.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Runtime test: the reproduction asserts `200`. Confirm RED (prints `0`).
-- [ ] Add a chain test (app → pkgA → pkgB, pkgA's top-level initializer calls pkgB)
+- [x] Runtime test: the reproduction asserts `200`. Confirm RED (prints `0`).
+- [x] Add a chain test (app → pkgA → pkgB, pkgA's top-level initializer calls pkgB)
       and record its current result here.
-- [ ] Audit the Blast Radius rows.
+- [x] Audit the Blast Radius rows.
+
+`a_top_level_initializer_calling_a_package_sees_its_initialized_globals` uses the
+bug-551 `limits` package (`Counter = 7`) and printed `0`. The chain test,
+`a_package_initializer_calling_another_package_sees_its_initialized_globals`
+(app → `upper` → `base`, app manifest lists `upper` FIRST), first failed on
+bug-612. With the bug-612 fix alone it printed `1, 2, 0` against `201, 202, 403`.
+The hypothesis is confirmed: a package initializer calling another package sees
+zeros too, because the merge follows manifest order.
+
+Audit verdicts:
+
+- `merge_package`: unchanged (still appends). The ordering needs the whole package
+  set, so it runs once in `merge_packages` after the merge (next row).
+- `src/target/shared/nir/lower.rs:merge_packages`: fixed. It now calls
+  `ir::order_bindings_dependencies_first` before semantic verification, so the IR
+  every backend lowers already carries the order.
+- `lower_global_initializer`: unchanged; still vector order.
+- Package → package chain: fixed (runtime chain test). Diamond: the unit test
+  `package_bindings_initialize_dependencies_first` (reverse merge order, diamond,
+  an unrelated package, consumer last).
+- Thread workers: same initializer function; the order travels with it.
+- `optimizer/opt1/globals.rs`: works per global and keys the initializer by name,
+  not position; unaffected.
 
 Acceptance: tests RED for the documented reason; audit verdicts recorded.
-Commit: —
+Commit: 53f10b1fe
 
 ### Phase 2 — the fix
 
-- [ ] Dependency-first binding order (see Fix Design).
+- [x] Dependency-first binding order (see Fix Design).
+
+A package depends on another when the `package.symbol` names its IR references
+(`ir::package_referenced_names`, collected before prefixing) meet that package's
+`package_qualified_reference_names`. Bindings go out in depth-first post-order
+from each package in merge order, with the consumer's last. Each project keeps its
+declaration order (`a_top_level_initializer_reads_the_programs_own_global` checks
+`MUT counted = own + 1` / `LET after = counted * 10` → `80`). The identity rewrite
+and the reference collection now share one walk
+(`ir::package::visit_project_targets_mut`).
 
 Acceptance: Phase 1 tests pass; same-project declaration order unchanged.
-Commit: —
+Commit: 53f10b1fe
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `scripts/test-accept.sh`, `artifact-gate.sh all`; every drifted golden checked to be
+- [x] `scripts/test-accept.sh`, `artifact-gate.sh all`; every drifted golden checked to be
       an order-only change.
-- [ ] `cargo test --release --no-fail-fast`.
-- [ ] Re-run the reproduction on macOS and the Linux boxes.
+- [x] `cargo test --release --no-fail-fast`.
+- [x] Re-run the reproduction on macOS and the Linux boxes.
+
+- `cargo test --release --no-fail-fast` (worktree, `53f10b1fe`): `exit=0`, 173
+  `test result: ok`, no failures.
+- `scripts/artifact-gate.sh <exe> all`: `1440 tests, 1606 build(s), 2019 golden(s)
+  checked, 0 diff(s)`. No golden moved, so nothing was regenerated.
+- `scripts/test-accept.sh`: `acceptance tests passed (1463 test(s) ran)`.
+- Linux: the five test programs were cross-built `-target linux-aarch64` and run on
+  box 2223 (Kali aarch64 glibc). Output: `7 80`, `42 42 7 43`, `1`, `7`,
+  `201 202 403`, each exit 0. macOS: the runtime tests above.
+- Doc sync: `mfb spec language modules-and-packages` §13 now states that packages
+  initialize before their importers and that bindings within a project keep
+  declaration order. Spec tests pass (8, citation guard included).
 
 Acceptance: full suite green; golden delta is init order only.
-Commit: —
+Commit: 53f10b1fe (spec: this archive commit)
 
 ## Validation Plan
 

@@ -35,7 +35,7 @@ const MODULE_INTRO: &str =
 const MODULE_DESC: &str = r#"`errorCode` is a flat set of named `Integer` constants — one per runtime error
 code — and nothing else. It exports no functions and declares no types. Its whole
 purpose is to let a `TRAP` handler compare `err.code` against a name instead of a
-magic number: `errorCode::ErrPathNotFound` rather than `77020001`.
+magic number: `errorCode::ErrPathNotFound` rather than `77030001`.
 
 Each name resolves to the same `Integer` the runtime puts in `Error.code`, so a
 comparison is an ordinary integer equality, with no conversion at all.

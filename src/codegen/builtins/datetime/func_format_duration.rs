@@ -103,7 +103,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 default: super::DefaultValue::None,
             }],
             return_type: super::ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOverflow"],
             body: super::Body::mfb(BODY, "__datetime_formatDuration"),
         }],
     });

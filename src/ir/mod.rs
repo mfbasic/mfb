@@ -97,8 +97,9 @@ pub use lower::{
 };
 pub(crate) use op::IrOp;
 pub use package::{
-    apply_package_identity, merge_package, package_qualified_reference_names,
-    prefix_package_symbols,
+    apply_package_identity, merge_package, order_bindings_dependencies_first,
+    package_qualified_reference_names, package_referenced_names, prefix_package_symbols,
+    PackageInitialization,
 };
 pub(crate) use types::{
     EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrParam, IrRecordUpdate, IrSourceLoc,
