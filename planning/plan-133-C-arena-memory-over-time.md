@@ -355,6 +355,17 @@ Commit: 6c0926c14 (the suite record's commit is named in the archive commit)
   planning docs and a bug doc, no source). `git merge --no-edit main` was clean, and the
   suite, gate and acceptance ran on the merged tree once, instead of before and again after
   the merge.
+- **2026-09-13 — finish: main moved again during that run, so it was merged and everything
+  re-ran.** After `8d8894477`, `git rev-list --count HEAD..main` was 8 (`af9b1a591` …
+  `b22a82f26`). Those commits change `.mfb` source in `packages/{json_schema,jwt,mustache,yaml}`,
+  so the first green run no longer covered the tree being landed. `git merge --no-edit main`
+  was clean. The release build, full suite, artifact gate and test-accept then ran again on the
+  merged tree, one after another:
+  - Build: `BUILD=0`.
+  - Suite: `EXIT=0`, 180 binaries, 5,630 passed, 0 failed, 11 ignored.
+  - Gate: `artifact-gate [all]: 1441 tests, 1607 build(s), 2021 golden(s) checked, 0 diff(s)`.
+  - Acceptance: `acceptance tests passed (1464 test(s) ran)`, `ACCEPT=0`.
+  - Formatting: `cargo fmt --all --check` showed 0 diffs in both workspaces.
 - **2026-09-13 — Phase 2: the four box runs.** The program is
   `/tmp/plan-133-c/bursts/src/main.mfb`: three times, `LET burst = fs::readBytes` of an 8 MiB
   file, append it to a retained list, `os::sleep(200)`; print the list's length. The Windows
