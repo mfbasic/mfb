@@ -195,13 +195,22 @@ Commit: b31e6abf8
 Acceptance: `planning/todo.md` § 1 item 2 carries both geomeans, the ten named rows on both
 hosts, the browser medians, and the counters; `git -C /tmp/p133-b-fill status` shows the
 throwaway patch was never committed, and the worktree is removed.
-Commit: —
+Commit: 1f997e49a, ac00bef77
 
 ### Phase 3 — docs
 
-- [ ] `src/docs/spec/tooling/09_debug-report.md`: the four fill counters.
-- [ ] `src/docs/spec/memory/04_arenas.md` § Entropy Fill: one sentence pointing at the
-      counters.
+- [x] `src/docs/spec/tooling/09_debug-report.md`: the four fill counters. — Two rows after
+      `flushes`/`insert_free_calls`: `fill_grow_calls`/`.fill_grow_bytes` (a fresh block's
+      usable region, size − 32; `fill_grow_calls` equals `grow`) and
+      `fill_free_calls`/`.fill_free_bytes` (a freed chunk past its 16-byte node; 16-byte
+      chunks are not counted; `free_bytes − fill_free_bytes == 16 × free_calls`). Both
+      identities were measured on the 2223 browser run (Phase 2).
+- [x] `src/docs/spec/memory/04_arenas.md` § Entropy Fill: one sentence pointing at the
+      counters. — Names the four `arena.<n>.fill_*` keys and points to
+      `tooling/09_debug-report.md`. `cargo test --bin mfb docs::spec` → `EXIT=0`,
+      `test result: ok. 8 passed; 0 failed`, including `spec_citations_resolve ... ok` and
+      `spec_links_resolve ... ok`. No man page lists the arena counters (grep of
+      `src/docs` for `double_free_skips`/`arena.<n>` finds only these two spec files).
 
 Acceptance: `cargo test --bin mfb docs::spec` → green (~1 min; includes
 `spec_citations_resolve`).
