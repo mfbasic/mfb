@@ -25,8 +25,8 @@ Stated once in plan-127-A and unchanged. This letter adds one:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-127-A is complete: Phases 1–5 ticked and their commits recorded | `grep -c '^- \[ \]' planning/plan-127-A-big-int-foundation.md` → `0` | NOT MET |
-| `gen_big.rs` exposes the three shared emitters | `grep -c "fn emit_load_int\|fn emit_alloc_magnitude\|fn emit_build_int" src/codegen/builtins/big/gen_big.rs` → `3` | NOT MET |
+| plan-127-A is complete: Phases 1–5 ticked and their commits recorded | `grep -c '^- \[ \]' planning/completed/plan-127-A-big-int-foundation.md` → `0` | MET (2026-09-13, worktree-P-127 @ 6e8aaf0ed: `0`; plan archived to `planning/completed/`) |
+| `gen_big.rs` exposes the three shared emitters | `grep -c "fn emit_load_int\|fn emit_alloc_magnitude\|fn emit_build_int" src/codegen/builtins/big/gen_big.rs` → `3` | MET (2026-09-13, @ 6e8aaf0ed: `3`) |
 
 If plan-127-A is not complete, this letter cannot start, full stop. Its emitters and its
 pinned offsets are this letter's entire foundation; there is no partial mode.
@@ -75,7 +75,7 @@ subtraction reuses to decide result sign and operand order.
 | What | Count | Command |
 |---|---|---|
 | Members this letter adds | 12 | §4 |
-| Members existing after plan-127-A | 11 | plan-127-A §4.4 |
+| Members existing after plan-127-A | 10 | plan-127-A §4.4 (was 11 — plan-127-A Corrections C5) |
 | Private emitters this letter adds | 4 | §4.1 |
 
 ### Verified properties
@@ -202,61 +202,114 @@ values and a reader will assume the other one.
 
 ### Phase 1 — additive arithmetic
 
-- [ ] `gen_big.rs`: `emit_add_magnitude`, `emit_sub_magnitude` per §4.1.
-- [ ] `func_add.rs`, `func_subtract.rs` — the shared sign dispatch of §4.2.
-- [ ] Tests — carry and borrow chains explicitly, not only random values:
+- [x] `gen_big.rs`: `emit_add_magnitude`, `emit_sub_magnitude` per §4.1. (Landed with their
+      caller `emit_add_int`, B-C3; `cargo build --release -p mfb --all-targets 2>&1 | grep -c
+      '^warning'` → `0`.)
+- [x] `func_add.rs`, `func_subtract.rs` — the shared sign dispatch of §4.2. (Both `errors: vec![]`;
+      `cargo test --release -p mfb --bin mfb big` → `19 passed; 0 failed`, including
+      `every_member_declares_exactly_its_errors_and_lowers_natively`.)
+- [x] Tests — carry and borrow chains explicitly, not only random values:
       `0xFF..FF + 1` (carry out of every byte, result one byte longer);
       `0x0100..00 - 1` (borrow through a run of zeros);
       `x + negate(x) = 0` and the result is `{[], FALSE}`, not negative zero;
       `subtract(a, b) = negate(subtract(b, a))`;
       addition is commutative and associative over a spread covering both signs.
-- [ ] Measure and record: 1e6 iterations of a 128-bit `add`, with the command.
+      (`tests/runtime/rt_big_int.rs` `additive_carry_and_borrow_chains` →
+      `[0,0,0,0,0,0,0,0,0,1]`, `[255,255,255,255,255,255,255,255,255]`, three `0 FALSE`;
+      `additive_identities_and_integer_oracle` → `integer oracle: 0 mismatches of 338`,
+      `identities: 0 failures of 972`; `cargo test --release --test rt_big_int` → `7 passed; 0 failed`.)
+- [x] Measure and record: 1e6 iterations of a 128-bit `add`, with the command.
+      (`mfb build /tmp/p127-rt-b/perf_add && perf_add.out`, a `WHILE` of 1,000,000
+      `big::add` of two 16-byte values timed by `datetime::monotonicNanos` → `16 bytes; 59 ms
+      for 1000000 adds of two 128-bit values`, macOS aarch64 release, load average 63.00, so an
+      upper bound.)
+- [x] Admit `add`/`subtract` in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `12` in each of `macos_aarch64`, `linux_common`, `win_x86_64`;
+      `every_big_member_is_admitted_on_every_backend` passes in the 19 above.)
+- [x] Doc: `scripts/man-census.sh --fill big` → `12 12 12 12 19/19 11 4/4`;
+      `scripts/man-run-examples.sh big --run` → `examples: 16 built: 16 ran: 16 failed: 0`;
+      `--memory-scope` → `unclassified memory-vocabulary hits: 0`.
 
-Acceptance: both members report `native_member_declares_error` → `false`; the carry and
+Acceptance: both members declare an empty registry `errors` vector (plan-127-A Corrections C1); the carry and
 borrow chain tests pass; the negative-zero case yields canonical zero.
-Commit: —
+Commit: 0eab11d07
 
 ### Phase 2 — multiplication and the aggregates
 
-- [ ] `gen_big.rs`: `emit_mul_magnitude` per §4.1.
-- [ ] `func_multiply.rs`, `func_sum.rs`, `func_product.rs` — all total. `sum`/`product`
+- [x] `gen_big.rs`: `emit_mul_magnitude` per §4.1. (Landed with `emit_mul_int` and
+      `emit_fold_list`, B-C3; `cargo build --release -p mfb --all-targets 2>&1 | grep -cE
+      '^(warning|error)'` → `0`.)
+- [x] `func_multiply.rs`, `func_sum.rs`, `func_product.rs` — all total. `sum`/`product`
       over an empty list return the identity (`0` and `1` respectively); state this in
-      the descriptors.
-- [ ] Tests: `multiply` against hand-computed products at 8, 64, 512 and 4096 bits;
+      the descriptors. (All three `errors: vec![]`; `func_sum.rs` DESC "An empty list sums to
+      zero", `func_product.rs` DESC "empty list multiplies to one", plus both `values` param
+      descs; `cargo test --release -p mfb --bin mfb big` → `19 passed; 0 failed`.)
+- [x] Tests: `multiply` against hand-computed products at 8, 64, 512 and 4096 bits;
       sign combinations across all four quadrants; `multiply(x, 0)` is canonical zero;
       `sum`/`product` agree with folding `add`/`multiply` over the same list;
-      empty-list identities.
-- [ ] Measure and record: one 4096-bit × 4096-bit `multiply`, and 1e4 iterations of a
+      empty-list identities. (`multiply_matches_an_independent_oracle`: operands of 1, 8, 64
+      and 512 bytes = 8/64/512/4096 bits against Python-computed products committed as byte
+      literals — re-derived by `python3 /tmp/p127-verify-mul.py` → `True` at all four sizes —
+      printing `1: TRUE 1`, `8: TRUE 16`, `64: TRUE 128`, `512: TRUE 1024`, quadrants `TRUE TRUE
+      TRUE`, zero `0 FALSE`, sum/product vs folds `TRUE TRUE`, empty `0 FALSE 1`, zero inside a
+      product `0 FALSE`; `cargo test --release --test rt_big_int` → `8 passed; 0 failed`.)
+- [x] Measure and record: one 4096-bit × 4096-bit `multiply`, and 1e4 iterations of a
       512-bit `multiply`, with the commands. Resolve Open Decision 1 against these.
+      (`mfb build /tmp/p127-rt-b/perf_mul && perf_mul.out`, timed by
+      `datetime::monotonicNanos` → `4096x4096: 1024 bytes in 236 us`, `512x512 x10000: 128
+      bytes, 31 ms`, macOS aarch64 release, load average 24.41. Open Decision 1 resolved: keep
+      byte limbs.)
+- [x] Admit `multiply`/`sum`/`product` in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `15` in each backend list.)
+- [x] Doc: `man-census --fill big` → `15 15 15 15 23/23 11 4/4`; `man-run-examples big --run` →
+      `examples: 21 built: 21 ran: 21 failed: 0`; `--memory-scope` → `unclassified
+      memory-vocabulary hits: 0`.
 
 Acceptance: the 4096-bit product matches an independently computed expectation
 (computed outside MFB and committed as a test constant, not produced by this code);
-all three members report `native_member_declares_error` → `false`.
-Commit: —
+all three members declare an empty registry `errors` vector (plan-127-A C1).
+Commit: bbbcdb322
 
 ### Phase 3 — bit operations
 
-- [ ] `func_bit_length.rs`, `func_shift_left.rs`, `func_shift_right.rs`,
-      `func_test_bit.rs`.
-- [ ] Tests: `bitLength` of zero is `0`, of `1` is `1`, of `255` is `8`, of `256` is `9`;
+- [x] `func_bit_length.rs`, `func_shift_left.rs`, `func_shift_right.rs`,
+      `func_test_bit.rs`. (With `emit_reject_negative`, `emit_shift_left_magnitude`,
+      `emit_shift_right_magnitude`, B-C3; build `grep -cE '^(warning|error)'` → `0`; `errors`:
+      `bitLength` `vec![]`, the other three `vec!["ErrInvalidArgument"]`; `cargo test --release -p
+      mfb --bin mfb big` → `19 passed; 0 failed`.)
+- [x] Tests: `bitLength` of zero is `0`, of `1` is `1`, of `255` is `8`, of `256` is `9`;
       `shiftLeft(x, 8)` equals `multiply(x, fromInteger(256))`;
       `shiftRight(shiftLeft(x, n), n) = x`;
       `shiftRight` of a negative truncates toward zero and preserves sign;
       `testBit` agrees with `shiftRight`+`isZero` across a spread;
       each of the three fallible members raises `ErrInvalidArgument` on a negative
-      count/index.
+      count/index. (`bit_operations` in `tests/runtime/rt_big_int.rs` → `0 1 8 9 9` (0, 1, 255,
+      256, -256), `shiftLeft 8 = multiply 256: 0 mismatches`, `shiftLeft n = multiply 2^n: 0 of
+      384` (n in 1..64 over six magnitudes of both signs), `shiftRight(shiftLeft): 0 of 384`,
+      `testBit: 0 of 282`, `-3 3` for ±7 >> 1, shift-out and zero-shift `0 FALSE`, `raised
+      77050002 | raised 77050002 | raised 77050002`, count 0 `1 | 1 | TRUE`; `cargo test --release
+      --test rt_big_int` → `9 passed; 0 failed`.)
+- [x] Admit the four bit members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `19` in each backend list.)
+- [x] Doc: `man-census --fill big` → `19 19 19 19 30/30 11 4/4`; `man-run-examples big --run` →
+      `examples: 25 built: 25 ran: 25 failed: 0`; `--memory-scope` → `unclassified
+      memory-vocabulary hits: 0`.
 
 Acceptance: the shift/multiply equivalence holds for `n` in 1..64 across several
 magnitudes, and the three negative-argument cases each raise `ErrInvalidArgument`.
-Commit: —
+Commit: e597d3580
 
 ### Phase 4 — text (largest blast radius last: base conversion touches every member)
 
-- [ ] `gen_big.rs`: `emit_div_small` per §4.1.
-- [ ] `func_to_string.rs` (total, base 10), `func_to_radix_string.rs`
+- [x] `gen_big.rs`: `emit_div_small` per §4.1. (Realized inside `emit_int_to_string` — B-C1;
+      build `grep -cE '^(warning|error)'` → `0`.)
+- [x] `func_to_string.rs` (total, base 10), `func_to_radix_string.rs`
       (`ErrInvalidArgument` outside radix 2..36), `func_parse.rs`
       (`ErrInvalidFormat` on malformed text, `ErrInvalidArgument` on a bad radix).
-- [ ] Tests: `parse(toString(x)) = x` across a spread covering zero, negatives, and
+      (`errors`: `toString` `vec![]`, `toRadixString` `vec!["ErrInvalidArgument"]`, `parse`
+      `vec!["ErrInvalidFormat", "ErrInvalidArgument"]`; `cargo test --release -p mfb --bin mfb
+      big` → `19 passed; 0 failed`.)
+- [x] Tests: `parse(toString(x)) = x` across a spread covering zero, negatives, and
       values well past `Integer` range; `toString` of zero is `"0"` with no sign;
       `toString` of a negative carries exactly one leading `-`;
       `parse` rejects `""`, `"-"`, `"12x"`, `"+-1"` with `ErrInvalidFormat`;
@@ -264,10 +317,29 @@ Commit: —
       descriptor either way);
       `toRadixString(x, 16)` agrees with the magnitude bytes for several values;
       radix `1` and radix `37` each raise `ErrInvalidArgument`.
+      (`text_matches_an_independent_oracle`, spread of 10 from 0 to a negative 320-bit value,
+      decimal and hex strings from Python — re-derived by `python3 /tmp/p127-verify-text.py` →
+      `True True True` — printing `toString vs Python: 0 of 10`, `toRadixString 16 vs Python: 0
+      of 10`, `parse(toString): 0 of 10`, `parse(toRadixString) radix 2..36: 0 of 350`, `0 -42 ff
+      -101 z`, five `raised 77050003` for `""`/`"-"`/`"12x"`/`"+-1"`/`"+5"`, four `raised
+      77050002` for radix 1 and 37 on both members, `4096-bit product decimal matches Python:
+      TRUE`; `func_parse.rs` DESC "no `+`" and an example "Text with a leading `+` is rejected";
+      `cargo test --release --test rt_big_int` → `10 passed; 0 failed`.)
+- [x] Admit the three text members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `22` in each backend list.)
+- [x] Validation Plan runtime proof — added, not in the phase list: the 4096-bit product's
+      decimal is pinned above; `a_thousand_term_sum_prints_the_independent_total` prints
+      `big::toString(big::sum(terms))` over 1000 mixed-sign 192-bit terms →
+      `1046487506421243044961144144988157756223431887292684862494154`, equal to
+      `python3 /tmp/p127-sum1000.py`, and `TRUE` against folding `add`; `cargo test --release
+      --test rt_big_int a_thousand_term_sum` → `1 passed; 0 failed`.
+- [x] Doc: `man-census --fill big` → `22 22 22 22 35/35 11 4/4`; `man-run-examples big --run` →
+      `examples: 29 built: 29 ran: 29 not run: 0 failed: 0`; `--memory-scope` → `unclassified
+      memory-vocabulary hits: 0`.
 
 Acceptance: the `parse`∘`toString` round trip holds for every value in the test spread,
-and `toString` reports `native_member_declares_error` → `false`.
-Commit: —
+and `toString` declares an empty registry `errors` vector (plan-127-A C1).
+Commit: 92cff30cc
 
 ## Validation Plan
 
@@ -294,14 +366,59 @@ Commit: —
    two full passes per operation. Phase 2's measurement decides; do not switch on
    intuition. If it switches, the storage form does **not** change — only the
    emitter's internal working representation.
+   **RESOLVED (Phase 2): keep byte limbs.** Measured `4096x4096: 1024 bytes in 236 us` and
+   `512x512 x10000: 128 bytes, 31 ms` (macOS aarch64 release, load average 24.41). A 4096-bit
+   product at a quarter of a millisecond does not justify unpacking to 32-bit limbs and
+   repacking every operation.
 2. **Whether `parse` accepts a leading `+`.** **Recommend: reject it**, so that
    `toString` is the exact inverse of `parse` and there is one spelling per value.
    Alternative: accept it as a convenience, which makes `parse` non-injective on text.
    Either way the descriptor states it explicitly.
+   **RESOLVED (Phase 4): reject it.** `func_parse.rs` DESC: "one optional leading `-` … no `+`";
+   `tryParse("+5", 10)` → `raised 77050003` in `text_matches_an_independent_oracle`.
 
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **B-C1 — `emit_div_small` is realized inside `emit_int_to_string`.** §4.1 lists a private
+  `emit_div_small(a, divisor) -> (data, count, remainder)` serving `toString`. The shipped form
+  divides a working copy of the magnitude in place, one pass per digit, inside
+  `emit_int_to_string` (`src/codegen/builtins/big/gen_big.rs`), which also writes the digits and
+  builds the `String`, for both `toString` and `toRadixString`. There is still exactly one
+  base-conversion path, which is the property §3's rejected alternative protects; the separate
+  emitter would have had one caller.
+- **B-C9 — the Validation Plan's 1000-term `sum` program was missing from the phase tasks** and is
+  added to Phase 4 (`a_thousand_term_sum_prints_the_independent_total`). The `.ir` golden step in
+  the Validation Plan's Acceptance line runs once at the plan-127 end (§5 of the follow-plan run).
+- **B-C3 — every member's emitters land with that member.** Carried from plan-127-A C6 (the `mfb`
+  binary crate warns on an unused `pub(crate)` item): no B phase commits an emitter without its
+  caller. Phase 1 lands `emit_add_magnitude`/`emit_sub_magnitude`/`emit_add_int` with
+  `add`/`subtract`. Measured per phase: 0 warnings.
+- **B-C4 — runtime proof programs bind byte lists and use `MUT`/function-level `TRAP`**
+  (plan-127-A C4): an integer list literal passed straight to `big::fromBytes` is `List OF
+  Integer` and is rejected; `TRAP(e)` is a function-level block.
+- **B-C6 — the "Tests" location.** The Validation Plan says `tests/rt_big_int.rs`; the file is
+  `tests/runtime/rt_big_int.rs` (plan-127-A C3), built through `common::build_project` against the
+  release `mfb`. Registry facts stay in-crate (`src/codegen/builtins/big/mod.rs` tests).
+- **B-C2 — `sum`/`product` release intermediate accumulators.** Not in §4.3. A fold makes a new
+  accumulator per element; `emit_fold_list` (`gen_big.rs`) releases each replaced one — the
+  identity included — at the size it was made with (`INT_DATA_OFFSET + dataCapacity`), so a
+  long fold does not pile up blocks. B-C3 applies: Phase 2 lands
+  `emit_mul_magnitude`/`emit_mul_int`/`emit_fold_list` with `multiply`/`sum`/`product`.
+- **B-C7 — "hand-computed" products are Python-computed.** Phase 2's expectation at each size is
+  Python's exact integer product of the same operands, committed as byte literals in
+  `multiply_matches_an_independent_oracle` — independent of this code, which is what the
+  acceptance criterion requires. The §2 "UNMEASURED" note says Phase 1 measures the multiply
+  cost; Phase 2 does, since `multiply` lands there.
+- **B-C5 — a test-program defect, not a plan defect, found on the way:** the first `bitLength`
+  draft read the byte one past the magnitude's top (`0 0 0 8 8` for 0/1/255/256/-256); the
+  Phase 3 program caught it before any commit, and the shipped emitter reads `data + count - 1`.
+- **B-C8 — the `testBit` reference isolates bit `i` without `AND`.** There is no `and` on
+  `big::Int` (§1 non-goal), so `bit_operations` derives the expectation as
+  `NOT isZero(shiftRight(|x|, i) - shiftLeft(shiftRight(|x|, i + 1), 1))` — `shiftRight` plus
+  `isZero` as the task names, with the higher bits removed. It runs to `bitLength(x) + 8`, so
+  the bits above the top are checked to be clear.
 
 ## Summary
 

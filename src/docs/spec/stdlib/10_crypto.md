@@ -123,11 +123,17 @@ extensions); computation is portable-arithmetic only, identical across targets.
   constant time and **fails closed** with `ErrAuthenticationFailed`
   (`77050016`), returning plaintext only on success. `aad` defaults to empty.
 - **Secure random and identifiers** — `randomBytes` (raw bytes), `randomInt`
-  (uniform, unbiased, rejection-sampled, inclusive `[min, max]`), `uuid4`
+  (uniform, unbiased, rejection-sampled, inclusive `[min, max]`; the `Integer` form
+  rejects a span whose `max - min` overflows a signed 64-bit `Integer`, and the
+  `big::Int` form — `randomInt(min AS big::Int, max AS big::Int) AS big::Int`, available
+  when the program also imports `big` — has no span limit: it draws just enough bytes to
+  cover the span, masks the top byte to the span's bit length, and rejects rather than
+  reduces; see `./mfb spec stdlib big`), `uuid4`
   (random version-4 UUID, canonical lowercase `8-4-4-4-12`), `uuid7` (RFC 9562
   version-7 UUID with a 48-bit Unix-millisecond prefix and 74 random bits), and
   `ulid` (canonical 26-character Crockford Base32 with a 48-bit
   Unix-millisecond prefix and 80 random bits).
+  [[src/codegen/builtins/crypto/helper_random_int_big.rs:BODY]]
 - **Public-key** — Ed25519 and Ed448 (RFC 8032 PureEdDSA with the empty context,
   deterministic signing; Ed448 over edwards448 with SHAKE256 and `dom4`: 57-byte
   seed/public key, 114-byte `R‖S`, verification rejects a non-canonical `S ≥ L`,

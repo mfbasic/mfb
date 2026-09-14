@@ -281,7 +281,7 @@ fn visit_value_depth<F: FnMut(&IrValue)>(value: &IrValue, depth: usize, f: &mut 
 ///
 /// Calls `f` on `value` and then, pre-order, on every descendant. Unlike
 /// [`visit_value`] this carries **no** depth cap: its sole caller,
-/// `ir/package.rs`'s `rewrite_value_targets`, never bounded its recursion, so
+/// `ir/package.rs`'s `visit_value_targets_mut`, never bounded its recursion, so
 /// bounding it here would change behavior on a deep tree. The traversal is
 /// otherwise identical to the read-only seam.
 pub(crate) fn visit_value_mut(value: &mut IrValue, f: &mut impl FnMut(&mut IrValue)) {
@@ -406,7 +406,7 @@ mod visit_tests {
     #[test]
     fn visit_value_mut_rewrites_every_node_uncapped() {
         // The mutable seam has no depth cap: a chain deeper than the read cap is
-        // still fully rewritten (matches rewrite_value_targets).
+        // still fully rewritten (matches visit_value_targets_mut).
         let mut value = IrValue::Global("g".to_string());
         for _ in 0..(VALUE_VISIT_MAX_DEPTH + 5) {
             value = unary(value);

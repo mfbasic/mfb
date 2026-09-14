@@ -66,6 +66,10 @@ built-in injection chain.
   handle ownership and the consuming `close`, stream reads versus preserved
   datagram boundaries, `poll`'s readiness-query and producing-call overloads, and
   the TLS handshake/credential rules.
+- `big` — the arbitrary-precision `big::Int` value model: the two-field record and its
+  canonical form, why the language operators, `Map` keys and `Set` elements do not
+  apply, the total/fallible split, the truncating division and remainder rule, and the
+  absence of any constant-time guarantee.
 
 ## See Also
 

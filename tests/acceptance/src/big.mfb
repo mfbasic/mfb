@@ -1,0 +1,147 @@
+IMPORT big
+IMPORT collections
+IMPORT crypto
+IMPORT errorCode
+
+' =====================================================================
+' Acceptance suite for the `big` package (plan-127): conversions in both byte
+' orders, the arithmetic identities, a 4096-bit product and factorial(100)
+' against constants computed outside MFB, the division identity, text round
+' trips, the fallible members' errors, and crypto::randomInt's big::Int range
+' overload. Fallible calls are wrapped in user FUNCs so expectTrap can guard them.
+' =====================================================================
+
+FUNC operand(n AS Integer, mul AS Integer, add AS Integer) AS List OF Byte
+  MUT b AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    b = collections::append(b, toByte((i * mul + add) MOD 256))
+    i = i + 1
+  END WHILE
+  RETURN b
+END FUNC
+
+FUNC bigToInteger(x AS big::Int) AS Integer
+  RETURN big::toInteger(x)
+END FUNC
+
+FUNC bigDivide(a AS big::Int, b AS big::Int) AS big::Int
+  RETURN big::divide(a, b)
+END FUNC
+
+FUNC bigParse(text AS String) AS big::Int
+  RETURN big::parse(text)
+END FUNC
+
+FUNC bigShiftLeft(a AS big::Int, n AS Integer) AS big::Int
+  RETURN big::shiftLeft(a, n)
+END FUNC
+
+FUNC bigRandom(low AS big::Int, high AS big::Int) AS big::Int
+  RETURN crypto::randomInt(low, high)
+END FUNC
+
+TESTING
+  TGROUP "Builtin: big"
+
+    TGROUP "conversions"
+      TCASE "Integer round trips at the extremes"
+        expectInteger(big::toInteger(big::fromInteger(0)), 0)
+        expectInteger(big::toInteger(big::fromInteger(-1)), -1)
+        expectInteger(big::toInteger(big::fromInteger(9223372036854775807)), 9223372036854775807)
+        expectInteger(big::toInteger(big::fromInteger(-9223372036854775807 - 1)), -9223372036854775807 - 1)
+      END TCASE
+      TCASE "toInteger past the Integer range raises ErrOverflow"
+        LET twoTo63 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 128]
+        expectTrap(bigToInteger(big::fromBytes(twoTo63, FALSE)), errorCode::ErrOverflow)
+        expectNTrap(bigToInteger(big::fromBytes(twoTo63, TRUE)))
+      END TCASE
+      TCASE "byte round trips in both orders"
+        LET le AS List OF Byte = [1, 2, 3]
+        LET be AS List OF Byte = [3, 2, 1]
+        expectString(big::toString(big::fromBytes(le, FALSE)), "197121")
+        expectString(big::toString(big::fromBytes(be, FALSE, big::Endian.Big)), "197121")
+        expectInteger(len(big::toBytes(big::fromBytes(le, FALSE), big::Endian.Big)), 3)
+        expectInteger(toInt(collections::get(big::toBytes(big::fromBytes(le, FALSE), big::Endian.Big), 0)), 3)
+      END TCASE
+      TCASE "a MUT big::Int with no initializer is zero"
+        MUT x AS big::Int
+        expectString(big::toString(x), "0")
+        expectInteger(len(x.magnitude), 0)
+      END TCASE
+    END TGROUP
+
+    TGROUP "arithmetic"
+      TCASE "identities past the Integer range"
+        LET top AS big::Int = big::fromInteger(9223372036854775807)
+        LET wide AS big::Int = big::multiply(top, top)
+        expectString(big::toString(big::subtract(big::add(wide, top), top)), big::toString(wide))
+        expectString(big::toString(big::add(wide, big::negate(wide))), "0")
+        expectString(big::toString(big::sum([top, top, top])), big::toString(big::multiply(top, big::fromInteger(3))))
+        expectInteger(big::compare(big::negate(wide), wide), -1)
+      END TCASE
+      TCASE "a 4096-bit product matches a constant computed outside MFB"
+        LET a AS big::Int = big::fromBytes(operand(512, 131, 7), FALSE)
+        LET b AS big::Int = big::fromBytes(operand(512, 197, 3), FALSE)
+        expectString(big::toString(big::multiply(a, b)), "137260908971024161284171554128698218510424693699068168217209054903607064674892954272753896430108198557065944290285244839606924389661937473320268737691625558143403268237540196126858144944442780116840549191228479297432396251798933009654900977786981538456825059922839483418611485451145946118587790743283146030999966457480128324879132926068052768579695968171344601509218684373885799666259763728197255492399961843097336780809713755935027137563762141236497910319157305052696111977809523325194880485126510328071646415471244067467561847817419868517887359299767048269463175280986639878655556673683898011958816820822864898760917077381202716021714817856723214899969940851153211172661837843242545426336746781874367991959385773838100907291051181680546053601254186248208862736933984952140244654621368450157431401551940894057739902902343662351456216032333961624184915440024267532728091427056600621341662726859211299687224077640493511256435459455897878857422581043724177110035631281128548715863115329372136114919831422336456713853905692220378436428135012622834440474860547806331456784795278021762472857546727686799316885665615194252569528369723504454306670226819832122520928407050631280902149353681216937829533905733322576673538109597974532017975432400965358481758146834147630740467580018160704022333240874040779216662257925342865971950993656953157649465534066829588644079804727174268312775414036584140597622908519122272990414638664698699546328334718294654407218875037577430204548427227995568382335009197353062223468390277664522395911491772227328130947394853178326641174649132820585650622377100285698685821524822211520991868644732644231352034109693732174798793167759515065209508278713223998837930661972631416461806688055723626089399902123291001055124161453170999049179945030126012733836810048458289279947447089161163343843376989324993382827791066080991322730149534006414162483512066638751628048510004732379854699185197325256318626930600275494760236144198303521846953357029179303261607289919506570516343101408318247273694906522076182061872584687906592424787739775518640581626316755535567731160287841756018147793584644300999775422227526739247142051938385670886147271317037320334753902387828870852645001526879095772921519957271245259921498357776968642494480331637022795608239511316855893825742444325514800278640994935075020976732566174306248447234490944158803516919812520006536454685057332258968449275439963331050256845387997786873662530149567027497591447972886923212398716491738453525")
+      END TCASE
+      TCASE "factorial(100) matches a constant computed outside MFB"
+        expectString(big::toString(big::factorial(100)), "93326215443944152681699238856266700490715968264381621468592963895217599993229915608941463976156518286253697920827223758251185210916864000000000000000000000000")
+      END TCASE
+      TCASE "shifts reject a negative count"
+        expectTrap(bigShiftLeft(big::fromInteger(1), -1), errorCode::ErrInvalidArgument)
+        expectInteger(big::bitLength(big::shiftLeft(big::fromInteger(1), 200)), 201)
+      END TCASE
+    END TGROUP
+
+    TGROUP "division"
+      TCASE "a = b * quotient + remainder, truncating toward zero"
+        LET a AS big::Int = big::parse("-123456789012345678901234567890")
+        LET b AS big::Int = big::parse("9876543210987")
+        LET parts AS big::DivResult = big::divMod(a, b)
+        expectString(big::toString(big::add(big::multiply(b, parts.quotient), parts.remainder)), big::toString(a))
+        expectInteger(big::sign(parts.remainder), -1)
+        expectInteger(big::toInteger(big::divide(big::fromInteger(-7), big::fromInteger(2))), -3)
+        expectInteger(big::toInteger(big::remainder(big::fromInteger(7), big::fromInteger(-2))), 1)
+      END TCASE
+      TCASE "dividing by zero raises ErrInvalidArgument"
+        expectTrap(bigDivide(big::fromInteger(1), big::fromInteger(0)), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    TGROUP "text"
+      TCASE "parse and toString are inverse"
+        LET text AS String = "-987654321098765432109876543210"
+        expectString(big::toString(big::parse(text)), text)
+        expectString(big::toRadixString(big::parse("255"), 16), "ff")
+        expectString(big::toString(big::parse("ff", 16)), "255")
+      END TCASE
+      TCASE "malformed text raises ErrInvalidFormat"
+        expectTrap(bigParse("12x"), errorCode::ErrInvalidFormat)
+        expectTrap(bigParse("+5"), errorCode::ErrInvalidFormat)
+      END TCASE
+    END TGROUP
+
+    TGROUP "crypto::randomInt over big::Int"
+      TCASE "every draw lies in the range, past the Integer span"
+        LET low AS big::Int = big::negate(big::pow(big::fromInteger(2), 100))
+        LET high AS big::Int = big::pow(big::fromInteger(2), 100)
+        MUT inRange AS Integer = 0
+        MUT i AS Integer = 0
+        WHILE i < 200
+          LET draw AS big::Int = crypto::randomInt(low, high)
+          IF big::compare(draw, low) >= 0 AND big::compare(draw, high) <= 0 THEN
+            inRange = inRange + 1
+          END IF
+          i = i + 1
+        END WHILE
+        expectInteger(inRange, 200)
+      END TCASE
+      TCASE "an empty range raises ErrInvalidArgument; a single value is returned"
+        expectTrap(bigRandom(big::fromInteger(2), big::fromInteger(1)), errorCode::ErrInvalidArgument)
+        expectString(big::toString(crypto::randomInt(big::fromInteger(5), big::fromInteger(5))), "5")
+      END TCASE
+    END TGROUP
+
+  END TGROUP
+END TESTING

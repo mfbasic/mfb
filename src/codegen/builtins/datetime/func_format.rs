@@ -137,7 +137,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: super::ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat", "ErrOverflow"],
             body: super::Body::mfb(BODY, "__datetime_format"),
         }],
     });

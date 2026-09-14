@@ -87,13 +87,20 @@ pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrP
     // packages reference). Collected so external references can be rewritten to
     // the identity-prefixed definitions after every package is merged.
     let mut identities: Vec<(String, HashSet<String>, HashSet<String>)> = Vec::new();
+    let mut initializations = Vec::new();
     for package in packages {
         let (id, mut package_ir) = binary_repr::read_package_ir_with_identity(package)?;
         // Verify the decoded package IR against the package-format invariants
         // before it is merged (decode already rejected bad version/bytes).
         crate::ir::verify_package(&package_ir)?;
         let (ref_fns, ref_globals) = crate::ir::package_qualified_reference_names(&package_ir);
+        let references = crate::ir::package_referenced_names(&mut package_ir);
         crate::ir::prefix_package_symbols(&mut package_ir, &id);
+        initializations.push(crate::ir::PackageInitialization {
+            bindings: package_ir.bindings.iter().map(|b| b.name.clone()).collect(),
+            exports: ref_fns.union(&ref_globals).cloned().collect(),
+            references,
+        });
         identities.push((id, ref_fns, ref_globals));
         crate::ir::merge_package(&mut merged, package_ir);
     }
@@ -102,6 +109,8 @@ pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrP
     for (id, ref_fns, ref_globals) in &identities {
         crate::ir::apply_package_identity(&mut merged, ref_fns, ref_globals, id);
     }
+    // bug-613: a package's globals initialize before any importer's.
+    crate::ir::order_bindings_dependencies_first(&mut merged.bindings, &initializations);
     define_natively_called_helpers(&mut merged);
     // Semantically verify the fully merged IR before it is lowered to native
     // code (plan-19-ir-semantic-verification.md). `verify_package` re-states the

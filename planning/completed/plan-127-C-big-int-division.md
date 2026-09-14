@@ -26,8 +26,8 @@ Stated once in plan-127-A and unchanged. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-127-B is complete: Phases 1–4 ticked and their commits recorded | `grep -c '^- \[ \]' planning/plan-127-B-big-int-arithmetic.md` → `0` | NOT MET |
-| The magnitude emitters exist | `grep -c "fn emit_add_magnitude\|fn emit_sub_magnitude\|fn emit_mul_magnitude" src/codegen/builtins/big/gen_big.rs` → `3` | NOT MET |
+| plan-127-B is complete: Phases 1–4 ticked and their commits recorded | `grep -c '^- \[ \]' planning/completed/plan-127-B-big-int-arithmetic.md` → `0` | MET (2026-09-13, worktree-P-127 @ 92cff30cc: `0`; plan archived to `planning/completed/`) |
+| The magnitude emitters exist | `grep -c "fn emit_add_magnitude\|fn emit_sub_magnitude\|fn emit_mul_magnitude" src/codegen/builtins/big/gen_big.rs` → `3` | MET (2026-09-13, @ 92cff30cc: `3`) |
 
 If plan-127-B is not complete, this letter cannot start, full stop. Algorithm D is
 built from magnitude compare, subtract and multiply; there is no partial mode.
@@ -72,7 +72,7 @@ single-byte divisor and serves `toString` alone — it cannot divide by another
 |---|---|---|
 | Members this letter adds | 7 | §4.4 |
 | Records this letter adds | 1 (`DivResult`) | §4.3 |
-| Members existing after plan-127-B | 23 | plan-127-A §4.4 (11) + plan-127-B §4.3 (12) |
+| Members existing after plan-127-B | 22 | plan-127-A §4.4 (10) + plan-127-B §4.3 (12) — was 23, plan-127-A Corrections C5 |
 
 ### Verified properties
 
@@ -220,58 +220,97 @@ utility and a footgun that looks like a crypto primitive. The same advisory appl
 
 The highest-risk work, gated on a property test before anything depends on it.
 
-- [ ] Measure MFBASIC's `MOD` sign convention: run a program printing `-7 MOD 2`,
+- [x] Measure MFBASIC's `MOD` sign convention: run a program printing `-7 MOD 2`,
       `7 MOD -2`, `-7 MOD -2`, and the matching `/` quotients. Record the results and
-      the command in Corrections, and reconcile §4.2 against them.
-- [ ] `gen_big.rs`: `emit_div_mod_magnitude` per §4.1, with all three parts and a
+      the command in Corrections, and reconcile §4.2 against them. (C-C1: truncating;
+      §4.2 unchanged.)
+- [x] `gen_big.rs`: `emit_div_mod_magnitude` per §4.1, with all three parts and a
       comment distinguishing Algorithm D's operand normalization from
-      `emit_build_int`'s record normalization.
-- [ ] Property test: for 10,000 random `(a, b)` pairs with `b ≠ 0`, spanning 1 to 512
+      `emit_build_int`'s record normalization. (`grep -n 'fn emit_div_mod_magnitude'` → line
+      1371; the section comment "Two different "normalize"s meet in this section" names D1
+      operand normalization and `emit_build_int` record normalization; `cargo build --release
+      -p mfb --all-targets` → no warnings or errors.)
+- [x] Property test: for 10,000 random `(a, b)` pairs with `b ≠ 0`, spanning 1 to 512
       bytes of magnitude and all four sign quadrants, assert
       `a = b × quotient + remainder` and `|remainder| < |b|`. Seed fixed and recorded so
-      a failure reproduces.
-- [ ] Targeted tests for the cases the correction step exists for: divisor high byte
+      a failure reproduces. (`division_property_over_ten_thousand_seeded_pairs`,
+      `math::seed(127)`, also checks both signs; asserts `pairs 10000`, every quadrant >1000,
+      shorter divisors in 1000..9000, `identity 0`, `bound 0`, `sign 0` → ok. C-C3.)
+- [x] Targeted tests for the cases the correction step exists for: divisor high byte
       just below and just above 128 (normalization boundary); a dividend whose leading
       bytes force the estimate one too large; divisor longer than dividend (quotient 0,
-      remainder = dividend); divisor equal to dividend.
+      remainder = dividend); divisor equal to dividend. (`division_targeted_cases` → D3
+      correction `53884 27863`, D6 add-back `349 8454523`, top byte 127 `8590196744 7`, top
+      byte 128 `8589934591 32767`, longer divisor `0 -12345`, equal `1 0`, negation `-1 0`,
+      one-byte divisor `40210710958665 0` — all Python `divmod`; C-C4.) `cargo test --release
+      --test rt_big_int division` → `3 passed; 0 failed`.
 
 Acceptance: the 10,000-pair property test passes with a recorded seed, **and** each
 targeted case passes. A failure here is root-caused in Algorithm D, not worked around
 by weakening the property.
-Commit: —
+Commit: 5ff478ffd
 
 ### Phase 2 — the division members
 
-- [ ] `mod.rs`: `add_record` for `DivResult` with the field-order comment.
-- [ ] `func_divide.rs`, `func_remainder.rs`, `func_div_mod.rs` — all three declare
-      `ErrInvalidArgument` for a zero divisor and nothing else.
-- [ ] Tests: each of the three raises `ErrInvalidArgument` on `b = 0`; `divide` and
+- [x] `mod.rs`: `add_record` for `DivResult` with the field-order comment. ("Field ORDER is
+      contract: `emit_build_div_result` builds this record…", `mod.rs` `DIV_RESULT_TYPE`.)
+- [x] `func_divide.rs`, `func_remainder.rs`, `func_div_mod.rs` — all three declare
+      `ErrInvalidArgument` for a zero divisor and nothing else. (Each `errors:
+      vec!["ErrInvalidArgument"]`; `cargo test --release -p mfb --bin mfb
+      codegen::builtins::big` → `8 passed; 0 failed`, including the exact-errors table and
+      every-backend lowering with a `divMod` call.)
+- [x] Tests: each of the three raises `ErrInvalidArgument` on `b = 0`; `divide` and
       `remainder` agree with the matching `divMod` field across the Phase 1 spread; the
       §4.2 sign convention holds on the four `(±7, ±2)` cases.
+      (`division_members_agree_and_raise` → `agreement: 0 of 1000` over 500 seeded
+      (`math::seed(128)`) pairs of 1–64 bytes in random sign quadrants, `3 1 | -3 -1 | -3 1 |
+      3 -1`, `raised 77050002 | raised 77050002 | raised 77050002` → ok. C-C6.)
+- [x] Admit the three division members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `25` in each backend list.)
 
-Acceptance: `native_member_declares_error` reports `true` for all three; the agreement
-and sign tests pass.
-Commit: —
+Acceptance: all three declare exactly `["ErrInvalidArgument"]` in their registry `errors`
+vector (plan-127-A Corrections C1); the agreement and sign tests pass.
+Commit: 5ff478ffd (shared with Phase 1, C-C2)
 
 ### Phase 3 — the members built on division
 
-- [ ] `func_pow.rs`, `func_gcd.rs`, `func_factorial.rs`, `func_mod_pow.rs`.
-- [ ] `modPow`, `pow` and `factorial` each declare `ErrInvalidArgument`; `gcd` declares
-      nothing.
-- [ ] `modPow`'s, `compare`'s and `equals`'s descriptors carry the §4.5 advisory.
+- [x] `func_pow.rs`, `func_gcd.rs`, `func_factorial.rs`, `func_mod_pow.rs`. (With
+      `emit_int_from_integer`; `cargo build --release -p mfb --all-targets` → no warnings or
+      errors; `cargo test --release -p mfb --bin mfb codegen::builtins::big` → `8 passed; 0
+      failed`.)
+- [x] `modPow`, `pow` and `factorial` each declare `ErrInvalidArgument`; `gcd` declares
+      nothing. (`errors:` `vec!["ErrInvalidArgument"]` ×3, `func_gcd.rs` `vec![]`.)
+- [x] `modPow`'s, `compare`'s and `equals`'s descriptors carry the §4.5 advisory.
       Amending `compare`/`equals` (landed in plan-127-A) is in scope for this phase.
-- [ ] Tests: `pow(x, 0)` is `1` and `pow(x, 1)` is `x`; `pow` agrees with folded
+      (`grep -i constant-time` → `func_mod_pow.rs:31`, `func_compare.rs:26`,
+      `func_equals.rs:27`; compare/equals point at `crypto::constantTimeEqual`;
+      `mfb man big modPow` renders "Not constant-time — never use it with a secret".)
+- [x] Tests: `pow(x, 0)` is `1` and `pow(x, 1)` is `x`; `pow` agrees with folded
       `multiply` for small exponents; `gcd` is non-negative, divides both operands, and
       `gcd(0, 0)` is `0`; `factorial(0)` is `1`, `factorial(20)` matches the exact
       `Integer` value, `factorial(100)` matches an independently computed constant;
       `modPow(b, e, m)` agrees with `remainder(pow(b, e), m)` for small `e`;
       `modPow` with `modulus = 0` raises `ErrInvalidArgument`;
       negative `exponent`/`n` each raise `ErrInvalidArgument`.
+      (`powers_gcd_factorial_and_mod_pow_match_an_independent_oracle`, all literals from
+      Python — spot-rechecked with `python3 -c "math.factorial(100) …"`: factorial(100),
+      `2432902008176640000`, `6 7 0`, `965115194`, `2^100`, `(-3)^41` identical — prints
+      `1`, `1`, factorial(20), factorial(100), `pow(7,0)=1`, `pow(0,0)=1`, `pow(-13,1)=-13`,
+      gcd cases including the shared-factor pair and consecutive Fibonacci numbers (`1`),
+      `modPow vs remainder(pow): 0 of 390`, `pow vs folded multiply: 0 of 41`, `raised
+      77050002` ×4 for `pow(2,-1)`, `factorial(-1)`, `modPow(3,-1,7)`, `modPow(3,2,0)`;
+      `cargo test --release --test rt_big_int powers_gcd_factorial` → `1 passed; 0 failed`.
+      C-C7.)
+- [x] Admit the four members in all three backend `runtime_calls` lists (plan-127-A C2).
+      (`grep -c '"big\.'` → `29` in each backend list.)
+- [x] Doc (added): `scripts/man-run-examples.sh big --run divide remainder divMod pow gcd
+      factorial modPow` → `examples: 7 built: 7 ran: 7 failed: 0`; `man-census --fill big` →
+      `29 29 29 29 49/49 11 6/6`.
 
 Acceptance: `factorial(100)` matches a constant computed outside MFB and committed as a
 test literal; `modPow` agrees with the `pow`+`remainder` reference on every small case;
 `mfb man big modPow` renders the non-constant-time advisory.
-Commit: —
+Commit: 634c20da8
 
 ## Validation Plan
 
@@ -297,14 +336,55 @@ Commit: —
    long division as a recorded fallback if Phase 1's property test cannot be made to
    pass. The fallback is a decision to write into Corrections with its measured
    slowdown, never a silent substitution.
+   **RESOLVED (Phase 1): Algorithm D.** The 10,000-pair property and every targeted case
+   (including the D3 correction and D6 add-back pairs) pass; the fallback was not needed.
 2. **`gcd(0, 0)`.** **Recommend: return `0`** — the standard convention and the one that
    keeps `gcd` total. Alternative: raise `ErrInvalidArgument`, which makes `gcd`
    fallible for an input that has a defined answer.
+   **RESOLVED (Phase 3): return `0`.** `gcd` declares `errors: vec![]`; `gcd(0, 0)` prints `0`
+   and results are never negative (`gcd(-12, 18)` → `6`).
 
 ## Corrections
 
 <!-- Filled in DURING execution. The `MOD` measurement from Phase 1 goes here, along
      with any consequent change to §4.2. -->
+
+- **C-C1 — `MOD` measured; §4.2 needs no change.** Phase 1 task 1: `/tmp/p127-rt-c/modprobe`
+  (operands in `MUT` locals so nothing folds), built with the worktree release `mfb` @
+  ad50d1c42, printed `-7 MOD 2 = -1   -7 / 2 = -3`, `7 MOD -2 = 1   7 / -2 = -3`,
+  `-7 MOD -2 = -1   -7 / -2 = 3`, `7 MOD 2 = 1   7 / 2 = 3`. Truncated division: quotient toward
+  zero, remainder with the dividend's sign — exactly §4.2's intended rule.
+- **C-C2 — Phases 1 and 2 share one commit.** Carried from plan-127-A C6: `emit_div_mod_magnitude`
+  has no caller until the division members exist, and the `mfb` binary crate warns on an unused
+  `pub(crate)` item. Both `Commit:` lines carry the shared hash.
+- **C-C3 — the property test runs as a program, not as an in-crate unit test.** The Validation
+  Plan places it "with the emitter tests inside `src/codegen/builtins/big/`"; plan-127-A C3
+  showed no in-crate test can run an emitter. The 10,000-pair property is
+  `division_property_over_ten_thousand_seeded_pairs` in `tests/runtime/rt_big_int.rs`
+  (`math::seed(127)`); the in-crate every-backend lowering test covers Algorithm D in process.
+  Quotient and remainder are unique under `a = b*q + r`, `|r| < |b|`, the remainder's sign and
+  truncation, so the property is a complete check without a second oracle.
+- **C-C4 — the D3 and D6 targeted cases were found, not guessed.** An instrumented base-256
+  Algorithm D (`/tmp/p127-draft-c/find_d_cases.py`, every result cross-checked against Python
+  `divmod`, agreeing with it on 20,000 random pairs) reports `u = [15, 137, 103, 105], v = [50,
+  128]` (D3 correction runs; q = 53884, r = 27863) and `u = [38, 17, 133, 176], v = [167, 28,
+  129]` (D6 add-back runs; q = 349, r = 8454523). Pinned in `division_targeted_cases`.
+- **C-C6 — Phase 2's agreement spread is its own seeded set.** "The Phase 1 spread" is 10,000
+  pairs up to 512 bytes; `division_members_agree_and_raise` checks agreement over 500 pairs of
+  1–64 bytes (`math::seed(128)`) in all sign combinations. `divide`, `remainder` and `divMod`
+  share one lowering (`emit_div_mod_int`), so agreement is a routing check, not an arithmetic
+  one; the arithmetic is the Phase 1 property.
+- **C-C5 — `modPow` reduces the running base too,** not only the accumulator (§4.4 names
+  neither): both products are reduced after every step, so no intermediate exceeds about twice
+  the modulus. With truncated remainders the result equals `remainder(pow(base, e), m)`,
+  including its sign — which the 390-case agreement check pins.
+- **C-C7 — "`gcd` divides both operands" is pinned by oracle values, not a separate
+  divisibility loop.** Each `gcd` expectation is Python's `math.gcd`, which is the greatest
+  common divisor by definition; the cases cover mixed signs (`gcd(-12, 18) = 6`), a zero operand
+  (`gcd(0, -7) = 7`), `gcd(0, 0) = 0`, a large shared factor, and consecutive Fibonacci numbers.
+- **Test scope.** Per the user's instruction, each phase runs only its new tests by name
+  (`cargo test --release --test rt_big_int division`) and the `big` registry/lowering unit
+  tests; earlier phases' runtime tests are not re-run until the single end-of-plan full suite.
 
 ## Summary
 

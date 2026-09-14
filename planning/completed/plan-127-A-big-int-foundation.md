@@ -8,8 +8,8 @@ Depends on: nothing
 `big` is a new built-in package providing arbitrary-precision signed integers as a
 copyable value record with natively-lowered arithmetic. This letter lands the package,
 the `big::Int` type, its canonical form, the native access foundation every later
-letter builds on, and the eleven members that need no multi-limb carry: four conversion
-seams and seven comparison/sign members.
+letter builds on, and the ten members that need no multi-limb carry: four conversion
+seams and six comparison/sign members.
 
 Behavioral outcome for this letter: a program can `IMPORT big`, build a `big::Int` from
 an `Integer` or from a `List OF Byte` in either byte order, convert it back, and compare
@@ -34,9 +34,9 @@ bug fix, and no in-flight work; it cites only shipped source and the embedded sp
 
 | Must be true | Command | Status |
 |---|---|---|
-| The `big` package name is unused | `grep -c '"big"' src/codegen/registry/mod.rs` → `0` | MET |
-| No `src/codegen/builtins/big/` exists | `ls src/codegen/builtins/ \| grep -c '^big$'` → `0` | MET |
-| Tree builds and tests green at HEAD | `cargo test --no-fail-fast` | UNMEASURED — run before Phase 1 |
+| The `big` package name is unused | `grep -c '"big"' src/codegen/registry/mod.rs` → `0` | MET (2026-09-13, worktree-P-127 @ 9423d8d22: `0`) |
+| No `src/codegen/builtins/big/` exists | `ls src/codegen/builtins/ \| grep -c '^big$'` → `0` | MET (2026-09-13, @ 9423d8d22: `0`) |
+| Tree builds and tests green at HEAD | `cargo test --no-fail-fast` | MET (2026-09-13, worktree-P-127 @ 9423d8d22: `EXIT=0`; 172 `test result` blocks summing to 5539 passed, 0 failed, 6 ignored; 0 `FAILED` lines) |
 
 Everything below is written against the world where these hold.
 
@@ -117,8 +117,8 @@ reason `big` needs it.
 | `bits` members (all fixed-width `Integer`→`Integer`) | 17 | `ls src/codegen/builtins/bits/func_*.rs \| wc -l` → 17 |
 | `crypto` members | 21 | `ls src/codegen/builtins/crypto/func_*.rs \| wc -l` → 21 |
 | Acceptance fixtures under `tests/acceptance/src/` | 20 | `ls tests/acceptance/src/ \| wc -l` → 20 |
-| Members this letter adds | 11 | §4.4 |
-| Members the whole `big` feature adds | 30 + 1 record | letters A/B/C member lists |
+| Members this letter adds | 10 | §4.4 (was 11 — Corrections C5) |
+| Members the whole `big` feature adds | 29, plus 2 records and 1 enum | letters A/B/C member lists (was "30 + 1 record" — C5) |
 
 ### Verified properties
 
@@ -272,6 +272,33 @@ Phase 1 pins all four of these against
 `src/codegen/collection/layout/builder_collection_layout.rs` rather than against this
 reading of the spec.
 
+**Confirmed (Phase 1, 2026-09-13)** — each offset against the symbol that fixes it, then
+against a running program:
+
+| Offset | Value | Confirming symbol |
+|---|---|---|
+| record slot 0 → inlined magnitude | `recordBase + [recordBase + 0]` | `record_field_is_inlined` returns `true` for `List OF Byte` (a collection, and `type_is_memcpy_copyable`); `emit_build_inlined_record_sized` writes an inlined field's slot `8 * index` as the block-relative cursor offset, first data offset `8 * fieldCount` = `16` |
+| record slot 1 → `negative` | `recordBase + 8`, value inline | `emit_build_inlined_record_sized`'s non-inlined arm: `store_u64(value, result, 8 * index)` |
+| magnitude `count` | `+8` | `COLLECTION_OFFSET_COUNT = 8` (`src/codegen/error/constants/error_constants.rs`), read by `lower_len` |
+| magnitude packed data | `+40` | `COLLECTION_HEADER_SIZE = 40`; `list_entry_stride(Byte)` = `0` because `list_element_is_fixed_width(Byte)` = `Some(1)`, so the data base `HEADER + capacity * stride` is `+40` for every capacity |
+
+A `big::Int` block is therefore `16 + 40 + dataCapacity` bytes — exactly the size
+`emit_collection_flat_size` + the record marshaller compute, and the size scope-drop
+releases. Runtime check: a temporary `bits.probeCount` / `bits.probeByteAt` pair
+(built in a throwaway `/tmp` checkout, never in this branch) reading `[list + 8]` and
+`[list + 40 + i]`, run on a release `mfb`:
+
+```
+0 len=0 probe=0
+1 len=1 probe=1 first=3 last=3 want=3
+255 len=255 probe=255 first=3 last=245 want=245
+4096 len=4096 probe=4096 first=3 last=252 want=252
+lit len=3 probe=3 b0=9 b2=7
+```
+
+The 1/255/4096 lists were `collections::append`-built (spare capacity), so `+40`
+holding for them is the capacity-independence the stride-0 reading predicts.
+
 ### 4.3 The native access foundation (`gen_big.rs`)
 
 Three shared emitters, consumed by every member in every letter:
@@ -288,7 +315,7 @@ Three shared emitters, consumed by every member in every letter:
 Placing normalization inside `emit_build_int` rather than in each member is what makes
 canonical form a property of the package rather than of thirty separate lowerings.
 
-### 4.4 Members (11) and the enum
+### 4.4 Members (10) and the enum
 
 ```basic
 EXPORT ENUM Endian { Little, Big }
@@ -340,90 +367,162 @@ whose magnitude is one past `Integer`'s maximum — the edge case tests must cov
 Before any member exists, prove the four offsets every lowering will use. Throwaway
 probe; nothing here ships.
 
-- [ ] Read `src/codegen/collection/layout/builder_collection_layout.rs` and confirm
+- [x] Read `src/codegen/collection/layout/builder_collection_layout.rs` and confirm
       against it: the kind-2 header size, the offset of `count`, the offset of the
       packed data region, and `record_field_is_inlined`'s treatment of a
       `List OF Byte` field.
-- [ ] Write a temporary `abi_function` member that takes a `List OF Byte` and returns
+      Confirmed: header 40, `count` +8, data +40 (stride 0), magnitude inlined — table in §4.2.
+- [x] Write a temporary `abi_function` member that takes a `List OF Byte` and returns
       its element count read through the offsets above; verify it against `len()` for
       lists of length 0, 1, 255, 4096.
-- [ ] Record the four confirmed offsets in §4.2, replacing the spec-derived reading.
-      Note any divergence in Corrections.
-- [ ] Delete the temporary member before commit.
+      Output: `probe=0/1/255/4096` equal to `len=` on all four, plus a literal (§4.2).
+- [x] Record the four confirmed offsets in §4.2, replacing the spec-derived reading.
+      Note any divergence in Corrections. No offset diverged from the spec reading; the probe surfaced C2.
+- [x] Delete the temporary member before commit. It never entered this branch: it lived
+      in a throwaway `/tmp/p127-probe` checkout, since removed (`ls -d /tmp/p127-probe` →
+      `No such file or directory`; worktree list count for it → `0`).
 
 Acceptance: the four offsets are recorded in this file, each citing the layout-builder
 symbol that confirmed it, and the count probe agreed with `len()` on all four lengths.
-Commit: —
+Commit: 8f8131e85
 
 ### Phase 2 — package skeleton, the type, and the enum
 
 The package exists and its type is declarable; no arithmetic yet.
 
-- [ ] Create `src/codegen/builtins/big/mod.rs` with `MODULE_INTRO`/`MODULE_DESC`, the
+- [x] Create `src/codegen/builtins/big/mod.rs` with `MODULE_INTRO`/`MODULE_DESC`, the
       `INT_TYPE`/`INT_TYPE_ID` constant pair (the `net/mod.rs:112-121` split), the
       `add_record` for `Int` carrying the field-order-is-contract comment, and the
       `add_enum` for `Endian`.
-- [ ] Register it: add `crate::codegen::builtins::big::register(&mut r);` to the block
-      at `src/codegen/registry/mod.rs:2050-2080`, and declare the module in
-      `src/codegen/builtins/mod.rs`.
-- [ ] Tests in `big/mod.rs`, following the `money/mod.rs:105-182` shape: the package
+      Done; `INT_TYPE_ID`/`ENDIAN_TYPE_ID` land with their first non-test user in the Phase 3+4
+      commit (Corrections C6). `mfb man big` renders the page (exit 0).
+- [x] Register it: add `crate::codegen::builtins::big::register(&mut r);` to the
+      `crate::codegen::builtins::*::register(&mut r)` block in `src/codegen/registry/mod.rs`
+      (`grep -n "::register(&mut r)" src/codegen/registry/mod.rs`; the cited 2050-2080 had
+      drifted to 2193-2223), and declare the module in `src/codegen/builtins/mod.rs`.
+- [x] Admit the name in every hand-kept package list (discovered; no task named them):
+      `BUILTIN_IMPORTS` and `ARGUMENT_CHECKED_PACKAGES` in `src/codegen/builtins/mod.rs` —
+      the latter's own comment says "Any new package needs a row here" — and the §18
+      package-set sentence in `src/docs/spec/language/18_builtin-functions.md`, which
+      `spec_section_18_package_list_matches_is_builtin_import` pins to `BUILTIN_IMPORTS`.
+- [x] Tests in `big/mod.rs`, following the `money/mod.rs:105-182` shape: the package
       resolves; `Int` and `Endian` are registered types;
       `qualified_builtin_type("big.Int")` is `Some("big.Int")`; the rendered companion
       source contains `EXPORT TYPE Int` and `EXPORT ENUM Endian`.
-- [ ] Runtime test: `LET x AS big::Int` compiles, and its default is `{[], FALSE}` —
-      the canonical-zero-by-default property.
+      `cargo test --release -p mfb --bin mfb -- codegen::builtins::big codegen::builtins::tests`
+      → `30 passed; 0 failed` (the four `big` registry tests, the §18 package-list pin, the
+      import-set cases).
+- [x] Runtime test: `MUT x AS big::Int` compiles, and its default is `{[], FALSE}` —
+      the canonical-zero-by-default property. (Was `LET`, which cannot compile — Corrections C4.)
+      `cargo test --release --test rt_big_int` → `a_defaulted_int_is_canonical_zero ... ok`,
+      `1 passed; 0 failed` (prints `0` then `FALSE`).
 
 Acceptance: `mfb man big` renders the package page; a program with `IMPORT big` and a
 defaulted `LET x AS big::Int` compiles and runs; a program that does **not** import
 `big` produces byte-identical `.ncode` to before this phase.
-Commit: —
+Evidence (worktree-P-127 release build, 0 warnings): `mfb man big` → exit 0, package page
+rendered; non-disturbance — `/tmp/p127-baseline/nonbig` built `-ncode` on all five targets with
+the HEAD binary and with this phase's binary, `cmp` of the five checksums → identical
+(`macos-aarch64` `4138faa7…`, `linux-aarch64` `2b15ff24…`, `linux-x86_64` `45f8affd…`,
+`linux-riscv64` `18991bfe…`, `windows-x86_64` `c5332835…`). The defaulted binding is `MUT`
+(Corrections C4).
+Commit: ed55277cb
 
 ### Phase 3 — the native access foundation
 
 The three shared emitters, with no public member yet depending on them.
 
-- [ ] `src/codegen/builtins/big/gen_big.rs` — `emit_load_int`, `emit_alloc_magnitude`,
+- [x] `src/codegen/builtins/big/gen_big.rs` — `emit_load_int`, `emit_alloc_magnitude`,
       `emit_build_int` per §4.3, using the Phase 1 offsets.
-- [ ] Unit tests: `emit_build_int` normalizes trailing zero bytes; maps `{[], TRUE}` to
-      `{[], FALSE}`; leaves a canonical input unchanged.
+      Done, with two helpers the three need: `emit_spill_args` (argument registers to frame
+      slots before any scratch use) and `emit_trim` (the one canonical-form rule, shared by
+      load and build). Lands in the Phase 3+4 commit (Corrections C6).
+- [x] Unit tests: `emit_build_int` normalizes trailing zero bytes; maps `{[], TRUE}` to
+      `{[], FALSE}`; leaves a canonical input unchanged. Per Corrections C3 these run as
+      programs (`tests/runtime/rt_big_int.rs` and the Phase 3 shim), with the in-crate
+      every-backend lowering test covering the emitters in process.
+      Shim: `[9] FALSE`, `[] FALSE`, `[] FALSE`, `[1,2,3] TRUE`. `rt_big_int`: trailing zeros
+      read as `[5]`, `fromBytes([0, 0], TRUE)` as `0 FALSE` (3 passed). In process:
+      `every_member_lowers_on_every_backend` over all five `CodeTarget`s, in the 35-test run.
 
 Acceptance: a temporary public shim calling load→build round-trips a `big::Int` through
 the foundation, normalizing three non-canonical inputs (trailing zeros, negative zero,
 all-zero magnitude) to their canonical forms; the shim is removed before commit.
-Commit: —
+Evidence (worktree-P-127, the Phase 3+4 tree plus a temporary `big.probeRoundTrip` built only
+from the Phase 3 emitters; `cargo build --release` exit 0, 0 warnings): `[9] FALSE`, `[] FALSE`,
+`[] FALSE`, `[1,2,3] TRUE` for `big::Int[[9, 0, 0], FALSE]`, `big::Int[[], TRUE]`,
+`big::Int[[0, 0, 0], TRUE]` and the canonical `big::Int[[1, 2, 3], TRUE]`. The shim was then
+removed (`func_probe_round_trip.rs` deleted, its declaration, registration and macOS admission
+row taken out; anchor counts `0`) and never committed.
+Commit: 0fdb747eb (shared with Phase 4 — Corrections C6)
 
 ### Phase 4 — the conversion seams
 
-- [ ] `func_from_integer.rs`, `func_to_integer.rs` — `abi_function` lowerings.
+- [x] `func_from_integer.rs`, `func_to_integer.rs` — `abi_function` lowerings.
       `toInteger` declares `ErrOverflow` and nothing else.
-- [ ] `func_from_bytes.rs`, `func_to_bytes.rs` — both total, both taking
+      Done; `mfb man big fromInteger|toInteger` examples run: `-42`, `0`, `9000`, `does not fit`.
+- [x] `func_from_bytes.rs`, `func_to_bytes.rs` — both total, both taking
       `endian AS big::Endian = Little` as a defaulted parameter.
-- [ ] Tests: `toInteger(fromInteger(x)) = x` for `0`, `1`, `-1`, `Integer` max,
+      Done (the default is `DefaultValue::Fill { big.Endian, "0" }` — Open Decision 2
+      resolution); examples run: `256`, `FALSE`, `1 2`, `0`.
+- [x] Tests: `toInteger(fromInteger(x)) = x` for `0`, `1`, `-1`, `Integer` max,
       `Integer` min; `toInteger` raises `ErrOverflow` one past `Integer` max;
       `toBytes(fromBytes(b, n, e), e) = b` for canonical `b` in both byte orders; a
       non-canonical input (trailing zero bytes) normalizes rather than failing.
+      `cargo test --release --test rt_big_int` → `integer_round_trip_and_overflow_edges ... ok`
+      (also `-(2^63 + 1)` and `2^64` raise `77050010`, `-2^63` converts),
+      `byte_round_trips_in_both_orders ... ok` (also the `Little` default and a 32-byte value).
+- [x] Admit the four members in all three backend `runtime_calls` lists
+      (`src/target/macos_aarch64/mod.rs`, `src/target/linux_common/mod.rs`,
+      `src/target/win_x86_64/mod.rs`) — Corrections C2.
+      Done: `grep -c '"big\.'` → `4` in each of the three lists.
 
-Acceptance: the round-trip and overflow tests pass, and
-`native_member_declares_error` reports `true` for `toInteger`, `false` for the other
-three.
-Commit: —
+Acceptance: the round-trip and overflow tests pass, and (per Corrections C1) the
+registry `errors` vector is exactly `["ErrOverflow"]` for `toInteger` and empty for the
+other three, with `native_member_declares_error` → `None` for all four.
+Evidence (worktree-P-127, 0 warnings): `cargo test --release -p mfb --bin mfb --
+codegen::builtins::big target::tests::every_big_member codegen::builtins::tests` → `35 passed;
+0 failed`, including `every_member_declares_exactly_its_errors_and_lowers_natively` (exact
+vectors, `None`, an `abi_function` lowering each), `member_signatures`,
+`endian_defaults_to_little`, `every_big_member_is_admitted_on_every_backend`;
+`cargo test --release --test rt_big_int` → `3 passed; 0 failed`. Non-disturbance still holds
+(five-target `.ncode` identical to the HEAD baseline); `man-census --fill big` 4/4/4, params 7/7;
+memory-scope 0; the eight examples ran.
+Commit: 0fdb747eb (shared with Phase 3 — Corrections C6)
 
 ### Phase 5 — comparison and sign
 
-- [ ] `func_compare.rs`, `func_equals.rs`, `func_is_zero.rs`, `func_sign.rs`,
+- [x] `func_compare.rs`, `func_equals.rs`, `func_is_zero.rs`, `func_sign.rs`,
       `func_abs.rs`, `func_negate.rs` — all total. `compare` orders by sign, then by
       magnitude length, then by descending byte index.
-- [ ] Tests: `compare` is a total order over a spread covering both signs, zero, and
+      Done, over two shared emitters (`emit_compare_magnitude`, `emit_compare_int`) and
+      `emit_copy_int` for `abs`/`negate`; release build 0 warnings; the six pages' examples run
+      (`man-run-examples big --run` → 14 of 14 across the ten members, 0 failed).
+- [x] Tests: `compare` is a total order over a spread covering both signs, zero, and
       differing magnitudes; `equals` agrees with `compare(...) = 0`; `isZero` agrees
       with `equals(x, fromInteger(0))`; `negate(negate(x)) = x`; `negate` of zero is
       canonical zero, not `{[], TRUE}`; `abs` of a negative is its magnitude; `sign`
       returns -1/0/1.
-- [ ] Test: `equals` returns `TRUE` for a canonical value against a hand-constructed
+      `compare_is_a_total_order_and_the_predicates_agree ... ok` (10x10 order over values
+      incl. ±2^64, with `equals`/`sign`/`isZero` agreeing) and `negate_abs_and_the_total_decoder
+      ... ok` (`negate(0)` is `0 FALSE`, `abs(-70000)` is `70000 FALSE`).
+- [x] Test: `equals` returns `TRUE` for a canonical value against a hand-constructed
       **non-canonical** record denoting the same number — the total-decoder contract.
+      Pinned in `negate_abs_and_the_total_decoder`: `big::Int[[7, 0], FALSE]` equals
+      `fromInteger(7)` (`TRUE 0`), `big::Int[[], TRUE]` equals zero (`TRUE TRUE 0`).
+- [x] Admit the six members in all three backend `runtime_calls` lists — Corrections C2.
+      Done: `grep -c '"big\.'` → `10` in each of the three lists.
 
-Acceptance: all six report `native_member_declares_error` → `false`, and the comparison
+Acceptance: all six declare an empty registry `errors` vector (Corrections C1), and the comparison
 suite passes including the non-canonical and negative-zero cases.
-Commit: —
+Evidence (worktree-P-127, 0 warnings): `cargo test --release -p mfb --bin mfb --
+codegen::builtins::big target::tests::every_big_member codegen::builtins::tests` → `35 passed;
+0 failed` (the ten-member exact error vectors, lowering on all five backends, admission);
+`cargo test --release --test rt_big_int` → `5 passed; 0 failed`, including
+`compare_is_a_total_order_and_the_predicates_agree` and `negate_abs_and_the_total_decoder`;
+`man-census --fill big` 10/10/10, params 15/15, types 4/4; memory-scope 0; `man-run-examples big
+--run` 14 of 14; non-`big` `.ncode` identical to the HEAD baseline on all five targets.
+Commit: 6e8aaf0ed
 
 ## Validation Plan
 
@@ -462,11 +561,119 @@ Commit: —
    defaulted enum parameter** — four names instead of eight, self-documenting at the
    call site. Alternative: separate members, plainer to read but proliferating.
 
+**Resolutions (recorded while authoring Phases 3–4):**
+
+1. **Up-front result, as recommended.** `emit_alloc_magnitude` makes the result record
+   once at its largest possible size (`16 + 40 + capacity` bytes, `capacity` and
+   `dataCapacity` both the full size, `count`/`dataLength` zero, magnitude region
+   zeroed), the member writes bytes in place, and `emit_build_int` trims the count.
+   Why this is sound and not merely cheap: a `List OF Byte` block is self-describing —
+   `emit_collection_flat_size` sizes it as `HEADER + capacity * stride(0) +
+   dataCapacity`, never from `count` — so an oversized-but-trimmed result is copied and
+   released at exactly the size it was made with. The scratch-plus-copy alternative
+   would add a second block and a copy for no correctness gain; the zeroed region is
+   what `multiply` (plan-127-B) accumulates into.
+2. **The defaulted enum parameter, as recommended.** `endian` is
+   `DefaultValue::Fill { type_name: named("big.Endian"), expr: "0" }`, which pads an
+   `IrValue::Const` of type `big.Endian`. That const is accepted end to end: the
+   verifier's table check sees the parameter's own type; `ParameterType::parse` ends in
+   `other => named(other)` so `declared` and `named` agree on the key; and the lowered
+   `mov_imm dst, big.Endian, 0` is safe because all three encoders read only `dst` and
+   `value` (`src/arch/aarch64/encode/emitter.rs` `"mov_imm" => self.emit_mov_imm(`,
+   `src/arch/x86_64/encode/emitter.rs` `enc_mov_imm64(dst, value)`,
+   `src/arch/riscv64/encode/emitter.rs` `emit_li(r("dst")?, imm("value")?)`) and the
+   optimizer folds only `IMMEDIATE_CLASS_INTEGER` immediates (`constant_folding.rs`,
+   `checks.rs`, `gvn.rs`). The Phase 4 default-`endian` runtime test is the proof.
+
 ## Corrections
 
 <!-- Filled in DURING execution. Every place this plan turned out to be wrong: the
      claim, what was actually true, and the evidence. A corrected number also needs a
      check of whether a later letter's scope was derived from the wrong one. -->
+
+- **C1 — `native_member_declares_error` cannot report on an `abi_function` member.**
+  The plan's Phase 4/5 acceptance (and letters B/C, which copy it) asserts
+  `native_member_declares_error` → `true`/`false`. It returns `Some(_)` only when an
+  implementation's body is `Body::AbiInline`
+  (`grep -n "fn native_member_declares_error" -A 16 src/codegen/registry/mod.rs`:
+  `if matches!(implementation.body, Body::AbiInline(_))`), and every `big` member is
+  `abi_function` per §1, so the call answers `None` for all of them. For a
+  non-inline call the front end's `Fallibility::call_is_fallible`
+  (`src/ir/fallible.rs`) answers `true` regardless of the declared list. The declared
+  error set of an `abi_function` member is therefore exactly its registry
+  `Implementation::errors`, which is what `mfb man` renders. **Strengthened
+  acceptance:** each member's test asserts the exact `errors` vector of every
+  implementation (`registry().resolve_func("big.<m>")…implementations[i].errors ==
+  vec![…]`) **and** that `native_member_declares_error("big.<m>")` is `None` — the
+  latter pins that no member silently became inline-lowered. Applied to letters B, C
+  and D's matching criteria.
+- **C2 — an `abi_function` member must be admitted per backend; no letter said so.**
+  Measured with the Phase 1 probe: a new `bits.probeCount` `abi_function` member built
+  into a release `mfb` failed `mfb build` with `native backend does not support runtime
+  call 'bits.probeCount'`. `validate_capabilities`
+  (`src/target/shared/validate/capabilities.rs`) rejects every collected `pkg.member`
+  runtime call not in the backend's static `runtime_calls` list, and those lists live in
+  exactly three files (`grep -rln '"crypto.hash"' src/target/*/mod.rs` →
+  `macos_aarch64/mod.rs`, `linux_common/mod.rs` (all three Linux arches),
+  `win_x86_64/mod.rs`). Every `big` member (and plan-127-D's overload is already listed)
+  needs a row in all three. Added as a task to Phases 4 and 5 here and to every
+  member-landing phase of letters B and C.
+- **C3 — no in-crate test can run an emitter, so "unit tests" of normalization cannot
+  exist as written.** Phase 3 asks for unit tests that `emit_build_int` normalizes, and
+  the Validation Plan says emitter behavior "is reached through unit tests inside
+  `src/codegen/builtins/big/`". The in-crate harness only lowers:
+  `src/testutil.rs`'s own header says its helpers "run the real `.ncode` dump pipeline
+  … minus the file write … No linker, no subprocess", and the only runner of built
+  programs is `tests/common/mod.rs::build_project`, which shells out to the release
+  `mfb`. A normalization is a runtime fact, so it is proven where programs run:
+  **Strengthened acceptance** — (1) the Phase 3 shim program and the Phase 4/5
+  `tests/runtime/rt_big_int.rs` cases run the three non-canonical shapes (trailing zero
+  bytes, negative zero, all-zero magnitude) through the members and assert canonical
+  output; (2) an in-crate test lowers a program calling every member on all five
+  `CodeTarget::ALL` backends, so the emitters are in the coverage denominator and a
+  finalizer or per-target rejection fails in `cargo test`, not first on a Linux box.
+- **C4 — `LET x AS big::Int` does not compile; the defaulted form is `MUT`.** Phase 2's
+  runtime task says "`LET x AS big::Int` compiles, and its default is `{[], FALSE}`".
+  Measured with a release `mfb` carrying the package:
+  `error[2-203-0035 TYPE_LET_REQUIRES_VALUE]: immutable binding must have an
+  initializer`. The canonical-zero-by-default property is real but belongs to a `MUT`
+  declaration (the defaultability rule `2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE`
+  is the `MUT` one). The Phase 2 test and every descriptor use `MUT x AS big::Int`.
+  Found in the same run: an integer list literal passed straight to
+  `big::fromBytes` types as `List OF Integer` and is rejected
+  (`TYPE_CALL_ARGUMENT_MISMATCH … (List OF Integer, Boolean), expected List OF Byte,
+  Boolean[, big.Endian]`), exactly as for every other `List OF Byte` parameter; tests
+  and examples bind the literal `AS List OF Byte` first. A record literal
+  (`big::Int[[7, 0], FALSE]`) is typed by its field and needs no binding.
+- **C5 — this letter adds ten members, not eleven; the feature adds 29, not 30.** The
+  intro said "eleven … four conversion seams and seven comparison/sign members", and
+  the populations table said `11` and "30 + 1 record". §4.4's own signature block lists
+  ten members (four conversions; `compare`, `equals`, `isZero`, `sign`, `abs`, `negate`),
+  and the registry agrees: `every_member_declares_exactly_its_errors_and_lowers_natively`
+  asserts `pkg.functions().len() == MEMBERS.len()` over those ten and passed
+  (`cargo test --release -p mfb --bin mfb -- codegen::builtins::big` → `10 passed`, run
+  on a checkout carrying this letter). With letter B's 12 and letter C's 7 the feature
+  adds 29 members, and it adds two records (`Int`, `DivResult`) and one enum (`Endian`),
+  not one record. No letter derived scope from the wrong total; the informational counts
+  in B §2, C §2 and D §2/Summary are corrected in place.
+- **C6 — Phase 3 cannot land as its own commit; it lands in the Phase 4 commit.** The
+  phases assume Phase 3's emitters can be committed with "no public member yet
+  depending on them". `mfb` is a binary crate (`src/main.rs`, no `src/lib.rs`), so every
+  `pub(crate)` item with no caller is dead code. Measured by building a checkout holding
+  exactly Phase 2 plus `gen_big.rs` (`cargo build --release`): `mfb (bin "mfb") generated
+  13 warnings` — `INT_TYPE_ID`, `ENDIAN_TYPE_ID`, `INT_OFFSET_MAGNITUDE`,
+  `INT_OFFSET_NEGATIVE`, `INT_MAGNITUDE_BLOCK`, `INT_DATA_OFFSET` never used; `IntSlots`,
+  `ResultSlots` never constructed; `emit_spill_args`, `emit_load_int`,
+  `emit_alloc_magnitude`, `emit_build_int`, `emit_trim` never used. A zero-warning build
+  is the gate, and silencing those with `#[allow(dead_code)]` would be exactly the
+  "test-only surface for now" deferral this plan forbids. So Phases 3 and 4 share one
+  commit (both `Commit:` lines carry its hash), Phase 3's acceptance shim is run before
+  that commit and never committed, and the emitters only Phase 5 calls
+  (`emit_compare_magnitude`, `emit_compare_int`, `emit_copy_int`) arrive with Phase 5.
+  The same measurement caught Phase 2: `INT_TYPE_ID`/`ENDIAN_TYPE_ID` have no non-test
+  user until the first member, so they are declared in the Phase 3+4 commit, not Phase 2.
+  Re-measured on a checkout holding exactly the restaged Phase 2 (`cargo build --release`):
+  `warnings: 0`, exit 0.
 
 ## Summary
 

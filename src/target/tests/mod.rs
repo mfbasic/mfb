@@ -246,3 +246,28 @@ fn registered_targets_are_unique() {
         );
     }
 }
+
+/// plan-127-A Corrections C2: every `big` member is an `abi_function` runtime call, and
+/// `validate_capabilities` rejects a call missing from a backend's `runtime_calls` list —
+/// so a member admitted on one backend and forgotten on another builds on the first and
+/// fails `mfb build` on the second. Driven off the registry, not a copied list, so a
+/// member added in a later letter cannot be left out of this check either.
+#[test]
+fn every_big_member_is_admitted_on_every_backend() {
+    let package = crate::codegen::registry::registry()
+        .resolve_package("big")
+        .expect("big package");
+    assert!(!package.functions().is_empty());
+    for target in registered_targets() {
+        let backend = backend_for(&target).expect("registered backend");
+        let caps = backend.capabilities();
+        for function in package.functions() {
+            let call = format!("big.{}", function.name);
+            assert!(
+                caps.runtime_calls.contains(&call.as_str()),
+                "{} does not admit {call}",
+                target.name()
+            );
+        }
+    }
+}

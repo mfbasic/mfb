@@ -1,0 +1,319 @@
+' bug-611: the raising inputs behind each datetime member's declared errors.
+' Every line prints TRUE when the call raised the code its descriptor lists.
+IMPORT io
+IMPORT datetime
+IMPORT errorCode
+
+FUNC maxI AS Integer
+  RETURN 9223372036854775807
+END FUNC
+
+FUNC minI AS Integer
+  RETURN -9223372036854775807 - 1
+END FUNC
+
+' A record no constructor produces: a year and an offset at the Integer extremes.
+FUNC bigDt AS datetime::DateTime
+  RETURN datetime::DateTime[datetime::Date[maxI(), 1, 1], datetime::Time[0, 0, 0, 0], datetime::utc(), minI()]
+END FUNC
+
+FUNC far AS datetime::DateTime
+  RETURN datetime::toUtc(datetime::instant(maxI()))
+END FUNC
+
+FUNC epochLocal AS datetime::DateTime
+  RETURN datetime::inZone(datetime::instant(0), datetime::local())
+END FUNC
+
+FUNC report(name AS String, code AS Integer, want AS Integer) AS Integer
+  io::print(name & "=" & toString(code = want))
+  RETURN 0
+END FUNC
+
+FUNC add AS Integer
+  LET v AS datetime::Instant = datetime::add(datetime::instant(maxI()), datetime::duration(1))
+  RETURN report("add", 0, 1)
+  TRAP(err)
+    RETURN report("add", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC subtract AS Integer
+  LET v AS datetime::Instant = datetime::subtract(datetime::instant(minI()), datetime::duration(1))
+  RETURN report("subtract", 0, 1)
+  TRAP(err)
+    RETURN report("subtract", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC plus AS Integer
+  LET v AS datetime::Duration = datetime::plus(datetime::duration(maxI()), datetime::duration(1))
+  RETURN report("plus", 0, 1)
+  TRAP(err)
+    RETURN report("plus", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC minus AS Integer
+  LET v AS datetime::Duration = datetime::minus(datetime::duration(minI()), datetime::duration(1))
+  RETURN report("minus", 0, 1)
+  TRAP(err)
+    RETURN report("minus", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC negate AS Integer
+  LET v AS datetime::Duration = datetime::negate(datetime::duration(minI()))
+  RETURN report("negate", 0, 1)
+  TRAP(err)
+    RETURN report("negate", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC between AS Integer
+  LET v AS datetime::Duration = datetime::between(datetime::instant(minI()), datetime::instant(maxI()))
+  RETURN report("between", 0, 1)
+  TRAP(err)
+    RETURN report("between", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC instant2 AS Integer
+  LET v AS datetime::Instant = datetime::instant(maxI(), 1000000000)
+  RETURN report("instant2", 0, 1)
+  TRAP(err)
+    RETURN report("instant2", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC instant3 AS Integer
+  LET v AS datetime::Instant = datetime::instant(maxI(), 0, 0)
+  RETURN report("instant3", 0, 1)
+  TRAP(err)
+    RETURN report("instant3", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC instant4 AS Integer
+  LET v AS datetime::Instant = datetime::instant(maxI(), 0, 0, 0)
+  RETURN report("instant4", 0, 1)
+  TRAP(err)
+    RETURN report("instant4", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC instant5 AS Integer
+  LET v AS datetime::Instant = datetime::instant(maxI(), 0, 0, 0, 0)
+  RETURN report("instant5", 0, 1)
+  TRAP(err)
+    RETURN report("instant5", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC duration2 AS Integer
+  LET v AS datetime::Duration = datetime::duration(minI(), -1)
+  RETURN report("duration2", 0, 1)
+  TRAP(err)
+    RETURN report("duration2", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC duration3 AS Integer
+  LET v AS datetime::Duration = datetime::duration(maxI(), 0, 0)
+  RETURN report("duration3", 0, 1)
+  TRAP(err)
+    RETURN report("duration3", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC duration4 AS Integer
+  LET v AS datetime::Duration = datetime::duration(maxI(), 0, 0, 0)
+  RETURN report("duration4", 0, 1)
+  TRAP(err)
+    RETURN report("duration4", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC duration5 AS Integer
+  LET v AS datetime::Duration = datetime::duration(maxI(), 0, 0, 0, 0)
+  RETURN report("duration5", 0, 1)
+  TRAP(err)
+    RETURN report("duration5", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC toMillis AS Integer
+  LET v AS Integer = datetime::toMillis(datetime::instant(maxI()))
+  RETURN report("toMillis", 0, 1)
+  TRAP(err)
+    RETURN report("toMillis", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC toNanos AS Integer
+  LET v AS Integer = datetime::toNanos(datetime::instant(10000000000))
+  RETURN report("toNanos", 0, 1)
+  TRAP(err)
+    RETURN report("toNanos", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC addDaysOverflow AS Integer
+  LET v AS datetime::DateTime = datetime::addDays(datetime::toUtc(datetime::instant(0)), maxI())
+  RETURN report("addDaysOverflow", 0, 1)
+  TRAP(err)
+    RETURN report("addDaysOverflow", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC addDaysLocal AS Integer
+  LET v AS datetime::DateTime = datetime::addDays(epochLocal(), 1000000000000)
+  RETURN report("addDaysLocal", 0, 1)
+  TRAP(err)
+    RETURN report("addDaysLocal", err.code, errorCode::ErrInvalidArgument)
+  END TRAP
+END FUNC
+
+FUNC addMonthsOverflow AS Integer
+  LET v AS datetime::DateTime = datetime::addMonths(datetime::toUtc(datetime::instant(0)), maxI())
+  RETURN report("addMonthsOverflow", 0, 1)
+  TRAP(err)
+    RETURN report("addMonthsOverflow", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC addMonthsLocal AS Integer
+  LET v AS datetime::DateTime = datetime::addMonths(epochLocal(), 100000000000)
+  RETURN report("addMonthsLocal", 0, 1)
+  TRAP(err)
+    RETURN report("addMonthsLocal", err.code, errorCode::ErrInvalidArgument)
+  END TRAP
+END FUNC
+
+FUNC startOfDayOverflow AS Integer
+  LET v AS datetime::DateTime = datetime::startOfDay(far())
+  RETURN report("startOfDayOverflow", 0, 1)
+  TRAP(err)
+    RETURN report("startOfDayOverflow", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC startOfDayLocal AS Integer
+  LET dt AS datetime::DateTime = datetime::DateTime[datetime::Date[3000000000, 1, 1], datetime::Time[12, 0, 0, 0], datetime::local(), 0]
+  LET v AS datetime::DateTime = datetime::startOfDay(dt)
+  RETURN report("startOfDayLocal", 0, 1)
+  TRAP(err)
+    RETURN report("startOfDayLocal", err.code, errorCode::ErrInvalidArgument)
+  END TRAP
+END FUNC
+
+FUNC withZoneOverflow AS Integer
+  LET v AS datetime::DateTime = datetime::withZone(far(), datetime::fixedOffset(3600))
+  RETURN report("withZoneOverflow", 0, 1)
+  TRAP(err)
+    RETURN report("withZoneOverflow", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC withZoneLocal AS Integer
+  LET v AS datetime::DateTime = datetime::withZone(datetime::toUtc(datetime::instant(100000000000000000)), datetime::local())
+  RETURN report("withZoneLocal", 0, 1)
+  TRAP(err)
+    RETURN report("withZoneLocal", err.code, errorCode::ErrInvalidArgument)
+  END TRAP
+END FUNC
+
+FUNC dayOfYear AS Integer
+  LET v AS Integer = datetime::dayOfYear(bigDt())
+  RETURN report("dayOfYear", 0, 1)
+  TRAP(err)
+    RETURN report("dayOfYear", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC weekday AS Integer
+  LET v AS datetime::Weekday = datetime::weekday(bigDt())
+  RETURN report("weekday", 0, 1)
+  TRAP(err)
+    RETURN report("weekday", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC resolve AS Integer
+  LET v AS datetime::Instant = datetime::resolve(bigDt())
+  RETURN report("resolve", 0, 1)
+  TRAP(err)
+    RETURN report("resolve", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC formatToken AS Integer
+  LET v AS String = datetime::format(datetime::toUtc(datetime::instant(0)), "q")
+  RETURN report("formatToken", 0, 1)
+  TRAP(err)
+    RETURN report("formatToken", err.code, errorCode::ErrInvalidFormat)
+  END TRAP
+END FUNC
+
+FUNC formatOverflow AS Integer
+  LET v AS String = datetime::format(bigDt(), "ZZ")
+  RETURN report("formatOverflow", 0, 1)
+  TRAP(err)
+    RETURN report("formatOverflow", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC formatDuration AS Integer
+  LET v AS String = datetime::formatDuration(datetime::duration(maxI()))
+  RETURN report("formatDuration", 0, 1)
+  TRAP(err)
+    RETURN report("formatDuration", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC toIso1 AS Integer
+  LET v AS String = datetime::toIso(bigDt())
+  RETURN report("toIso1", 0, 1)
+  TRAP(err)
+    RETURN report("toIso1", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+FUNC toIso2 AS Integer
+  LET v AS String = datetime::toIso(bigDt(), 9)
+  RETURN report("toIso2", 0, 1)
+  TRAP(err)
+    RETURN report("toIso2", err.code, errorCode::ErrOverflow)
+  END TRAP
+END FUNC
+
+' The members probed at their extremes that never raise.
+FUNC quiet AS Integer
+  LET a AS datetime::Instant = datetime::fromMillis(minI())
+  LET b AS datetime::Instant = datetime::fromMillis(maxI())
+  LET c AS datetime::DateTime = datetime::toUtc(datetime::instant(maxI()))
+  LET d AS datetime::DateTime = datetime::toUtc(datetime::instant(minI()))
+  LET e AS Integer = datetime::compare(datetime::instant(minI()), datetime::instant(maxI()))
+  LET f AS Boolean = datetime::isLeapYear(minI())
+  LET g AS Integer = datetime::daysInMonth(minI(), 2)
+  LET h AS Integer = datetime::dayOfYear(far())
+  LET i AS datetime::Instant = datetime::resolve(far())
+  LET j AS String = datetime::toIso(far())
+  RETURN report("quiet", 0, 0)
+  TRAP(err)
+    RETURN report("quiet", err.code, 0)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET r1 AS Integer = add() + subtract() + plus() + minus() + negate() + between()
+  LET r2 AS Integer = instant2() + instant3() + instant4() + instant5()
+  LET r3 AS Integer = duration2() + duration3() + duration4() + duration5()
+  LET r4 AS Integer = toMillis() + toNanos()
+  LET r5 AS Integer = addDaysOverflow() + addDaysLocal() + addMonthsOverflow() + addMonthsLocal()
+  LET r6 AS Integer = startOfDayOverflow() + startOfDayLocal() + withZoneOverflow() + withZoneLocal()
+  LET r7 AS Integer = dayOfYear() + weekday() + resolve()
+  LET r8 AS Integer = formatToken() + formatOverflow() + formatDuration() + toIso1() + toIso2()
+  LET r9 AS Integer = quiet()
+  RETURN 0
+END FUNC
