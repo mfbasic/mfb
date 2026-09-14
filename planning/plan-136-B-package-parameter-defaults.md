@@ -8,8 +8,15 @@ Prerequisites: see plan-136-A §Prerequisites, plus: `ls planning/plan-136-A-*` 
 (plan-136-A archived to `planning/completed/`). If plan-136-A is not complete, this letter cannot
 start, full stop.
 
-An importer's call that omits a defaulted argument of an imported package function (`FUNC`, `SUB`
-or exported `LINK` function) passes the default **evaluated on that call in the package's scope** —
+**Status (re-run 2026-09-13, before Phase 1): all MET.** `git merge-base --is-ancestor 53f10b1fe
+main && echo MET` → `MET`; `git log --all --oneline --grep='plan-136'` → only `caf191edd` and this
+session's four plan-136-A commits; `ls bugs/bug-614-*.md` → one file; `ls planning/plan-136-A-*` →
+`no matches found` (archived as `planning/completed/plan-136-A-default-declaration-scope.md` in
+`79425a695`).
+
+An importer's call that omits a defaulted argument of an imported package function (`FUNC` or
+`SUB`; a package exposes a `LINK` function only through an exported MFB wrapper — owner ruling
+2026-09-13, see Corrections) passes the default **evaluated on that call in the package's scope** —
 the same value the same code produces in an executable. A package whose default reads a
 package-private global builds. Today every omitted package default is broken: a literal default is
 never passed (garbage or a crash), and a computed one does not build.
@@ -84,7 +91,7 @@ the short call (it counts `has_default`), and no later stage fills it
 |---|---|---|
 | Committed `.mfp` files | 160 | `git ls-files '*.mfp' \| wc -l` |
 | `.info` goldens carrying `sigHash` | 11 | `git ls-files '*.info' \| xargs grep -l -i 'sighash' \| wc -l` |
-| Package fixtures with a defaulted parameter | 0 | defaults agent grep over `tests/syntax/packages`, `tests/rt-behavior/packages`, `tools/*-package-sources` (re-run: `grep -rEln --include='*.mfb' '\b(FUNC\|SUB)\b[^(]*\([^)]*[^:<>=!]=[^=>]' tests/*/packages tools` → record) |
+| Package sources with a defaulted parameter | **1** (corrected from 0): `packages/sqlite3/src/lib.mfb:469` `EXPORT FUNC open(path AS String, readOnly AS Boolean = FALSE) AS RES Db` — a LITERAL default (bytes unchanged by this letter), with no committed `.mfp` (`git ls-files 'packages/*.mfp' 'packages/sqlite3/*.mfp'` → empty). It is a live instance of this letter's bug: an importer calling `sqlite3::open(path)` passes no `readOnly` today. No committed importer does: `grep -rn --include='*.mfb' 'sqlite3::open([^,)]*)' tests examples packages tools` → only the doc comment at `packages/sqlite3/src/lib.mfb:22`. | `grep -rEln --include='*.mfb' '\b(FUNC\|SUB)\b[^(]*\([^)]*[^:<>=!]=[^=>]' tests/syntax/packages tests/rt-behavior/packages tools packages` (re-run 2026-09-13; the plan's original command omitted `packages/`) |
 | `binary_repr` unit test files | 14 under `src/binary_repr/tests/` | `ls src/binary_repr/tests/*_tests.rs \| wc -l` |
 
 ### Verified properties (probe, 2026-09-13)
@@ -138,27 +145,51 @@ the layout does not change, and a bump rejects every existing `.mfp` (its own do
 
 ### Phase 1 — RED runtime tests
 
-- [ ] Add `tests/runtime/rt_package_parameter_defaults.rs` (copy `run_app`/`build` from
+- [x] Add `tests/runtime/rt_package_parameter_defaults.rs` (copy `run_app`/`build` from
       `tests/runtime/rt_top_level_initializer_globals.rs`; register in `Cargo.toml` the same way).
-      Cases:
-  - [ ] `an_omitted_literal_integer_package_default_is_passed` — P6 `f()` → `5` (RED: garbage).
-  - [ ] `an_omitted_literal_string_package_default_is_passed` — P6 `g(1)` → `1dflt` (RED: 139).
-  - [ ] `a_computed_package_default_reads_a_private_global_on_each_call` — package
+      Registered at `Cargo.toml:606` (`grep -n -B1 -A2 'rt_package_parameter_defaults' Cargo.toml`).
+      The helpers gained a per-package `manifest_extra` (a package `libraries` table) and a build
+      that returns its output on failure (for the pin). Cases:
+  - [x] `an_omitted_literal_integer_package_default_is_passed` — P6 `f()` → `5` (RED: garbage).
+        Measured: `left: ["7", "4377837600"] right: ["7", "5"]`.
+  - [x] `an_omitted_literal_string_package_default_is_passed` — P6 `g(1)` → `1dflt` (RED: 139).
+        Measured: `the app exited killed by signal 11 (SIGSEGV)`.
+  - [x] `a_computed_package_default_reads_a_private_global_on_each_call` — package
         `PRIVATE MUT Limit = 5`, `EXPORT SUB setLimit(n)`, `EXPORT FUNC f(x AS Integer = Limit)`;
         importer has `LET Limit AS Integer = 99`, prints `deflib::f()`, calls `setLimit(6)`, prints
-        again → `5`, `6` (RED: package build fails with the CONST_POOL error).
-  - [ ] `a_named_package_call_fills_a_skipped_middle_default` — `f(a AS Integer, b AS Integer = 2,
-        c AS Integer = 3)`, `deflib::f(1, c := 9)` → `1 2 9` (RED).
-  - [ ] `a_package_default_calling_another_packages_export_is_filled` — package B's default calls
-        package A's export; the app imports B only (RED).
-  - [ ] `an_exported_link_function_default_is_filled` — a `kind: package` project exporting the
-        P10 `absval(n AS Integer = -5)` LINK function; importer `absval()` → `5` (RED).
-  - [ ] `a_package_default_naming_a_parameter_is_refused_at_package_build` — located
-        `SYMBOL_DEFAULT_NAMES_PARAMETER` from plan-136-A (GREEN pin).
+        again → `5`, `6` (RED: package build fails with the CONST_POOL error). The test also prints
+        the importer's own `Limit` last (`99`). Measured: `build failed: Building limits (package) …
+        error: only constant IR values can be stored in CONST_POOL`.
+  - [x] `a_named_package_call_fills_a_skipped_middle_default` — `f(a AS Integer, b AS Integer = 2,
+        c AS Integer = 3)`, `deflib::f(1, c := 9)` → `1 2 9` (RED). Measured: `left: ["1 9
+        82592681109987"]` — the unfilled middle slot shifts `c := 9` into `b` and `c` reads garbage.
+  - [x] `a_package_default_calling_another_packages_export_is_filled` — package B's default calls
+        package A's export; the app imports B only (RED). Measured: `Building userpkg (package) …
+        error: only constant IR values can be stored in CONST_POOL` (the app manifest lists `userpkg`
+        only; `userpkg` lists `basepkg`).
+  - [x] ~~`an_exported_link_function_default_is_filled` — a `kind: package` project exporting the
+        P10 `absval(n AS Integer = -5)` LINK function; importer `absval()` → `5` (RED).~~ Replaced
+        by owner ruling (Corrections): a LINK function is not directly exportable. Converted to
+        `a_link_wrapper_package_fills_both_defaults` — package `cmath` with LINK `absval(n AS
+        Integer = -5)`, an exported wrapper `FUNC absval(n AS Integer = -7) AS Integer` that calls
+        `libc::absval(n)`, and an exported `FUNC absDefault() AS Integer` that calls
+        `libc::absval()`; importer prints `cmath::absval(-3)`, `cmath::absval()`,
+        `cmath::absDefault()` → `3`, `7`, `5`. RED: the package does not build — `-7` is a COMPUTED
+        default (a unary minus; plan-136-A Open Decisions), so its hidden-function call reaches the
+        writer. Measured (`cargo test --release --test rt_package_parameter_defaults
+        a_link_wrapper_package_fills_both_defaults -- --test-threads=1`): `build failed: error: only
+        constant IR values can be stored in CONST_POOL`, `test result: FAILED. 0 passed; 1 failed`.
+  - [x] `a_package_default_naming_a_parameter_is_refused_at_package_build` — located
+        `SYMBOL_DEFAULT_NAMES_PARAMETER` from plan-136-A (GREEN pin). Measured: `... ok`.
 
 Acceptance: RED cases fail for the documented reason; the pin passes.
   Check: `cargo build --release && cargo test --release --test rt_package_parameter_defaults --
   --test-threads=1` → six fail, one passes (est. 6 min).
+  **Measured 2026-09-13:** full run → `test result: FAILED. 1 passed; 6 failed; … finished in
+  66.17s`, each failure for the reason recorded on its line, the pin `ok`. The exported-LINK case in
+  that run failed for a DIFFERENT reason (`Package `cmath` does not export `absval``), which is how
+  the owner ruling above was reached; its replacement was then run alone and fails for its recorded
+  reason.
 Commit: —
 
 ### Phase 2 — the parameter record, `sigHash` and validation
@@ -253,7 +284,21 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **A LINK function is not directly exportable — owner ruling, 2026-09-13 (Phase 1).** The plan's
+  `an_exported_link_function_default_is_filled` case presumed `EXPORT FUNC absval AS libc::absval`
+  publishes a LINK function to importers. It does not, with or without a default, and never has:
+  probe `/tmp/p136-probe-linkexport` (the same package with NO default) → importer build
+  `main.mfb:5 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: … Package `cmath` does not export
+  `absval``, identically with main's pre-plan binary. `resolver::packages` unions an imported
+  package's visible names from `EXPORT_TABLE`, the `RESOURCE` table and the `GLOBAL` table; a LINK
+  re-export alias has no export row and is visible only when it is a resource's close op
+  (`sqlite3::close`). LINK functions also have no `FUNCTION_TABLE` row, so this letter's parameter
+  record could not carry their defaults. Asked, the owner ruled: *"I dont think directly exporting a
+  LINK function is or should be supported at all. It should have a MFB function wrapper that is
+  exportable."* So the Goal no longer lists exported LINK functions, and the case became
+  `a_link_wrapper_package_fills_both_defaults`: an exported `FUNC` wrapper's default crosses the
+  package boundary (this letter), and the LINK function's own default is filled inside the package
+  (plan-136-A's `link_params`).
 
 ## Summary
 
