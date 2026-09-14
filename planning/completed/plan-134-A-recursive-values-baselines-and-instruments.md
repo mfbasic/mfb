@@ -1,7 +1,8 @@
 # plan-134-A: Recursive values — baselines, instruments, and the unmeasured quantities
 
 Last updated: 2026-09-13
-Overall Effort: huge (>3d) — eight lettered sub-plans, A → H
+Overall Effort: huge (>3d) — nine lettered sub-plans, A → I (I added 2026-09-13 by plan-134's
+final gate: the regex matcher by node index, after `rt_regex_bounds`' DEC-02 bound failed)
 Effort: medium (1h–2h)
 Depends on: nothing
 
