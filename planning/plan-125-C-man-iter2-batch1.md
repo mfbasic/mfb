@@ -211,7 +211,32 @@ that is new to review last, with pace known).
         session's unmerged t3 checkpoint also uses bug-603, for a `datetime`
         bug added 2026-09-13 06:32. This branch's bug-603 (color hue,
         `17872c5d1`, 2026-09-12 22:35) came first and keeps the number.
-- [ ] Ledger + example ledger recorded here.
+- [~] Ledger + example ledger recorded here. **Partial:** 6 of 22 reviews
+      completed before the second usage-limit stop (overview, `abs`, `acos`,
+      `asin`, `atan`, `atan2`); their 20 findings are triaged below. The other 16
+      units remain.
+
+#### Phase 1 ledger — Codex iteration 2, partial (`planning/plan-125-findings/C-phase1/`)
+
+| Page | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| overview | 1 | CONFIRMED | `mfb man math <fn>` declarations: `List OF Fixed` exists for `abs`, `ceil`, `clamp`, `floor`, `log`, `log10`, `max`, `min`, `round`, `sqrt`; not for `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `exp`, `pow`, `atan2` | overview names which forms take only `List OF Float` |
+| overview | 2 | NOT A PAGE CLAIM | the quoted text is the `ErrFloatDomain` error code's own message in the derived Errors row (carve-out 2), shared runtime data | — (the per-type split is stated on each function page) |
+| overview | 3 | CONFIRMED | no example rendered | example added; `/tmp/p125-ex/mathoverview` printed `1024.00`, `1.77`, `TRUE` |
+| abs | 1 | CONFIRMED | reviewer probe: `abs` of the minimum `Money` raised `7-705-0010` | parameter names `Money` too |
+| abs | 2 | CONFIRMED → **bug-617** | `gen_math.rs:lower_math_abs` `Float` branch has no raise, yet the Errors row covers overloads 1–7 | none: declared-error data |
+| abs | 3 | CONFIRMED | `/tmp/p125-ex/asinfixed`: `abs([-7, 3, 0])` → `7,3,0`, source still `-7` | DESC: new list, same order, input unchanged |
+| acos | 1 | CONFIRMED | probe: `acos(-1)` = pi, `acos(0)` = pi/2, `acos(1)` = 0 | parameter: inclusive bounds, 0 → pi/2 |
+| acos | 2, 3 | CONFIRMED → **bug-617** | `Float`/list raise `77050012`, `Fixed` raises `77050002`; the table lists both on all overloads | none: declared-error data |
+| acos | 4 | CONFIRMED | reviewer probe: new list in input order, input unchanged | DESC |
+| acos | 5 | CONFIRMED | range from the same probe | INTRO "from 0 through pi radians" |
+| asin | 1, 2 | **REJECTED** | the reviewer's `math::asin(1.1f)` is a `Float` call: `typeName(1.1f)` → `Float`. A typed `LET x AS Fixed = toFixed(1.1)` gives `asin(x)` → `77050002` (`/tmp/p125-ex/asinfixed`). The page's "a `Fixed` argument raises `ErrInvalidArgument`" stands. Its Errors table has the same per-overload defect as `acos`, recorded in bug-617 | — |
+| atan | 1 | CONFIRMED | `List OF Fixed` is not an `atan` form (declaration census above) | shared parameter: "or a `List OF Float` of them" |
+| atan | 2 | CONFIRMED → **bug-617** | `emit_fixed_atan2` has no raise path, yet `ErrFloatNaN` is listed on the `Fixed` overload | none: declared-error data |
+| atan2 | 1 | CONFIRMED (already applied) | my probe, `0399377a5` | range `[-pi, pi]` |
+| atan2 | 2 | CONFIRMED | probe: `atan2(±1, 0)` = ±pi/2, `atan2(0, 0)` = 0 | DESC axis and origin cases |
+| atan2 | 3 | DEFERRED | the NaN repro, `atan2((big*big)/(big*big), 1.0)`, may raise in its argument expression before `atan2` runs, so it does not isolate `atan2`; re-probe in the page's remaining review | — |
+| atan2 | 4 | CONFIRMED | `lower_simd_float_binary` allocates a separate result list | DESC: new list, inputs unchanged |
 
 Acceptance: 22 units `exit 0` in the manifest; `--reconcile` clean for the
 phase; `mfb man math --all` renders; `--memory-scope math`/`--scope math` → 0.
