@@ -210,7 +210,7 @@ Commit: 5d052ac7b
 
 Acceptance: goldens regenerated and re-gated clean; measurements recorded.
   Check: the gate (est. 15 min); the measurement script (est. 3 min).
-Commit: —
+Commit: 47feff86c (goldens), 1ce7ef468 (measurements)
 
 ## Validation Plan
 
