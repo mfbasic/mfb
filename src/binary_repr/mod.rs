@@ -248,13 +248,6 @@ pub enum BinaryReprExportDefault {
     Function(String),
 }
 
-impl BinaryReprExportDefault {
-    /// Whether the parameter declares any default.
-    pub fn is_some(&self) -> bool {
-        !matches!(self, BinaryReprExportDefault::None)
-    }
-}
-
 #[derive(Clone)]
 pub struct BinaryReprTypeExport {
     pub name: String,

@@ -2493,12 +2493,12 @@ mod lower_tests {
                     ExternalFunctionParam {
                         name: "a".to_string(),
                         type_: crate::types::ParameterType::parse("Integer"),
-                        has_default: false,
+                        default: crate::ir::ExternalDefault::None,
                     },
                     ExternalFunctionParam {
                         name: "b".to_string(),
                         type_: crate::types::ParameterType::parse("Integer"),
-                        has_default: false,
+                        default: crate::ir::ExternalDefault::None,
                     },
                 ],
                 returns: crate::types::ParameterType::parse("Integer"),
@@ -5656,7 +5656,7 @@ END FUNC
                 params: vec![super::ExternalFunctionParam {
                     name: "n".to_string(),
                     type_: crate::types::ParameterType::parse("Integer"),
-                    has_default: false,
+                    default: crate::ir::ExternalDefault::None,
                 }],
                 returns: crate::types::ParameterType::parse("String"),
                 isolated: false,

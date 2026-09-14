@@ -24,8 +24,8 @@ fn package_exports_lists_callables_with_signatures() {
     assert_eq!(main.return_type.name(), "Integer");
     assert_eq!(main.params.len(), 2);
     // The defaulted parameter carries its default.
-    assert!(main.params[1].default.is_some());
-    assert!(!main.params[0].default.is_some());
+    assert!(main.params[1].default != BinaryReprExportDefault::None);
+    assert!(main.params[0].default == BinaryReprExportDefault::None);
     // plan-136-B: a literal default decodes to the constant an importer passes.
     assert_eq!(
         main.params[1].default,

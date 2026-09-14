@@ -441,7 +441,20 @@ pub(super) fn lower_facts(
                 .map(|param| CallParam {
                     name: param.name.clone(),
                     type_: param.type_.clone(),
-                    default: None,
+                    // plan-136-B: an imported call that omits an argument passes the
+                    // exporting package's default exactly as a local call does.
+                    default: match &param.default {
+                        ExternalDefault::None => None,
+                        ExternalDefault::Literal { type_, value } => {
+                            Some(CallDefault::Constant(IrValue::Const {
+                                type_: type_.clone(),
+                                value: value.clone(),
+                            }))
+                        }
+                        ExternalDefault::Function(name) => {
+                            Some(CallDefault::Function(name.clone()))
+                        }
+                    },
                 })
                 .collect(),
         );
@@ -871,6 +884,10 @@ enum CallDefault {
     /// A [`DefaultKind::Computed`] default: a zero-argument call to this hidden
     /// default function.
     Function(String),
+    /// An imported package's literal default, already the `IrValue::Const` the
+    /// exporting package stored (plan-136-B). It is passed as-is: re-lowering its
+    /// text could classify a number differently from the declaration.
+    Constant(IrValue),
 }
 
 /// The two kinds of parameter default (plan-136-A).
@@ -964,6 +981,7 @@ fn lower_call_default(param: &CallParam, context: &mut LowerContext<'_>) -> Opti
             type_: param.type_.clone(),
             loc: context.current_loc,
         }),
+        CallDefault::Constant(value) => Some(value.clone()),
     }
 }
 

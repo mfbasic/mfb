@@ -241,7 +241,10 @@ fn a_named_package_call_fills_a_skipped_middle_default() {
     assert_eq!(lines(&output), vec!["1 2 9"], "{output}");
 }
 
-/// Package B's default calls package A's export; the app imports B only.
+/// Package B's default calls package A's export. The app lists both packages, as
+/// `rt_top_level_initializer_globals`'s chain test does: a dependency an importer
+/// does not list is not merged, whether B reaches A from a default or from an
+/// ordinary function body (plan-136-B Corrections).
 #[test]
 fn a_package_default_calling_another_packages_export_is_filled() {
     let output = run_app(
@@ -266,7 +269,7 @@ fn a_package_default_calling_another_packages_export_is_filled() {
                 manifest_extra: "",
             },
         ],
-        &["userpkg"],
+        &["userpkg", "basepkg"],
         "IMPORT userpkg\n\
          IMPORT io\n\
          \n\

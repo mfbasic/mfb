@@ -101,9 +101,15 @@ P6 — source package `deflib` (`kind: package`, `file:` dependency) exporting
 `deflib::f(7)`, `deflib::f()`, `deflib::g(1)`: build exit 0; prints `7`, then `4374773792`, then
 exits **139**. A literal package default has never been passed.
 
-**UNVERIFIED (Phase 3 measures):** that a compiler built before this letter refuses a package
-using bit 3 (reading: `validate_abi_index` recomputes `sigHash` without the new branch and should
-mismatch).
+**Measured in Phase 3 (was UNVERIFIED):** a compiler built before this letter refuses a package
+using bit 3. `/tmp/p136b-old` = `git worktree add --detach … 6c6f85e64` (plan-136-B Phase 1, the
+last commit before the format change), `cargo build --release` there; package `oldlib`
+(`PRIVATE FUNC seed()`, `EXPORT FUNC f(x AS Integer = seed())`) built with THIS letter's compiler,
+then imported (`file:packages/oldlib.mfp`) by the old one → `error[2-201-0001
+IMPORT_PACKAGE_INVALID]: imported package binary could not be read — Package `oldlib` type exports
+could not be read: failed to read '…/oldlib.mfp': unknown const id 2`. The refusal is earlier than
+the predicted `sigHash` mismatch: the old `function_sig_hash` treats the record's function index
+as a `CONST_POOL` id while recomputing the hash. Refused either way, never miscompiled.
 
 ## 3. Design Overview
 
@@ -166,7 +172,9 @@ the layout does not change, and a bump rejects every existing `.mfp` (its own do
   - [x] `a_package_default_calling_another_packages_export_is_filled` — package B's default calls
         package A's export; the app imports B only (RED). Measured: `Building userpkg (package) …
         error: only constant IR values can be stored in CONST_POOL` (the app manifest lists `userpkg`
-        only; `userpkg` lists `basepkg`).
+        only; `userpkg` lists `basepkg`). **Corrected in Phase 3:** "the app imports B only" cannot
+        build for ANY cross-package call, default or not (Corrections); the app now lists both
+        packages, as `rt_top_level_initializer_globals`'s chain test does.
   - [x] ~~`an_exported_link_function_default_is_filled` — a `kind: package` project exporting the
         P10 `absval(n AS Integer = -5)` LINK function; importer `absval()` → `5` (RED).~~ Replaced
         by owner ruling (Corrections): a LINK function is not directly exportable. Converted to
@@ -213,7 +221,7 @@ Commit: —
       `reader::validate_default_functions`, called right after `read_function_table` in
       `read_binary_repr_package`. `validate_default_functions_accepts_what_the_writer_produces ...
       ok`; `validate_default_functions_refuses_each_invalid_record ... ok`.
-- [~] `binary_repr::builder::package_exports` and `manifest::package::package_export_signature`:
+- [x] `binary_repr::builder::package_exports` and `manifest::package::package_export_signature`:
       produce `ExternalDefault`. Done on the binary side: `BinaryReprExportParam.default:
       BinaryReprExportDefault { None, Literal { type_, value }, Function(name) }` via
       `builder::export_default`, which decodes a literal `CONST_POOL` entry kind by kind (new exact
@@ -221,7 +229,12 @@ Commit: —
       `... ok`). `builder_tests` confirms `main.params[1].default` decodes to `Literal { Integer, "0"
       }`. REMAINS: `manifest::package::package_export_signature` still maps to `has_default`,
       because `ir::types::ExternalDefault` does not exist until Phase 3's first task; that mapping
-      lands with it.
+      lands with it. **Resolved in Phase 3:** `package_export_signature(package, export)` maps
+      `BinaryReprExportDefault` → `ir::ExternalDefault`, qualifying a hidden function as
+      `package.name` (the spelling `apply_package_identity` rewrites); both production callers
+      pass their `package_name`. `cargo build --release --bin mfb` → `Finished` (its one warning,
+      the now-unused `BinaryReprExportDefault::is_some`, removed — `builder_tests` compares against
+      `BinaryReprExportDefault::None` instead).
 - [x] Unit tests: `sections_tests.rs` `function_sig_hash_distinguishes_a_function_default`;
       `reader_tests.rs` `read_binary_repr_package_round_trips_a_function_default` and one rejection
       test per validation rule (out of range, not private, has parameters, wrong return type, bit 3
@@ -256,24 +269,42 @@ Acceptance: round-trip and every rejection test pass; the corrupt fixture is ref
   **Measured 2026-09-13:** `cargo test --release --bin mfb -- binary_repr:: numeric:: package_format`
   (the plan's filter plus `numeric::` for the two new decimal inverses) → `test result: ok. 188
   passed; 0 failed`; the round-trip, both validation tests and the corpus test `... ok` by name.
-Commit: —
+Commit: ba303b258
 
 ### Phase 3 — importer fill, compatibility proof
 
-- [ ] `ir::types::ExternalFunctionParam`: replace `has_default` with `default: ExternalDefault`;
-      update every reader (`grep -rn 'has_default' src --include='*.rs'`).
-- [ ] `ir::lower::lower_facts`: external `CallParam.default` from `ExternalDefault` →
-      plan-136-A's `CallDefault`.
-- [ ] `ir::shape`: imported-call arity from `ExternalDefault`.
-- [ ] Old-compiler refusal: `git worktree add --detach /tmp/p136b-old <plan-136-B base commit>`,
+- [x] `ir::types::ExternalFunctionParam`: replace `has_default` with `default: ExternalDefault`;
+      update every reader (`grep -rn 'has_default' src --include='*.rs'`). `ExternalDefault { None,
+      Literal { type_, value }, Function(package.name) }`, re-exported from `ir`. Readers:
+      `ir::shape` (below), `manifest::package::package_export_signature` (Phase 2's resolved box),
+      and five test literals in `ir/shape.rs` and `ir/tests.rs`. The remaining `has_default` hits
+      are `ShapeParam`'s own field and `NirImportParam`, which no code constructs.
+- [x] `ir::lower::lower_facts`: external `CallParam.default` from `ExternalDefault` →
+      plan-136-A's `CallDefault`. A literal becomes the new `CallDefault::Constant(IrValue::Const)`,
+      passed as-is, so re-lowering text can never classify it differently. A function becomes
+      `CallDefault::Function(package.name)`, which `apply_package_identity` qualifies at merge.
+      `rt_package_parameter_defaults` → `test result: ok. 7 passed; 0 failed`.
+- [x] `ir::shape`: imported-call arity from `ExternalDefault` (`has_default: param.default.is_some()`
+      in the imported-signature arm). `a_named_package_call_fills_a_skipped_middle_default ... ok`
+      (a call omitting a middle argument passes the arity rule and is filled).
+- [x] Old-compiler refusal: `git worktree add --detach /tmp/p136b-old <plan-136-B base commit>`,
       `cargo build --release` there, build the `a_computed_package_default…` package with the new
       compiler, and import its `.mfp` with the old one; record the exact error in **Verified
       properties**. Expected: refused (sigHash mismatch). If it is accepted, that is a finding to
-      fix before landing (a package the old compiler would miscompile), not a stop.
+      fix before landing (a package the old compiler would miscompile), not a stop. Base commit
+      `6c6f85e64`; old build `Finished … in 2m 04s`. Refused, with `unknown const id 2` (recorded in
+      §Verified properties — earlier than the predicted sigHash mismatch, same outcome). The probe
+      package is the same shape as the case (a computed default reading a package-private name).
 
 Acceptance: every `rt_package_parameter_defaults` case passes.
   Check: `cargo build --release && cargo test --release --test rt_package_parameter_defaults --
   --test-threads=1` → all pass (est. 6 min).
+  **Measured 2026-09-13:** `cargo build --release --bin mfb` → `Finished`; the runtime test → first
+  `6 passed; 1 failed` (the cross-package case, root-caused to the transitive-dependency premise —
+  Corrections), then after listing both packages `test result: ok. 7 passed; 0 failed; … finished in
+  64.64s`. The test code this phase changed (`ExternalFunctionParam` literals, the new
+  `package_export_signature` argument) compiles and passes: `cargo test --release --bin mfb --
+  ir::shape ir::tests manifest::package` → `test result: ok. 454 passed; 0 failed`.
 Commit: —
 
 ### Phase 4 — byte-identity of existing packages, spec sync
@@ -337,6 +368,17 @@ Commit: —
   `a_link_wrapper_package_fills_both_defaults`: an exported `FUNC` wrapper's default crosses the
   package boundary (this letter), and the LINK function's own default is filled inside the package
   (plan-136-A's `link_params`).
+- **"The app imports B only" cannot build a cross-package call at all (Phase 3).** After the fill
+  landed, `a_package_default_calling_another_packages_export_is_filled` failed at the app build with
+  `error: NIR call target 'basepkg.base' does not resolve` (unlocated). Not a hidden-default defect:
+  probe `/tmp/p136b-tbody` — `userpkg` exports `g()` whose ORDINARY BODY calls `basepkg::base()`, no
+  default anywhere, app lists `userpkg` only — fails identically, with this letter's binary and with
+  main's pre-plan binary. Probe `/tmp/p136b-tboth` — the case's exact source, app listing
+  `userpkg` AND `basepkg` — builds and prints `5`. A dependency an importer does not list is not
+  merged, so the precedent chain test `rt_top_level_initializer_globals` lists both packages; the
+  case now does too. The unlocated internal error for that program shape is a pre-existing defect
+  no bug or plan records (`grep -rln "NIR call target .* does not resolve" bugs planning` → nothing);
+  it is captured as a bug after this phase lands, not fixed here.
 
 ## Summary
 

@@ -2220,7 +2220,7 @@ impl<'a> Walker<'a> {
                         .map(|param| ShapeParam {
                             name: param.name.clone(),
                             type_: param.type_.clone(),
-                            has_default: param.has_default,
+                            has_default: param.default.is_some(),
                         })
                         .collect(),
                 ));
@@ -3829,12 +3829,12 @@ mod tests {
                     crate::ir::ExternalFunctionParam {
                         name: "width".to_string(),
                         type_: ParameterType::Integer,
-                        has_default: false,
+                        default: crate::ir::ExternalDefault::None,
                     },
                     crate::ir::ExternalFunctionParam {
                         name: "height".to_string(),
                         type_: ParameterType::Integer,
-                        has_default: false,
+                        default: crate::ir::ExternalDefault::None,
                     },
                 ],
                 returns: ParameterType::Integer,
