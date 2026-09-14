@@ -1992,12 +1992,24 @@ fn hoist_trap_calls(
     let Some(last_fallible) = fallible.iter().rposition(|f| *f) else {
         return Vec::new();
     };
+    // A raising operator at the root is wrapped in `Checked` once something is lifted
+    // (bug-471), and a `Checked` may hold no call (`ir::verify`): a call past the last
+    // fallible one would stay inside it. So under such a root every indexed node is lifted —
+    // `len(stringify(parse(a))) + len(stringify(parse(b)))` left the second `len` behind and
+    // failed the build with `Checked wraps a call to len`.
+    let root_is_checked_operator = matches!(root, IrValue::Binary { .. } | IrValue::Unary { .. })
+        && trap_hoist_kind(root, context.fallible, locals, &context.binding_types) == Some(true);
+    let limit = if root_is_checked_operator {
+        fallible.len()
+    } else {
+        last_fallible + 1
+    };
     let mut hoists = Vec::new();
     let mut index = 0;
     rewrite_trap_operands(
         root,
         &fallible,
-        last_fallible + 1,
+        limit,
         &mut index,
         0,
         &mut hoists,
