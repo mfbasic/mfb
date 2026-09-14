@@ -305,6 +305,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "lambda parameter declares a default value",
     },
     Rule {
+        code: "2-201-0022",
+        name: "SYMBOL_SHADOWS_TOP_LEVEL_BINDING",
+        severity: Severity::Error,
+        message: "local binding reuses the name of a visible top-level binding",
+    },
+    Rule {
         code: "2-203-0001",
         name: "TYPE_BINARY_OPERATOR_MISMATCH",
         severity: Severity::Error,

@@ -7,6 +7,12 @@ Depends on: plan-136-B
 Prerequisites: see plan-136-A §Prerequisites, plus: `ls planning/plan-136-B-*` → no match
 (plan-136-B archived). If plan-136-B is not complete, this letter cannot start, full stop.
 
+**Status (re-run 2026-09-13, before Phase 1): all MET.** `git merge-base --is-ancestor 53f10b1fe
+main && echo MET` → `MET`; `git log --all --oneline --grep='plan-136'` → only `caf191edd` and this
+session's plan-136-A/B commits; `ls bugs/bug-614-*.md` → one file; `ls planning/plan-136-B-*` →
+`no matches found` (archived as `planning/completed/plan-136-B-package-parameter-defaults.md` in
+`5c59277c3`).
+
 `mfb spec language bindings-and-scope` §5 says "There is no shadowing: an inner binding may not
 re-use a name still visible from an enclosing block", and `mfb man tour` says "no shadowing". The
 resolver only enforces it within a function's own locals, and only at 4 of the 9 places a local is
@@ -87,7 +93,9 @@ built-in package sources are Rust strings whose top-level bindings are `__`-inte
 | Top-level `LET`/`MUT` declarations scanned | 162 in 30 projects | same census |
 | Locals named like a same-project `FUNC`/`SUB` (why functions are excluded) | 40 (overcount; ignores file `PRIVATE` scope) | same census |
 | Unit tests that assert a local may shadow a `PRIVATE` | 2: `locals_shadow_private_names_and_are_left_alone`, `a_local_shadowing_a_private_keeps_its_state_assign_target_bare` | `grep -n 'fn locals_shadow_private\|fn a_local_shadowing_a_private' src/ast/scope_privates.rs` |
-| Exact compiler census (all nine sites, both rules) | UNMEASURED | Phase 1 |
+| Exact compiler census (all nine sites, both rules) | **1** committed fixture: `tests/rt-behavior/trap/trap-body-local-shadows-private-rt` (bug-285) — the same one the text census found. Beyond it, only this letter's two new `-invalid` fixtures (placeholder goldens) fired a rule | `scripts/test-accept.sh /tmp/p136c-census/target/release/mfb /tmp/p136c-census-accept` → `acceptance tests failed: 5 mismatch(es) (1471 test(s) ran)`: the bug-285 fixture's `build.log` plus its two now-missing `.ast`/`.ir`, and the two new fixtures; `grep -rl 'SYMBOL_SHADOWS_TOP_LEVEL_BINDING\|SYMBOL_DUPLICATE_LOCAL' /tmp/p136c-census-accept --include=build.log` → those three `build.log`s only |
+| Reports on `local-shadows-top-level-binding-invalid` (census compiler) | **13** `SYMBOL_SHADOWS_TOP_LEVEL_BINDING`, one per offending binding (LET, MUT and RES count separately: 13 bindings), each at its own line (32, 37, 44, 51, 52, 53, 55, 59, 63, 67, 70, 76, 80) | a copy built with `/tmp/p136c-census/target/release/mfb build -ast -ir … \| grep -c SYMBOL_SHADOWS_TOP_LEVEL_BINDING` |
+| In-tree packages the rules reject | **0** of 9 (baseline with the current compiler: 9 built, 0 failed) | `bash /tmp/p136c-package-census.sh <mfb>` (builds every `packages/*/`) with `target/release/mfb` → `packages built: 9, failed: 0`, and with the census compiler `/tmp/p136c-census/target/release/mfb` → `packages built: 9, failed: 0` |
 | Next free `2-201` code | `2-201-0022` (corrected 2-201-0019 → see plan-136-A Corrections: `0019` is retired by plan-115-B and never reused, `0013` by bug-216; plan-136-A took `0020`/`0021`) | `git log main -G'"2-201-00(19\|2[0-9]\|13)"' --oneline -- src/rules/table.rs` plus `grep -n '"2-201-00' src/rules/table.rs \| tail -1` — the table tail alone cannot see a retired code |
 
 ### Verified properties (probes, 2026-09-13)
@@ -135,28 +143,45 @@ bindings. *A warning* — owner ruled an error.
 
 ### Phase 1 — fixtures first, then the exact census
 
-- [ ] Prove leaf names unused (`find tests -name '<leaf>' | wc -l` → 0 each), then add with
-      placeholder goldens:
-  - [ ] `tests/syntax/scope/local-shadows-top-level-binding-invalid` — one offending binding of
+- [x] Prove leaf names unused (`find tests -name '<leaf>' | wc -l` → 0 each), then add with
+      placeholder goldens (all three → `0`; neither `tests/syntax/scope` nor
+      `tests/rt-behavior/scope` existed):
+  - [x] `tests/syntax/scope/local-shadows-top-level-binding-invalid` — one offending binding of
         each of the nine kinds against a same-file `LET`, plus a parameter against a same-file
         `PRIVATE MUT`, plus a `LET` against a `PUBLIC` binding in a second file (RED: builds or
-        unlocated).
-  - [ ] `tests/syntax/scope/duplicate-local-at-every-binding-site-invalid` — P7 and P8 shapes plus
-        `MATCH` case/guard and function-level `TRAP` duplicates (RED).
-  - [ ] `tests/rt-behavior/scope/local-names-distinct-from-top-level-valid` — must keep building
+        unlocated). Measured RED: `[exit 0]`, `.ast`/`.ir` written — every shadowing binding is
+        accepted. (A first draft stopped at `TYPE_MATCH_NOT_EXHAUSTIVE` — a `WHEN`-guarded `CASE`
+        does not cover its variant — which masked the bindings; a `CASE ELSE` arm was added.)
+  - [x] `tests/syntax/scope/duplicate-local-at-every-binding-site-invalid` — P7 and P8 shapes plus
+        `MATCH` case/guard and function-level `TRAP` duplicates (RED). Measured RED: `[exit 0]` under
+        `mfb build -ast -ir` (a syntax fixture never reaches NIR, so P8's unlocated NIR error does
+        not appear); same `CASE ELSE` fix.
+  - [x] `tests/rt-behavior/scope/local-names-distinct-from-top-level-valid` — must keep building
         and running: a local named like another file's `PRIVATE` binding, like a `FUNC`, like an
         imported package's binding (source package), and a `FOR` loop (synthesized desugar locals)
-        (GREEN pin).
-- [ ] Exact census: implement `check_new_local` in a scratch worktree
+        (GREEN pin). Builds and prints `7 42` / `2` / `3 100` / `6`; goldens captured
+        (`bash scripts/sync-goldens.sh ./target/release/mfb local-names-distinct-from-top-level-valid`
+        → `synced 3 golden file(s) across 1 test(s)`).
+- [x] Exact census: implement `check_new_local` in a scratch worktree
       (`git worktree add --detach /tmp/p136c-census HEAD`), build release there, and run
       `scripts/test-accept.sh /tmp/p136c-census/target/release/mfb /tmp/p136c-census-accept` plus
       `for p in packages/*/; do (cd "$p" && /tmp/p136c-census/target/release/mfb build .); done`.
       Record every newly failing fixture/package in **Measured populations**. Est. 20 min — the
       only instrument that sees lambda/`MATCH`/`TRAP` bindings and the second resolution pass; the
-      text census cannot. Remove the worktree afterwards.
-- [ ] Measure whether the second pass double-reports: the existing `SYMBOL_DUPLICATE_LOCAL` count in
+      text census cannot. Remove the worktree afterwards. Measured: 1471 acceptance tests → the only
+      existing fixture a rule rejects is bug-285's `trap-body-local-shadows-private-rt`; packages
+      `packages built: 9, failed: 0` with both compilers (§Measured populations). The package loop ran
+      as a script (`/tmp/p136c-package-census.sh <mfb>`) rather than an inline `for`, and against the
+      current compiler too, so a package that already fails could not be mistaken for a rule hit.
+      Worktree removed (`git worktree remove --force /tmp/p136c-census`).
+- [x] Measure whether the second pass double-reports: the existing `SYMBOL_DUPLICATE_LOCAL` count in
       a fixture's golden `build.log` (`grep -c DUPLICATE_LOCAL` on one existing fixture that has
-      one) vs. the number of offending bindings.
+      one) vs. the number of offending bindings. No existing golden has one (Corrections); measured
+      on a copy of `duplicate-local-at-every-binding-site-invalid` with the census compiler:
+      `mfb build -ast -ir … | grep -c SYMBOL_DUPLICATE_LOCAL` → `5` for its 5 offending bindings
+      (lines 24 function TRAP, 32 lambda, 35 inline TRAP, 43 guarded CASE, 46 CASE). No double
+      report: the resolver's first-pass errors stop the build before `resolve_augmented`, and the
+      `MATCH` check runs once per pattern binding.
 
 Acceptance: RED fixtures fail as described; the positive pin passes; the census list is recorded.
   Check: `scripts/test-accept.sh target/release/mfb /tmp/p136c-p1-accept
@@ -166,20 +191,46 @@ Commit: —
 
 ### Phase 2 — the rule
 
-- [ ] `src/rules/table.rs` + `01_rule-codes.md`: `SYMBOL_SHADOWS_TOP_LEVEL_BINDING` (error) at the
+- [x] `src/rules/table.rs` + `01_rule-codes.md`: `SYMBOL_SHADOWS_TOP_LEVEL_BINDING` (error) at the
       next free `2-201` code (re-check the code race as in plan-136-A Phase 2); population count.
-- [ ] `resolver`: the visible top-level binding index (§3) and `check_new_local`; call it at all
+      `2-201-0022`: `git log main -G'"2-201-0022"' --oneline -- src/rules/table.rs` → nothing, and no
+      main-checkout or sibling-worktree `src/rules/table.rs` contains it; spec row added and the
+      `2-201` population is `21`.
+- [x] `resolver`: the visible top-level binding index (§3) and `check_new_local`; call it at all
       nine sites; skip internal-sigil names; follow the Phase 1 second-pass finding.
-- [ ] Unit tests in `src/resolver/` for: own-file `PRIVATE` match, other-file `PRIVATE` no match,
-      `PUBLIC` cross-file match, function name no match, internal name no match.
-- [ ] Generate the three fixtures' goldens and read each `build.log`: one located error per
-      offending binding, messages show bare names.
+      `Resolver.top_level_bindings` (bare display name → `top_levels` keys, non-internal files only)
+      and `resolution::check_new_local` (duplicate first, with each site's existing detail text;
+      then the visible top-level binding; `#`/`$` names exempt; built-in source files exempt from
+      the top-level half). Called at: parameters, function-level `TRAP`, `LET`/`MUT`/`RES`, `MATCH`
+      (once per pattern binding, before the guard/case inserts), `FOR`, `FOR EACH`, lambda
+      parameters, inline `TRAP`. Implemented in the census worktree, then copied over the unmodified
+      worktree files; `cargo build --release --bin mfb` → `Finished` in both. Evidence it fires once
+      per offending binding: the census counts in §Measured populations (13 of 13, 5 of 5).
+- [x] Unit tests in `src/resolver/` for: own-file `PRIVATE` match, other-file `PRIVATE` no match,
+      `PUBLIC` cross-file match, function name no match, internal name no match. Five tests in
+      `resolver::tests` (`check_new_local` is `pub(super)` for them; the internal case also covers a
+      built-in source file). `cargo test --release --bin mfb -- resolver::tests::a_local_named_like
+      resolver::tests::an_internal_name_or_a_built_in_source_file_is_exempt rules::` → `test result:
+      ok. 22 passed; 0 failed`, each of the five `... ok` by name.
+- [x] Generate the three fixtures' goldens and read each `build.log`: one located error per
+      offending binding, messages show bare names. `bash scripts/sync-goldens.sh ./target/release/mfb
+      local-shadows-top-level-binding-invalid duplicate-local-at-every-binding-site-invalid` →
+      `synced 2 golden file(s) across 2 test(s)` (the valid pin's were captured in Phase 1). Read:
+      the shadowing `build.log` has 13 `2-201-0022` errors at lines 32, 37, 44, 51, 52, 53, 55, 59,
+      63, 67, 70, 76, 80, each naming the bare binding and its declaration (`src/main.mfb:20` …,
+      `src/other.mfb:3` for the cross-file case, `kappa` the own-file `PRIVATE MUT`); the duplicate
+      `build.log` has 5 `2-201-0009` errors at lines 24, 32, 35, 43, 46. No mangled name appears.
 
 Acceptance: fixtures pass; resolver unit tests pass.
   Check: `cargo build --release && scripts/test-accept.sh target/release/mfb /tmp/p136c-p2-accept
   local-shadows-top-level-binding-invalid duplicate-local-at-every-binding-site-invalid
   local-names-distinct-from-top-level-valid` → 3 passed (est. 6 min); `cargo test --release --bin
   mfb resolver:: rules::` → ok (est. 4 min).
+  **Measured 2026-09-13:** `cargo build --release --bin mfb` → `Finished`; the three fixtures →
+  `acceptance tests passed (3 test(s) ran)`; `cargo test --release --bin mfb -- resolver:: rules::`
+  (the command as written is rejected by cargo — Corrections) → `test result: ok. 121 passed; 0
+  failed`. Phases 1 and 2 land in ONE commit: their ticks share this file and the fixtures' real
+  goldens are Phase 2's output, so the two cannot be split into honest separate commits.
 Commit: —
 
 ### Phase 3 — migrate the tests the rule makes invalid
@@ -190,7 +241,9 @@ enforced against top-level bindings) is the proof in answer 4.
 - [ ] `tests/rt-behavior/trap/trap-body-local-shadows-private-rt` — (1) bug-285; (2) a local that
       shares a file `PRIVATE`'s name must win inside the function-level `TRAP` body, so adding an
       unrelated `PRIVATE` never silently changes behavior; (3) no other test depends on it
-      (`grep -rn 'trap-body-local-shadows-private' tests src scripts`); (4) its program is now
+      (`grep -rn 'trap-body-local-shadows-private' tests src scripts`) — **corrected: the
+      cross-backend `CORPUS` in `src/codegen/builtins/tests/corpus.rs` lists it (Corrections), so its
+      entry is replaced by the new runtime fixture below**; (4) its program is now
       invalid by rule. The guarantee survives stronger: move the program to
       `tests/syntax/trap/trap-body-local-shadows-private-invalid` (expects
       `SYMBOL_SHADOWS_TOP_LEVEL_BINDING`), and keep bug-285's runtime protection with
@@ -245,7 +298,12 @@ Commit: —
       `rt_parameter_default_scope` and `rt_package_parameter_defaults` there (the LINK cases use
       `libc.so.6`, a different library path than macOS). Est. 15 min. x86_64 boxes are skipped:
       the change is IR-level, and the artifact gate covers the x86_64/riscv64 lowering of the new
-      calls.
+      calls. **First run (not yet the tick):** `/tmp/p136-box2223.sh` ships `git archive HEAD` and runs
+      both targets with `--no-fail-fast`; on tree `5c59277c3` (plan-136-A and -B complete) →
+      `rt_package_parameter_defaults`: `test result: ok. 7 passed; 0 failed`,
+      `rt_parameter_default_scope`: `test result: ok. 9 passed; 0 failed`, `REMOTE_EXIT=0`
+      (box probe: `/usr/bin/cargo`, 8 cores, aarch64). Phase 3 rewrites one
+      `rt_parameter_default_scope` case, so the tick waits for a rerun on the final tree.
 - [ ] Close bug-614: fill its Phases/Commit lines and a `STATUS: FIXED` block naming plan-136-A/B/C
       commits and the tests; `git mv` it to `bugs/completed/`; update `planning/bug-backlog.md`
       (open count, the 614 row, the Open decisions entry).
@@ -276,7 +334,41 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **No existing golden reports `SYMBOL_DUPLICATE_LOCAL` (Phase 1).** The double-report task says to
+  count the rule in "one existing fixture that has one"; `grep -rl 'SYMBOL_DUPLICATE_LOCAL' tests
+  --include=build.log` → nothing. The measurement is taken instead on
+  `duplicate-local-at-every-binding-site-invalid` with the census compiler: reports counted against
+  its five offending bindings.
+- **A guarded `CASE` does not make a `MATCH` exhaustive (Phase 1 fixtures).** Both invalid fixtures
+  first stopped at `TYPE_MATCH_NOT_EXHAUSTIVE` ("does not cover Circle") because the `Circle` arm
+  carries a `WHEN` guard; that error masked every binding under test. Each `MATCH` gained a
+  `CASE ELSE` arm.
+- **The `MATCH` guard binding and case binding are one name (Phase 1 read).**
+  `resolver::resolution::resolve_statement`'s `Match` arm inserts a union pattern's binding into
+  `guard_locals` (only when the case has a `WHEN`) and again into `case_locals`. The check runs once
+  per pattern binding, before both inserts, or a guarded case would report twice. The two "kinds" in
+  §1 are therefore a `CASE` with a guard and one without, both exercised by the fixtures.
+- **The bug-285 fixture IS referenced elsewhere (Phase 3 answer 3 corrected).** The plan's answer (3)
+  says no other test depends on `trap-body-local-shadows-private-rt`; `grep -rn
+  'trap-body-local-shadows-private' tests src scripts planning bugs` → `src/codegen/builtins/tests/corpus.rs:461`
+  lists it in `CORPUS`, which `every_backend_lowers_the_corpus_to_the_same_program` and
+  `no_corpus_function_lowers_to_an_empty_body` lower on every backend (the latter asserts
+  `CORPUS.len() >= 620`). Moving the fixture to `tests/syntax/trap/…-invalid` would break both, so the
+  corpus entry is REPLACED by the new runtime fixture `trap-body-local-lambda-shadows-private-func-rt`
+  (count unchanged, bug-285's trap-body runtime path still in the cross-backend corpus). Task added to
+  Phase 3. Origin confirmed: `74f701f34 bug(285): let a function-level TRAP body see the function
+  body's locals`; bug-285's Resolution names the fixture as its regression guard (prints `7`, `42` on
+  regression).
+- **Phase 2's unit-check command is invalid as written.** `cargo test --release --bin mfb resolver::
+  rules::` → `error: unexpected argument 'rules::' found` (exit 1, no test ran): `cargo test` takes a
+  single TESTNAME before `--`. The same filters go after the separator: `cargo test --release --bin
+  mfb -- resolver:: rules::`. The single-filter checks elsewhere in this letter (`scope_privates`,
+  `spec`) are unaffected.
+- **Built-in package source files are exempt from the top-level rule (design read).** The resolver
+  resolves built-in package sources in the same project; with `visible_from` alone, a user's
+  `PUBLIC LET count` would be "visible" to a built-in's own local `count`. `check_new_local` skips the
+  top-level check for `file.internal`, and the binding index records only non-internal bindings; the
+  duplicate check still applies there.
 
 ## Summary
 

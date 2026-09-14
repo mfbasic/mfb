@@ -82,7 +82,7 @@ densely fill it.
 | `1-102` | parser | 12 |
 | `1-103` | DOC block structure (lexer/parser) | 4 |
 | `2-200` | `project.json` validation + build orchestration | 13 |
-| `2-201` | imports & symbol resolution | 20 |
+| `2-201` | imports & symbol resolution | 21 |
 | `2-203` | semantic checking (typing, ownership, native ABI) | 101 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
 | `2-208` | test framework (assertion builtins) | 7 |
@@ -342,6 +342,7 @@ analysis, and the ambiguous cases warn.
 | `2-201-0018` | `PRIVATE_PATH_HASH_COLLISION` | error | internal: two source file paths produced the same file-scope hash |
 | `2-201-0020` | `SYMBOL_DEFAULT_NAMES_PARAMETER` | error | parameter default value uses a parameter of its own function |
 | `2-201-0021` | `SYMBOL_LAMBDA_PARAMETER_DEFAULT` | error | lambda parameter declares a default value |
+| `2-201-0022` | `SYMBOL_SHADOWS_TOP_LEVEL_BINDING` | error | local binding reuses the name of a visible top-level binding |
 
 ### `2-203` — Type checking, ownership, and native ABI
 
