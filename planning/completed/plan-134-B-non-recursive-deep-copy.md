@@ -101,7 +101,7 @@ Acceptance: both cases fail on main with exit 139.
   Check: `cargo test --release --test rt_recursive_value_copy_depth` → 2 failed (est. 2 min).
   Result: `cargo test --release --no-fail-fast --test rt_recursive_value_copy_depth` → `0 passed;
   2 failed`, both "killed by signal 11 (SIGSEGV)".
-Commit: —
+Commit: 9f8c723ed
 
 ### Phase 2 — the walker
 
