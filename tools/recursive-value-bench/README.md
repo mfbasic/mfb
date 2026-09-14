@@ -41,8 +41,9 @@ table, the `_mfb_thread_copy_*` and `_mfb_rt_graph_copy` calls `_mfb_fn_main` ma
 ### `regex_chain`
 
 - `simple <r>` runs `[a-c]+[0-9]+` over r × `"abcab1234 "`. Build it with `--debug` and compare
-  `arena.0.alloc_calls` at r = 1 and r = 10 000: the per-hit count is constant, so no
-  `__regex_Cont` chain grows with the subject.
-- `group <r>` runs `(a)+` over r × `"a"`. Every greedy group iteration pushes one
-  `__regex_Choice` onto the `__regex_Choices` chain, so r = 499 999 finishes (exit 0) and
-  r = 500 001 raises at `__REGEX_PENDING_LIMIT` (prints `raised=…`, exit 3).
+  `arena.0.alloc_calls` at r = 1 and r = 10 000: the per-hit count is constant, so nothing the
+  matcher holds grows with the subject.
+- `group <r>` runs `(a)+` over r × `"a"`. Every greedy group iteration pushes one choice point
+  (plan-134-I: eight integers in the matcher's choice table; until then a `__regex_Choice`
+  record on a linked chain), so r = 499 999 finishes (exit 0) and r = 500 001 raises at
+  `__REGEX_PENDING_LIMIT` (prints `raised=…`, exit 3).

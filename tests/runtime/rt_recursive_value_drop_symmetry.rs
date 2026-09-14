@@ -276,13 +276,15 @@ SUB main()
 END SUB
 "#;
 
-/// The regex engine's private recursive types, through the matcher's own locals in
-/// `__regex_run`: `stack AS __regex_Choices`, `cont AS __regex_Cont`, and
-/// `node AS __regex_Node` (also the parser's `node` locals). One build per type, so each
-/// is shown to have been copied and dropped.
+/// The regex engine's private recursive values, through the locals that hold them: the
+/// parser's and `__regex_flatten`'s `node AS __regex_Node`, the flatten work stack
+/// `work AS List OF __regex_Node`, and the parser's `parts AS List OF __regex_Node`. One
+/// build per local, so each is shown to have been copied and dropped. (Until plan-134-I
+/// the matcher's `stack AS __regex_Choices` and `cont AS __regex_Cont` were here; the
+/// matcher now holds only integers.)
 #[test]
 fn the_regex_matcher_graphs_drop_exactly_their_copies() {
-    for local in ["stack", "cont", "node"] {
+    for local in ["node", "work", "parts"] {
         assert_copy_then_drop_is_exact(&format!("drop_regex_{local}"), REGEX_SOURCE, local);
     }
 }

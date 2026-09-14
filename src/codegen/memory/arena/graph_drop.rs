@@ -868,8 +868,9 @@ mod tests {
     }
 
     /// The same table over the builtin recursive types, from the models of the
-    /// recursive-value bench programs that use them: `json::Json`, and the regex engine's
-    /// `__regex_Node`, `__regex_Cont` and `__regex_Choices`.
+    /// recursive-value bench programs that use them: `json::Json`, and the regex parser's
+    /// `__regex_Node` with the `Concat` and `Repeat` records that hold it. (The matcher's
+    /// `__regex_Cont` and `__regex_Choices` were here until plan-134-I deleted them.)
     #[test]
     fn graph_drop_edges_match_the_copy_edges_for_the_builtin_types() {
         use crate::testutil::{nir_for_src, CodeTarget};
@@ -887,7 +888,7 @@ mod tests {
                     "../../../../tools/recursive-value-bench/programs/regex_repeat/src/main.mfb"
                 ),
                 // The package's private types render with its internal `#` prefix.
-                &["#regex_Node", "#regex_Cont", "#regex_Choices"][..],
+                &["#regex_Node", "#regex_Concat", "#regex_Repeat"][..],
             ),
         ] {
             let module = nir_for_src(

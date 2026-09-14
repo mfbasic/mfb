@@ -11,7 +11,7 @@ const BODY: &str =
 r#"FUNC __regex_tryAt(prog AS __regex_Program, ctx AS __regex_Ctx, start AS Integer) AS __regex_Result
   MUT caps AS List OF Integer = __regex_initCaps(prog.groups)
   caps = __regex_setCap(caps, 0, start)
-  RETURN __regex_run(prog.root, start, caps, ctx)
+  RETURN __regex_run(prog, prog.leaves, start, caps, ctx)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

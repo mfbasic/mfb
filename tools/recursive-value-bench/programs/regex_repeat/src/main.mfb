@@ -1,5 +1,6 @@
 ' Run regex::findAll over a 100 000-character subject K times (K = first argument),
-' 10 000 hits each. The matcher builds __regex_Node / __regex_Cont graphs per call.
+' 10 000 hits each. Each call parses the pattern into a __regex_Node tree, a recursive value
+' copied and freed while the tree is built and flattened.
 IMPORT io
 IMPORT regex
 IMPORT collections

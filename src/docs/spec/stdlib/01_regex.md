@@ -192,39 +192,56 @@ Anchor `kind` encoding: `1` = `^`, `2` = `$` (both honor `ml`); `3` = `\A`, `4` 
 
 ## Explicit-Stack Backtracking Matcher
 
-The matcher is `__regex_run(root, start, caps, ctx)`: one loop over a *task* — either
-"match `node` at `pos`, then run `cont`" or "run `cont` at `pos`" — with an explicit
-backtrack stack of pending choice points. Before bug-510 it was continuation-passing
-recursion, one native frame per node visit, continuation step and repeat iteration; a
-group repetition cost about ten frames, so a depth guard needed to keep the process from
-overflowing its stack fired at sixty repetitions and `^(ab)*$` failed on a 200-character
-input. The recursion is gone and the guard with it. A continuation (`__regex_Cont`, a
-`UNION` of four) still encodes "what to match after this":[[src/codegen/builtins/regex/mod.rs:__regex_Cont]]
+`__regex_compile` parses the pattern into a `__regex_Node` tree and flattens it once
+(`__regex_flatten`) into the program the matcher runs: parallel `List OF Integer` tables in
+which an op is one index. Its kind and up to three operands are `kinds[o]`, `opA[o]`,
+`opB[o]` and `opC[o]`; Concat parts and Alt options are op indices in `kids`; and the leaf
+records sit in `leaves`. The root is op 0.[[src/codegen/builtins/regex/helper_flatten.rs:__regex_flatten]]
 
-| Cont | Role |
-|------|------|
-| `__regex_ContDone` | terminal success; produce `__regex_Result[TRUE, pos, caps]` |
-| `__regex_ContSeq` | walk `parts[idx..]` of a `__regex_Concat`, then `nxt` |
-| `__regex_ContCap` | close capture `slot` (write end index `2*slot+1`), then `nxt` |
-| `__regex_ContRep` | resume a `__regex_Repeat` after one iteration |
+| Kind | Op | Operands |
+|------|----|----------|
+| 1 | a one-scalar leaf (`Lit`, `Any`, `Class`) | `opA` = its index in `leaves` |
+| 2 | an anchor | `opA` = its index in `leaves` |
+| 3 / 4 | `Concat` / `Alt` | `opA` = first entry in `kids`, `opB` = how many |
+| 5 / 6 | greedy / lazy `Repeat` | `opA` = child op, `opB` = `lo`, `opC` = `hi` |
+| 7 | `Group` | `opA` = child op, `opB` = capture slot |
 
-Consuming nodes (`Lit`, `Any`, `Class`) advance `pos` by one scalar and hand the task to
+The matcher is `__regex_run(prog, leaves, start, caps, ctx)`: one loop over a *task* —
+either "match op `node` at `pos`, then run `cont`" or "run `cont` at `pos`" — with an
+explicit backtrack stack of pending choice points. Before bug-510 it was
+continuation-passing recursion, one native frame per node visit, continuation step and
+repeat iteration; a group repetition cost about ten frames, so a depth guard needed to
+keep the process from overflowing its stack fired at sixty repetitions and `^(ab)*$`
+failed on a 200-character input. The recursion is gone and the guard with it. A
+continuation is an index into an append-only table of five-integer frames — a tag, three
+operands and the frame below (-1 = done) — encoding "what to match after this":[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
+
+| Frame | Role |
+|-------|------|
+| none (-1) | terminal success; produce `__regex_Result[TRUE, pos, caps]` |
+| 1 sequence | match part `b` of Concat op `a`, then the frame below |
+| 2 capture | close capture `a` (write end index `2*a+1`), then the frame below |
+| 3 repeat | resume Repeat op `a` after iteration `b`, which started at `c` |
+
+Consuming leaves (`Lit`, `Any`, `Class`) advance `pos` by one scalar and hand the task to
 the continuation; anchors assert and hand it on at the same `pos`. A `Group` records the
-start index (`2*slot`) immediately, then matches its child under a `ContCap` continuation
-that records the end index when the child succeeds.[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
+start index (`2*slot`) immediately, then matches its child under a capture frame that
+records the end index when the child succeeds. Frames are never rewritten, so a choice
+point that saved a frame index resumes exactly that continuation.[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
 
 Backtracking is an explicit stack. Every point where the recursive engine "tried the
 preferred branch first and fell through on failure" now pushes the *other* branch as a
 choice point and runs the preferred one; a failure pops the most recent choice point and
 resumes it. Four kinds exist: the next alternative of an `Alt`, "stop repeating and run
 the continuation" (greedy), "one more iteration" (lazy), and "give back one scalar" (a
-greedy repeat over a one-scalar child). A choice point is a `__regex_Choice` record —
-kind, the `Alt` node or `Repeat` record it resumes, the continuation, position and
-capture list to restore, three per-kind counters — whose `nxt` is the choice below it:
-a linked list built the way the continuations are, never a growable `List OF`, because
-`collections::get` of a recursive-type element aliases the list's storage and a growing
-`append` frees it (bug-538). The number of pending choice points is capped by
-`__REGEX_PENDING_LIMIT` (500 000), the matcher's memory bound.[[src/codegen/builtins/regex/mod.rs:__regex_Choice]]
+greedy repeat over a one-scalar child). A choice point is eight integers — kind, the `Alt`
+or `Repeat` op it resumes, the continuation frame, the position, three per-kind counters —
+in a table of choice points, with the capture list to restore in a snapshot table beside
+it. A pop lowers the pending count and a push overwrites the slot above it. Everything the
+loop holds is an integer, so a node visit or a continuation step copies no pattern
+(plan-134-I: when the loop held subtrees and continuation chains by value, it made 307 M
+allocations where it now makes 644). The number of pending choice points is capped by
+`__REGEX_PENDING_LIMIT` (500 000), the matcher's memory bound.[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
 
 ### Preference Ordering (leftmost-first, greedy by default)
 

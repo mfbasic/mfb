@@ -14,7 +14,7 @@ r#"FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS 
   __regex_steps = 0
   ' plan-77 R5: if the pattern must begin with a fixed literal code point, skip
   ' start offsets that cannot match it instead of running the full engine at each.
-  LET firstCp AS Integer = __regex_requiredFirstCp(prog.root)
+  LET firstCp AS Integer = prog.firstCp
   MUT s AS Integer = from
   WHILE s <= ctx.n
     IF firstCp >= 0 THEN

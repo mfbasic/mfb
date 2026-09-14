@@ -16,7 +16,7 @@ r#"FUNC __regex_compile(pattern AS String) AS __regex_Program
   IF parsed.nxt <> len(pat) THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  RETURN __regex_Program[parsed.node, parsed.groups, parsed.names]
+  RETURN __regex_flatten(parsed.node, parsed.groups, parsed.names)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

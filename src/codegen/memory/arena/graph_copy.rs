@@ -1,11 +1,11 @@
 //! plan-134-B: the non-recursive deep copy of a recursive value.
 //!
 //! A value of a type that takes part in a type cycle (`TYPE Node / kids AS List OF
-//! Node`, `json::Json`, the regex engine's `__regex_Choices`) is a graph of separately
+//! Node`, `json::Json`, the regex parser's `__regex_Node`) is a graph of separately
 //! allocated blocks whose depth is data, not type. Its deep copy used to be one function
 //! per type that called itself once per edge on the native stack, so a chain about
-//! 60 000 levels deep overflowed the 8 MiB stack (plan-134-A §2.1) — and the regex
-//! backtracker alone builds `__regex_Choices` chains up to 500 000 deep.
+//! 60 000 levels deep overflowed the 8 MiB stack (plan-134-A §2.1) — and a program's own
+//! linked list can be a million links deep (`tools/recursive-value-bench`, `deep_chain`).
 //!
 //! This module emits one module-level walker, `_mfb_rt_graph_copy(kind, source)`, that
 //! keeps its pending edges on a work stack in the arena instead:

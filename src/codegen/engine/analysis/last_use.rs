@@ -1579,19 +1579,95 @@ END FUNC
         );
     }
 
-    /// The regex matcher's hot stores (plan-134-D speed gate): a backtrack pop
-    /// (`stack = c.nxt`) and a continuation step (`cont = seqCont.nxt`) move the rest of
-    /// their chain out of an owning MATCH view instead of copying it per step, and the
-    /// per-step helper's MATCH on its parameter borrows.
+    /// A linked-chain backtracker in the shape the bug-510 regex matcher had until
+    /// plan-134-I flattened it: a choice stack and a continuation that are unions of a
+    /// terminal record and a record holding the rest of the chain.
+    const CHAIN_BACKTRACKER: &str = "IMPORT io
+
+TYPE BtBottom
+  none AS Boolean
+END TYPE
+
+TYPE BtFrame
+  pos AS Integer
+  cont AS BtCont
+  nxt AS BtStack
+END TYPE
+
+TYPE BtDone
+  dummy AS Boolean
+END TYPE
+
+TYPE BtSeq
+  idx AS Integer
+  nxt AS BtCont
+END TYPE
+
+UNION BtStack
+  BtBottom
+  BtFrame
+END UNION
+
+UNION BtCont
+  BtDone
+  BtSeq
+END UNION
+
+FUNC walkChains(stack0 AS BtStack, cont0 AS BtCont) AS Integer
+  MUT stack AS BtStack = stack0
+  MUT cont AS BtCont = cont0
+  MUT pos AS Integer = 0
+  WHILE TRUE
+    MATCH stack
+      CASE BtBottom(none)
+        RETURN pos
+      CASE BtFrame(c)
+        stack = c.nxt
+        pos = pos + c.pos
+        cont = c.cont
+    END MATCH
+    MATCH cont
+      CASE BtDone(doneCont)
+        pos = pos + 1
+      CASE BtSeq(seqCont)
+        pos = pos + seqCont.idx
+        cont = seqCont.nxt
+    END MATCH
+  END WHILE
+  RETURN pos
+END FUNC
+
+FUNC isDone(node AS BtCont) AS Boolean
+  MATCH node
+    CASE BtDone(doneNode)
+      RETURN TRUE
+    CASE ELSE
+      RETURN FALSE
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  LET chain AS BtStack = BtFrame[3, BtSeq[2, BtDone[TRUE]], BtBottom[TRUE]]
+  io::print(toString(walkChains(chain, BtDone[TRUE])) & toString(isDone(BtDone[TRUE])))
+  RETURN 0
+END FUNC
+";
+
+    /// The hot stores of a linked-chain backtracker (plan-134-D speed gate): a backtrack
+    /// pop (`stack = c.nxt`) and a continuation step (`cont = seqCont.nxt`) move the rest
+    /// of their chain out of an owning MATCH view instead of copying it per step, and a
+    /// per-step helper's MATCH on its parameter borrows. These were `#regex_run` and
+    /// `#regex_isSimpleNode` until plan-134-I replaced the matcher's chains with integer
+    /// tables; `CHAIN_BACKTRACKER` keeps the three shapes under test.
     #[test]
-    fn collect_last_use_moves_covers_the_regex_matcher_views() {
-        let module = lower(DECODERS);
+    fn collect_last_use_moves_covers_the_chain_backtracker_views() {
+        let module = lower(CHAIN_BACKTRACKER);
         let model = TypeModel::from_module(&module).expect("the probe's type model builds");
 
-        let run = function(&module, "#regex_run");
+        let run = function(&module, "walkChains");
         let sites = collect_last_use_moves(run, &model);
         let pops = ops(run, &assigns_field("stack", "c", "nxt"));
-        assert!(!pops.is_empty(), "#regex_run pops its choice stack");
+        assert!(!pops.is_empty(), "walkChains pops its choice stack");
         for op in pops {
             assert!(
                 sites.is_last_use(op_key(op), &member("c", "nxt")),
@@ -1599,7 +1675,7 @@ END FUNC
             );
         }
         let steps = ops(run, &assigns_field("cont", "seqCont", "nxt"));
-        assert!(!steps.is_empty(), "#regex_run steps its continuation");
+        assert!(!steps.is_empty(), "walkChains steps its continuation");
         for op in steps {
             assert!(
                 sites.is_last_use(op_key(op), &member("seqCont", "nxt")),
@@ -1607,14 +1683,10 @@ END FUNC
             );
         }
 
-        let simple = function(&module, "#regex_isSimpleNode");
+        let simple = function(&module, "isDone");
         let sites = collect_last_use_moves(simple, &model);
         let views = ops(simple, &binds_from_local("node"));
-        assert_eq!(
-            views.len(),
-            1,
-            "#regex_isSimpleNode binds one scrutinee view"
-        );
+        assert_eq!(views.len(), 1, "isDone binds one scrutinee view");
         assert!(
             sites.is_borrow(op_key(views[0])),
             "a MATCH on a parameter borrows"
