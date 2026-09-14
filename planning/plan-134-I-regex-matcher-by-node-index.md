@@ -58,22 +58,23 @@ Prerequisites: plan-134-H complete (`ls planning/completed/plan-134-H-*`).
 - **Flatten once, at compile.** `__regex_compile` turns the parser's tree into parallel
   integer tables plus a leaf table, `start` (the root op's index) and `firstCp` (today's
   `__regex_requiredFirstCp(root)`, computed once). `__regex_Program` becomes
-  `{opKind, opA, opB, opC, kids, leaves, start, firstCp, groups, names}` — no tree, so a program
+  `{kinds, opA, opB, opC, kids, leaves, start, firstCp, groups, names}` — no tree, so a program
   is a flat value.
 - **An op is one index into `List OF Integer` tables** — reading it is a scalar load, never a
-  record copy. `opKind`: 1 a simple leaf (`opA` = its index in `leaves`), 2 an anchor leaf (`opA`
+  record copy. `kinds`: 1 a simple leaf (`opA` = its index in `leaves`), 2 an anchor leaf (`opA`
   = leaf index), 3 Concat and 4 Alt (`opA` = first index in `kids`, `opB` = count), 5 a greedy
   and 6 a lazy Repeat (`opA` = child op, `opB` = lo, `opC` = hi), 7 Group (`opA` = child op, `opB`
   = slot). `kids` holds a Concat's parts and an Alt's options as op indices.
 - **Leaves** (`leaves AS List OF __regex_Leaf`, a flat union of `__regex_Lit | __regex_Any |
   __regex_Class | __regex_Anchor`) reach the matcher as a parameter, so a leaf is read with a
   `get` used only as a `MATCH` scrutinee over an immutable local — plan-86 E's borrow, no copy.
-- **The continuation is `List OF Integer`**: frames of four integers at the tail — sequence
-  `(1, concatOp, nextIdx, 0)`, capture close `(2, slot, 0, 0)`, repeat `(3, repeatOp, count,
-  startPos)`; empty is "done". A frame is pushed and popped at the tail of a local list.
-- **A choice holds only integers and flat lists**: `__regex_Choice {kind, alt, rep, cont AS List
-  OF Integer, pos, caps, i, count, p, nxt AS __regex_Choices}` with `alt`/`rep` op indices. The
-  stack stays a linked chain; a push moves the old top (its last read) and copies two flat lists.
+- **The continuation is an index into an append-only frame table** (`List OF Integer`, five
+  integers per frame, Corrections): sequence `(1, concatOp, nextIdx, 0, below)`, capture close
+  `(2, slot, 0, 0, below)`, repeat `(3, repeatOp, count, startPos, below)`; -1 is "done". Frames
+  are never rewritten, so a saved index resumes exactly that continuation.
+- **A choice point is eight integers** `(kind, alt, rep, cont, pos, i, count, p)` in a `choices`
+  table with its capture list in a `snaps` table (Corrections); a pop lowers `pending`, a push
+  overwrites the slot above. `alt`/`rep` are op indices, `cont` a frame index.
 - **Same exploration.** The loop keeps its structure — the same choice kinds, the same order —
   with `node` an op index and every `MATCH node` a dispatch on `op.kind`. The `__regex_Cont*`
   records, `__regex_isSimpleNode` and the node form of `__regex_simpleMatchAt` are replaced, not
@@ -160,8 +161,29 @@ Commit: 5d052ac7b
 
 ### Phase 3 — goldens, measurements, docs
 
-- [ ] Artifact gate; expected diffs: `byte-identity/regex` (and any fixture importing regex).
-      Localize per function, regenerate, re-gate.
+- [x] Artifact gate; expected diffs: `byte-identity/regex` (and any fixture importing regex).
+      Localize per function, regenerate, re-gate. — `bash scripts/artifact-gate.sh
+      target/release/mfb all` → `2019 golden(s) checked, 155 diff(s)` in 39 fixtures. That is
+      wider than predicted, because the gate also covers the final-gate fixes since the H
+      goldens.
+
+      Localized per function (`/tmp/p134-i-localize/run.sh`), dumping with the letter-H compiler
+      and this build:
+      - `bits`, `control-flow-if`, `control-flow-match` and `list-ops-codegen-rt` change only
+        `_mfb_fn_main`; `audio` changes 10 functions and `crypto-ec-valid` 70; no function was
+        added or removed.
+      - Instruction diffs of `bits`/`control-flow-if` `main` and `crypto` `hmac` show one change
+        (`/tmp/p134-i-localize/fndiff.py`): a call's error branch now parks x0–x3, drops the
+        statement's owned temp (`_mfb_rt_drop_owned_string` /
+        `_mfb_rt_drop_owned_collection`, the call the success path makes next) and reloads.
+        The frame grows 32 B for the parked result. This is `d2acb15e6`.
+      - The six regex fixtures also change their `.ir`, because this letter changed the
+        records.
+
+      Regenerated: `scripts/regen-native-goldens.sh target/release/mfb <39 dirs>` → `159
+      golden(s) rewritten, 0 failure(s)`; `scripts/sync-goldens.sh` over the six regex fixtures
+      → `synced 18 golden file(s) across 6 test(s)`. Re-gated `all` → `2019 golden(s) checked,
+      0 diff(s)`.
 - [x] Re-measure against the pre-plan build: `rt_regex_bounds`' findAll program and `regex_repeat`
       K = 1 (medians of 5, RSS); record them in plan-134-H's speed report and plan-134-A's
       "After" table. — `bash /tmp/p134-i-measure/run.sh`, idle machine, the two compilers back
