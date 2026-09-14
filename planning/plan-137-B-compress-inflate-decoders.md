@@ -10,15 +10,20 @@ This letter adds the decoding half of `compress::`: a fast, strict, table-driven
 decoder written in MFBASIC, and the three public decoders over it. Behavioural outcome:
 anything Python's or Node's zlib produces — raw, zlib-wrapped or gzip, at every level and
 strategy — decodes to the original bytes; anything they refuse, we refuse with
-`ErrInvalidFormat`; and output past `maxBytes` raises `ErrTooLarge` without first building
+`ErrInvalidFormat` (one deliberate divergence: bytes after the end of a stream are ignored); and output past `maxBytes` raises `ErrTooLarge` without first building
 the oversized result.
 
 Surface:
 
 - `FUNC inflate(data AS List OF Byte, maxBytes AS Integer = 67108864) AS List OF Byte` — raw RFC 1951.
-- `FUNC zlibDecode(data AS List OF Byte, maxBytes AS Integer = 67108864) AS List OF Byte` — RFC 1950.
-- `FUNC gzipDecode(data AS List OF Byte, maxBytes AS Integer = 67108864) AS List OF Byte` — RFC 1952,
+- `FUNC zlibDecode(data AS List OF Byte, maxBytes AS Integer = 67108864, ignoreChecksum AS Boolean = FALSE) AS List OF Byte` — RFC 1950.
+- `FUNC gzipDecode(data AS List OF Byte, maxBytes AS Integer = 67108864, ignoreChecksum AS Boolean = FALSE) AS List OF Byte` — RFC 1952,
   every member of a multi-member file, concatenated; `maxBytes` bounds the total.
+
+Decided 2026-09-13 (plan-137-A §Decisions): bytes after the end of a stream are **ignored**;
+`ignoreChecksum := TRUE` skips every checksum comparison (gzip header CRC-16, CRC-32, `ISIZE`;
+zlib Adler-32) while every structural check still applies; a zlib stream with `FDICT` set is
+refused with `ErrInvalidFormat`.
 
 References:
 
@@ -51,17 +56,25 @@ See plan-137-A §Prerequisites (whole-feature gate). Additionally:
   of output, stored `LEN` ≠ `~NLEN`, reserved `BTYPE = 11`, invalid length/distance symbols
   (286, 287, 30, 31), a code-length repeat with no previous length or overrunning `HLIT+HDIST`,
   input ending mid-stream, a zlib header with `CM ≠ 8`, `CINFO > 7`, bad `FCHECK`, `FDICT` set,
-  a wrong Adler-32, a gzip header with wrong magic, `CM ≠ 8`, reserved flag bits set, a wrong
-  CRC32 or ISIZE — all refused.
-- The Open Decisions recorded in plan-137-A (trailing bytes, `FHCRC`, `FDICT`) are decided
-  from Phase 1's oracle evidence and written into `20_compress.md`.
+  a gzip header with wrong magic, `CM ≠ 8`, reserved flag bits set, a truncated header or
+  trailer — all refused.
+- **Checksums:** with `ignoreChecksum = FALSE` (the default) a wrong zlib Adler-32, gzip header
+  CRC-16 (when `FHCRC` is set), gzip CRC-32 or `ISIZE` raises `ErrInvalidFormat`; with `TRUE` the
+  same streams decode to the bytes their data blocks describe. The checksum bytes must still be
+  present — `TRUE` skips the comparison, not the structure.
+- **Trailing bytes are ignored:** `inflate` stops after the final block, `zlibDecode` after the
+  Adler-32; `gzipDecode` decodes another member only while the remaining bytes begin with the
+  magic `1f 8b` and ignores anything else after the last member. Bytes that begin with the magic
+  but are not a valid member are refused — they are a member, not trailing bytes.
 - Throughput recorded; decode time linear in output size; faster than canvas's inflate on the
   same stream.
 
 ### Non-goals (explicit constraints)
 
 - No encoder in this letter. No change to canvas (letter C). No streaming state object.
-- No leniency added "for compatibility" beyond what the oracle shows zlib accepts.
+- No leniency beyond what the oracle shows zlib accepts, other than the two decided behaviours
+  (trailing bytes ignored; checksum comparisons skipped only when the caller passes
+  `ignoreChecksum := TRUE`).
 - **Decoder state lives in one place** (§4.1) — not spread across helper locals — so a later
   streaming plan is a refactor, not a rewrite. This must not be achieved by threading a record
   through calls in the hot loop (copies; `.ai/collections.md`).
@@ -87,7 +100,7 @@ plan-137-A §2 holds the shared facts. Specific to this letter:
 | What | Count | Command |
 |---|---|---|
 | Canvas inflate throughput on the bench corpus | UNMEASURED | Phase 1 |
-| Python / Node decode behaviour on trailing bytes, `FHCRC`, `FDICT`, one-distance-code, empty distance set | UNMEASURED | Phase 1 oracle probe |
+| Python / Node decode behaviour on trailing bytes (sets the oracle's declared divergences), a wrong `FHCRC`, `FDICT`, the one-distance-code block, the no-distance-code block, an incomplete literal set | UNMEASURED | Phase 1 oracle probe |
 | Emitted code size of the inflate core function (AArch64 conditional-branch range is ±1 MiB per function) | UNMEASURED | Phase 2: `mfb build --ncode` of the fixture, count the function's instructions × 4 B |
 
 ## 3. Design Overview
@@ -159,15 +172,19 @@ by a `#[cfg(test)]` check against the RFC 1951 §3.2.5 formula, not typed from m
 
 ### 4.3 Framing
 
-- **zlib:** `CMF`, `FLG`; `CM = 8`, `CINFO ≤ 7`, `(CMF*256 + FLG) MOD 31 = 0`, `FDICT` per Open
-  Decision; core; Adler-32 big-endian trailer verified with `__compress_adler32` (s1/s2 mod
-  65521; reduce every 5,552 bytes as zlib's `NMAX` does, which keeps every intermediate far
-  below 2^63).
+- **zlib:** `CMF`, `FLG`; `CM = 8`, `CINFO ≤ 7`, `(CMF*256 + FLG) MOD 31 = 0`; `FDICT` set →
+  `ErrInvalidFormat` (no dictionary API yet); core; the 4-byte big-endian Adler-32 trailer must be
+  present and, unless `ignoreChecksum`, equal `__compress_adler32(out)` (s1/s2 mod 65521; reduce
+  every 5,552 bytes as zlib's `NMAX` does, which keeps every intermediate far below 2^63). With
+  `ignoreChecksum` the sum is not computed at all. Bytes after the trailer are ignored.
 - **gzip:** per member — `ID1 = 0x1f`, `ID2 = 0x8b`, `CM = 8`, reserved `FLG` bits 5–7 = 0;
-  skip `MTIME`/`XFL`/`OS`; `FEXTRA` (`XLEN` + bytes), `FNAME` / `FCOMMENT` (zero-terminated),
-  `FHCRC` per Open Decision; core; `CRC32` (via A's `crc32` helper) and `ISIZE` (output length
-  mod 2^32) verified; repeat while bytes remain (Open Decision governs non-member trailing bytes).
-- **raw:** core only; trailing bytes per Open Decision.
+  skip `MTIME`/`XFL`/`OS`; `FEXTRA` (`XLEN` + bytes), `FNAME` / `FCOMMENT` (zero-terminated);
+  `FHCRC`: the 2 bytes must be present and, unless `ignoreChecksum`, equal the low 16 bits of the
+  CRC-32 of the header bytes before them (RFC 1952 §2.3.1); core; `CRC32` (A's `crc32` helper) and
+  `ISIZE` (output length mod 2^32) must be present and, unless `ignoreChecksum`, match. Then, if at
+  least 2 bytes remain and they are `1f 8b`, decode the next member (its errors raise); otherwise
+  stop and ignore the rest. With `ignoreChecksum` no CRC-32 is computed.
+- **raw:** core only; bytes after the final block are ignored.
 
 ### 4.4 Bounds and hostile input
 
@@ -179,7 +196,7 @@ by a `#[cfg(test)]` check against the RFC 1951 §3.2.5 formula, not typed from m
 
 ## Compatibility / Format Impact
 
-New public functions `inflate`, `zlibDecode`, `gzipDecode`; new error constant `ErrTooLarge`
+New public functions `inflate`, `zlibDecode` and `gzipDecode` (the last two with `ignoreChecksum`); new error constant `ErrTooLarge`
 (`errorcode/mod.rs` row + `02_error-codes.md` row; `errorCode::ErrTooLarge` becomes nameable).
 Nothing existing changes.
 
@@ -193,7 +210,9 @@ Nothing existing changes.
 - [ ] Oracle behaviour probe (`tools/oracles/compress/python/oracle.py probe`, `node/oracle.mjs probe`):
       trailing bytes after raw / zlib / gzip streams; `FHCRC` with a wrong CRC-16; `FDICT` set;
       one-distance-code block; no-distance-code block; incomplete literal set. Paste outputs
-      here and decide the three plan-137-A Open Decisions.
+      here. Where zlib refuses trailing bytes that we ignore, write the case into the oracle's
+      declared-divergence list (so `mutate` does not report it as leniency); the code-set cases
+      set §4.2's exceptions.
 - [ ] Canvas baseline: an `--app`-free harness can't reach `__canvas_zlibInflate`, so measure
       through `canvas::loadImage` on a headless build of a generated 4096×4096 PNG with one IDAT
       compressed by Python `zlib.compress(raw, 6)` (pattern: `tests/canvas/rt_canvas_image_decode.rs`
@@ -202,8 +221,8 @@ Nothing existing changes.
       a scratch builtin build; measure the same stream: `sl`/`sr` vs `*`/`/` bit buffer, and the
       §4.1 (a)/(b) end-position shapes. Record MiB/s for each variant at `-O1` and `-O3`.
 
-Acceptance: every UNMEASURED row in §2 filled; the Open Decisions carry a decision and the
-oracle evidence behind it.
+Acceptance: every UNMEASURED row in §2 filled; the oracle's declared-divergence list and §4.2's
+code-set exceptions each cite the probe output behind them.
   Check: the probe scripts print their tables; bench numbers pasted in Corrections (est. 45 min —
   it is the plan's design experiment; nothing smaller can measure the decoder's speed).
 Commit: —
@@ -236,13 +255,19 @@ Commit: —
       gzip at levels 0–9 over a seeded corpus → MFB decodes equal; `flate2` streams tampered at
       a seeded byte → MFB refuses; one hand-built over-subscribed-tree stream and one
       bad-Adler stream → refused (the DEC-57/58 regressions).
+- [ ] Same file, the decided behaviours: a stream with a corrupted Adler-32 / CRC-32 / `ISIZE` /
+      `FHCRC` → refused by default, and decoded to the original bytes with `ignoreChecksum := TRUE`;
+      a structurally broken stream (bad `NLEN`) → refused even with `ignoreChecksum := TRUE`;
+      `FDICT` set → refused; raw / zlib / gzip streams followed by 1, 7 and 1,000 junk bytes (not
+      starting `1f 8b`) → decoded, junk ignored; two gzip members → concatenated; a valid member
+      followed by `1f 8b` plus garbage → refused.
 - [ ] `tests/runtime/rt_compress_bounds.rs` (`common::run_bounded_with_rss`): a 64 MiB+1 zero
       bomb under default `maxBytes` → `ErrTooLarge` within a time and RSS bound derived from
       bug-621's fixed growth rule (derivation written in the test); decode time for n and 4n
       output ratio ≤ 4.4.
 - [ ] rt-behavior fixture `compress-decode-valid` (small streams generated by Python zlib,
       embedded as hex with the generating command in a comment) and rt-error fixtures for
-      `ErrInvalidFormat`, `ErrTooLarge`, `ErrInvalidArgument`.
+      `ErrInvalidFormat` (a bad checksum, and an `FDICT` stream), `ErrTooLarge`, `ErrInvalidArgument`.
 
 Acceptance: decoders agree with zlib on the corpus, refuse every tamper class in §1, and bound
 hostile input.
@@ -255,10 +280,12 @@ Commit: —
 
 - [ ] Bench rows `inflate` / `zlibDecode` / `gzipDecode` over the corpus; record MiB/s and the
       ratio to canvas (Phase 1) and to Python zlib in Corrections.
-- [ ] Man descriptors for the three members (errors, `maxBytes` meaning, multi-member gzip,
+- [ ] Man descriptors for the three members (errors, `maxBytes` and `ignoreChecksum` meaning,
+      trailing bytes ignored, multi-member gzip,
       examples that round-trip a literal stream produced by a documented command).
 - [ ] `20_compress.md`: formats, bit order, table construction and validation rules with the zlib
-      exceptions and their oracle evidence, strictness decisions, bounds, end-position shape
+      exceptions and their oracle evidence, the decided behaviours (trailing bytes, `ignoreChecksum`,
+      `FDICT`) and the gzip next-member rule, bounds, end-position shape
       chosen and why, throughput recorded as a dated measurement.
 - [ ] `tests/byte-identity/compress/` program extended to call the decoders; regenerate its eight
       goldens; confirm no other package's `.ncodesum` moved.
@@ -281,7 +308,6 @@ Commit: —
 
 ## Open Decisions
 
-- Carried from plan-137-A (trailing bytes, `FHCRC`, `FDICT`) — decided in Phase 1 with evidence.
 - End-position reporting shape (a) re-scan vs (b) appended trailer — decided in Phase 2 by
   measured cost; (b) expected cheaper.
 

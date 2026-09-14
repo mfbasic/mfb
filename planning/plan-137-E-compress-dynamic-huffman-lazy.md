@@ -188,7 +188,6 @@ Commit: —
 
 - Tie-break order between equal-cost block types — fixed, then stored, then dynamic (recommended:
   cheapest header to decode) vs. dynamic first.
-- `crc32` slicing-by-8 — carried from plan-137-A; decide from the recorded `gzipDecode` profile.
 
 ## Corrections
 
