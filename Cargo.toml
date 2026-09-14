@@ -631,6 +631,10 @@ name = "rt_json_bounds"
 path = "tests/runtime/rt_json_bounds.rs"
 
 [[test]]
+name = "rt_list_append_growth_bounds"
+path = "tests/runtime/rt_list_append_growth_bounds.rs"
+
+[[test]]
 name = "rt_native_float_pow_operator_runtime"
 path = "tests/runtime/rt_native_float_pow_operator_runtime.rs"
 
