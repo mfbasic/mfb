@@ -520,7 +520,7 @@ Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` report
    | index fields (`dom::indexFields`) | 1 / 2 | 0 | 45,158 / 45,158 | flat | — |
    | copy-back (worker → `thread::waitFor`, main arena) | 1 / 2 | 5,268,592 | 963 / 3 | bug-622 | 5,268,592 (not those sites) |
    | links/fields (`display::links`, `dom::fieldSpecs`) | 1 / 2 | 0 | 43,339 / 43,339 | flat | — |
-   | paint (`display::paint`, incl. `dom::updateLayout`) | 1 / 2 | 89,520 | 130,509 / 129,759 | bug-620, bug-621 (87,888); canvas remainder 1,632 — CANVAS_OWNER | 1,632 |
+   | paint (`display::paint`, incl. `dom::updateLayout`) | 1 / 2 | 89,520 | 130,509 / 129,759 | bug-620, bug-621 (87,888); bug-625 (1,632 = 34 × the 48 B one `AttributedString` leaks; the row count is inferred, not counted) | 1,632 |
    | fetch (`http::read`, HTTPS, `BASIC`) | 1 / 2 / 4 | 384 | ≈5 blocks unfreed | bug-623 | — |
    | fetch, plain HTTP over loopback (6,839-byte body) | 20 / 40 | 62,435 | 216 / 211 | bug-623 | — |
    | control (`strings::split(html, "<")`) | 1 / 2 | 0 | 1 / 1 | flat | — |

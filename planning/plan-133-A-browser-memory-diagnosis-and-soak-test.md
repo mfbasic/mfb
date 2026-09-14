@@ -265,10 +265,20 @@ Commit: ad6d737bc
 - [x] Added task: prove ownership by rewriting the suspected sites in a scratch package copy
       and re-measuring — `/tmp/plan-133-a/patch_dom.py` (13 sites): parse 13,520 → 13,520,
       resolve 13,520 → 13,520, BASIC paint leak 89,520 → 1,632 B per call.
-- [ ] For each leaking stage, run the write-bug skill and file `bugs/bug-NNN-<slug>.md`
+- [x] For each leaking stage, run the write-bug skill and file `bugs/bug-NNN-<slug>.md`
       with a one-screen repro and both measurements. Before filing, check the open bugs and
       `planning/bug-backlog.md` for the same shape (`grep -rli` on the leaking value's type
-      and operation), and cite the match instead if one exists.
+      and operation), and cite the match instead if one exists. — No match: a grep of open
+      bugs and the backlog for `waitFor`/`control block`, condition temps, `FOR EACH` over a
+      field, and `AttributedString`/`astrings` finds only unrelated hits (bug-540, bug-564,
+      bug-605, bug-610). Filed:
+      bug-620 (IF-condition temp on RETURN/EXIT: parse, resolve, layout),
+      bug-621 (loop-condition temp per pass: parse, resolve, layout),
+      bug-622 (thread result copy and plumbing: copy-back),
+      bug-623 (`tcp::read` buffer and connection records: fetch),
+      bug-625 (`AttributedString` drop: paint's canvas remainder), plus bug-624 (a private
+      package type collides with a program type; found while probing, not a leak). Each has a
+      measured one-screen repro at N and 2N.
 
 Acceptance: every stage has a row with an owner (a bug number, or "flat"); every filed bug
 has a failing reproduction per the write-bug skill.
@@ -294,7 +304,7 @@ Commit: —
 
 Acceptance: § 2 states whether the stages account for the worker's live bytes (within 10%)
 or names the remainder.
-Commit: —
+Commit: aef062601
 
 ### Phase 4 — the soak test and the Bucket List
 
