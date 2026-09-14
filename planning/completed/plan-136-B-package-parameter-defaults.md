@@ -342,7 +342,7 @@ Acceptance: no committed `.mfp`/`.info` changes; spec describes the record.
   four copies that were stale on main — Corrections; this letter's compiler builds them
   `cmp`-identical to main's); `cargo test --release --bin mfb spec` → `test result: ok. 43 passed; 0
   failed`.
-Commit: —
+Commit: dd5fde422
 
 ## Compatibility / Format Impact
 
