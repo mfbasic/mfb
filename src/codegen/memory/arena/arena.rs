@@ -7,7 +7,7 @@ use crate::codegen::debug::arena::{
     COUNTER_FILL_GROW_BYTES, COUNTER_FILL_GROW_CALLS, COUNTER_FLUSHES, COUNTER_FREE_BYTES,
     COUNTER_FREE_CALLS, COUNTER_GROW, COUNTER_HIT_CARVE, COUNTER_HIT_LARGE_BIN,
     COUNTER_HIT_QUICK_BIN, COUNTER_HIT_WALK, COUNTER_INSERT_FREE_CALLS, COUNTER_MAPPED_BYTES,
-    COUNTER_MAPS, COUNTER_UNMAPPED_BYTES, COUNTER_UNMAPS,
+    COUNTER_MAPS, COUNTER_UNMAPPED_BYTES, COUNTER_UNMAPS, DEBUG_ARENA_SAMPLE_SYMBOL,
 };
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
@@ -127,6 +127,13 @@ pub(crate) fn lower_arena_alloc(
         ARENA_ALLOC_SYMBOL,
         ARENA_FLUSH_COALESCE_SYMBOL,
     ));
+    // plan-133-C: a `--debug` grow records a memory-series sample.
+    if debug_arena {
+        relocations.push(internal_branch(
+            ARENA_ALLOC_SYMBOL,
+            DEBUG_ARENA_SAMPLE_SYMBOL,
+        ));
+    }
     let mut instructions = vec![
         abi::label("entry"),
         abi::compare_immediate(abi::c_arg(1), "0"),
@@ -684,6 +691,14 @@ pub(crate) fn lower_arena_alloc(
             &mut instructions,
             &mut vregs,
         );
+        // plan-133-C: sample the arena's memory series. The helper reads the clock and
+        // the process's peak RSS itself and returns at once for an unregistered arena
+        // (slot 0); `ubase`, `usable`, `size` and `eff_align` are vregs the allocator
+        // spills across the call.
+        instructions.extend([
+            abi::move_register(abi::c_arg(0), slot),
+            abi::branch_link(DEBUG_ARENA_SAMPLE_SYMBOL),
+        ]);
     }
     instructions.extend([
         abi::move_register(abi::c_arg(0), &ubase),

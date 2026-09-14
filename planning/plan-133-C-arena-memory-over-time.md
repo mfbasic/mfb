@@ -27,8 +27,8 @@ See plan-133-A § Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-133-B complete | `ls planning/completed/plan-133-B-*` → one match | NOT MET |
-| Boxes 2223, 2227, 2229, 2230 reachable | `for p in 2223 2227 2229; do ssh -o ConnectTimeout=8 -o BatchMode=yes -p $p test@127.0.0.1 true && echo $p ok; done; ssh -o ConnectTimeout=8 -o BatchMode=yes -p 2230 test@127.0.0.1 ver && echo 2230 ok` → four `ok` (2230 is Windows: `true` does not exist there, `ver` does) | MET (2026-09-13: 2223, 2227, 2229 `true` ok; 2230 `ver` → `Microsoft Windows [Version 10.0.26100.9445]`, exit 0) — gates C only; re-check before C |
+| plan-133-B complete | `ls planning/completed/plan-133-B-*` → one match | MET (2026-09-13: `planning/completed/plan-133-B-entropy-fill-cost.md`) |
+| Boxes 2223, 2227, 2229, 2230 reachable | `for p in 2223 2227 2229; do ssh -o ConnectTimeout=8 -o BatchMode=yes -p $p test@127.0.0.1 true && echo $p ok; done; ssh -o ConnectTimeout=8 -o BatchMode=yes -p 2230 test@127.0.0.1 ver && echo 2230 ok` → four `ok` (2230 is Windows: `true` does not exist there, `ver` does) | MET (2026-09-13, re-checked before C: 2223, 2227, 2229 `true` ok; 2230 `ver` ok) |
 
 ## 1. Goal
 
@@ -115,10 +115,29 @@ program). Both are covered by exact tests.
 
 ### Phase 1 — clock, series block, sampling on macOS
 
-- [ ] `src/codegen/debug/clock.rs::emit_debug_monotonic_nanos` (both arms).
-- [ ] Series block in the registry slot; sampling and compaction in the grow path, debug only.
-- [ ] Report lines for the series.
-- [ ] `tests/runtime/rt_debug_arena.rs`:
+- [x] `src/codegen/debug/clock.rs::emit_debug_monotonic_nanos` (both arms). — The libc arm
+      (`clock_gettime(platform.clock_monotonic())` into a vreg) is exercised by every macOS
+      probe: `t_ns` strictly increases, e.g. `/tmp/plan-133-c/recgen4k` 9,000 → 831,090,000 ns.
+      The Windows arm (QPC/QPF with the overflow-safe fold) compiles
+      (`cargo check --all-targets` → `EXIT=0`, no warnings). Its runtime proof is Phase 2's
+      2230 run.
+- [x] Series block in the registry slot; sampling and compaction in the grow path, debug only.
+      — Implemented as the `_mfb_debug_arena_sample` helper, which the grow path reaches with
+      an internal `bl` after the plan-133-B fill counters; the relocation is added only when
+      `debug_arena` (design and slot layout in Corrections). `t0` is stored at the first
+      registration. The `SLOT_SIZE == 8448` compile-time assert holds. Probes: 14 and 20 grows
+      kept every sample (`grow20k`, `grow200k`); 5,003 grows halved to 159 samples (`big5k`);
+      2,000 and 4,000 grows to 252 (`recgen2k`, `recgen4k`). In every probe the last sample's
+      `mapped_bytes` equals `arena.0.mapped_bytes`.
+      `cargo test --bin mfb codegen::debug` → `4 passed`, after the fixture fix in Corrections.
+- [x] Report lines for the series. — After each arena's counters: `arena.<n>.series.count <k>`
+      (kept + pending), then `arena.<n>.series.<i>.t_ns`, `.mapped_bytes`, `.live_bytes`,
+      `.peak_rss_bytes`, oldest first. They appear in every probe report above.
+- [x] `tests/runtime/rt_debug_arena.rs`: — `cargo test --release --test rt_debug_arena series`
+      → `the_series_rises_in_three_bursts ... ok`, `the_series_stays_bounded_and_ordered ...
+      ok`, `2 passed; 0 failed` (82.16 s). The bounded test runs 4,000 grows, not 50,000,
+      with a grows floor and a last-sample-is-latest-grow assertion added (Corrections). The
+      bursts program binds each read to a `LET` (bug-626).
   - `the_series_rises_in_three_bursts`: allocate and retain 8 MiB, `os::sleep(200)`, three
     times; assert `count ≥ 3`, `t_ns` strictly increasing, and at least two gaps
     ≥ 150,000,000 ns.
@@ -184,6 +203,115 @@ Commit: —
   test@127.0.0.1 ver`, which printed `Microsoft Windows [Version 10.0.26100.9445]` and exited 0.
   The Prerequisites row now runs `ver` on 2230 and `true` on the three Linux boxes. Status:
   MET. It is still to be re-checked before C starts.
+- **2026-09-13 — § 2: there is no `CodegenPlatform::emit_peak_rss_bytes`.**
+  `grep -rn "fn emit_peak_rss_bytes" src/codegen src/target src/os` finds nothing. The peak-RSS
+  read is inline in `src/codegen/debug/process.rs::lower_report`, the report-only function.
+  On macOS and Linux it calls `getrusage(RUSAGE_SELF, sp + RESULT_BUFFER_OFFSET)` and reads
+  `ru_maxrss`, shifted left by 10 on Linux (KiB). On Windows it calls
+  `K32GetProcessMemoryInfo`. Its buffer is a frame local from
+  `finalize_vreg_body_with_locals(…, RESULT_BUFFER_OFFSET + RUSAGE_SIZE.max(PMC_SIZE))`, and
+  the OS imports come from `NativePlanPlatform::peak_rss_imports`. Consequence for Phase 1:
+  the per-sample RSS read must be factored out of `lower_report` into an emitter the grow
+  path can call, not called through an existing seam.
+- **2026-09-13 — § 2: the Linux `clock_gettime` entry import is confirmed.**
+  `linux_common/plan.rs:115` pushes `libc_import("clock_gettime", "_main")`.
+- **2026-09-13 — § 3: the grow path has no frame buffer for the two new calls.**
+  `lower_arena_alloc` ends in `finalize_vreg_helper`, which builds a frame only for spilled
+  vregs; `arena.rs` uses no `stack_pointer()` slot. `clock_gettime` needs a 16-byte
+  `timespec` and `getrusage` a `struct rusage`, so the allocator must reserve a local area
+  with `finalize_vreg_body_with_locals` (it rounds `local_size` up to 16 and lays spill slots
+  after it). The alternative is to keep both buffers in the debug registry region, off the
+  stack.
+- **2026-09-13 — § 1 and § 3 disagree about the last sample.** § 1 requires "the last is its
+  most recent grow". § 3 samples a grow only when `grow_count ≥ until`, so once the stride
+  exceeds 1, the most recent grow is usually not kept, and the last sample is the most recent
+  *kept* grow. Resolution, keeping § 1's goal: every grow writes a provisional sample (clock,
+  `mapped_bytes`, `live_bytes`, peak RSS) into the entry after the kept ones. `count` advances
+  only when the decimation rule keeps that entry, and the report prints the provisional entry
+  after the kept ones when the latest grow was not kept. The cost is one clock read and one
+  `getrusage` per grow (189,654 grows in a browser `Main_Page` worker) instead of per kept
+  sample. Phase 1's existing task, which measures the series' wall-time cost on 2223, decides
+  whether that is affordable. If it is not, the goal is changed here, with the measurement.
+- **2026-09-13 — the sample cannot go right after the `grow` counter.** In the grow path the
+  mapped block's address stays in the physical return register until the header is written
+  (`abi::store_u64(…, abi::return_register(), …)`), and an external call there would destroy
+  it. The sample is taken after `ubase` is derived, beside the plan-133-B fill counters.
+  `ubase`, `usable`, `size` and `eff_align` are vregs, which the allocator already spills
+  across the fill call.
+- **2026-09-13 — Phase 1 design: sample in a debug helper, not in the allocator's frame.**
+  `lower_arena_alloc` takes no `platform_imports`, so it cannot make external calls without
+  new plumbing, and its frame has no local buffer. The grow path instead calls a debug-only
+  helper, `_mfb_debug_arena_sample(slot)`, with an internal `bl`, the same way it calls
+  `_mfb_arena_fill_random`; the relocation is added only when `debug_arena`. The helper owns
+  its `timespec`/QPC words and its `rusage` or `PROCESS_MEMORY_COUNTERS` buffer through
+  `finalize_vreg_body_with_locals`, and makes the external calls, the way
+  `_mfb_debug_arena_register` already calls the platform mutex. The allocator's frame and
+  normal-build code do not change.
+  - `datetime::gen_shared::emit_libc_clock_nanos` cannot be reused: it writes the physical
+    `RESULT_VALUE_REGISTER`, and the vreg finalizer rejects physical registers (plan-34-D).
+    The new `src/codegen/debug/clock.rs::emit_debug_monotonic_nanos` writes a vreg.
+  - Slot layout: the 22 counters end at 192; then `series.count` (192), `stride` (200),
+    `until` (208), `pending` (216), and 257 × 32-byte entries `{t_ns, mapped_bytes,
+    live_bytes, peak_rss_bytes}` from 224, which is 256 kept entries plus one provisional.
+    `SLOT_SIZE` = 8,448. The region header grows to `{count, overflow, t0}` (24 B).
+  - Imports: macOS (`macos_aarch64/plan.rs`) and Linux (`linux_common/plan.rs:115`) import
+    `clock_gettime` for the entry unconditionally. Every `--debug` build already imports the
+    peak-RSS calls through `ProcessFeature::os_imports`. Only Windows lacks
+    `QueryPerformanceCounter`/`Frequency` for the entry, so `NativePlanPlatform` gains
+    `debug_clock_imports` with an empty default that Windows overrides.
+- **2026-09-13 — Phase 1: "50,000 grows" cannot be produced cheaply, and the obvious ways to
+  try are traps.** The plan took the number from the browser worker's 189,654 grows. Measured
+  with `--debug` probes on the macOS host:
+  - `lower_arena_alloc` maps one 4,096 B default block when `size + align + 32` fits,
+    otherwise exactly that request rounded up to 4 KiB pages. It never doubles.
+  - A program that retains values in a growing list gets few grows: 20,000 strings made 14
+    (`/tmp/plan-133-c/grow20k`) and 200,000 made 20 (`grow200k`). The list reallocates in
+    doubling steps, each mapped exactly (4,096 → 8,192 → 16,384 B …), and the small retained
+    values refill the freed space. A list built by `append` of `""` and then filled with
+    `collections::set` behaved the same: 18 and 20 grows at 50,000 and 100,000 entries.
+  - Appending a builtin call's result directly does give about one grow per append, but only
+    through bug-626's copy of the whole list on every append. At N=5,000,
+    `append(keep, fs::readText(…))` allocated 63,063,560,064 B, mapped 63,023,300,608 B and
+    peaked at 63 GB RSS (44.5 s). A 50,000 run was killed before it exhausted memory. A test
+    must not rely on that bug, or its coverage vanishes when the bug is fixed.
+  - With 5,003 grows the series was kept to 159 samples, and the last sample's `mapped_bytes`
+    (63,523,377,152) equalled the arena's, so halving and the latest-grow entry both work.
+  - A generator that works: recursion. Each level binds `strings::repeat("x", 4200 + (n MOD
+    97))` and recurses before returning, so every level keeps a string slightly larger than a
+    block alive, and each string needs a fresh map. Measured
+    (`/tmp/plan-133-c/recgen{2k,4k}`): depth 2,000 gave `grow 2000`, `mapped_bytes 16384000`
+    (8,192 B per level), `alloc_bytes 8528128`, 0.53 s, 34.7 MB RSS; depth 4,000 gave
+    `grow 4000`, `mapped_bytes 32768000`, `alloc_bytes 17057536`, 1.00 s, 68.3 MB RSS, which
+    is linear. Both reported `series.count 252`, with the last sample's `mapped_bytes` equal to
+    the arena's.
+  - Two other list-filling shapes were also quadratic in time, root cause not found (to be filed):
+    building a list with `append` of `""` then `collections::set` of bound strings took 2.6 s
+    at 50,000 and 9.1 s at 100,000 entries; `strings::split` then the same `set` loop took
+    9.7 s at 100,000 and 35.5 s at 200,000. `try_inplace_set_assign` has no exclusion for a
+    `List OF String` that would explain it.
+  - **The `codegen::debug` unit-test fixture gained `_clock_gettime`.** After the series landed,
+    `a_debug_module_gets_the_report_helper_and_each_section` and
+    `debug_helpers_reference_no_arena_symbol` both panicked at `src/codegen/debug/tests.rs:47`
+    with `called Result::unwrap() on an Err value: "runtime helper requires _clock_gettime
+    import"`. The tests' `imports()` is a hand-built list of the macOS imports a real plan
+    gives the debug helpers. plan-130-C added the mutex pair to it for the same reason: a
+    helper needed a new import.
+    1. When and why written: plan-130-C/D, to mirror a real plan's imports.
+    2. What it protects: that the debug helpers lower against that set and reference no
+       allocator symbol.
+    3. Who depends on it: only this file.
+    4. Why it was wrong: a real macOS plan imports `_clock_gettime` for every program entry
+       (`macos_aarch64/plan.rs` `entry_imports`, for the arena-fill seed), and the helpers now
+       call it.
+
+    The fixture now lists it, and no assertion changed. `cargo test --bin mfb codegen::debug`
+    → `4 passed`.
+  - **Resolution:** `the_series_stays_bounded_and_ordered` uses the recursion generator at
+    depth 4,000, not 50,000 grows. That depth goes through several halvings in about a
+    second. 50,000 levels would map about 400 MB, and the stack cost of that depth has not
+    been measured. The check is not weaker: the test also asserts that at least 4,000 grows
+    happened (so the halving really ran) and that the last sample's `mapped_bytes` equals the
+    arena's (§ 1's latest-grow goal).
 
 ## Summary
 

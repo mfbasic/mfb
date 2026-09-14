@@ -376,3 +376,110 @@ fn fill_counters_match_known_allocations() {
         "each scrub covers the chunk past its 16-byte node: {small:?} / {large:?}"
     );
 }
+
+/// plan-133-C: `arena.<index>.series.*` of `lines` — the reported sample count and each
+/// sample's `[t_ns, mapped_bytes, live_bytes, peak_rss_bytes]`, oldest first.
+fn series(case: &str, lines: &[String], index: usize) -> (u64, Vec<[u64; 4]>) {
+    let count = counter(case, lines, index, "series.count");
+    let samples = (0..count)
+        .map(|sample| {
+            ["t_ns", "mapped_bytes", "live_bytes", "peak_rss_bytes"]
+                .map(|field| counter(case, lines, index, &format!("series.{sample}.{field}")))
+        })
+        .collect();
+    (count, samples)
+}
+
+/// plan-133-C: three bursts of retained memory, 200 ms apart, show as three separated
+/// rises in the main arena's series.
+#[test]
+fn the_series_rises_in_three_bursts() {
+    let name = "dbg_arena_series_bursts";
+    let project = common::temp_project(name, "");
+    let data = project.join("burst.bin");
+    std::fs::write(&data, vec![0x5au8; 8 << 20]).expect("write the 8 MiB input");
+    std::fs::write(
+        project.join("src/main.mfb"),
+        format!(
+            // The read is bound to a `LET` before the append: appending the call result
+            // directly copies the whole list on every append (bug-626).
+            "IMPORT collections\nIMPORT fs\nIMPORT io\nIMPORT os\n\nFUNC main AS Integer\n  MUT keep AS List OF List OF Byte = []\n  FOR i = 1 TO 3\n    LET burst AS List OF Byte = fs::readBytes(\"{}\")\n    keep = collections::append(keep, burst)\n    os::sleep(200)\n  NEXT\n  io::print(toString(len(keep)))\n  RETURN 0\nEND FUNC\n",
+            common::mfb_path_literal(&data)
+        ),
+    )
+    .expect("write the program");
+    let exe = build_debug_project(name, &project);
+    let (stdout, stderr) = run_ok(name, &exe);
+    assert_eq!(stdout, "3\n", "the program kept three buffers");
+    let lines = arena_lines(name, &stderr);
+    let (count, samples) = series(name, &lines, 0);
+    assert!(
+        count >= 3,
+        "three bursts need at least three samples, got {count}:\n{stderr}"
+    );
+    assert!(
+        samples.windows(2).all(|pair| pair[0][0] < pair[1][0]),
+        "t_ns must strictly increase: {samples:?}"
+    );
+    let long_gaps = samples
+        .windows(2)
+        .filter(|pair| pair[1][0] - pair[0][0] >= 150_000_000)
+        .count();
+    assert!(
+        long_gaps >= 2,
+        "the 200 ms sleeps must separate the rises by at least 150 ms twice, got {long_gaps}: {samples:?}"
+    );
+}
+
+/// plan-133-C: 4,000 grows halve the series several times; it stays at most 256 samples,
+/// in grow order, and ends on the most recent grow. Each recursion level keeps one string
+/// slightly larger than an arena block alive until the recursion unwinds, so every level
+/// maps exactly one fresh 8 KiB block (measured: 4,000 levels → `grow 4000`,
+/// `mapped_bytes 32768000`). A retaining list does not work as a generator: its own
+/// doubling reallocations leave space the retained values refill (plan-133-C Corrections).
+#[test]
+fn the_series_stays_bounded_and_ordered() {
+    let case = "series bounded";
+    let source = concat!(
+        "IMPORT io\n",
+        "IMPORT strings\n",
+        "\n",
+        "FUNC build(n AS Integer) AS Integer\n",
+        "  IF n = 0 THEN RETURN 0\n",
+        "  LET s AS String = strings::repeat(\"x\", 4200 + (n MOD 97))\n",
+        "  RETURN build(n - 1) + len(s)\n",
+        "END FUNC\n",
+        "\n",
+        "FUNC main AS Integer\n",
+        "  io::print(toString(build(4000)))\n",
+        "  RETURN 0\n",
+        "END FUNC\n",
+    );
+    let exe = build_debug("dbg_arena_series_bounded", source);
+    let (stdout, stderr) = run_ok(case, &exe);
+    assert_eq!(stdout, "16991172\n", "the recursion ran to depth 4000");
+    let lines = arena_lines(case, &stderr);
+    let grow = counter(case, &lines, 0, "grow");
+    assert!(
+        grow >= 4000,
+        "every recursion level must map a block, so at least 4000 grows, got {grow}:\n{stderr}"
+    );
+    let (count, samples) = series(case, &lines, 0);
+    assert!(
+        (2..=256).contains(&count),
+        "the series must stay bounded at 256 samples, got {count}:\n{stderr}"
+    );
+    assert!(
+        samples.windows(2).all(|pair| pair[0][1] < pair[1][1]),
+        "mapped_bytes must strictly increase from sample to sample: {samples:?}"
+    );
+    assert!(
+        samples[0][0] <= samples[samples.len() - 1][0],
+        "the first sample must not be later than the last: {samples:?}"
+    );
+    assert_eq!(
+        samples[samples.len() - 1][1],
+        counter(case, &lines, 0, "mapped_bytes"),
+        "the last sample is the most recent grow, so it has the arena's final mapped_bytes"
+    );
+}
