@@ -28,7 +28,7 @@ See plan-133-A § Prerequisites. Additionally:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-133-B complete | `ls planning/completed/plan-133-B-*` → one match | NOT MET |
-| Boxes 2223, 2227, 2229, 2230 reachable | `for p in 2223 2227 2229 2230; do ssh -o ConnectTimeout=8 -p $p test@127.0.0.1 true && echo $p ok; done` → four `ok` | UNMEASURED |
+| Boxes 2223, 2227, 2229, 2230 reachable | `for p in 2223 2227 2229 2230; do ssh -o ConnectTimeout=8 -p $p test@127.0.0.1 true && echo $p ok; done` → four `ok` | NOT MET (2026-09-13: 2223, 2227, 2229 ok; 2230 FAIL) — gates C only; re-check before C |
 
 ## 1. Goal
 

@@ -488,6 +488,21 @@ Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` report
 1. **Never freed, or freed but not reused?** Parse the same saved Wikipedia HTML with
    `dom::parse` twice on the main thread (no threads) and compare maps/RSS after the first
    and second parse.
+   **Measured 2026-09-13** (plan-133-A Phase 1; main `14c9fc1ca`, after plan-134; macOS host;
+   `target/release/mfb build --debug` of a scratch project importing `examples/browser/dom`
+   as a source package; `dom::parse` of the saved 603,614-byte `BASIC` page in a loop on the
+   main thread; harness `/tmp/plan-133-a/run.sh`). The control is `strings::split(html, "<")`
+   in the same loop.
+
+   | stage | N | `live_bytes` | `alloc_calls` | `free_calls` |
+   |---|---:|---:|---:|---:|
+   | `dom::parse` | 1 | 8,332,368 | 1,706,679 | 1,651,068 |
+   | `dom::parse` | 2 | 16,651,216 | 3,413,352 | 3,302,132 |
+   | control | 1 | 13,520 | 7 | 5 |
+   | control | 2 | 13,520 | 8 | 6 |
+
+   Verdict: **never freed.** Each `dom::parse` leaves 8,318,848 B live — 55,609 of its
+   1,706,673 allocations are never freed — while the control reads flat.
 2. **Alloc vs free call counts** during one browser page load (gdb breakpoint counts on
    box 2223, or the plan-67-F perf rows on macOS). A free count near the alloc count means
    reuse is the problem; a tiny free count means values are never freed.

@@ -233,13 +233,17 @@ Decision 2):
 
 ### Phase 1 — parse twice (the § 2 item 1 answer)
 
-- [ ] Prove the source-package form: a scratch project importing `dom` from
+- [x] Prove the source-package form: a scratch project importing `dom` from
       `packages/dom` builds with `--debug` (check: `mfb build --debug -q <dir>` exits 0,
-      ~20 s).
-- [ ] `parse` stage at N=1 and N=2 on `basic.html`, plus the `control` stage at N=1 and N=2
-      (check: four report files; ~1 min on the host).
-- [ ] Record in `planning/todo.md` § 2 item 1: the four `live_bytes`/`alloc_calls`/
-      `free_calls` values and the verdict (leak per parse, or flat).
+      ~20 s). — `/tmp/plan-133-a/run.sh parse 1`: build exit 0 (dom, display, fetch all as
+      `file:packages/<name>` source packages), program rc=0.
+- [x] `parse` stage at N=1 and N=2 on `basic.html`, plus the `control` stage at N=1 and N=2
+      (check: four report files; ~1 min on the host). — `out/{parse,control}-{1,2}.report`;
+      parse `live_bytes` 8,332,368 → 16,651,216; control 13,520 → 13,520. Each parse run
+      took 36–39 s, not ~15 s.
+- [x] Record in `planning/todo.md` § 2 item 1: the four `live_bytes`/`alloc_calls`/
+      `free_calls` values and the verdict (leak per parse, or flat). — recorded; verdict
+      "never freed", 8,318,848 B per parse.
 
 Acceptance: § 2 item 1 carries the four measurements and a one-line verdict; the control
 reads `live_bytes` equal at N=1 and N=2 (if it does not, the method is wrong — fix the
