@@ -334,7 +334,7 @@ Commit: bb79e651d
 
 Acceptance: `scripts/test-accept.sh` passes with the new fixture; both census runs
 report zero gaps; both example runs are green.
-Commit: b7b680e45 (fixture + census ticks; golden sync lands in the final-run commit)
+Commit: b7b680e45 (fixture + census ticks); c58054f00 (golden sync and acceptance verdict on the merged tree)
 
 ## Validation Plan
 
@@ -439,6 +439,12 @@ Commit: b7b680e45 (fixture + census ticks; golden sync lands in the final-run co
   `tests/acceptance` project needs `test-accept.sh` itself, run filtered to `acceptance` after the
   sync. Its first attempt exited 98 while the full `cargo test` was running (the `tests/gate/`
   lock tests take the tree lock); the retry passed.
+- **D-C10 — the single end-of-plan gate (plan-127 A–D).** Run once, after `git merge main` (19
+  commits, no conflicts; `git merge-tree` preview empty) and `rustup run 1.96.0 cargo fmt --all`
+  plus the `repository/` pass (commit 9f9001122): `cargo test --release --no-fail-fast` → exit
+  0, 174 `test result` blocks, `passed 5576 failed 0 ignored 6`, no `FAILED` line; the golden
+  sync and filtered `test-accept.sh` per Phase 3 (0 golden diffs; `Tests: 782  Pass: 782  Fail:
+  0`).
 - **D-C7 — the acceptance fixture's helpers carry a `big` prefix** (`bigToInteger`,
   `bigDivide`, …) because `tests/acceptance` is one project with one `FUNC` namespace.
 
