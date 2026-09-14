@@ -91,6 +91,8 @@ Sections print in the order of the compiler's feature registry,
 | | `arena.<n>.flushes`, `.insert_free_calls` | free-list coalescing passes, and chunks inserted into the coalescing free list |
 | | `arena.<n>.fill_grow_calls`, `.fill_grow_bytes` | entropy fills of a newly mapped block and their bytes: each fill covers the block's usable region (its size minus the 32-byte header), and `fill_grow_calls` always equals `grow` |
 | | `arena.<n>.fill_free_calls`, `.fill_free_bytes` | entropy scrubs of a freed chunk and their bytes: each covers the chunk past its 16-byte free-list node, so a 16-byte chunk is not scrubbed and not counted, and `free_bytes − fill_free_bytes` equals `16 × free_calls` |
+| | `arena.<n>.series.count` | the number of memory-over-time samples that follow, at most 256 |
+| | `arena.<n>.series.<i>.t_ns`, `.mapped_bytes`, `.live_bytes`, `.peak_rss_bytes` | one sample per line group, oldest first: nanoseconds since the first arena registered (monotonic clock), the arena's mapped and live bytes just after a grow, and the process's peak RSS read at that moment the same way as `process.peak_rss_bytes` |
 | `process` | `process.peak_rss_bytes` | the most physical memory the process has held at once, in bytes, as the operating system counts it when the report runs: `ru_maxrss` from `getrusage` on macOS and Linux (Linux's KiB scaled to bytes), `PeakWorkingSetSize` from `K32GetProcessMemoryInfo` on Windows; `0` if the call fails |
 
 The `arena` section is emitted for every target. Every arena registers in a
@@ -103,6 +105,22 @@ updated some counters and not others. A finished thread's counters are final.
 allocated before the arena registered was never added, so the value can
 undercount but never wraps.
 [[src/codegen/debug/arena.rs:ArenaFeature]]
+
+Each arena also records a **series**: memory over time, sampled when the arena grows
+(maps a new block), not by a timer. An arena that never grows after its first block
+has a single sample.
+- Every grow reads the clock and the peak RSS and writes a sample after the kept ones.
+- The sample is kept when the arena's `grow` count has reached the next kept grow.
+  That starts at the first grow, with a stride of 1.
+- When 256 samples are kept, the series halves: it keeps every other sample from the
+  first, plus the newest, so 129 remain. The stride then doubles.
+- A grow that is not kept stays as a provisional sample until the next grow replaces
+  it, and the report prints it last and counts it in `series.count`.
+
+So the series stays within 256 samples, the first is the arena's first sampled grow,
+and the last is always its most recent grow. The samples are spaced roughly evenly in
+grow count, not in time.
+[[src/codegen/debug/arena.rs:lower_sample]]
 
 The `perf` section maps its own timing region at program entry (never the arena)
 and prints each line with a single `write`; it is emitted only for a `macos-aarch64`

@@ -475,8 +475,32 @@ Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` report
 
 **Still open — none of these three is delivered by plan-130:**
 
-1. **RSS over time per thread.** The report has only end-of-run values (per-arena
+1. **RSS over time per thread.** The report had only end-of-run values (per-arena
    `peak_live_bytes`, process `peak_rss_bytes`), not a time series.
+   **Done (plan-133-C, `planning/completed/plan-133-C-*`):** every arena now reports a
+   series sampled on grow, at most 256 samples, with the last sample always the latest grow
+   (`mfb spec tooling debug-report`). The keys are `arena.<n>.series.count` and
+   `arena.<n>.series.<i>.t_ns`, `.mapped_bytes`, `.live_bytes` and `.peak_rss_bytes`.
+   Sampling every grow costs +1.4 % of a browser load on 2223 (8,022 vs 7,914 ms median).
+   **First data, 2026-09-13, box 2223:** a `--debug` linux-aarch64 browser loading
+   `https://en.wikipedia.org/wiki/Main_Page`. The worker arena (`arena.1`) made 189,654 grows,
+   and its series kept 188 samples. Selected rows:
+
+   | sample | t (ms) | mapped MiB | live MiB | peak RSS MiB |
+   |---:|---:|---:|---:|---:|
+   | 0 | 955.5 | 0.0 | 0.0 | 4.7 |
+   | 1 | 1,595.8 | 28.6 | 3.8 | 42.8 |
+   | 20 | 3,934.0 | 144.4 | 90.7 | 160.6 |
+   | 60 | 5,051.5 | 305.3 | 249.8 | 321.6 |
+   | 100 | 6,198.6 | 465.3 | 407.7 | 481.6 |
+   | 140 | 7,334.4 | 623.8 | 564.2 | 640.1 |
+   | 180 | 8,495.1 | 783.9 | 722.9 | 800.2 |
+   | 187 | 8,640.3 | 818.9 | 730.7 | 835.1 |
+
+   From 1.6 s on, live bytes grow steadily, about 140 MiB per second. From 3.9 s they stay
+   54–61 MiB below mapped, and the gap widens to 88 MiB at the last sample. The worker never gives memory back during the load (`arena.1.unmaps 0` against 189,654
+   maps and 70,951,911 frees): it ends at `live_bytes`
+   751,305,104 of `mapped_bytes` 858,677,248.
 2. **Measure the entropy-fill cost** on grow and free (fill on vs off), to know its share of
    every number below. Measurement only; the fill stays.
    **Measured 2026-09-13 (plan-133-B Phase 2), box 2223** (native aarch64, 4 KiB pages; load

@@ -143,12 +143,14 @@ program). Both are covered by exact tests.
     ≥ 150,000,000 ns.
   - `the_series_stays_bounded_and_ordered`: 50,000 grows; assert `count ≤ 256`,
     `mapped_bytes` strictly increasing, first `t_ns` ≤ last.
-- [ ] Measure the series' cost: browser `Main_Page` load wall time, `--debug` with vs
+- [x] Measure the series' cost: browser `Main_Page` load wall time, `--debug` with vs
       without the series (a throwaway flag in a worktree), 3 runs each, on 2223; record
       the medians in Corrections (~10 min, because it is the only workload with 192 k grows).
+      `~/p133c/ab-series-2223.sh` → series on: median `load_ms=8022` (10615, 7883, 8022);
+      series off: median `load_ms=7914` (7983, 7854, 7914); +1.4 %.
 
 Acceptance: `cargo test --release --test rt_debug_arena series` → 2 passed (~3 min).
-Commit: —
+Commit: 2375c9fef, e12c1b45f (task 5's record: the commit after e12c1b45f)
 
 ### Phase 2 — the other four targets
 
@@ -165,14 +167,18 @@ Commit: —
 
 Acceptance: each box's recorded series shows three rises separated by ≥ 150 ms, in this
 file's Corrections (one ~1 min run per box).
-Commit: —
+Commit: e12c1b45f
 
 ### Phase 3 — docs, todo, and the family's full suite
 
-- [ ] `src/docs/spec/tooling/09_debug-report.md`: the series keys, the decimation rule, the
-      256 bound.
-- [ ] `planning/todo.md` § Memory § 1 item 1: done, with the report keys and the
-      browser's worker series from one 2223 run pasted as the first data.
+- [x] `src/docs/spec/tooling/09_debug-report.md`: the series keys, the decimation rule, the
+      256 bound. Two table rows plus a series paragraph citing
+      `[[src/codegen/debug/arena.rs:lower_sample]]`. `cargo test --release --bin mfb
+      docs::spec` → `8 passed` (incl. `spec_citations_resolve`).
+- [x] `planning/todo.md` § Memory § 1 item 1: done, with the report keys and the
+      browser's worker series from one 2223 run pasted as the first data. It has the
+      series-on A/B run's `arena.1` series: 188 samples, 8 rows selected, last `mapped_bytes`
+      818.9 MiB equal to `arena.1.mapped_bytes 858677248`, and `unmaps 0`.
 - [ ] Full suite once for plan-133:
       `cargo test --no-fail-fast -- --skip artifact_gate_all > /tmp/p133.log 2>&1; echo EXIT=$?`
       (~25 min, the only run that sees every rt test after three letters of debug-path
@@ -318,6 +324,28 @@ Commit: —
     been measured. The check is not weaker: the test also asserts that at least 4,000 grows
     happened (so the halving really ran) and that the last sample's `mapped_bytes` equals the
     arena's (§ 1's latest-grow goal).
+- **2026-09-13 — Phase 1 task 5: the series costs 1.4 % of a browser load, so sampling every
+  grow stays.** Two `--debug` linux-aarch64 browsers were built from `2375c9fef` with
+  `/tmp/plan-133-b/build-browser.sh`:
+  - **Series on:** the worktree's compiler.
+  - **Series off:** a throwaway worktree (`/tmp/p133-c-series`) patched by
+    `/tmp/plan-133-c/patch_series_off.py`, which removes the grow path's
+    `_mfb_debug_arena_sample` call and its relocation.
+
+  The patch was never committed: `git log -S "plan-133-C THROWAWAY" 2375c9fef..HEAD` is empty,
+  and the worktree was removed. The plan asked for "a throwaway flag"; a patch is the same
+  measurement without adding a flag.
+
+  On 2223, `~/p133c/ab-series-2223.sh` ran 3 `Main_Page` loads per browser back to back with
+  `tools/browser-load-timer` (load 0.13 → 0.42):
+  - Series on: 10,615 / 7,883 / 8,022 ms, median **8,022**. Run 1 is the cold first load.
+  - Series off: 7,983 / 7,854 / 7,914 ms, median **7,914**.
+
+  Both reports show the same workload. On: `arena.1.kind worker`, `grow 189654`,
+  `series.count 188`, `arena.0.grow 5125`, `series.count 163`. Off: the same grow counts with
+  `series.count 0`. So the clock read and `getrusage` on each of 194,779 grows cost about
+  108 ms, or +1.4 %. That is small enough to keep the § 1 goal (the last sample is the most
+  recent grow), which Corrections above had made conditional on this measurement.
 - **2026-09-13 — Phase 2: the four box runs.** The program is
   `/tmp/plan-133-c/bursts/src/main.mfb`: three times, `LET burst = fs::readBytes` of an 8 MiB
   file, append it to a retained list, `os::sleep(200)`; print the list's length. The Windows
