@@ -82,7 +82,7 @@ densely fill it.
 | `1-102` | parser | 12 |
 | `1-103` | DOC block structure (lexer/parser) | 4 |
 | `2-200` | `project.json` validation + build orchestration | 13 |
-| `2-201` | imports & symbol resolution | 18 |
+| `2-201` | imports & symbol resolution | 20 |
 | `2-203` | semantic checking (typing, ownership, native ABI) | 101 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
 | `2-208` | test framework (assertion builtins) | 7 |
@@ -340,6 +340,8 @@ analysis, and the ambiguous cases warn.
 | `2-201-0016` | `SYMBOL_RESERVED_BUILTIN_NAME` | error | function name is a reserved built-in and may not be redeclared |
 | `2-201-0017` | `PRIVATE_SHADOWS_PUBLIC` | warn | PRIVATE declaration shadows a PUBLIC declaration of the same name within its file |
 | `2-201-0018` | `PRIVATE_PATH_HASH_COLLISION` | error | internal: two source file paths produced the same file-scope hash |
+| `2-201-0020` | `SYMBOL_DEFAULT_NAMES_PARAMETER` | error | parameter default value uses a parameter of its own function |
+| `2-201-0021` | `SYMBOL_LAMBDA_PARAMETER_DEFAULT` | error | lambda parameter declares a default value |
 
 ### `2-203` — Type checking, ownership, and native ABI
 

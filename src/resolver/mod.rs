@@ -323,7 +323,19 @@ struct Resolver<'a> {
     /// knowledge", never "exports nothing" (bug-480).
     package_exports: HashMap<String, HashSet<String>>,
     active_template_params: HashSet<String>,
+    /// plan-136-A: set while a parameter default is being resolved. A default is
+    /// evaluated outside its function, so it resolves with no locals; a name it
+    /// cannot resolve that is one of the function's parameters is reported as
+    /// `SYMBOL_DEFAULT_NAMES_PARAMETER` rather than as an unknown identifier.
+    default_scope: Option<DefaultScope>,
     had_error: bool,
+}
+
+/// The parameter whose default is being resolved and every parameter name of its
+/// function (plan-136-A).
+struct DefaultScope {
+    parameter: String,
+    parameters: HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -389,6 +401,7 @@ impl<'a> Resolver<'a> {
             link_functions: HashMap::new(),
             package_exports: HashMap::new(),
             active_template_params: HashSet::new(),
+            default_scope: None,
             had_error: false,
         };
         resolver.collect_top_level_symbols(hir);

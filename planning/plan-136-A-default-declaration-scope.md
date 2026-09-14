@@ -358,35 +358,56 @@ table and the lambda-error measurement are recorded in this file.
   **Measured 2026-09-13:** `test result: FAILED. 3 passed; 6 failed; … finished in 82.29s`;
   `acceptance tests failed: 4 mismatch(es) (2 test(s) ran)` (two `build.log` mismatches plus the
   lambda fixture's unexpected `.ast`/`.ir` actuals).
-Commit: —
+Commit: fbe4f5168
 
 ### Phase 2 — the front end sees only the declaration scope
 
-- [ ] `src/rules/table.rs`: add `SYMBOL_DEFAULT_NAMES_PARAMETER` and
+- [x] `src/rules/table.rs`: add `SYMBOL_DEFAULT_NAMES_PARAMETER` and
       `SYMBOL_LAMBDA_PARAMETER_DEFAULT` (error) at the next free `2-201` codes — re-check with
       `grep -n '"2-201-00' src/rules/table.rs | tail -1` and `git log --all -S'2-201-0019'
-      --oneline` immediately before choosing.
-- [ ] `src/docs/spec/diagnostics/01_rule-codes.md`: one row each in the `2-201` table; update the
-      `2-201` population in "Subsystems (`SSS`)".
-- [ ] `resolver::resolution::resolve_function`: resolve defaults with an empty local map; report
+      --oneline` immediately before choosing. **Done at `2-201-0020` / `2-201-0021`**: `0019` is
+      retired and never reused (see Corrections — the table-tail check could not see it).
+- [x] `src/docs/spec/diagnostics/01_rule-codes.md`: one row each in the `2-201` table; update the
+      `2-201` population in "Subsystems (`SSS`)" (`18` → `20`).
+- [x] `resolver::resolution::resolve_function`: resolve defaults with an empty local map; report
       `SYMBOL_DEFAULT_NAMES_PARAMETER` (located, `display_name`) when an unresolved name is a
-      parameter of the function.
-- [ ] `resolver::resolution::resolve_expression` `HirExpression::Lambda`: report
-      `SYMBOL_LAMBDA_PARAMETER_DEFAULT` for a lambda parameter with a default.
-- [ ] `resolver::resolution::resolve_link_block`: resolve each LINK parameter default with an empty
+      parameter of the function. New `Resolver.default_scope` + `resolve_parameter_default` /
+      `report_default_names_parameter`, consulted by both `resolve_identifier` and
+      `resolve_callable`; `default-names-a-parameter-invalid` → three located `2-201-0020` errors
+      (lines 4, 8, 12), the earlier-, self- and later-parameter cases.
+- [x] `resolver::resolution::resolve_expression` `HirExpression::Lambda`: report
+      `SYMBOL_LAMBDA_PARAMETER_DEFAULT` for a lambda parameter with a default
+      (`lambda-parameter-default-invalid` → `main.mfb:5 error[2-201-0021 SYMBOL_LAMBDA_PARAMETER_DEFAULT]`;
+      the default is no longer resolved, so it cannot cascade).
+- [x] `resolver::resolution::resolve_link_block`: resolve each LINK parameter default with an empty
       local map, reporting `SYMBOL_DEFAULT_NAMES_PARAMETER` the same way (added by the Phase 1 audit).
-- [ ] `ast::scope_privates`: rewrite defaults with an empty local set.
-- [ ] `ir::verify` / `ir::shape::walk_function`: check defaults with an empty local map (per the
-      Phase 1 audit).
-- [ ] Generate the two syntax fixtures' goldens (`scripts/sync-goldens.sh target/release/mfb
+      Needed `hir::HirLinkParam.default` elaborated to `HirExpression` (`elaborate_link_function`),
+      which is also what Phase 3's LINK fill lowers. Probe `/tmp/p136-probe-link-param`
+      (`FUNC absval(n AS Integer = n)` in a `LINK "c"` block) → `main.mfb:4 error[2-201-0020
+      SYMBOL_DEFAULT_NAMES_PARAMETER]: … The default value of `n` cannot use parameter `n`…`.
+- [x] `ast::scope_privates`: rewrite defaults with an empty local set — for `FUNC`/`SUB` parameters,
+      and (not rewritten at all before) for `LINK` parameters. Probe `/tmp/p136-probe-private-default`
+      (`PRIVATE LET secret AS Integer = 5`, `FUNC f(secret AS Integer, y AS Integer = secret)`,
+      `f(1)`) → builds, prints `5`: the default names the file's private, not the parameter.
+- [x] `ir::verify` / `ir::shape::walk_function`: check defaults with an empty local map (per the
+      Phase 1 audit). Both use a `no_locals` map for the default; verify's bug-297 comment now
+      states the plan-136-A model. Evidence: the same probe builds through shape and verify with
+      exit 0, and both syntax fixtures pass.
+- [x] Generate the two syntax fixtures' goldens (`scripts/sync-goldens.sh target/release/mfb
       default-names-a-parameter-invalid lambda-parameter-default-invalid`) and read each
-      `build.log`: one located error per offending parameter, no NIR line.
+      `build.log`: one located error per offending parameter, no NIR line. `synced 2 golden
+      file(s) across 2 test(s)`; `grep -ho 'error\[[^]]*\]'` over both → `2-201-0020` ×3,
+      `2-201-0021` ×1; neither log contains `NIR`.
 
 Acceptance: both syntax fixtures pass with located errors; rules census passes.
   Check: `cargo build --release && scripts/test-accept.sh target/release/mfb /tmp/p136a-p2-accept
   default-names-a-parameter-invalid lambda-parameter-default-invalid` → `acceptance tests passed (2
   test(s) ran)` (est. 5 min); `cargo test --release --bin mfb rules::` → `test result: ok`
   (est. 3 min).
+  **Measured 2026-09-13 (after renumbering to `0020`/`0021`):** `cargo build --release --bin mfb` →
+  `Finished`; `scripts/test-accept.sh target/release/mfb /tmp/p136a-p2-accept-2
+  default-names-a-parameter-invalid lambda-parameter-default-invalid` → `acceptance tests passed (2
+  test(s) ran)`; `cargo test --release --bin mfb rules::` → `test result: ok. 17 passed; 0 failed`.
 Commit: —
 
 ### Phase 3 — hidden default functions and call-site filling
@@ -473,6 +494,15 @@ Commit: —
   the later-parameter case (`SYMBOL_UNKNOWN_IDENTIFIER` for `c`); that resolver error stops the build
   before the earlier/itself cases reach P2's unlocated NIR error. P2 stands as measured in
   §Verified properties (a program with only the earlier-parameter case).
+- **The next free `2-201` code is not `0019` (Phase 2).** The plan's check (`grep -n '"2-201-00'
+  src/rules/table.rs | tail -1` → `0018`) reads only the CURRENT table, so it cannot see a retired
+  code. `git log main -G'"2-201-00(19|2[0-9]|13)"' --oneline -- src/rules/table.rs` → `35479878d
+  plan-115-B Phase 3: delete IMPORT self from the compiler`, whose message says
+  `IMPORT_SELF_IN_EXECUTABLE (2-201-0019) removed … The code is NOT reused`, and `1c61228ba`
+  (bug-216) dropped `2-201-0013`. No main commit ever held `0020`/`0021`. The two rules are
+  `SYMBOL_DEFAULT_NAMES_PARAMETER` **`2-201-0020`** and `SYMBOL_LAMBDA_PARAMETER_DEFAULT`
+  **`2-201-0021`**; plan-136-C's next free code is therefore `2-201-0022` (recorded there). The
+  strengthened check is the `git log main -G` query, not the table tail.
 - **LINK defaults are never resolved (Phase 1 audit).** `resolve_link_block` resolves parameter
   types only; added a Phase 2 task so a LINK default gets the same declaration-scope resolution.
 

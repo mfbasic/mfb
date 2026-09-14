@@ -174,8 +174,10 @@ fn rewrite_item_refs(
                 if let Some(state) = param.state_type.as_mut() {
                     *state = rewrite_type_str(state, types);
                 }
+                // plan-136-A: a default resolves at the declaration, where no
+                // parameter is a local, so every PRIVATE name in it is rewritten.
                 if let Some(default) = param.default.as_mut() {
-                    rewrite_expr(default, rename, types, &locals);
+                    rewrite_expr(default, rename, types, &HashSet::new());
                 }
                 locals.insert(param.name.clone());
             }
@@ -248,6 +250,10 @@ fn rewrite_item_refs(
                     }
                     if let Some(state) = param.state_type.as_mut() {
                         *state = rewrite_type_str(state, types);
+                    }
+                    // plan-136-A: a LINK default reads the declaration scope too.
+                    if let Some(default) = param.default.as_mut() {
+                        rewrite_expr(default, rename, types, &HashSet::new());
                     }
                 }
                 if let Some(return_type) = function.return_type.as_mut() {

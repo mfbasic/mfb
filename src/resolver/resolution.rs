@@ -644,7 +644,25 @@ impl Resolver<'_> {
         // domain HERE. HIR elaborates it now (`hir::elaborate_link_block`), so
         // this reads types.
         for function in &link.functions {
+            let parameters = function
+                .params
+                .iter()
+                .map(|param| param.name.clone())
+                .collect::<HashSet<_>>();
             for param in &function.params {
+                // plan-136-A: a LINK parameter default resolves at the declaration,
+                // exactly like a FUNC/SUB one. It was never resolved before, so an
+                // unknown name in it went unreported.
+                if let Some(default) = &param.default {
+                    self.resolve_parameter_default(
+                        file,
+                        &param.name,
+                        &parameters,
+                        default,
+                        param.line,
+                        imports,
+                    );
+                }
                 if let Some(type_) = &param.type_ {
                     // A raw C ABI type in a wrapper signature is reported by
                     // the former source checker as NATIVE_CPTR_ESCAPE; don't double-report it here
@@ -778,6 +796,11 @@ impl Resolver<'_> {
             function.template_params.iter().cloned().collect(),
         );
         let mut locals = HashMap::new();
+        let parameters = function
+            .params
+            .iter()
+            .map(|param| param.name.clone())
+            .collect::<HashSet<_>>();
 
         for param in &function.params {
             if locals
@@ -810,7 +833,14 @@ impl Resolver<'_> {
             }
 
             if let Some(default) = &param.default {
-                self.resolve_expression(file, default, param.line, imports, &locals);
+                self.resolve_parameter_default(
+                    file,
+                    &param.name,
+                    &parameters,
+                    default,
+                    param.line,
+                    imports,
+                );
             }
         }
 
@@ -1140,8 +1170,18 @@ impl Resolver<'_> {
                             visibility: Visibility::Private,
                         },
                     );
-                    if let Some(default) = &param.default {
-                        self.resolve_expression(file, default, param.line, imports, &lambda_locals);
+                    // plan-136-A: a lambda is called through a function value, which
+                    // carries no defaults, so a default here could never be used.
+                    if param.default.is_some() {
+                        self.report(
+                            "SYMBOL_LAMBDA_PARAMETER_DEFAULT",
+                            &format!(
+                                "Lambda parameter `{}` cannot declare a default value.",
+                                crate::internal_name::display_name(&param.name)
+                            ),
+                            file,
+                            param.line,
+                        );
                     }
                 }
                 self.resolve_expression(file, body, line, imports, &lambda_locals);
@@ -1251,6 +1291,9 @@ impl Resolver<'_> {
         } else if !self.function_visible_in_file(file, callee)
             && !self.top_level_visible_in_file(file, callee)
         {
+            if self.report_default_names_parameter(file, callee, line) {
+                return;
+            }
             // A top-level (global) binding holding a function value is callable,
             // exactly like a local binding; `resolve_identifier` already consults
             // `top_level_visible_in_file`, so value position works while call
@@ -1262,6 +1305,46 @@ impl Resolver<'_> {
                 line,
             );
         }
+    }
+
+    /// Resolve a parameter default in its function's DECLARATION scope: no locals
+    /// at all, so not the function's own parameters and never a caller's locals
+    /// (plan-136-A). The file's top level — globals, functions, imports and
+    /// own-file `PRIVATE` names — is what remains visible.
+    fn resolve_parameter_default(
+        &mut self,
+        file: &HirFile,
+        parameter: &str,
+        parameters: &HashSet<String>,
+        default: &HirExpression,
+        line: usize,
+        imports: &HashMap<String, String>,
+    ) {
+        let previous = self.default_scope.replace(DefaultScope {
+            parameter: parameter.to_string(),
+            parameters: parameters.clone(),
+        });
+        self.resolve_expression(file, default, line, imports, &HashMap::new());
+        self.default_scope = previous;
+    }
+
+    /// While a default is being resolved, report an unresolved `name` that is a
+    /// parameter of the same function as `SYMBOL_DEFAULT_NAMES_PARAMETER`, and
+    /// return whether it did.
+    fn report_default_names_parameter(&mut self, file: &HirFile, name: &str, line: usize) -> bool {
+        let Some(scope) = &self.default_scope else {
+            return false;
+        };
+        if !scope.parameters.contains(name) {
+            return false;
+        }
+        let detail = format!(
+            "The default value of `{}` cannot use parameter `{}`; a default is evaluated outside the function.",
+            crate::internal_name::display_name(&scope.parameter),
+            crate::internal_name::display_name(name)
+        );
+        self.report("SYMBOL_DEFAULT_NAMES_PARAMETER", &detail, file, line);
+        true
     }
 
     fn resolve_identifier(
@@ -1279,6 +1362,9 @@ impl Resolver<'_> {
             && !self.function_visible_in_file(file, name)
             && !crate::codegen::builtins::general::is_general_call(name)
         {
+            if self.report_default_names_parameter(file, name, line) {
+                return;
+            }
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",
                 &format!("Identifier `{name}` is not declared in this scope."),

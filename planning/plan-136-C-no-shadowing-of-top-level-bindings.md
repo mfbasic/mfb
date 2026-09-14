@@ -88,7 +88,7 @@ built-in package sources are Rust strings whose top-level bindings are `__`-inte
 | Locals named like a same-project `FUNC`/`SUB` (why functions are excluded) | 40 (overcount; ignores file `PRIVATE` scope) | same census |
 | Unit tests that assert a local may shadow a `PRIVATE` | 2: `locals_shadow_private_names_and_are_left_alone`, `a_local_shadowing_a_private_keeps_its_state_assign_target_bare` | `grep -n 'fn locals_shadow_private\|fn a_local_shadowing_a_private' src/ast/scope_privates.rs` |
 | Exact compiler census (all nine sites, both rules) | UNMEASURED | Phase 1 |
-| Highest `2-201` code | `2-201-0018` | `grep -n '"2-201-00' src/rules/table.rs \| tail -1` (plan-136-A adds two; re-check) |
+| Next free `2-201` code | `2-201-0022` (corrected 2-201-0019 → see plan-136-A Corrections: `0019` is retired by plan-115-B and never reused, `0013` by bug-216; plan-136-A took `0020`/`0021`) | `git log main -G'"2-201-00(19\|2[0-9]\|13)"' --oneline -- src/rules/table.rs` plus `grep -n '"2-201-00' src/rules/table.rs \| tail -1` — the table tail alone cannot see a retired code |
 
 ### Verified properties (probes, 2026-09-13)
 
