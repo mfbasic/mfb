@@ -339,16 +339,8 @@ impl CodeBuilder<'_> {
             }
             return Ok(true);
         }
-        if self
-            .type_model
-            .union_names
-            .contains(&ParameterType::declared(&type_.without_state().name()))
-        {
-            if !self.union_is_data(type_) {
-                return Err(format!(
-                    "the graph drop cannot drop '{type_}': a resource union"
-                ));
-            }
+        // A data union; a resource union was refused by the resource check above.
+        if self.union_is_data(type_) {
             let base = self.temporary_vreg();
             self.emit(abi::load_u64(&base, abi::stack_pointer(), pointer_slot));
             self.emit_graph_drop_union_edges(type_, &base)?;
@@ -553,7 +545,7 @@ impl CodeBuilder<'_> {
 pub(crate) fn lower_graph_drop_walker(
     symbol: &str,
     free_root: bool,
-    kinds: &[String],
+    kinds: &[(String, ParameterType)],
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &crate::target::shared::nir::NirFunction>,
     package_return_types: &HashMap<String, ParameterType>,
@@ -589,7 +581,7 @@ pub(crate) fn lower_graph_drop_walker(
     let droppable: Vec<(usize, ParameterType)> = kinds
         .iter()
         .enumerate()
-        .map(|(index, name)| (index, ParameterType::declared(name)))
+        .map(|(index, (_, type_))| (index, type_.clone()))
         .filter(|(_, type_)| !type_contains_resource(&builder.type_model, type_))
         .collect();
     let arm_labels: Vec<String> = droppable
@@ -633,7 +625,8 @@ pub(crate) fn lower_graph_drop_walker(
     ));
     builder.emit(abi::store_u64(&scratch, &block, STACK_OFFSET_CAPACITY));
 
-    builder.graph_copy_walker = Some(GraphCopyWalker::new(kinds, stack_slot));
+    let names: Vec<String> = kinds.iter().map(|(name, _)| name.clone()).collect();
+    builder.graph_copy_walker = Some(GraphCopyWalker::new(&names, stack_slot));
 
     // Take one entry: a null edge owns nothing; otherwise dispatch on the kind.
     builder.emit(abi::label(&take));

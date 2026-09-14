@@ -203,7 +203,7 @@ impl CodeBuilder<'_> {
 /// recursive types. `kinds` is `recursive_transfer_types` in its own order.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_graph_copy_walker(
-    kinds: &[String],
+    kinds: &[(String, ParameterType)],
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &crate::target::shared::nir::NirFunction>,
     package_return_types: &HashMap<String, ParameterType>,
@@ -282,7 +282,8 @@ pub(crate) fn lower_graph_copy_walker(
     ));
     builder.emit(abi::store_u64(&scratch, &block, STACK_OFFSET_CAPACITY));
 
-    builder.graph_copy_walker = Some(GraphCopyWalker::new(kinds, stack_slot));
+    let names: Vec<String> = kinds.iter().map(|(name, _)| name.clone()).collect();
+    builder.graph_copy_walker = Some(GraphCopyWalker::new(&names, stack_slot));
 
     // Take one entry: a null edge copies to null; otherwise dispatch on the kind.
     builder.emit(abi::label(&take));
@@ -299,9 +300,8 @@ pub(crate) fn lower_graph_copy_walker(
     // Every pushed kind comes from the same table the chain was built from, and a shim
     // passes only its own index, so no other value reaches here.
     builder.emit(abi::branch(&null_edge));
-    for (name, label) in kinds.iter().zip(&kind_labels) {
+    for ((_, type_), label) in kinds.iter().zip(&kind_labels) {
         builder.emit(abi::label(label));
-        let type_ = ParameterType::declared(name);
         let source = builder.allocate_register();
         builder.emit(abi::load_u64(&source, sp, source_slot));
         // One block, one level: its cycle-typed edges are pushed by the edge sites.

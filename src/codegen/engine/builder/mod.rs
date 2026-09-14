@@ -1741,32 +1741,51 @@ pub(crate) fn lower_module_for_platform(
     {
         data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
     }
-    for (kind, type_) in recursive_copy_types.iter().enumerate() {
+    // plan-134-H: the drop walker's kinds are `recursive_transfer_types` in its order,
+    // then the types that only reach a cycle (`TypeModel::graph_drop_kinds`), so the copy
+    // walker's kinds are exactly their prefix. Fail closed if that ever stops holding: a
+    // kind index is shared by the shims and both walkers.
+    let copy_kind_count = recursive_copy_types.len();
+    if type_model.graph_drop_kinds.len() < copy_kind_count
+        || !recursive_copy_types
+            .iter()
+            .zip(&type_model.graph_drop_kinds)
+            .all(|(copy_kind, drop_kind)| copy_kind == drop_kind)
+    {
+        return Err(
+            "the graph drop kinds do not start with the graph copy kinds".to_string(),
+        );
+    }
+    let mut typed_kinds: Vec<(String, ParameterType)> = Vec::new();
+    for (kind, name) in type_model.graph_drop_kinds.iter().enumerate() {
         // `recursive_transfer_types` returns rendered names (the emission ORDER
         // is observable in the `.ncode`); parse each back once, here, for the
-        // typed emitters below.
-        let type_ = ParameterType::declared(type_);
-        let symbol = thread_copy_symbol(&type_);
-        code_functions.push(lower_thread_copy_function(
-            &type_,
-            kind,
-            &symbol,
-            &function_symbols,
-            &functions,
-            &package_return_types,
-            &platform_imports,
-            platform,
-            module.build_mode,
-            &globals,
-            &string_symbols,
-            type_model.clone(),
-        )?);
+        // typed emitters below — the per-type copy shims (cycle members only)
+        // and both walkers.
+        let type_ = ParameterType::declared(name);
+        if kind < copy_kind_count {
+            let symbol = thread_copy_symbol(&type_);
+            code_functions.push(lower_thread_copy_function(
+                &type_,
+                kind,
+                &symbol,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?);
+        }
+        typed_kinds.push((name.clone(), type_));
     }
     if !recursive_copy_types.is_empty() {
-        let kinds: Vec<String> = recursive_copy_types.iter().cloned().collect();
         code_functions.push(
             crate::codegen::memory::arena::graph_copy::lower_graph_copy_walker(
-                &kinds,
+                &typed_kinds[..copy_kind_count],
                 &function_symbols,
                 &functions,
                 &package_return_types,
@@ -1801,7 +1820,7 @@ pub(crate) fn lower_module_for_platform(
             code_functions.push(lower_graph_drop_walker(
                 symbol,
                 free_root,
-                &type_model.graph_drop_kinds,
+                &typed_kinds,
                 &function_symbols,
                 &functions,
                 &package_return_types,
