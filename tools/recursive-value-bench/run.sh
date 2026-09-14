@@ -21,6 +21,16 @@ here="$(cd "$(dirname "$0")" && pwd)"
 mfb="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 shift
 
+# Every probe is built inside this tree (`programs/<name>/build`, and `node_copies`
+# writes its `-ncode` dump beside its project), so the run takes the same per-tree lock as
+# artifact-gate.sh / test-accept.sh (bug-470). A run in a different worktree is not
+# blocked.
+GATE_LOCK_HOLDER="recursive-value-bench/run.sh"
+GATE_LOCK_TREE="$(cd "$here/../.." && pwd)"
+# shellcheck source=../../scripts/gate-lock.sh
+. "$here/../../scripts/gate-lock.sh"
+gate_lock_acquire || exit $?
+
 all_programs="c_union_rss c_record_rss json_repeat regex_repeat json_get node_copies tree_alias deep_chain deep_build_only regex_chain"
 programs="${*:-$all_programs}"
 

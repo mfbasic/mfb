@@ -70,6 +70,11 @@ const CLASSIFICATION: &[(&str, bool, &str)] = &[
         "deletes the probe's *.ncode with `find -delete`, then cold-builds it",
     ),
     (
+        "tools/recursive-value-bench/run.sh",
+        true,
+        "builds every probe inside tools/recursive-value-bench/programs, and writes node_copies' -ncode dump beside its project",
+    ),
+    (
         "scripts/diag-set-diff.sh",
         true,
         "replays each golden's own `mfb build` against the fixture dir",
