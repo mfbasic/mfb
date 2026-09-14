@@ -503,6 +503,34 @@ Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` report
 
    Verdict: **never freed.** Each `dom::parse` leaves 8,318,848 B live — 55,609 of its
    1,706,673 allocations are never freed — while the control reads flat.
+
+   **Every stage, measured 2026-09-13** (plan-133-A Phase 2; same host, build and harness).
+   Each stage runs the worker's calls in the worker's order on the saved `BASIC` page and its
+   two stylesheets (224,723 B + 6,839 B, fetched once); earlier stages run once before the
+   loop. Leak per call = `live_bytes(2N) − live_bytes(N)` over N. "Owned" = the leak left
+   after rewriting the named bugs' sites in a scratch copy of the package
+   (`/tmp/plan-133-a/patch_dom.py`: 13 sites bound to a `LET` first; the repo is untouched).
+
+   | stage | N / 2N | leak per call (B) | alloc / free per call | owner | with bug-620/621 sites rewritten |
+   |---|---|---:|---|---|---:|
+   | parse (`dom::parse`) | 1 / 2 | 8,318,848 | 1,706,673 / 1,651,064 | bug-620, bug-621 | 0 |
+   | style links (`dom::styleLinks`) | 1 / 2 | 0 | 10 / 10 | flat | — |
+   | attach css (`dom::attachCss`) | 1 / 2 | 0 | 43,726 / 43,726 | flat | — |
+   | resolve styles (`dom::resolveStyles`) | 1 / 2 | 718,525,504 | 112,385,542 / 71,000,608 | bug-620, bug-621 | 0 |
+   | index fields (`dom::indexFields`) | 1 / 2 | 0 | 45,158 / 45,158 | flat | — |
+   | copy-back (worker → `thread::waitFor`, main arena) | 1 / 2 | 5,268,592 | 963 / 3 | bug-622 | 5,268,592 (not those sites) |
+   | links/fields (`display::links`, `dom::fieldSpecs`) | 1 / 2 | 0 | 43,339 / 43,339 | flat | — |
+   | paint (`display::paint`, incl. `dom::updateLayout`) | 1 / 2 | 89,520 | 130,509 / 129,759 | bug-620, bug-621 (87,888); canvas remainder 1,632 — CANVAS_OWNER | 1,632 |
+   | fetch (`http::read`, HTTPS, `BASIC`) | 1 / 2 / 4 | 384 | ≈5 blocks unfreed | bug-623 | — |
+   | fetch, plain HTTP over loopback (6,839-byte body) | 20 / 40 | 62,435 | 216 / 211 | bug-623 | — |
+   | control (`strings::split(html, "<")`) | 1 / 2 | 0 | 1 / 1 | flat | — |
+
+   The two shapes behind bug-620/621, each reproduced in one screen with no browser code:
+   `IF strings::lower(s) <> "zz" THEN RETURN FALSE` leaks the condition's `String` on every
+   early return (16 B per call; flat when bound to a `LET` first or when the condition is
+   false), and `DO WHILE i < n AND strings::mid(s, i, 1) <> "="` frees its condition temp once
+   per loop instead of once per pass (8 blocks per call over a 9-character run). Also filed
+   while probing: bug-624 (a package's private `TYPE` collides with a same-named program type).
 2. **Alloc vs free call counts** during one browser page load (gdb breakpoint counts on
    box 2223, or the plan-67-F perf rows on macOS). A free count near the alloc count means
    reuse is the problem; a tiny free count means values are never freed.

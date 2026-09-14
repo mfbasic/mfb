@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod canvas_image;
+pub mod debug_report;
 
 use std::fs;
 use std::io::{Read, Write};

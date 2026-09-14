@@ -11,7 +11,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-use std::path::PathBuf;
+use common::debug_report::{arena_lines, build_debug, build_debug_project, counter, run_ok};
 use std::process::Command;
 
 /// Every counter each registered arena reports, in report order.
@@ -35,63 +35,6 @@ const COUNTERS: [&str; 18] = [
     "insert_free_calls",
     "double_free_skips",
 ];
-
-/// Build `project` with `--debug` (plus `extra` flags) and return the executable
-/// (the host libc's on Linux).
-fn build_debug_project(name: &str, project: &PathBuf) -> PathBuf {
-    let output = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("--debug")
-        .arg(project)
-        .output()
-        .expect("run mfb build --debug");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    assert!(
-        output.status.success(),
-        "{name} failed to build:\n{stdout}\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let written: Vec<&str> = stdout
-        .lines()
-        .filter_map(|line| line.strip_prefix("Wrote executable to "))
-        .collect();
-    let chosen = written
-        .iter()
-        .find(|path| path.ends_with("-glibc.out"))
-        .or_else(|| written.first())
-        .unwrap_or_else(|| panic!("{name}: no executable in build output:\n{stdout}"));
-    PathBuf::from(chosen)
-}
-
-fn build_debug(name: &str, source: &str) -> PathBuf {
-    let project = common::temp_project(name, source);
-    build_debug_project(name, &project)
-}
-
-/// Run `exe`, require success, and return `(stdout, stderr)`.
-fn run_ok(name: &str, exe: &PathBuf) -> (String, String) {
-    let output = Command::new(exe).output().expect("run the program");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    assert!(
-        output.status.success(),
-        "{name} failed:\n{stdout}\n{stderr}"
-    );
-    (stdout, stderr)
-}
-
-/// The `arena.` lines of the (last) report block on `stderr`.
-fn arena_lines(case: &str, stderr: &str) -> Vec<String> {
-    let at = stderr
-        .rfind("mfb.debug.begin ")
-        .unwrap_or_else(|| panic!("{case}: no report block on stderr:\n{stderr}"));
-    stderr[at..]
-        .lines()
-        .take_while(|line| *line != "mfb.debug.end 1")
-        .filter(|line| line.starts_with("arena."))
-        .map(str::to_string)
-        .collect()
-}
 
 /// The registration shape: totals and each arena's kind, with every counter of every
 /// arena present as an integer.
@@ -123,16 +66,6 @@ fn registration(case: &str, lines: &[String]) -> Vec<String> {
         })
         .cloned()
         .collect()
-}
-
-/// `arena.<index>.<counter>` of `lines`.
-fn counter(case: &str, lines: &[String], index: usize, name: &str) -> u64 {
-    let key = format!("arena.{index}.{name} ");
-    lines
-        .iter()
-        .find_map(|line| line.strip_prefix(&key))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or_else(|| panic!("{case}: no `{key}<n>` in {lines:?}"))
 }
 
 /// Three `thread::start` workers plus the main thread: four arenas, registered in

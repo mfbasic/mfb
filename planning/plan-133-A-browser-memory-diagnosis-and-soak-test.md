@@ -252,10 +252,19 @@ Commit: —
 
 ### Phase 2 — every stage
 
-- [ ] Run the remaining §4.2 stages at N and 2N (N chosen per stage so the 2N run finishes
+- [x] Run the remaining §4.2 stages at N and 2N (N chosen per stage so the 2N run finishes
       under 60 s on the host; record N). Check per stage: two report files (~1–2 min each).
-- [ ] § 2 table: stage, N, leak per call (bytes), `alloc_calls`/`free_calls` per call,
-      verdict.
+      — `out/{stylelinks,attachcss,resolve,index,linksfields,paint,copyback,fetch}-{1,2}.report`
+      (fetch also N=4); N=1/2 everywhere because the setup parse alone takes ~40 s, so every
+      2N run exceeds 60 s (resolve 64 s, copy-back 75 s). Added: plain-HTTP fetch over
+      loopback (N=20/40), and a Main_Page copy-back run for Phase 3 (`copyback_mp`).
+- [x] § 2 table: stage, N, leak per call (bytes), `alloc_calls`/`free_calls` per call,
+      verdict. — `planning/todo.md` § 2 item 1, "Every stage": leaks in parse 8,318,848,
+      resolve 718,525,504, copy-back 5,268,592, paint 89,520, fetch 384 (HTTPS) / 62,435
+      (HTTP); flat: style links, attach css, index fields, links/fields, control.
+- [x] Added task: prove ownership by rewriting the suspected sites in a scratch package copy
+      and re-measuring — `/tmp/plan-133-a/patch_dom.py` (13 sites): parse 13,520 → 13,520,
+      resolve 13,520 → 13,520, BASIC paint leak 89,520 → 1,632 B per call.
 - [ ] For each leaking stage, run the write-bug skill and file `bugs/bug-NNN-<slug>.md`
       with a one-screen repro and both measurements. Before filing, check the open bugs and
       `planning/bug-backlog.md` for the same shape (`grep -rli` on the leaking value's type
