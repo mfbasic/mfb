@@ -79,6 +79,21 @@ Package form: package `deflib` with `LET Limit AS Integer = 5` and
 | exported package function, default reads a package global | build fails ✗ internal CONST_POOL error |
 | literal default (`x AS Integer = 5`) | works ✓ (the common case) |
 
+**Added 2026-09-13 while planning the fix** (release binary, macOS aarch64; programs in
+`planning/plan-136-A-default-declaration-scope.md` §Verified properties):
+
+| Case | Result |
+| --- | --- |
+| default calls a function (`= helper()`), caller has `LET helper = LAMBDA() -> 99` | wrong ✗ prints `99` |
+| default names an earlier parameter (`b AS Integer = a`) | build fails ✗ unlocated `NIR local reference 'a' does not resolve` |
+| importer omits a **literal** package default (`deflib::f()`, `f(x AS Integer = 5)`) | wrong ✗ prints `4374773792` |
+| importer omits a literal `String` package default (`deflib::g(1)`) | crash ✗ exit 139 |
+| omitted `LINK` function default (`absval()`, `n AS Integer = -5`) | runtime error ✗ `7-705-0010` |
+| lambda parameter default (`LAMBDA(x AS Integer = 4)`) | silently ignored ✗ |
+
+An importer never fills an omitted package default at all: `ir::lower::lower_facts` builds external
+call parameters with `default: None` from a `has_default: bool` that carries no value.
+
 ## Root Cause
 
 Two mechanisms:
@@ -199,9 +214,22 @@ Commit: —
 
 ## Open Decisions
 
-1. Package form: extend the `.mfp` to carry non-constant defaults, vs. refuse a
+1. ~~Package form: extend the `.mfp` to carry non-constant defaults, vs. refuse a
    non-constant default in an `EXPORT`ed function with a located diagnostic.
-   Recommend the diagnostic now and a plan later if the form is wanted.
+   Recommend the diagnostic now and a plan later if the form is wanted.~~
+
+**DECIDED by the owner, 2026-09-13.** The fix is **plan-136** (A–C), which closes this bug:
+
+- A default's names resolve **where the function is declared**, never through a caller's scope,
+  and it is evaluated **on each call**.
+- A default is external: it may **not** name any parameter of its function (a located error).
+- **Packages and executables behave identically**, so the `.mfp` carries non-constant defaults
+  (not a diagnostic).
+- A local binding may **not** share a name with a visible top-level `LET`/`MUT` (a located error),
+  so this bug's own program becomes a compile error; the function-call shape above stays a runtime
+  regression test.
+
+The Fix Design and Phases sections above predate the decision; plan-136 supersedes them.
 
 ## Summary
 

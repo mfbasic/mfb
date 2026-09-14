@@ -10,7 +10,7 @@ below is read from the bug doc and `git log`; no repro was re-run for this updat
 
 | Bug | Sev | Effort | Status | Next |
 |---|---|---|---|---|
-| 614 | MED | medium | Filed 2026-09-13, not started. A parameter default naming a global reads a caller's same-named local (silent wrong value); in an exported package function it fails with an unlocated `CONST_POOL` error | **Owner decision** (below): package form |
+| 614 | MED | x-large | **Planned: plan-136 A–C** (decided 2026-09-13). A default reads a caller's same-named local; package defaults are never filled (a literal one prints garbage or crashes), `LINK` defaults are never passed, lambda defaults are dropped | Work plan-136-A |
 | 608 | MED | small–medium | Not started. Nine `udp` forms declare `errors: vec![]` but raise | Phase 1 must establish whether any form is inline-lowered (a deleted handler) |
 | 564 | MED | small | Both sightings fixed. A macOS `tls::write` after `tls::read` saw the close never raises. **Decided 2026-09-12**: raise `ErrConnectionClosed`. Not started | Network.framework side; measure Linux and Windows on the same sequence |
 | 540 | MED | large | WIN-01/04/05 fixed; WIN-02/03 (fixed 80x25, no `didResize`) remain | **Owner decision**: a test-only `term::` resize hook |
@@ -127,10 +127,10 @@ neither filed it), 594 (macOS `drawText` column), 592.
 - **bug-610** (added 2026-09-13): should an explicit second `canvas::destroyImage`/`destroyFont`
   raise `ErrResourceClosed` like every other close, or should `mfb spec language
   resource-management` §15 gain a canvas exception? Spec and code must agree either way.
-- **bug-614** (added 2026-09-13): should a package function's non-constant default that reads a
-  package global be carried in the `.mfp`, or refused at package build with a located
-  diagnostic? The doc recommends the diagnostic now, and a plan later if the form is wanted.
-  The non-package half (resolve defaults in declaration scope) needs no decision.
+- ~~**bug-614**~~ — **DECIDED 2026-09-13:** defaults resolve at the declaration and run on each
+  call; they may not name a parameter; packages behave like executables (the `.mfp` carries
+  non-constant defaults); and no local may share a name with a visible top-level `LET`/`MUT`.
+  Work is **plan-136** (A–C).
 - **A clippy CI job**: four deny-level errors reached main because nothing runs clippy.
 
 ### What the integration rounds taught
