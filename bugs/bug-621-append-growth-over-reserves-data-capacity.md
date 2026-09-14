@@ -32,7 +32,8 @@ References:
 
 - `.ai/collections.md` — "In-place MUT append", "Headroom" (`emit_geometric_step`
   growth shape), "A fixed-width list is entry-FREE".
-- `planning/plan-137-compress.md` — the plan whose measurement found this.
+- `planning/plan-137-A-compress-package-crc32.md` — the plan whose measurement found this
+  (bug-621 is its whole-feature prerequisite).
 - Commit `ce000592b` (plan-01 Ph3+4, 2026-06-25) introduced the growth constants with the
   comment "Lookup slots and data bytes grow independently"
   (`src/codegen/error/constants/error_constants.rs:COLLECTION_GROW_DATA_INIT`).
