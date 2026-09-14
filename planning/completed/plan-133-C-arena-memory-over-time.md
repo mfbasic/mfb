@@ -190,7 +190,7 @@ Commit: e12c1b45f
       builds are unchanged), `scripts/test-accept.sh target/release/mfb /tmp/p133-accept`.
 
 Acceptance: `EXIT=0`; gate `0 diff(s)`; acceptance passes except the recorded baseline.
-Commit: 6c0926c14 (the suite record's commit is named in the archive commit)
+Commit: 6c0926c14, 8d8894477, 2599e18d0 (suite records; landed on main by fast-forward)
 
 ## Validation Plan
 
