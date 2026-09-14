@@ -242,11 +242,15 @@ same discipline as a scalar `Integer` word: the pointer is written verbatim on
 insert, read back verbatim on `get`, and `memcpy`-copied when the collection is
 copied — the closure object it points at is **never deep-copied on insert and
 never freed when the collection is dropped**. A function value therefore
-matches the `List OF Integer` flatness class (`type_is_flat` is true for a function
-type), so a `List`/`Map` of function values is itself a flat block whose scope-drop
-`arena_free` reclaims only the packed pointer array, leaving every referenced
-closure object owned by the arena. A record **field** of function type is likewise
-a bare 8-byte slot and is unaffected. [[src/codegen/engine/types/type_utils.rs:is_function_type]] [[src/codegen/collection/layout/builder_collection_layout.rs:emit_payload_length_to_stack]]
+matches the `List OF Integer` flatness class. `type_is_memcpy_copyable` is true for
+a function type: the flatness walk sends `Func` to its model lookup, and a function
+type is not a record, a union or `Error`, so it takes the scalar answer. A
+`List`/`Map` of function values is therefore itself a flat block, which
+`is_freeable_flat_value` hands to scope-drop. Its `arena_free` reclaims only the
+packed pointer array, leaving every referenced closure object owned by the arena;
+a bare function value is never freed by that path. A record **field** of function
+type is likewise a bare 8-byte slot and is unaffected.
+[[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]] [[src/codegen/collection/layout/builder_collection_layout.rs:named_field_is_pointer]] [[src/codegen/engine/value/builder_values.rs:is_freeable_flat_value]] [[src/codegen/collection/layout/builder_collection_layout.rs:emit_payload_length_to_stack]]
 
 ### Capacity Headroom and Growth
 
