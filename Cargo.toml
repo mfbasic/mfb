@@ -675,6 +675,10 @@ name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
 
 [[test]]
+name = "rt_debug_soak"
+path = "tests/runtime/rt_debug_soak.rs"
+
+[[test]]
 name = "rt_debug_report"
 path = "tests/runtime/rt_debug_report.rs"
 

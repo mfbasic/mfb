@@ -1,4 +1,4 @@
-# bug-625: every AttributedString value leaks one 48-byte block when it is dropped
+# bug-625: astrings::fromString leaks its empty spans list (48 B per AttributedString)
 
 Last updated: 2026-09-13
 Effort: medium (1h–2h)
@@ -8,9 +8,10 @@ Class: Correctness (memory)
 Status: Open
 Regression Test: tests/runtime/rt_scope_drop_leaks.rs (to add, Phase 1); tests/runtime/rt_debug_soak.rs (`a_paint_loop_keeps_live_bytes_constant`, plan-133-A)
 
-An `AttributedString` built by `astrings::fromString` and then dropped leaves one 48-byte
-block live. It doesn't matter whether the value was bound to a `LET`, was an element of a
-`List OF AttributedString`, or was a record field. A terminal UI that repaints rows as
+Every `AttributedString` built by `astrings::fromString` leaves one 48-byte block live after
+the value is dropped. The block is the empty `spans` list the constructor builds and copies
+into the record but never frees (§ Root Cause). It doesn't matter whether the value was bound
+to a `LET`, was an element of a `List OF AttributedString`, or was a record field. A terminal UI that repaints rows as
 attributed strings leaks one block per row per repaint. The browser example's
 `display::paint` leaks 1,632 B per paint of the `BASIC` page this way (plan-133-A § 2).
 
@@ -62,12 +63,29 @@ Shapes (N=1000 → 2000):
 
 ## Root Cause
 
-Not localized yet. The hypothesis: `astrings::fromString` allocates a small internal block
-(an attribute-run list, or a header) that the `AttributedString` drop does not walk. The
-drop frees the value's other blocks and the concat temp (3 of the 4 allocations), but not
-this one. To confirm: read the `AttributedString` layout that `astrings` emits, and the drop
-path its binding and its list elements get. Find which of the 4 allocations is the 48 B block
-and why its free is missing.
+The leak is in the constructor, not the drop (from reading the code, plan-133-A; the fixed
+48 B size and the 3-of-4 free count both agree).
+
+- `AttributedString` is an ordinary two-field record, `text AS String` plus
+  `spans AS List OF AttrSpan` (`src/codegen/engine/validation/validation.rs`). Every field is
+  flat, so `is_freeable_flat_value` is true, and the binding's drop
+  (`emit_owned_value_drop`, `src/codegen/cleanup/owned/builder_owned_cleanup.rs`) makes one
+  `arena_free` of the record block. That is correct, because the record holds its fields inline.
+- `lower_astrings_from_string` (`src/codegen/builtins/astrings/gen_astrings.rs`) calls
+  `lower_empty_collection(List OF AttrSpan)`, which allocates a list block of
+  `COLLECTION_HEADER_SIZE` (40 B, rounded to 48 B). It then calls `emit_build_inlined_record`,
+  which **byte-copies** that list into the new record. The source list is never freed, and it
+  is not a pending temp either, because it was built inside the inline body rather than
+  through `lower_value`.
+- The four allocations per iteration are `toString(i)`, the `&` concat, the empty list and the
+  record. The two statement temps are freed at the end of the statement, and the record when
+  its binding drops. The list is the one left over.
+- Other builders free their field sources after `emit_build_inlined_record`: the record
+  constructor calls `drop_pending_temps_to(arg_temp_watermark)` (`builder_values.rs`),
+  `func_partition.rs` calls `free_intermediate_collection` on both lists, and `func_zip.rs`
+  frees its items and pair. `fromString` has no such step.
+- The drop size cannot be the cause: a missed text or record block would grow with the text
+  ("ab0" … "ab1999"), but the leak stays 48 B.
 
 ## Goal
 
@@ -82,16 +100,28 @@ and why its free is missing.
 
 ## Blast Radius
 
-- Every `astrings` constructor and transformer (`fromString`, `addAttribute`, …): audit in
-  Phase 1 for the same missing free.
-- `List OF AttributedString` element drops and record-field drops: fixed by the same drop.
+- `lower_astrings_from_string` — fixed by this bug.
+- Every other inline builder that builds a field value internally (with
+  `lower_empty_collection` / `lower_collection_values`) and hands it to
+  `emit_build_inlined_record`: the same hazard. `grep -rn "emit_build_inlined_record(" src`
+  lists 11 call sites, including `vector/builder_vector_inline.rs` and
+  `crypto/func_generate.rs`. Give each a verdict in Phase 1.
+- `astrings::writeSpans` — unaffected: its spans list arrives as an argument through
+  `lower_value`, so it is a pending temp and gets freed.
+- `List OF AttributedString` element drops and record-field drops — unaffected. The drop is
+  correct; each element leaked because its constructor did.
 - `term` / `app` APIs taking `AttributedString` rows (the browser's screen): consumers, and
   unaffected by the fix.
 
 ## Fix Design
 
-Once Phase 1 names the block, have the `AttributedString` drop free it, on every path that
-drops the type: binding, temp, collection element, and record field.
+In `lower_astrings_from_string`, after the record build: keep the record pointer, free the
+source list with `free_intermediate_collection` (as `func_partition.rs` does), then reload the
+pointer. Alternatively, register the list as a pending temp so the statement-end drop frees it.
+
+Rejected: changing the `AttributedString` drop to walk `spans`. The record holds the list
+inline, so the drop is already right, and walking it would free inline bytes as if they were a
+separate block.
 
 ## Phases
 
@@ -99,14 +129,17 @@ drops the type: binding, temp, collection element, and record field.
 
 - [ ] `rt_scope_drop_leaks.rs`: the three shapes above, plus a value with an attribute, N vs 2N;
       confirm each fails.
-- [ ] Localize the leaked block and cite the drop path here; audit the other constructors.
+- [ ] Confirm the Root Cause by measurement (a throwaway free of the list in
+      `lower_astrings_from_string` makes `as2_single` flat), and give each of the 11
+      `emit_build_inlined_record` call sites a verdict.
 
-Acceptance: the cases fail for the documented reason; Root Cause names the block and the path.
+Acceptance: the cases fail for the documented reason; the audit list has a verdict per site.
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Free the block in the `AttributedString` drop.
+- [ ] Free the source `spans` list in `lower_astrings_from_string`, and in any audited sibling
+      builder found to leak the same way.
 
 Acceptance: Phase 1 cases flat; `double_free_skips 0`; `astrings` suites green.
 Commit: —

@@ -28,7 +28,7 @@ See plan-133-A § Prerequisites. Additionally:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-133-B complete | `ls planning/completed/plan-133-B-*` → one match | NOT MET |
-| Boxes 2223, 2227, 2229, 2230 reachable | `for p in 2223 2227 2229 2230; do ssh -o ConnectTimeout=8 -p $p test@127.0.0.1 true && echo $p ok; done` → four `ok` | NOT MET (2026-09-13: 2223, 2227, 2229 ok; 2230 FAIL) — gates C only; re-check before C |
+| Boxes 2223, 2227, 2229, 2230 reachable | `for p in 2223 2227 2229; do ssh -o ConnectTimeout=8 -o BatchMode=yes -p $p test@127.0.0.1 true && echo $p ok; done; ssh -o ConnectTimeout=8 -o BatchMode=yes -p 2230 test@127.0.0.1 ver && echo 2230 ok` → four `ok` (2230 is Windows: `true` does not exist there, `ver` does) | MET (2026-09-13: 2223, 2227, 2229 `true` ok; 2230 `ver` → `Microsoft Windows [Version 10.0.26100.9445]`, exit 0) — gates C only; re-check before C |
 
 ## 1. Goal
 
@@ -175,6 +175,15 @@ Commit: —
   `--debug`-time knob, not worth a flag yet.
 
 ## Corrections
+
+- **2026-09-13 — the box-reachability command was wrong for Windows box 2230.** It ran
+  `ssh … -p 2230 test@127.0.0.1 true`, and `true` is not a Windows command. The row read
+  NOT MET, but ssh had connected and authenticated. The failure was the remote shell:
+  stderr was `'true' is not recognized as an internal or external command, operable program
+  or batch file.` Re-measured with `ssh -o ConnectTimeout=8 -o BatchMode=yes -p 2230
+  test@127.0.0.1 ver`, which printed `Microsoft Windows [Version 10.0.26100.9445]` and exited 0.
+  The Prerequisites row now runs `ver` on 2230 and `true` on the three Linux boxes. Status:
+  MET. It is still to be re-checked before C starts.
 
 ## Summary
 

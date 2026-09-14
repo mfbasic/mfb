@@ -482,6 +482,23 @@ Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` report
 3. **Add an app-sized soak test**: a large parse or long server loop whose peak RSS must stay
    flat across iteration counts. The existing leak tests only cover small code shapes, so
    none of the Bucket List was caught. It fails today and tells you when a fix works.
+   **Landed (plan-133-A, 2026-09-13): `tests/runtime/rt_debug_soak.rs`.** Each case builds a
+   workload at N and 2N with `--debug` and requires the main arena's `live_bytes` to grow by
+   less than 1 MiB. It asserts on `live_bytes`, not RSS, because RSS is 4× `mapped_bytes` on
+   Apple Silicon (Bucket List 12a). Status from one full run of that test binary with
+   `-- --include-ignored` (release build, 2026-09-13): 2 passed, 5 failed as intended, 144 s.
+
+   | case | N / 2N | status |
+   |---|---|---|
+   | `a_flat_split_loop_keeps_live_bytes_constant` (control) | 20 / 40 | passes |
+   | `a_json_parse_loop_keeps_live_bytes_constant` (plan-134 guard, 1.1 MiB array) | 20 / 40 | passes |
+   | `a_dom_parse_loop_keeps_live_bytes_constant` (saved `BASIC` page) | 1 / 2 | `#[ignore]` bug-620/621; fails: +8,318,848 B |
+   | `a_resolve_styles_loop_keeps_live_bytes_constant` (generated page, 60 rules) | 4 / 8 | `#[ignore]` bug-620/621; fails: +24,608,640 B |
+   | `a_thread_copy_back_loop_keeps_live_bytes_constant` | 400 / 800 | `#[ignore]` bug-622; fails: +2,912,000 B |
+   | `an_http_read_loop_keeps_live_bytes_constant` (loopback plain HTTP) | 20 / 40 | `#[ignore]` bug-623; fails: +1,314,240 B |
+   | `a_paint_loop_keeps_live_bytes_constant` (small styled page, layout + canvas) | 2000 / 4000 | `#[ignore]` bug-620/621 + bug-625; fails: +1,920,000 B (960 B per paint) |
+
+   Each bug's fix removes its case's `#[ignore]` as its acceptance.
 
 ### 2. Find the browser's actual problem
 

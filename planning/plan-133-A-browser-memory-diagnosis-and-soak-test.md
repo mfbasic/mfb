@@ -282,7 +282,7 @@ Commit: ad6d737bc
 
 Acceptance: every stage has a row with an owner (a bug number, or "flat"); every filed bug
 has a failing reproduction per the write-bug skill.
-Commit: —
+Commit: c8a650372, a6b7d9c95
 
 ### Phase 3 — reconcile with the real worker
 
@@ -308,7 +308,16 @@ Commit: aef062601
 
 ### Phase 4 — the soak test and the Bucket List
 
-- [ ] `tests/runtime/rt_debug_soak.rs` with the §4.3 cases, marked per Open Decision 1.
+- [x] `tests/runtime/rt_debug_soak.rs` with the §4.3 cases, marked per Open Decision 1.
+      — `cargo test --release --test rt_debug_soak -- --include-ignored` → EXIT=101,
+      `2 passed; 5 failed` in 143.54 s. Passed: `a_flat_split_loop…`, `a_json_parse_loop…`.
+      Failed with their bug messages: dom parse +8,318,848 B (bug-620/621), resolve
+      +24,608,640 B (bug-620/621), paint +1,920,000 B (bug-620/621/625), thread copy-back
+      +2,912,000 B (bug-622), http +1,314,240 B (bug-623). The dom case is bug-marked because
+      Phase 1 found `dom::parse` not flat. Resolve, paint, thread and http cases were added
+      (one per leaking stage). The dom case runs N=1/2 (Corrections). Helpers moved to
+      `tests/common/debug_report.rs` (Open Decision 2). Input committed as
+      `tests/runtime/data/rt_debug_soak_basic.html`.
       Check: `cargo test --release --test rt_debug_soak -- --include-ignored` → the flat,
       json and (if flat) dom cases pass, and each bug-marked case fails with its bug's
       message (~3 min).
@@ -316,7 +325,9 @@ Commit: aef062601
       16 KiB pages on Apple Silicon; the JSON probe numbers) under "Look into". — item 12a
       (page sizes 16,384 vs 4,096; 269,946 maps × 16,384 = 4,422,795,264 B vs peak RSS
       4,452,155,392 B).
-- [ ] `planning/todo.md` § 1 item 3: record the test name and its status.
+- [x] `planning/todo.md` § 1 item 3: record the test name and its status. — "Landed
+      (plan-133-A, 2026-09-13)", with a status row per case from the full run above.
+      `git grep -n "rt_debug_soak" planning/todo.md` → exactly one match (line 485).
 
 Acceptance: the check above passes every unmarked case and fails every bug-marked case with
 its message; `git grep -n "rt_debug_soak" planning/todo.md` → one match.
