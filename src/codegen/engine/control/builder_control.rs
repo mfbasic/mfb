@@ -607,9 +607,11 @@ impl CodeBuilder<'_> {
                         // carries the whole trapped `Error` inline. §14 preamble: every
                         // live value is owned by exactly one temporary; §14.7: it drops
                         // on every scope edge. This names the owner. It ADDS the one
-                        // wrapper free and moves no lifetime: the payload is never
-                        // walked, and the Ok wrapper of an inlined block payload — which
-                        // `ResultValue` hands the binding as an alias — is kept.
+                        // wrapper free and moves no lifetime: the Ok wrapper of an inlined
+                        // block payload — which `ResultValue` hands the binding as an
+                        // alias — is kept. A recursive payload is the exception: every
+                        // owning store graph-copies it, so the wrapper is its only owner
+                        // and drops its graph (plan-134, `OkGraphPayload`).
                         let result_wrapper = match (type_, value.as_ref()) {
                             (
                                 ParameterType::ResultOf(payload),
@@ -620,7 +622,9 @@ impl CodeBuilder<'_> {
                                 && !runtime_managed
                                 && !promote_vector =>
                             {
-                                Some(if self.result_payload_is_block(payload) {
+                                Some(if self.owns_graph(payload) {
+                                    ResultWrapperDrop::OkGraphPayload
+                                } else if self.result_payload_is_block(payload) {
                                     ResultWrapperDrop::ErrorOnly
                                 } else {
                                     ResultWrapperDrop::Always

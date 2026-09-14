@@ -530,11 +530,14 @@ impl CodeBuilder<'_> {
         // `ValueResult` names — the `Result` block the enclosing node yields is a
         // different operand — so `claim_pending_temp` can never mistake this temp
         // for the one an owning binding took over.
+        // plan-134: a recursive payload's top block was byte-copied into the `Result`, so
+        // the graph it points into moved with those bytes — only the block itself is dead.
+        let shallow = !self.is_freeable_flat_value(type_) && self.owns_graph(type_);
         self.pending_temp_frees.push(PendingTemp {
             type_: type_.clone(),
             slot,
             location: Operand::from(pointer.render()),
-            shallow: false,
+            shallow,
         });
     }
 

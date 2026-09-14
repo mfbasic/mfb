@@ -225,6 +225,37 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// plan-134: when the inline-`TRAP` `Result` wrapper whose non-null pointer is in `slot` is
+    /// Ok, free the graph its recursive payload (inlined at +16) points into, leaving the
+    /// payload's bytes to the wrapper's own free (`ResultWrapperDrop::OkGraphPayload`).
+    pub(crate) fn emit_ok_result_payload_edges_drop(
+        &mut self,
+        result_type: &ParameterType,
+        slot: usize,
+    ) -> Result<(), String> {
+        let ParameterType::ResultOf(payload) = result_type else {
+            return Err(format!("'{result_type}' is not a Result wrapper"));
+        };
+        let kind = self
+            .graph_drop_kind(payload)
+            .ok_or_else(|| format!("the graph drop has no kind for '{payload}'"))?;
+        let skip = self.label("result_payload_drop_skip");
+        let tag = self.temporary_vreg();
+        self.emit(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), slot));
+        self.emit(abi::load_u64(&tag, abi::c_arg(1), 0));
+        self.emit(abi::compare_immediate(&tag, RESULT_OK_TAG));
+        self.emit(abi::branch_ne(&skip));
+        self.emit(abi::add_immediate(abi::c_arg(1), abi::c_arg(1), 16));
+        self.emit(abi::move_immediate(
+            abi::c_arg(0),
+            "Integer",
+            &kind.to_string(),
+        ));
+        self.emit_symbol_call(GRAPH_DROP_EDGES_SYMBOL);
+        self.emit(abi::label(&skip));
+        Ok(())
+    }
+
     /// plan-134-G: free only the block whose pointer is in `slot` — a recursive record or union
     /// whose bytes a store copied, so the graph it points into now belongs to that store's
     /// owner. Null-guarded and free-and-null.
@@ -233,6 +264,10 @@ impl CodeBuilder<'_> {
         type_: &ParameterType,
         slot: usize,
     ) -> Result<(), String> {
+        // The null guard is sound only if the slot reads 0 on every path that did not store
+        // it — an inline-`TRAP` payload temp is written on the Ok path alone — so the slot
+        // joins the prologue zero-init, as `emit_owned_value_drop` does for its own (bug-246).
+        self.owned_value_slots.push(slot);
         let skip = self.label("shallow_block_free_skip");
         let pointer = self.temporary_vreg();
         self.emit(abi::load_u64(&pointer, abi::stack_pointer(), slot));

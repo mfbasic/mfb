@@ -796,8 +796,8 @@ pub(crate) struct OwnedValueCleanup {
     /// wrapper an inline `TRAP` built for a `Result OF T` whose `T` is not a flat
     /// value (a resource, or a collection of a recursive type), so
     /// `is_freeable_flat_value` gave the bind no drop at all.
-    /// The drop frees the one wrapper block by the size word at +8 and never walks
-    /// into its payload; see [`ResultWrapperDrop`] for which paths it covers.
+    /// The drop frees the one wrapper block by the size word at +8, walking into its
+    /// payload only for a recursive one; see [`ResultWrapperDrop`] for which paths it covers.
     ///
     /// `None` everywhere else.
     pub(crate) result_wrapper: Option<ResultWrapperDrop>,
@@ -818,6 +818,13 @@ pub(crate) enum ResultWrapperDrop {
     /// (`ResultError` is an aliasing source) exactly as it does for a flat `T`,
     /// so it is released when the tag is not Ok.
     ErrorOnly,
+    /// plan-134: the Ok payload is a recursive value (`owns_graph`) inlined at +16 — its top
+    /// block's bytes, pointing into a graph only the wrapper holds. Nothing aliases into it:
+    /// `ResultValue` is an aliasing source, so every owning store graph-copies it
+    /// (`lower_value_owned`, plan-134-D). On the Ok path the payload's edges are dropped
+    /// (`_mfb_rt_graph_drop_edges`, its bytes stay with the wrapper), and the wrapper is
+    /// released whatever its tag.
+    OkGraphPayload,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free

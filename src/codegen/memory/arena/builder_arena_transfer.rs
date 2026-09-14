@@ -295,7 +295,13 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&copied, abi::stack_pointer(), payload_slot));
                 self.emit(abi::compare_registers(&produced, &copied));
                 self.emit(abi::branch_eq(&kept));
-                self.emit_free_flat_block_from_slot(&success, value_slot)?;
+                // plan-134: the copy above is a whole new graph, so a recursive producer
+                // frees its whole graph too.
+                if self.owns_graph(&success) {
+                    self.emit_graph_value_drop(&success, value_slot)?;
+                } else {
+                    self.emit_free_flat_block_from_slot(&success, value_slot)?;
+                }
                 self.emit(abi::label(&kept));
             }
         }

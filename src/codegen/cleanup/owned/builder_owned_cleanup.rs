@@ -347,6 +347,9 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_immediate(&tag, RESULT_OK_TAG));
             self.emit(abi::branch_eq(&skip));
         }
+        if cleanup.result_wrapper == Some(ResultWrapperDrop::OkGraphPayload) {
+            self.emit_ok_result_payload_edges_drop(&cleanup.type_, cleanup.stack_offset)?;
+        }
         let size_slot = self.allocate_stack_object("owned_value_free_size", 8);
         // The slot already holds the block pointer; size it from the type.
         self.emit_inlined_block_size_from_ptr_slot(
