@@ -24,7 +24,7 @@ example values in `0`–`127` produce one byte, `128`–`16383` produce two byte
 and so on.
 
 `value` must be non-negative; unsigned LEB128 has no representation for negative
-numbers. Use `encoding::sleb128Encode` for signed values. The inverse operation
+numbers, so a negative `value` raises `ErrInvalidFormat`. Use `encoding::sleb128Encode` for signed values. The inverse operation
 is `encoding::uleb128Decode`, which reads one unsigned LEB128 sequence back into
 an `Integer`."#;
 #[rustfmt::skip]
@@ -71,7 +71,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "The non-negative integer to encode.",
+                desc: "The non-negative integer to encode. A negative value raises `ErrInvalidFormat`.",
                 aliases: &[],
                 ty: ParameterType::Integer,
                 default: DefaultValue::None,

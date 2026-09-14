@@ -22,11 +22,12 @@ below `128`), which terminates the sequence. Any bytes after that terminator are
 ignored.
 
 `data` must contain at least one byte, and the sequence must be terminated
-within it: if the bytes run out before a byte with a clear high bit is seen, the
-input is treated as truncated. The accumulated shift may not exceed 63 bits;
-a sequence encoding more than 64 significant bits overflows. `data` carries only
-magnitude, so the result is always non-negative — use `encoding::sleb128Decode`
-for signed values."#;
+within it: an empty list, or bytes that run out before a byte with a clear high
+bit is seen, raise `ErrInvalidFormat`, as does a sequence longer than ten bytes.
+Keep values within `9223372036854775807`: a tenth byte that reaches bit 63 or
+beyond is not currently rejected, so it can decode to a negative number or lose
+its high bits (nine `0xFF` bytes then `0x01` decode to `-1`). Use
+`encoding::sleb128Decode` for signed values."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_uleb128Decode(data AS List OF Byte) AS Integer
@@ -94,7 +95,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "data",
-                desc: "The ULEB128 bytes to decode.",
+                desc: "The ULEB128 bytes to decode: a non-empty, terminated sequence. Bytes after the terminating byte are ignored.",
                 aliases: &[],
                 ty: ParameterType::list_of(ParameterType::Byte),
                 default: DefaultValue::None,

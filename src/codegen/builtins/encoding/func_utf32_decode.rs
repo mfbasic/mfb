@@ -19,8 +19,8 @@ list decodes to the empty string.
 Every element must be a valid Unicode scalar. A code point is rejected when it is
 negative or greater than `1114111` (`0x10FFFF`), or when it lies in the surrogate
 range `55296..57343` (`0xD800..0xDFFF`) — surrogates are not scalar values and
-cannot appear on their own in UTF-32. Any such element fails rather than
-producing replacement text. The elements are treated as numeric code points, not
+cannot appear on their own in UTF-32. Any such element raises
+`ErrInvalidFormat` rather than producing replacement text. The elements are treated as numeric code points, not
 a byte serialization, so no byte order (endianness) or byte-order mark applies.
 
 
@@ -76,7 +76,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "The Unicode scalar values to decode.",
+                desc: "The Unicode scalar values to decode. Each must be in `0`–`1114111` and outside `55296`–`57343`; any other element raises `ErrInvalidFormat`.",
                 aliases: &[],
                 ty: ParameterType::list_of(ParameterType::Integer),
                 default: DefaultValue::None,

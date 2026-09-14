@@ -15,15 +15,14 @@ corresponding text. Because MFBASIC strings are always well-formed UTF-8, the
 input is validated in full before the string is produced: `utf8Decode` accepts
 only a well-formed UTF-8 sequence and rejects an invalid lead byte, a missing or
 stray continuation byte, a truncated multi-byte sequence, an overlong encoding, a
-surrogate code point (`U+D800`–`U+DFFF`), and any scalar above `U+10FFFF`. The
-empty list decodes to the empty string.
+surrogate code point (`U+D800`–`U+DFFF`), and any scalar above `U+10FFFF` — each
+raises `ErrInvalidFormat`. The empty list decodes to the empty string.
 
 
 `utf8Decode` is a **parameter overload** selected by the argument's element type:
 a `List OF Byte` is decoded directly, while a `List OF Integer` is first checked
-element by element — each unit must lie in `0..255` — then decoded. The overload
-is settled once the argument type is known, so the selection is a compile-time decision,
-not a runtime dispatch.
+element by element — each unit must lie in `0..255`, and one outside that range
+raises `ErrInvalidFormat` — then decoded.
 
 It is the inverse of `encoding::utf8Encode`: decoding the bytes (or integers)
 that `utf8Encode` produced reconstructs the original string, and any string
@@ -60,7 +59,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     // in `package.mfb`.
     let value = |ty: ParameterType| Parameter {
         name: "value",
-        desc: "The UTF-8 byte or code-unit sequence to decode.",
+        desc: "The UTF-8 byte or code-unit sequence to decode. Integer code units must be `0`–`255`; an empty list gives the empty string.",
         aliases: &[],
         ty,
         default: DefaultValue::None,

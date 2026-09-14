@@ -25,9 +25,10 @@ it never fails on its own; every error surfaces from the underlying LEB128 read.
 
 
 `data` must contain at least one byte, and the sequence must be terminated within
-it: if the bytes run out before a byte with a clear high bit is seen, the input
-is treated as truncated. The accumulated shift may not exceed 63 bits; a sequence
-encoding more than 64 significant bits overflows. Any bytes after the terminator
+it: an empty list, or bytes that run out before a byte with a clear high bit is
+seen, raise `ErrInvalidFormat`, as does a sequence longer than ten bytes. A tenth
+byte carrying bits beyond the 64th is not currently rejected, and those bits are
+lost (nine `0x80` bytes then `0x02` decode to `0`). Any bytes after the terminator
 are ignored."#;
 #[rustfmt::skip]
 const BODY: &str =

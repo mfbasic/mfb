@@ -95,6 +95,7 @@ the shared rejecting percent decoder, which raises `ErrInvalidFormat`.
   | `utf8Decode` | `helper_utf8_decode.rs`; probe `utf8Decode([255])` and `utf8Decode([195])` → `77050003` |
   | `utf16Decode` | 4 in its body; probe on a lone surrogate `[0xD800]` → `77050003` |
   | `utf32Decode` | 2 in its body |
+  | `uleb128Encode` (an encoder, same defect) | 1 `FAIL error(77050003, …)` in its body; probe `uleb128Encode(-1)` → `77050003` (`/tmp/p125-ex/ulebneg`). Every other `encoding` encoder (`utf8Encode`, `utf16Encode`, `utf32Encode`, `varintEncode`, …) also declares `errors: vec![]`, but those are total and correct to declare none |
   | `htmlUnescape` (not named `*Decode`, same defect) | 2 `FAIL error(77050003, …)` in its body: probes `&#;`, `a &amp b`, `&#1114112;` and `&nosuch;` → `77050003`. It also raises **`ErrEncoding`** for a surrogate reference (`&#55296;` → `77020004`); that error is not declared either (`/tmp/p125-ex/enchtml`) |
 
   Probes: `/tmp/p125-ex/encclaims`, `/tmp/p125-ex/encb32`, `/tmp/p125-ex/utf8err`.

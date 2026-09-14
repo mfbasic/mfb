@@ -311,8 +311,12 @@ Commit: db12d70c3 (unit lists), 21027ab02, 0399377a5, 604bc95c9, 3caf47763, e63a
 
 ### Phase 2 — encoding (32 units)
 
-- [ ] 30 function pages + overview + the 29-description types page.
-- [~] Every example compiled and run; every round-trip claim
+- [x] 30 function pages + overview + the 29-description types page.
+      Unit list `planning/plan-125-units/C-phase2.txt` (32 units). The Codex usage
+      limit split the batch: 22 units on the first dispatch, and the last 10 from
+      `C-phase2-retry.txt`. `--reconcile --letter C-phase2 --units
+      planning/plan-125-units/C-phase2.txt` → `units=32 unaccounted=0 orphans=0`.
+- [x] Every example compiled and run; every round-trip claim
       (`hexEncode`/`hexDecode`, `varint`, `punycode`, `codepage`) verified by
       probe in both directions.
       My pass, done:
@@ -339,13 +343,11 @@ Commit: db12d70c3 (unit lists), 21027ab02, 0399377a5, 604bc95c9, 3caf47763, e63a
         DESC), so no page defect. To check against its review: the DESC writes the
         mapping as `(u >> 1) XOR -(u AND 1)`, and MFBASIC's `AND`/`XOR` are
         Boolean-only (the letter-B `bits::ctz` class).
-      - **Remaining: the 32 Codex reviews, dispatched.**
-- [~] Ledger recorded. **Partial:** 22 of 32 reviews are triaged below. **Remaining:
-      `uleb128Decode`, `uleb128Encode`, `utf16Decode`, `utf16Encode`,
-      `utf32Decode`, `utf32Encode`, `utf8Decode`, `utf8Encode`,
-      `varintDecode`, `varintEncode`**. These 10 hit the Codex usage limit
-      (their `.log` files); `--reconcile --letter C-phase2` reports
-      `unaccounted=10`.
+      - Retry-round pages probed as well (`/tmp/p125-ex/encutf`, `ulebneg`,
+        `utf8amb`): UTF-16/UTF-32 round-trips, the `varint` ZigZag mapping, and
+        the `Integer` extremes.
+- [x] Ledger recorded. All 32 reviews are triaged below, over two dispatch rounds;
+      every verdict carries its evidence.
 
 #### Phase 2 ledger — Codex iteration 2 (`planning/plan-125-findings/C-phase2/`)
 
@@ -398,12 +400,52 @@ language rule.
 | sleb128Encode | 2 | REJECTED | the shift sentence explains why negative values terminate, the observable contract; not internals | — |
 | sleb128Encode | 3 | CONFIRMED | probe: `sleb128Encode(64)` → `c000`, `uleb128Encode(64)` → `40`; no separate sign byte | DESC: sign bit in the last group, so one more byte |
 
+Retry round (user: "codex limit reset, continue"). The quota probe answered PONG,
+and 10 units were dispatched from `planning/plan-125-units/C-phase2-retry.txt`.
+My probes of those 10 pages, run while the reviews ran: `/tmp/p125-ex/encutf`,
+`/tmp/p125-ex/ulebneg`, `/tmp/p125-ex/utf8amb`.
+
+| Page | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| uleb128Encode | 1 | CONFIRMED (prose) + **bug-606** | probe: `uleb128Encode(-1)` → `77050003`; the descriptor declares `errors: vec![]` (the first encoder in bug-606) | parameter names `ErrInvalidFormat` |
+| utf16Decode | 1 | CONFIRMED (prose) + **bug-606** | probe: `[65536]`, `[-1]` and a lone low surrogate → `77050003` | DESC names `ErrInvalidFormat` |
+| utf16Encode | 1 | REJECTED | input-unchanged class | — |
+| uleb128Decode | 1, 2 | CONFIRMED → **bug-619** | probe: nine `0xFF` then `0x01` → `-1`; nine `0x80` then `0x02` → `0` (the reviewer's `[0x80 x9, 0x01]` → the `Integer` minimum) | DESC no longer promises a non-negative result or overflow detection |
+| uleb128Decode | 3 | CONFIRMED (prose) + **bug-606** | reviewer probe: `uleb128Decode([])` → `77050003` | DESC + parameter name `ErrInvalidFormat` |
+| utf32Decode | 1, 2 | CONFIRMED (prose) + **bug-606** | probe: `[0x110000]`, `[0xD800]`, `[-1]` → `77050003` | DESC + parameter name the error and the valid range |
+| utf32Decode | 3 | REJECTED | input-unchanged class; decoding in list order is already the page's statement | — |
+| utf32Encode | 1 | CONFIRMED | reviewer probe: `"e\u{0301}"` → 2 elements (101, 769) | DESC: per scalar, not per user-perceived character |
+| utf32Encode | 2 | CONFIRMED | reviewer probe: `utf32Encode("")` → 0 elements | parameter |
+| utf8Decode | 1 | CONFIRMED (prose) + **bug-606** | probe: overlong `C0 80`, surrogate `ED A0 80`, above U+10FFFF `F4 90 80 80` → `77050003` | DESC names `ErrInvalidFormat` |
+| utf8Decode | 2 | CONFIRMED | probe: `List OF Integer` with 256 → `77050003`; `[104, 105]` → `hi`; reviewer: empty lists → empty | parameter: 0–255, empty → empty |
+| utf8Decode | 3 | CONFIRMED | "the selection is a compile-time decision, not a runtime dispatch" is compiler mechanics (`.ai/man-content.md` §3) | sentence cut; the range rule kept |
+| utf8Encode | — | NO FINDINGS | my probe: a call with no expected type is `TYPE_OVERLOAD_AMBIGUOUS` at build, as the page says | — |
+| varintDecode | 1 | CONFIRMED (prose) + **bug-606** | reviewer probe: `varintDecode([])` → `77050003` | DESC names `ErrInvalidFormat` |
+| varintDecode | 2 | CONFIRMED → **bug-619** | probe: nine `0x80` then `0x02` → `0` | DESC no longer promises overflow detection |
+| varintEncode | 1 | CONFIRMED | probe: `0`/`-1`/`1`/`-2` → `00`/`01`/`02`/`03`; the `Integer` minimum and maximum round-trip | parameter: every `Integer` valid |
+
+Checked, left unchanged: `varintDecode`/`varintEncode` write the ZigZag mapping as
+`(u >> 1) XOR -(u AND 1)`. MFBASIC has no `>>` operator, so this reads as
+mathematical notation, not code to copy. That differs from the letter-B `bits::ctz`
+case, whose `value AND -value` was offered as a usable idiom. No reviewer flagged it.
+
 Found while applying, not raised by a reviewer, and left for letter G's
 re-integration (no cross-page reconciliation here): `base32Decode`'s own
 description still calls it "the inverse of `encoding::base32Encode`".
 
 Acceptance: 32 units `exit 0`; sweeps clean for `encoding`; every type
 description verified against the record/resource it describes.
+
+Measured at the closing commit:
+- every one of the 32 units has an `exit 0` row as its latest;
+- `--reconcile` → `unaccounted=0 orphans=0`;
+- `--memory-scope encoding` 0, `--scope encoding` 0;
+- `encoding` examples 62/62 ran;
+- the types page's 29 descriptions are verified: 128 high bytes decoded per
+  codepage, all eight counts exact, and `Iso8859_8I` identical to `Iso8859_8`.
+
+Bugs filed or extended from this phase: bug-606 (12 decoders, `uleb128Encode`,
+`htmlUnescape`) and bug-619 (LEB128 decoders miss overflow).
 Commit: —
 
 ### Phase 3 — datetime (46 units)

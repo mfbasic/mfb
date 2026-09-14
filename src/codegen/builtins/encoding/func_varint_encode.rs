@@ -72,7 +72,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "The integer to encode.",
+                desc: "The integer to encode. Every `Integer` is valid, including zero, negative values, and the minimum and maximum.",
                 aliases: &[],
                 ty: ParameterType::Integer,
                 default: DefaultValue::None,

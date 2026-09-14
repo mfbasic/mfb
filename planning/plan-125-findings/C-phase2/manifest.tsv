@@ -31,3 +31,13 @@ man-page:encoding/utf8Decode	FAILED	3	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terr
 man-page:encoding/varintDecode	FAILED	12	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
 man-page:encoding/utf8Encode	FAILED	12	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
 man-page:encoding/varintEncode	FAILED	12	0	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:encoding/uleb128Encode	0	84	24	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:encoding/utf16Decode	0	93	5	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:encoding/utf16Encode	0	102	5	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:encoding/uleb128Decode	0	141	19	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:encoding/utf32Decode	0	102	19	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:encoding/utf32Encode	0	109	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:encoding/utf8Decode	0	113	22	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:encoding/utf8Encode	0	84	2	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:encoding/varintEncode	0	67	5	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:encoding/varintDecode	0	156	14	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

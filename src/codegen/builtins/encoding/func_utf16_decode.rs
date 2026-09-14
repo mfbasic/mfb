@@ -24,8 +24,8 @@ scalar above `65535`.
 Every element must lie in `0..65535`; a value outside that range is rejected. A
 high surrogate that is the last element, or is followed by a unit that is not a
 low surrogate, is an unpaired surrogate, as is a low surrogate that does not
-follow a high surrogate — all of these fail rather than producing replacement
-text. The units are treated as numeric code units, not a byte serialization, so
+follow a high surrogate. An out-of-range element and every unpaired surrogate
+raise `ErrInvalidFormat` rather than producing replacement text. The units are treated as numeric code units, not a byte serialization, so
 no byte order (endianness) or byte-order mark applies.
 
 

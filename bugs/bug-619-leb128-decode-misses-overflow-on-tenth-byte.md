@@ -50,6 +50,21 @@ END SUB
 
 Observed (macos-aarch64, `worktree-P-125`): `0`. Expected: `raised 77050003`.
 
+## Observed on the sibling decoders (2026-09-14, `/tmp/p125-ex/encutf`)
+
+The predicted blast radius is confirmed by probe, not just by the shared check:
+
+| Call | Result | Expected |
+|---|---|---|
+| `uleb128Decode([0x80 x9, 0x02])` | `0` | `raised 77050003` |
+| `varintDecode([0x80 x9, 0x02])` | `0` | `raised 77050003` |
+| `uleb128Decode([0xFF x9, 0x01])` | **`-1`** | `raised 77050003`: the value is 2^64-1, which no `Integer` holds |
+
+The last row is a second symptom of the same missing check: a tenth byte that sets
+bit 63 turns an unsigned decode negative, contradicting the page's "the result is
+always non-negative". Until the fix, `mfb man encoding uleb128Decode` and
+`varintDecode` no longer promise overflow detection or a non-negative result.
+
 ## Root cause
 
 `src/codegen/builtins/encoding/func_sleb128_decode.rs:BODY` checks
