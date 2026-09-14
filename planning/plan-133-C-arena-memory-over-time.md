@@ -366,6 +366,19 @@ Commit: 6c0926c14 (the suite record's commit is named in the archive commit)
   - Gate: `artifact-gate [all]: 1441 tests, 1607 build(s), 2021 golden(s) checked, 0 diff(s)`.
   - Acceptance: `acceptance tests passed (1464 test(s) ran)`, `ACCEPT=0`.
   - Formatting: `cargo fmt --all --check` showed 0 diffs in both workspaces.
+- **2026-09-13 — finish, third round: plan-136 landed on main during the second run.**
+  `git rev-list --count HEAD..main` was 19, from `fbe4f5168` to `280f4f19c`. They change
+  `src/{ast,hir,ir,resolver,rules,optimizer,codegen,binary_repr,target}` and 43 test fixtures,
+  and add the no-shadowing-of-top-level-bindings rule, which could reject this plan's new test
+  programs. `git merge --no-edit main` was clean. The build, suite, gate and acceptance ran
+  again on that merge:
+  - Build: `BUILD=0`.
+  - Suite: `EXIT=0`, 182 binaries, 5,662 passed, 0 failed, 11 ignored.
+  - Gate: `artifact-gate [all]: 1448 tests, 1614 build(s), 2023 golden(s) checked, 0 diff(s)`.
+  - Acceptance: `acceptance tests passed (1472 test(s) ran)`, `ACCEPT=0`.
+  - Formatting: `cargo fmt --all --check` showed 0 diffs in both workspaces.
+
+  Afterwards `git log HEAD..main` was empty.
 - **2026-09-13 — Phase 2: the four box runs.** The program is
   `/tmp/plan-133-c/bursts/src/main.mfb`: three times, `LET burst = fs::readBytes` of an 8 MiB
   file, append it to a retained list, `os::sleep(200)`; print the list's length. The Windows
