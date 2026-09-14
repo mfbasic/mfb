@@ -94,7 +94,7 @@ DOC
   SEC untrusted YAML cannot exhaust memory or the stack. A document may nest
   SEC 100 levels, perform 10000 alias expansions, and materialise 1000000
   SEC nodes; passing any of those fails with the package's own
-  SEC `yaml::expansionLimitCode()` (93110001). The node budget counts what an
+  SEC `yaml::ErrorExpansionLimit` (93110001). The node budget counts what an
   SEC alias EXPANDS TO rather than the one line that writes it, which is what
   SEC bounds a "billion laughs" document -- a few hundred bytes of nested
   SEC aliases that would otherwise name an exponentially large tree.
@@ -113,10 +113,18 @@ DOC
   DESC `errorCode::ErrDepthExceeded` past 100 levels of nesting,
   DESC `errorCode::ErrInvalidSurrogate` for a `\u` escape encoding an unpaired
   DESC surrogate, `errorCode::ErrOverflow` for a number too large for `Float`,
-  DESC and `yaml::expansionLimitCode()` (93110001) past the alias or node
-  DESC budget. That last one is a generator-9 code, which is not globally
-  DESC unique, so match it only around a call you already know is this
-  DESC package's.
+  DESC and `yaml::ErrorExpansionLimit` (93110001) past the alias or node
+  DESC budget.
+  DESC
+  DESC `yaml::ErrorExpansionLimit` is an exported `Integer` constant: the one
+  DESC failure here with no `errorCode::` equivalent -- the registry models no
+  DESC "this input expands too far" -- so it takes a code from generator 9,
+  DESC the range reserved for codes a package defines for itself, written
+  DESC `9-311-0001`. Generator-9 codes carry no registry meaning and are not
+  DESC globally unique: two unrelated packages may both use this integer for
+  DESC unrelated failures. Match it with
+  DESC `IF problem.code = yaml::ErrorExpansionLimit THEN` only around a call
+  DESC you already know is this package's, never across a broad block.
 END DOC
 
 DOC
@@ -220,39 +228,4 @@ EXPORT FUNC parseAll(text AS String) AS List OF json::Json
     values = collections::append(values, parseDocument(bytes, starts, ends, indents, collections::get(bodyLines, i), collections::get(bodyCols, i), collections::get(endLines, i)))
   NEXT
   RETURN values
-END FUNC
-
-DOC
-  FUNC expansionLimitCode
-  GROUP Reading
-  DESC The error code this package raises when a document expands past its
-  DESC alias-expansion or total-node budget: 93110001, written `9-311-0001`.
-  DESC
-  DESC It is the one failure here with no `errorCode::` equivalent -- the
-  DESC registry models no "this input expands too far" -- so it takes a code
-  DESC from generator 9, the range reserved for codes a package defines for
-  DESC itself. Generator-9 codes carry no registry meaning and are not globally
-  DESC unique: two unrelated packages may both use this integer for unrelated
-  DESC failures. Match it only around a call you already know is this
-  DESC package's, never across a broad block.
-  RET 93110001.
-  EXAMPLE
-    IMPORT yaml
-    IMPORT json
-    IMPORT io
-
-    FUNC readConfig(text AS String) AS json::Json
-      LET value AS json::Json = yaml::parse(text) TRAP(problem)
-        IF problem.code = yaml::expansionLimitCode() THEN
-          io::printError("that YAML expands too far to read")
-          RECOVER json::JsonObj[Map OF String TO json::Json {}]
-        END IF
-        PROPAGATE
-      END TRAP
-      RETURN value
-    END FUNC
-  END EXAMPLE
-END DOC
-EXPORT FUNC expansionLimitCode() AS Integer
-  RETURN ERR_EXPANSION_LIMIT
 END FUNC

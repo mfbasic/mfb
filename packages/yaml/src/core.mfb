@@ -46,8 +46,9 @@ PUBLIC LET ALIAS_LIMIT AS Integer = 10000
 
 ' 9-311-0001: the document exceeded a parser expansion limit (total nodes or
 ' alias expansions). No errorCode:: value models "this input expands too far",
-' so this is a generator-9 (user-defined) code, per the encoding rule.
-PUBLIC LET ERR_EXPANSION_LIMIT AS Integer = 93110001
+' so this is a generator-9 (user-defined) code, per the encoding rule. Exported
+' so an importer matches `yaml::ErrorExpansionLimit` rather than the integer.
+EXPORT LET ErrorExpansionLimit AS Integer = 93110001
 
 ' 7-705-0003 errorCode::ErrInvalidFormat — malformed YAML.
 PUBLIC LET ERR_FORMAT AS Integer = 77050003
@@ -142,7 +143,7 @@ END FUNC
 PUBLIC FUNC chargeNodes(nodes AS Integer, n AS Integer) AS Integer
   LET total AS Integer = nodes + n
   IF total > NODE_LIMIT THEN
-    FAIL error(ERR_EXPANSION_LIMIT, "yaml: document expands past the " & toString(NODE_LIMIT) & "-node limit")
+    FAIL error(ErrorExpansionLimit, "yaml: document expands past the " & toString(NODE_LIMIT) & "-node limit")
   END IF
   RETURN total
 END FUNC
@@ -151,7 +152,7 @@ END FUNC
 PUBLIC FUNC chargeAlias(aliases AS Integer) AS Integer
   LET total AS Integer = aliases + 1
   IF total > ALIAS_LIMIT THEN
-    FAIL error(ERR_EXPANSION_LIMIT, "yaml: document expands past the " & toString(ALIAS_LIMIT) & "-alias limit")
+    FAIL error(ErrorExpansionLimit, "yaml: document expands past the " & toString(ALIAS_LIMIT) & "-alias limit")
   END IF
   RETURN total
 END FUNC

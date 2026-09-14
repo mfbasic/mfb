@@ -128,7 +128,7 @@ TESTING
 
     TCASE "a reference loop with no instance progress is refused"
       LET schema AS String = "{\"$defs\":{\"loop\":{\"$ref\":\"#/$defs/loop\"}},\"$ref\":\"#/$defs/loop\"}"
-      expectTrap(ok(schema, "1"), ERR_REF_CYCLE)
+      expectTrap(ok(schema, "1"), ErrorReferenceCycle)
     END TCASE
 
     TCASE "an unsupported reference form is refused by name"

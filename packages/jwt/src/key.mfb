@@ -81,10 +81,10 @@ PUBLIC FUNC algorithmFamily(algorithm AS String) AS String
   IF algorithm = "EdDSA" THEN RETURN "EdDSA"
   IF algorithm = "ES256" OR algorithm = "ES384" OR algorithm = "ES512" THEN RETURN "ECDSA"
   IF algorithm = "none" THEN
-    FAIL error(ERR_ALGORITHM, "jwt: `alg: \"none\"` is an unsecured JWS -- it carries no signature at all, so nothing about it can be verified")
+    FAIL error(ErrorAlgorithm, "jwt: `alg: \"none\"` is an unsecured JWS -- it carries no signature at all, so nothing about it can be verified")
   END IF
   IF algorithm = "" THEN
-    FAIL error(ERR_ALGORITHM, "jwt: no algorithm was named")
+    FAIL error(ErrorAlgorithm, "jwt: no algorithm was named")
   END IF
   FAIL error(ERR_UNSUPPORTED, "jwt: `" & algorithm & "` is not an algorithm this package implements -- it signs and verifies HS256, HS384, HS512, EdDSA, ES256, ES384 and ES512")
 END FUNC

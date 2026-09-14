@@ -34,7 +34,7 @@ END TYPE
 PUBLIC FUNC splitToken(token AS String) AS Parts
   LET size AS Integer = strings::byteLen(token)
   IF size > MAX_TOKEN_BYTES THEN
-    FAIL error(ERR_TOO_LARGE, "jwt: the token is " & toString(size) & " bytes, past the " & toString(MAX_TOKEN_BYTES) & "-byte limit")
+    FAIL error(ErrorTooLarge, "jwt: the token is " & toString(size) & " bytes, past the " & toString(MAX_TOKEN_BYTES) & "-byte limit")
   END IF
   LET segments AS List OF String = strings::split(token, ".")
   IF len(segments) = 5 THEN

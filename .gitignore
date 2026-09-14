@@ -76,3 +76,8 @@ __pycache__/
 # directory under `tests/` is exactly what a blanket `git add -A tests/` sweeps
 # into a branch.
 tests/.gate.lock/
+
+# `mfb doc <dir>` and `mfb pkg doc <file>.mfp` write `doc.html` by default (the
+# package directory or the CWD) unless given --out. It is generated output, and
+# no doc.html is a tracked file anywhere in the tree.
+doc.html

@@ -159,15 +159,31 @@ is reachable by a schema that terminates.
 * **Depth** — evaluation nests at most 200 levels (`errorCode::ErrDepthExceeded`).
 * **Reference loops** — a `$ref` that re-enters the same subschema at the same
   instance location has closed a loop with no progress on either side, and is
-  refused with a distinct code (`93120002`) rather than left to hit the depth
-  limit.
+  refused with a distinct code (`json_schema::ErrorReferenceCycle`, `93120002`)
+  rather than left to hit the depth limit.
 * **Work** — 10000 subschema evaluations plus 100 per value in the *instance*
-  (`93120001`). A fixed total would be the wrong shape twice over: too small and
+  (`json_schema::ErrorBudget`, `93120001`). A fixed total would be the wrong shape twice over: too small and
   an ordinary large document stops validating, too large and a one-byte instance
   can still be made to cost minutes. Charging per instance node makes the total
   linear in what the caller handed in — work they already paid for once at
   `json::parse`. Ten nested two-branch `anyOf`s demand 2^10 evaluations from a
   few hundred bytes of schema; against a scalar instance they get 10100.
+
+`json_schema::check` raises `json_schema::ErrorInvalid` (`93120003`) for an
+instance that is not valid. These three codes have no `errorCode::` equivalent,
+so they are generator-9 codes the package exports as constants. Generator-9 codes
+are not globally unique, so match one only around a call you already know is
+this package's:
+
+```mfb
+json_schema::check(schema, json::parse(text)) TRAP(problem)
+  IF problem.code = json_schema::ErrorInvalid THEN
+    io::printError(problem.message)
+    RECOVER
+  END IF
+  PROPAGATE
+END TRAP
+```
 
 ## Why this is a package and not a built-in
 

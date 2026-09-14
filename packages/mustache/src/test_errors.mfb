@@ -52,8 +52,7 @@ TESTING
     END TCASE
 
     TCASE "the exported limit code is the generator-9 value the docs name"
-      expectInteger(limitCode(), 93120001)
-      expectInteger(ERR_LIMIT, 93120001)
+      expectInteger(ErrorLimit, 93120001)
     END TCASE
   END TGROUP
 END TESTING

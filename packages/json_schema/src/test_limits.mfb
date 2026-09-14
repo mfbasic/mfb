@@ -136,7 +136,7 @@ TESTING
       ' 2^30 evaluations demanded by a schema a few hundred bytes long, against
       ' a ONE-NODE instance. The budget is what that instance is worth, so this
       ' costs a bounded amount rather than the amount the schema asked for.
-      expectTrap(ok(doublingSchema(30), "null"), ERR_BUDGET)
+      expectTrap(ok(doublingSchema(30), "null"), ErrorBudget)
     END TCASE
 
     TCASE "the budget grows with the instance, so a large document still validates"

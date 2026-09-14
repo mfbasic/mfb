@@ -1,5 +1,7 @@
 # plan-93-B: Client-side gzip/deflate response decoding
 
+> **REMOVED from plan-93 on 2026-09-13 — never executed, not to be used.** gzip/deflate left plan-93 to be re-planned without a system library (no dlopen of zlib). Kept only as a historical record; nothing here landed, and this move does not satisfy any `ls planning/completed/plan-93-*` gate.
+
 Last updated: 2026-08-09
 Effort: medium (1h–2h)
 Depends on: plan-93-A (the `compress::` package must exist and round-trip)
