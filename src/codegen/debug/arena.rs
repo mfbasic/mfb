@@ -5,7 +5,7 @@
 //! The registry is a region mapped on first registration through the platform's
 //! `emit_arena_map` seam (system memory, never an arena), holding a
 //! `{count, overflow}` header and [`ARENA_DEBUG_SLOTS`] fixed-size slots
-//! `{state_ptr, kind, counters[18]}`; its base lives in a writable global. Registration
+//! `{state_ptr, kind, counters[22]}`; its base lives in a writable global. Registration
 //! is the only locked operation (a statically initialized process-global mutex, so it
 //! exists before the region does). Counters are written only by the thread that owns
 //! the arena — the allocator helpers find their slot by the arena register — so they
@@ -85,9 +85,15 @@ pub(crate) const COUNTER_GROW: usize = 128;
 pub(crate) const COUNTER_FLUSHES: usize = 136;
 pub(crate) const COUNTER_INSERT_FREE_CALLS: usize = 144;
 pub(crate) const COUNTER_DOUBLE_FREE_SKIPS: usize = 152;
+/// plan-133-B: entropy-fill calls and bytes, on the grow path (a fresh block's usable
+/// region) and the free path (a freed chunk's payload past its 16-byte node).
+pub(crate) const COUNTER_FILL_GROW_CALLS: usize = 160;
+pub(crate) const COUNTER_FILL_GROW_BYTES: usize = 168;
+pub(crate) const COUNTER_FILL_FREE_CALLS: usize = 176;
+pub(crate) const COUNTER_FILL_FREE_BYTES: usize = 184;
 
 /// Every counter, in slot and report order: `(report name, slot offset)`.
-const ARENA_COUNTERS: [(&str, usize); 18] = [
+const ARENA_COUNTERS: [(&str, usize); 22] = [
     ("maps", COUNTER_MAPS),
     ("mapped_bytes", COUNTER_MAPPED_BYTES),
     ("unmaps", COUNTER_UNMAPS),
@@ -106,6 +112,10 @@ const ARENA_COUNTERS: [(&str, usize); 18] = [
     ("flushes", COUNTER_FLUSHES),
     ("insert_free_calls", COUNTER_INSERT_FREE_CALLS),
     ("double_free_skips", COUNTER_DOUBLE_FREE_SKIPS),
+    ("fill_grow_calls", COUNTER_FILL_GROW_CALLS),
+    ("fill_grow_bytes", COUNTER_FILL_GROW_BYTES),
+    ("fill_free_calls", COUNTER_FILL_FREE_CALLS),
+    ("fill_free_bytes", COUNTER_FILL_FREE_BYTES),
 ];
 
 /// One slot: `state_ptr`, `kind`, and the counters.
@@ -113,7 +123,7 @@ const SLOT_SIZE: usize = 16 + ARENA_COUNTERS.len() * 8;
 const REGION_SIZE: usize = REGION_HEADER_SIZE + ARENA_DEBUG_SLOTS * SLOT_SIZE;
 
 // The counter offsets are contiguous words ending exactly at the slot's end.
-const _: () = assert!(COUNTER_DOUBLE_FREE_SKIPS + 8 == SLOT_SIZE && SLOT_SIZE == 160);
+const _: () = assert!(COUNTER_FILL_FREE_BYTES + 8 == SLOT_SIZE && SLOT_SIZE == 192);
 
 /// The key-suffix data object of a counter's report line (`.maps ` …).
 fn counter_suffix_symbol(name: &str) -> String {

@@ -110,13 +110,32 @@ never landed.
 
 ### Phase 1 — fill counters
 
-- [ ] `src/codegen/debug/arena.rs`: `COUNTER_FILL_GROW_CALLS`, `_GROW_BYTES`,
-      `_FREE_CALLS`, `_FREE_BYTES`; append to `ARENA_COUNTERS`; grow the slot.
-- [ ] `arena.rs`: increments before the grow-path fill and the free-path scrub.
-- [ ] `tests/runtime/rt_debug_arena.rs::fill_counters_match_known_allocations`: one 1 MiB
+- [x] `src/codegen/debug/arena.rs`: `COUNTER_FILL_GROW_CALLS`, `_GROW_BYTES`,
+      `_FREE_CALLS`, `_FREE_BYTES`; append to `ARENA_COUNTERS`; grow the slot. — offsets
+      160/168/176/184; `ARENA_COUNTERS` 18 → 22; the compile-time assert is now
+      `COUNTER_FILL_FREE_BYTES + 8 == SLOT_SIZE && SLOT_SIZE == 192`; `cargo build --release
+      --bin mfb` → `EXIT=0`, no warnings. No other `src/` pin on 18 counters or a 160 B slot
+      (grep of `ARENA_COUNTERS`, `counters[18]`, slot 160).
+- [x] `arena.rs`: increments before the grow-path fill and the free-path scrub. — Both
+      only under `if let Some(slot) = &dbg_slot`, so a non-`--debug` build emits the same
+      instruction sequence. The scrub length goes through a fresh vreg (`size − 16`) after the
+      `size == 16` skip, so both free paths (quick bin, large bin) are counted and no physical
+      argument register is touched. Observed with `--debug` builds of an 8-`Integer` record
+      loop (`/tmp/plan-133-b/rec8_1000`, `rec8_2000`): `fill_free_calls` 1,000 / 2,000,
+      `fill_free_bytes` 48,000 / 96,000, `free_bytes` 64,016 / 128,016 (the constant 16 B free
+      is correctly not scrubbed); `grow` 1 = `fill_grow_calls` 1, `fill_grow_bytes` 4,064 =
+      `mapped_bytes` 4,096 − 32.
+- [x] `tests/runtime/rt_debug_arena.rs::fill_counters_match_known_allocations`: one 1 MiB
       `List OF Byte` → `fill_grow_calls == grow` and `fill_grow_bytes == mapped_bytes −
       32 × grow`; a loop freeing N 64-byte records → `fill_free_calls == N` and
-      `fill_free_bytes == 48 × N`.
+      `fill_free_bytes == 48 × N`. — Implemented with an 8-`Integer` record (64 B;
+      Corrections) at N=1000 vs 2000, asserting the deltas (Δ`free_calls` 1000,
+      Δ`free_bytes` 64,000, Δ`fill_free_calls` 1000, Δ`fill_free_bytes` 48,000) so the
+      program's fixed setup frees cancel. `COUNTERS` in the same file grew to 22, so the
+      registration test checks the new keys too. `cargo test --release --test
+      rt_debug_arena fill_counters` → `fill_counters_match_known_allocations ... ok`,
+      `1 passed; 0 failed` (61.28 s). `scripts/artifact-gate.sh target/release/mfb
+      collections` → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`, EXIT=0.
 
 Acceptance: `cargo test --release --test rt_debug_arena fill_counters` → 1 passed (~2 min);
 `scripts/artifact-gate.sh target/release/mfb collections` → `0 diff(s)` (~1 min, a covered
@@ -165,6 +184,17 @@ Commit: —
 - None.
 
 ## Corrections
+
+- **2026-09-13 — Phase 1 re-check of the fill call sites: still 2.**
+  `git grep -n "branch_link(ARENA_FILL_RANDOM_SYMBOL)" -- src/codegen/memory/arena/arena.rs`
+  → `arena.rs:668` (grow path) and `arena.rs:1404` (free-path scrub), before this letter's
+  edits. plan-134 did not add a third.
+- **2026-09-13 — "a 64-byte record" means 8 `Integer` fields, not 6.** Measured on the
+  pre-change release binary: a loop binding a 6-`Integer` record makes exactly one allocation
+  and one free per iteration, each 48 B (`/tmp/plan-133-b/rec1000` vs `rec2000`:
+  `free_calls` 1,001 → 2,001, `free_bytes` 48,016 → 96,016, `live_bytes` 0). A 48 B chunk is
+  scrubbed over 32 B, so `fill_free_bytes == 48 × N` needs a 64 B chunk: 8 `Integer` fields.
+  The test compares N=1000 with N=2000, so the program's fixed setup frees cancel out.
 
 ## Summary
 

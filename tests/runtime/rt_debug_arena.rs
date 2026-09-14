@@ -15,7 +15,7 @@ use common::debug_report::{arena_lines, build_debug, build_debug_project, counte
 use std::process::Command;
 
 /// Every counter each registered arena reports, in report order.
-const COUNTERS: [&str; 18] = [
+const COUNTERS: [&str; 22] = [
     "maps",
     "mapped_bytes",
     "unmaps",
@@ -34,6 +34,10 @@ const COUNTERS: [&str; 18] = [
     "flushes",
     "insert_free_calls",
     "double_free_skips",
+    "fill_grow_calls",
+    "fill_grow_bytes",
+    "fill_free_calls",
+    "fill_free_bytes",
 ];
 
 /// The registration shape: totals and each arena's kind, with every counter of every
@@ -298,5 +302,77 @@ fn retained_values_raise_peak_live_bytes_and_churn_does_not() {
     assert!(
         churn_growth < retained_growth / 4,
         "short-lived values must not accumulate: churn grew {churn_growth}, retained grew {retained_growth}"
+    );
+}
+
+/// A loop that builds and drops one 8-`Integer` record per iteration: one 64 B chunk freed
+/// per iteration (a 6-field record is a 48 B chunk, plan-133-B § Corrections).
+fn record_churn_source(n: usize) -> String {
+    format!(
+        "IMPORT io\n\nTYPE R8\n  a AS Integer\n  b AS Integer\n  c AS Integer\n  d AS Integer\n  e AS Integer\n  f AS Integer\n  g AS Integer\n  h AS Integer\nEND TYPE\n\nFUNC mk(i AS Integer) AS R8\n  RETURN R8[i, i, i, i, i, i, i, i]\nEND FUNC\n\nFUNC main AS Integer\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    LET r AS R8 = mk(i)\n    total = total + r.h\n  NEXT\n  io::print(toString(total))\n  RETURN 0\nEND FUNC\n"
+    )
+}
+
+/// plan-133-B: the fill counters count exactly the bytes the entropy fill is handed.
+/// A fresh block is filled over its usable region (`mapped − 32` per block), so over a
+/// run `fill_grow_bytes == mapped_bytes − 32 × grow` with one fill per grow. A freed
+/// chunk is scrubbed past its 16-byte node, so each extra 64 B record adds one fill of
+/// 48 B.
+#[test]
+fn fill_counters_match_known_allocations() {
+    // Grow path: a 1 MiB read maps at least one block beyond the first.
+    let name = "dbg_arena_fill_grow";
+    let project = common::temp_project(name, "");
+    let data = project.join("big.bin");
+    std::fs::write(&data, vec![0x5au8; 1 << 20]).expect("write the 1 MiB input");
+    std::fs::write(
+        project.join("src/main.mfb"),
+        format!(
+            "IMPORT fs\nIMPORT io\n\nFUNC main AS Integer\n  LET b AS List OF Byte = fs::readBytes(\"{}\")\n  io::print(toString(len(b)))\n  RETURN 0\nEND FUNC\n",
+            common::mfb_path_literal(&data)
+        ),
+    )
+    .expect("write the program");
+    let exe = build_debug_project(name, &project);
+    let (stdout, stderr) = run_ok(name, &exe);
+    assert_eq!(stdout, "1048576\n", "the program read the whole file");
+    let lines = arena_lines(name, &stderr);
+    let grow = counter(name, &lines, 0, "grow");
+    assert!(grow >= 1, "a 1 MiB read must grow the arena:\n{stderr}");
+    assert_eq!(
+        counter(name, &lines, 0, "fill_grow_calls"),
+        grow,
+        "one grow-path fill per grow:\n{stderr}"
+    );
+    assert_eq!(
+        counter(name, &lines, 0, "fill_grow_bytes"),
+        counter(name, &lines, 0, "mapped_bytes") - 32 * grow,
+        "the grow-path fill covers each block's usable bytes (mapped − 32-byte header):\n{stderr}"
+    );
+
+    // Free path: 1000 more 64 B records add exactly 1000 scrubs of 48 B.
+    let small = main_arena("dbg_arena_fill_free_1000", &record_churn_source(1000));
+    let large = main_arena("dbg_arena_fill_free_2000", &record_churn_source(2000));
+    let delta =
+        |name: &str| counter("fill 2000", &large, 0, name) - counter("fill 1000", &small, 0, name);
+    assert_eq!(
+        delta("free_calls"),
+        1000,
+        "each extra iteration frees exactly one block: {small:?} / {large:?}"
+    );
+    assert_eq!(
+        delta("free_bytes"),
+        64 * 1000,
+        "each freed record is a 64 B chunk: {small:?} / {large:?}"
+    );
+    assert_eq!(
+        delta("fill_free_calls"),
+        1000,
+        "each freed 64 B chunk is scrubbed once: {small:?} / {large:?}"
+    );
+    assert_eq!(
+        delta("fill_free_bytes"),
+        48 * 1000,
+        "each scrub covers the chunk past its 16-byte node: {small:?} / {large:?}"
     );
 }
