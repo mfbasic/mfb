@@ -599,6 +599,10 @@ name = "rt_top_level_initializer_globals"
 path = "tests/runtime/rt_top_level_initializer_globals.rs"
 
 [[test]]
+name = "rt_parameter_default_scope"
+path = "tests/runtime/rt_parameter_default_scope.rs"
+
+[[test]]
 name = "rt_imported_record_map_field_keys"
 path = "tests/runtime/rt_imported_record_map_field_keys.rs"
 

@@ -43,9 +43,9 @@ This is the gate for the whole of plan-136; letters B and C point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| The bug-612/613 empty-scope fix is on main (the precedent A mirrors) | `git merge-base --is-ancestor 53f10b1fe main && echo MET` | MET (2026-09-13) |
-| No other session has claimed plan-136 | `git log --all --oneline --grep='plan-136'` → only this plan's commits; `ls planning planning/completed \| grep plan-136` → only `plan-136-A/B/C` | MET (2026-09-13) |
-| bug-614 is still open and unfixed | `ls bugs/bug-614-*.md` → one file | MET (2026-09-13) |
+| The bug-612/613 empty-scope fix is on main (the precedent A mirrors) | `git merge-base --is-ancestor 53f10b1fe main && echo MET` | MET (2026-09-13, re-run at execution start → `MET`) |
+| No other session has claimed plan-136 | `git log --all --oneline --grep='plan-136'` → only this plan's commits; `ls planning planning/completed \| grep plan-136` → only `plan-136-A/B/C` | MET (2026-09-13, re-run at execution start → only `caf191edd`; only the three A/B/C files) |
+| bug-614 is still open and unfixed | `ls bugs/bug-614-*.md` → one file | MET (2026-09-13, re-run at execution start → one file) |
 
 Everything below is written against the world where these hold.
 
@@ -265,46 +265,88 @@ path: `grep -n 'function_types' src/ir/lower.rs`).
 
 ### Phase 1 — RED tests and the reader audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_parameter_default_scope.rs`, copying the build/run helpers of
+- [x] Add `tests/runtime/rt_parameter_default_scope.rs`, copying the build/run helpers of
       `tests/runtime/rt_top_level_initializer_globals.rs`, and register it in `Cargo.toml` exactly as
-      that test is (`grep -n -B1 -A2 'rt_top_level_initializer_globals' Cargo.toml`). Cases:
-  - [ ] `a_default_calling_a_function_ignores_a_callers_same_named_local` — P11, expects `5`
-        (RED: `99`).
-  - [ ] `a_default_reading_a_global_ignores_a_callers_same_named_local` — P1, expects `5`
-        (RED: `99`). plan-136-C converts this case; its four answers are recorded there.
-  - [ ] `a_named_call_fills_an_omitted_default_in_declaration_scope` — `FUNC f(x AS Integer =
+      that test is (`grep -n -B1 -A2 'rt_top_level_initializer_globals' Cargo.toml`). Cases
+      (`cargo test --release --test rt_parameter_default_scope -- --test-threads=1` →
+      `test result: FAILED. 3 passed; 6 failed`):
+  - [x] `a_default_calling_a_function_ignores_a_callers_same_named_local` — P11, expects `5`
+        (RED: `left: ["99", "99"] right: ["5", "99"]`).
+  - [x] `a_default_reading_a_global_ignores_a_callers_same_named_local` — P1, expects `5`
+        (RED: `left: ["99"]`). plan-136-C converts this case; its four answers are recorded there.
+  - [x] `a_named_call_fills_an_omitted_default_in_declaration_scope` — `FUNC f(x AS Integer =
         helper(), y AS Integer = 0)`, caller has `LET helper = LAMBDA() -> 99`, calls `f(y := 1)`,
-        expects `5` (RED).
-  - [ ] `a_sub_default_ignores_a_callers_same_named_local` — the P11 shape on a `SUB` that prints
-        its parameter (RED).
-  - [ ] `a_generic_function_default_is_filled_per_instantiation` — a generic function (template
+        expects `5` (RED: `left: ["991"] right: ["51"]` — the test prints `x * 10 + y`).
+  - [x] `a_sub_default_ignores_a_callers_same_named_local` — the P11 shape on a `SUB` that prints
+        its parameter (RED: `left: ["99"]`).
+  - [x] `a_generic_function_default_is_filled_per_instantiation` — a generic function (template
         parameters per `19_grammar.md` `funcDecl`) with the P11 default on a non-generic parameter,
-        called at two instantiations, both print `5` (RED).
-  - [ ] `a_link_function_fills_an_omitted_default` — P10 (`libraries` entry copied from
+        called at two instantiations, both print `5` (RED: `left: ["99", "99"]`).
+  - [x] `a_link_function_fills_an_omitted_default` — P10 (`libraries` entry copied from
         `tests/rt-error/native/native-cbuffer-overrun-rt/project.json`), `absval()` prints `5`
-        (RED: `7-705-0010`).
-  - [ ] `a_default_reading_a_mut_global_sees_its_value_on_each_call` — P3, `1` then `2` (GREEN pin).
-  - [ ] `a_default_calling_a_function_runs_on_every_call` — P4, `1 2` (GREEN pin).
-  - [ ] `a_literal_default_is_unchanged` — `FUNC greet(name AS String, greeting AS String =
-        "Hello")`, `greet("Ada")` prints `Hello Ada`-shaped output (GREEN pin).
-- [ ] Syntax fixtures (placeholder goldens `golden/{<pkg>.ast,<pkg>.ir,build.log}` + `<pkg>.run`
-      so the plain build runs, per `.ai/testing-gates.md`). First prove each leaf name unused:
-      `find tests -name '<leaf>' | wc -l` → 0.
-  - [ ] `tests/syntax/functions/default-names-a-parameter-invalid` — P2 plus a default naming
-        itself (`b AS Integer = b`) and a default naming a LATER parameter (RED today: unlocated
-        NIR error / whatever it prints — record it).
-  - [ ] `tests/syntax/functions/lambda-parameter-default-invalid` — P9 (RED today: builds).
-- [ ] Audit the 44 readers (`grep -rn '\.default\b' src --include='*.rs' | grep -v
-      'Default::default'`). For each, record in **Corrections** (or a table under this phase):
-      does it (a) resolve/check a default with parameters in scope, (b) assume
-      `IrParam.default` is a value tree rather than a call, (c) need no change. At minimum read:
-      `ir::verify` default checks (`TYPE_DEFAULT_VALUE_MISMATCH` via `infer_type`,
-      `check_value_captures`), `ir::shape::walk_function`, `optimizer::opt1::local_rewrites`,
-      `target::shared::validate::body`, `manifest::entry`, `ast::scope_privates`,
-      `ir::package::visit_project_targets_mut`, `binary_repr::writer::lower_function`.
-- [ ] Measure how an uncaught error raised inside a lambda body prints (build a probe in `/tmp`
-      whose lambda calls `toInt("nope")`); record the output. That is the precedent the hidden
-      default function's error report must match or improve.
+        (RED: `the app exited exit 255: 3 / Error: 7-705-0010`).
+  - [x] `a_default_reading_a_mut_global_sees_its_value_on_each_call` — P3, `1` then `2` (GREEN pin: `ok`).
+  - [x] `a_default_calling_a_function_runs_on_every_call` — P4, `1 2` (GREEN pin: `ok`).
+  - [x] `a_literal_default_is_unchanged` — `FUNC greet(name AS String, greeting AS String =
+        "Hello")`, `greet("Ada")` prints `Hello Ada`-shaped output (GREEN pin: `ok`).
+- [x] Syntax fixtures (placeholder golden `golden/build.log` — see Corrections). First prove each
+      leaf name unused: `find tests -name '<leaf>' | wc -l` → 0 for both.
+  - [x] `tests/syntax/functions/default-names-a-parameter-invalid` — P2 plus a default naming
+        itself (`b AS Integer = b`) and a default naming a LATER parameter. RED today (recorded):
+        exit 1 with ONE diagnostic, `main.mfb:12 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]:
+        Identifier `c` is not declared in this scope.` for the later-parameter case only; the
+        earlier/itself cases resolve (parameters are in the resolver's scope) and are masked by
+        that error before they could reach P2's NIR failure.
+  - [x] `tests/syntax/functions/lambda-parameter-default-invalid` — P9 (RED today: `[exit 0]`,
+        writes `.ast`/`.ir`).
+- [x] Audit the 44 readers (`grep -rn '\.default\b' src --include='*.rs' | grep -v
+      'Default::default' | wc -l` → 44, re-run 2026-09-13). Table below.
+- [x] Measure how an uncaught error raised inside a lambda body prints: `/tmp/p136-lambda-err`,
+      `LET bad = LAMBDA(s AS String) -> toInt(s)`, `bad("nope")` → `Error: 7-705-0003` /
+      `Text parse or non-finite numeric representation conversion failed.`, exit 255. The runtime
+      report names **no function at all**, so a raise inside a hidden `$default$` function cannot
+      leak its name at runtime; `display_name` handling matters only for compile-time messages.
+
+**Reader audit** (a = checks/lowers a default with parameters in scope; b = assumes a value tree,
+not a call; c = no change). Key fact: a computed default is **already** a call-shaped
+`IrParam.default` today — `user-function-default-args-result-valid`'s `mark("default-extra", 2)`
+lowers to `IrValue::Call`, and that fixture builds and runs — so no executable-path reader is (b);
+the only value-tree-only reader is the package writer (plan-136-B's scope).
+
+| # | Reader | Verdict |
+|---|---|---|
+| 1 | `ir/json.rs` `IrParam::to_json` | c — serializes any value |
+| 2 | `optimizer/opt1/local_rewrites.rs` | c — already rewrites a default in an empty `Scopes`; its comment ("lowered at call sites") is stale → Phase 3 |
+| 3 | `ir/tests.rs:903` | c — `is_some` |
+| 4 | `ir/package.rs` `visit_project_targets_mut` | c — already walks a default's call targets (B relies on it) |
+| 5–6 | `ir/variant_corpus_tests.rs` | c — already use a `Call` default |
+| 7 | `ir/lower.rs` `lower_param` | **a** — lowers with the callee's `locals` → Phase 3 |
+| 8 | `ir/lower.rs` `function_params` | **a** — carries the HIR default the caller re-lowers → `CallDefault` |
+| 9 | `ir/lower.rs` `lower_local_call_arguments` | **a** — the bug-614 capture → Phase 3 |
+| 10 | `target/shared/validate/body.rs` `validate_function` | **a** — validates the NIR default with parameters already in `locals` → empty map |
+| 11 | `target/shared/nir/json.rs` | c |
+| 12 | `target/shared/nir/lower.rs` `lower_param` | c — `lower_value` handles `Call` |
+| 13 | `hir/mod.rs` `elaborate_link_function` | **a** (LINK) — keeps the AST expression, so nothing can lower it → elaborate to `HirExpression` |
+| 14 | `hir/mod.rs` `elaborate_param` | c |
+| 15 | `ir/shape.rs` `has_default` | c — arity only |
+| 16 | `ir/shape.rs` `walk_function` | **a** — walks a default with `locals` → empty map |
+| 17–20 | `cli/man.rs` | c — registry `DefaultValue`, not `IrParam` |
+| 21 | `ir/binary.rs` `encode_param` | c — `put_opt_value` encodes a call |
+| 22 | `ir/verify/mod.rs:394` | c — `TYPE_DEFAULT_ARG_ORDER` |
+| 23 | `ir/verify/mod.rs:408` | **a** — `check_value`/`infer_type` with parameter `locals` → empty map; stale "caller's frame" comment → Phase 3 |
+| 24 | `ir/verify/mod.rs:906` | c — optional count |
+| 25 | `ir/verify/mod.rs:939` | c — closure collection |
+| 26 | `manifest/entry.rs:95` | c — `is_some` on the entry's parameter |
+| 27–36 | `codegen/registry/mod.rs` | c — registry `DefaultValue` (non-goal) |
+| 37 | `ast/scope_privates.rs:177` | **a** — rewrites a default with the earlier parameters as locals → empty set |
+| 38–39 | `codegen/resource/tests/mod.rs` | c — registry |
+| 40–41 | `binary_repr/writer.rs` `lower_function` | b — `ConstPool::add` accepts only `Const`; runs only for `-br` dumps and `target::write_package` (`grep -rn 'write_binary_repr_hex\|write_package' src`) → plan-136-B |
+| 42 | `ast/serialize.rs` | c |
+| 43 | `resolver/resolution.rs:812` `resolve_function` | **a** → Phase 2 |
+| 44 | `resolver/resolution.rs:1143` lambda arm | **a** → Phase 2 (rejected outright) |
+
+Also found: `resolver::resolution::resolve_link_block` never resolves a LINK parameter default
+(an unknown name in one goes unreported) → Phase 2 task added.
 
 Acceptance: every RED case fails for the documented reason; every GREEN pin passes; the audit
 table and the lambda-error measurement are recorded in this file.
@@ -313,6 +355,9 @@ table and the lambda-error measurement are recorded in this file.
   builds); `scripts/test-accept.sh target/release/mfb /tmp/p136a-p1-accept
   default-names-a-parameter-invalid lambda-parameter-default-invalid` → both mismatch against the
   placeholders (est. 1 min). (The second argument is `rm -rf`ed — always a fresh `/tmp` path.)
+  **Measured 2026-09-13:** `test result: FAILED. 3 passed; 6 failed; … finished in 82.29s`;
+  `acceptance tests failed: 4 mismatch(es) (2 test(s) ran)` (two `build.log` mismatches plus the
+  lambda fixture's unexpected `.ast`/`.ir` actuals).
 Commit: —
 
 ### Phase 2 — the front end sees only the declaration scope
@@ -328,6 +373,8 @@ Commit: —
       parameter of the function.
 - [ ] `resolver::resolution::resolve_expression` `HirExpression::Lambda`: report
       `SYMBOL_LAMBDA_PARAMETER_DEFAULT` for a lambda parameter with a default.
+- [ ] `resolver::resolution::resolve_link_block`: resolve each LINK parameter default with an empty
+      local map, reporting `SYMBOL_DEFAULT_NAMES_PARAMETER` the same way (added by the Phase 1 audit).
 - [ ] `ast::scope_privates`: rewrite defaults with an empty local set.
 - [ ] `ir::verify` / `ir::shape::walk_function`: check defaults with an empty local map (per the
       Phase 1 audit).
@@ -417,7 +464,17 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Syntax-fixture placeholder set (Phase 1).** The plan said `golden/{<pkg>.ast,<pkg>.ir,build.log}`
+  + `<pkg>.run`. Both fixtures are `-invalid` fixtures whose final state is a failed build, which
+  writes no `.ast`/`.ir`; the sibling `tests/syntax/functions/user-function-default-args-invalid`
+  has `golden/build.log` only. Placeholders are `golden/build.log` only, so the Phase 2 goldens
+  match the fixture's real final shape.
+- **P2 in the combined fixture (Phase 1).** Today `default-names-a-parameter-invalid` reports only
+  the later-parameter case (`SYMBOL_UNKNOWN_IDENTIFIER` for `c`); that resolver error stops the build
+  before the earlier/itself cases reach P2's unlocated NIR error. P2 stands as measured in
+  §Verified properties (a program with only the earlier-parameter case).
+- **LINK defaults are never resolved (Phase 1 audit).** `resolve_link_block` resolves parameter
+  types only; added a Phase 2 task so a LINK default gets the same declaration-scope resolution.
 
 ## Summary
 
