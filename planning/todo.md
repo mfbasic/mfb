@@ -616,3 +616,88 @@ No testing needed:
 14. **`threading/08_queue-semantics.md:170`** says the runtime bulk-reclaims the worker arena
     at teardown; nothing does (same gap as 1).
 
+---
+
+# Proposed API: `compress::`, `zip::`, `tar::`
+
+This is a design proposal only; I haven't changed any files. Names follow what the tree already does: `List OF Byte` for binary data, parameter defaults written in the declaration (plan-136), `Err*` error constants for builtins (like `crypto::ErrAuthenticationFailed`), and `Error*` constants exported with `EXPORT LET` for packages (like `jwt::ErrorExpired`).
+
+## `compress::` — builtin (row 4)
+
+- FUNC gzipEncode(data AS List OF Byte, level AS Integer = 6) AS List OF Byte
+- FUNC gzipDecode(data AS List OF Byte, maxBytes AS Integer = 67108864) AS List OF Byte
+- FUNC zlibEncode(data AS List OF Byte, level AS Integer = 6) AS List OF Byte
+- FUNC zlibDecode(data AS List OF Byte, maxBytes AS Integer = 67108864) AS List OF Byte
+- FUNC deflate(data AS List OF Byte, level AS Integer = 6) AS List OF Byte
+- FUNC inflate(data AS List OF Byte, maxBytes AS Integer = 67108864) AS List OF Byte
+- FUNC crc32(data AS List OF Byte, running AS Integer = 0) AS Integer
+- LET ErrInvalidFormat, ErrTooLarge, ErrUnavailable
+
+Notes:
+- **`level`** goes from 0 to 9, the same as zlib.
+- **`maxBytes`** caps how much a decode can produce, so a "zip bomb" fails with `ErrTooLarge` instead of using up memory. The default matches http's 64 MiB body limit.
+- **`gzipDecode`** accepts several gzip members joined end to end, as `gzip(1)` does.
+- **`ErrUnavailable`** means zlib couldn't be loaded, which is expected on Windows for now.
+- **`crc32`** has a `running` value so a checksum can be built up over several calls. `zip::` needs CRC-32 for every entry, and computing it in MFB code over large entries would be slow.
+- **`zlibEncode`/`zlibDecode` are new compared with plan-93-A, and this matters.** plan-93-A pairs raw `inflate` with HTTP `deflate`. RFC 9110 §8.4.1.2 defines HTTP `deflate` as zlib-wrapped data (RFC 1950), not raw DEFLATE. Plan 93-B/C should use the zlib pair; `zip::` uses raw `deflate`/`inflate`.
+
+## `zip::` — package written in MFB (row 5)
+
+- TYPE Entry — `name AS String`, `isDirectory AS Boolean`, `method AS Integer`, `size AS Integer`, `compressedSize AS Integer`, `crc AS Integer`, `modifiedSeconds AS Integer`, `mode AS Integer`, `comment AS String`
+- TYPE Archive — the parsed central directory plus the source bytes
+- TYPE Builder — an archive being written; each call returns an updated copy
+- FUNC open(data AS List OF Byte) AS Archive
+- FUNC entries(archive AS Archive) AS List OF Entry
+- FUNC comment(archive AS Archive) AS String
+- FUNC has(archive AS Archive, name AS String) AS Boolean
+- FUNC find(archive AS Archive, name AS String) AS Entry
+- FUNC read(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS List OF Byte
+- FUNC readText(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS String
+- FUNC extractTo(archive AS Archive, directory AS String, maxTotalBytes AS Integer = 1073741824) AS Integer
+- FUNC create() AS Builder
+- FUNC addFile(builder AS Builder, name AS String, data AS List OF Byte, store AS Boolean = FALSE, modifiedSeconds AS Integer = 0) AS Builder
+- FUNC addText(builder AS Builder, name AS String, text AS String, store AS Boolean = FALSE) AS Builder
+- FUNC addDirectory(builder AS Builder, name AS String) AS Builder
+- FUNC finish(builder AS Builder, comment AS String = "") AS List OF Byte
+- LET MethodStored = 0, MethodDeflate = 8
+- LET ErrorInvalid, ErrorUnsupported, ErrorChecksum, ErrorNotFound, ErrorTooLarge, ErrorUnsafePath
+
+Notes:
+- **Reading:** `open` finds the end-of-archive record and reads ZIP64 archives.
+- **File names:** if the UTF-8 flag is off, names are decoded as CP437 with `encoding::codepageDecode`.
+- **Checksums:** `read` checks each entry's CRC, and a mismatch raises `ErrorChecksum`.
+- **Duplicate names:** `read` takes an `Entry` rather than a name, because a zip file can hold two entries with the same name.
+- **`extractTo`** rejects absolute paths, `..`, and anything that would land outside `directory` (checked with `fs::isWithin`). It returns the number of files written.
+- **Not supported:** encrypted entries and compression methods other than 0 or 8 raise `ErrorUnsupported`.
+- **Writing `.epub` and `.odt`:** these need their `mimetype` entry first and uncompressed. Adding it first with `store := TRUE` does that.
+
+## `tar::` — package written in MFB (row 5)
+
+- TYPE Entry — `name AS String`, `kind AS Integer`, `size AS Integer`, `mode AS Integer`, `modifiedSeconds AS Integer`, `uid AS Integer`, `gid AS Integer`, `user AS String`, `group AS String`, `linkTarget AS String`
+- TYPE Archive
+- TYPE Builder
+- FUNC open(data AS List OF Byte) AS Archive
+- FUNC entries(archive AS Archive) AS List OF Entry
+- FUNC has(archive AS Archive, name AS String) AS Boolean
+- FUNC find(archive AS Archive, name AS String) AS Entry
+- FUNC read(archive AS Archive, entry AS Entry) AS List OF Byte
+- FUNC readText(archive AS Archive, entry AS Entry) AS String
+- FUNC extractTo(archive AS Archive, directory AS String, maxTotalBytes AS Integer = 1073741824) AS Integer
+- FUNC create() AS Builder
+- FUNC addFile(builder AS Builder, name AS String, data AS List OF Byte, mode AS Integer = 420, modifiedSeconds AS Integer = 0) AS Builder
+- FUNC addText(builder AS Builder, name AS String, text AS String, mode AS Integer = 420) AS Builder
+- FUNC addDirectory(builder AS Builder, name AS String, mode AS Integer = 493) AS Builder
+- FUNC addSymlink(builder AS Builder, name AS String, target AS String) AS Builder
+- FUNC finish(builder AS Builder) AS List OF Byte
+- LET KindFile, KindDirectory, KindSymlink, KindHardlink, KindOther
+- LET ErrorInvalid, ErrorChecksum, ErrorNotFound, ErrorTooLarge, ErrorUnsafePath
+
+Notes:
+- **Reading:** `open` handles plain ustar, PAX extended headers, and GNU long names.
+- **Writing:** `finish` writes ustar and adds PAX headers only when a name or size doesn't fit.
+- **`.tar.gz`:** there's no separate `tgz` function. You combine them: `tar::open(compress::gzipDecode(bytes, limit))`, and `compress::gzipEncode(tar::finish(b))` to write. This keeps `tar::` independent of zlib.
+- **Extraction safety:** `extractTo` applies the same path checks as zip. It also refuses symlinks and hardlinks that point outside `directory`.
+
+## Two open points
+- **Windows:** `zip::` still reads and writes uncompressed (method 0) entries there, but anything compressed raises `compress::ErrUnavailable`. That's the Windows gap plan-93-A already defers, and it now reaches these packages too.
+- **Defaults in packages:** the `addFile(..., store := TRUE)` style needs plan-136 B, which fills in omitted arguments for callers of a package. The commit `caf191edd` says it landed, but I haven't checked that. If it isn't working, the defaults turn into overloads.

@@ -45,7 +45,7 @@ See plan-137-A §Prerequisites (whole-feature gate). Additionally:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-137-A complete | `ls planning/completed/plan-137-A-*` → one file | NOT MET |
-| Error code for `ErrTooLarge` is free on every ref | `grep -rn "77050027" src` → none; `git log --all --oneline -S 77050027` → none (take the next free code if not) | UNMEASURED at authoring (the all-refs search was running) |
+| Error code 77050027 and the name `ErrTooLarge` are free on main | `git grep -c 77050027 main -- src` → no files; `git grep -c ErrTooLarge main -- src` → no files (take the next free code if not) | MET (2026-09-13; highest `7705` on main is 77050026 `ErrCanvasGroupLimit`) |
 
 ## 1. Goal
 
