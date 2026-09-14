@@ -24,6 +24,8 @@ leaves out which form raises which:
 | `math::floor` (and `ceil`, `round`, which share the lowering) | `ErrOverflow` on every overload | only `Float`/`List OF Float` (`emit_float_rounding_integer_range_check`); the `Fixed` and `Money` rounding paths always fit (`math::ceil(9223372036854775808.0)` → `77050010`, while a `Fixed` near its maximum rounds normally) |
 | `math::log`, `math::log10` | `ErrFloatDomain` and `ErrInvalidArgument` on overloads 1–4 | `Float`/`List OF Float` raise `ErrFloatDomain`; `Fixed`/`List OF Fixed` raise `ErrInvalidArgument` (`/tmp/p125-ex/mathlist`) |
 | `math::max`, `math::min` | `ErrInvalidArgument` on overloads 1–7 | only the three list forms, for mismatched lengths (`lower_simd_binary`); the scalar comparison (`lower_math_min_max`) has no raise path |
+| `math::sqrt` | `ErrFloatDomain` and `ErrInvalidArgument` on overloads 1–4 | `Float`/`List OF Float` raise `ErrFloatDomain` (`sqrt([4.0, -1.0])` → `77050012`); `Fixed`/`List OF Fixed` raise `ErrInvalidArgument` (`[4, -1]` as `Fixed` → `77050002`) (`/tmp/p125-ex/mathc1d`) |
+| `math::tan` | `ErrInvalidArgument` and `ErrFloatInf` on overloads 1–3 | the `Float` forms use `FloatKernel::Tan`, whose only error is `ErrFloatNaN` (`builder_simd_float_math.rs:FloatKernel::errors`); `tan(math::pi2)` returns a finite 1.6e16 |
 
 This is the declared-error list, which is compiler data, not prose. Per
 `mfb spec language error-model` §8.6 rule 11 the compiler reads that list when it

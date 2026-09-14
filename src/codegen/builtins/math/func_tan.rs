@@ -28,7 +28,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
-        "The angle in radians, or a list of them. Near an odd multiple of pi/2 the result becomes very large; see the description for how Float and Fixed differ there.",
+        "The angle in radians, or a `List OF Float` of them. Near an odd multiple of pi/2 the result becomes very large; see the description for how Float and Fixed differ there.",
         &[Float, Fixed],
         &[Float],
         &["ErrFloatInf", "ErrFloatNaN", "ErrInvalidArgument"],

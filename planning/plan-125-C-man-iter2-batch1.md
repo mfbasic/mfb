@@ -142,14 +142,16 @@ that is new to review last, with pace known).
 
 ### Phase 1 — math (22 units)
 
-- [~] All 21 function pages + the overview, one review unit each.
+- [x] All 21 function pages + the overview, one review unit each.
       Unit list `planning/plan-125-units/C-phase1.txt` (22 units: overview + 21;
       `math` has no types page, and its constants have no pages of their own).
-      **Remaining: the 22 Codex reviews.** The 2026-09-13 dispatch hit the Codex
-      usage limit on its first units ("try again at 11:13 AM",
-      `planning/plan-125-findings/C-phase1/man-page-math-abs.log`) and was
-      stopped; re-dispatch after the reset.
-- [~] Every example compiled and run; precision claims probe-verified.
+      The Codex usage limit cut the batch three times, so it ran in rounds:
+      - 6 units on the first dispatch;
+      - 11 from `C-phase1-retry.txt`;
+      - the last 5 from `C-phase1-retry2.txt`.
+      `--reconcile --letter C-phase1 --units planning/plan-125-units/C-phase1.txt`
+      → `units=22 unaccounted=0 orphans=0`.
+- [x] Every example compiled and run; precision claims probe-verified.
       Examples: `math` 21/21 built and ran at `7f4ff371b`. My probes so far
       (`/tmp/p125-ex/mathconst`, `/tmp/p125-ex/mathclaims`):
       - **Wrong, applied:** the overview said every constant "comes in a `Float`
@@ -211,10 +213,10 @@ that is new to review last, with pace known).
         session's unmerged t3 checkpoint also uses bug-603, for a `datetime`
         bug added 2026-09-13 06:32. This branch's bug-603 (color hue,
         `17872c5d1`, 2026-09-12 22:35) came first and keeps the number.
-- [~] Ledger + example ledger recorded here. **Partial:** 17 of 22 reviews
-      completed and triaged below: 6 in the first round, 11 in the retry round.
-      **Remaining: `pow`, `seed`, `sin`, `sqrt`, `tan`**, which hit the usage
-      limit again in the retry round.
+- [x] Ledger + example ledger recorded here. All 22 reviews are triaged below,
+      over three rounds, and every verdict carries its evidence. Examples: `math`
+      21/21 built and ran after each round; the overview's new example was run
+      separately (`/tmp/p125-ex/mathoverview`).
 
 #### Phase 1 ledger — Codex iteration 2, partial (`planning/plan-125-findings/C-phase1/`)
 
@@ -272,8 +274,39 @@ Probes: `/tmp/p125-ex/mathc1b`, `/tmp/p125-ex/mathc1c`.
 | rand | 1, 2 | CONFIRMED | probe: `rand(0,0)` → 0, `rand(-10,-10)` → -10, `rand(-5,-1)` in range, `Money` -1.00 bounds work | both parameters: zero, negative and equal bounds valid |
 | round | 1, 2 | CONFIRMED | probe: `round([2.5,-2.5])` → `3,-3`, input unchanged; empty → 0 | DESC: new list, empty → empty; "dimension exit" replaced |
 
+Final round (user: "codex limit reset, continue"). The quota probe answered PONG,
+and 5 units were dispatched from `planning/plan-125-units/C-phase1-retry2.txt`;
+all 5 completed with exit 0. `--reconcile --letter C-phase1 --units
+planning/plan-125-units/C-phase1.txt` → `units=22 unaccounted=0 orphans=0`.
+Probe: `/tmp/p125-ex/mathc1d`.
+
+| Page | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| pow | 1, 2 | CONFIRMED | `List OF Fixed` is not a `pow` form (declaration census); mismatched `List OF Float` → `77050002` | both parameters name `List OF Float`; lengths must match |
+| pow | 3 | CONFIRMED | probe: `pow(-2.0, 0.5)` → `77050013`; `Fixed` → `77050002`; `pow(0.0, -1.0)` → `77050014`; `Fixed` → `77050010`; `pow(0,0)` → `1.00`; `pow(2,-2)` → `0.25` | DESC: the per-type error split and the edge values |
+| seed | 1 | CONFIRMED | my own last-round sentence "unseeded draws differ from run to run" overclaims (`rand(1, 1)` is always 1) | DESC: "not reproducible" |
+| seed | 2 | CONFIRMED | probe: `seed(0)` and `seed(-1)` both replay | parameter: any `Integer`, including zero and negative |
+| seed | 3 | CONFIRMED | `src/codegen/runtime/thread/runtime_helpers.rs`: a worker's PCG64 stream is seeded from one draw of the spawning thread's generator (`RNG_NEXT_SYMBOL` → `RNG_SEED_SYMBOL`), not inherited | DESC: each thread has its own sequence |
+| sin | 1 | CONFIRMED → **bug-618** | probe: `sin(1e20)` → `1.96e29`, `cos(1e20)` → `-3.67e27`; correct-looking through `1e9` | none: the page does not document the garbage; the bug does |
+| sin | 2 | CONFIRMED | `List OF Fixed` is not a `sin` form; empty list and a new list per `lower_simd_float_unary` | parameter names `List OF Float`; DESC: new list, empty → empty |
+| sin | 3 | DEFERRED | the NaN repro `sin(0.0 / 0.0)` builds NaN in its argument, so it does not isolate `sin` (same as atan2 #3, cos #4) | — |
+| sqrt | 1 | CONFIRMED | probe: `sqrt([4.0, -1.0])` → `77050012` (`ErrFloatDomain`); `sqrt` of a `List OF Fixed` with -1 → `77050002`. The page had said the list forms raise `ErrInvalidArgument` | DESC: split by element type, not by list |
+| sqrt | 2, 3 | CONFIRMED → **bug-617** | same probe | none: declared-error data |
+| sqrt | 4 | CONFIRMED | reviewer probe: `sqrt(0.0)` → 0; empty list → 0; new list, input unchanged | DESC |
+| tan | 1 | CONFIRMED | `tan` has only `List OF Float` | parameter names `List OF Float` |
+| tan | 2 | CONFIRMED → **bug-617** | `FloatKernel::Tan`'s only error is `ErrFloatNaN`; `tan(math::pi2)` is finite | none: declared-error data |
+
 Acceptance: 22 units `exit 0` in the manifest; `--reconcile` clean for the
 phase; `mfb man math --all` renders; `--memory-scope math`/`--scope math` → 0.
+
+Measured at the closing commit:
+- every one of the 22 units has an `exit 0` row as its latest;
+- `--reconcile` → `unaccounted=0 orphans=0`;
+- `mfb man math --all` exits 0;
+- `--memory-scope math` 0, `--scope math` 0;
+- `math` examples 21/21 ran.
+
+Bugs filed from this phase: bug-615, bug-616, bug-617, bug-618.
 Commit: —
 
 ### Phase 2 — encoding (32 units)

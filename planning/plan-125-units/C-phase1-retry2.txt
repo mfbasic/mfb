@@ -1,0 +1,5 @@
+man-page:math/pow
+man-page:math/seed
+man-page:math/sin
+man-page:math/sqrt
+man-page:math/tan

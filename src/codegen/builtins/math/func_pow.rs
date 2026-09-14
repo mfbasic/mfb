@@ -6,10 +6,13 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Raise a base to an exponent."#;
 const DESC: &str = r#"`pow` returns `base ** exponent`. Both arguments must be the same type (`Float` or
-`Fixed`), echoing that type; the `List OF Float` array form raises two equal-length
-lists element-wise. A result that overflows the finite range or is otherwise
-non-finite raises `ErrOverflow`/`ErrFloatInf`/`ErrFloatNaN`; a negative base with a
-non-integer exponent is outside the domain."#;
+`Fixed`), echoing that type; the `List OF Float` form raises two lists of the same length element-wise
+into a new list, and lists of different lengths raise `ErrInvalidArgument`.
+`pow(0.0, 0.0)` is `1`, and a negative exponent gives a reciprocal
+(`pow(2.0, -2.0)` is `0.25`). A negative base needs a whole-number exponent: a
+fractional one raises `ErrFloatNaN` for `Float` and `ErrInvalidArgument` for
+`Fixed`. A result too large to hold — including zero to a negative power — raises
+`ErrFloatInf` for `Float` and `ErrOverflow` for `Fixed`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
@@ -25,11 +28,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed, same type",
-        ("base", &["value"], "The base, or a list of them."),
+        ("base", &["value"], "The base, or a `List OF Float` of them."),
         (
             "exponent",
             &["power"],
-            "The exponent, or a list of them. Must be the same type as the base.",
+            "The exponent, or a `List OF Float` of them. Must be the same type as the base; two lists must also have the same length.",
         ),
         &[Float, Fixed],
         &[Float],
