@@ -392,6 +392,39 @@ Commit: 291aef987
   `grep -o '"symbol": "_mfb_rt_graph_[a-z_]*"'` over both regenerated dumps finds
   `_mfb_rt_graph_copy`, `_mfb_rt_graph_drop`, `_mfb_rt_graph_drop_edges` and
   `_mfb_rt_graph_stack_grow` once each, so the gate covers all four walkers.
+- **Final gate on the merged tree (`bb96dc5d6`): six failures, each root-caused.**
+  `cargo test --release --no-fail-fast -- --skip artifact_gate_all` (`/tmp/p134-final-tests.log`):
+  - `codegen_inplace_remove_at_insert::remove_at_declines_for_a_recursive_element_type` pinned
+    the G24 decline this letter lifts on purpose. Corrected with the four answers in
+    `4d26d8957` (the fixture prints its golden on the in-place path) → `12 passed`.
+  - `gate_lock_covers_every_writer`: `tools/recursive-value-bench/run.sh` writes an `-ncode`
+    dump, so it takes the gate lock and has a row (`7aff78454`) → `1 passed`.
+  - `no_type_strings`: 55 `ParameterType::declared(` sites against a budget of 52 — the walkers
+    now take typed kinds (`22c839241`) → `no_type_strings ... ok`.
+  - `rt_regex_bounds::find_all_cost_is_bounded_for_the_whole_call`: 30.57 s against the 8 s
+    bound. New letter **plan-134-I** (the matcher by node index).
+  - `rt_union_trap_bind_default` (two json cases): exit 139. The inline-`TRAP` `Result`
+    byte-copies the callee's top block, so the graph moves with it, but the callee's block
+    temp was graph-dropped under the wrapper (lldb: `EXC_BAD_ACCESS` at `0x3` in the
+    `json.Json` tag dispatch). The temp is now shallow, and an Ok wrapper of a recursive
+    payload drops its payload's edges (`ResultWrapperDrop::OkGraphPayload`) — before this, it
+    kept the graph forever. `emit_shallow_block_free` joins the prologue zero-init, because
+    that temp is written on the Ok path only (`ed0d0304f`) → `3 passed`.
+- **Four bugs the final-gate probes found, fixed in this letter.** All four reproduce
+  identically on the pre-plan compiler (`cc1012bdc`).
+  - An inline `TRAP` whose raising root operator follows a trailing `len(..)` failed to build
+    (`Checked wraps a call to len`) — `cb8424594`, new case in
+    `rt_inline_trap_raising_operator` (`21 passed`).
+  - A data union's synthesized default leaked its variant record block. That is 16 B per
+    inline-`TRAP` bind; `--debug` over 2000 iterations gave `live_bytes 64000`, now `0`
+    (`414ede12d`).
+  - A failing call jumped past its statement's temp frees. The leaks were 48 B for a `[]`
+    argument, 32 B for a concat argument, and 48 B per rejected `json::parse` document; all
+    now `0`. The error message is intact, with output identical to the pre-plan compiler
+    (`d2acb15e6`).
+
+  Leak pins for these and for the json `TRAP`/`RECOVER` loop are in `rt_scope_drop_leaks`
+  (`4 passed`).
 - **A set cannot hold a recursive value, so the set arms need no case.** Measured, not
   assumed. `/tmp/p134-h-set` (`LET s AS Set OF Node = Set OF Node { Node[kids := [], tag := 1] }`)
   → `error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: Set element type requires a comparable type,
