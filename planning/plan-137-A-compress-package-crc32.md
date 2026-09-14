@@ -57,11 +57,11 @@ These gate the **whole** plan-137 feature. Letters B–E point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| bug-621 fixed (append growth reserves data per element width) — B's decoder and D/E's encoders build multi-MiB outputs by in-place append; with bug-621 open a 64 MiB decode reserves ~19 B per output byte and every RSS bound in this plan would pin the bug | `ls bugs/completed/bug-621-*` → one file | NOT MET |
-| Release compiler builds | `cargo build --release --bin mfb` → exit 0 | UNMEASURED — run before starting |
-| zlib oracles present on the dev host | `python3 -c "import zlib; print(zlib.ZLIB_RUNTIME_VERSION)"` → a version; `node -e "console.log(process.versions.zlib)"` → a version | MET (2026-09-13: Python 3.14.5 / zlib 1.2.12; Node v24.12.0 / zlib 1.3.1-470d3a2) |
-| `flate2` resolves offline for the in-CI interop test | `grep -n -A3 '^name = "flate2"' Cargo.lock` → `1.1.9`, deps `crc32fast`, `miniz_oxide 0.8.9` | MET (2026-09-13) |
-| No `compress` package exists yet | `ls src/codegen/builtins \| grep -c compress` → 0 | MET (2026-09-13) |
+| bug-621 fixed (append growth reserves data per element width) — B's decoder and D/E's encoders build multi-MiB outputs by in-place append; with bug-621 open a 64 MiB decode reserves ~19 B per output byte and every RSS bound in this plan would pin the bug | `ls bugs/completed/bug-621-*` → one file | NOT MET (2026-09-13 re-run: `no matches found`; `bugs/bug-621-append-growth-over-reserves-data-capacity.md` reads `Status: Open`, all Phase boxes `- [ ]`; `git log --all --grep=bug-621` → only the filing `3f1087136` and citation `131b07251`, no fix) |
+| Release compiler builds | `cargo build --release --bin mfb` → exit 0 | MET (2026-09-13 re-run in `.claude/worktrees/P-137`: `EXIT=0`, `Finished release profile [optimized] target(s) in 2m 45s`) |
+| zlib oracles present on the dev host | `python3 -c "import zlib; print(zlib.ZLIB_RUNTIME_VERSION)"` → a version; `node -e "console.log(process.versions.zlib)"` → a version | MET (2026-09-13 re-run: zlib `1.2.12` / Node zlib `1.3.1-470d3a2`) |
+| `flate2` resolves offline for the in-CI interop test | `grep -n -A3 '^name = "flate2"' Cargo.lock` → `1.1.9`, deps `crc32fast`, `miniz_oxide 0.8.9` | MET (2026-09-13 re-run: `Cargo.lock:1142 version = "1.1.9"`) |
+| No `compress` package exists yet | `ls src/codegen/builtins \| grep -c compress` → 0 | MET (2026-09-13 re-run: `0`; `ls packages \| grep -c '^compress$'` → `0`) |
 
 If bug-621 is not complete, plan-137 cannot start, full stop. This plan does not work around
 it (no pre-sized output buffers invented to dodge the growth policy, no "smaller cap until

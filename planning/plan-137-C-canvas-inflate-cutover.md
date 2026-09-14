@@ -34,7 +34,7 @@ See plan-137-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-137-B complete | `ls planning/completed/plan-137-B-*` → one file | NOT MET |
+| plan-137-B complete | `ls planning/completed/plan-137-B-*` → one file | NOT MET (2026-09-13 re-run: `ls planning/completed | grep -c plan-137` → 0; blocked on plan-137-A's bug-621 row) |
 
 ## 1. Goal
 
