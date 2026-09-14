@@ -1759,9 +1759,7 @@ pub(crate) fn lower_module_for_platform(
             .zip(&type_model.graph_drop_kinds)
             .all(|(copy_kind, drop_kind)| copy_kind == drop_kind)
     {
-        return Err(
-            "the graph drop kinds do not start with the graph copy kinds".to_string(),
-        );
+        return Err("the graph drop kinds do not start with the graph copy kinds".to_string());
     }
     let mut typed_kinds: Vec<(String, ParameterType)> = Vec::new();
     for (kind, name) in type_model.graph_drop_kinds.iter().enumerate() {
