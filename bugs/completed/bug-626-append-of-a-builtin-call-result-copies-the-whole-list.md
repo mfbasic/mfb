@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (memory and time)
 
-Status: Open
-Regression Test: tests/runtime/rt_scope_drop_leaks.rs or a codegen-inspection test (to add, Phase 1)
+Status: FIXED (e53e7a11e)
+Regression Test: tests/runtime/rt_inplace_append_builtin_call.rs
 
 A loop that appends a builtin call's result straight into a same-function `MUT` list,
 `keep = collections::append(keep, fs::readText(path))`, copies the entire list on every
@@ -84,6 +84,28 @@ Confirmed by reading the code:
 
 The bound form is immune because `NirValue::Local` resolves through `self.locals`.
 
+Re-measured at `af7d9b778` (`/tmp/b626/run626.sh`, `--debug` release builds): `nest` 100 → 200
+`alloc_bytes` 26,687,264 → 104,174,464 (×3.90), `str` (`fs::readText` into `List OF String`)
+26,471,264 → 103,342,464 (×3.90), `bound` 2,386,832 → 5,401,056 (×2.26).
+
+### Phase 1 audit
+
+- **Gates.** `static_item_type` has 15 callers (`grep -rn "static_item_type(" src/codegen`), all
+  in-place recognisers (`builder_inplace_assign.rs` ×14, `builder_control.rs` bulk append ×1).
+  Every one only compares the answer for EQUALITY with the element, key or collection type
+  and declines otherwise, and each arm re-checks the lowered `type_` as a hard `Err`. A
+  wider answer can therefore only admit an operand whose type genuinely matches: each gate is
+  **safe to widen**, the single-element / bulk split included (a `List OF T` result still
+  differs from `T`).
+- **Aliasing.** A widened gate lowers the operand with `lower_value_stored`. No `Call`,
+  `CallResult` or `RuntimeCall` is an aliasing source (`value_is_aliasing_source`), and user
+  and package function calls already reach these arms through the return-type lookup, so a
+  builtin result adds no new ownership case.
+- **Untyped builtins.** Every builtin not in `static_type_name`'s table was untyped here (the
+  whole `fs`, `strings`, `collections`, `json`, … surface). The registry resolver
+  `builtins::resolve_call_return_type_typed` types all of them, and `static_type_name_for_fold`
+  and `overload_arg_type` already use it.
+
 ## Goal
 
 - `append(keep, fs::readText(…))` and `append(keep, fs::readBytes(…))` into same-function
@@ -116,26 +138,46 @@ path, or can be removed.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] A test comparing `alloc_bytes` at N and 2N for `append(list, fs::readText(…))` (small N,
+- [x] A test comparing `alloc_bytes` at N and 2N for `append(list, fs::readText(…))` (small N,
       a 5,000-byte input), asserting linear growth; confirm it fails.
-- [ ] Audit every `static_item_type` gate and the builtin registry for untyped call results.
+- [x] Audit every `static_item_type` gate and the builtin registry for untyped call results.
 
 Acceptance: the test fails for the documented reason; the audit has a verdict per gate.
-Commit: —
+Commit: daab32aeb (`tests/runtime/rt_inplace_append_builtin_call.rs`, RED ×3.90 for both calls; audit above)
 
 ### Phase 2 — the fix
 
-- [ ] Builtin return types in `static_item_type`, from the registry.
+- [x] Builtin return types in `static_item_type`, from the registry.
 
 Acceptance: the Phase 1 test passes; the bound form is unchanged.
-Commit: —
+Commit: e53e7a11e
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Regenerate the goldens the in-place path shifts; full suite; `scripts/test-accept.sh`.
+- [x] Regenerate the goldens the in-place path shifts; full suite; `scripts/test-accept.sh`.
 
 Acceptance: full suite green; the golden deltas are only in-place appends.
-Commit: —
+Commit: 429eccf66 (goldens)
+
+## STATUS: FIXED (e53e7a11e)
+
+Landed with bug-627 on one integration branch (`worktree-B-626-627`).
+
+- `static_item_type` falls back to `builtins::resolve_call_return_type_typed` for `Call`,
+  `CallResult` and `RuntimeCall`, typing the arguments through itself.
+- Regression test RED ×3.90 (both `fs::readText` and `fs::readBytes`) → GREEN. The original
+  probes: `str` now allocates exactly what `bound` does (2,386,832 → 5,401,056, ×2.26), `nest`
+  2,411,936 → 5,455,584 (×2.26).
+- A self-aliasing probe (appending `sort`, `take`, `split(join(…))`, `upper(get(…))` of the list
+  into itself, and a nested-list variant) matched an independent Python model exactly.
+- Goldens: `artifact-gate.sh all` flagged 49 `.ncode` sums over 10 fixtures, shared with
+  bug-627. Localized per function against the base compiler with label numbering normalized:
+  this bug's share is appends / bulk appends of builtin results now taking the in-place arm
+  (crypto `bnAdd`, `keccakRound`, `gf448Unpack`, …, net `percentDecodeImpl`, regex `split`).
+  Regenerated in 429eccf66; the re-run reports 0 diffs over 2023 goldens.
+- `scripts/test-accept.sh`: 1472 passed. `cargo test --no-fail-fast`: see bug-627 close-out.
+- Deviation: none from the fix design. The name table in `static_type_name` is left as is —
+  it also feeds numeric typing, so removing it is a separate change.
 
 ## Validation Plan
 

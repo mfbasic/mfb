@@ -1,12 +1,21 @@
-//! plan-121-F: a length-changing `set` on a variable-width list element shifts
-//! inside the block instead of rebuilding it.
+//! plan-121-F / bug-627: a length-changing `set` on a variable-width list element
+//! is resolved inside the block, in O(1) amortized, instead of rebuilding it.
+//!
+//! plan-121-F replaced the `removeAt` + `insert` rebuild with an in-block shift of
+//! every byte after the written element. bug-627 measured that shift as the
+//! remaining cost: O(N) per write, so widening every element of a list front to
+//! back was O(N²) (0.58 s → 6.69 s for 25,000 → 100,000 elements). A shorter
+//! payload is now overwritten where it lies, a longer one is written where it lies
+//! when it is the last payload in the data region, and otherwise at the data tail,
+//! leaving its old span as dead bytes. A tail write that overflows `dataCapacity`
+//! repacks the live payloads into a geometrically larger block.
 //!
 //! ## Why codegen inspection and not just the runtime fixture
 //!
 //! `p121f-string-set-readback-rt` proves the result is *correct*, and it did so
-//! before this change too — the old rebuild path was correct, merely slow. So a
-//! green fixture cannot distinguish "the shift path ran" from "the rebuild path
-//! ran". Only the emitted code can, which is what this file reads.
+//! before both changes too — the rebuild and the shift were correct, merely slow.
+//! So a green fixture cannot distinguish which path ran. Only the emitted code
+//! can, which is what this file reads (`rt_list_set_widening_linear` times it).
 //!
 //! The pairing rule from plan-121-C/D applies: each positive is matched by a
 //! shape that must NOT take the path, because a fast path that fires too widely
@@ -71,68 +80,79 @@ const INTEGER_SET: &str = "IMPORT collections\n\
      END FUNC\n";
 
 #[test]
-fn a_variable_width_set_emits_the_in_block_shift() {
+fn a_variable_width_set_emits_the_in_block_resize() {
     let plan = ncode("p121f_shift", STRING_SET);
     assert!(
-        label_count(&plan, "_mfb_fn_mutate", "set_inplace_shift") >= 1,
-        "plan-121-F: a `set` on a `List OF String` must emit the in-block shift \
-         path. Without it a length-changing write rebuilds the whole list via \
+        label_count(&plan, "_mfb_fn_mutate", "set_inplace_resize") >= 1,
+        "plan-121-F: a `set` on a `List OF String` must emit the in-block length \
+         change. Without it a length-changing write rebuilds the whole list via \
          removeAt + insert -- three allocations and two full copies per call, \
-         which is why it measured O(N^1.6) rather than the O(N) a data shift costs."
+         which is why it measured O(N^1.6)."
     );
 }
 
 #[test]
-fn the_shift_emits_both_directions_and_the_overflow_grow() {
+fn the_resize_emits_every_case_and_the_overflow_repack() {
     let plan = ncode("p121f_shift_dirs", STRING_SET);
-    // Widening and narrowing are NOT the same code: the tail moves up in one and
-    // down in the other, so one needs a backward copy and the other a forward
-    // one. A forward copy used for the widening case smears the first tail bytes
-    // over the region whenever the shift distance is less than the tail length --
-    // and still looks correct on a 1-2 element list.
-    assert!(
-        label_count(&plan, "_mfb_fn_mutate", "set_inplace_widen") >= 1,
-        "plan-121-F: the widening direction must emit its BACKWARD copy."
-    );
     assert!(
         label_count(&plan, "_mfb_fn_mutate", "set_inplace_narrow") >= 1,
-        "plan-121-F: the narrowing direction must emit its FORWARD copy."
-    );
-    // Both offset fixups must be present. Every payload after the written one
-    // moves, so every one of their entries must move with it; a missing fixup
-    // reads correctly up to `index` and returns garbage after.
-    assert!(
-        label_count(&plan, "_mfb_fn_mutate", "set_inplace_widenfix") >= 1,
-        "plan-121-F: widening must fix up the entry offsets that moved up."
+        "a shorter payload must be overwritten where it lies."
     );
     assert!(
-        label_count(&plan, "_mfb_fn_mutate", "set_inplace_narrowfix") >= 1,
-        "plan-121-F: narrowing must fix up the entry offsets that moved down."
+        label_count(&plan, "_mfb_fn_mutate", "set_inplace_extend") >= 1,
+        "a longer payload that is the last in the data region must grow where it lies."
     );
-    // The overflow branch is the half the measurement caught: without a
-    // GEOMETRIC grow, every widening overflows, rebuilds tight, and overflows
-    // again on the next call -- leaving the widening cost unchanged.
+    assert!(
+        label_count(&plan, "_mfb_fn_mutate", "set_inplace_relocate") >= 1,
+        "any other longer payload must be written at the data tail."
+    );
+    // The overflow must grow GEOMETRICALLY: a tight rebuild guarantees the next
+    // widening overflows too (plan-121-F Correction F1). It must also repack, or
+    // the dead bytes the relocations leave accumulate without bound.
     assert!(
         label_count(&plan, "_mfb_fn_mutate", "set_grow_dcap") >= 1,
         "plan-121-F: a `dataCapacity` overflow must take the GEOMETRIC data grow, \
-         not the tight rebuild. A tight rebuild guarantees the next widening \
-         overflows too, which is exactly the behaviour that made an in-block \
-         shift alone measure no faster (Correction F1)."
+         not the tight rebuild."
     );
+    assert!(
+        label_count(&plan, "_mfb_fn_mutate", "set_repack") >= 1,
+        "bug-627: the overflow grow must repack the live payloads, dropping the dead \
+         bytes relocated writes leave behind."
+    );
+}
+
+/// bug-627: nothing on the `set` path may move the bytes or the entry offsets of
+/// the OTHER elements. Each of those is an O(N) pass per write.
+#[test]
+fn a_variable_width_set_does_not_shift_the_other_elements() {
+    let plan = ncode("b627_no_shift", STRING_SET);
+    for needle in [
+        "set_inplace_widen",
+        "set_inplace_widenfix",
+        "set_inplace_narrowfix",
+        "set_inplace_shift",
+    ] {
+        assert_eq!(
+            label_count(&plan, "_mfb_fn_mutate", needle),
+            0,
+            "bug-627: `{needle}` shifts the payloads or offsets after the written \
+             element -- O(N) per write, O(N²) over a loop."
+        );
+    }
 }
 
 /// Must-not-change. A fixed-width element is always replaced by one of exactly
 /// its own size, so the same-size overwrite always applies and there is no span
-/// to widen or narrow. Emitting the shift here would be dead code at best; taking
-/// it would be a shift computed from an entry table that does not exist.
+/// to resize. Emitting the resize here would be dead code at best; taking it
+/// would read an entry table that does not exist.
 #[test]
-fn a_fixed_width_set_does_not_emit_the_shift() {
+fn a_fixed_width_set_does_not_emit_the_resize() {
     let plan = ncode("p121f_shift_fixed", INTEGER_SET);
     assert_eq!(
-        label_count(&plan, "_mfb_fn_mutate", "set_inplace_widen"),
+        label_count(&plan, "_mfb_fn_mutate", "set_inplace_relocate"),
         0,
         "plan-121-F: a `List OF Integer` `set` is entry-free and always \
-         same-size, so it must not emit the variable-width shift."
+         same-size, so it must not emit the variable-width resize."
     );
     assert_eq!(
         label_count(&plan, "_mfb_fn_mutate", "set_grow_dcap"),

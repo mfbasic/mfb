@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (time)
 
-Status: Open
-Regression Test: to add (Phase 1)
+Status: FIXED (0864d5247)
+Regression Test: tests/runtime/rt_list_set_widening_linear.rs, tests/codegen/codegen_string_set_shift.rs
 
 A loop that replaces every entry of a same-function `MUT` `List OF String` in place,
 `keep = collections::set(keep, i, s)` with `s` bound to a `LET`, takes time proportional to
@@ -61,7 +61,27 @@ END FUNC
 
 ## Root Cause
 
-Not found. What was checked:
+**Hypothesis 1, confirmed.** `lower_list_set_in_place`
+(`src/codegen/collection/list/list_mutate.rs`) writes a replacement of a different length
+where the old payload lies (plan-121-F): it shifts every data byte after the old span
+(`emit_block_copy_backward`, `set_inplace_widen`) and then walks the whole entry table moving
+each offset past it (`emit_offset_expansion_fixup`, `set_inplace_widenfix`). Both are O(N) per
+write, so widening each element of an N-element list front to back is O(N²).
+
+Measured at `af7d9b778` with normal (not `--debug`) release builds (`/tmp/b626/run627.sh`),
+wall seconds:
+
+| Loop body | N = 25,000 | 50,000 | 100,000 |
+|---|---:|---:|---:|
+| `set` of a 39–43-byte string over `"x"` (widening) | 0.58 | 1.81 | 6.69 |
+| `set` of `"y"` over `"x"` (same size) | — | 0.16 | 0.18 |
+| the same string built, no `set` | — | 0.23 | 0.17 |
+
+The same-size and no-`set` loops are flat, which rules out hypotheses 3 (the concatenation)
+and 4 (`--debug`). Hypothesis 2 is ruled out by allocation growing only ×2 with N: the
+copying path would allocate a whole list per write.
+
+What was checked first:
 
 - `try_inplace_set_assign` (`src/codegen/collection/assign/builder_inplace_assign.rs`)
   requires a non-`by_ref` local, a three-argument `set` whose first argument is that local,
@@ -101,25 +121,57 @@ Depends on the root cause.
 
 ### Phase 1 — failing test + root cause (no behavior change)
 
-- [ ] Run the four hypotheses' checks, and cite the cause here.
-- [ ] A test timing (or counting work for) the `set` loop at N and 2N that fails today.
+- [x] Run the four hypotheses' checks, and cite the cause here.
+- [x] A test timing (or counting work for) the `set` loop at N and 2N that fails today.
+      (Deviation: N and 8N, best of three after an untimed warm-up run; at N and 2N process
+      start-up noise overlapped the linear and quadratic ratios, and the first version
+      passed once on the broken compiler.)
 
 Acceptance: Root Cause names the mechanism with evidence; the test fails for that reason.
-Commit: —
+Commit: daab32aeb (`tests/runtime/rt_list_set_widening_linear.rs`, RED ×48.7)
 
 ### Phase 2 — the fix
 
-- [ ] Fix at the cause.
+- [x] Fix at the cause.
 
 Acceptance: the Phase 1 test passes; the reproduction scales linearly.
-Commit: —
+Commit: 0864d5247
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Regenerate shifted goldens; full suite; `scripts/test-accept.sh`.
+- [x] Regenerate shifted goldens; full suite; `scripts/test-accept.sh`.
 
 Acceptance: full suite green.
-Commit: —
+Commit: 429eccf66 (goldens)
+
+## STATUS: FIXED (0864d5247)
+
+Landed with bug-626 on one integration branch (`worktree-B-626-627`).
+
+- A length-changing `set` no longer touches other elements: shorter → overwrite in place;
+  longer and last in the data region → grow in place; longer elsewhere → aligned data tail,
+  old span left as a hole; a tail write that overflows → `emit_repack_list_data` (replaces
+  `emit_grow_list_data_capacity`), sized `step(live + need + count)`. `emit_offset_expansion_fixup`
+  lost its only caller and is deleted.
+- **Design deviation from the old invariant:** the variable-width data region may now hold
+  holes. An audit of every reader (copy, compare, slice, join, sort, `FOR EACH`, thread
+  transfer, graph copy) found all locate payloads by their own entry; the memory spec
+  (`dataLength`, Payload Order, `set`, Compaction) and `.ai/collections.md` now say so.
+- Regression test RED ×48.7 → GREEN ×7.0 (N=12,500: 10.8 ms; 100,000: 75.7 ms). The
+  reproduction: 0.19 / 0.20 / 0.24 s for N = 25k / 50k / 100k (was 0.58 / 1.81 / 6.69).
+- `tests/codegen/codegen_string_set_shift.rs`: the plan-121-F assertions that the tail shift and
+  offset fixups are emitted were disproved by this bug's measurement and replaced; its
+  no-rebuild, geometric-overflow and fixed-width assertions are unchanged.
+- Correctness: `p121f-string-set-readback-rt` and `collection-set-string-grow-rt` pass; an edge
+  probe (six forward/backward rounds with snapshots, set mixed with removeAt/insert/prepend,
+  records with inline strings, nested lists, FOR EACH, copy-before-set) matched hand and Python
+  expectations; rewriting one index 200,000 times kept `mapped_bytes` at 4,096.
+- A repack on a tiny list whose one element keeps alternating length runs about every other
+  write (alloc_bytes linear in writes, memory flat): linear, but not allocation-free.
+- Goldens: 49 `.ncode` sums shared with bug-626; this bug's share is the
+  `set_inplace_shift` → `set_inplace_resize` label rename (same instruction count on
+  fixed-width lists). Regenerated in 429eccf66; re-run 0 diffs over 2023 goldens.
+- `scripts/test-accept.sh`: 1472 passed. `cargo test --no-fail-fast`: 185 test binaries, 5,675 passed, 0 failed, 11 ignored.
 
 ## Validation Plan
 
