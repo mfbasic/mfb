@@ -1,0 +1,162 @@
+' ---------------------------------------------------------------------------
+' xml/lib.mfb — the package's public API: constructors for building a tree by
+' hand, and accessors for reading one.
+'
+' `xml::parse` (the reader) and `xml::stringify` (the writer) join them in
+' later phases; everything here works on a tree however it was obtained.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+
+' ---------------------------------------------------------------------------
+' Constructors. Each widens a record to `Node` through a typed binding, so a
+' caller never has to name the variant record type.
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC element
+  GROUP Building
+  DESC Build an element node with `name`, its attributes and its children.
+  ARG name The element name, written as it appears in the document: the raw `prefix:local` text, not a resolved namespace.
+  ARG attributes The attributes in document order. No two may share a name.
+  ARG children The child nodes in document order.
+  RET The element as an `xml::Node`.
+END DOC
+EXPORT FUNC element(name AS String, attributes AS List OF Attribute, children AS List OF Node) AS Node
+  LET n AS Node = Element[name, attributes, children]
+  RETURN n
+END FUNC
+
+DOC
+  FUNC text
+  GROUP Building
+  DESC Build a text node holding `s` verbatim.
+  ARG s The character data. Write it unescaped: `xml::stringify` escapes it.
+  RET The text node as an `xml::Node`.
+END DOC
+EXPORT FUNC text(s AS String) AS Node
+  LET n AS Node = Text[s]
+  RETURN n
+END FUNC
+
+DOC
+  FUNC comment
+  GROUP Building
+  DESC Build a comment node holding `s`.
+  ARG s The comment text, without the `<!--` and `-->` delimiters.
+  RET The comment as an `xml::Node`.
+END DOC
+EXPORT FUNC comment(s AS String) AS Node
+  LET n AS Node = Comment[s]
+  RETURN n
+END FUNC
+
+DOC
+  FUNC pi
+  GROUP Building
+  DESC Build a processing instruction with `target` and `data`.
+  ARG target The instruction target, which may not be any spelling of `xml`.
+  ARG data The instruction data, without the whitespace that separates it from the target.
+  RET The processing instruction as an `xml::Node`.
+END DOC
+EXPORT FUNC pi(target AS String, data AS String) AS Node
+  LET n AS Node = ProcessingInstruction[target, data]
+  RETURN n
+END FUNC
+
+DOC
+  FUNC document
+  GROUP Building
+  DESC Build a document whose top-level nodes are `children`.
+  ARG children The prolog and epilog comments and processing instructions, and exactly one element.
+  RET The `xml::Document`.
+END DOC
+EXPORT FUNC document(children AS List OF Node) AS Document
+  RETURN Document[children]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Accessors.
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC root
+  GROUP Reading
+  DESC Return the document's root element.
+  DESC
+  DESC A parsed document always has exactly one; a hand-built one may not, which
+  DESC is the only way this fails.
+  ARG doc The document to read.
+  RET The root `xml::Element`.
+  ERROR 77050004 The document holds no element.
+END DOC
+EXPORT FUNC root(doc AS Document) AS Element
+  FOR EACH n IN doc.children
+    MATCH n
+      CASE Element(e)
+        RETURN e
+      CASE ELSE
+    END MATCH
+  NEXT
+  FAIL error(ERR_NOT_FOUND, "xml: the document has no root element")
+END FUNC
+
+DOC
+  FUNC attr
+  GROUP Reading
+  DESC Return the value of `e`'s attribute named `name`.
+  DESC
+  DESC The name is matched literally, including any prefix: this package does
+  DESC not resolve namespaces, so `xlink:href` is found by that exact text.
+  ARG e The element to read.
+  ARG name The attribute name to find.
+  RET The attribute value, after the normalization the reader applied.
+  ERROR 77050004 The element has no attribute with that name.
+END DOC
+EXPORT FUNC attr(e AS Element, name AS String) AS String
+  FOR EACH a IN e.attributes
+    IF a.name = name THEN RETURN a.value
+  NEXT
+  FAIL error(ERR_NOT_FOUND, "xml: element `" & e.name & "` has no attribute `" & name & "`")
+END FUNC
+
+DOC
+  FUNC attrOr
+  GROUP Reading
+  DESC Return the value of `e`'s attribute named `name`, or `fallback` when it has none.
+  ARG e The element to read.
+  ARG name The attribute name to find.
+  ARG fallback The value to return when the attribute is absent.
+  RET The attribute value, or `fallback`.
+END DOC
+EXPORT FUNC attrOr(e AS Element, name AS String, fallback AS String) AS String
+  FOR EACH a IN e.attributes
+    IF a.name = name THEN RETURN a.value
+  NEXT
+  RETURN fallback
+END FUNC
+
+DOC
+  FUNC textOf
+  GROUP Reading
+  DESC Return the text of `n`: every text node at or below it, concatenated in
+  DESC document order.
+  DESC
+  DESC This is XPath's string-value, so comments and processing instructions
+  DESC contribute nothing even though they are kept in the tree.
+  ARG n The node to read.
+  RET The concatenated text, or the empty string when there is none.
+END DOC
+EXPORT FUNC textOf(n AS Node) AS String
+  MUT out AS String = ""
+  MATCH n
+    CASE Element(e)
+      FOR EACH k IN e.children
+        out = out & textOf(k)
+      NEXT
+    CASE Text(t)
+      out = t.text
+    CASE ELSE
+  END MATCH
+  RETURN out
+END FUNC

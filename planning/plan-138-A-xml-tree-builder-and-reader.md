@@ -44,10 +44,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| `packages/xml` does not exist yet | `ls packages/xml` → `No such file or directory` | MET (2026-09-15) |
-| Release compiler is current with HEAD | `cargo build --release` → `Finished` | MET (rebuilt 2026-09-15; the pre-existing binary was 6 `src/` commits stale: `git log --since=<mtime of target/release/mfb> --oneline -- src \| wc -l` → 6) |
-| Node ≥ 18 for the oracle | `node --version` → `v24.12.0` | MET |
-| crates.io reachable for the Rust oracle | `cargo search roxmltree --limit 1` → `roxmltree = "0.21.1"` | MET |
+| `packages/xml` does not exist yet | `ls packages/xml` → `No such file or directory` | MET (re-measured at the gate 2026-09-15 in `worktree-P-138`: `ls packages/xml` → `No such file or directory`. Phase 2 creates it, so this row is only ever true before the gate.) |
+| Release compiler is current with HEAD | `cargo build --release` → `Finished` | MET (re-measured 2026-09-15: built from scratch in the `worktree-P-138` worktree → `Finished \`release\` profile [optimized] target(s) in 1m 33s`, exit 0; `target/release/mfb` written 12:30) |
+| Node ≥ 18 for the oracle | `node --version` → `v24.12.0` | MET (re-measured 2026-09-15 → `v24.12.0`) |
+| crates.io reachable for the Rust oracle | `cargo search roxmltree --limit 1` → `roxmltree = "0.21.1"` | MET (re-measured 2026-09-15 → `roxmltree = "0.21.1"    # Represent an XML as a read-only tree.`) |
 
 Everything below is written against the world where these hold.
 
@@ -379,7 +379,7 @@ New package only. No compiler, spec, or existing-package change. The public surf
 Decides the builder before any package code exists. Nothing lands in the repo except this plan's
 update.
 
-- [ ] Write a scratch package + consumer under `/tmp/xml-builder-spike/` (AGENTS.md: one-off probes
+- [x] Write a scratch package + consumer under `/tmp/xml-builder-spike/` (AGENTS.md: one-off probes
       live in `/tmp`) holding the §5 records and a **pending-children builder**: one
       `MUT pending AS List OF Node` for completed nodes, and one flat `MUT open AS List OF OpenTag`
       (`name`, `attributes`, `start AS Integer` = `len(pending)` when the tag opened; no subtrees).
@@ -387,11 +387,13 @@ update.
       `pending = collections::take(pending, start)`, then
       `pending = collections::append(pending, <Element with kids>)`. The only list with subtrees is
       never read back with `get`.
-- [ ] Measure three shapes at 100k nodes, 3 runs each, recording min–max:
+- [x] Measure three shapes at 100k nodes, 3 runs each, recording min–max:
+      **all three exceeded the 30 s alarm** (`bash /tmp/xml-builder-spike/time.sh …/app/build/spike.out
+      100000` → `flat|deep|wide run1..3 exit=142 30.01s`). See Corrections.
       (a) flat — `<root>` + 50,000 `<item id="N">value N</item>`;
       (b) deep — repeated chains nested 256 levels, to 100k nodes total;
       (c) wide — 100,000 empty `<i/>` directly under the root.
-- [ ] If any shape exceeds 3 s: build with `mfb build --debug` and read the arena report
+- [x] If any shape exceeds 3 s: build with `mfb build --debug` and read the arena report
       (`04_arenas.md` "Measuring an Arena") to find which operation copies. If the cause is a
       compiler defect (e.g. `drop`/`take` copying more than the elements they return), file it
       with the write-bug skill and fix it per AGENTS.md before Phase 2. Record every number and the
@@ -400,23 +402,28 @@ update.
 Acceptance: a builder design is recorded here with all three shapes measured ≤ 3 s.
   Check: the spike consumer run as `perl -e 'alarm 30; exec @ARGV' ./spike.out <shape> 100000` →
   prints the node count, 3 runs per shape, each ≤ 3.00 s (est. 2 min to run).
+  **MET by the recursive-descent builder** (Corrections "Phase 1"), 100k nodes, 3 runs each:
+  flat 0.12–0.13 s (`nodes=99999 depth=2`), deep 0.12 s (`nodes=100000 depth=256`),
+  wide 0.11 s (`nodes=100000 depth=2`) — every run ≤ 0.13 s against a 3.00 s budget.
+  NOT met by the planned pending-children builder: all three shapes hit the 30 s alarm.
 Commit: — (plan update only)
 
 ### Phase 2 — package skeleton and tree model
 
-- [ ] `packages/xml/project.json` — kind `package`, `name` `xml`, version `0.1.0`, sources
+- [x] `packages/xml/project.json` — kind `package`, `name` `xml`, version `0.1.0`, sources
       `src/**/*.mfb` role `package` (mirror `packages/yaml/project.json`), with a `description` that
       states the §1 non-goals.
-- [ ] `packages/xml/src/tree.mfb` — the §5 records, union and `Document`.
-- [ ] `packages/xml/src/core.mfb` — error constants, `ErrorNodeLimit`, `DEPTH_LIMIT`, `NODE_LIMIT`,
+- [x] `packages/xml/src/tree.mfb` — the §5 records, union and `Document`.
+- [x] `packages/xml/src/core.mfb` — error constants, `ErrorNodeLimit`, `DEPTH_LIMIT`, `NODE_LIMIT`,
       byte constants.
-- [ ] `packages/xml/src/lib.mfb` — constructors and accessors from §5 (`parse` is added in Phase 4),
+- [x] `packages/xml/src/lib.mfb` — constructors and accessors from §5 (`parse` is added in Phase 4),
       each with a minimal `DOC` block (full prose lands in B).
-- [ ] Tests: `packages/xml/src/test_tree.mfb` — constructors round-trip through accessors; `attr`
+- [x] Tests: `packages/xml/src/test_tree.mfb` — constructors round-trip through accessors; `attr`
       fails `ErrNotFound`; `attrOr` falls back; `textOf` concatenates nested text in document order.
 
 Acceptance: the tree API works from TESTING blocks.
   Check: `target/release/mfb test packages/xml` → all cases pass, exit 0 (est. 1 min).
+  MET: `./target/release/mfb test packages/xml` → `Tests: 11  Pass: 11  Fail: 0`, exit 0.
 Commit: —
 
 ### Phase 3 — scanner and character classes
@@ -479,7 +486,52 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+**Phase 1 — the planned pending-children builder is rejected; the reader builds the tree by
+recursive descent.** The plan predicted the pending-children design would avoid the copy-on-`get`
+cost that killed `dom`'s frame stack. It does not: it replaces `get` with `collections::take`, which
+is just as quadratic over a `List OF Node`. Measured in `/tmp/xml-builder-spike` (spike package +
+consumer, timed by `/tmp/xml-builder-spike/time.sh`, 3 runs each):
+
+| Builder | Shape | n | Time |
+|---|---|---|---|
+| pending-children (planned) | flat, deep, wide | 100,000 | **all killed at the 30 s alarm** (`exit=142 30.01s`) |
+| pending-children | wide | 2,000 | 1.37–1.38 s |
+| pending-children | wide | 8,000 | 22.21–22.31 s (4× the nodes → 16× the time: quadratic) |
+| recursive descent (chosen) | flat | 100,000 | 0.12–0.13 s |
+| recursive descent | deep (256 levels) | 100,000 | 0.12 s |
+| recursive descent | wide | 100,000 | 0.11 s |
+
+Localized by isolation shapes at 8,000 nodes rather than by the arena report, which the phase
+offered as one way to find the copying operation — the isolation split names it outright:
+
+| Isolation shape (per step, over a `List OF Node` unless noted) | Time at n=8,000 |
+|---|---|
+| `pending = collections::append(pending, leaf())` | 0.02 s |
+| `pending = collections::take(pending, len(pending))` then append | 21.96–21.98 s |
+| `collections::drop(pending, len(pending))` (returns *no* elements) then append | 0.02 s |
+| `pending = collections::drop(pending, 0)` (returns *every* element) then append | 21.65–22.16 s |
+| `xs = collections::take(xs, len(xs))` then append, over `List OF Integer` | 0.61–0.62 s |
+| `xs = collections::drop(xs, 0)` then append, over `List OF Integer` | 0.61–0.62 s |
+
+So it is not `take` in particular: the cost tracks the number of elements **returned** (drop-none is
+free, drop-all is not). Self-reassigning a list through `take`/`drop` copies the whole list every
+time — quadratic for any element type — and an element type that reaches a type cycle additionally
+pays a deep graph copy per element, ~35× more (21.96 s vs 0.62 s at the same n). `collections::append`
+on the identical local is O(1) amortized because it has an in-place arm (`.ai/collections.md`,
+"In-place MUT append"); `take`/`drop` have no equivalent last-read/move arm. That compiler-side gap
+is filed as its own bug document per this plan's "no changes to `src/`" non-goal; it does **not**
+block plan-138, because the chosen builder never performs that operation.
+
+The chosen design never rewrites a shared list: each
+element's children are collected in a **frame-local** `MUT kids AS List OF Node` that only ever gets
+`collections::append` (the in-place arm, `.ai/collections.md` "In-place MUT append"), and the
+finished `Element` is returned up to the caller's own local list. Recursion depth is bounded by
+`DEPTH_LIMIT` (§7), which is what makes recursive descent safe here; the 256-level deep shape
+measures it.
+
+Consequences for the rest of the plan: Phase 4 builds with this design ("the Phase 1 design").
+§3's "Design uncertainty concentrates in the builder" is now settled, and the §3 rejected-alternatives
+list gains the pending-children builder beside `dom`'s frame stack.
 
 ## Summary
 

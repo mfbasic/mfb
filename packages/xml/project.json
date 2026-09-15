@@ -1,0 +1,14 @@
+{
+  "name": "xml",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "A strict XML 1.0 (Fifth Edition) reader and writer with an XPath 1.0 subset. xml::parse turns a UTF-8 document into an xml::Document tree of Element, Text, Comment and ProcessingInstruction nodes, xml::stringify writes a tree back compact or pretty-printed, and xml::evaluate / xml::select / xml::valueOf query it. It owns no filesystem access: read the text with fs::readText and hand the String to xml::parse.\n\nEvery well-formedness violation is refused rather than repaired. Outside the supported scope it refuses too: any <!DOCTYPE (no DTDs, entity declarations, default attributes or validation), any encoding other than UTF-8, any version other than 1.0, and HTML tag soup. Namespace prefixes are checked (declared in scope, reserved prefixes respected) but never resolved to URIs: names are kept as the raw prefix:local string. Nesting depth and total node count are bounded.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": ["**/*.mfb"]
+    }
+  ]
+}
