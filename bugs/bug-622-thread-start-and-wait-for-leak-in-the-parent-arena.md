@@ -204,6 +204,44 @@ Commit: eb467c304
 Acceptance: full suite green; copy-back main-arena growth 0.
 Commit: —
 
+## Corrections
+
+1. **Free-at-drop was unsound; the plumbing is owner-counted.** The Fix Design froze the
+   plumbing at `waitFor`'s join and freed it in the handle's drop, assuming a drop is the
+   handle's last reader. It is not. The language lets a `Thread` handle be read after it
+   was dropped or passed to a function (the op answers `ErrResourceClosed`), bound under
+   two names (`LET t2 = t`), and read by a function `TRAP` handler after the trap route
+   dropped it (`trap_route_cleanups` relied on the drop being an idempotent no-op). The
+   first landing (eb467c304) freed at the first drop and nulled only that binding's slot,
+   which crashed (exit 139) four legal shapes: `tests/rt-behavior/thread/thread-start-inline-trap-rt`
+   (the inline `TRAP` binds the handle as `$trap_valN` and again as `t`),
+   `tests/rt-behavior/threads/thread-queue-timeout-cancel` (a handler reads a routed
+   handle), an alias, and a caller reading a handle after passing it to a function —
+   found by the acceptance run. The design that landed instead:
+   - the control block grows to 128 B with `owners` at offset 120 (`THREAD_OFFSET_OWNERS`):
+     `thread::start` sets 1, a bind or `MUT` assign from another handle binding adds 1 (an
+     assign before it drops the old handle), and a function parameter adds 1 on entry;
+   - `thread.drop` takes a mode: CLOSE (mark CLOSED, cancel, join a completed worker or
+     detach a running one — the drop's old meaning) and RELEASE (give up one owner; the
+     release that reaches 0 closes if needed and frees the plumbing once the worker is
+     joined). A handle passed to a function is closed by the callee's parameter and
+     released by both bindings; a `RETURN` hands the callee's count to the caller; a trap
+     route only closes a handle the handler can name, and the handler's exit releases it.
+   - the zeroed CLOSED handle an inline `TRAP` on `thread::start` binds as the trap's
+     value (bug-479) is counted too (`owners` 1): the successful assign drops it at once,
+     and its last release frees the 128 B block. Uncounted, it leaked one control block
+     per trapped start (128 B; 120 B before this bug), which the inline-`TRAP` case of the
+     pin below caught after the owner count landed.
+   - Regression pin: `a_shared_thread_handle_stays_readable_and_is_freed_once` (alias,
+     move-then-reuse, inline-`TRAP` start, trap-routed handler).
+2. **Trapped non-copied thread calls leaked their `Result` wrapper.** Beyond the five
+   call-site-copied reads, `value_is_runtime_managed` still classified every `thread.*`
+   `CallResult` as runtime-managed, so the wrapper an inline `TRAP` builds in this frame
+   around a `thread::isRunning` / `poll` / `cancel` / `send` result had no owner — 144 B
+   per trapped `isRunning` (probe `tw_trap_isrunning`, pre-existing). A `CallResult` is
+   now never runtime-managed; the raw helper block stays `RawSuccessBlock::OwnedElsewhere`.
+   Regression case: `b622_trapped_query` in `a_thread_result_copy_is_freed_by_its_owner`.
+
 ## Validation Plan
 
 - Regression tests: Phase 1 cases.

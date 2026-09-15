@@ -224,6 +224,10 @@ pub(crate) fn simple_thread_handle_helper(
     const SOURCE_OFFSET: usize = 40;
     // Drop only: the queue whose blocks `emit_release_thread_plumbing` is freeing.
     const RELEASE_QUEUE_OFFSET: usize = 48;
+    // Drop only: the drop mode (`THREAD_DROP_CLOSE` | `THREAD_DROP_RELEASE`), rewritten
+    // to `DROP_MODE_FREE` when this drop's release takes the owner count to 0.
+    const MODE_OFFSET: usize = 56;
+    const DROP_MODE_FREE: &str = "7";
 
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
@@ -232,6 +236,33 @@ pub(crate) fn simple_thread_handle_helper(
         abi::stack_pointer(),
         HANDLE_OFFSET,
     )]);
+    // bug-622: a drop settles its owner count before anything else. A close-only drop (a
+    // trap route) is not counted. Otherwise the release takes one owner away; reaching 0
+    // turns the drop into close-and-free, and a release-only drop that leaves other owners
+    // (a moved-from caller) is done — it neither closes nor frees. Every handle is
+    // counted, including the zeroed CLOSED handle an inline `TRAP` on `thread::start`
+    // binds (it starts at 1, and its last release frees just its block).
+    if matches!(op, ThreadSimpleOp::Drop) {
+        let counted = format!("{symbol}_owners_counted");
+        let keep = format!("{symbol}_precheck_keep");
+        instructions.extend([
+            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MODE_OFFSET),
+            abi::load_u64("%v9", abi::stack_pointer(), MODE_OFFSET),
+            abi::compare_immediate("%v9", &THREAD_DROP_CLOSE.to_string()),
+            abi::branch_eq(&counted),
+            abi::load_u64("%v10", abi::c_arg(0), THREAD_OFFSET_OWNERS),
+            abi::subtract_immediate("%v10", "%v10", 1),
+            abi::store_u64("%v10", abi::c_arg(0), THREAD_OFFSET_OWNERS),
+            abi::compare_immediate("%v10", "0"),
+            abi::branch_ne(&counted),
+            abi::move_immediate("%v9", "Integer", DROP_MODE_FREE),
+            abi::store_u64("%v9", abi::stack_pointer(), MODE_OFFSET),
+            abi::label(&counted),
+            abi::load_u64("%v9", abi::stack_pointer(), MODE_OFFSET),
+            abi::compare_immediate("%v9", &THREAD_DROP_RELEASE.to_string()),
+            abi::branch_eq(&keep),
+        ]);
+    }
     // bug-479: answer for a CLOSED handle BEFORE touching its queue.
     //
     // Every arm below opens by loading `THREAD_OFFSET_OUTBOUND_QUEUE` (or the
@@ -858,6 +889,18 @@ pub(crate) fn simple_thread_handle_helper(
                 },
                 "pthread_join",
             )?;
+            // Joined: zero the OS handle, exactly as `waitFor` marks its join. Only the
+            // drop that released the LAST owner frees; otherwise another binding (an
+            // alias, a moved-from caller, a trap handler) still reads the block, and the
+            // drop that later takes the count to 0 frees it through the closed pre-check.
+            let joined_kept = format!("{symbol}_joined_kept");
+            instructions.extend([
+                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::store_u64(abi::ZERO, "%v8", THREAD_OFFSET_OS_HANDLE),
+                abi::load_u64("%v9", abi::stack_pointer(), MODE_OFFSET),
+                abi::compare_immediate("%v9", DROP_MODE_FREE),
+                abi::branch_ne(&joined_kept),
+            ]);
             emit_release_thread_plumbing(
                 &mut EmitCtx {
                     symbol,
@@ -871,6 +914,7 @@ pub(crate) fn simple_thread_handle_helper(
                 release,
             )?;
             instructions.extend([
+                abi::label(&joined_kept),
                 abi::branch(&done),
                 abi::label(&detach),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
@@ -1031,22 +1075,28 @@ pub(crate) fn simple_thread_handle_helper(
         // `thread.drop` on an already-closed handle succeeds -- the same answer its
         // own `already_closed` path gives below.
         //
-        // bug-622: and the handle `thread::waitFor` closed is the common one. That
-        // handle was also JOINED (waitFor zeroes the OS handle after the join), so no
-        // worker can touch its blocks any more, and it still owns its queues — which
-        // is what tells it apart from the `TRAP`-path closed handle, whose queues are
-        // null and whose OS handle is zero too. Free the plumbing here: this drop is
-        // the binding's last word on the handle (the cleanup call nulls its slot).
+        // bug-622: a closed handle is also where the LAST release frees. Only a drop
+        // whose release took the owner count to 0 (`DROP_MODE_FREE`) may free: another
+        // binding (an alias, a moved-from caller, a trap handler) may still read it.
+        // Two closed shapes reach here. A started thread `thread::waitFor` or a closing
+        // drop joined (zero OS handle) still owns its queues: free all its plumbing. The
+        // zeroed `TRAP`-path handle (bug-479) has no queues and never had a worker: free
+        // just its block. A started thread still unjoined (a running worker that was
+        // detached) keeps a non-zero OS handle and is never freed from here.
         ThreadSimpleOp::Drop => {
             let keep = format!("{symbol}_precheck_keep");
+            let block_only = format!("{symbol}_precheck_block_only");
             instructions.extend([
+                abi::load_u64("%v9", abi::stack_pointer(), MODE_OFFSET),
+                abi::compare_immediate("%v9", DROP_MODE_FREE),
+                abi::branch_ne(&keep),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v9", "%v8", THREAD_OFFSET_OS_HANDLE),
                 abi::compare_immediate("%v9", "0"),
                 abi::branch_ne(&keep),
                 abi::load_u64("%v9", "%v8", THREAD_OFFSET_OUTBOUND_QUEUE),
                 abi::compare_immediate("%v9", "0"),
-                abi::branch_eq(&keep),
+                abi::branch_eq(&block_only),
             ]);
             emit_release_thread_plumbing(
                 &mut EmitCtx {
@@ -1060,6 +1110,14 @@ pub(crate) fn simple_thread_handle_helper(
                 RELEASE_QUEUE_OFFSET,
                 release,
             )?;
+            instructions.extend([
+                abi::branch(&keep),
+                abi::label(&block_only),
+                abi::load_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
+                abi::move_immediate(abi::c_arg(1), "Integer", &THREAD_BLOCK_SIZE.to_string()),
+                abi::branch_link(ARENA_FREE_SYMBOL),
+            ]);
+            relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
             instructions.extend([
                 abi::label(&keep),
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),

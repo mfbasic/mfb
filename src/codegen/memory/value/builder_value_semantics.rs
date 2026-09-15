@@ -121,6 +121,17 @@ impl CodeBuilder<'_> {
         let closed = self.allocate_register();
         self.emit(abi::move_immediate(&closed, "Integer", THREAD_STATE_CLOSED));
         self.emit(abi::store_u64(&closed, &block, THREAD_OFFSET_STATE));
+        // bug-622: owner-counted like a started handle, so the drop that releases its last
+        // binding frees this block (it has no plumbing to free). The inline `TRAP` binds it
+        // as the trap's value on every start and the successful assign drops it at once,
+        // so leaving it uncounted leaked a control block per trapped `thread::start`.
+        let owners = self.allocate_register();
+        self.emit(abi::move_immediate(&owners, "Integer", "1"));
+        self.emit(abi::store_u64(
+            &owners,
+            &block,
+            crate::codegen::runtime::thread::THREAD_OFFSET_OWNERS,
+        ));
         Ok(block)
     }
 

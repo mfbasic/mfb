@@ -29,17 +29,67 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// A thread handle passed to a callee: the callee's parameter now closes it, so this
+    /// binding no longer closes it at scope exit.
+    ///
+    /// bug-622: it still RELEASES it. The language lets the caller read the handle after
+    /// the call (the op answers `ErrResourceClosed` once the callee closed it), so this
+    /// binding keeps its owner count and the control block outlives it too; the callee's
+    /// parameter took an owner count of its own on entry. (A `RETURN` is different — the
+    /// callee frame is gone, so `deactivate_thread_cleanup` hands its count to the caller.)
     pub(crate) fn maybe_deactivate_moved_thread_local(&mut self, value: &NirValue) {
         let NirValue::Local(name) = value else {
             return;
         };
-        if self
+        if !self
             .locals
             .get(name)
             .is_some_and(|local| Self::is_thread_type(&local.type_))
         {
-            self.deactivate_thread_cleanup(name);
+            return;
         }
+        if let Some(ActiveCleanup::Thread(thread)) = self.active_cleanups.iter_mut().rev().find(
+            |cleanup| matches!(cleanup, ActiveCleanup::Thread(thread) if thread.name == *name),
+        ) {
+            thread.close = false;
+        }
+    }
+
+    /// bug-622: whether a thread-typed store takes a handle no other binding holds — a
+    /// `thread::start` (or any call) result, a trapped `Result`'s payload, or the
+    /// not-yet-assigned null of an inline `TRAP`'s value binding. Such a store inherits
+    /// the handle's existing owner count. Anything else reads a handle another binding
+    /// still holds and must add an owner; an unrecognized shape is treated that way, so a
+    /// misclassification leaks a control block instead of freeing one that is still read.
+    pub(crate) fn thread_value_is_fresh_handle(value: Option<&NirValue>) -> bool {
+        matches!(
+            value,
+            None | Some(
+                NirValue::Call { .. }
+                    | NirValue::CallResult { .. }
+                    | NirValue::RuntimeCall { .. }
+                    | NirValue::ResultValue { .. }
+            )
+        )
+    }
+
+    /// bug-622: add one owner to the thread handle stored in the stack slot at `slot`
+    /// (`THREAD_OFFSET_OWNERS`). A null slot is left alone. Every handle is counted —
+    /// including the zeroed CLOSED handle an inline `TRAP` on `thread::start` binds,
+    /// whose last release frees its block — so an alias of it cannot free it twice.
+    /// Call-free.
+    pub(crate) fn emit_thread_owner_increment(&mut self, slot: usize) {
+        use crate::codegen::runtime::thread::THREAD_OFFSET_OWNERS;
+        let skip = self.label("thread_owner_increment_skip");
+        let handle = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        self.emit(abi::load_u64(&handle, abi::stack_pointer(), slot));
+        self.emit(abi::compare_immediate(&handle, "0"));
+        self.emit(abi::branch_eq(&skip));
+        self.emit(abi::load_u64(&count, &handle, THREAD_OFFSET_OWNERS));
+        self.emit(abi::add_immediate(&count, &count, 1));
+        self.emit(abi::store_u64(&count, &handle, THREAD_OFFSET_OWNERS));
+        self.emit(abi::label(&skip));
     }
 
     /// A thread `start`/`send`/`emit`/`transferResource`/`emitResource` moves its

@@ -1015,13 +1015,20 @@ impl CodeBuilder<'_> {
     /// the worker's original is never seen by this scope. Declaring the copy
     /// runtime-managed left it with no owner at all: a `LET r AS String =
     /// thread::waitFor(t)` leaked 16 B per thread, a recursive union result its
-    /// whole copied graph. An inline-`TRAP`ped call (`CallResult`) is the same
-    /// shape one level up: the `Result` it yields is a block this frame built.
+    /// whole copied graph.
+    ///
+    /// An inline-`TRAP`ped call (`CallResult`) is never runtime-managed, for any
+    /// `thread` member: the value it yields is the `Result` block
+    /// `materialize_current_result` just built in this frame, around its own copy of the
+    /// payload (the raw helper block stays `RawSuccessBlock::OwnedElsewhere` there).
+    /// Classifying it by target left the wrapper of every trapped `thread::isRunning` /
+    /// `poll` / `cancel` / `send` unowned — 144 B per trapped `isRunning` (bug-622).
     pub(crate) fn value_is_runtime_managed(value: &NirValue) -> bool {
         let target = match value {
-            NirValue::Call { target, .. }
-            | NirValue::CallResult { target, .. }
-            | NirValue::RuntimeCall { target, .. } => target.as_str(),
+            NirValue::CallResult { .. } => return false,
+            NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
+                target.as_str()
+            }
             NirValue::MemberAccess { member, .. } if member == "result" => return true,
             _ => return false,
         };

@@ -76,6 +76,8 @@ storing:
   inbound queues take the `inboundLimit`; the outbound queues take the
   `outboundLimit`.
 - Initial result, cancellation, and OS-handle slots (zeroed).
+- An owner count of 1 — the binding the handle is returned to (bug-622; see
+  `control-block` § Lifetime).
 
 It then asks the OS to start `_mfb_rt_thread_trampoline`, passing the control
 block pointer as the pthread argument (see `os-integration`). A `pthread_create`

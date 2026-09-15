@@ -7,7 +7,6 @@ use crate::codegen::memory::data::*;
 use crate::codegen::runtime::thread::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
-pub(crate) const THREAD_BLOCK_SIZE: usize = 120;
 pub(crate) const THREAD_OFFSET_STATE: usize = 0;
 pub(crate) const THREAD_OFFSET_CANCELLED: usize = 8;
 pub(crate) const THREAD_OFFSET_RESULT_TAG: usize = 16;
@@ -32,6 +31,22 @@ pub(crate) const THREAD_OFFSET_RESULT_SOURCE: usize = 96;
 // isolated so a thread's own transfer is never re-read by its own accept.
 pub(crate) const THREAD_OFFSET_RESOURCE_INBOUND_QUEUE: usize = 104;
 pub(crate) const THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE: usize = 112;
+// bug-622: how many parent-side bindings still hold this handle. The language lets a
+// handle be read after it is dropped or moved (the op answers `ErrResourceClosed`), and
+// lets one handle be bound under two names, so no single drop knows it is the last
+// reader. `thread::start` sets 1; every further binding of an existing handle (an alias,
+// a parameter) adds 1; each binding's final drop takes 1 away, and only the drop that
+// reaches 0 may free the thread's plumbing. Parent-thread only — a worker never reads it
+// — so it needs no lock.
+pub(crate) const THREAD_OFFSET_OWNERS: usize = 120;
+pub(crate) const THREAD_BLOCK_SIZE: usize = 128;
+// bug-622: the `thread.drop` mode (its second argument). CLOSE marks the handle CLOSED,
+// cancels, and joins a completed worker or detaches a running one — the drop's original
+// meaning. RELEASE gives up the dropping binding's owner count and frees the plumbing
+// when it reaches 0. A trap route closes a handler-visible handle without releasing it;
+// a handle moved into a callee releases without closing.
+pub(crate) const THREAD_DROP_CLOSE: u64 = 1;
+pub(crate) const THREAD_DROP_RELEASE: u64 = 2;
 pub(crate) const THREAD_STATE_RUNNING: &str = "0";
 pub(crate) const THREAD_STATE_COMPLETED: &str = "1";
 pub(crate) const THREAD_STATE_CLOSED: &str = "2";
@@ -687,6 +702,9 @@ pub(crate) fn lower_thread_start_helper(
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESOURCE_INBOUND_QUEUE),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_OS_HANDLE),
+        // bug-622: the binding this handle is returned to is its first owner.
+        abi::move_immediate("%v10", "Integer", "1"),
+        abi::store_u64("%v10", "%v9", THREAD_OFFSET_OWNERS),
         // PARENT_ARENA_STATE is written with the real value a few lines below;
         // the zero-init store here was dead (bug-102).
         abi::load_u64("%v10", abi::stack_pointer(), ENTRY_OFFSET),

@@ -2,7 +2,7 @@
 
 The native thread handle points to a runtime control block. The native layout
 is an implementation ABI between helper lowering and generated code. The
-block is 120 bytes (`THREAD_BLOCK_SIZE`):
+block is 128 bytes (`THREAD_BLOCK_SIZE`):
 
 ```text
 offset  field
@@ -21,6 +21,7 @@ offset  field
 96      result error source           (ErrorLoc origin pointer)
 104     resource inbound queue handle (resource plane, parent -> worker)
 112     resource outbound queue handle (resource plane, worker -> parent)
+120     owners                        (parent bindings holding the handle)
 ```
 [[src/codegen/runtime/thread/runtime_helpers.rs:THREAD_BLOCK_SIZE]]
 
@@ -48,27 +49,35 @@ across (see `queue-semantics`, bug-498).
 
 `thread::start` carves the control block, the worker arena-state block (arena state
 plus the program's writable globals, `worker_arena_state_size`) and the four queue
-records with their value rings out of the *spawning* thread's arena. The parent
-`Thread` binding owns them all, and they are freed exactly once, by the parent's
-`thread.drop`, and only after the worker has been **joined** — the trampoline still
-unlocks the outbound mutex after publishing `COMPLETED`, and a live worker's pinned
-arena and current-thread registers point into these blocks. The join happens in one
-of two places:
+records with their value rings out of the *spawning* thread's arena. They are freed
+exactly once, by `thread.drop`, and only when both of these hold:
 
-- `thread::waitFor` joins the worker (instead of detaching it) once the result is
-  ready, and zeroes `OS handle` (offset 56). A `CLOSED` block with a zero OS handle
-  and non-null queues is therefore a joined, retrieved thread, and the drop that
-  follows frees its plumbing. The `TRAP`-path closed handle (bug-479) has null
-  queues, so it is never taken for one.
-- `thread.drop` of a handle whose worker is already `COMPLETED` joins it itself and
-  frees the same blocks.
+- **No binding still holds the handle.** The language lets a handle be read after it
+  was dropped or passed to a function (the op answers `ErrResourceClosed`), and lets
+  one handle be bound under two names, so no single drop knows it is the last reader.
+  `owners` (offset 120) counts the parent bindings holding it. `thread::start` sets 1.
+  A binding or `MUT` assignment from another handle binding adds 1 (an assignment
+  adds it before it drops the old handle), and a function parameter adds 1 on entry.
+  Each binding's final drop gives one back (`THREAD_DROP_RELEASE`); a `RETURN` hands
+  the callee's count to the caller's binding instead. A handle passed to a function
+  is closed by the callee's parameter and released by both bindings. A trap route to
+  the function's `TRAP` handler only closes (`THREAD_DROP_CLOSE`) a handle the
+  handler can name; the handler's own exit releases it.
+- **The worker has been joined.** The trampoline still unlocks the outbound mutex
+  after publishing `COMPLETED`, and a live worker's pinned arena and current-thread
+  registers point into these blocks. `thread::waitFor` joins the worker (instead of
+  detaching it) and zeroes `OS handle` (offset 56); a closing drop that finds the
+  worker `COMPLETED` joins it the same way.
 
-A drop of a still-`RUNNING` worker cancels and detaches it; its plumbing stays live
-for the rest of the process (see `os-integration`). The worker arena's own chunks
-are never reclaimed by either path. The cleanup call nulls the binding's slot after
-the drop, so no later exit edge hands the freed block over again.
+A closing drop of a still-`RUNNING` worker cancels and detaches it; its plumbing then
+stays live for the rest of the process (see `os-integration`). The `TRAP`-path closed
+handle (bug-479) is a zeroed block with null queues and `owners` 1; it is counted like
+any handle, and the release that takes it to 0 frees just the block. The worker arena's
+own chunks are never reclaimed. The cleanup call nulls the binding's slot after a
+release, so no later exit edge releases the same binding twice.
 [[src/codegen/runtime/thread/runtime_helpers_thread.rs:emit_release_thread_plumbing]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_thread_cleanup_call]]
+[[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_owner_increment]]
 
 ## Plane queues
 

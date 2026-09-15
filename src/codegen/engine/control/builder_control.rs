@@ -843,7 +843,14 @@ impl CodeBuilder<'_> {
                                 .push(ActiveCleanup::Thread(ThreadCleanup {
                                     name: name.clone(),
                                     symbol: Self::thread_drop_symbol(),
+                                    close: true,
+                                    release: true,
                                 }));
+                            // bug-622: a handle read from another binding is SHARED, not
+                            // moved — both bindings release it — so it takes an owner.
+                            if !Self::thread_value_is_fresh_handle(value.as_ref()) {
+                                self.emit_thread_owner_increment(stack_offset);
+                            }
                         } else if aliases_union_variant || by_ref_capture_slot {
                             // Non-owning — no cleanup (the parent binding frees it).
                         } else if let crate::ir::resource_escape::ResOwner::Float(collection) =
@@ -1186,6 +1193,12 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     slot,
                                 ));
+                                // bug-622: a handle read from another binding is shared,
+                                // so it takes an owner — BEFORE the old handle's drop, or
+                                // `t = t` would free the block it is about to store.
+                                if !Self::thread_value_is_fresh_handle(Some(value)) {
+                                    self.emit_thread_owner_increment(slot);
+                                }
                                 self.emit_thread_cleanup_for_name(name)?;
                                 Some(slot)
                             } else if let Some(symbol) = self.resource_cleanup_symbol(&result.type_)

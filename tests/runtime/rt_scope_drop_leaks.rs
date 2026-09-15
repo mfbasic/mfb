@@ -6809,6 +6809,25 @@ SUB main()\n\
   io::print(\"total=\" & toString(total))\n\
 END SUB\n";
 
+/// A trapped thread query that does not read a value across the boundary: the inline `TRAP`
+/// builds its `Result` in this frame, and that wrapper leaked 144 B per trapped
+/// `thread::isRunning` while every `thread.*` `CallResult` counted as runtime-managed.
+const B622_TRAPPED_QUERY: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT closed AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    total = total + thread::waitFor(t)\n\
+    LET isClosed AS Boolean = thread::isRunning(t) TRAP(e)\n      RECOVER e.code = 77030004\n    END TRAP\n\
+    IF isClosed THEN closed = closed + 1\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total) & \" closed=\" & toString(closed))\n\
+END SUB\n";
+
 /// bug-622 Part B: once a thread has been waited for and its handle dropped, the parent arena
 /// holds nothing for it — not the control block, the worker arena state or the queues.
 #[cfg(unix)]
@@ -6883,6 +6902,127 @@ fn a_moved_or_reassigned_thread_handle_is_freed_exactly_once() {
     );
 }
 
+/// One handle under two names: `t2` retrieves the result, then `t` is read again and must
+/// answer `ErrResourceClosed` from a live control block.
+const B622_ALIAS: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT closed AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    LET t2 AS Thread OF String TO Integer = t\n\
+    total = total + thread::waitFor(t2)\n\
+    LET again AS Integer = thread::waitFor(t) TRAP(e)\n      RECOVER e.code\n    END TRAP\n\
+    IF again = 77030004 THEN closed = closed + 1\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total) & \" closed=\" & toString(closed))\n\
+END SUB\n";
+
+/// A handle passed to a function that waits for it, then read again by the caller.
+const B622_MOVED_REUSE: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+FUNC finish(t AS Thread OF String TO Integer) AS Integer\n  RETURN thread::waitFor(t)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT closed AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    total = total + finish(t)\n\
+    LET isClosed AS Boolean = thread::isRunning(t) TRAP(e)\n      RECOVER e.code = 77030004\n    END TRAP\n\
+    IF isClosed THEN closed = closed + 1\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total) & \" closed=\" & toString(closed))\n\
+END SUB\n";
+
+/// An inline `TRAP` on `thread::start`: the handle is bound once as the trap's value and
+/// again as `t`.
+const B622_INLINE_TRAP_START: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+FUNC once() AS Integer\n\
+  LET t AS Thread OF String TO Integer = thread::start(work, \"abc\") TRAP(e)\n    RETURN -100\n  END TRAP\n\
+  RETURN thread::waitFor(t)\n\
+END FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    total = total + once()\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// A completed worker's handle, closed by the trap route of a `FAIL`, then read by the
+/// function's `TRAP` handler (`ErrResourceClosed` → -1).
+const B622_TRAP_ROUTED: &str = "IMPORT io\nIMPORT os\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+FUNC routed() AS Integer\n\
+  LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+  WHILE thread::isRunning(t)\n    os::sleep(1)\n  END WHILE\n\
+  FAIL error(77050002, \"forced\")\n\
+  RETURN 0\n\
+  TRAP(err)\n\
+    LET v AS Integer = thread::waitFor(t) TRAP(e2)\n      RECOVER -1\n    END TRAP\n\
+    RETURN v\n\
+  END TRAP\n\
+END FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    total = total + routed()\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// bug-622: a handle more than one binding can read — an alias, a moved-from caller, the
+/// value binding of an inline `TRAP`, a function `TRAP` handler after the route closed it —
+/// stays readable (`ErrResourceClosed` from a live block, no crash, no skipped double free)
+/// and is still freed exactly once, when its last binding releases it. Freeing at the first
+/// drop crashed all four shapes (exit 139).
+#[cfg(unix)]
+#[test]
+fn a_shared_thread_handle_stays_readable_and_is_freed_once() {
+    for (name, source, small_out, large_out) in [
+        (
+            "b622_alias",
+            B622_ALIAS,
+            "total=150 closed=50",
+            "total=300 closed=100",
+        ),
+        (
+            "b622_moved_reuse",
+            B622_MOVED_REUSE,
+            "total=150 closed=50",
+            "total=300 closed=100",
+        ),
+        (
+            "b622_inline_trap_start",
+            B622_INLINE_TRAP_START,
+            "total=150",
+            "total=300",
+        ),
+        (
+            "b622_trap_routed",
+            B622_TRAP_ROUTED,
+            "total=-50",
+            "total=-100",
+        ),
+    ] {
+        let grew = thread_loop_growth(name, source, small_out, large_out);
+        assert_eq!(
+            grew, 0,
+            "{name}: main-arena live_bytes grew {grew} B between 50 and 100 shared handles"
+        );
+    }
+}
+
 /// bug-622 Part B: the same for a completed thread whose handle is dropped without `waitFor`.
 #[cfg(unix)]
 #[test]
@@ -6933,6 +7073,12 @@ fn a_thread_result_copy_is_freed_by_its_owner() {
         ),
         ("b622_union", B622_UNION, "count=100", "count=200"),
         ("b622_record", B622_RECORD, "total=200", "total=400"),
+        (
+            "b622_trapped_query",
+            B622_TRAPPED_QUERY,
+            "total=150 closed=50",
+            "total=300 closed=100",
+        ),
         ("b622_receive", B622_RECEIVE, "total=350", "total=700"),
     ] {
         let grew = thread_loop_growth(name, source, small_out, large_out);
