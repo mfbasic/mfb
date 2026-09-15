@@ -65,12 +65,16 @@ impl CodeBuilder<'_> {
             &ParameterType::named("AttributedString"),
             &[text_slot, spans_slot],
         )?;
-        Ok(ValueResult {
+        let record = ValueResult {
             origin: None,
             type_: ParameterType::named("AttributedString"),
             location: Operand::from(register.render()),
             text: format!("astrings::fromString({})", text.text),
-        })
+        };
+        // bug-625: the record holds a byte copy of the empty list, and the list was built
+        // here rather than through `lower_value`, so no statement-end drop owns it. Free it
+        // as `collections::partition` frees its inlined lists.
+        self.free_intermediate_collection(spans_slot, &spans.type_, record)
     }
 
     /// Read the inlined field at `field_index` of an `AttributedString` record as

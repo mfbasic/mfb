@@ -452,21 +452,35 @@ impl CodeBuilder<'_> {
                     ));
                 };
                 let mut field_slots = Vec::with_capacity(fields.len());
+                let mut inlined_defaults = Vec::new();
                 for (_, field_type) in &fields {
                     let value = self.lower_default_value_inner(field_type, defaulting_unions)?;
                     let slot = self.allocate_stack_object("default_record_field", 8);
                     self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
                     field_slots.push(slot);
+                    // bug-625: an inlined default other than the shared empty String
+                    // constant is a block built here, which the record byte-copies and
+                    // nothing else owns.
+                    if *field_type != ParameterType::String
+                        && self.record_field_is_inlined(field_type)
+                        && self.is_freeable_flat_value(field_type)
+                    {
+                        inlined_defaults.push((slot, field_type.clone()));
+                    }
                 }
                 // Inline `String` defaults (empty String blocks) into the record's
                 // data region; scalar/pointer defaults stay inline (plan-02 §4.2).
                 let register = self.emit_build_inlined_record(type_, &field_slots)?;
-                Ok(ValueResult {
+                let mut record = ValueResult {
                     origin: None,
                     type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("default {type_}"),
-                })
+                };
+                for (slot, field_type) in inlined_defaults {
+                    record = self.free_intermediate_collection(slot, &field_type, record)?;
+                }
+                Ok(record)
             }
         }
     }
