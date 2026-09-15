@@ -5,8 +5,22 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: tests/runtime/rt_scope_drop_leaks.rs (to add, Phase 1)
+Status: Fixed
+Regression Test: tests/runtime/rt_scope_drop_leaks.rs (`a_do_while_condition_temp_is_freed_on_every_pass`, `a_while_condition_*`, `a_loop_until_condition_*`, `a_return_from_a_while_with_a_condition_temp_*`)
+
+> **STATUS: FIXED (dc3b3d80a)** — 2026-09-14. Landed with bug-620 (one watermark model), tests
+> `ee4da1dba` and `21bd00f4c`, goldens `4f21f7685`. A per-pass condition (WHILE, DO WHILE,
+> LOOP UNTIL, the numeric FOR test) frees its temps before the branch (`lower_loop_condition`).
+> The repro's growth between N=1000 and 2000 went from 128,000 B to 0 (`alloc_calls` =
+> `free_calls`, `double_free_skips 0`). Not the archived append-growth bug-621, which shares the
+> number.
+>
+> Deviations:
+> - One free before the branch, with the value spilled and reloaded, instead of a free on each
+>   edge — every evaluation takes that one edge.
+> - `FOR … TO` bound audit: not affected (evaluated once into a synthetic local).
+> - Phase 3's browser stages were re-run as the `rt_debug_soak` cases (growth under 1 MB), not
+>   as per-call numbers; `pt_layout` is covered by the paint case, still ignored for bug-625.
 
 A heap value produced while evaluating a loop condition — `DO WHILE i < n AND
 strings::mid(s, i, 1) <> "="`, `WHILE … END WHILE` the same — is allocated on every pass but
@@ -146,11 +160,15 @@ Commit: dc3b3d80a
 
 - [x] Regenerate the goldens the per-pass frees shift; confirm each delta is a condition-edge
       free.
-- [ ] Full suite and `scripts/test-accept.sh`.
-- [ ] Re-run plan-133-A's `parse`, `resolve` and `pt_layout` stages.
+- [x] Full suite and `scripts/test-accept.sh`. Full suite (`cargo test --no-fail-fast -- --skip artifact_gate_all`): EXIT 0, 183 binaries,
+      5689 passed, 0 failed, 9 ignored. `scripts/test-accept.sh`: 1472 test(s) ran, all passed.
+      `artifact-gate.sh all`: main 0 diff(s); fix 34 diff(s) in 7 fixtures, regenerated; re-run 0
+      diff(s) over 2023 goldens.
+- [x] Re-run plan-133-A's `parse`, `resolve` and `pt_layout` stages. As `rt_debug_soak
+      --include-ignored`: dom parse, resolve styles and paint pass (growth under 1 MB).
 
 Acceptance: full suite green; golden deltas only condition-edge frees.
-Commit: —
+Commit: 4f21f7685 (goldens), 935f2e72f (soak markers)
 
 ## Validation Plan
 

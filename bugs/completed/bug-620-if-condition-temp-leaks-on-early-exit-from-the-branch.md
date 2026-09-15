@@ -5,8 +5,23 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: tests/runtime/rt_scope_drop_leaks.rs (to add, Phase 1); tests/runtime/rt_debug_soak.rs (`a_dom_parse_loop_keeps_live_bytes_constant`, plan-133-A)
+Status: Fixed
+Regression Test: tests/runtime/rt_scope_drop_leaks.rs (`an_if_condition_temp_is_freed_*`, `a_continue_out_of_a_nested_loop_*`, `a_return_from_a_for_each_*`); tests/runtime/rt_debug_soak.rs (`a_dom_parse_loop_keeps_live_bytes_constant`, `a_resolve_styles_loop_keeps_live_bytes_constant`, un-ignored)
+
+> **STATUS: FIXED (dc3b3d80a)** — 2026-09-14. Landed with bug-621 (one watermark model), tests
+> `ee4da1dba` and `21bd00f4c`, goldens `4f21f7685`, soak markers `935f2e72f`. `LoopLabels` carries
+> `temp_depth`; `EXIT`/`CONTINUE` free the pending temps above it in place, and `RETURN` frees the
+> enclosing statements' temps in place behind the escaping-value pointer guard. The repro's growth
+> between N=1000 and 2000 went from 16,000 B to 0 (`alloc_calls` = `free_calls`,
+> `double_free_skips 0`).
+>
+> Deviations and findings:
+> - MATCH scrutinee audit: not affected (bound to a `$match` local).
+> - Found while fixing: `RETURN` from a `FOR EACH` over a fresh collection leaked the collection
+>   (192 B per call); fixed by the same RETURN change and pinned.
+> - Phase 3's browser stages were re-run as the `rt_debug_soak` cases, which assert growth under
+>   1 MB rather than record a per-call number: parse and resolve pass and are un-ignored; paint
+>   passes too but stays ignored for bug-625, whose 240 B per paint is under that bound.
 
 A heap value produced while evaluating an `IF` (or `ELSEIF`) condition — a `String` from
 `strings::lower`, a record copy from `collections::get(...)`, any call result — is never freed
@@ -186,12 +201,17 @@ Commit: dc3b3d80a
 
 - [x] Regenerate the goldens the new frees shift (`scripts/sync-goldens.sh`); confirm each
       delta is a free on an exit edge.
-- [ ] Full suite and `scripts/test-accept.sh`.
-- [ ] Re-run plan-133-A's `resolve` and `parse` stages; record the new per-call leak.
+- [x] Full suite and `scripts/test-accept.sh`. Full suite (`cargo test --no-fail-fast -- --skip artifact_gate_all`): EXIT 0, 183 binaries,
+      5689 passed, 0 failed, 9 ignored. `scripts/test-accept.sh`: 1472 test(s) ran, all passed.
+      `artifact-gate.sh all`: main 0 diff(s); fix 34 diff(s) in 7 fixtures, regenerated; re-run 0
+      diff(s) over 2023 goldens.
+- [x] Re-run plan-133-A's `resolve` and `parse` stages; record the new per-call leak.
+      As `rt_debug_soak --include-ignored`: dom parse, resolve styles and paint pass (growth
+      under 1 MB); no per-call number recorded.
 
 Acceptance: full suite green; golden deltas are only exit-edge frees; the browser stages drop
 by this bug's share.
-Commit: —
+Commit: 4f21f7685 (goldens), 935f2e72f (soak markers)
 
 ## Validation Plan
 
