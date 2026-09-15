@@ -7,6 +7,7 @@ Reads the job `gen.py` wrote and prints one `case <index> <fields...>` line per 
 in the same shape the MFB probe prints, so `run.sh` can diff the two line for line.
 """
 
+import gzip
 import struct
 import sys
 import zlib
@@ -29,8 +30,32 @@ def crc32(index, data, split):
     return f"case {index} {whole} {chained}"
 
 
+def _outcome(fn):
+    try:
+        return fn()
+    except Exception as e:  # zlib.error, gzip.BadGzipFile, EOFError, OSError
+        return f"err {type(e).__name__}: {e}"
+
+
+def probe(index, data, fmt):
+    """How Python's zlib treats one probe stream: decompressobj (one stream) and, for gzip,
+    gzip.decompress (every member)."""
+    wbits = {0: -15, 1: 15, 2: 31}[fmt]
+
+    def one_stream():
+        d = zlib.decompressobj(wbits)
+        out = d.decompress(data)
+        return f"ok out={len(out)} eof={d.eof} unused={len(d.unused_data)}"
+
+    fields = f"decompressobj[{_outcome(one_stream)}]"
+    if fmt == 2:
+        fields += f" gzip.decompress[{_outcome(lambda: f'ok out={len(gzip.decompress(data))}')}]"
+    return f"case {index} {fields}"
+
+
 MODES = {
     "crc32": crc32,
+    "probe": probe,
 }
 
 

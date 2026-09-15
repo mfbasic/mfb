@@ -49,6 +49,33 @@ Job layout (little-endian `u32`): the case count, then a `(length, aux)` pair pe
 case, then every case's bytes back to back. `aux` is per mode (the split point for
 `crc32`).
 
+## The behaviour probe
+
+```
+tools/oracles/compress/probe.sh
+```
+
+Measures the **judges**, not the MFB decoder: `python/probe_streams.py` builds edge streams
+bit by bit with its own DEFLATE writer (no zlib encoder involved) — trailing bytes, header
+flags, bad trailers, and code sets at the edges of zlib's `inflate_table` rules — and the
+script prints how Python's `zlib` / `gzip.decompress` and Node's `node:zlib` treat each. Its
+table is the evidence behind `compress`'s strictness rules and the divergences below.
+
+## Declared divergences
+
+Cases where `compress` deliberately does not do what a judge does. A decode mode must skip or
+expect these rather than report them as disagreements. Evidence: `probe.sh`, 2026-09-14
+(Python zlib 1.2.12, Node zlib 1.3.1).
+
+| Case | `compress` | Judge behaviour |
+|---|---|---|
+| gzip stream followed by bytes that do not begin `1f 8b` | decodes; the bytes are ignored | Python `gzip.decompress`: `BadGzipFile: Not a gzipped file`; Node `gunzipSync`: `Z_BUF_ERROR` (1 byte) or `incorrect header check` (2+ bytes). Python `zlib.decompressobj(31)` agrees with `compress` (leaves them in `unused_data`) |
+
+Where Python's pure-Python `gzip.decompress` is more lenient than zlib — it accepts a wrong
+header CRC-16 and reserved flag bits, which both zlibs refuse — `compress` follows zlib, so a
+gzip decode mode must judge headers with a zlib-backed decoder (`zlib.decompressobj(31)` or
+Node), not `gzip.decompress`.
+
 ## Adding a mode
 
 Add the mode in all five places, or `run.sh` exits 2:

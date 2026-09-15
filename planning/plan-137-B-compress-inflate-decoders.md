@@ -44,8 +44,8 @@ See plan-137-A §Prerequisites (whole-feature gate). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-137-A complete | `ls planning/completed/plan-137-A-*` → one file | NOT MET (2026-09-13 re-run: plan-137-A not started — its bug-621 row is NOT MET) |
-| Error code 77050027 and the name `ErrTooLarge` are free on main | `git grep -c 77050027 main -- src` → no files; `git grep -c ErrTooLarge main -- src` → no files (take the next free code if not) | MET (2026-09-13 re-run: both `git grep -c` print nothing) |
+| plan-137-A complete | `ls planning/completed/plan-137-A-*` → one file | MET (2026-09-14 re-run: `planning/completed/plan-137-A-compress-package-crc32.md`, archived in `b563ff8b5`) |
+| Error code 77050027 and the name `ErrTooLarge` are free on main | `git grep -c 77050027 main -- src` → no files; `git grep -c ErrTooLarge main -- src` → no files (take the next free code if not) | MET (2026-09-14 re-run with `main` at `af7d9b778`: both `git grep -c` print nothing, exit 1) |
 
 ## 1. Goal
 
@@ -100,7 +100,7 @@ plan-137-A §2 holds the shared facts. Specific to this letter:
 | What | Count | Command |
 |---|---|---|
 | Canvas inflate throughput on the bench corpus | UNMEASURED | Phase 1 |
-| Python / Node decode behaviour on trailing bytes (sets the oracle's declared divergences), a wrong `FHCRC`, `FDICT`, the one-distance-code block, the no-distance-code block, an incomplete literal set | UNMEASURED | Phase 1 oracle probe |
+| Python / Node decode behaviour on trailing bytes (sets the oracle's declared divergences), a wrong `FHCRC`, `FDICT`, the one-distance-code block, the no-distance-code block, an incomplete literal set | Measured 2026-09-14 (`tools/oracles/compress/probe.sh`; Python zlib 1.2.12, Node zlib 1.3.1). **Trailing bytes:** raw and zlib after 1/7/1000 junk bytes → both `ok out=224` (Python `unused=1/7/1000`); gzip + junk → Python `decompressobj(31)` ok (`unused`), Python `gzip.decompress` `BadGzipFile: Not a gzipped file`, Node `gunzipSync` `Z_BUF_ERROR` (1 byte) / `incorrect header check` (7, 1000); two gzip members → `gzip.decompress` and Node `out=237`; member + `1f 8b 00 00junk` → both refuse. **Flags/checks:** `FDICT` → Python `Error 2`, Node `Z_NEED_DICT`; `CINFO=8` → `invalid window size`; bad `FHCRC` → zlib `header crc mismatch` (Python `gzip.decompress` accepts — pure-Python header parse); reserved gzip flag → zlib `unknown header flags set` (`gzip.decompress` accepts); bad Adler-32 / CRC-32 → `incorrect data check`; bad `ISIZE` → `incorrect length check`. **Code sets:** one distance code of length 1, used → `ok out=6`, unused → `ok out=1`; no distance codes, unused → `ok out=2`, used → `invalid distance code`; lone end-of-block code of length 1 → `ok out=0`; incomplete literal set (three 2-bit codes) and over-subscribed literal set → `invalid literal/lengths set`; over-subscribed distances → `invalid distances set`; no end-of-block code → `invalid code -- missing end-of-block`; distance before output start → `invalid distance too far back`; stored `LEN ≠ ~NLEN` → `invalid stored block lengths`; `BTYPE=3` → `invalid block type`. Python and Node agree on every zlib-level case. | `tools/oracles/compress/probe.sh` |
 | Emitted code size of the inflate core function (AArch64 conditional-branch range is ±1 MiB per function) | UNMEASURED | Phase 2: `mfb build --ncode` of the fixture, count the function's instructions × 4 B |
 
 ## 3. Design Overview
@@ -160,6 +160,12 @@ zlib's `inftrees.c`: count codes per length; walk lengths accumulating `left = l
 the Phase 1 oracle probe shows zlib accepts (expected: a distance code set with exactly one
 code of length 1, and a block with no distance codes that uses none). Record the exceptions
 with the oracle output in the spec.
+**Confirmed 2026-09-14** (probe, §2; zlib 1.2.12 `inftrees.c` `inflate_table`: `if (left > 0 && (type == CODES || max != 1)) return -1`,
+and `max == 0` returns an invalid-marker table that fails only when a symbol is decoded): (1) a literal/length **or**
+distance set whose only code has length 1 is accepted (`raw-one-distance-code-used/unused`,
+`raw-single-literal-code`); (2) an all-zero distance set is accepted until a distance is decoded, which raises
+(`raw-no-distance-codes-unused` ok, `-used` refused); (3) the code-length code must always be complete; (4) a
+literal/length set without code 256 is refused before tables are built (`raw-missing-end-of-block`).
 
 Table shape: a primary table indexed by the next `ROOT` bits (9 for literal/length, 6 for
 distance) whose entries pack `symbol * 16 + length`; codes longer than `ROOT` use a second-level
@@ -210,13 +216,22 @@ Nothing existing changes.
 
 ### Phase 1 — measure first (no public surface)
 
-- [ ] Re-run plan-137-A §Prerequisites and this letter's rows.
-- [ ] Oracle behaviour probe (`tools/oracles/compress/python/oracle.py probe`, `node/oracle.mjs probe`):
+- [x] Re-run plan-137-A §Prerequisites and this letter's rows. (2026-09-14: bug-621 →
+      `bugs/completed/bug-621-append-growth-over-reserves-data-capacity.md`; `cargo build --release --bin mfb` →
+      `Finished release profile [optimized] target(s) in 1m 43s`, exit 0; zlib oracles → Python `1.2.12`, Node
+      `1.3.1-470d3a2`; `Cargo.lock` `flate2` → `1.1.9`; `ls src/codegen/builtins | grep -c compress` → `1`, the
+      package plan-137-A produced — that row gated A's start, not B's. This letter's two rows: MET, table above.)
+- [x] Oracle behaviour probe (`tools/oracles/compress/python/oracle.py probe`, `node/oracle.mjs probe`):
       trailing bytes after raw / zlib / gzip streams; `FHCRC` with a wrong CRC-16; `FDICT` set;
       one-distance-code block; no-distance-code block; incomplete literal set. Paste outputs
       here. Where zlib refuses trailing bytes that we ignore, write the case into the oracle's
       declared-divergence list (so `mutate` does not report it as leniency); the code-set cases
       set §4.2's exceptions.
+      (Built: `python/probe_streams.py` writes 37 hand-built streams bit by bit — its own DEFLATE writer, no
+      zlib encoder — `gen.py probe`, `probe` modes in both judges, and `tools/oracles/compress/probe.sh`, which
+      prints the table. The writer is validated by its valid dynamic blocks decoding in both zlibs, e.g.
+      `raw-one-distance-code-used` → `ok out=6`. Results in §2; declared divergences in
+      `tools/oracles/compress/README.md`; exceptions in §4.2.)
 - [ ] Canvas baseline: an `--app`-free harness can't reach `__canvas_zlibInflate`, so measure
       through `canvas::loadImage` on a headless build of a generated 4096×4096 PNG with one IDAT
       compressed by Python `zlib.compress(raw, 6)` (pattern: `tests/canvas/rt_canvas_image_decode.rs`

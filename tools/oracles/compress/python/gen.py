@@ -33,8 +33,23 @@ def crc32_cases(rng):
     return cases
 
 
+PROBE_FORMATS = {"raw": 0, "zlib": 1, "gzip": 2}
+
+
+def probe_cases(_rng, names_path):
+    """Hand-built edge streams (probe_streams.py); `aux` is the format, names go beside the job."""
+    from probe_streams import cases as streams
+
+    named = streams()
+    with open(names_path, "w") as f:
+        for name, fmt, _ in named:
+            f.write(f"{name} {fmt}\n")
+    return [(data, PROBE_FORMATS[fmt]) for _, fmt, data in named]
+
+
 MODES = {
     "crc32": crc32_cases,
+    "probe": probe_cases,
 }
 
 
@@ -42,7 +57,8 @@ def main():
     if len(sys.argv) != 3 or sys.argv[1] not in MODES:
         sys.exit(f"usage: gen.py <{'|'.join(MODES)}> <job-path>")
     mode, path = sys.argv[1], sys.argv[2]
-    cases = MODES[mode](random.Random(f"{SEED}-{mode}"))
+    rng = random.Random(f"{SEED}-{mode}")
+    cases = MODES[mode](rng, path + ".names") if mode == "probe" else MODES[mode](rng)
     with open(path, "wb") as out:
         out.write(struct.pack("<I", len(cases)))
         for data, aux in cases:

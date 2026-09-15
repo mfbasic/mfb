@@ -21,7 +21,21 @@ function* readJob(path) {
   }
 }
 
+function outcome(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    return `err ${e.code ?? e.name}: ${e.message}`;
+  }
+}
+
 const MODES = {
+  // How Node's zlib treats one probe stream (aux: 0 raw, 1 zlib, 2 gzip).
+  probe(index, data, fmt) {
+    const sync = [zlib.inflateRawSync, zlib.inflateSync, zlib.gunzipSync][fmt];
+    const result = outcome(() => `ok out=${sync(data).length}`);
+    return `case ${index} sync[${result}]`;
+  },
   crc32(index, data, split) {
     const whole = zlib.crc32(data);
     const chained = zlib.crc32(data.subarray(split), zlib.crc32(data.subarray(0, split)));
