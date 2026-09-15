@@ -201,6 +201,14 @@ that drops the type.
   `n`-byte entropy scratch buffer, copies it into the result list, wipes it, and never frees
   it. Measured `randomBytes(32)` N=200 → 400 `live_bytes 10992 → 17392` (32 B per call),
   `randomBytes(56)` 64 B, `randomBytes(1000)` 1,008 B. Every `randomBytes` caller leaks it.
+- **Sub-issue E (new, found by the remote proof of C on Linux):** after C's fix,
+  `crypto::generate` P256+P384+P521 still grew 69,600 B per 50 rounds on 2223 (linux-aarch64
+  glibc; 120,000 B before C). `func_generate.rs:emit_linux_ec` allocates three arena
+  scratch buffers — the SEC1 DER (`L_SEC1PTR`, `L_SEC1LEN` bytes), the SPKI DER
+  (`L_SPKIPTR`, `L_SPKILEN`) and the raw point‖scalar (`L_RAWBUF`, `L_RAWLEN`) — wipes SEC1
+  and raw on success, and frees none (only `L_SEC1PTR` was nulled at entry, so the failure
+  cleanup could not have freed the other two). The macOS path has no such scratch
+  (`a_native_ec_generate_loop` is flat there).
 - RED tests (`tests/runtime/rt_debug_soak.rs`, live_bytes): `a_bound_attributed_string_…`,
   `a_list_of_attributed_strings_…`, `a_record_of_attributed_strings_…`,
   `an_attributed_string_with_an_attribute_…`, `a_defaulted_record_…`,
@@ -208,3 +216,14 @@ that drops the type.
   `a_software_curve_generate_loop_…` (D: RED 192 B per Ed25519+X25519+X448+Ed448 iteration).
   `a_paint_loop_keeps_live_bytes_constant` has its `#[ignore]` removed, but it **passes before
   the fix** (240 B × 2,000 extra paints is under its 1 MiB bound): a guard, not the gate.
+
+## Golden deltas (fix-bug, 2026-09-15)
+
+- `scripts/artifact-gate.sh target/release/mfb crypto`: 5 `.ncodesum` diffs, all on
+  `tests/byte-identity/crypto` (`crypto_codegen_cover_rt` × linux-aarch64 / linux-riscv64 /
+  linux-x86_64 / macos-aarch64 / windows-x86_64). Localized on macos-aarch64 by building the
+  fixture with `--ncode` from main `9b5e5b55f` and from the fix and comparing function by
+  function (`/tmp/wt604_ncode_fn_diff.py`): of 342 functions exactly two changed —
+  `_mfb_rt_abi_crypto_generate` (839 → 1017 instructions, the key-list and scratch frees) and
+  `_mfb_rt_abi_crypto_randomBytes` (188 → 285, the entropy-buffer release and failure-path
+  wipes). Imports and data objects are unchanged. The delta is the intended change only.

@@ -291,3 +291,29 @@ pub(crate) fn emit_free_byte_list_guarded(
     emit_arena_free(symbol, instructions, relocations);
     instructions.push(abi::label(&skip));
 }
+
+/// Free the contiguous scratch buffer whose pointer is at `ptr_off` — allocated with the
+/// byte count now at `len_off`, which is the size `_mfb_arena_free` must receive
+/// (bug-560) — when the slot is non-null, then null the slot so a second call frees
+/// nothing. The same register contract as [`emit_free_byte_list_guarded`] (bug-625).
+pub(crate) fn emit_free_buffer_guarded(
+    symbol: &str,
+    tag: &str,
+    ptr_off: usize,
+    len_off: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let skip = format!("{symbol}_{tag}_buf_free_skip");
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), ptr_off),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&skip),
+        abi::load_u64("%v12", abi::stack_pointer(), len_off),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), ptr_off),
+        abi::move_register(abi::c_arg(0), "%v9"),
+        abi::move_register(abi::c_arg(1), "%v12"),
+    ]);
+    emit_arena_free(symbol, instructions, relocations);
+    instructions.push(abi::label(&skip));
+}

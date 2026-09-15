@@ -22,8 +22,8 @@ use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::emit_fail;
 use crate::codegen::memory::arena::emit_data_address;
 use crate::codegen::memory::marshal::{
-    emit_build_byte_list, emit_build_inlined_record, emit_free_byte_list_guarded,
-    emit_zero_guarded, RecordBuildScratch,
+    emit_build_byte_list, emit_build_inlined_record, emit_free_buffer_guarded,
+    emit_free_byte_list_guarded, emit_zero_guarded, RecordBuildScratch,
 };
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
@@ -592,6 +592,8 @@ fn emit_linux_ec(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), L_SEC1PTR),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), L_COLL),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), L_PUBCOLL),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), L_SPKIPTR),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), L_RAWBUF),
     ]);
 
     gen_cert::dlopen_libcrypto(
@@ -963,6 +965,10 @@ fn emit_linux_ec(
         &mut builder.instructions,
         &mut builder.relocations,
     );
+    // bug-625: the SEC1 / SPKI / raw scratch buffers are the helper's own; free them.
+    emit_free_buffer_guarded(symbol, "oksec1", L_SEC1PTR, L_SEC1LEN, &mut builder.instructions, &mut builder.relocations);
+    emit_free_buffer_guarded(symbol, "okspki", L_SPKIPTR, L_SPKILEN, &mut builder.instructions, &mut builder.relocations);
+    emit_free_buffer_guarded(symbol, "okraw", L_RAWBUF, L_RAWLEN, &mut builder.instructions, &mut builder.relocations);
     builder.instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), L_RRESULT),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -971,7 +977,10 @@ fn emit_linux_ec(
 
     // Error exits: free pkey/eckey (null-guarded via the pre-resolved free fns),
     // wipe the SEC1 scratch, then fail.
-    let cleanup = |ins: &mut Vec<CodeInstruction>, tag: &str, v9: &str| {
+    let cleanup = |ins: &mut Vec<CodeInstruction>,
+                   rel: &mut Vec<CodeRelocation>,
+                   tag: &str,
+                   v9: &str| {
         let skip_pk = format!("{symbol}_{tag}_nopk");
         let skip_ec = format!("{symbol}_{tag}_noec");
         ins.extend([
@@ -996,9 +1005,21 @@ fn emit_linux_ec(
             &format!("{tag}w"),
             ins,
         );
+        // bug-625: the raw buffer holds the scalar too; wipe it, then free all three.
+        emit_zero_guarded(
+            symbol,
+            L_RAWBUF,
+            Some(L_RAWLEN),
+            0,
+            &format!("{tag}rw"),
+            ins,
+        );
+        emit_free_buffer_guarded(symbol, &format!("{tag}sec1"), L_SEC1PTR, L_SEC1LEN, ins, rel);
+        emit_free_buffer_guarded(symbol, &format!("{tag}spki"), L_SPKIPTR, L_SPKILEN, ins, rel);
+        emit_free_buffer_guarded(symbol, &format!("{tag}raw"), L_RAWBUF, L_RAWLEN, ins, rel);
     };
     builder.instructions.push(abi::label(&load_fail));
-    cleanup(&mut builder.instructions, "lf", v9);
+    cleanup(&mut builder.instructions, &mut builder.relocations, "lf", v9);
     emit_fail(
         symbol,
         "ErrUnknown",
@@ -1007,7 +1028,7 @@ fn emit_linux_ec(
         done,
     );
     builder.instructions.push(abi::label(&gen_fail));
-    cleanup(&mut builder.instructions, "gf", v9);
+    cleanup(&mut builder.instructions, &mut builder.relocations, "gf", v9);
     emit_fail(
         symbol,
         "ErrUnknown",
@@ -1016,7 +1037,7 @@ fn emit_linux_ec(
         done,
     );
     builder.instructions.push(abi::label(&alloc_fail));
-    cleanup(&mut builder.instructions, "af", v9);
+    cleanup(&mut builder.instructions, &mut builder.relocations, "af", v9);
     // bug-625: a list built before the failure is freed too.
     emit_free_byte_list_guarded(
         symbol,
