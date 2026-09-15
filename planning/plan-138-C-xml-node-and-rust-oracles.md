@@ -302,22 +302,38 @@ Acceptance: the suite agrees under the §4 rules.
   exit 0, printing `71 accepted, 2069 refused by policy; skipped 14 NAMESPACE=no, 27 TYPE=error,
   87 not UTF-8`. The skip count **is** the corrected 14. `TYPE=error` reports 27 rather than the
   census's 33 because the encoding skip is applied first and six of those files are not UTF-8.
-Commit: —
+Commit: `74eeda9bb`
 
 ### Phase 4 — writers, `fuzz-read`, `fuzz-write`, `roundtrip`
 
-- [ ] `oracle.mjs write`: tree → xmldom `Document` → `XMLSerializer`, with the §4 style variations
+- [x] `oracle.mjs write`: tree → xmldom `Document` → `XMLSerializer`, with the §4 style variations
       applied (indent by inserting layout text nodes; CDATA sections; char refs by post-processing
-      text nodes before serialization).
-- [ ] `rust/src/main.rs write`: tree → quick-xml `Writer` with the same style variations.
-- [ ] `diff.mjs` `fuzz-read`, `fuzz-write`, `roundtrip`, seeded generator with names drawn from
+      text nodes before serialization). xmldom appears here and only here — its lenient PARSER is
+      why saxes does the reading, but its DOM and serializer are an independent writer.
+- [x] `rust/src/main.rs write`: tree → quick-xml `Writer` with the same style variations.
+- [x] `diff.mjs` `fuzz-read`, `fuzz-write`, `roundtrip`, seeded generator with names drawn from
       ASCII, non-ASCII `NameStartChar` ranges and declared prefixes; text drawn from all `Char`
       ranges including `]]>`, CR, tab, and whitespace-only runs as sole children.
-- [ ] Fix every package defect as in Phase 2.
+      The generator lives in its own `generate.mjs`; `--seed` and `--count` replay any failure, and
+      every failure line prints them.
+- [x] Fix every package defect as in Phase 2. **No package defect surfaced in this phase** — the two
+      bugs the fuzz modes found were in the ORACLE side (see Corrections), which is the harness
+      working: it caught them before they could be mistaken for package behaviour.
+- [x] Added task: `fuzz-read` and `fuzz-write` compare against the GENERATING TREE's own content,
+      not merely against each other. Three implementations agreeing on a wrong answer would
+      otherwise pass — and in this phase two of them did agree wrongly, which is how the quick-xml
+      indent bug was caught.
 
 Acceptance: both directions agree exactly.
   Check: `node packages/xml/oracle/diff.mjs fuzz-read --count 2000 && node packages/xml/oracle/diff.mjs fuzz-write --count 2000 && node packages/xml/oracle/diff.mjs roundtrip`
   → exit 0 (est. 5 min).
+  MET, all three exit 0: `ok   fuzz-read: 12000 case(s) agreed three ways` (2,000 trees × 6 styles),
+  `ok   fuzz-write: 18000 case(s) agreed three ways` (2,000 trees × 3 indents × 3 writers, each read
+  back by both readers), and `ok   roundtrip: 428 case(s) agreed three ways` (the 25 corpus documents
+  plus 200 generated trees, compact and pretty).
+  The first full-count run was **not** green — 160 of 12,000 and 480 of 18,000 — and every failure
+  was a carriage return. Both were harness defects, recorded in Corrections; the package needed no
+  change.
 Commit: —
 
 ### Phase 5 — `mutate`, `perf`, README
@@ -347,6 +363,39 @@ Commit: —
   adding one only for the suite adds a user-invisible code path. (§4)
 
 ## Corrections
+
+**Phase 4 — quick-xml's indent mode changes content, so the Rust writer owns its own layout.**
+`Writer::new_with_indent` indents inside EVERY element, including ones holding text: a tree carrying
+`[["t","line\nbreak"]]` was written so that it read back as
+`[["t","\n      \n      line\nbreak"]]` — 10 of 135 cases at `--count 15`. That is the rule
+plan-138-B §5 exists for, and a general-purpose serializer cannot know it. The Rust side now applies
+the same condition the package does — an element's children go on their own lines only when it has an
+element child and no data text — with quick-xml doing the escaping and the compact serialization
+underneath. `Writer::new_with_indent` is unused.
+
+**Phase 4 — a literal carriage return survives nowhere in XML, not even inside CDATA.** At
+`--count 2000` the fuzz modes failed 160 of 12,000 read cases and 480 of 18,000 write cases, and
+every single one of the 640 failure blocks carried a CR (classified by grouping the logs; there was
+no tab or line-feed class). Two separate lessons, both about §2.11 line-end normalization applying to
+the WHOLE entity before parsing begins:
+
+- *The generator's CDATA style could not carry one.* `<![CDATA[carriage\rreturn]]>` reads back as
+  `carriage\nreturn` in all three implementations — correctly. CDATA protects markup characters, not
+  line ends. Text holding a CR now falls through to escaping, exactly as it already did for `]]>`.
+- *xmldom's serializer writes a literal CR*, so the Node oracle's own output lost the character. The
+  package escapes CR as `&#13;` for precisely this reason (plan-138-B §4), and the Node writer now
+  does the same.
+
+This is the clearest evidence in the plan that the write direction was worth building: the package
+was right all along, and both harness implementations had to be corrected to match it.
+
+**Phase 4 — the generator committed the exact bug the mode exists to catch.** Two `fuzz-read` cases
+failed because the generator indented an element whose only children were processing instructions.
+With no ELEMENT child, plan-138-A §4 step 3 does not call whitespace-only text layout, so the
+newlines it inserted became that element's DATA — the same defect found in the package's own writer
+in plan-138-B Phase 2, reproduced independently in the harness. Fixed with the same condition. Worth
+recording because it is evidence the mode is load-bearing: the bug was invisible to every
+oracle-versus-oracle comparison, and only the check against the GENERATING TREE caught it.
 
 **Phase 3 — the suite found a real package defect: a colon in a processing-instruction target.**
 Namespaces in XML 1.0, erratum NE08, makes a PI target an NCName, so `<?a:b bogus?>` is not

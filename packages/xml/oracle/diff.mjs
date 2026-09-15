@@ -19,7 +19,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readJob as nodeReadJob } from "./oracle.mjs";
+import { readJob as nodeReadJob, writeJob as nodeWriteJob } from "./oracle.mjs";
+import { trees, STYLES, write as writeStyled } from "./generate.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "../../..");
@@ -331,10 +332,243 @@ function isValidUtf8(raw) {
   return Buffer.compare(Buffer.from(raw.toString("utf8"), "utf8"), raw) === 0;
 }
 
-const MODES = { corpus: runCorpus, xmlconf: runXmlconf };
+// ---------------------------------------------------------------------------
+// The fuzz modes: random trees, both directions.
+// ---------------------------------------------------------------------------
+
+/**
+ * fuzz-read: write each random tree out in several STYLES and check that every
+ * side reads back the content the tree started with.
+ *
+ * The expected content is computed from the tree by the generator's own
+ * projection, so this does not merely check that three readers agree — it
+ * checks they agree with what was written.
+ */
+function runFuzzRead(options) {
+  const cases = [];
+  const expected = new Map();
+  for (const { id, tree } of trees(options.seed, options.count)) {
+    for (const style of STYLES) {
+      const caseId = `${id}/${style.name}`;
+      cases.push({ id: caseId, xml: writeStyled(tree, style) });
+      expected.set(caseId, JSON.stringify(projectTree(tree)));
+    }
+  }
+  return compareAll("read", cases, expected, options);
+}
+
+/** fuzz-write: each side writes the tree, and both oracles read it back. */
+function runFuzzWrite(options) {
+  const cases = [];
+  const expected = new Map();
+  for (const { id, tree } of trees(options.seed, options.count)) {
+    for (const indent of ["", "  ", "\t"]) {
+      const caseId = `${id}/indent${indent.length}`;
+      cases.push({ id: caseId, tree, indent });
+      expected.set(caseId, JSON.stringify(projectTree(tree)));
+    }
+  }
+
+  const job = { cases };
+  const written = {
+    probe: asked.probe("write", job),
+    rust: asked.rust("write", job),
+    node: nodeWriteJob(job).results,
+  };
+
+  // Everything each side wrote must read back with the tree's own content, on
+  // both readers. That is what makes this a WRITE test rather than a second
+  // read test: the three writers are compared through two independent readers.
+  const readBack = { cases: [] };
+  const origin = [];
+  for (const side of ["probe", "rust", "node"]) {
+    for (let index = 0; index < cases.length; index += 1) {
+      const result = written[side][index];
+      if (!result.ok) continue;
+      readBack.cases.push({ id: `${side}:${cases[index].id}`, xml: result.xml });
+      origin.push({ side, id: cases[index].id });
+    }
+  }
+
+  const failures = [];
+  for (const side of ["probe", "rust", "node"]) {
+    for (let index = 0; index < cases.length; index += 1) {
+      const result = written[side][index];
+      if (!result.ok) {
+        failures.push(`${cases[index].id}: ${side} refused to write it — ${result.kind}: ${result.reason}`);
+      }
+    }
+  }
+
+  const probe = asked.probe("read", readBack);
+  const rust = asked.rust("read", readBack);
+  const node = asked.node("read", readBack);
+  for (let index = 0; index < readBack.cases.length; index += 1) {
+    const id = readBack.cases[index].id;
+    const problem = compare(id, [probe[index], node[index], rust[index]]);
+    if (problem) {
+      failures.push(problem);
+      continue;
+    }
+    if (!probe[index].ok) {
+      failures.push(`${id}: every side refused to read back what ${origin[index].side} wrote`);
+      continue;
+    }
+    const want = expected.get(origin[index].id);
+    const got = JSON.stringify(probe[index].content);
+    if (got !== want) {
+      failures.push([`${id}: ${origin[index].side}'s output lost content`, `  wrote:  ${got}`, `  tree:   ${want}`].join("\n"));
+    }
+  }
+  return { count: readBack.cases.length, failures, diverged: 0 };
+}
+
+/** roundtrip: content(read(write(read(x)))) = content(read(x)), on the package. */
+function runRoundtrip(options) {
+  const documents = [];
+  for (const name of readdirSync(CORPUS).filter((file) => file.endsWith(".xml")).sort()) {
+    documents.push({ id: name, xml: readFileSync(join(CORPUS, name), "utf8") });
+  }
+  for (const { id, tree } of trees(options.seed, Math.max(20, options.count))) {
+    documents.push({ id, xml: writeStyled(tree, STYLES[0]) });
+  }
+
+  const first = asked.probe("read", { cases: documents });
+  const writable = [];
+  const firstContent = new Map();
+  for (let index = 0; index < documents.length; index += 1) {
+    if (!first[index].ok) continue; // a refusal round-trips trivially
+    firstContent.set(documents[index].id, JSON.stringify(first[index].content));
+    for (const indent of ["", "  "]) {
+      writable.push({ id: `${documents[index].id}/indent${indent.length}`, tree: first[index].content, indent });
+    }
+  }
+
+  const rewritten = asked.probe("write", { cases: writable });
+  const again = { cases: [] };
+  for (let index = 0; index < writable.length; index += 1) {
+    if (!rewritten[index].ok) continue;
+    again.cases.push({ id: writable[index].id, xml: rewritten[index].xml });
+  }
+  const reread = asked.probe("read", again);
+
+  const failures = [];
+  for (let index = 0; index < writable.length; index += 1) {
+    if (!rewritten[index].ok) {
+      failures.push(`${writable[index].id}: the package refused to write back what it read — ${rewritten[index].reason}`);
+    }
+  }
+  for (let index = 0; index < again.cases.length; index += 1) {
+    const id = again.cases[index].id;
+    const source = id.slice(0, id.lastIndexOf("/"));
+    if (!reread[index].ok) {
+      failures.push(`${id}: the package could not read back its own output — ${reread[index].reason}`);
+      continue;
+    }
+    const got = JSON.stringify(reread[index].content);
+    const want = firstContent.get(source);
+    if (got !== want) {
+      failures.push([`${id}: content changed across a round trip`, `  after: ${got}`, `  before: ${want}`].join("\n"));
+    }
+  }
+  return { count: again.cases.length, failures, diverged: 0 };
+}
+
+/** Ask all three sides one job of read cases and compare, with expectations. */
+function compareAll(operation, cases, expected, options) {
+  const job = { cases };
+  const probe = asked.probe(operation, job);
+  const rust = asked.rust(operation, job);
+  const node = asked.node(operation, job);
+
+  const failures = [];
+  for (let index = 0; index < cases.length; index += 1) {
+    const id = cases[index].id;
+    const problem = compare(id, [probe[index], node[index], rust[index]]);
+    if (problem) {
+      failures.push(`${problem}\n     replay: --seed ${options.seed} --count ${options.count}`);
+      continue;
+    }
+    if (!probe[index].ok) {
+      failures.push(`${id}: every side refused a document the generator produced — ${probe[index].reason}`);
+      continue;
+    }
+    const want = expected.get(id);
+    if (want !== undefined && JSON.stringify(probe[index].content) !== want) {
+      failures.push(
+        [
+          `${id}: all three agree, but not with the tree that was written`,
+          `  read:    ${JSON.stringify(probe[index].content)}`,
+          `  written: ${want}`,
+          `  replay: --seed ${options.seed} --count ${options.count}`,
+        ].join("\n"),
+      );
+    }
+  }
+  return { count: cases.length, failures, diverged: 0 };
+}
+
+/** The generator's own content projection, for comparing against the tree. */
+function projectTree(tree) {
+  const [, children] = tree;
+  return ["doc", projectChildren(children)];
+}
+
+function projectChildren(children) {
+  const hasElement = children.some(([kind]) => kind === "e");
+  const out = [];
+  let pending = "";
+  const flush = () => {
+    if (pending === "") return;
+    const layout = hasElement && /^[ \t\r\n]+$/.test(pending);
+    if (!layout) out.push(["t", pending]);
+    pending = "";
+  };
+  for (const child of children) {
+    const [kind] = child;
+    if (kind === "t") {
+      pending += child[1];
+      continue;
+    }
+    if (kind !== "e") continue;
+    flush();
+    const attributes = child[2]
+      .slice()
+      .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0));
+    out.push(["e", child[1], attributes, projectChildren(child[3])]);
+  }
+  flush();
+  return out;
+}
+
+const MODES = {
+  corpus: runCorpus,
+  xmlconf: runXmlconf,
+  "fuzz-read": runFuzzRead,
+  "fuzz-write": runFuzzWrite,
+  roundtrip: runRoundtrip,
+};
+
+/** `--seed 7 --count 2000`, so a fuzz failure replays exactly. */
+function parseOptions(argv) {
+  const options = { seed: 1, count: 200 };
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--seed") options.seed = Number(argv[index + 1]);
+    if (argv[index] === "--count") options.count = Number(argv[index + 1]);
+  }
+  return options;
+}
 
 function main() {
-  const requested = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
+  const argv = process.argv.slice(2);
+  const options = parseOptions(argv);
+  const flagValues = new Set();
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--seed" || argv[index] === "--count") flagValues.add(index + 1);
+  }
+  const requested = argv.filter(
+    (argument, index) => !argument.startsWith("--") && !flagValues.has(index),
+  );
   const modes = requested.length > 0 ? requested : Object.keys(MODES);
 
   let failed = false;
@@ -344,7 +578,7 @@ function main() {
       console.error(`unknown mode \`${mode}\` (have: ${Object.keys(MODES).join(", ")})`);
       process.exit(2);
     }
-    const { count, failures, diverged, note } = run();
+    const { count, failures, diverged, note } = run(options);
     const declared = diverged > 0 ? `, ${diverged} declared divergent` : "";
     // The mode's own counts — for xmlconf these include the skip counts the
     // acceptance check reads, so they print on success as well as on failure.

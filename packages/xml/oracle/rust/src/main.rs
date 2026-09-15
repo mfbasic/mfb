@@ -591,8 +591,192 @@ fn read_case(case: &Value) -> Value {
     json!({ "id": id, "ok": true, "content": ["doc", project(&children, text)] })
 }
 
-/// Answer one `write` case. Filled in by Phase 4.
+/// Answer one `write` case: a tree in the §3 envelope shape, written back out.
+///
+/// quick-xml is the writer here, so the write direction has an implementation
+/// independent of both the package and xmldom. `BytesText::new` escapes its
+/// content and `from_escaped` does not — the difference matters, because
+/// double-escaping would show up as a content disagreement that looks like a
+/// package bug.
 fn write_case(case: &Value) -> Value {
     let id = case.get("id").and_then(Value::as_str).unwrap_or("");
-    refuse(id, "parse", "write is not implemented yet")
+    let indent = case.get("indent").and_then(Value::as_str).unwrap_or("");
+    let Some(tree) = case.get("tree") else {
+        return refuse(id, "parse", "the case has no `tree`");
+    };
+
+    // quick-xml's own indent mode is NOT usable here: it indents inside every
+    // element, including ones holding text, which CHANGES the content —
+    // `[["t","line\nbreak"]]` came back as `[["t","\n      \n      line\nbreak"]]`.
+    // The layout rule belongs to this writer (an element's children go on their
+    // own lines only when it has an element child and no data text), and
+    // quick-xml does the escaping and the compact serialization underneath.
+    let body = match layout_tree(tree, indent) {
+        Ok(body) => body,
+        Err(error) => return refuse(id, "parse", error),
+    };
+    let separator = if indent.is_empty() { "" } else { "\n" };
+    json!({
+        "id": id,
+        "ok": true,
+        "xml": format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>{separator}{body}"),
+    })
+}
+
+/// Serialize one node compactly, with quick-xml doing the escaping.
+fn compact(node: &Value) -> Result<String, String> {
+    let mut writer = quick_xml::Writer::new(Vec::new());
+    write_node(&mut writer, node)?;
+    String::from_utf8(writer.into_inner()).map_err(|error| error.to_string())
+}
+
+fn is_xml_space(c: char) -> bool {
+    c == ' ' || c == '\t' || c == '\r' || c == '\n'
+}
+
+fn node_kind(node: &Value) -> Option<&str> {
+    node.as_array()?.first()?.as_str()
+}
+
+/// A whole document laid out with `indent`, or compactly when it is empty.
+fn layout_tree(tree: &Value, indent: &str) -> Result<String, String> {
+    let parts = tree.as_array().ok_or("a tree must be an array")?;
+    if parts.len() != 2 || parts[0].as_str() != Some("doc") {
+        return Err("a tree must be [\"doc\", [children]]".into());
+    }
+    let children = parts[1].as_array().ok_or("a doc's children must be an array")?;
+    let mut out = Vec::new();
+    for child in children {
+        out.push(layout_node(child, indent, 0)?);
+    }
+    Ok(out.join(if indent.is_empty() { "" } else { "\n" }))
+}
+
+/// One node at `level` indents deep.
+///
+/// An element's children go on their own lines only when it has an ELEMENT
+/// child and no DATA text child. Anything else is written exactly as compact:
+/// adding whitespace beside text changes the text, and adding it inside an
+/// element whose only children are comments or PIs gives that element text it
+/// never had (plan-138-A §4 step 3).
+fn layout_node(node: &Value, indent: &str, level: usize) -> Result<String, String> {
+    if indent.is_empty() || node_kind(node) != Some("e") {
+        return compact(node);
+    }
+    let parts = node.as_array().ok_or("a node must be an array")?;
+    let name = parts.get(1).and_then(Value::as_str).ok_or("an element needs a name")?;
+    let attributes = parts.get(2).ok_or("an element needs attributes")?;
+    let children = parts
+        .get(3)
+        .and_then(Value::as_array)
+        .ok_or("an element needs a child list")?;
+    if children.is_empty() {
+        return compact(node);
+    }
+
+    let has_element = children.iter().any(|child| node_kind(child) == Some("e"));
+    let has_data_text = children.iter().any(|child| {
+        node_kind(child) == Some("t")
+            && child
+                .as_array()
+                .and_then(|parts| parts.get(1))
+                .and_then(Value::as_str)
+                .map(|text| !text.is_empty() && !text.chars().all(is_xml_space))
+                .unwrap_or(false)
+    });
+    if !has_element || has_data_text {
+        return compact(node);
+    }
+
+    // The start tag, borrowed from the empty form so quick-xml still writes the
+    // attributes and their escaping.
+    let empty = compact(&json!(["e", name, attributes, []]))?;
+    let open = empty
+        .strip_suffix("/>")
+        .map(|start| format!("{start}>"))
+        .ok_or("quick-xml did not write an empty element as expected")?;
+
+    let mut out = String::from(&open);
+    for child in children {
+        out.push('\n');
+        out.push_str(&indent.repeat(level + 1));
+        out.push_str(&layout_node(child, indent, level + 1)?);
+    }
+    out.push('\n');
+    out.push_str(&indent.repeat(level));
+    out.push_str(&format!("</{name}>"));
+    Ok(out)
+}
+
+fn write_node(writer: &mut quick_xml::Writer<Vec<u8>>, node: &Value) -> Result<(), String> {
+    use quick_xml::events::{BytesEnd, BytesPI, BytesStart, BytesText, Event};
+
+    let parts = node.as_array().ok_or("a node must be an array")?;
+    let kind = parts.first().and_then(Value::as_str).ok_or("a node needs a kind")?;
+    let text_at = |index: usize| -> Result<&str, String> {
+        parts
+            .get(index)
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("a `{kind}` node needs a string at {index}"))
+    };
+
+    match kind {
+        "t" => {
+            writer
+                .write_event(Event::Text(BytesText::new(text_at(1)?)))
+                .map_err(|error| error.to_string())?;
+        }
+        "c" => {
+            writer
+                .write_event(Event::Comment(BytesText::new(text_at(1)?)))
+                .map_err(|error| error.to_string())?;
+        }
+        "p" => {
+            let target = text_at(1)?;
+            let data = text_at(2)?;
+            let content = if data.is_empty() {
+                target.to_string()
+            } else {
+                format!("{target} {data}")
+            };
+            writer
+                .write_event(Event::PI(BytesPI::new(content)))
+                .map_err(|error| error.to_string())?;
+        }
+        "e" => {
+            let name = text_at(1)?;
+            let mut start = BytesStart::new(name);
+            for attribute in parts
+                .get(2)
+                .and_then(Value::as_array)
+                .ok_or("an element needs an attribute list")?
+            {
+                let pair = attribute.as_array().ok_or("an attribute must be a pair")?;
+                let key = pair.first().and_then(Value::as_str).ok_or("an attribute needs a name")?;
+                let value = pair.get(1).and_then(Value::as_str).ok_or("an attribute needs a value")?;
+                start.push_attribute((key, value));
+            }
+            let children = parts
+                .get(3)
+                .and_then(Value::as_array)
+                .ok_or("an element needs a child list")?;
+            if children.is_empty() {
+                writer
+                    .write_event(Event::Empty(start))
+                    .map_err(|error| error.to_string())?;
+                return Ok(());
+            }
+            writer
+                .write_event(Event::Start(start))
+                .map_err(|error| error.to_string())?;
+            for child in children {
+                write_node(writer, child)?;
+            }
+            writer
+                .write_event(Event::End(BytesEnd::new(name)))
+                .map_err(|error| error.to_string())?;
+        }
+        other => return Err(format!("unknown node kind `{other}`")),
+    }
+    Ok(())
 }

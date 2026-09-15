@@ -13,6 +13,7 @@
 // A refusal is a result: every entry point returns an envelope, never throws.
 
 import { SaxesParser } from "saxes";
+import { DOMImplementation, XMLSerializer } from "@xmldom/xmldom";
 
 /** Refusal envelope. `kind` is triage only; the runner never compares it. */
 function refuse(kind, reason) {
@@ -174,5 +175,105 @@ export function project(children) {
 export function readJob(job) {
   return {
     results: job.cases.map((entry) => ({ id: entry.id, ...read(entry.xml) })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Writing.
+//
+// xmldom appears here and ONLY here: its parser is lenient, which is why saxes
+// does the reading, but its DOM and XMLSerializer are an independent writer —
+// which is exactly what the write direction needs.
+// ---------------------------------------------------------------------------
+
+/** Build an xmldom Document from the §3 envelope shape. */
+function buildDocument(documentTree) {
+  const [, children] = documentTree;
+  const doc = new DOMImplementation().createDocument(null, null, null);
+  for (const child of children) appendNode(doc, doc, child);
+  return doc;
+}
+
+function appendNode(doc, parent, node) {
+  const [kind] = node;
+  if (kind === "t") {
+    parent.appendChild(doc.createTextNode(node[1]));
+    return;
+  }
+  if (kind === "c") {
+    parent.appendChild(doc.createComment(node[1]));
+    return;
+  }
+  if (kind === "p") {
+    parent.appendChild(doc.createProcessingInstruction(node[1], node[2]));
+    return;
+  }
+  const [, name, attributes, kids] = node;
+  const element = doc.createElement(name);
+  for (const [key, value] of attributes) element.setAttribute(key, value);
+  for (const kid of kids) appendNode(doc, element, kid);
+  parent.appendChild(element);
+}
+
+/**
+ * Write one tree, honouring `indent` the way the package does: an element's
+ * children go on their own lines only when it holds no data text AND has an
+ * element child — indenting anywhere else would change the content.
+ */
+export function write(documentTree, indent) {
+  try {
+    const doc = buildDocument(documentTree);
+    const serialized = new XMLSerializer().serializeToString(doc);
+    const body = indent ? reindent(documentTree, indent) : serialized;
+    // xmldom writes a literal carriage return, which XML 1.0 §2.11 normalizes
+    // to a line feed on the way back in — so the text would come back changed.
+    // Only a character reference survives. In xmldom's output a CR can appear
+    // only inside text or an attribute value, never in structural markup, so
+    // rewriting every one is exactly right.
+    const safe = body.replaceAll("\r", "&#13;");
+    return { ok: true, xml: `<?xml version="1.0" encoding="UTF-8"?>${indent ? "\n" : ""}${safe}` };
+  } catch (error) {
+    return refuse("parse", error.message);
+  }
+}
+
+/** The indented form, built from the tree rather than by re-parsing output. */
+function reindent(documentTree, indent) {
+  const [, children] = documentTree;
+  const doc = new DOMImplementation().createDocument(null, null, null);
+  const serializer = new XMLSerializer();
+  const one = (node, level) => {
+    const [kind] = node;
+    if (kind !== "e") {
+      const holder = doc.createDocumentFragment();
+      appendNode(doc, holder, node);
+      return serializer.serializeToString(holder);
+    }
+    const [, name, attributes, kids] = node;
+    const hasText = kids.some(([childKind]) => childKind === "t");
+    const hasElement = kids.some(([childKind]) => childKind === "e");
+    const element = doc.createElement(name);
+    for (const [key, value] of attributes) element.setAttribute(key, value);
+    if (kids.length === 0) return serializer.serializeToString(element);
+    if (hasText || !hasElement) {
+      for (const kid of kids) appendNode(doc, element, kid);
+      return serializer.serializeToString(element);
+    }
+    const open = serializer.serializeToString(element).replace(/\/>$/, ">");
+    const inner = kids
+      .map((kid) => "\n" + indent.repeat(level + 1) + one(kid, level + 1))
+      .join("");
+    return `${open}${inner}\n${indent.repeat(level)}</${name}>`;
+  };
+  return children.map((child) => one(child, 0)).join("\n");
+}
+
+/** Answer a whole `write` job. */
+export function writeJob(job) {
+  return {
+    results: job.cases.map((entry) => ({
+      id: entry.id,
+      ...write(entry.tree, entry.indent ?? ""),
+    })),
   };
 }
