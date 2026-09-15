@@ -99,7 +99,7 @@ plan-137-A §2 holds the shared facts. Specific to this letter:
 
 | What | Count | Command |
 |---|---|---|
-| Canvas inflate throughput on the bench corpus | UNMEASURED | Phase 1 |
+| Canvas inflate throughput on the bench corpus | Measured 2026-09-14, macos-aarch64, `-O1` headless `--app`: `canvas::loadImage` of a 4096×4096 RGBA8 PNG (one IDAT, Python `zlib.compress(raw, 6)`, 38,120,016 B → 67,112,960 B inflated, ratio 1.8) in **43,691.6 ms ≈ 1.47 MiB/s** (whole `loadImage`: inflate + unfilter + RGBA; wall 43.80 s). Scaling: 256² 203.4 ms, 1024² 3,274.6 ms, 4096² 43,691.6 ms — linear. | `/tmp/p137canvas/{genpng.py,run.py,app}` (one-off probe) |
 | Python / Node decode behaviour on trailing bytes (sets the oracle's declared divergences), a wrong `FHCRC`, `FDICT`, the one-distance-code block, the no-distance-code block, an incomplete literal set | Measured 2026-09-14 (`tools/oracles/compress/probe.sh`; Python zlib 1.2.12, Node zlib 1.3.1). **Trailing bytes:** raw and zlib after 1/7/1000 junk bytes → both `ok out=224` (Python `unused=1/7/1000`); gzip + junk → Python `decompressobj(31)` ok (`unused`), Python `gzip.decompress` `BadGzipFile: Not a gzipped file`, Node `gunzipSync` `Z_BUF_ERROR` (1 byte) / `incorrect header check` (7, 1000); two gzip members → `gzip.decompress` and Node `out=237`; member + `1f 8b 00 00junk` → both refuse. **Flags/checks:** `FDICT` → Python `Error 2`, Node `Z_NEED_DICT`; `CINFO=8` → `invalid window size`; bad `FHCRC` → zlib `header crc mismatch` (Python `gzip.decompress` accepts — pure-Python header parse); reserved gzip flag → zlib `unknown header flags set` (`gzip.decompress` accepts); bad Adler-32 / CRC-32 → `incorrect data check`; bad `ISIZE` → `incorrect length check`. **Code sets:** one distance code of length 1, used → `ok out=6`, unused → `ok out=1`; no distance codes, unused → `ok out=2`, used → `invalid distance code`; lone end-of-block code of length 1 → `ok out=0`; incomplete literal set (three 2-bit codes) and over-subscribed literal set → `invalid literal/lengths set`; over-subscribed distances → `invalid distances set`; no end-of-block code → `invalid code -- missing end-of-block`; distance before output start → `invalid distance too far back`; stored `LEN ≠ ~NLEN` → `invalid stored block lengths`; `BTYPE=3` → `invalid block type`. Python and Node agree on every zlib-level case. | `tools/oracles/compress/probe.sh` |
 | Emitted code size of the inflate core function (AArch64 conditional-branch range is ±1 MiB per function) | UNMEASURED | Phase 2: `mfb build --ncode` of the fixture, count the function's instructions × 4 B |
 
@@ -232,10 +232,12 @@ Nothing existing changes.
       prints the table. The writer is validated by its valid dynamic blocks decoding in both zlibs, e.g.
       `raw-one-distance-code-used` → `ok out=6`. Results in §2; declared divergences in
       `tools/oracles/compress/README.md`; exceptions in §4.2.)
-- [ ] Canvas baseline: an `--app`-free harness can't reach `__canvas_zlibInflate`, so measure
+- [x] Canvas baseline: an `--app`-free harness can't reach `__canvas_zlibInflate`, so measure
       through `canvas::loadImage` on a headless build of a generated 4096×4096 PNG with one IDAT
       compressed by Python `zlib.compress(raw, 6)` (pattern: `tests/canvas/rt_canvas_image_decode.rs`
       `decode_bounded` helpers). Record decode ms and the PNG's inflated size.
+      (§2 row: 43,691.6 ms for 67,112,960 B inflated ≈ 1.47 MiB/s, timed in-program with
+      `datetime::monotonicNanos` around `canvas::loadImage`, `MFB_*APP_HEADLESS=1`.)
 - [ ] Prototype `__compress_inflateCore` (fixed + dynamic blocks, stored blocks, no framing) in
       a scratch builtin build; measure the same stream: `sl`/`sr` vs `*`/`/` bit buffer, and the
       §4.1 (a)/(b) end-position shapes. Record MiB/s for each variant at `-O1` and `-O3`.
