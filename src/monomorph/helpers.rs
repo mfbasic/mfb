@@ -464,8 +464,15 @@ pub(super) fn collect_imported_overloads(
     let mut bindings: HashMap<String, String> = HashMap::new();
     for file in &source.files {
         for (binding, package) in file.import_bindings() {
-            qualifiers.insert(format!("{binding}."));
-            qualifiers.insert(format!("{package}."));
+            // bug-632: only a BUILT-IN package's qualifier is stripped. An imported
+            // user package's type is package-qualified on both sides of the match
+            // — the argument by the parser (`ov.A`) and the candidate below — so
+            // stripping it would turn `ov.A` and another package's `pb.A` back
+            // into one bare `A`.
+            if crate::codegen::builtins::is_builtin_import(&package) {
+                qualifiers.insert(format!("{binding}."));
+                qualifiers.insert(format!("{package}."));
+            }
             bindings.insert(binding, package);
         }
     }
@@ -481,6 +488,11 @@ pub(super) fn collect_imported_overloads(
         let Ok(exports) = crate::binary_repr::read_package_exports(&package_file) else {
             continue;
         };
+        // bug-632: the package's own type names, so each candidate's parameter
+        // types carry the same `<package>.<Name>` identity the argument does.
+        let owned = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
+            .map(|decode| crate::manifest::package::package_owned_type_names(&decode))
+            .unwrap_or_default();
         // Group exported functions/subs by base name (the part before `$`).
         let mut by_base: HashMap<String, Vec<crate::binary_repr::BinaryReprExport>> =
             HashMap::new();
@@ -510,7 +522,13 @@ pub(super) fn collect_imported_overloads(
                     param_types: export
                         .params
                         .iter()
-                        .map(|param| param.type_.clone())
+                        .map(|param| {
+                            crate::manifest::package::qualify_package_type(
+                                &param.type_,
+                                package,
+                                &owned,
+                            )
+                        })
                         .collect(),
                     // Rewrite to the importer-facing `binding.name`, not
                     // `package.name`: the post-monomorph resolver maps import

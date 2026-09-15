@@ -1603,7 +1603,13 @@ impl Resolver<'_> {
         if type_.is_named("Unknown") || self.active_template_params.contains(name) {
             return;
         }
-        if name.contains('.') {
+        if let Some((root, _)) = name.split_once('.') {
+            // bug-632: an imported user package's type, already canonicalized to
+            // `<package>.<Name>` by the parser (`IMPORT ov AS o` / `o::A` arrives
+            // as `ov.A`). It resolves only where this file imports that package.
+            if imports.values().any(|package| package == root) && self.types.contains(type_) {
+                return;
+            }
             self.resolve_package_qualified_name(file, name, line, imports);
         } else if !self.types.contains(&ParameterType::declared(name)) {
             self.report_unknown_type(file, name, line);

@@ -768,6 +768,13 @@ impl<'a> Walker<'a> {
                 else {
                     continue;
                 };
+                // bug-632: this pass's tables key an imported type by its
+                // package-qualified identity (`manifest::package::imported_type_def`),
+                // so the package's own bare `.mfp` spellings are qualified the same
+                // way before they are looked up.
+                let owned = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
+                    .map(|decode| crate::manifest::package::package_owned_type_names(&decode))
+                    .unwrap_or_default();
                 match crate::binary_repr::read_package_type_exports(&package_file) {
                     Ok(type_exports) => {
                         for export in &type_exports {
@@ -782,7 +789,11 @@ impl<'a> Walker<'a> {
                             };
                             self.validate_package_type(
                                 &package_file,
-                                &ParameterType::declared(&export.name),
+                                &crate::manifest::package::qualify_package_type(
+                                    &ParameterType::declared(&export.name),
+                                    package,
+                                    &owned,
+                                ),
                                 &context,
                                 import.line,
                                 &mut HashSet::new(),
@@ -828,6 +839,13 @@ impl<'a> Walker<'a> {
                 else {
                     continue;
                 };
+                // bug-632: qualified exactly as the type-export walk above.
+                let owned = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
+                    .map(|decode| crate::manifest::package::package_owned_type_names(&decode))
+                    .unwrap_or_default();
+                let qualify = |type_: &ParameterType| {
+                    crate::manifest::package::qualify_package_type(type_, package, &owned)
+                };
                 match crate::binary_repr::read_package_exports(&package_file) {
                     Ok(exports) => {
                         for export in &exports {
@@ -845,7 +863,7 @@ impl<'a> Walker<'a> {
                             for param in &export.params {
                                 self.validate_package_type(
                                     &package_file,
-                                    &param.type_,
+                                    &qualify(&param.type_),
                                     &format!(
                                         "exported function `{}` parameter `{}`",
                                         export.name, param.name
@@ -856,7 +874,7 @@ impl<'a> Walker<'a> {
                             }
                             self.validate_package_type(
                                 &package_file,
-                                &export.return_type,
+                                &qualify(&export.return_type),
                                 &format!("exported function `{}` return type", export.name),
                                 import.line,
                                 &mut seen,

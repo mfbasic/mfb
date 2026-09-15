@@ -1148,9 +1148,14 @@ impl TypeEnv {
             } else {
                 "Map key type"
             };
+            // bug-632: the user-facing spelling (`notes::Bag`), not the internal
+            // `notes.Bag` identity — bug-605's rule for anything a user reads.
             self.emit(
                 "TYPE_REQUIRES_COMPARABLE",
-                format!("{subject} requires a comparable type, got `{name}`."),
+                format!(
+                    "{subject} requires a comparable type, got `{}`.",
+                    type_.display()
+                ),
             );
         }
     }

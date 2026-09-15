@@ -332,6 +332,71 @@ impl ParameterType {
     pub(crate) fn res(inner: ParameterType) -> Self {
         ParameterType::Res(Box::new(inner))
     }
+
+    /// This type with every NOMINAL renamed through `rename` — each
+    /// [`Named`](Self::Named) and each [`UserOf`](Self::UserOf) head, at every
+    /// depth (`List OF`, `Map OF`, `Result OF`, `RES`, `STATE`, `FUNC`, thread
+    /// planes, user type arguments). `rename` answers `None` to keep a name.
+    /// Type variables, C ABI types and scalars are never nominals here.
+    ///
+    /// bug-632: this is how an imported user package's own types get their
+    /// package-qualified identity (`A` → `pkg.A`) wherever that package's
+    /// declarations, signatures and IR are read.
+    pub(crate) fn map_nominals(&self, rename: &impl Fn(&str) -> Option<String>) -> ParameterType {
+        let map = |t: &ParameterType| Box::new(t.map_nominals(rename));
+        match self {
+            ParameterType::Named(sym) => match rename(sym.resolve()) {
+                Some(renamed) => ParameterType::named(&renamed),
+                None => self.clone(),
+            },
+            ParameterType::UserOf(head, args) => {
+                let args = args.iter().map(|a| a.map_nominals(rename)).collect();
+                match rename(head.resolve()) {
+                    Some(renamed) => ParameterType::UserOf(Symbol::intern(&renamed), args),
+                    None => ParameterType::UserOf(*head, args),
+                }
+            }
+            ParameterType::ListOf(e) => ParameterType::ListOf(map(e)),
+            ParameterType::SetOf(e) => ParameterType::SetOf(map(e)),
+            ParameterType::ResultOf(e) => ParameterType::ResultOf(map(e)),
+            ParameterType::Res(e) => ParameterType::Res(map(e)),
+            ParameterType::MapOf(k, v) => ParameterType::MapOf(map(k), map(v)),
+            ParameterType::MapEntryOf(k, v) => ParameterType::MapEntryOf(map(k), map(v)),
+            ParameterType::Stateful { base, state } => ParameterType::Stateful {
+                base: map(base),
+                state: map(state),
+            },
+            ParameterType::Func(params, ret, isolated) => ParameterType::Func(
+                params.iter().map(|p| p.map_nominals(rename)).collect(),
+                map(ret),
+                *isolated,
+            ),
+            ParameterType::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => ParameterType::ThreadHandle {
+                worker: *worker,
+                msg: map(msg),
+                res: map(res),
+                out: map(out),
+            },
+            ParameterType::AttributeString
+            | ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Integer
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
+            | ParameterType::C(_)
+            | ParameterType::Var(_)
+            | ParameterType::Arg(_)
+            | ParameterType::Unknown => self.clone(),
+        }
+    }
     /// The type a SPELLING denotes — a declaration's own name, or a value's
     /// recorded type where codegen still stores one as text.
     ///

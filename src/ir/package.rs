@@ -2,12 +2,14 @@ use super::*;
 
 /// Namespace a decoded package's own functions and globals by its deterministic
 /// identity prefix `<id>.<package>` (see `binary_repr::package_identity_id`),
-/// rewriting every internal reference to match. Types are left unqualified.
+/// rewriting every internal reference to match. Its own TYPES take the
+/// package-qualified identity `<package>.<Name>` ([`qualify_package_types`]).
 ///
 /// The `<id>` segment makes the prefix content-addressed: identical packages
 /// reached via two dependency paths collapse to one copy at merge time, while
 /// two distinct packages that share a name stay separate instead of colliding.
 pub fn prefix_package_symbols(pir: &mut IrProject, id: &str) {
+    qualify_package_types(pir);
     let prefix = format!("{id}.{}", pir.name);
     let mut own_fns: HashSet<String> = pir.functions.iter().map(|f| f.name.clone()).collect();
     let own_globals: HashSet<String> = pir.bindings.iter().map(|b| b.name.clone()).collect();
@@ -50,6 +52,277 @@ pub fn prefix_package_symbols(pir: &mut IrProject, id: &str) {
     }
     for (_, target) in &mut pir.link_aliases {
         *target = format!("{prefix}.{target}");
+    }
+}
+
+/// bug-632: give a decoded package's OWN types — every declared record, union and
+/// enum, each union variant, and each native resource type — their
+/// package-qualified identity `<package>.<Name>`, in the declarations and at
+/// every reference inside the package's IR.
+///
+/// A package compiles its own types as local names, so its `.mfp` IR spells them
+/// bare. Left bare, `merge_package`'s type dedup made a consumer's `A`, this
+/// package's `A` and another package's `A` one type: the later ones were
+/// discarded and their code verified (and laid out) against the first. The
+/// importer already names this package's types `<package>.<Name>` — the parser
+/// canonicalizes `binding::Name` to it and `manifest::package` qualifies the
+/// package's signatures and layouts the same way — so after this pass both sides
+/// name one type, and a diamond's single package still collapses to one copy.
+///
+/// The package NAME, not the `<id>` prefix functions carry: it is the spelling
+/// every importer-side table already keys, and the import rules forbid two
+/// different packages of one name in one program. A name already containing a
+/// `.` is someone else's (a built-in value type, `net.Url`) and is left alone.
+pub(crate) fn qualify_package_types(pir: &mut IrProject) {
+    let package = pir.name.clone();
+    let mut owned: HashSet<String> = HashSet::new();
+    for type_decl in &pir.types {
+        owned.insert(type_decl.name.clone());
+        owned.extend(type_decl.variants.iter().map(|variant| variant.name.clone()));
+    }
+    owned.extend(pir.native_resources.iter().map(|resource| resource.name.clone()));
+    owned.retain(|name| !name.contains('.'));
+    if owned.is_empty() {
+        return;
+    }
+    // Two IR positions name a TYPE with a plain string rather than a typed field:
+    // a `CASE Variant(x)` pattern (`IrMatchPattern::Value(Local("Variant"))`) and
+    // an enum member read's target (`MemberAccess { target: Local("Kind") }`).
+    // They are renamed only when the string is one of this package's own type
+    // names, which a local binding can never shadow in those positions.
+    let enums: HashSet<String> = pir
+        .types
+        .iter()
+        .filter(|type_decl| type_decl.kind == "enum")
+        .map(|type_decl| type_decl.name.clone())
+        .filter(|name| owned.contains(name))
+        .collect();
+    let rename_name = |name: &str| owned.contains(name).then(|| format!("{package}.{name}"));
+    let rename: &dyn Fn(&str) -> Option<String> = &rename_name;
+    let rename_enum_name = |name: &str| enums.contains(name).then(|| format!("{package}.{name}"));
+    let rename_enum: &dyn Fn(&str) -> Option<String> = &rename_enum_name;
+    let names = TypeRenames {
+        types: rename,
+        enums: rename_enum,
+    };
+    let rename = &names;
+
+    for type_decl in &mut pir.types {
+        rename_in_place(&mut type_decl.name, rename.types);
+        for include in &mut type_decl.includes {
+            rename_in_place(include, rename.types);
+        }
+        for field in &mut type_decl.fields {
+            qualify_type(&mut field.type_, rename);
+        }
+        for variant in &mut type_decl.variants {
+            rename_in_place(&mut variant.name, rename.types);
+            for field in &mut variant.fields {
+                qualify_type(&mut field.type_, rename);
+            }
+        }
+    }
+    for resource in &mut pir.native_resources {
+        rename_in_place(&mut resource.name, rename.types);
+    }
+    for binding in &mut pir.bindings {
+        qualify_type(&mut binding.type_, rename);
+        if let Some(value) = &mut binding.value {
+            qualify_value_types(value, rename);
+        }
+    }
+    for function in &mut pir.functions {
+        for param in &mut function.params {
+            qualify_type(&mut param.type_, rename);
+            if let Some(default) = &mut param.default {
+                qualify_value_types(default, rename);
+            }
+        }
+        qualify_type(&mut function.returns, rename);
+        for op in &mut function.body {
+            qualify_op_types(op, rename);
+        }
+    }
+    if let Some(entry) = &mut pir.entry {
+        qualify_type(&mut entry.returns, rename);
+    }
+    for link in &mut pir.link_functions {
+        for (_, type_) in &mut link.params {
+            qualify_type(type_, rename);
+        }
+        qualify_type(&mut link.return_type, rename);
+        if let Some(state) = &mut link.return_state_type {
+            qualify_type(state, rename);
+        }
+    }
+}
+
+/// The two renames `qualify_package_types` applies: every owned type name, and
+/// the owned ENUM names alone (for an enum-member read's string target).
+struct TypeRenames<'a> {
+    types: &'a dyn Fn(&str) -> Option<String>,
+    enums: &'a dyn Fn(&str) -> Option<String>,
+}
+
+fn rename_in_place(name: &mut String, rename: &dyn Fn(&str) -> Option<String>) {
+    if let Some(renamed) = rename(name) {
+        *name = renamed;
+    }
+}
+
+fn qualify_type(type_: &mut crate::types::ParameterType, rename: &TypeRenames<'_>) {
+    *type_ = type_.map_nominals(&rename.types);
+}
+
+/// A `CASE` pattern value that names a union variant (or type) by string.
+fn qualify_pattern(pattern: &mut IrValue, rename: &TypeRenames<'_>) {
+    if let IrValue::Local(name) = pattern {
+        rename_in_place(name, rename.types);
+    }
+    qualify_value_types(pattern, rename);
+}
+
+/// Every type annotation in `value` and its descendants.
+fn qualify_value_types(value: &mut IrValue, rename: &TypeRenames<'_>) {
+    crate::ir::value::visit_value_mut(value, &mut |node| {
+        if let IrValue::MemberAccess { target, .. } = node {
+            if let IrValue::Local(name) = target.as_mut() {
+                rename_in_place(name, rename.enums);
+            }
+        }
+        qualify_node_type(node, rename);
+    });
+}
+
+fn qualify_node_type(node: &mut IrValue, rename: &TypeRenames<'_>) {
+    match node {
+        IrValue::Const { type_, .. }
+        | IrValue::LocalRef { type_, .. }
+        | IrValue::FunctionRef { type_, .. }
+        | IrValue::Closure { type_, .. }
+        | IrValue::Capture { type_, .. }
+        | IrValue::Call { type_, .. }
+        | IrValue::CallResult { type_, .. }
+        | IrValue::Checked { type_, .. }
+        | IrValue::Constructor { type_, .. }
+        | IrValue::UnionExtract { type_, .. }
+        | IrValue::ResultValue { type_, .. }
+        | IrValue::WithUpdate { type_, .. }
+        | IrValue::ListLiteral { type_, .. }
+        | IrValue::SetLiteral { type_, .. }
+        | IrValue::MapLiteral { type_, .. }
+        | IrValue::MemberAccess { type_, .. }
+        | IrValue::Binary { type_, .. }
+        | IrValue::Unary { type_, .. } => qualify_type(type_, rename),
+        IrValue::UnionWrap {
+            union_type,
+            member_type,
+            ..
+        } => {
+            qualify_type(union_type, rename);
+            qualify_type(member_type, rename);
+        }
+        IrValue::ResultIsOk { .. }
+        | IrValue::ResultError { .. }
+        | IrValue::Local(_)
+        | IrValue::Global(_) => {}
+    }
+}
+
+/// Every type annotation in `op`, its values and its nested bodies.
+fn qualify_op_types(op: &mut IrOp, rename: &TypeRenames<'_>) {
+    let body = |ops: &mut Vec<IrOp>| {
+        for op in ops {
+            qualify_op_types(op, rename);
+        }
+    };
+    match op {
+        IrOp::Bind { type_, value, .. } => {
+            qualify_type(type_, rename);
+            if let Some(value) = value {
+                qualify_value_types(value, rename);
+            }
+        }
+        IrOp::Assign { value, .. }
+        | IrOp::AssignGlobal { value, .. }
+        | IrOp::StateAssign { value, .. }
+        | IrOp::Eval { value, .. }
+        | IrOp::Fail { error: value, .. }
+        | IrOp::ExitProgram { code: value, .. } => qualify_value_types(value, rename),
+        IrOp::Return { value, .. } => {
+            if let Some(value) = value {
+                qualify_value_types(value, rename);
+            }
+        }
+        IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
+        IrOp::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => {
+            qualify_value_types(condition, rename);
+            body(then_body);
+            body(else_body);
+        }
+        IrOp::Match { value, cases, .. } => {
+            qualify_value_types(value, rename);
+            for case in cases {
+                match &mut case.pattern {
+                    IrMatchPattern::Else => {}
+                    IrMatchPattern::Value(pattern) => qualify_pattern(pattern, rename),
+                    IrMatchPattern::OneOf(patterns) => {
+                        for pattern in patterns {
+                            qualify_pattern(pattern, rename);
+                        }
+                    }
+                }
+                if let Some(guard) = &mut case.guard {
+                    qualify_value_types(guard, rename);
+                }
+                body(&mut case.body);
+            }
+        }
+        IrOp::While {
+            condition,
+            body: loop_body,
+            ..
+        }
+        | IrOp::DoUntil {
+            condition,
+            body: loop_body,
+            ..
+        } => {
+            qualify_value_types(condition, rename);
+            body(loop_body);
+        }
+        IrOp::For {
+            type_,
+            start,
+            end,
+            step,
+            body: loop_body,
+            ..
+        } => {
+            qualify_type(type_, rename);
+            qualify_value_types(start, rename);
+            qualify_value_types(end, rename);
+            qualify_value_types(step, rename);
+            body(loop_body);
+        }
+        IrOp::ForEach {
+            type_,
+            iterable,
+            body: loop_body,
+            ..
+        } => {
+            qualify_type(type_, rename);
+            qualify_value_types(iterable, rename);
+            body(loop_body);
+        }
+        IrOp::Trap {
+            body: trap_body, ..
+        } => body(trap_body),
     }
 }
 
@@ -234,7 +507,9 @@ pub fn order_bindings_dependencies_first(
 }
 
 /// Merge a namespaced package `IrProject` into `project`. Functions and globals
-/// are de-duplicated by their (already namespaced) name; types by bare name.
+/// are de-duplicated by their (already namespaced) name; types by their
+/// package-qualified name (bug-632), so two packages' same-named types — or a
+/// package's and the consumer's — stay distinct while a diamond collapses.
 /// Call `prefix_package_symbols` on `package` first.
 pub fn merge_package(project: &mut IrProject, package: IrProject) {
     // bug-342 A8: the five "push if absent" merges below shared the same O(n²)

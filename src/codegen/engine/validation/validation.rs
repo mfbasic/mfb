@@ -558,6 +558,22 @@ impl TypeModel {
     ) -> Result<Self, String> {
         let mut model = Self::module_tables(module)?;
         for package in packages {
+            // bug-632: every name this package's `.mfp` spells bare is one of its
+            // own, and the merged module knows it package-qualified
+            // (`ir::package::qualify_package_types`). Registering it bare here
+            // overwrote the importer's own same-named type with the package's
+            // layout (`native code record 'A' has no field 'z'`).
+            let package_name = binary_repr::read_package_info(package)?.manifest_name;
+            let owned = binary_repr::BinaryReprPackageDecode::read(package)
+                .map(|decode| crate::manifest::package::package_owned_type_names(&decode))
+                .unwrap_or_default();
+            let qualified = |name: &str| {
+                crate::manifest::package::qualify_package_type(
+                    &ParameterType::declared(name),
+                    &package_name,
+                    &owned,
+                )
+            };
             // A native `LINK` resource is exported as a zero-field opaque type for
             // naming, but its runtime value is a raw `CPtr` scalar handle — never a
             // record. Registering it as a record would make the backend copy it by
@@ -570,7 +586,7 @@ impl TypeModel {
                 .collect();
             let native_resources: HashSet<ParameterType> = exported_resources
                 .iter()
-                .map(|resource| ParameterType::declared(&resource.type_name))
+                .map(|resource| qualified(&resource.type_name))
                 .collect();
             // An imported binding's resource is still a resource here (bug-372):
             // it is skipped as a *record* above, but codegen must recognize the
@@ -583,16 +599,11 @@ impl TypeModel {
             // carries. Without it an imported `RESOURCE … THREAD_SENDABLE` would
             // be classified non-sendable and take the move-only pointer arm on a
             // thread transfer, publishing a reference into the sender's arena.
-            let sendable_by_name: HashSet<&str> = exported_resources
-                .iter()
-                .filter(|resource| resource.sendable)
-                .map(|resource| resource.type_name.as_str())
-                .collect();
             model.sendable_resource_names.extend(
-                native_resources
+                exported_resources
                     .iter()
-                    .filter(|type_| sendable_by_name.contains(type_.name().as_ref()))
-                    .cloned(),
+                    .filter(|resource| resource.sendable)
+                    .map(|resource| qualified(&resource.type_name)),
             );
             // bug-374: an imported binding's resource drops at scope exit in the
             // importing program too, but a decoded package carries no
@@ -615,22 +626,21 @@ impl TypeModel {
             // `ActiveCleanup::Resource` was pushed and the handle leaked
             // silently — bug-374's fix reached same-project `RESOURCE`
             // declarations only, which is all its regression test covers.
-            let package_name = binary_repr::read_package_info(package)?.manifest_name;
             let identity = binary_repr::read_package_identity_id(package)?;
             for resource in exported_resources {
                 let Some(close_function) = resource.close_function else {
                     continue;
                 };
                 model.resource_closers.insert(
-                    ParameterType::declared(&resource.type_name),
+                    qualified(&resource.type_name),
                     format!("{identity}.{package_name}.{close_function}"),
                 );
             }
             for type_export in binary_repr::read_package_type_exports(package)? {
-                if native_resources.contains(&ParameterType::declared(&type_export.name)) {
+                if native_resources.contains(&qualified(&type_export.name)) {
                     continue;
                 }
-                model.add_package_type_export(type_export)?;
+                model.add_package_type_export(type_export, &package_name, &owned)?;
             }
         }
         // Re-derive canonical variant tags over the FULL set (module + every
@@ -794,32 +804,43 @@ impl TypeModel {
             .collect();
     }
 
+    /// bug-632: `package`/`owned` qualify the export's own names and field types
+    /// to the package-qualified identity the merged module uses.
     fn add_package_type_export(
         &mut self,
         type_export: binary_repr::BinaryReprTypeExport,
+        package: &str,
+        owned: &HashSet<String>,
     ) -> Result<(), String> {
+        let qualify = |spelling: &str| {
+            crate::manifest::package::qualify_package_type(
+                &ParameterType::declared(spelling),
+                package,
+                owned,
+            )
+        };
         match type_export.kind {
             binary_repr::BinaryReprExportKind::Type => {
                 self.record_fields.insert(
-                    ParameterType::declared(&type_export.name),
+                    qualify(&type_export.name),
                     type_export
                         .fields
                         .into_iter()
-                        .map(|field| (field.name, ParameterType::declared(&field.type_)))
+                        .map(|field| (field.name, qualify(&field.type_)))
                         .collect(),
                 );
             }
             binary_repr::BinaryReprExportKind::Enum => {
                 for (index, member) in type_export.members.into_iter().enumerate() {
                     self.enum_members
-                        .insert((ParameterType::declared(&type_export.name), member), index);
+                        .insert((qualify(&type_export.name), member), index);
                 }
             }
             binary_repr::BinaryReprExportKind::Union => {
-                let union_type = ParameterType::declared(&type_export.name);
+                let union_type = qualify(&type_export.name);
                 self.union_names.insert(union_type.clone());
                 for variant in type_export.variants.into_iter() {
-                    let variant_type = ParameterType::declared(&variant.name);
+                    let variant_type = qualify(&variant.name);
                     self.union_variants
                         .entry(variant_type.clone())
                         .or_insert_with(|| union_type.clone());
@@ -835,7 +856,7 @@ impl TypeModel {
                         variant
                             .fields
                             .into_iter()
-                            .map(|field| (field.name, ParameterType::declared(&field.type_)))
+                            .map(|field| (field.name, qualify(&field.type_)))
                             .collect(),
                     );
                 }

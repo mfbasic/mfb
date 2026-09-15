@@ -1,5 +1,5 @@
-//! A package-qualified imported TYPE name must name the same type the bare
-//! spelling does.
+//! A package-qualified imported TYPE name names the imported type, and (bug-632)
+//! is the ONLY spelling that does: spec §13 refuses a bare imported type.
 //!
 //! `mfb spec language modules-and-packages` §13 says a name reached through an
 //! `IMPORT` takes a prefix, "for every kind of name alike: variables and
@@ -174,13 +174,14 @@ fn a_qualified_imported_record_reads_its_fields() {
     );
 }
 
-/// The bare spelling is the established convention
-/// (`resolver::packages::install_package_type_names`) and must keep working:
-/// the fix normalizes the qualified form ONTO it, so a regression here would
-/// mean the normalization went the other way.
+/// bug-632: spec §13 — "A name reached through an `IMPORT` **requires**" its
+/// prefix, and "A bare imported type is refused with `SYMBOL_UNKNOWN_TYPE`". This
+/// case used to assert the opposite (`8f0ebfeb8` normalized the qualified form
+/// onto the bare one), which is what let an importer's own `Note` and the
+/// package's `Note` collide.
 #[test]
-fn a_bare_imported_record_still_reads_its_fields() {
-    let output = run_importer(
+fn a_bare_imported_record_is_refused() {
+    let output = build_error(
         "bare_record",
         "IMPORT notes\n\
          IMPORT io\n\
@@ -196,10 +197,9 @@ fn a_bare_imported_record_still_reads_its_fields() {
         \x20 RETURN 0\n\
          END FUNC\n",
     );
-    assert_eq!(
-        output.trim(),
-        "hello",
-        "the bare spelling still resolves:\n{output}"
+    assert!(
+        output.contains("SYMBOL_UNKNOWN_TYPE"),
+        "a bare imported type must be refused with SYMBOL_UNKNOWN_TYPE:\n{output}"
     );
 }
 
@@ -303,11 +303,11 @@ fn an_imported_record_is_no_more_comparable_than_a_local_one() {
         "an imported record holding a List is not comparable:\n{output}"
     );
     assert!(
-        output.contains("Map key type requires a comparable type, got `Bag`."),
+        output.contains("Map key type requires a comparable type, got `notes::Bag`."),
         "the Map key must be refused:\n{output}"
     );
     assert!(
-        output.contains("Call to `collections.find` requires a comparable type, got `Bag`."),
+        output.contains("Call to `collections.find` requires a comparable type, got `notes::Bag`."),
         "the `collections::find` needle must be refused:\n{output}"
     );
 }

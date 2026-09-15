@@ -4120,20 +4120,21 @@ fn thread_resource_plane_target(name: &str) -> &str {
 /// while `List OF alias.T` looks up `"List OF alias"`, misses, and comes back
 /// unchanged — as do a container's or a user generic's ARGUMENTS. This
 /// reproduces exactly that, which is why it does not recurse.
-/// bug-554: the BARE enum name behind a package-qualified enum-member read
+/// bug-554: the enum TYPE behind a package-qualified enum-member read
 /// (`pkg::Colour.Red`), or `None` when the target is not one.
 ///
-/// An imported package's types are installed under their bare names on purpose
-/// (`resolver::packages::install_package_type_names`), and the parser's
-/// type-position normalizer never sees this spelling because a member read is a
-/// VALUE. So `Colour.Red` typed as `Colour` while `recpkg::Colour.Red` — the
-/// prefixed form §13 says is the one to write for an imported name — typed as
-/// `Unknown` and died at the use site with `TYPE_UNKNOWN_VALUE`.
+/// The parser's type-position normalizer never sees this spelling because a
+/// member read is a VALUE, so the target arrives as `binding.Colour`. bug-632: an
+/// imported enum's identity is `<package>.Colour` (the import binding resolved
+/// to its package), which is how `TypeIndex` keys it, so that is both the lookup
+/// and the answer. It used to be the bare leaf, when imported types were
+/// installed bare — the spelling that let a consumer's own `Colour` and the
+/// package's collide.
 ///
 /// Deliberately fails CLOSED: the prefix must be a live `IMPORT` binding, the
-/// leaf must be a single segment, and the leaf must already be a known enum
-/// **declaring this very member**. Anything else keeps the qualified spelling,
-/// so resolution still reports what was written.
+/// leaf must be a single segment, and the qualified name must already be a known
+/// enum **declaring this very member**. Anything else keeps the spelling as
+/// written, so resolution still reports it.
 fn qualified_imported_enum(
     target: &HirExpression,
     member: &str,
@@ -4143,15 +4144,17 @@ fn qualified_imported_enum(
         return None;
     };
     let (binding, leaf) = type_name.split_once('.')?;
-    if leaf.contains('.') || !context.current_imports.contains_key(binding) {
+    if leaf.contains('.') {
         return None;
     }
+    let package = context.current_imports.get(binding)?;
+    let qualified = format!("{package}.{leaf}");
     context
         .type_index
         .enums
-        .get(&ParameterType::declared(leaf))
+        .get(&ParameterType::declared(&qualified))
         .is_some_and(|members| members.iter().any(|name| name == member))
-        .then(|| leaf.to_string())
+        .then_some(qualified)
 }
 
 fn canonical_import_type(type_: &ParameterType, context: &LowerContext<'_>) -> ParameterType {
@@ -5348,15 +5351,14 @@ fn lower_expression_with_expected(
         HirExpression::MemberAccess { target, member } => {
             let member_type =
                 expression_type(expression, locals, context).unwrap_or(ParameterType::Unknown);
-            // bug-554: a package-qualified enum-member read lowers to the SAME
-            // node the bare spelling does. Everything downstream — codegen's
-            // member resolution, `ir::verify`'s `enums` table, the merged
-            // package IR — knows the enum by its bare name only, so leaving
-            // `recpkg.Colour` in the target would trade a front-end
-            // `TYPE_UNKNOWN_VALUE` for a later unresolved reference.
-            if let Some(bare) = qualified_imported_enum(target, member, context) {
+            // bug-554: a package-qualified enum-member read lowers to a member
+            // access on the enum's TYPE name. bug-632: that name is the enum's
+            // package-qualified identity (`recpkg.Colour`, binding resolved to
+            // its package), which `ir::verify`'s `enums` table and the merged
+            // package IR (`ir::package::qualify_package_types`) both key.
+            if let Some(enum_type) = qualified_imported_enum(target, member, context) {
                 return IrValue::MemberAccess {
-                    target: Box::new(IrValue::Local(bare)),
+                    target: Box::new(IrValue::Local(enum_type)),
                     member: member.clone(),
                     type_: member_type,
                 };

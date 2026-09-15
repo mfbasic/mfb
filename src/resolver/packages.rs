@@ -110,34 +110,36 @@ impl Resolver<'_> {
                 return;
             }
         };
-        // bug-301 G1 asked for these names to be inserted PREFIXED, so that only a
-        // qualified `pkg.Type` reference resolves. That was investigated and
-        // rejected: bare imported type names are the established convention, not a
-        // leniency. `tests/rt-behavior/native/native-resource-state-import-rt`
-        // writes `RES h AS Db STATE DbInfo` for types imported from a `.mfp`, and
-        // it builds, links and runs. Prefixing here would break it and every
-        // importer like it.
+        // bug-632: an imported type is installed under its PACKAGE-QUALIFIED
+        // identity, `<package>.<Name>`, never bare. Spec §13: "A name reached
+        // through an `IMPORT` requires [a prefix] … A bare imported type is
+        // refused with `SYMBOL_UNKNOWN_TYPE`." This finishes for user packages
+        // what bug-480 Phase 4b did for built-in ones (`net.PingStatus`). The
+        // bare install this replaces (bug-301 G1's rejection) is what let a
+        // consumer's own `A` and an imported `A` resolve as one type.
         //
-        // The report's basis was `architecture/03_packages.md`'s
-        // `packageName.exportName`, but that passage describes the *internal*
-        // signature names lowering creates for imported FUNCTIONS, not the source
-        // syntax for naming an imported type. Both `DbInfo` and `db::DbInfo`
-        // resolve in a type position today (`db.DbInfo` is a parse error, since
-        // dot is field access); `resolver::packages::tests` pins that.
+        // The parser canonicalizes a type-position `binding::Name` to
+        // `<package>.Name` (`normalize_qualified_type_name`), and
+        // `resolve_type` accepts that spelling only in a file that imports the
+        // package.
         //
-        // bug-480: the same names also form this package's visible surface, so a
+        // bug-480: the bare names also form this package's visible surface, so a
         // `pkg::member` naming something the package does not export can be
         // refused where it is written instead of typing as `Unknown` and
         // surfacing as an argument-type error at an unrelated call.
         let mut visible: HashSet<String> = HashSet::new();
         for export in exports {
-            self.types
-                .insert(crate::types::ParameterType::declared(&export.name));
+            self.types.insert(crate::types::ParameterType::named(&format!(
+                "{name}.{}",
+                export.name
+            )));
             visible.insert(export.name.clone());
             visible.extend(export.members.iter().cloned());
             for variant in export.variants {
-                self.types
-                    .insert(crate::types::ParameterType::declared(&variant.name));
+                self.types.insert(crate::types::ParameterType::named(&format!(
+                    "{name}.{}",
+                    variant.name
+                )));
                 visible.insert(variant.name);
             }
         }

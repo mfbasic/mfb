@@ -502,7 +502,9 @@ impl TypeEnv {
             return;
         };
         if !matches!(**element, ParameterType::Unknown) && !self.is_comparable(element) {
-            let element = element.name();
+            // bug-632: the user-facing spelling, as in
+            // `check_collection_element_comparable`.
+            let element = element.display();
             self.emit(
                 "TYPE_REQUIRES_COMPARABLE",
                 format!("Call to `{target}` requires a comparable type, got `{element}`."),
