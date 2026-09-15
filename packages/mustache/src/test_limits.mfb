@@ -77,19 +77,19 @@ TESTING
       ' the second one rather than the clock.
       LET data AS json::Json = listOf(64)
       expectInteger(strings::byteLen(render(amplify(4000), data)), 16384000)
-      expectTrap(render(amplify(4100), data), ERR_LIMIT)
+      expectTrap(render(amplify(4100), data), ErrorLimit)
     END TCASE
 
     TCASE "a template may be as large as the limit and no larger"
       LET empty AS json::Json = json::parse("{}")
       expectInteger(strings::byteLen(render(strings::repeat("t", TEMPLATE_LIMIT), empty)), TEMPLATE_LIMIT)
-      expectTrap(render(strings::repeat("t", TEMPLATE_LIMIT + 1), empty), ERR_LIMIT)
+      expectTrap(render(strings::repeat("t", TEMPLATE_LIMIT + 1), empty), ErrorLimit)
     END TCASE
 
     TCASE "a partial BODY is bounded by the same template limit"
       MUT big AS Map OF String TO String = Map OF String TO String {}
       big = collections::set(big, "p", strings::repeat("t", TEMPLATE_LIMIT + 1))
-      expectTrap(renderWith("{{>p}}", json::parse("{}"), big), ERR_LIMIT)
+      expectTrap(renderWith("{{>p}}", json::parse("{}"), big), ErrorLimit)
     END TCASE
 
     TCASE "the limits are the values the documentation names"

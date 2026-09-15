@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use super::write::{emit_debug_key_value, key_object, DEBUG_LINE_BUFFER_SIZE};
 use super::{DebugEmitCtx, DebugFeature};
 use crate::codegen::engine::types::{
-    CodeDataObject, CodeFunction, CodegenPlatform, PlatformFamily,
+    CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, CodegenPlatform, PlatformFamily,
 };
 use crate::codegen::engine::util::{finalize_vreg_body_with_locals, Vregs};
 use crate::target::shared::abi;
@@ -50,6 +50,98 @@ const PMC_SIZE: usize = 72;
 /// `offsetof(PROCESS_MEMORY_COUNTERS, PeakWorkingSetSize)`, after `cb` and
 /// `PageFaultCount`.
 const PMC_PEAK_WORKING_SET_OFFSET: usize = 8;
+
+/// Frame bytes [`emit_debug_peak_rss`] needs at its `buffer_offset`: the larger of the
+/// Unix `struct rusage` and the Windows `PROCESS_MEMORY_COUNTERS`.
+pub(super) const PEAK_RSS_BUFFER_SIZE: usize = if RUSAGE_SIZE > PMC_SIZE {
+    RUSAGE_SIZE
+} else {
+    PMC_SIZE
+};
+
+/// `dst = the process's peak resident set size in bytes`, read the same way as the
+/// report line (the module doc), into a buffer at `buffer_offset` in the caller's frame.
+/// For helpers other than the report, such as the arena memory series (plan-133-C). The
+/// peak word is zeroed first, so a failed call reads 0. `dst` and every live vreg
+/// survive the external calls.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn emit_debug_peak_rss(
+    from: &str,
+    dst: &str,
+    buffer_offset: usize,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let zero = vregs.next();
+    instructions.push(abi::move_immediate(&zero, "Integer", "0"));
+    match platform.family() {
+        PlatformFamily::Windows => {
+            let size = vregs.next();
+            instructions.push(abi::store_u64(
+                &zero,
+                abi::stack_pointer(),
+                buffer_offset + PMC_PEAK_WORKING_SET_OFFSET,
+            ));
+            platform.emit_external_call(
+                "GetCurrentProcess",
+                from,
+                platform_imports,
+                instructions,
+                relocations,
+            )?;
+            instructions.extend([
+                abi::move_register(abi::c_arg(0), abi::c_return(0)),
+                abi::move_immediate(&size, "Integer", &PMC_SIZE.to_string()),
+                abi::store_u32(&size, abi::stack_pointer(), buffer_offset),
+                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), buffer_offset),
+                abi::move_immediate(abi::c_arg(2), "Integer", &PMC_SIZE.to_string()),
+            ]);
+            platform.emit_external_call(
+                "K32GetProcessMemoryInfo",
+                from,
+                platform_imports,
+                instructions,
+                relocations,
+            )?;
+            instructions.push(abi::load_u64(
+                dst,
+                abi::stack_pointer(),
+                buffer_offset + PMC_PEAK_WORKING_SET_OFFSET,
+            ));
+        }
+        PlatformFamily::MacOS | PlatformFamily::Linux => {
+            instructions.extend([
+                abi::store_u64(
+                    &zero,
+                    abi::stack_pointer(),
+                    buffer_offset + RU_MAXRSS_OFFSET,
+                ),
+                abi::move_immediate(abi::c_arg(0), "Integer", RUSAGE_SELF),
+                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), buffer_offset),
+            ]);
+            platform.emit_external_call(
+                "getrusage",
+                from,
+                platform_imports,
+                instructions,
+                relocations,
+            )?;
+            instructions.push(abi::load_u64(
+                dst,
+                abi::stack_pointer(),
+                buffer_offset + RU_MAXRSS_OFFSET,
+            ));
+            if platform.family() == PlatformFamily::Linux {
+                // Linux `ru_maxrss` is KiB.
+                instructions.push(abi::shift_left_immediate(dst, dst, 10));
+            }
+        }
+    }
+    Ok(())
+}
 
 pub(super) struct ProcessFeature;
 

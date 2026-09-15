@@ -38,7 +38,7 @@ Every dump is a single JSON object opening with a fixed header:[[src/ir/json.rs:
 Indentation is produced by manual padding; `join_json` separates array elements
 with a bare comma and each node prepends its own newline + pad.[[src/ir/json.rs:join_json]]
 The output is conventional JSON; strings are escaped by the shared
-`json_string` helper.[[src/main.rs:json_string]]
+`json_string` helper.[[src/json.rs:json_string]]
 
 ## Node shapes
 
@@ -136,7 +136,7 @@ name where noted.
 | `forEach` | `ForEach` | `name`, `type`, `iterable`, `body` |
 | `trap` | `Trap` | `name`, `body` |
 
-`loop` names come from `loop_kind_name`: `"for"`, `"do"`, `"while"`.[[src/ir/json.rs:loop_kind_name]]
+`loop` names come from `LoopKind::name`: `"for"`, `"do"`, `"while"`.[[src/ast/types.rs:LoopKind]]
 
 Match-case node:[[src/ir/value.rs:IrMatchCase]]
 

@@ -71,6 +71,12 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 # `mfb build` child). Already in the lockfile through ring/rustls, so it resolves
 # offline and adds no new compiled code.
 libc = "0.2"
+# plan-137: `tests/interop/rt_compress_interop.rs` checks `compress::` against an
+# implementation that shares no code with the MFBASIC one — `flate2::Crc` (crc32fast
+# underneath, since the `zlib-rs` feature is off) for CRC-32. Already in the lockfile
+# as a normal dependency through `image` → `png`, so it resolves offline and adds no
+# new compiled code.
+flate2 = "1"
 
 # ---------------------------------------------------------------------------
 # Test targets.
@@ -106,6 +112,10 @@ path = "tests/interop/rt_crypto_mac_kdf_interop.rs"
 [[test]]
 name = "rt_crypto_aead_interop"
 path = "tests/interop/rt_crypto_aead_interop.rs"
+
+[[test]]
+name = "rt_compress_interop"
+path = "tests/interop/rt_compress_interop.rs"
 
 [[test]]
 name = "rt_crypto_key_interop"
@@ -599,8 +609,20 @@ name = "rt_top_level_initializer_globals"
 path = "tests/runtime/rt_top_level_initializer_globals.rs"
 
 [[test]]
+name = "rt_parameter_default_scope"
+path = "tests/runtime/rt_parameter_default_scope.rs"
+
+[[test]]
+name = "rt_package_parameter_defaults"
+path = "tests/runtime/rt_package_parameter_defaults.rs"
+
+[[test]]
 name = "rt_imported_record_map_field_keys"
 path = "tests/runtime/rt_imported_record_map_field_keys.rs"
+
+[[test]]
+name = "rt_imported_overload_imported_field_argument"
+path = "tests/runtime/rt_imported_overload_imported_field_argument.rs"
 
 [[test]]
 name = "rt_imported_resource_scope_drop"
@@ -627,8 +649,24 @@ name = "rt_big_int"
 path = "tests/runtime/rt_big_int.rs"
 
 [[test]]
+name = "rt_inplace_append_builtin_call"
+path = "tests/runtime/rt_inplace_append_builtin_call.rs"
+
+[[test]]
 name = "rt_json_bounds"
 path = "tests/runtime/rt_json_bounds.rs"
+
+[[test]]
+name = "rt_compress_bounds"
+path = "tests/runtime/rt_compress_bounds.rs"
+
+[[test]]
+name = "rt_list_append_growth_bounds"
+path = "tests/runtime/rt_list_append_growth_bounds.rs"
+
+[[test]]
+name = "rt_list_set_widening_linear"
+path = "tests/runtime/rt_list_set_widening_linear.rs"
 
 [[test]]
 name = "rt_native_float_pow_operator_runtime"
@@ -673,6 +711,10 @@ path = "tests/runtime/rt_package_calls_software_curve_builtin.rs"
 [[test]]
 name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
+
+[[test]]
+name = "rt_debug_soak"
+path = "tests/runtime/rt_debug_soak.rs"
 
 [[test]]
 name = "rt_debug_report"

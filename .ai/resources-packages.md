@@ -149,6 +149,10 @@ A builtin overload that returns a **borrowed** resource ptr aliasing a `List OF 
 
 `copy_resource_to_current_arena` (`builder_arena_transfer.rs`) flags the SOURCE record `moved|closed` right after copying into the dest arena — but on the SEND path that runs BEFORE the enqueue outcome is known. A failed/timed-out `transfer`/`emit` (`ErrTimeout`/`ErrInterrupted`/`ErrResourceClosed`) keeps ownership with the sender, so flagging at copy time tombstones a handle the sender still owns → its `TRAP`/scope cleanup aborts with `ErrResourceClosed`/`ErrResourceMoved` (HARD error) or leaks the fd. **Invariant:** the source flag store is deferred via the transient `suppress_resource_source_flag` flag and re-emitted only on the enqueue `Ok` branch in `emit_thread_send_runtime_helper_call` (`builder_thread_cleanup.rs`) — mirrors the success-gated `deactivate_moved_resource_arguments`. The ACCEPT side and nested union/collection copies keep flagging inline (their source is a transient queue record). Don't "fix" a transfer-failure leak by swallowing the close no-op or force-closing in the send helper (double-closes on the raw/`TRAP` path). A failed bare-resource transfer's orphaned dest copy (one `RESOURCE_RECORD_SIZE` block) is handed to arg-3 so the queue pending-free list reclaims it; a stateful resource's separate STATE block leaks bounded-until-teardown.
 
+### `process::waitFor` drains the child's pipes into spill blocks
+
+While the child runs, `waitFor` moves its output into per-stream spill blocks on the `Process` record (slot 80 stdout, 88 stderr; `SPILL_*` in `src/codegen/builtins/process/gen_shared.rs`). Without that, a child writing more than a pipeful blocks forever and never exits. Any reader of a child stream (`receive`, `receiveBytes`, `poll`, anything new) must serve the spill block before the fd, or it drops those bytes and reports EOF early. Spill is capped at 16 MiB per stream (`ErrResourceBusy` past it), and `process.__drop` frees both blocks.
+
 ## The package / import subsystem
 
 Everything about `IMPORT`ed packages: `.mfp` type/resource serialization, the embedded-builtin `.mfb` source path, and how each feeds validation vs codegen.
@@ -177,6 +181,18 @@ Invariant — `TypeTable.foreign_types` is keyed by BARE exported name: the writ
 
 Storing one makes the other miss silently. `code::resolve_closer_symbol` tries the name, then retries with a leading 16-hex-digit identity segment stripped — match on the RESOLVED SYMBOL, not a name. Also: `build` hands `ir::verify` EMPTY external-signature maps on purpose; don't "fix" by passing them all — verify would then read an imported union as *open* and demand a `CASE ELSE` from an exhaustive match. Verify shape: `libsnd` wraps its closer in a plain `EXPORT FUNC closeSound` (NOT the registered op — double call not rejected); `sqlite3` uses the §5a re-export (rejected). Test against `sqlite3.mfp` (committed under `tests/rt-behavior/native/native-link-import-sqlite-rt/packages/`), not `libsnd` (`examples/audio/packages/` is gitignored).
 
+### `HirFile::imports` is the resolution scope, not what the author imported
+
+Monomorph emits every instantiation into the first file and unions every file's imports into it, so post-monomorph `imports` lists packages the author never wrote (including ones a companion source imports). A rule asking "did this file import P?" must read `HirFile::own_imports`, snapshotted in `hir::elaborate_file`. Don't narrow the union; lowering needs it.
+
+### A package that calls a builtin must be tested by linking an executable
+
+`mfb build packages/<p>` and `mfb test packages/<p>` never run `merge_packages`, so identity-prefix and import bugs in consuming the builtin stay green there and fail only when a program links the package. Build a small executable that imports it.
+
+### A committed `.mfp` dependency goes stale silently
+
+A precompiled `.mfp` stores builtin type names as spelled when it was built. After a builtin is re-qualified (bare `File` → `fs.File`), `.ast`/`.ir` goldens still pass but native lowering fails with `native inlined field size not available for type …`, and the artifact gate reports the fixture's `.ncode` MISSING — so that fixture silently stops being checked. Regenerating the `.mfp` only delays the next break; use a source dependency (`"source": "file:<dir>"` or `"local:///abs/dir"`), which is compiled fresh. An installed `packages/<name>.mfp` beside the sources wins over them.
+
 ### Editing an embedded builtin .mfb ripples to EVERY importer's goldens
 
 A builtin package's MFBASIC source (`src/builtins/json_package.mfb`) is embedded via `include_str!` (the `package_source_glue!` macro in `src/builtins/<pkg>.rs`) and inlined into the IR of every project that `IMPORT`s it. So a change to that .mfb — even one param/constant — shifts the `.ir` (and any `.ncode`/byte-identity) golden of EVERY importing fixture, not just the package's own tests. Find them first: `grep -rl '<pkg>_<symbol>\|#<pkg>_<symbol>' tests | grep -E '\.(ir|ncode|nir|ast|hex)$'`. To AVOID the shift, keep the edit **line-neutral** (same total line count → no `"line": N` moves): a statement-for-statement rewrite yields a ~12-line `.ir` diff instead of ~15,455 lines × N fixtures; inline list literals as args (`utf32Decode([cp])`) help hit the count; when you MUST add lines, append new functions at end-of-file and accept the shift. Regenerate with `scripts/sync-goldens.sh <exe> <name-glob...>` (filter-aware, ~4s) and PROVE the delta is only yours: normalize `sed -E 's/"line": [0-9]+/"line": N/g'` on golden vs actual (note ErrorLoc carries source lines as `"value"`, so those shift too). Rebuild after a .mfb edit is ~3s (embedding module + link only), NOT a full compiler rebuild. If sync-goldens is unusable (a foreign `test-accept` running), regen `.ir`/`.ast` by hand: `mfb build -q -ast -ir <fixtureCopy>` + `cp` (host dumps, target-independent); `.ncodesum` still needs per-target `-ncode`+`shasum`.
@@ -187,6 +203,8 @@ Injecting a `.mfb` source companion for a builtin (csv/net/vector/audio pattern:
 1. `src/resolver/mod.rs` (`augment_project`, the build path's pre-monomorph AST chain — every later pass, the shape pass and lowering included, consumes the concrete HIR it produces).
 2. `src/resolver/mod.rs` `augment_hir_project` + the package's `augmented_hir_project` — the HIR-domain twin, `#[cfg(test)]` since plan-107-D (it serves the in-process tests that monomorphize a bare project); keep it in step or those tests see an unresolved `Foo[...]`.
 (The former source checker's own late-pass chain is gone with the module.)
+
+**A package another builtin reaches through its injected source needs a late pass, and a late pass renders gated helpers only through `registry::late_pass_files`.** `get_mfb` renders no `HelperGate::WhenUsed` helper. A package whose members all rewrite onto gated helpers (`compress`) injected by a plain `inject_late_pass` companion therefore brings only its `IMPORT` lines. The build then fails at `NIR call target '#compress_zlibDecode' does not resolve` (plan-137-C). `late_pass_files` also injects each opened `WhenUsed` helper, gated against the late pass's own view, which includes the injecting companion's calls. The inject functions skip a file whose `path` is already present. So do **not** add a `synthetic_files` skip for such a package when direct importers have byte-identity goldens: the skip moves their helpers behind later late passes, reordering `.ir` functions and changing every `.ncodesum` with no content change (compress: 6 diffs, `diff <(sort golden) <(sort actual)` empty). Wire the pass into `resolver::augment_project`. `ir::lower`'s chain is `#[cfg(test)]`, so adding it only there changes nothing in a real build.
 
 Constructible source **value records** follow the `vector::` pattern: list them in BOTH `is_builtin_type` AND `builtin_type_fields` (fields must match the source `EXPORT TYPE`) so they construct un/qualified. An arg-type-overloaded member (`play` `String` vs `List OF String`) dispatches via `source_implementation_name(name, arg_types)` in its own `.or_else` in `ir/lower.rs`, like native `implementation_name` — not the 1:1 json/csv/net chain. Internalized names appear in merged IR as `#audio_play`/`#mml_*` (`__x`→`#x`). A SUB companion is fine as a surface target; `RETURN` is forbidden in a SUB (use `EXIT SUB`); editing a `.mfb` needs a `cargo build` (it's `include_str!`d).
 
@@ -202,7 +220,7 @@ string halves (`resolve_call`, `call_return_type`, `argument_types`,
   spelling shim for the ~140 per-package registration assertions that read
   `resolve_call("audio.poll", &s(&[..]), true) == Some("Boolean".to_string())`.
   Do NOT call it from production — a new production caller is the thing the
-  ratchet gate (`tests/no_type_strings.rs`) exists to catch.
+  ratchet gate (`tests/guards/no_type_strings.rs`) exists to catch.
 - **`builtins::call_return_type_name` renders on the way out, and that is
   correct.** After plan-111-G its only production callers are the two in
   `binary_repr/writer.rs` — the `.mfp` ENCODER, where the spelling *is* the wire
@@ -266,6 +284,39 @@ that follow, and that a `grep` for `ctype` will not tell you:
   buffer-staging path. Its sibling `ctype_list_is_exhaustive` WAS redundant and
   is gone.
 
+## Splitting a builtin package into the registry
+
+- **`add_helper` / `helper_*.rs` is for PRIVATE helpers only.** A public member's MFBASIC body is a `RegistryFunction` with `Body::mfb(BODY, "__pkg_name")` in `func_*.rs`; that registration is what puts it in `mfb man`.
+- **Build generic signatures, don't parse them**: `ParameterType::var("T")`, `list_of`, `map_of`, `func`. `ParameterType::parse` reads a bare `T` as a `Named` type.
+- **`RegistryPackage::get_mfb` renders in a fixed order**: imports, records, unions, enums, `Always` helpers, `Body::Mfb` bodies. Reordering only renumbers `.ir` lines.
+- **`HelperGate` controls injection**: `Always`, `WhenUsed(&[names])` (keeps a heavy table out of programs that never call it), `WhenImported(pkg)`, `WhenBothImported(a, b)` (a bridge such as `term`↔`astrings`). A gated chunk's functions are file-local, so functions that call each other must share a chunk.
+- `RegistryRecord` has a `description` that renders into source; unions and enums don't.
+
+## A builtin value type has two spellings
+
+A builtin value type's identity is package-qualified (`net.Address`), but `alias_bare_builtin_type_names` also registers the bare leaf (`Address`), so lookups answer for both. Every predicate that classifies by name must too: `is_pointer_string_record` decides layout, and missing one spelling puts a pointer-string record on the inline layout (SIGSEGV on the first field read). Use `ParameterType::is_builtin_named(package, leaf)`. Where only a rendered name is available (e.g. `audio::runtime_overload_name`), match both strings explicitly — missing the qualified one sent every `audio::openOutput(device, …)` to the default-device body.
+
+## A predicate keyed by a call target's NAME is wrong in four ways
+
+Check each before answering a codegen or verification question by callee name; every one has caused a silent bug:
+
+1. **Overloads.** Only `toString(List OF Byte)` can fail, and `strings::replace`/`collections::replace` share one bare native target. A name-keyed "infallible" verdict elided a live `TRAP` handler, so the program aborted instead of recovering. Key the rule on argument types, fail closed, and keep "is there a rule" and "what it says" in one function (`inline_builtin_arg_fallibility_rule`).
+2. **Calls through a callable parameter.** A NIR `Call` carries only a name, so `f(x)` inside a higher-order function looks like a call to a top-level `f`; if one exists, the predicate uses that function's answer. Resolve the name as a local or global value first and read its `ParameterType::Func`.
+3. **Mirror packages.** `tcp` and `tls` share member names; key by `(package, member)`.
+4. In general: if a parameter can produce the name, the name isn't an identity.
+
+## Per-member slot rules: split the overload, don't special-case the matcher
+
+When one type slot must be optional for one member and required for another, register separate overloads. `thread::start` has a data overload (no `res` type var) and a resource overload (`res = Var("Res")`); `accept`/`transfer` register only the resource form, so a data-only handle fails `unify(Var("Res"), Nothing)` through the existing strict-`Nothing` guard, with no matcher change.
+
+## A rendered signature is the only check that a descriptor is legal
+
+A parameter's `ty` drives both overload matching and the declaration `mfb man` prints, and nothing keeps them consistent. `ListOf(named(T))` resolves like `List OF RES T` but renders `List OF T`, which doesn't compile (`TYPE_RESOURCE_REQUIRES_RES`). Build resource-typed collection params with `list_of(Res(named(T)))`, and after any registry edit render `mfb man <pkg> <func>` and read the signature as source.
+
+## A registry default can't depend on another argument
+
+A `DefaultValue` is a constant the call site substitutes; it can't see other arguments. "Defaults to the length" or "to the last element" becomes a sentinel the body must interpret (how `collections::findLastIndex` came to treat negative indices differently from `findIndex`). Use an arity split — two `Implementation`s with different parameter counts — and make sure the package's resolver selects by arity instead of taking `implementations.first()`.
+
 ## New builtin-package registration seams
 
 Adding a new builtin package (e.g. a resource package like `process`) touches far more than the descriptor. The obvious ones are documented; these are the ones a plan usually MISSES and the compiler/tests catch late:
@@ -311,11 +362,30 @@ Command: `mfb init /tmp/szp; printf 'IMPORT io\nIMPORT <pkg>\n\nFUNC main AS Int
 
 **The trigger is a non-empty companion, not `add_imports`.** `tcp` declares `add_imports(vec!["net"])` yet costs 0 bytes, because it declares no records/enums/helpers and renders an empty companion. `udp` declares the same import **plus** one record and therefore pays `net`'s full companion. `term` declares records and enums but no `add_imports`, and costs 0. So a **native** (`Body::abi_function`) member can name another package's value type in its signature through a qualified type-id constant — as `tcp::localAddress` returns `net.Address` — **without** dragging that package's companion in. Reach for that when the importer is size-sensitive (every TUI binary, for `term`).
 
+**A `HelperGate::WhenUsed` helper is injected as its own source file, so its body needs its own `IMPORT` lines.** `add_imports` renders into the package's shared companion only. A gated helper whose body calls `bits::…` without its own `IMPORT bits` fails the build with `SYMBOL_UNKNOWN_IMPORT` "Package `bits` is used but not imported in this file" at `builtins/<helper-name>.mfb` (plan-137-A; `crypto/helper_argon2id.rs` and `compress/helper_crc32.rs` open with the header).
+
+**A `Boolean` default is spelled `expr: "false"`, lowercase.** `DefaultValue::Fill { type_name: ParameterType::Boolean, expr: "FALSE" }` compiles as Rust and registers without complaint, then every program that omits that argument fails to build with `error: invalid immediate 'FALSE'` (plan-137-B: it broke the `compress` oracle probe and four man examples). The precedent is `tls/func_connect.rs`. No registry or unit test sees it; `scripts/man-run-examples.sh <pkg> --run` does, so run it after adding any defaulted parameter.
+
+**A list literal in injected source costs code per element, not data.** A 2,048-entry `LET … AS List OF Integer = [...]` lowered to 53,317 of a 59,725-instruction program's instructions, all in the global initializer (≈26 per element), and a probe executable carrying it was 379,772 B larger than the same program building the table with an MFB loop at program start, at equal speed (plan-137-A Corrections, macos-aarch64). Build a large table with a function called from the module-level `LET`; keep literals to a few dozen elements.
+
 **Writing the native backend (`src/target/shared/code/<pkg>/`)**
 - Register operands in a hand-built helper MUST be a numeric virtual register `%v0`,`%v1`,… (`regalloc/mod.rs` decodes a vreg as `strip_prefix("%v")?.parse()` — a NUMBER). A "readable" name like `%vfile` parses to `None`, is treated as a physical register, and `finalize_vreg_body` PANICS via `find_physical_operand` (the zero-physical-register invariant). Allocate names with `Vregs::next()` or hardcode distinct `%vN` (net uses `%v9`..`%v15`).
 - The shared allocator DOES spill live vregs across every `bl` (libc call or `_mfb_*`), so a value can live in a vreg across a call (fs `close` holds `file` across the close). Only genuine memory buffers a syscall fills (a `pipe(int[2])` array, a `waitpid` status int) need the explicit `sp`-relative frame reserved by `finalize_vreg_body_with_locals(ins, &[], local_size)`.
 - Helper contract: first MFB arg (the record ptr) arrives in `abi::return_register()` (== `x0` == `mfb_return(0)`), 2nd/3rd in `c_arg(1)`/`c_arg(2)`. **This is the NATIVE RUNTIME HELPER convention and it is NOT universal — the `term` core emitters use a different one.** `src/codegen/term/core/term.rs`'s `emit_set_color` reads its MFB arguments from `c_arg(0)`/`c_arg(1)`/`c_arg(2)`, while `emit_get_color` twenty lines away passes the arena allocator's first argument in `abi::return_register()` and its second in `c_arg(1)`. So both registers are in use for "first argument" in one file, for different call kinds. Picking the wrong one compiles and then reads whatever the other path left behind — a wrong value, not a crash. Read the emitter you are editing; do not carry the convention across from this bullet (plan-122-F Phase 1 asked exactly this question before touching an emitter, and the answer was `c_arg(0)`). Result: value in `RESULT_VALUE_REGISTER` (`mfb_return(1)`==x1), tag in `RESULT_TAG_REGISTER` (`mfb_return(0)`==x0), `RESULT_OK_TAG`="0"/`RESULT_ERR_TAG`="1". A libc call: set `c_arg(0..)`, `platform.emit_libc_call("fork", from, imports, ins, rel)`, result in `c_return(0)`; `sign_extend_word` a C `int` return before comparing. `emit_alloc`: size in x0, align in `c_arg(1)`; returns tag in x0, ptr in `mfb_return(1)`. Body ends `abi::label(&done), abi::return_()`, then `finalize_vreg_body*` → `Ok((frame, ins, rel, stack_slots))` (`HelperResult`).
 - Overload-split (`spawn(args)` vs 4-arg) → distinct helper name in `builder_values.rs`'s `runtime_target = match target`, and the emit dispatch is the big `match spec.call` in `code/mod.rs` (a `call if call.starts_with("<pkg>.")` arm). `List OF String` element i: entry at `coll+HEADER(40)+i*ENTRY_SIZE(40)`, raw bytes at `dataBase + valueOffset@24` for `valueLength@32` bytes, where `dataBase = coll + HEADER + capacity*ENTRY_SIZE` (bytes are inline, NOT a String header) — so building a C `argv` means a per-element copy+NUL.
+
+- **An `abi_function` lowering must emit its own return.** Returning `Ok(ValueResult { .. })` only describes where the value is; every lowering must end with the result move and `abi::return_()`. Without it execution runs into the next emitted function: a SIGSEGV with no output. In a `-ncode` dump, look for a body ending in a `label` with no `ret`.
+- **`abi_inline` and `abi_function` are the only lowering shapes.** `Body` has `Mfb`, `AbiInline`, `AbiFunction { lower, os_aliases }`, `Rewrite` and `Intrinsic`; `os_aliases` is data, not a dispatch variant. Don't add a `Body` variant or a shared `match call` wrapper to make a member fit — make the member fit one of the two.
+- **An `abi_function` body takes its scratch vregs from the caller's allocator.** A fresh `Vregs::new()` restarts at `%v0`, which the `CodeBuilder` has already handed out, and the two streams overwrite each other.
+- **An overload with its own body must be force-emitted unconditionally.** The split resolves at emission, so the alias body lands in any module that names the base call, and `validate_capabilities` sees only the base call — the force-emit table is the only thing preventing a link error. `process` once skipped its force-emit on Windows because one alias was a stub there; four others had real Windows bodies, and none of them linked. Don't gate the data objects an alias body references more narrowly than the body.
+
+## Adding one call to an existing native package
+
+Besides the descriptor, the runtime spec (`runtime/<pkg>_specs.rs`, `catalog.rs`) and the shared `match call` arm, three seams fail late:
+
+- **Per-target capabilities.** Each target's `BackendCapabilities.runtime_calls` (built in `target/{macos_aarch64,linux_common,win_x86_64}/mod.rs`). A missing entry fails with `native backend does not support runtime call '<pkg>.<call>'`.
+- **App mode.** Each app backend has its own dispatch (`emit_app_term_helper` in `macos_aarch64/app/app_io.rs`, `linux_gtk/app_io.rs`, `win_x86_64/app/mod.rs`) that returns `None` to use the shared lowering. A UI-thread callback (macOS `setFrameSize:`, a GTK signal handler) doesn't have the arena base in `ARENA_STATE_REGISTER`, so any state it sets must live on the backend's own surface state, with its own arm.
+- **Plan imports.** Import branches gate on `owning_package(call)`, which is `None` for an `os_aliases` code form; list the alias explicitly (see `process.spawnEnv`).
 
 ## Builtin optional-param Fill padding
 
@@ -335,6 +405,8 @@ The trap in a multi-phase feature: you add a companion function in letter B, syn
 
 Fix: at finalization, re-sync **all** fixtures that import the package (not just the newly-added ones) against the final binary, then run the full acceptance once more. The behavioral goldens (`build.log`/`.run`) are unaffected — only the intermediate-representation goldens churn. This is the "importer-golden shift" the plan predicts; confirm the delta is only `.ir`/`.ast` of importers, never a `build.log`/`.run` behavior change.
 
+**Size the churn with the dump spelling.** A private helper `__pkg_name` appears in `.ir`/`.nir`/`.nplan` goldens as `#pkg_name`, so `grep -rl '__pkg_name' tests/` finds nothing while `grep -rl '#pkg_name' tests/` finds every affected fixture, transitive importers included.
+
 ## .mfb source-language authoring gotchas
 
 Gotchas that silently mis-parse or mis-type when authoring `.mfb` source (a builtin package like `http_package.mfb`, or any MFBASIC program). Each cost a build-error round-trip:
@@ -347,6 +419,20 @@ Gotchas that silently mis-parse or mis-type when authoring `.mfb` source (a buil
 - **A nested inline `IF c THEN stmt` steals a following `ELSE`.** When an inline one-line `IF c THEN stmt` (no `END IF`) is the last statement inside a block-form `IF`/`ELSE` branch, the parser attaches the outer branch's `ELSE` to the inline `IF`, then reports `MFB_PARSE_EXPECTED_EXPRESSION` / `MFB_PARSE_UNEXPECTED_STATEMENT` at the `ELSE`. Fix: give the nested `IF` a block form with its own `END IF`. (Bare inline `IF ... THEN stmt` is fine as long as no `ELSE` follows in the same branch.) Also: a multi-line function CALL with arguments split across lines does not parse — keep each call on one line.
 - **A dependency's PRIVATE (non-EXPORT) type name still collides with a same-named local TYPE in an importer.** The browser `dom` package has an internal `TYPE Frame { tag, attrs, kids }` (never exported); an app that `IMPORT dom` and declares its own `TYPE Frame { node, depth }` fails to build with a confusing `TYPE_UNKNOWN_FIELD: record 'Frame' has no member 'kids'` — the importer's `Frame` resolved against the dependency's merged internal type, not the local one. Merged package type names share a global namespace regardless of `EXPORT`. Rename the local type (`Frame`→`LWalk`) to fix. So: pick distinctive record names in an app, and don't assume a dependency's un-exported types are invisible.
 - **Bare vs qualified names**: since plan-110 gave `tcp`, `udp` and `tls` a resource each named `Socket`, a bare `Socket` no longer identifies a type — union variants, `MATCH CASE` patterns, and param/return annotations all spell it package-qualified (`UNION Stream { fs::File tcp::Socket }`, `CASE tcp::Socket(p)`, `AS RES tls::Socket`). Inside a package .mfb, its own types are unqualified (`AS Response`, `AS RES Stream STATE PendingState`).
+
+- **Reserved words can't be `LET`/`MUT` local names either**: `next`, `to`, `step`, `in`, `when`, `with`, `res`, `loop`, `do`, `sub`, `nothing`. The error cascades into `MFB_PARSE_UNEXPECTED_STATEMENT` for the rest of the function, far below the real mistake.
+- **`Point(1, 2)` is a call, not a constructor**, and fails `TYPE_UNKNOWN_VALUE`, which reads like an arity limit. `list[i]` is constructor syntax too; index with `collections::get(list, i)`.
+- **There is no line continuation of any kind.** A trailing `&` doesn't continue an expression, and a collection literal split across lines reports its error on the line after the closing brace. Build long text with a `MUT` accumulator.
+- **`DIV` is always `Float`; `/` truncates on `Integer`/`Byte`** — the reverse of BASIC habit.
+- **`math::floor`/`ceil`/`round` return `Integer`**, so a `Float` above 2^63 (e.g. JSON `1e21`) raises `ErrOverflow`. Test integrality with `value MOD 1.0 = 0.0`.
+- **`strings::mid` raises `ErrIndexOutOfRange` when `start + count > len(s)`**; it doesn't clamp.
+- **The scalar escape is `\u{HEX}`.** Outside a regex pattern, `\x{...}` is not an escape: the lexer keeps it as literal text, with no error.
+- **`encoding::utf8Encode` is overloaded on its return type**, so passed inline as an argument it fails `TYPE_OVERLOAD_AMBIGUOUS`. Bind it with `LET b AS List OF Byte` first.
+- **Widen a `json::Json` variant before putting it in a collection of `json::Json`**: the variants are records and the collection holds the union. Bind through `LET v AS json::Json = json::JsonStr["x"]`.
+- **A helper that always `FAIL`s still has to return.** MFBASIC has no never type, so ending a function on a call to it is `TYPE_FUNC_MISSING_RETURN`. Declare it `AS Error`, `RETURN error(...)`, and write `FAIL helper(...)` at each call site.
+- **`audio::play`/`audio::render` produce 48 kHz mono, and nothing converts.** A file's PCM written to that stream at another rate or channel count plays at the wrong pitch and too long, with no error. Open a second output with the file's own rate and channels.
+- **Escape per code point, not per grapheme.** `strings::graphemes` keeps CR LF as one cluster, so a grapheme loop never sees `"\r"` or `"\n"` alone and passes both through unescaped. Walk `encoding::utf32Encode(value)`.
+- **Write qualified names as `pkg::Name`** in source and docs. `net.Address` is the registry's internal id (`*_TYPE_ID`); the dotted form leaks into examples after reading builtin Rust source.
 
 Descriptor side (Rust, `http.rs`-style shim): a resource-union-STATE function's PARAM type in the descriptor must be the BASE union (`Stream`), not the stateful spelling — the builtin `resolve_call`/`dispatch_resolve` `exact()` path does not subsume the `STATE` suffix the way the user-function compat path does (see the RES system section); the `.mfb` param carries the full `Stream STATE PendingState`. The RETURN keeps the stateful spelling so the bind preserves STATE. A builtin `.mfb` UNION registers in the descriptor `*_TYPES` table as `TypeKind::Opaque` (like `json::Json`). Editing an embedded `.mfb` needs a `touch` of the including `.rs` to force cargo to re-`include_str!` it.
 
@@ -481,3 +567,7 @@ the resource, and a record — unlike an empty `List` — cannot be constructed
 before its handle exists. `FUNC wrap(RES f AS fs::File) AS Holder` is the usable
 shape. A record with two `RES` fields of *different* resource types is refused:
 an owned-list carries one `OwnedListDrop`.
+
+Two more limits:
+- STATE can't be written through the field: `h.handle.state.pos = 5` is not a legal form; rebind the handle to a `RES` alias first.
+- A union variant record may hold a `RES` field, and a `List OF` that union compiles.

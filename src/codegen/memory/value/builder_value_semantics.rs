@@ -121,6 +121,17 @@ impl CodeBuilder<'_> {
         let closed = self.allocate_register();
         self.emit(abi::move_immediate(&closed, "Integer", THREAD_STATE_CLOSED));
         self.emit(abi::store_u64(&closed, &block, THREAD_OFFSET_STATE));
+        // bug-622: owner-counted like a started handle, so the drop that releases its last
+        // binding frees this block (it has no plumbing to free). The inline `TRAP` binds it
+        // as the trap's value on every start and the successful assign drops it at once,
+        // so leaving it uncounted leaked a control block per trapped `thread::start`.
+        let owners = self.allocate_register();
+        self.emit(abi::move_immediate(&owners, "Integer", "1"));
+        self.emit(abi::store_u64(
+            &owners,
+            &block,
+            crate::codegen::runtime::thread::THREAD_OFFSET_OWNERS,
+        ));
         Ok(block)
     }
 
@@ -1152,16 +1163,39 @@ impl CodeBuilder<'_> {
     /// operand's type — it is NOT a widening of `static_type_name`, whose other
     /// consumers (the float-numeric-error gate, module analysis, binary typing)
     /// must keep their exact current answers.
+    ///
+    /// bug-626: a builtin call is typed too, from the registry resolver the type
+    /// checker uses, so `keep = collections::append(keep, fs::readText(p))` no
+    /// longer misses the in-place path for want of a row in the name table (it
+    /// copied the whole list per append: 5,000 appends of a 5,000-byte file
+    /// mapped 63 GB). Every caller compares the answer for equality with the
+    /// element, key or collection type and re-checks the lowered type, and no
+    /// call is an aliasing source (`value_is_aliasing_source`), so this admits
+    /// nothing a user function's result was not already admitted with.
     pub(crate) fn static_item_type(&self, value: &NirValue) -> Option<ParameterType> {
         if let Some(type_) = self.static_type_name(value) {
             return Some(type_);
         }
         match value {
-            NirValue::Call { target, .. } => self
-                .functions
-                .get(target)
-                .map(|function| function.returns.clone())
-                .or_else(|| self.package_return_types.get(target).cloned()),
+            NirValue::Call { target, args, .. }
+            | NirValue::CallResult { target, args, .. }
+            | NirValue::RuntimeCall { target, args, .. } => {
+                if let NirValue::Call { .. } = value {
+                    if let Some(type_) = self
+                        .functions
+                        .get(target)
+                        .map(|function| function.returns.clone())
+                        .or_else(|| self.package_return_types.get(target).cloned())
+                    {
+                        return Some(type_);
+                    }
+                }
+                let arg_types = args
+                    .iter()
+                    .map(|arg| self.static_item_type(arg))
+                    .collect::<Option<Vec<_>>>()?;
+                builtins::resolve_call_return_type_typed(target, &arg_types, false)
+            }
             _ => None,
         }
     }

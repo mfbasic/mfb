@@ -1,0 +1,30 @@
+{
+  "project": "compress-inflate-max-bytes-negative-invalid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "compress", "line": 6 },
+    { "module": "encoding", "line": 7 },
+    { "module": "io", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "before" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "out", "type": "List OF Byte", "value": { "kind": "call", "callee": "compress.inflate", "arguments": [{ "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "cdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901" }] }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "out" }] }] } }] }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

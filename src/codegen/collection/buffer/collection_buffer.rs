@@ -237,6 +237,33 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&after));
     }
 
+    /// The data capacity of a grown block whose every slot holds exactly
+    /// `slot_bytes` data bytes — a fixed-width list element, or a map entry whose
+    /// key and value are both fixed-width: `out = new_capacity * slot_bytes`,
+    /// branching to `overflow` on wrap. `out` may alias `new_capacity`.
+    ///
+    /// bug-621: stepping `dataCapacity` on its own [`Self::emit_geometric_step`]
+    /// instead, on every grow — including the ones the count triggers — let it
+    /// drift to ≈19 bytes per slot whatever the width, so a `List OF Byte` reserved
+    /// as much as a `List OF Integer`. Tied to the element capacity, a count grow
+    /// and a data grow are one event and the reservation stays geometric.
+    pub(crate) fn emit_fixed_width_data_capacity(
+        &mut self,
+        new_capacity: impl Into<Operand>,
+        out: impl Into<Operand>,
+        scratch: impl Into<Operand>,
+        slot_bytes: usize,
+        overflow: &str,
+    ) {
+        let scratch = scratch.into();
+        self.emit(abi::move_immediate(
+            scratch.clone(),
+            "Integer",
+            &slot_bytes.to_string(),
+        ));
+        self.emit_checked_size_multiply(out, new_capacity, scratch, overflow);
+    }
+
     /// Bulk-copy `count` list lookup entries (`count * ENTRY` bytes) verbatim from
     /// the entry-table cursor `src_entry` to `dst_entry` with a single word loop
     /// (`emit_block_copy_advance`), then — when `delta` is `Some((reg, subtract))`
@@ -376,82 +403,6 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_SIZE,
         ));
         self.emit(abi::subtract_immediate(count.clone(), count, 1));
-        self.emit(abi::branch(&loop_label));
-        self.emit(abi::label(&done_label));
-    }
-
-    /// The mirror of [`Self::emit_offset_compaction_fixup`]: **add** `delta` to
-    /// each entry's `valueOffset` iff it is **at or past** `tail_start`
-    /// (`valueOffset >= tail_start`), where `tail_start` is the first byte that
-    /// moved — the END of the widened element's old span (`valueOffset + oldLen`).
-    ///
-    /// plan-121-F. A length-changing `set` on a variable-width element widens the
-    /// span in place rather than closing it, so every payload from `tail_start` on
-    /// moves **up** by `delta` and its entry must follow. The compaction helper
-    /// cannot serve this: it subtracts, and the two directions are not the same
-    /// operation with a negated argument — these offsets are read back as
-    /// unsigned, so passing a negative `hole_len` there would wrap.
-    ///
-    /// **It is `>=` the tail start, not `>` the written element's offset**, and the
-    /// difference is a miscompile. Several entries can share one `valueOffset`: a
-    /// zero-length element occupies no bytes, so it sits at the same offset as
-    /// whatever follows it. `["", "", ""]` is three entries at offset 0. Widening
-    /// element 1 from `""` moved every byte from offset 0 up, but `> 0` left
-    /// element 2's entry at 0 — now pointing INTO element 1's new bytes — so the
-    /// next write to element 2 overwrote element 1 (`[ab]` read back as `[cd]`),
-    /// and a later length change split a multi-byte scalar and raised on read
-    /// (the browser example's Wikipedia crash). The `>=` test moves the written
-    /// element's own entry too whenever its old length was 0, so the CALLER must
-    /// restore that entry's `valueOffset` afterwards — it never moves.
-    ///
-    /// Like its sibling, this tests each entry's own offset rather than its list
-    /// index, so it is correct whatever order the data region happens to be in.
-    /// `entry_base` and `count` are clobbered.
-    pub(crate) fn emit_offset_expansion_fixup(
-        &mut self,
-        entry_base: impl Into<Operand>,
-        count: impl Into<Operand>,
-        tail_start: impl Into<Operand>,
-        delta: impl Into<Operand>,
-        label_prefix: &str,
-    ) {
-        let entry_base = entry_base.into();
-        let count = count.into();
-        let tail_start = tail_start.into();
-        let delta = delta.into();
-        let value_offset = self.temporary_vreg();
-        let loop_label = self.label(&format!("{label_prefix}_loop"));
-        let skip_label = self.label(&format!("{label_prefix}_skip"));
-        let done_label = self.label(&format!("{label_prefix}_done"));
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_immediate(count.clone(), "0"));
-        self.emit(abi::branch_eq(&done_label));
-        self.emit(abi::load_u64(
-            value_offset,
-            entry_base.clone(),
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::compare_registers(&value_offset, tail_start.clone()));
-        // Unsigned `< tail_start` means the payload starts before the bytes that
-        // moved (at most at the widened element's own offset), so it stays put.
-        self.emit(abi::branch_lo(&skip_label));
-        self.emit(abi::add_registers(
-            value_offset,
-            value_offset,
-            delta.clone(),
-        ));
-        self.emit(abi::store_u64(
-            value_offset,
-            entry_base.clone(),
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::label(&skip_label));
-        self.emit(abi::add_immediate(
-            entry_base.clone(),
-            entry_base.clone(),
-            COLLECTION_ENTRY_SIZE,
-        ));
-        self.emit(abi::subtract_immediate(count.clone(), count.clone(), 1));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&done_label));
     }

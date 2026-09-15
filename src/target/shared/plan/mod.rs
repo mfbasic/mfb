@@ -196,6 +196,13 @@ pub(crate) trait NativePlanPlatform {
     /// The imports a `--debug` report's `process` section calls to read the peak
     /// resident set size (plan-130-D), attributed to `required_by`.
     fn peak_rss_imports(&self, required_by: &str) -> Vec<PlatformImport>;
+    /// The imports a `--debug` build's arena memory series calls for its monotonic
+    /// clock (plan-133-C), attributed to `required_by`. Empty by default: the macOS
+    /// and Linux program entries already import `clock_gettime` for the arena-fill
+    /// seed, so only a target without it (Windows) overrides this.
+    fn debug_clock_imports(&self, _required_by: &str) -> Vec<PlatformImport> {
+        Vec::new()
+    }
     /// The libc imports (`dlopen`/`dlsym`) the per-library `LINK` initializer
     /// needs to resolve user binding symbols at load time (plan-linker.md §12.1).
     fn link_imports(&self, required_by: &str) -> Vec<PlatformImport>;

@@ -644,7 +644,25 @@ impl Resolver<'_> {
         // domain HERE. HIR elaborates it now (`hir::elaborate_link_block`), so
         // this reads types.
         for function in &link.functions {
+            let parameters = function
+                .params
+                .iter()
+                .map(|param| param.name.clone())
+                .collect::<HashSet<_>>();
             for param in &function.params {
+                // plan-136-A: a LINK parameter default resolves at the declaration,
+                // exactly like a FUNC/SUB one. It was never resolved before, so an
+                // unknown name in it went unreported.
+                if let Some(default) = &param.default {
+                    self.resolve_parameter_default(
+                        file,
+                        &param.name,
+                        &parameters,
+                        default,
+                        param.line,
+                        imports,
+                    );
+                }
                 if let Some(type_) = &param.type_ {
                     // A raw C ABI type in a wrapper signature is reported by
                     // the former source checker as NATIVE_CPTR_ESCAPE; don't double-report it here
@@ -778,29 +796,31 @@ impl Resolver<'_> {
             function.template_params.iter().cloned().collect(),
         );
         let mut locals = HashMap::new();
+        let parameters = function
+            .params
+            .iter()
+            .map(|param| param.name.clone())
+            .collect::<HashSet<_>>();
 
         for param in &function.params {
-            if locals
-                .insert(
-                    param.name.clone(),
-                    Symbol {
-                        file_path: file.path.clone(),
-                        line: param.line,
-                        visibility: Visibility::Private,
-                    },
-                )
-                .is_some()
-            {
-                self.report(
-                    "SYMBOL_DUPLICATE_LOCAL",
-                    &format!(
-                        "Parameter `{}` is already declared in this function.",
-                        param.name
-                    ),
-                    file,
-                    param.line,
-                );
-            }
+            self.check_new_local(
+                file,
+                &param.name,
+                param.line,
+                &locals,
+                format!(
+                    "Parameter `{}` is already declared in this function.",
+                    param.name
+                ),
+            );
+            locals.insert(
+                param.name.clone(),
+                Symbol {
+                    file_path: file.path.clone(),
+                    line: param.line,
+                    visibility: Visibility::Private,
+                },
+            );
 
             self.resolve_type(file, &param.type_, param.line, imports);
             // bug-595: `RES p AS T STATE S` carries `S` apart from `type_`. Before
@@ -810,7 +830,14 @@ impl Resolver<'_> {
             }
 
             if let Some(default) = &param.default {
-                self.resolve_expression(file, default, param.line, imports, &locals);
+                self.resolve_parameter_default(
+                    file,
+                    &param.name,
+                    &parameters,
+                    default,
+                    param.line,
+                    imports,
+                );
             }
         }
 
@@ -822,6 +849,16 @@ impl Resolver<'_> {
 
         self.resolve_block(file, &function.body, imports, &mut locals);
         if let Some(trap) = &function.trap {
+            self.check_new_local(
+                file,
+                &trap.name,
+                trap.line,
+                &locals,
+                format!(
+                    "Local binding `{}` is already declared in this function.",
+                    trap.name
+                ),
+            );
             let mut trap_locals = locals.clone();
             trap_locals.insert(
                 trap.name.clone(),
@@ -875,24 +912,21 @@ impl Resolver<'_> {
                 if let Some(value) = value {
                     self.resolve_expression(file, value, *line, imports, locals);
                 }
-                if locals
-                    .insert(
-                        name.clone(),
-                        Symbol {
-                            file_path: file.path.clone(),
-                            line: *line,
-                            visibility: Visibility::Private,
-                        },
-                    )
-                    .is_some()
-                {
-                    self.report(
-                        "SYMBOL_DUPLICATE_LOCAL",
-                        &format!("Local binding `{name}` is already declared in this function."),
-                        file,
-                        *line,
-                    );
-                }
+                self.check_new_local(
+                    file,
+                    name,
+                    *line,
+                    locals,
+                    format!("Local binding `{name}` is already declared in this function."),
+                );
+                locals.insert(
+                    name.clone(),
+                    Symbol {
+                        file_path: file.path.clone(),
+                        line: *line,
+                        visibility: Visibility::Private,
+                    },
+                );
             }
             HirStatement::Return { value, line } => {
                 if let Some(value) = value {
@@ -947,6 +981,20 @@ impl Resolver<'_> {
                 self.resolve_expression(file, expression, *line, imports, locals);
                 for case in cases {
                     self.resolve_match_pattern(file, &case.pattern, case.line, imports, locals);
+                    // One check per pattern binding: the same name is inserted into
+                    // the guard's scope (when there is a `WHEN`) and the body's, so
+                    // checking at either insert would report a guarded case twice.
+                    if let HirMatchPattern::Union { binding, .. } = &case.pattern {
+                        self.check_new_local(
+                            file,
+                            binding,
+                            case.line,
+                            locals,
+                            format!(
+                                "Local binding `{binding}` is already declared in this function."
+                            ),
+                        );
+                    }
                     if let Some(guard) = &case.guard {
                         let mut guard_locals = locals.clone();
                         if let HirMatchPattern::Union { binding, .. } = &case.pattern {
@@ -988,25 +1036,22 @@ impl Resolver<'_> {
                 if let Some(step) = step {
                     self.resolve_expression(file, step, *line, imports, locals);
                 }
+                self.check_new_local(
+                    file,
+                    name,
+                    *line,
+                    locals,
+                    format!("Local binding `{name}` is already declared in this function."),
+                );
                 let mut nested = locals.clone();
-                if nested
-                    .insert(
-                        name.clone(),
-                        Symbol {
-                            file_path: file.path.clone(),
-                            line: *line,
-                            visibility: Visibility::Private,
-                        },
-                    )
-                    .is_some()
-                {
-                    self.report(
-                        "SYMBOL_DUPLICATE_LOCAL",
-                        &format!("Local binding `{name}` is already declared in this function."),
-                        file,
-                        *line,
-                    );
-                }
+                nested.insert(
+                    name.clone(),
+                    Symbol {
+                        file_path: file.path.clone(),
+                        line: *line,
+                        visibility: Visibility::Private,
+                    },
+                );
                 self.resolve_block(file, body, imports, &mut nested);
             }
             HirStatement::ForEach {
@@ -1016,25 +1061,22 @@ impl Resolver<'_> {
                 line,
             } => {
                 self.resolve_expression(file, iterable, *line, imports, locals);
+                self.check_new_local(
+                    file,
+                    name,
+                    *line,
+                    locals,
+                    format!("Local binding `{name}` is already declared in this function."),
+                );
                 let mut nested = locals.clone();
-                if nested
-                    .insert(
-                        name.clone(),
-                        Symbol {
-                            file_path: file.path.clone(),
-                            line: *line,
-                            visibility: Visibility::Private,
-                        },
-                    )
-                    .is_some()
-                {
-                    self.report(
-                        "SYMBOL_DUPLICATE_LOCAL",
-                        &format!("Local binding `{name}` is already declared in this function."),
-                        file,
-                        *line,
-                    );
-                }
+                nested.insert(
+                    name.clone(),
+                    Symbol {
+                        file_path: file.path.clone(),
+                        line: *line,
+                        visibility: Visibility::Private,
+                    },
+                );
                 self.resolve_block(file, body, imports, &mut nested);
             }
             HirStatement::While {
@@ -1132,6 +1174,16 @@ impl Resolver<'_> {
                     if let Some(state_type) = &param.state_type {
                         self.resolve_type(file, state_type, param.line, imports);
                     }
+                    self.check_new_local(
+                        file,
+                        &param.name,
+                        param.line,
+                        &lambda_locals,
+                        format!(
+                            "Lambda parameter `{}` is already declared in this function.",
+                            param.name
+                        ),
+                    );
                     lambda_locals.insert(
                         param.name.clone(),
                         Symbol {
@@ -1140,8 +1192,18 @@ impl Resolver<'_> {
                             visibility: Visibility::Private,
                         },
                     );
-                    if let Some(default) = &param.default {
-                        self.resolve_expression(file, default, param.line, imports, &lambda_locals);
+                    // plan-136-A: a lambda is called through a function value, which
+                    // carries no defaults, so a default here could never be used.
+                    if param.default.is_some() {
+                        self.report(
+                            "SYMBOL_LAMBDA_PARAMETER_DEFAULT",
+                            &format!(
+                                "Lambda parameter `{}` cannot declare a default value.",
+                                crate::internal_name::display_name(&param.name)
+                            ),
+                            file,
+                            param.line,
+                        );
                     }
                 }
                 self.resolve_expression(file, body, line, imports, &lambda_locals);
@@ -1214,6 +1276,13 @@ impl Resolver<'_> {
                 line: trap_line,
             } => {
                 self.resolve_expression(file, expression, line, imports, locals);
+                self.check_new_local(
+                    file,
+                    binding,
+                    *trap_line,
+                    locals,
+                    format!("Local binding `{binding}` is already declared in this function."),
+                );
                 let mut handler_locals = locals.clone();
                 handler_locals.insert(
                     binding.clone(),
@@ -1251,6 +1320,9 @@ impl Resolver<'_> {
         } else if !self.function_visible_in_file(file, callee)
             && !self.top_level_visible_in_file(file, callee)
         {
+            if self.report_default_names_parameter(file, callee, line) {
+                return;
+            }
             // A top-level (global) binding holding a function value is callable,
             // exactly like a local binding; `resolve_identifier` already consults
             // `top_level_visible_in_file`, so value position works while call
@@ -1258,6 +1330,95 @@ impl Resolver<'_> {
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",
                 &format!("Callable `{callee}` is not a top-level function."),
+                file,
+                line,
+            );
+        }
+    }
+
+    /// Resolve a parameter default in its function's DECLARATION scope: no locals
+    /// at all, so not the function's own parameters and never a caller's locals
+    /// (plan-136-A). The file's top level — globals, functions, imports and
+    /// own-file `PRIVATE` names — is what remains visible.
+    fn resolve_parameter_default(
+        &mut self,
+        file: &HirFile,
+        parameter: &str,
+        parameters: &HashSet<String>,
+        default: &HirExpression,
+        line: usize,
+        imports: &HashMap<String, String>,
+    ) {
+        let previous = self.default_scope.replace(DefaultScope {
+            parameter: parameter.to_string(),
+            parameters: parameters.clone(),
+        });
+        self.resolve_expression(file, default, line, imports, &HashMap::new());
+        self.default_scope = previous;
+    }
+
+    /// While a default is being resolved, report an unresolved `name` that is a
+    /// parameter of the same function as `SYMBOL_DEFAULT_NAMES_PARAMETER`, and
+    /// return whether it did.
+    fn report_default_names_parameter(&mut self, file: &HirFile, name: &str, line: usize) -> bool {
+        let Some(scope) = &self.default_scope else {
+            return false;
+        };
+        if !scope.parameters.contains(name) {
+            return false;
+        }
+        let detail = format!(
+            "The default value of `{}` cannot use parameter `{}`; a default is evaluated outside the function.",
+            crate::internal_name::display_name(&scope.parameter),
+            crate::internal_name::display_name(name)
+        );
+        self.report("SYMBOL_DEFAULT_NAMES_PARAMETER", &detail, file, line);
+        true
+    }
+
+    /// The checks every site that introduces a local runs before it inserts
+    /// `name` (plan-136-C). A name already live in `locals` is
+    /// `SYMBOL_DUPLICATE_LOCAL`, reported with the site's own `duplicate` detail;
+    /// otherwise a name that is a top-level `LET`/`MUT` visible from this file —
+    /// `PUBLIC`/`EXPORT` anywhere in the project, or `PRIVATE` in this same file —
+    /// is `SYMBOL_SHADOWS_TOP_LEVEL_BINDING`. A compiler-internal name, which no
+    /// user can spell, is exempt from both; a built-in package's source file is
+    /// exempt from the top-level rule, since the user's bindings are not its own.
+    pub(super) fn check_new_local(
+        &mut self,
+        file: &HirFile,
+        name: &str,
+        line: usize,
+        locals: &HashMap<String, Symbol>,
+        duplicate: String,
+    ) {
+        if name.starts_with(crate::internal_name::INTERNAL_SIGIL) || name.starts_with('$') {
+            return;
+        }
+        if locals.contains_key(name) {
+            self.report("SYMBOL_DUPLICATE_LOCAL", &duplicate, file, line);
+            return;
+        }
+        if file.internal {
+            return;
+        }
+        let Some(keys) = self.top_level_bindings.get(name) else {
+            return;
+        };
+        let shadowed = keys
+            .iter()
+            .filter_map(|key| self.top_levels.get(key))
+            .find(|symbol| self.visible_from(file, symbol.visibility, &symbol.file_path))
+            .cloned();
+        if let Some(symbol) = shadowed {
+            self.report(
+                "SYMBOL_SHADOWS_TOP_LEVEL_BINDING",
+                &format!(
+                    "`{}` is already a top-level binding (declared at {}:{}); a local cannot reuse its name.",
+                    crate::internal_name::display_name(name),
+                    symbol.file_path,
+                    symbol.line
+                ),
                 file,
                 line,
             );
@@ -1279,6 +1440,9 @@ impl Resolver<'_> {
             && !self.function_visible_in_file(file, name)
             && !crate::codegen::builtins::general::is_general_call(name)
         {
+            if self.report_default_names_parameter(file, name, line) {
+                return;
+            }
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",
                 &format!("Identifier `{name}` is not declared in this scope."),

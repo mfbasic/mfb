@@ -1,0 +1,18 @@
+' plan-136-A: a parameter default is evaluated outside its function, so it may
+' not name any parameter of that function -- an earlier one, itself, or a later one.
+
+FUNC earlier(a AS Integer, b AS Integer = a) AS Integer
+  RETURN a + b
+END FUNC
+
+FUNC itself(b AS Integer = b) AS Integer
+  RETURN b
+END FUNC
+
+FUNC later(a AS Integer = c, c AS Integer = 1) AS Integer
+  RETURN a + c
+END FUNC
+
+FUNC main() AS Integer
+  RETURN earlier(3) + itself() + later()
+END FUNC

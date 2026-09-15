@@ -1,0 +1,18 @@
+$ mfb build -ast -ir tests/rt-behavior/compress/compress-decode-valid
+Wrote AST to tests/rt-behavior/compress/compress-decode-valid/compress-decode-valid.ast
+Wrote IR to tests/rt-behavior/compress/compress-decode-valid/compress-decode-valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/compress/compress-decode-valid
+Wrote executable to tests/rt-behavior/compress/compress-decode-valid/build/compress-decode-valid.out
+[exit 0]
+$ tests/rt-behavior/compress/compress-decode-valid/build/compress-decode-valid.out
+inflate: compress decode fixture: the quick brown fox jumps over the lazy dog. compress decode fixture: the quick brown fox jumps over the lazy dog. compress decode fixture: the quick brown fox jumps over the lazy dog. 
+zlibDecode: compress decode fixture: the quick brown fox jumps over the lazy dog. compress decode fixture: the quick brown fox jumps over the lazy dog. compress decode fixture: the quick brown fox jumps over the lazy dog. 
+gzipDecode: compress decode fixture: the quick brown fox jumps over the lazy dog. compress decode fixture: the quick brown fox jumps over the lazy dog. compress decode fixture: the quick brown fox jumps over the lazy dog. 
+crc32 matches: TRUE
+stored: stored block
+two members: 420
+trailing padding ignored: 210
+ignoreChecksum: 210
+exact limit: 210
+[exit 0]

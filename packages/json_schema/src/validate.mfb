@@ -139,7 +139,7 @@ PRIVATE FUNC evalInPlace(root AS json::Json, refs AS Map OF String TO String, pa
     ' empty instance path would share a key.
     LET key AS String = toString(len(target)) & ":" & target & instancePath
     IF collections::contains(active, key) THEN
-      FAIL error(ERR_REF_CYCLE, "json_schema: the `$ref` at `" & pointer & "` re-enters `" & target & "` at the same instance location `" & instancePath & "`, so evaluation cannot terminate")
+      FAIL error(ErrorReferenceCycle, "json_schema: the `$ref` at `" & pointer & "` re-enters `" & target & "` at the same instance location `" & instancePath & "`, so evaluation cannot terminate")
     END IF
     LET referenced AS json::Json = resolvePointer(root, target)
     LET part AS Outcome = evalSchema(root, refs, patterns, referenced, target, instance, instancePath, collections::append(active, key), depth + 1, out.budget)

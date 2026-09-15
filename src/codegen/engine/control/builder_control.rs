@@ -565,9 +565,11 @@ impl CodeBuilder<'_> {
                         // so the binding is neither deep-copied nor freed here.
                         let aliases_union_variant =
                             matches!(value, Some(NirValue::UnionExtract { .. }));
-                        // A thread-boundary result (`thread::receive`/`waitFor`/…)
-                        // is owned by the thread runtime / worker arena, not this
-                        // scope, so it is neither zero-initialized nor freed here.
+                        // A raw thread-boundary result (`t.result`) is owned by the
+                        // thread runtime / worker arena, not this scope, so it is
+                        // neither zero-initialized nor freed here. A
+                        // `thread::receive`/`waitFor`/… value is the call site's copy
+                        // into this arena and is owned like any fresh value (bug-622 A).
                         let runtime_managed =
                             value.as_ref().is_some_and(Self::value_is_runtime_managed);
                         // This binding owns a freeable flat block that scope-drop
@@ -841,7 +843,14 @@ impl CodeBuilder<'_> {
                                 .push(ActiveCleanup::Thread(ThreadCleanup {
                                     name: name.clone(),
                                     symbol: Self::thread_drop_symbol(),
+                                    close: true,
+                                    release: true,
                                 }));
+                            // bug-622: a handle read from another binding is SHARED, not
+                            // moved — both bindings release it — so it takes an owner.
+                            if !Self::thread_value_is_fresh_handle(value.as_ref()) {
+                                self.emit_thread_owner_increment(stack_offset);
+                            }
                         } else if aliases_union_variant || by_ref_capture_slot {
                             // Non-owning — no cleanup (the parent binding frees it).
                         } else if let crate::ir::resource_escape::ResOwner::Float(collection) =
@@ -1184,6 +1193,12 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     slot,
                                 ));
+                                // bug-622: a handle read from another binding is shared,
+                                // so it takes an owner — BEFORE the old handle's drop, or
+                                // `t = t` would free the block it is about to store.
+                                if !Self::thread_value_is_fresh_handle(Some(value)) {
+                                    self.emit_thread_owner_increment(slot);
+                                }
                                 self.emit_thread_cleanup_for_name(name)?;
                                 Some(slot)
                             } else if let Some(symbol) = self.resource_cleanup_symbol(&result.type_)
@@ -1383,6 +1398,7 @@ impl CodeBuilder<'_> {
                         self.emit_cleanup_branch_to_depth(
                             &target.exit_label,
                             target.cleanup_depth,
+                            target.temp_depth,
                         )?;
                     }
                     NirOp::ContinueLoop { kind } => {
@@ -1398,6 +1414,7 @@ impl CodeBuilder<'_> {
                         self.emit_cleanup_branch_to_depth(
                             &target.continue_label,
                             target.cleanup_depth,
+                            target.temp_depth,
                         )?;
                     }
                     NirOp::ExitProgram { code } => {
@@ -1566,14 +1583,15 @@ impl CodeBuilder<'_> {
                         // `clear_local_constants()` the `DoUntil` path runs before its
                         // body+condition.
                         self.clear_local_constants();
-                        let condition = self.lower_value(condition)?;
-                        self.emit(abi::compare_immediate(&condition.location, "0"));
+                        let condition = self.lower_loop_condition(condition)?;
+                        self.emit(abi::compare_immediate(&condition, "0"));
                         self.emit(abi::branch_eq(&end_label));
                         self.loop_stack.push(LoopLabels {
                             kind: *kind,
                             continue_label: loop_label.clone(),
                             exit_label: end_label.clone(),
                             cleanup_depth: self.active_cleanups.len(),
+                            temp_depth: self.pending_temp_frees.len(),
                         });
                         if let Some(ref name) = strict_upper_name {
                             self.integer_strict_upper.insert(name.clone());
@@ -1614,12 +1632,13 @@ impl CodeBuilder<'_> {
                             continue_label: condition_label.clone(),
                             exit_label: end_label.clone(),
                             cleanup_depth: self.active_cleanups.len(),
+                            temp_depth: self.pending_temp_frees.len(),
                         });
                         self.lower_loop_body(body)?;
                         self.loop_stack.pop();
                         self.emit(abi::label(&condition_label));
-                        let condition = self.lower_value(condition)?;
-                        self.emit(abi::compare_immediate(&condition.location, "0"));
+                        let condition = self.lower_loop_condition(condition)?;
+                        self.emit(abi::compare_immediate(&condition, "0"));
                         self.emit(abi::branch_eq(&loop_label));
                         self.emit(abi::label(&end_label));
                         self.clear_local_constants();
@@ -1782,6 +1801,30 @@ impl CodeBuilder<'_> {
     /// proof can see every reassignment this loop's back edge may run before
     /// re-entering it. Every loop kind (`WHILE`, `FOR`, `DO … UNTIL`, `FOR EACH`)
     /// lowers its body through here and nowhere else.
+    /// Lower a loop condition that runs once per pass, freeing the temps it made before
+    /// branching on it (bug-621). The loop statement's own end drop runs once, after the loop,
+    /// and each pass overwrites the previous pass's slot — so it freed only the last block.
+    /// Freeing here, on the one edge every evaluation takes, leaves no temp for the body, the
+    /// exit pass or that end drop. The value is spilled across the `arena_free` calls, which
+    /// clobber every caller-saved register; nothing is emitted when the condition made no temp.
+    fn lower_loop_condition(&mut self, condition: &NirValue) -> Result<Operand, String> {
+        let watermark = self.pending_temp_frees.len();
+        let condition = self.lower_value(condition)?;
+        if self.pending_temp_frees.len() <= watermark {
+            return Ok(condition.location);
+        }
+        let slot = self.allocate_stack_object("loop_condition", 8);
+        self.emit(abi::store_u64(
+            &condition.location,
+            abi::stack_pointer(),
+            slot,
+        ));
+        self.drop_pending_temps_to(watermark)?;
+        let reloaded = self.allocate_register();
+        self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
+        Ok(Operand::from(reloaded.render()))
+    }
+
     fn lower_loop_body(&mut self, body: &[NirOp]) -> Result<(), String> {
         self.enclosing_loop_reassigned.push(
             crate::codegen::engine::function::collect_reassigned_locals(body),
@@ -1998,8 +2041,8 @@ impl CodeBuilder<'_> {
             }),
             loc: cmp,
         };
-        let condition = self.lower_value(&condition)?;
-        self.emit(abi::compare_immediate(&condition.location, "0"));
+        let condition = self.lower_loop_condition(&condition)?;
+        self.emit(abi::compare_immediate(&condition, "0"));
         self.emit(abi::branch_eq(&end_label));
         self.clear_local_constants();
         self.loop_stack.push(LoopLabels {
@@ -2007,6 +2050,7 @@ impl CodeBuilder<'_> {
             continue_label: continue_label.clone(),
             exit_label: end_label.clone(),
             cleanup_depth: self.active_cleanups.len(),
+            temp_depth: self.pending_temp_frees.len(),
         });
         self.lower_loop_body(body)?;
         // plan-86 G1: the provable-index fact is scoped to this loop's body only.
@@ -2583,6 +2627,7 @@ impl CodeBuilder<'_> {
             // Captured BEFORE the item drops were pushed, so `EXIT FOR` and
             // `CONTINUE FOR` unwind through them.
             cleanup_depth: body_scope_start,
+            temp_depth: self.pending_temp_frees.len(),
         });
         self.enclosing_loop_reassigned.push(
             crate::codegen::engine::function::collect_reassigned_locals(body),

@@ -1,0 +1,100 @@
+{
+  "project": "compress-encode-roundtrip-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 4 },
+    { "module": "compress", "line": 5 },
+    { "module": "io", "line": 6 },
+    { "module": "strings", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "describe",
+      "line": 9,
+      "params": [
+      { "name": "packed", "type": "List OF Byte", "default": null, "line": 9 },
+      { "name": "back", "type": "List OF Byte", "default": null, "line": 9 },
+      { "name": "inputCrc", "type": "Integer", "default": null, "line": 9 },
+      { "name": "inputLen", "type": "Integer", "default": null, "line": 9 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "same", "type": "Boolean", "value": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "back" }] }, "right": { "kind": "identifier", "value": "inputLen" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "identifier", "value": "back" }] }, "right": { "kind": "identifier", "value": "inputCrc" } } }, "line": 10 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "packed" }] }] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "identifier", "value": "packed" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "same" }] } }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "input", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 15 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 16 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "40" } },
+        "line": 17,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "line", "type": "List OF Byte", "value": { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "record " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "7" } }] } }, "right": { "kind": "string", "value": ": the quick brown fox jumps over the lazy dog\n" } }] }, "line": 18 },
+        { "kind": "binding", "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 19 },
+        {
+          "kind": "while",
+          "loop": "while",
+          "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "line" }] } },
+          "line": 20,
+          "body": [
+          { "kind": "assignment", "name": "input", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "input" }, { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "line" }, { "kind": "identifier", "value": "k" }] }] }, "line": 21 },
+          { "kind": "assignment", "name": "k", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "1" } }, "line": 22 }
+          ]
+        },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 24 }
+        ]
+      },
+      { "kind": "assignment", "name": "i", "value": { "kind": "number", "value": "0" }, "line": 26 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "512" } },
+        "line": 27,
+        "body": [
+        { "kind": "assignment", "name": "input", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "input" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "256" } }] }] }, "line": 28 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 29 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "inputLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "input" }] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "inputCrc", "type": "Integer", "value": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "identifier", "value": "input" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "input: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "inputLen" }] } }, "right": { "kind": "string", "value": " bytes, crc32 " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "inputCrc" }] } }] }, "line": 33 },
+      { "kind": "binding", "mutable": true, "name": "level", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 35 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<=", "left": { "kind": "identifier", "value": "level" }, "right": { "kind": "number", "value": "9" } },
+        "line": 36,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "raw", "type": "List OF Byte", "value": { "kind": "call", "callee": "compress.deflate", "arguments": [{ "kind": "identifier", "value": "input" }, { "kind": "identifier", "value": "level" }] }, "line": 37 },
+        { "kind": "binding", "mutable": false, "name": "zl", "type": "List OF Byte", "value": { "kind": "call", "callee": "compress.zlibEncode", "arguments": [{ "kind": "identifier", "value": "input" }, { "kind": "identifier", "value": "level" }] }, "line": 38 },
+        { "kind": "binding", "mutable": false, "name": "gz", "type": "List OF Byte", "value": { "kind": "call", "callee": "compress.gzipEncode", "arguments": [{ "kind": "identifier", "value": "input" }, { "kind": "identifier", "value": "level" }] }, "line": 39 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "level " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "level" }] } }, "right": { "kind": "string", "value": ": raw " } }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "raw" }, { "kind": "call", "callee": "compress.inflate", "arguments": [{ "kind": "identifier", "value": "raw" }] }, { "kind": "identifier", "value": "inputCrc" }, { "kind": "identifier", "value": "inputLen" }] } }, "right": { "kind": "string", "value": " | zlib " } }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "zl" }, { "kind": "call", "callee": "compress.zlibDecode", "arguments": [{ "kind": "identifier", "value": "zl" }] }, { "kind": "identifier", "value": "inputCrc" }, { "kind": "identifier", "value": "inputLen" }] } }, "right": { "kind": "string", "value": " | gzip " } }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "gz" }, { "kind": "call", "callee": "compress.gzipDecode", "arguments": [{ "kind": "identifier", "value": "gz" }] }, { "kind": "identifier", "value": "inputCrc" }, { "kind": "identifier", "value": "inputLen" }] } }] }, "line": 40 },
+        { "kind": "assignment", "name": "level", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "level" }, "right": { "kind": "number", "value": "1" } }, "line": 41 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "emptyCrc", "type": "Integer", "value": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "identifier", "value": "empty" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "empty, default level: raw " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "compress.deflate", "arguments": [{ "kind": "identifier", "value": "empty" }] }, { "kind": "call", "callee": "compress.inflate", "arguments": [{ "kind": "call", "callee": "compress.deflate", "arguments": [{ "kind": "identifier", "value": "empty" }] }] }, { "kind": "identifier", "value": "emptyCrc" }, { "kind": "number", "value": "0" }] } }, "right": { "kind": "string", "value": " | zlib " } }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "compress.zlibEncode", "arguments": [{ "kind": "identifier", "value": "empty" }] }, { "kind": "call", "callee": "compress.zlibDecode", "arguments": [{ "kind": "call", "callee": "compress.zlibEncode", "arguments": [{ "kind": "identifier", "value": "empty" }] }] }, { "kind": "identifier", "value": "emptyCrc" }, { "kind": "number", "value": "0" }] } }, "right": { "kind": "string", "value": " | gzip " } }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "compress.gzipEncode", "arguments": [{ "kind": "identifier", "value": "empty" }] }, { "kind": "call", "callee": "compress.gzipDecode", "arguments": [{ "kind": "call", "callee": "compress.gzipEncode", "arguments": [{ "kind": "identifier", "value": "empty" }] }] }, { "kind": "identifier", "value": "emptyCrc" }, { "kind": "number", "value": "0" }] } }] }, "line": 46 }
+      ]
+    }
+    ]
+  }
+  ]
+}

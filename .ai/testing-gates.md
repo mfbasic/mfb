@@ -17,6 +17,8 @@ Reference for the MFB compiler's test/golden/gate harness — the codegen artifa
 - Gotcha: `mfb build -ncode` writes `$pkg.ncode` (no target infix); the golden is `$pkg.<target>.ncode`. The gate maps infix-less actual → infixed golden.
 - Green means "nothing *covered* changed" — NOT 100%. NOT covered (record before trusting green for a site): `app` (app-mode only, non-cross-compilable — covered by `syntax/app/*`), **`canvas`** (measured 2026-09-01, plan-116-A: `grep -rln "IMPORT canvas\|IMPORT app" tests/byte-identity/` → **no matches**, so not one of the 132 `.ncodesum` fixtures builds a program that emits the canvas runtime, and NO canvas codegen change can move a single hash — plan-116-A rewrote both GPU emitters and both shaders and the gate reported 0 diffs over 1823 goldens. Every letter of plan-116 will see the same misleading 0; the instruments that genuinely cover that code are `scripts/test-canvas-vulkan.sh` and the `rt_canvas_*` suites), `testing` (TCASE-only), `errorCode` (constants, no code symbols), any compiler-internal path not reached by a builtin call, and `tests/acceptance/**` (no `golden/` dir → the harness runs `mfb test` and compares nothing; do NOT add a golden there — presence of `golden/` is a mode switch and that project declares no `entry`). A real false negative: `strings::graphemeAt` lived only in `tests/acceptance/`; 0 diffs across 1217 goldens while a real `mul` operand-order change existed. Before trusting the gate for a site, confirm it's reachable from a test that owns a `golden/`; where it isn't, add a `tests/rt-behavior/**` fixture, or build a scratch project + `mfb build -ncode` and diff against the pre-change compiler (`git show <commit>^:<path>` — and CHECK THE BUILD SUCCEEDED; a failed build silently reuses the old binary and fakes a match).
 
+- **A `<pkg>_codegen_cover_rt` fixture does not call every member.** Before trusting a green gate for a change to one member, `grep -n '<pkg>::<member>' tests/byte-identity/<pkg>/src/main.mfb`. No hit means the gate never emitted your code; add the call (that fixture's `.ast`/`.ir` goldens move too).
+
 ### Broadly-emitted changes break goldens BEYOND byte-identity/
 The `byte-identity/<pkg>` fixtures are a per-package SMOKE test, not the whole golden surface. `syntax/**` and `rt-behavior/**` also carry `.ir` host dumps and `.app.ncode`/`.ncodesum` native goldens the gate checks. A change to a broadly-emitted path breaks those too, and a per-phase check that only regenerates `byte-identity/` MISSES them — the full gate is the only authoritative finder. `sync-goldens.sh` refreshes `.ir`/`.ast`/`build.log` for byte-identity + rt-behavior but SKIPS `syntax/**` and does NOT refresh target-infixed `.ncodesum` or `.app.ncode` — regen those by hand (`mfb build -q -ncode [-target T] [--app]` then `cp`/`shasum` into `golden/`). Rule: after any shared-codegen change, run the FULL gate once before merge and regenerate every fixture it flags, tree-wide.
 
@@ -41,6 +43,13 @@ The gate checks CODEGEN; it cannot see the error message of an *invalid* program
 - Do NOT run two artifact-gates at once (yours + another session/worktree): they saturate cores and one gets KILLED mid-run. Exit 144 / 0-byte output = infrastructure kill, NOT a codegen regression — re-run alone, don't treat it as a diff (a real diff prints `artifact-gate: N tests … M diff(s)` + DIFF lines). Check `pgrep -f artifact-gate` (and `ps -o command=`) first. A killed run leaves stray untracked dump files (`tests/byte-identity/.../*.ncode`) — clean before re-running.
 - Never run `cargo` (even `cargo check`) while the gate/acceptance is using `target/debug/mfb`: macOS invalidates the in-place-modified Mach-O's signature, so every subsequent harness exec is SIGKILLed and the suite silently stops producing actuals (looks like a pile of "missing actual"). If the binary's mtime changed mid-run (`stat -f "%m" target/debug/mfb`), discard that run's actuals.
 
+- **Rebuilding `target/release/mfb` while a harness runs poisons that run.** Fixtures get built by two compilers: phantom `[exit 139]`s and goldens that "change again", all gone on a clean rerun. A reflexive `cargo build --release` counts.
+- **A binary built while a peer's commit lands does not contain it**, even though `git merge-base --is-ancestor` says the commit is in HEAD. The tell is a diff set matching exactly that commit's blast radius. Don't regenerate: check the binary is newer than the commit by more than a build's duration, touch the changed files, and rebuild.
+- **Wait on a harness by its log, not by `pgrep -f <script>`.** Your wait loop's own command line matches the pattern, and so do other sessions' waiters. On a lock collision the scripts exit 98; retry on exactly 98, with backoff.
+- **Give each background run's log a unique name.** A same-named `/tmp` log from an earlier session reads as the current result until the new run truncates it.
+- **Starved or hung?** Test output is buffered per binary, so a starved run can print nothing for many minutes. Sample `ps -o time= -p <test-binary-pid>` a minute apart: rising CPU time means it is working.
+- **A full `cargo test` in the shared main checkout blocks landing anything until it exits**; a fast-forward mid-run writes goldens underneath it. Run long suites in a dedicated worktree.
+
 ### A/B two artifact baselines (Linux)
 To show a codegen fix changed only what it should: `scripts/artifact-baseline.sh <old-mfb> capture /tmp/a.manifest` with the OLD compiler *before* rebuilding, again with the new, then `diff` the files yourself (`verify` mode only prints `head -80` and deletes its temp manifest). 11,154 hashes across all three Linux targets, fully local — replaces hours of emulated-hardware runtime proof (e.g. exactly 19 of 1014 fixtures, all reaching `fs::tempDirectory`). Note the `JOBS=10` + release-binary caveat for the Linux boxes (only one box has a Rust toolchain; cross-compile and ship).
 
@@ -59,9 +68,11 @@ cargo test --no-fail-fast -- --skip artifact_gate_all > /tmp/run.log 2>&1; echo 
 grep -c '^failures:' /tmp/run.log     # must be 0
 ```
 
-`--skip artifact_gate_all` matters too: `tests/golden.rs` holds exactly one test and it shells out to `scripts/artifact-gate.sh all`, so a plain `cargo test` **is** the full cross-target sweep.
+`--skip artifact_gate_all` matters too: `tests/gate/golden.rs` holds exactly one test and it shells out to `scripts/artifact-gate.sh all`, so a plain `cargo test` **is** the full cross-target sweep.
 
-## The plan-111 no-type-strings floor (`tests/no_type_strings.rs`)
+**`cargo test` is also fail-fast across test binaries.** It stops after the first failing binary, so one red early binary (the artifact gate, routinely) hides every later `rt_*` binary while the summary shows a single failure. Always pass `--no-fail-fast`. A red CI row has the same shape: it names only its first failing binary. Count the binaries each run reached (`grep -cE 'tests.[a-z_0-9]+\.rs \(target' <job-log>`) and check `gh run view <id> --json jobs` before deciding a fix did nothing.
+
+## The plan-111 no-type-strings floor (`tests/guards/no_type_strings.rs`)
 
 A whole-tree scan over eight needle classes — see `.ai/codegen-invariants.md` for the classes, the two exemptions and the two traps (the budget table is tight in both directions, so clearing sites without lowering the row is a red test; and it must not use `architecture_guards.rs`'s `code_above_tests`, which truncates a file at its first `#[cfg(test)]`).
 
@@ -92,11 +103,19 @@ Changing ANY byte of the embedded `_mfb_unicode_properties` table (e.g. packing 
 ### What churns the goldens #2: label renames (no machine-byte change)
 The `-ncode` output is a **textual JSON instruction dump** that contains label names verbatim (`{"op":"label","name":"..."}`, `{"op":"b.eq","target":"..._zero_skip"}`). So renaming a label — e.g. collapsing an inline loop onto a shared emitter whose label suffixes differ — changes the `.ncode` dump and its `.ncodesum` **even though the final encoded machine bytes are identical** (labels resolve to offsets; same instruction count → same offsets). Consequence: a "generic emitter" merge that only differs in label spelling is NOT free — it churns a committed golden. If the merge serves no structural goal, keep the loop inline (e.g. `crypto.rs` randomBytes zero-loop is kept inline). The `.ncodesum` hash catching label renames is CORRECT, not a false positive; to prove machine-byte identity independent of labels you'd diff `.nobj`/final bytes, but treating any `.ncode` change as golden churn is the right conservative stance.
 
+### What churns the goldens #3: a registry `description`
+A record, field, resource or variant `description` is rendered into the package's synthesized MFBASIC companion, so editing one shifts line numbers in every `.ir` golden of that package. `.ncode` does not move, so a `.ncodesum` check wrongly suggests nothing changed. Regenerate the package's `.ir` goldens and confirm the diff is only `"line"` numbers.
+
+### What churns the goldens #4: a new `standard_error_messages()` entry
+Every module that references an `_mfb_rt_fs_*` or `_mfb_rt_thread_*` symbol emits the whole `standard_error_messages()` list (`src/codegen/engine/builder/mod.rs`), whether or not it uses the other packages. A new package's error string must be added there, so it moves the fs, thread and http `.ncodesum` goldens on every target.
+
 ### Regenerating the goldens
 - The committed `.ncode`/`.ncodesum` are **RELEASE**-generated. Debug and release `mfb` from the SAME source emit identical `.ncode` (verified), but always run `scripts/artifact-gate.sh target/release/mfb all` for a true 0-diff.
 - **One regen script.** `scripts/regen-native-goldens.sh target/release/mfb [fixture-dir…]` rewrites every existing per-target native golden — raw `.ncode/.nir/.nplan/.nobj/.mir` and their `…sum` forms, `.app` variants included, anywhere under `tests/` — for the target named in its filename, with the host taken from `uname`. It never creates a golden and never writes one whose build failed, and it exits non-zero if any build failed. It replaced three overlapping scripts (plan-131-B). Run it, then re-run the gate to 0.
 - **Classify before you regenerate.** Run `artifact-gate.sh <exe> all` from a detached main-tip worktree FIRST (`git worktree add --detach /tmp/<x> main`, release build). If that baseline is `0 diff(s)`, every diff on your branch is yours and regenerating is correct; a baseline diff is a pre-existing stale golden and must be classified separately. A one-instruction change in the program entry (e.g. the `entry_error_code_write` staging) churns EVERY fixture on EVERY target — 125 goldens in plan-99 — because the entry stub is in every binary; that is expected, not a red flag.
 - `artifact-gate.sh` has **no accept/write mode**. Regenerate a `.ncodesum` by building the target's dump and writing its sha256: for each target token `t` in `golden/<pkg>.<t>.ncodesum`, `mfb build -q -ncode [-target <t>] [--app if t ends .app] <fixtureDir>` writes `<fixtureDir>/<pkg>.ncode`; then `shasum -a 256 … | cut -d' ' -f1 > golden/<pkg>.<t>.ncodesum`. Host target = `macos-aarch64` (no `-target`). Raw `.ncode` goldens (small backends) are `cp`'d instead of summed.
+
+- **A regen that rewrites more than the change explains has corrupted goldens.** Classify the changed files by target before committing: a real codegen change moves the fixtures that emit that code on every target, while a broken regen moves one target across unrelated fixtures. Compare `git status --porcelain | wc -l` with the predicted blast radius first.
 
 ## Acceptance golden harness mechanics (`scripts/test-accept.sh` / `sync-goldens.sh`)
 
@@ -168,6 +187,17 @@ Generating acceptance goldens for a NEW `tests/**` fixture:
 - On macOS aarch64 host only aarch64 native goldens are checked — x86/riscv `.ncode` shifts don't appear.
 - **test-accept.sh does NOT understand `.<ext>sum` goldens; artifact-gate.sh does.** The harness only checks the raw `.<ext>` golden (e.g. `.app.ncode`) when deciding which `-<flag>` to request and what to diff. So a fixture whose codegen dump is committed as a checksum (`.app.ncodesum`, because the raw dump is tens of MB) gets NO `-ncode` request from test-accept — the ncodesum is verified only by artifact-gate. Consequence: a sum-only fixture's `build.log` golden must NOT contain an `-ncode` command / "Wrote native code plan" line, or the harness (which no longer emits it) reds on the build.log diff. This bit `syntax/app/macos-app-mode-term` — its build.log was left referencing `-app … -ncode` after the `.app.ncode`→`.app.ncodesum` migration, while 116 console byte-identity siblings correctly show only `-ast -ir`. Fix = regen the build.log (drop the ncode line); ncodesum stays owned by artifact-gate.
 - **Per-fixture skip hook: `test-gate.sh`.** A fixture dir may ship an executable `test-gate.sh`; test-accept runs it from the fixture dir before the fixture, exit 0 = run, non-zero = skip with the gate's stdout as the logged reason (`[skip] <name>: <reason>`, counted separately in the summary, never a failure). For environment-dependent fixtures (e.g. the live-network `rt-behavior/tls/tls-connect-google-rt`) so an offline box skips loudly instead of reding. A filter matching only skipped fixtures is NOT "no tests matched".
+
+### Harness footguns
+
+- **`sync-goldens.sh`'s first argument is the mfb binary.** `sync-goldens.sh canvas` makes every build fail with exit 127, copies those results over every golden in the tree, and still reports `synced N golden file(s)` with exit 0.
+- **`test-accept.sh`'s second argument is a scratch directory it `rm -rf`s.** Goldens are read from `tests/` regardless; pass `mktemp -d`, never a real directory.
+- **A harness called without its binary argument prints usage and runs nothing.** Inside a wrapper that ignores the exit status, that looks like a pass. Believe only a summary line with a count (`N golden(s) checked` / `N test(s) ran`).
+- **Box-test scripts embed MFBASIC in heredocs that nothing compiles** (`scripts/test-canvas-vulkan.sh`, `test-winapp.sh`, `test-macapp.sh`). After renaming or removing a builtin member, `grep -rn '<old name>' scripts/` and build those programs; under `set -e` a failed build ends the script early and skips every later assertion.
+- **`tests/acceptance` is ONE project** (`project.json` globs `**/*.mfb`), so top-level `FUNC` names are shared across every suite file; prefix helpers with the package name. Unions are not comparable, so `expectEqual` can't take one — render it to a String first.
+- **Capture a new fixture's `build.log` with `mfb build -q`**, as the harness runs it, or it mismatches. `N test(s) ran` counts tests, not fixture directories; a nested `packages/<pkg>` counts separately.
+- **`mfb build -app` without `-target` builds for the host.** A test comparing two backends must pass `-target` on both sides, or on Linux CI the "macOS" side silently becomes the GTK backend.
+- **A golden that pins a compiler error or a fatal signal is a dead fixture**: it compares failure with failure. `only_syntax_goldens_may_pin_a_compiler_diagnostic` and `no_golden_pins_a_fatal_signal` (`tests/guards/architecture_guards.rs`) reject both; fix the fixture rather than exempting it.
 
 ### Registry/attestation fixtures need a hermetic MFB_HOME
 `mfb build` verifies an imported package's attestation against the key pinned at `$MFB_HOME/<sha256(repo-url)>/server.pub` (`local_paths_for_repo` in `src/cli/mod.rs`), defaulting to `$HOME/.mfb`. The harness never isolated this, so a fixture's output depended on the **machine**, not the code. Now `test-accept.sh` exports a per-run `mktemp -d` as `MFB_HOME`.
@@ -267,7 +297,9 @@ renderer draws offscreen and reads back — which is what makes it runnable at a
 since no reachable Linux box has one. Run it as
 `scripts/test-canvas-vulkan.sh <mfb> [--box <port>] [--libc glibc|musl]`; `--libc`
 must match the box (2228 is glibc, 2227 musl), because musl's loader absorbs the
-glibc compat sonames and the wrong one does not fail cleanly.
+glibc compat sonames and the wrong one does not fail cleanly. On 2227 also pass
+`--icd auto`: without it the script reports `vulkanReady=FALSE` and skips, which reads
+as nothing to test rather than a missing ICD.
 
 **Both skip when the GPU path was not taken, and both key that skip off the flag the
 renderer itself gates on** (`metalReady` / `vulkanReady`). A skip keyed off anything
@@ -276,6 +308,11 @@ a passing test can mean "the software path produced both frames". The tell for t
 failure is a GPU frame **byte-identical** to the oracle: two independent rasterisers
 do not agree to the byte by luck, so an exact match on a first run means the GPU path
 never ran.
+
+The reverse limit: agreement with the oracle cannot catch a bug in the oracle. When a
+change touches the software rasteriser and the shaders together, check the rasteriser
+independently — a hand-computed pixel, or a symmetry the picture must have (one source
+drawn at two offsets must give the same picture, translated).
 
 ## Perf timings never reach a golden (plan-130-B)
 
@@ -313,6 +350,10 @@ Two phantom reds this produced, both pure staleness (not regressions):
 - Full `cargo test` on main returned `CARGO_EXIT=101` with the new CLI depth tests panicking "killed by signal" — `target/release/mfb` was days old (pre-fix). Unit tests passed; only the release-subprocess tests failed.
 
 **How to apply:** before trusting a full-suite result that includes any `mfb_exe()` subprocess test, `cargo build --release --bin mfb` first (or check `ls -la target/release/mfb` mtime vs your last edit). A signal/behavior RED from a subprocess test on an otherwise-green tree is a stale-release smell → `rm target/release/mfb` and re-run. Debug-path repro (`target/debug/mfb`) stays correct because you rebuild it explicitly. Real CI with a fresh target dir never hits this; confirm at HEAD via a detached worktree.
+
+**Two staleness traps `mfb_exe()` doesn't cover.**
+- `mfb man` and `mfb spec` embed their content with `include_str!`, so an edit under `src/docs/spec/**` or to a registry descriptor is invisible until the binary is rebuilt. Rendering with an old binary looks exactly like the edit didn't land.
+- `cargo test --release --bin mfb` builds the test harness, not `target/release/mfb`. Run `cargo build --release --bin mfb` right before any hand-run `./target/release/mfb …` probe; a stale binary can reproduce a bug you already fixed.
 
 ## A pty helper must outlive its child, or macOS eats the output
 
@@ -535,6 +576,10 @@ than no result, because it is remembered as evidence.
 See also *"Negative-only assertions pass when the peer is unreachable"*: same failure,
 approached from the other side.
 
+## Negative-only assertions pass when the peer is unreachable
+
+A case that asserts only "it was rejected" also passes when nothing was reachable: a wedged server, a wrong port, a certificate that was never written. Three of the four cases in `tests/net/rt_tls_connect_allow_self_signed.rs` have this shape. In a suite of mostly-rejection cases, the one case that must SUCCEED is the only liveness check, so read it first. A harness that flips from failing everything to mostly green after an unrelated infrastructure change is more likely broken than fixed.
+
 ## A network-timing fixture can be flaky in BOTH directions
 
 A "peer went away" fixture has two independent failure modes, and fixing one
@@ -653,6 +698,10 @@ variable serialise nothing. Make it `pub(crate)` (its module too, if it is a
 the variable *on acquire*, as `env_guard` does, is worth copying — it means a test that
 panics mid-way cannot leak into the next one.
 
+**Writing tests that survive it.** `cargo test` runs each `#[test]` on its own thread in one process, so another test's data can land in any process-global you read (a trace sink, a counter, a dial). Look up your subject by a name no other test uses; never assert by index or on a whole collection's length (`children.len() == 1`, `buckets[0]`).
+
+**Panic hooks are process-global too.** A `std::panic::take_hook`/`set_hook` save-silence-restore races across test threads and can leave the whole binary silent. The tell is a test listed under `failures:` with no `---- <name> stdout ----` block. Use `crate::testutil::silence_panics`; `only_testutil_installs_a_panic_hook` rejects any other hook in `src/`.
+
 ## A `debug_assert!` runs on NO platform in CI (bug-550)
 
 Every job in `.github/workflows/coverage.yml` builds `--release`, on all five
@@ -741,3 +790,60 @@ ratified, not caught. That is why `oracles/crypto/argon2id` carries *three*
 opinions (its own reference, RustCrypto, OpenSSL) and why `packages/yaml` keeps
 PyYAML alongside the sharper 1.2 oracle — where two references disagree with each
 other is where the spec is worth re-reading.
+
+**Some official vectors exist only in machine-readable form.** WebFetch of an RFC page can
+truncate before the vector appendix, and the summary will invent a section rather than
+say so. RFC 9180 (HPKE) prints only some suites; CFRG's `test-vectors.json`
+(`https://raw.githubusercontent.com/cfrg/draft-irtf-cfrg-hpke/master/test-vectors.json`)
+has all of them, including X448 with ChaCha20-Poly1305. `curl` it.
+
+## A test that reads a file is a pin only if `git ls-files` lists the file
+
+A gitignored artifact (any `packages/**/*.mfp`) makes a test pass on a machine that happens to have built it and fail on every fresh clone. For each path a test reads, require `git ls-files <path>` to be non-empty, or generate the file inside the test. Run a new suite once from `git worktree add --detach /tmp/x HEAD`.
+
+## A codegen fix usually can't be proven RED by an `rt-behavior` fixture
+
+Revert the fix, rebuild release, and confirm the new test fails before trusting it. Register-clobber, stack-slot and import-set fixes often won't: the allocator keeps the value alive anyway, the slot layout doesn't collide, or another call pulls in the missing import. Pure leak fixes print the same output either way. Guard these with a codegen-inspection test that builds a fixture and asserts on the emitted `.ncode` or import set.
+
+The reverse: when a codegen-inspection `rt_*` test goes red after a layout or ABI change, the codegen is usually right and the test's hardcoded offset or op-adjacency constant is stale (integration tests can't import `pub(crate)` constants). Dump the `.ncode` and check the invariant before hunting a regression.
+
+## `src/**` coverage comes only from the `--bins` unit tests
+
+`mfb` has no `[lib]` target, so nothing under `tests/` links `src/**`; those tests spawn `target/release/mfb`, whose profile is never merged. While iterating, run `scripts/coverage.sh --bins` (minutes, not hours); the in-process seam for a lowering path is `testutil::code_for_src_on` / `testutil::app_code_cached`. `repository/` is the opposite: it is a library, so its integration tests count, and a `--bins` run understates it.
+
+- Rank gaps with `scripts/coverage-report.py gaps` / `delta`, which apply `scripts/coverage-exceptions.txt` as `scripts/coverage-check.sh` does. A census over raw `llvm-cov` JSON points at files the gate already excuses. In the delta line `below N%: A -> B`, `A == B` means the work didn't move the gate.
+- `// coverage:off` comments are not enforced; only the exceptions file changes the gate.
+- A test module counts in its own file's denominator unless it lives under a `tests/` directory (`IGNORE` in `scripts/coverage-common.sh`). Inside one, `unwrap_or_else(|e| panic!(…))`, `let … else { panic!() }` and match alternatives that never fire are permanently uncovered regions.
+- Adding a `#[cfg(test)] mod` to a package `mod.rs` makes its `func_*::register` calls countable; cover them with a test that registers the package and asserts its member list.
+
+## Repository crate: which tests gate a change
+
+- `server.rs`/`store.rs` tests are in the LIB target. `cargo test --bin mfb-repo <filter>` reports `0 passed … filtered out`; run `cargo test --lib <filter>` from `repository/`.
+- The acceptance suite for a repository change is `tests/cli/cli_repo_*.rs` (root crate). It compiles `repository/src` as a dependency, so run it from a detached worktree, not the tree you're editing.
+- `artifact-gate.sh` can't see `repository/` at all; a green gate says nothing about it.
+- Per-package authorization must use `packages.owner_id` (`package_owner`), never the ident's `owner#` prefix, which is frozen at first publish.
+
+## An RSS leak pin calibrated on macOS passes on Linux with the leak present
+
+Peak-RSS growth per iteration is about 4× smaller on Linux, and the arena chunk floor hides it entirely at low counts. Calibrate at 200k iterations or more and confirm on a Linux box. Measure RSS with `--test-threads=1`; parallel tests produce bogus failures.
+
+## Pin an allocation formula with `--debug` `alloc_bytes`, not RSS
+
+A `mfb build --debug` program prints a report on STDERR, between `mfb.debug.begin` and `mfb.debug.end 1` (on Linux, run the `-glibc.out`). Its `arena.0.alloc_bytes` is the sum of every request the arena served, freed or not, alongside `alloc_calls` and `peak_live_bytes`. Unlike RSS, these counters are exact and the same on every host: a 16 MiB append program reported identical `alloc_bytes` and `peak_live_bytes` on macos-aarch64 and linux-aarch64-glibc, while its peak RSS differed.
+
+So a test can bound them by a formula with no tuned slack. Replay the growth sequence, sum each generation's block size rounded up to 16 bytes, and add the same program's `alloc_bytes` at n = 0. `tests/runtime/rt_list_append_growth_bounds.rs` does this for every in-place grow arm. A model built this way matched measurements to within that rounding, so a miss is a real finding. The first miss there was exactly 16 bytes per generation: a record-field grow reallocates the record's field-slot prefix along with the list.
+
+A Byte-vs-Integer element contrast shows a reservation that ignores element width, but on its own it can miss one. A bulk append of 8-byte chunks binds on data before count, so it measured Byte < Integer while still over-reserving. Pair the contrast with the formula bound.
+
+## A grep census under-reports
+
+Each of these was found after a census was declared complete, and re-running the same command reproduced the blind spot:
+
+- **Count an effect by its shared vocabulary, not one helper.** Runtime-error sites counted by one helper name under a non-recursive glob (`src/target/shared/code/*.rs`) found ~48 of ~330; every real site references an `ERR_*_SYMBOL`/`ERR_*_CODE` constant or writes `RESULT_ERROR_MESSAGE_REGISTER`.
+- **An exclusion filter can match a real directory.** `-not -path '*/packages/*'` also drops `tests/syntax/packages/`. Run once without the filter and diff.
+- **Wrapped text hides tokens.** rustfmt puts `spec`, `.abi` and `.params` on separate lines, and Markdown wraps split backticked phrases. Grep the bare field name or the rendered `mfb spec … --all` output — or delete the field and let `cargo check` list every reader.
+- **A name also appears outside call syntax**: MFBASIC inside Rust string literals, and bare-name lists like `&["rgb", "rgba"]`. Grep the quoted name in `*.rs` too.
+
+## A fault that only reproduces on a CI runner
+
+Stop trying to reproduce it locally. Push a throwaway workflow on a branch that runs the program under `gdb -batch -ex run -ex bt -ex 'thread apply all bt' -ex 'info registers'`, keep large output after the backtrace, land only the fix, and delete the branch.

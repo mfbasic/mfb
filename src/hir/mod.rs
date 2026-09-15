@@ -204,7 +204,9 @@ pub(crate) struct HirLinkParam {
     pub(crate) resource: bool,
     /// The `STATE T` type attached to a `RES` parameter, if any.
     pub(crate) state_type: Option<ParameterType>,
-    pub(crate) default: Option<crate::ast::Expression>,
+    /// plan-136-A: elaborated like a FUNC/SUB default, so it can be resolved and
+    /// lowered at the declaration.
+    pub(crate) default: Option<HirExpression>,
     pub(crate) line: usize,
 }
 
@@ -655,7 +657,10 @@ fn elaborate_link_function(function: &crate::ast::LinkFunction) -> HirLinkFuncti
                 type_: p.type_name.as_deref().map(ParameterType::parse),
                 resource: p.resource,
                 state_type: p.state_type.as_deref().map(ParameterType::parse),
-                default: p.default.clone(),
+                default: p
+                    .default
+                    .as_ref()
+                    .map(|value| elaborate_expression(value, &[])),
                 line: p.line,
             })
             .collect(),

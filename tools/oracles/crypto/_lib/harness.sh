@@ -23,8 +23,10 @@ die() { printf '%s\n' "$*" >&2; exit 2; }
 # oracle_init <path-to-run.sh> [mfb-binary]
 oracle_init() {
   HERE=$(cd "$(dirname "$1")" && pwd) || exit 2
-  # <repo>/tools/oracles/crypto/<name>/run.sh -> up four to the repo root.
-  ROOT=$(cd "$HERE/../../../.." && pwd) || exit 2
+  # The repo root, however deep the caller sits: crypto's oracles are
+  # <repo>/tools/oracles/crypto/<name>/run.sh, compress's is
+  # <repo>/tools/oracles/compress/run.sh, so a fixed "up four" fits only crypto.
+  ROOT=$(git -C "$HERE" rev-parse --show-toplevel) || exit 2
   shift
 
   WORK=$(mktemp -d "${TMPDIR:-/tmp}/mfb-oracle.XXXXXX") || exit 2

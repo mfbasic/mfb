@@ -440,6 +440,10 @@ different bug surfaces. Resolve it in the plan: either point canvas at `compress
 state explicitly why PNG keeps its own (canvas may need it without a zlib dependency on
 some target). Not a defect at HEAD — a design question for the plan.
 
+**Resolved 2026-09-14 by plan-137-C:** canvas's PNG decoder inflates through `compress::zlibDecode`
+and `helper_inflate.rs` is deleted; `compress::` is pure MFBASIC (no zlib dependency), so there is
+one inflate in the tree.
+
 ---
 
 **Every normal ending already passes through `_mfb_shutdown`:** normal return, `EXIT PROGRAM`, untrapped errors, and SIGINT/SIGTERM on Unix console builds.
@@ -475,19 +479,178 @@ Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` report
 
 **Still open — none of these three is delivered by plan-130:**
 
-1. **RSS over time per thread.** The report has only end-of-run values (per-arena
+1. **RSS over time per thread.** The report had only end-of-run values (per-arena
    `peak_live_bytes`, process `peak_rss_bytes`), not a time series.
+   **Done (plan-133-C, `planning/completed/plan-133-C-*`):** every arena now reports a
+   series sampled on grow, at most 256 samples, with the last sample always the latest grow
+   (`mfb spec tooling debug-report`). The keys are `arena.<n>.series.count` and
+   `arena.<n>.series.<i>.t_ns`, `.mapped_bytes`, `.live_bytes` and `.peak_rss_bytes`.
+   Sampling every grow costs +1.4 % of a browser load on 2223 (8,022 vs 7,914 ms median).
+   **First data, 2026-09-13, box 2223:** a `--debug` linux-aarch64 browser loading
+   `https://en.wikipedia.org/wiki/Main_Page`. The worker arena (`arena.1`) made 189,654 grows,
+   and its series kept 188 samples. Selected rows:
+
+   | sample | t (ms) | mapped MiB | live MiB | peak RSS MiB |
+   |---:|---:|---:|---:|---:|
+   | 0 | 955.5 | 0.0 | 0.0 | 4.7 |
+   | 1 | 1,595.8 | 28.6 | 3.8 | 42.8 |
+   | 20 | 3,934.0 | 144.4 | 90.7 | 160.6 |
+   | 60 | 5,051.5 | 305.3 | 249.8 | 321.6 |
+   | 100 | 6,198.6 | 465.3 | 407.7 | 481.6 |
+   | 140 | 7,334.4 | 623.8 | 564.2 | 640.1 |
+   | 180 | 8,495.1 | 783.9 | 722.9 | 800.2 |
+   | 187 | 8,640.3 | 818.9 | 730.7 | 835.1 |
+
+   From 1.6 s on, live bytes grow steadily, about 140 MiB per second. From 3.9 s they stay
+   54–61 MiB below mapped, and the gap widens to 88 MiB at the last sample. The worker never gives memory back during the load (`arena.1.unmaps 0` against 189,654
+   maps and 70,951,911 frees): it ends at `live_bytes`
+   751,305,104 of `mapped_bytes` 858,677,248.
 2. **Measure the entropy-fill cost** on grow and free (fill on vs off), to know its share of
    every number below. Measurement only; the fill stays.
+   **Measured 2026-09-13 (plan-133-B Phase 2), box 2223** (native aarch64, 4 KiB pages; load
+   0.16–0.45). The whole `benchmark/mfb` suite was built at `b31e6abf8` twice: normally, and
+   with a throwaway one-line patch that makes `_mfb_arena_fill_random` return at entry. Each
+   build ran `--run 3`, and per-`section.row` medians were compared with plan-130-C's script.
+   Checksums were identical in every run.
+
+   | pair (normal → fill-off) | geomean over 485 rows | rows ≥ 0.05 ms |
+   |---|---:|---:|
+   | normal first, fill-off second | x0.701 | x0.699 over 456 |
+   | fill-off first, normal second | x0.710 | — |
+   | noise: normal vs normal, across the two positions | x0.999 | — |
+   | noise: fill-off vs fill-off, across the two positions | x1.012 | — |
+
+   With the fill off, the suite runs about **29–30% faster by geomean**, the same in both run
+   orders. Summed medians fall from 4,103.2 to 3,271.1 ms. The ten arena-heavy rows (first
+   pair / swapped pair): bignum.modmul x1.034 / x0.999, bignum.modexp x1.036 / x1.006,
+   crypto.churn x0.939 / x0.924, arena.transient x0.941 / x0.898, arena.mixed x0.964 / x0.811,
+   arena.growshrink x0.828 / x0.710, scalarbench.listchurn x0.889 / x0.789, mapchurn.churn
+   x1.008 / x0.997, datetime.civil x0.888 / x0.956, datetime.iso x1.011 / x1.000. **Single rows
+   are noisy:** the same build against itself swings rows by up to x1.42 (`io.binary`), so only
+   the geomean is a result. Tables: `/tmp/plan-133-b/ab/2223-*.table`.
+
+   **macOS host** (16 KiB pages), the same two builds compiled natively and run normal then
+   fill-off, `--run 3` (18:50:47 → 18:51:10; 1-minute load 4.08 → 4.21, of which three UTM VMs
+   use ~2.7 cores all the time; checksums identical): geomean normal → fill-off **x0.702** over
+   485 rows, the same as 2223. Named rows: bignum.modmul x0.991, bignum.modexp x0.998,
+   crypto.churn x0.941, arena.transient x0.847, arena.mixed x0.899, arena.growshrink x0.701,
+   scalarbench.listchurn x0.783, mapchurn.churn x0.988, datetime.civil x0.856, datetime.iso
+   x0.980. An earlier pair that ran under a peer's `rustc` (load 8.96–12.93) read x0.615 and was
+   discarded (plan-133-B Corrections).
+
+   **Browser `Main_Page` load, box 2223**, normal vs fill-off browser builds, 3 runs each back
+   to back (21:50:31 → 21:51:21, load 0.09 → 0.49). Timed with `tools/browser-load-timer` from
+   Enter to the footer's file count, so it includes the live network fetch.
+
+   | build | runs (ms) | median |
+   |---|---|---:|
+   | normal | 7,300 / 7,451 / 7,366 | 7,366 ms |
+   | fill-off | 6,192 / 6,077 / 6,097 | 6,097 ms |
+
+   With the fill off, the page loads **~17% faster** (x0.828). The spread within each build
+   (≈150 ms and ≈115 ms) is small against the 1,269 ms gap.
+
+   **The fill counters from one `--debug` `Main_Page` load, box 2223** (normal compiler,
+   `load_ms=7832 exit=0`):
+
+   | arena | `alloc_bytes` | grow fill (calls / bytes) | free scrub (calls of `free_calls` / bytes) | fill bytes / `alloc_bytes` |
+   |---|---:|---|---|---:|
+   | main | 413,581,616 | 5,125 / 121,716,576 | 323,463 of 373,655 / 402,924,592 | 126.9% |
+   | worker | 5,887,087,504 | 189,654 / 852,608,320 | 23,813,366 of 70,951,911 / 4,000,551,824 | 82.4% |
+   | both | 6,300,669,120 | 194,779 / 974,324,896 | 24,136,829 of 71,325,566 / 4,403,476,416 | **85.4%** |
+
+   Over one page load the fill writes bytes equal to 85% of everything the program allocates.
+   The main arena reads over 100% because each grow fills a whole fresh block before the program
+   uses it. The counters check out exactly: `fill_grow_calls == grow`, `fill_grow_bytes ==
+   mapped_bytes − 32 × grow`, and `free_bytes − fill_free_bytes == 16 × free_calls` (5,978,480
+   and 1,135,230,576) in both arenas. Two of every three worker frees (47.1 M) are 16 B chunks,
+   which have no payload to scrub.
 3. **Add an app-sized soak test**: a large parse or long server loop whose peak RSS must stay
    flat across iteration counts. The existing leak tests only cover small code shapes, so
    none of the Bucket List was caught. It fails today and tells you when a fix works.
+   **Landed (plan-133-A, 2026-09-13): `tests/runtime/rt_debug_soak.rs`.** Each case builds a
+   workload at N and 2N with `--debug` and requires the main arena's `live_bytes` to grow by
+   less than 1 MiB. It asserts on `live_bytes`, not RSS, because RSS is 4× `mapped_bytes` on
+   Apple Silicon (Bucket List 12a). Status from one full run of that test binary with
+   `-- --include-ignored` (release build, 2026-09-13): 2 passed, 5 failed as intended, 144 s.
+
+   | case | N / 2N | status |
+   |---|---|---|
+   | `a_flat_split_loop_keeps_live_bytes_constant` (control) | 20 / 40 | passes |
+   | `a_json_parse_loop_keeps_live_bytes_constant` (plan-134 guard, 1.1 MiB array) | 20 / 40 | passes |
+   | `a_dom_parse_loop_keeps_live_bytes_constant` (saved `BASIC` page) | 1 / 2 | `#[ignore]` bug-620/621; fails: +8,318,848 B |
+   | `a_resolve_styles_loop_keeps_live_bytes_constant` (generated page, 60 rules) | 4 / 8 | `#[ignore]` bug-620/621; fails: +24,608,640 B |
+   | `a_thread_copy_back_loop_keeps_live_bytes_constant` | 400 / 800 | `#[ignore]` bug-622; fails: +2,912,000 B |
+   | `an_http_read_loop_keeps_live_bytes_constant` (loopback plain HTTP) | 20 / 40 | `#[ignore]` bug-623; fails: +1,314,240 B |
+   | `a_paint_loop_keeps_live_bytes_constant` (small styled page, layout + canvas) | 2000 / 4000 | `#[ignore]` bug-620/621 + bug-625; fails: +1,920,000 B (960 B per paint) |
+
+   Each bug's fix removes its case's `#[ignore]` as its acceptance.
 
 ### 2. Find the browser's actual problem
 
 1. **Never freed, or freed but not reused?** Parse the same saved Wikipedia HTML with
    `dom::parse` twice on the main thread (no threads) and compare maps/RSS after the first
    and second parse.
+   **Measured 2026-09-13** (plan-133-A Phase 1; main `14c9fc1ca`, after plan-134; macOS host;
+   `target/release/mfb build --debug` of a scratch project importing `examples/browser/dom`
+   as a source package; `dom::parse` of the saved 603,614-byte `BASIC` page in a loop on the
+   main thread; harness `/tmp/plan-133-a/run.sh`). The control is `strings::split(html, "<")`
+   in the same loop.
+
+   | stage | N | `live_bytes` | `alloc_calls` | `free_calls` |
+   |---|---:|---:|---:|---:|
+   | `dom::parse` | 1 | 8,332,368 | 1,706,679 | 1,651,068 |
+   | `dom::parse` | 2 | 16,651,216 | 3,413,352 | 3,302,132 |
+   | control | 1 | 13,520 | 7 | 5 |
+   | control | 2 | 13,520 | 8 | 6 |
+
+   Verdict: **never freed.** Each `dom::parse` leaves 8,318,848 B live — 55,609 of its
+   1,706,673 allocations are never freed — while the control reads flat.
+
+   **Every stage, measured 2026-09-13** (plan-133-A Phase 2; same host, build and harness).
+   Each stage runs the worker's calls in the worker's order on the saved `BASIC` page and its
+   two stylesheets (224,723 B + 6,839 B, fetched once); earlier stages run once before the
+   loop. Leak per call = `live_bytes(2N) − live_bytes(N)` over N. "Owned" = the leak left
+   after rewriting the named bugs' sites in a scratch copy of the package
+   (`/tmp/plan-133-a/patch_dom.py`: 13 sites bound to a `LET` first; the repo is untouched).
+
+   | stage | N / 2N | leak per call (B) | alloc / free per call | owner | with bug-620/621 sites rewritten |
+   |---|---|---:|---|---|---:|
+   | parse (`dom::parse`) | 1 / 2 | 8,318,848 | 1,706,673 / 1,651,064 | bug-620, bug-621 | 0 |
+   | style links (`dom::styleLinks`) | 1 / 2 | 0 | 10 / 10 | flat | — |
+   | attach css (`dom::attachCss`) | 1 / 2 | 0 | 43,726 / 43,726 | flat | — |
+   | resolve styles (`dom::resolveStyles`) | 1 / 2 | 718,525,504 | 112,385,542 / 71,000,608 | bug-620, bug-621 | 0 |
+   | index fields (`dom::indexFields`) | 1 / 2 | 0 | 45,158 / 45,158 | flat | — |
+   | copy-back (worker → `thread::waitFor`, main arena) | 1 / 2 | 5,268,592 | 963 / 3 | bug-622 | 5,268,592 (not those sites) |
+   | links/fields (`display::links`, `dom::fieldSpecs`) | 1 / 2 | 0 | 43,339 / 43,339 | flat | — |
+   | paint (`display::paint`, incl. `dom::updateLayout`) | 1 / 2 | 89,520 | 130,509 / 129,759 | bug-620, bug-621 (87,888); bug-625 (1,632 = 34 × the 48 B one `AttributedString` leaks; the row count is inferred, not counted) | 1,632 |
+   | fetch (`http::read`, HTTPS, `BASIC`) | 1 / 2 / 4 | 384 | ≈5 blocks unfreed | bug-623 | — |
+   | fetch, plain HTTP over loopback (6,839-byte body) | 20 / 40 | 62,435 | 216 / 211 | bug-623 | — |
+   | control (`strings::split(html, "<")`) | 1 / 2 | 0 | 1 / 1 | flat | — |
+
+   The two shapes behind bug-620/621, each reproduced in one screen with no browser code:
+   `IF strings::lower(s) <> "zz" THEN RETURN FALSE` leaks the condition's `String` on every
+   early return (16 B per call; flat when bound to a `LET` first or when the condition is
+   false), and `DO WHILE i < n AND strings::mid(s, i, 1) <> "="` frees its condition temp once
+   per loop instead of once per pass (8 blocks per call over a 9-character run). Also filed
+   while probing: bug-624 (a package's private `TYPE` collides with a same-named program type).
+
+   **Do the stages account for the worker? Yes, within 1%** (plan-133-A Phase 3). One page load
+   runs parse + style links + attach css + resolve styles + index fields once, and the worker
+   also keeps the document it returns (its arena is never reclaimed, Bucket List 1).
+
+   | page | sum of stage leaks + returned document (host) | worker arena, one real run of the pipeline (host) | worker on box 2223 (2026-09-13) | host / 2223 |
+   |---|---:|---:|---:|---:|
+   | `BASIC` | 8,318,848 + 0 + 0 + 718,525,504 + 0 + 5,261,472 = 732,105,824 | 732,119,344 (`copyback` N=1) | 735,804,400 | 99.5% |
+   | `Main_Page` | — (stages not run separately) | 749,061,840 (`copyback_mp` N=1) | 751,305,088 | 99.7% |
+
+   With the bug-620/621 sites rewritten, the `Main_Page` worker arena ends holding 4,239,824 B,
+   the same size as the main arena's copy (4,246,928 B). So bug-620 and bug-621 own
+   744,822,016 B of the worker's 751 MB, and the rest is the returned page. The main arena's
+   per-load growth is bug-622, whose result copy is 4.2–5.3 MB per page. The worker figure on
+   2223 is 0.3–0.5% above the host's. Not measured why; a guess is that the pages changed
+   between the 2223 run and the host's fetch, or that the host run skipped something the live
+   fetch does (redirects, the HTTP response).
 2. **Alloc vs free call counts** during one browser page load (gdb breakpoint counts on
    box 2223, or the plan-67-F perf rows on macOS). A free count near the alloc count means
    reuse is the problem; a tiny free count means values are never freed.
@@ -607,6 +770,13 @@ Look into:
     requests of 43–129 MB, 611,160,064 bytes mapped in total.
 12. **Verify the spec's "O(1) amortized regardless of the size mix" claim** once 2–5 land;
     today a mix of large sizes defeats reuse.
+12a. **On Apple Silicon each 4 KiB default arena block costs a 16 KiB page** (plan-133-A,
+    2026-09-12). Page size: 16,384 on the macOS host (`sysctl -n hw.pagesize`) vs 4,096 on
+    box 2223 (`getconf PAGESIZE`). A `json::parse` loop over a 1,146,842-byte array (N=20,
+    before plan-134) mapped 269,946 blocks; `maps × 16,384` = 4,422,795,264 B against a peak
+    RSS of 4,452,155,392 B, so RSS ≈ 4× `mapped_bytes` on macOS and ≈ `mapped_bytes` on 2223.
+    Any RSS comparison across the two hosts is off by that factor; weigh it with A/B 5 (default
+    block size).
 
 No testing needed:
 
@@ -616,3 +786,88 @@ No testing needed:
 14. **`threading/08_queue-semantics.md:170`** says the runtime bulk-reclaims the worker arena
     at teardown; nothing does (same gap as 1).
 
+---
+
+# Proposed API: `compress::`, `zip::`, `tar::`
+
+This is a design proposal only; I haven't changed any files. Names follow what the tree already does: `List OF Byte` for binary data, parameter defaults written in the declaration (plan-136), `Err*` error constants for builtins (like `crypto::ErrAuthenticationFailed`), and `Error*` constants exported with `EXPORT LET` for packages (like `jwt::ErrorExpired`).
+
+## `compress::` — builtin (row 4)
+
+- FUNC gzipEncode(data AS List OF Byte, level AS Integer = 6) AS List OF Byte
+- FUNC gzipDecode(data AS List OF Byte, maxBytes AS Integer = 67108864) AS List OF Byte
+- FUNC zlibEncode(data AS List OF Byte, level AS Integer = 6) AS List OF Byte
+- FUNC zlibDecode(data AS List OF Byte, maxBytes AS Integer = 67108864) AS List OF Byte
+- FUNC deflate(data AS List OF Byte, level AS Integer = 6) AS List OF Byte
+- FUNC inflate(data AS List OF Byte, maxBytes AS Integer = 67108864) AS List OF Byte
+- FUNC crc32(data AS List OF Byte, running AS Integer = 0) AS Integer
+- LET ErrInvalidFormat, ErrTooLarge, ErrUnavailable
+
+Notes:
+- **`level`** goes from 0 to 9, the same as zlib.
+- **`maxBytes`** caps how much a decode can produce, so a "zip bomb" fails with `ErrTooLarge` instead of using up memory. The default matches http's 64 MiB body limit.
+- **`gzipDecode`** accepts several gzip members joined end to end, as `gzip(1)` does.
+- **`ErrUnavailable`** means zlib couldn't be loaded, which is expected on Windows for now.
+- **`crc32`** has a `running` value so a checksum can be built up over several calls. `zip::` needs CRC-32 for every entry, and computing it in MFB code over large entries would be slow.
+- **`zlibEncode`/`zlibDecode` are new compared with plan-93-A, and this matters.** plan-93-A pairs raw `inflate` with HTTP `deflate`. RFC 9110 §8.4.1.2 defines HTTP `deflate` as zlib-wrapped data (RFC 1950), not raw DEFLATE. Plan 93-B/C should use the zlib pair; `zip::` uses raw `deflate`/`inflate`.
+
+## `zip::` — package written in MFB (row 5)
+
+- TYPE Entry — `name AS String`, `isDirectory AS Boolean`, `method AS Integer`, `size AS Integer`, `compressedSize AS Integer`, `crc AS Integer`, `modifiedSeconds AS Integer`, `mode AS Integer`, `comment AS String`
+- TYPE Archive — the parsed central directory plus the source bytes
+- TYPE Builder — an archive being written; each call returns an updated copy
+- FUNC open(data AS List OF Byte) AS Archive
+- FUNC entries(archive AS Archive) AS List OF Entry
+- FUNC comment(archive AS Archive) AS String
+- FUNC has(archive AS Archive, name AS String) AS Boolean
+- FUNC find(archive AS Archive, name AS String) AS Entry
+- FUNC read(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS List OF Byte
+- FUNC readText(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS String
+- FUNC extractTo(archive AS Archive, directory AS String, maxTotalBytes AS Integer = 1073741824) AS Integer
+- FUNC create() AS Builder
+- FUNC addFile(builder AS Builder, name AS String, data AS List OF Byte, store AS Boolean = FALSE, modifiedSeconds AS Integer = 0) AS Builder
+- FUNC addText(builder AS Builder, name AS String, text AS String, store AS Boolean = FALSE) AS Builder
+- FUNC addDirectory(builder AS Builder, name AS String) AS Builder
+- FUNC finish(builder AS Builder, comment AS String = "") AS List OF Byte
+- LET MethodStored = 0, MethodDeflate = 8
+- LET ErrorInvalid, ErrorUnsupported, ErrorChecksum, ErrorNotFound, ErrorTooLarge, ErrorUnsafePath
+
+Notes:
+- **Reading:** `open` finds the end-of-archive record and reads ZIP64 archives.
+- **File names:** if the UTF-8 flag is off, names are decoded as CP437 with `encoding::codepageDecode`.
+- **Checksums:** `read` checks each entry's CRC, and a mismatch raises `ErrorChecksum`.
+- **Duplicate names:** `read` takes an `Entry` rather than a name, because a zip file can hold two entries with the same name.
+- **`extractTo`** rejects absolute paths, `..`, and anything that would land outside `directory` (checked with `fs::isWithin`). It returns the number of files written.
+- **Not supported:** encrypted entries and compression methods other than 0 or 8 raise `ErrorUnsupported`.
+- **Writing `.epub` and `.odt`:** these need their `mimetype` entry first and uncompressed. Adding it first with `store := TRUE` does that.
+
+## `tar::` — package written in MFB (row 5)
+
+- TYPE Entry — `name AS String`, `kind AS Integer`, `size AS Integer`, `mode AS Integer`, `modifiedSeconds AS Integer`, `uid AS Integer`, `gid AS Integer`, `user AS String`, `group AS String`, `linkTarget AS String`
+- TYPE Archive
+- TYPE Builder
+- FUNC open(data AS List OF Byte) AS Archive
+- FUNC entries(archive AS Archive) AS List OF Entry
+- FUNC has(archive AS Archive, name AS String) AS Boolean
+- FUNC find(archive AS Archive, name AS String) AS Entry
+- FUNC read(archive AS Archive, entry AS Entry) AS List OF Byte
+- FUNC readText(archive AS Archive, entry AS Entry) AS String
+- FUNC extractTo(archive AS Archive, directory AS String, maxTotalBytes AS Integer = 1073741824) AS Integer
+- FUNC create() AS Builder
+- FUNC addFile(builder AS Builder, name AS String, data AS List OF Byte, mode AS Integer = 420, modifiedSeconds AS Integer = 0) AS Builder
+- FUNC addText(builder AS Builder, name AS String, text AS String, mode AS Integer = 420) AS Builder
+- FUNC addDirectory(builder AS Builder, name AS String, mode AS Integer = 493) AS Builder
+- FUNC addSymlink(builder AS Builder, name AS String, target AS String) AS Builder
+- FUNC finish(builder AS Builder) AS List OF Byte
+- LET KindFile, KindDirectory, KindSymlink, KindHardlink, KindOther
+- LET ErrorInvalid, ErrorChecksum, ErrorNotFound, ErrorTooLarge, ErrorUnsafePath
+
+Notes:
+- **Reading:** `open` handles plain ustar, PAX extended headers, and GNU long names.
+- **Writing:** `finish` writes ustar and adds PAX headers only when a name or size doesn't fit.
+- **`.tar.gz`:** there's no separate `tgz` function. You combine them: `tar::open(compress::gzipDecode(bytes, limit))`, and `compress::gzipEncode(tar::finish(b))` to write. This keeps `tar::` independent of zlib.
+- **Extraction safety:** `extractTo` applies the same path checks as zip. It also refuses symlinks and hardlinks that point outside `directory`.
+
+## Two open points
+- **Windows:** `zip::` still reads and writes uncompressed (method 0) entries there, but anything compressed raises `compress::ErrUnavailable`. That's the Windows gap plan-93-A already defers, and it now reaches these packages too.
+- **Defaults in packages:** the `addFile(..., store := TRUE)` style needs plan-136 B, which fills in omitted arguments for callers of a package. The commit `caf191edd` says it landed, but I haven't checked that. If it isn't working, the defaults turn into overloads.

@@ -1,0 +1,17 @@
+{
+  "name": "local_names_distinct_from_top_level_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "plan-136-C: locals that do NOT collide with a visible top-level LET/MUT keep building and running.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "scopepkg",
+      "version": "=0.1.0",
+      "source": "file:packages/scopepkg"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

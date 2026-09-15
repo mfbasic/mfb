@@ -1,8 +1,8 @@
 # plan-93-D: JS/static MIME types by file extension
 
-Last updated: 2026-08-09
+Last updated: 2026-09-13
 Effort: small (<1h)
-Depends on: nothing (independent of the gzip and cookie letters)
+Depends on: nothing (independent of the cookie letters)
 
 `http::respondFile` / `http::respondPath` serve any file whose caller-supplied
 content type is `""` as `application/octet-stream`
@@ -24,7 +24,6 @@ References:
 
 ## Prerequisites
 
-Uses the shared feature gate in plan-93-A only for "tree builds & tests green".
 No dependency on any other letter; can land before or after them.
 
 | Must be true | Command | Status |
@@ -153,6 +152,6 @@ Commit: —
 ## Summary
 
 The smallest, lowest-risk letter — a curated static table and two call-site edits,
-pure MFBASIC, no native code, no dependency on the gzip primitive. The only open
+pure MFBASIC, no native code. The only open
 question is whether `RES File` exposes its name inside `respondFile`; `respondPath`
 always has the path.

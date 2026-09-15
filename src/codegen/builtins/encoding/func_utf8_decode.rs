@@ -77,13 +77,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![value(ParameterType::list_of(ParameterType::Byte))],
                 return_type: ParameterType::String,
-                errors: vec![],
+                errors: vec!["ErrInvalidFormat"],
                 body: Body::Intrinsic,
             },
             Implementation {
                 params: vec![value(ParameterType::list_of(ParameterType::Integer))],
                 return_type: ParameterType::String,
-                errors: vec![],
+                errors: vec!["ErrInvalidFormat"],
                 body: Body::Intrinsic,
             },
         ],

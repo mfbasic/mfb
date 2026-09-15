@@ -3004,7 +3004,7 @@ fn flatness_walk(
         // `record_field_is_pointer` in the `else` has none either, so the walk
         // answered `true` for both modes.
         //
-        // It is emphatically not flat. The value is a pointer to a 120-byte
+        // It is emphatically not flat. The value is a pointer to a
         // `THREAD_BLOCK_SIZE` block that itself holds POINTERS — to the inbound
         // and outbound message queues and to both resource queues
         // (`THREAD_OFFSET_RESOURCE_INBOUND_QUEUE` = 104,
@@ -3960,7 +3960,7 @@ mod res_field_record_layout_tests {
     /// BOTH by the same accident as a user-declared resource — no arm matched it,
     /// and `record_field_is_pointer` in the `else` has no arm either.
     ///
-    /// The value is a pointer to a 120-byte `THREAD_BLOCK_SIZE` block that itself
+    /// The value is a pointer to a `THREAD_BLOCK_SIZE` block that itself
     /// holds pointers to four queues, so "memcpy-copyable" is wrong (it sent an
     /// inline-TRAP'd `thread::start` result to `copy_flat_block`, the reported
     /// build failure) and "arena-transferable" is wrong AND silent — that

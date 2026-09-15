@@ -31,7 +31,7 @@ Sleeping is not in this set: it is `_mfb_rt_os_os_sleep`, the body behind
 `Sleeping inside a worker` below).
 
 These helpers are compiler-owned runtime helpers. They are not source-level
-`LINK` imports and do not appear as package dependencies. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_helper]]
+`LINK` imports and do not appear as package dependencies. [[src/codegen/builtins/thread/mod.rs:register]] [[src/target/shared/runtime/mod.rs:symbol_for_call]]
 
 ## Direction split
 
@@ -39,7 +39,7 @@ The source API has only four channel verbs — `thread::send`, `thread::receive`
 `thread::transfer`, `thread::accept` (plus `thread::poll`) — but each lowers to a
 *different* helper depending on whether the handle is a parent `Thread` or a
 worker `ThreadWorker`, because the two ends use different queues. The split is
-applied when the runtime call is lowered: [[src/codegen/engine/value/builder_values.rs:1607]]
+applied when the runtime call is lowered: [[src/codegen/engine/value/builder_values.rs:lower_runtime_helper_call]]
 
 | Source op                 | On a parent `Thread`      | On a worker `ThreadWorker` |
 | ------------------------- | ------------------------- | -------------------------- |
@@ -76,6 +76,8 @@ storing:
   inbound queues take the `inboundLimit`; the outbound queues take the
   `outboundLimit`.
 - Initial result, cancellation, and OS-handle slots (zeroed).
+- An owner count of 1 — the binding the handle is returned to (bug-622; see
+  `control-block` § Lifetime).
 
 It then asks the OS to start `_mfb_rt_thread_trampoline`, passing the control
 block pointer as the pthread argument (see `os-integration`). A `pthread_create`

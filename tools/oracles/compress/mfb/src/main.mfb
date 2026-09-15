@@ -1,0 +1,186 @@
+' The MFB subject of the compress oracle (tools/oracles/compress/run.sh).
+'
+' Reads the job named by MFB_COMPRESS_JOB for the mode named by MFB_COMPRESS_MODE and
+' prints one `case <index> <fields...>` line per case, the same shape the Python and
+' Node judges print. With no job it prints nothing and exits 0, which is how the
+' harness checks that a built flavor runs on this host.
+'
+' Job layout (little-endian u32): count, then (length, aux) per case, then every
+' case's bytes back to back. `aux` is per mode: the split point for crc32, the level for an
+' encode mode. An encode mode also writes what it produced, in the same layout, to
+' MFB_COMPRESS_OUT for the judges to decode.
+IMPORT collections
+IMPORT compress
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC u32At(b AS List OF Byte, at AS Integer) AS Integer
+  RETURN toInt(collections::get(b, at)) + 256 * toInt(collections::get(b, at + 1)) + 65536 * toInt(collections::get(b, at + 2)) + 16777216 * toInt(collections::get(b, at + 3))
+END FUNC
+
+' crc32: the checksum in one call, and chained across the split point.
+FUNC crc32Case(data AS List OF Byte, split AS Integer) AS String
+  LET n AS Integer = len(data)
+  LET whole AS Integer = compress::crc32(data)
+  LET head AS Integer = compress::crc32(collections::mid(data, 0, split))
+  LET chained AS Integer = compress::crc32(collections::mid(data, split, n - split), head)
+  RETURN toString(whole) & " " & toString(chained)
+END FUNC
+
+' decode-raw: length and CRC-32 of compress::inflate's output, or the raised code.
+FUNC inflateCase(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::inflate(data) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+' decode-zlib: length and CRC-32 of compress::zlibDecode's output, or the raised code.
+FUNC zlibCase(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::zlibDecode(data) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+' decode-gzip: length and CRC-32 of compress::gzipDecode's output, or the raised code.
+FUNC gzipCase(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::gzipDecode(data) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+' mutate: verdict only — `ok <len> <crc32>` or `err` — by format (0 raw, 1 zlib, 2 gzip).
+FUNC mutateRaw(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::inflate(data) TRAP(e)
+    RETURN "err"
+  END TRAP
+  RETURN "ok " & toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+FUNC mutateZlib(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::zlibDecode(data) TRAP(e)
+    RETURN "err"
+  END TRAP
+  RETURN "ok " & toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+FUNC mutateGzip(data AS List OF Byte) AS String
+  LET out AS List OF Byte = compress::gzipDecode(data) TRAP(e)
+    RETURN "err"
+  END TRAP
+  RETURN "ok " & toString(len(out)) & " " & toString(compress::crc32(out))
+END FUNC
+
+FUNC mutateCase(data AS List OF Byte, fmt AS Integer) AS String
+  IF fmt = 0 THEN
+    RETURN mutateRaw(data)
+  ELSEIF fmt = 1 THEN
+    RETURN mutateZlib(data)
+  END IF
+  RETURN mutateGzip(data)
+END FUNC
+
+' encode-raw: what compress::inflate makes of compress::deflate's output, or the raised code.
+FUNC roundTripRaw(packed AS List OF Byte) AS String
+  LET back AS List OF Byte = compress::inflate(packed) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN toString(len(back)) & " " & toString(compress::crc32(back))
+END FUNC
+
+' encode-zlib: what compress::zlibDecode makes of compress::zlibEncode's output, or the raised code.
+FUNC roundTripZlib(packed AS List OF Byte) AS String
+  LET back AS List OF Byte = compress::zlibDecode(packed) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN toString(len(back)) & " " & toString(compress::crc32(back))
+END FUNC
+
+' encode-gzip: what compress::gzipDecode makes of compress::gzipEncode's output, or the raised code.
+FUNC roundTripGzip(packed AS List OF Byte) AS String
+  LET back AS List OF Byte = compress::gzipDecode(packed) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN toString(len(back)) & " " & toString(compress::crc32(back))
+END FUNC
+
+SUB runJob(mode AS String, job AS List OF Byte)
+  LET count AS Integer = u32At(job, 0)
+  MUT offset AS Integer = 4 + 8 * count
+  ' An encode mode's outputs, written after the loop as a job of the same layout.
+  MUT produced AS List OF Byte = []
+  MUT producedFields AS List OF Integer = [count]
+  MUT i AS Integer = 0
+  WHILE i < count
+    LET n AS Integer = u32At(job, 4 + 8 * i)
+    LET aux AS Integer = u32At(job, 8 + 8 * i)
+    LET data AS List OF Byte = collections::mid(job, offset, n)
+    MUT fields AS String = "unknown-mode " & mode
+    IF mode = "crc32" THEN
+      fields = crc32Case(data, aux)
+    ELSEIF mode = "decode-raw" THEN
+      fields = inflateCase(data)
+    ELSEIF mode = "decode-zlib" THEN
+      fields = zlibCase(data)
+    ELSEIF mode = "decode-gzip" THEN
+      fields = gzipCase(data)
+    ELSEIF mode = "mutate" THEN
+      fields = mutateCase(data, aux)
+    ELSEIF mode = "encode-raw" OR mode = "encode-zlib" OR mode = "encode-gzip" THEN
+      MUT packed AS List OF Byte = []
+      IF mode = "encode-raw" THEN
+        packed = compress::deflate(data, aux)
+        fields = roundTripRaw(packed)
+      ELSEIF mode = "encode-zlib" THEN
+        packed = compress::zlibEncode(data, aux)
+        fields = roundTripZlib(packed)
+      ELSE
+        packed = compress::gzipEncode(data, aux)
+        fields = roundTripGzip(packed)
+      END IF
+      producedFields = collections::append(producedFields, len(packed))
+      producedFields = collections::append(producedFields, aux)
+      MUT k AS Integer = 0
+      WHILE k < len(packed)
+        produced = collections::append(produced, collections::get(packed, k))
+        k = k + 1
+      END WHILE
+    END IF
+    io::print("case " & toString(i) & " " & fields)
+    offset = offset + n
+    i = i + 1
+  END WHILE
+  LET outPath AS String = os::getEnvOr("MFB_COMPRESS_OUT", "")
+  IF outPath <> "" THEN
+    MUT outJob AS List OF Byte = []
+    MUT f AS Integer = 0
+    WHILE f < len(producedFields)
+      LET v AS Integer = collections::get(producedFields, f)
+      outJob = collections::append(outJob, toByte(v MOD 256))
+      outJob = collections::append(outJob, toByte((v / 256) MOD 256))
+      outJob = collections::append(outJob, toByte((v / 65536) MOD 256))
+      outJob = collections::append(outJob, toByte((v / 16777216) MOD 256))
+      f = f + 1
+    END WHILE
+    f = 0
+    WHILE f < len(produced)
+      outJob = collections::append(outJob, collections::get(produced, f))
+      f = f + 1
+    END WHILE
+    fs::writeBytes(outPath, outJob)
+  END IF
+END SUB
+
+SUB main()
+  LET jobPath AS String = os::getEnvOr("MFB_COMPRESS_JOB", "")
+  IF jobPath = "" THEN
+    EXIT SUB
+  END IF
+  RES h AS fs::File = fs::openFile(jobPath, "r")
+  LET job AS List OF Byte = fs::readAllBytes(h)
+  fs::close(h)
+  runJob(os::getEnvOr("MFB_COMPRESS_MODE", ""), job)
+END SUB

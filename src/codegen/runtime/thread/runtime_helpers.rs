@@ -7,7 +7,6 @@ use crate::codegen::memory::data::*;
 use crate::codegen::runtime::thread::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
-pub(crate) const THREAD_BLOCK_SIZE: usize = 120;
 pub(crate) const THREAD_OFFSET_STATE: usize = 0;
 pub(crate) const THREAD_OFFSET_CANCELLED: usize = 8;
 pub(crate) const THREAD_OFFSET_RESULT_TAG: usize = 16;
@@ -32,6 +31,22 @@ pub(crate) const THREAD_OFFSET_RESULT_SOURCE: usize = 96;
 // isolated so a thread's own transfer is never re-read by its own accept.
 pub(crate) const THREAD_OFFSET_RESOURCE_INBOUND_QUEUE: usize = 104;
 pub(crate) const THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE: usize = 112;
+// bug-622: how many parent-side bindings still hold this handle. The language lets a
+// handle be read after it is dropped or moved (the op answers `ErrResourceClosed`), and
+// lets one handle be bound under two names, so no single drop knows it is the last
+// reader. `thread::start` sets 1; every further binding of an existing handle (an alias,
+// a parameter) adds 1; each binding's final drop takes 1 away, and only the drop that
+// reaches 0 may free the thread's plumbing. Parent-thread only — a worker never reads it
+// — so it needs no lock.
+pub(crate) const THREAD_OFFSET_OWNERS: usize = 120;
+pub(crate) const THREAD_BLOCK_SIZE: usize = 128;
+// bug-622: the `thread.drop` mode (its second argument). CLOSE marks the handle CLOSED,
+// cancels, and joins a completed worker or detaches a running one — the drop's original
+// meaning. RELEASE gives up the dropping binding's owner count and frees the plumbing
+// when it reaches 0. A trap route closes a handler-visible handle without releasing it;
+// a handle moved into a callee releases without closing.
+pub(crate) const THREAD_DROP_CLOSE: u64 = 1;
+pub(crate) const THREAD_DROP_RELEASE: u64 = 2;
 pub(crate) const THREAD_STATE_RUNNING: &str = "0";
 pub(crate) const THREAD_STATE_COMPLETED: &str = "1";
 pub(crate) const THREAD_STATE_CLOSED: &str = "2";
@@ -287,6 +302,25 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
             call(ctx, from, "CloseHandle")?;
             ctx.instructions
                 .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+        }
+        // pthread_join(handle=x0, NULL) → WaitForSingleObject(handle, INFINITE), then
+        // CloseHandle(handle) — a joined POSIX thread holds no further reference either
+        // (bug-622). The handle rides the frame across the first call: rcx is volatile.
+        "pthread_join" => {
+            ctx.instructions.extend([
+                abi::subtract_stack(0x30),
+                abi::store_u64(abi::c_arg(0), abi::stack_pointer(), 0x20),
+                abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+                abi::subtract_immediate(abi::c_arg(1), abi::c_arg(1), 1), // INFINITE = (DWORD)-1
+            ]);
+            call(ctx, from, "WaitForSingleObject")?;
+            ctx.instructions
+                .push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0x20));
+            call(ctx, from, "CloseHandle")?;
+            ctx.instructions.extend([
+                abi::add_stack(0x30),
+                abi::move_immediate(abi::c_return(0), "Integer", "0"),
+            ]);
         }
         // Stack-size attr is set directly on CreateThread (see the spawn helper);
         // these are inert on Windows.
@@ -608,8 +642,8 @@ pub(crate) fn lower_thread_start_helper(
     // corruption for a store. Sized to `ENTRY_GLOBALS_OFFSET` (not
     // `ARENA_STATE_SIZE`) so the entry's one seed-scratch word between the state
     // and the globals is present too, keeping the slot offsets identical on both
-    // paths.
-    let worker_arena_size = ENTRY_GLOBALS_OFFSET + arena_global_slots * 8;
+    // paths. `thread.drop` frees the block at the same size (bug-622).
+    let worker_arena_size = worker_arena_state_size(arena_global_slots);
 
     let invalid_limit = format!("{symbol}_invalid_limit");
     let alloc_block_ok = format!("{symbol}_alloc_block_ok");
@@ -668,6 +702,9 @@ pub(crate) fn lower_thread_start_helper(
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESOURCE_INBOUND_QUEUE),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE),
         abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_OS_HANDLE),
+        // bug-622: the binding this handle is returned to is its first owner.
+        abi::move_immediate("%v10", "Integer", "1"),
+        abi::store_u64("%v10", "%v9", THREAD_OFFSET_OWNERS),
         // PARENT_ARENA_STATE is written with the real value a few lines below;
         // the zero-init store here was dead (bug-102).
         abi::load_u64("%v10", abi::stack_pointer(), ENTRY_OFFSET),

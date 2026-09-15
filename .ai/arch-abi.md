@@ -309,6 +309,15 @@ test that catches it (`rt_native_regex_parser_depth`) sorts *after*
 `rt_native_io_runtime`, so the windows CI row never reached it while an earlier
 binary was red. Use `--no-fail-fast`.
 
+### Hand-written x86 helpers that name ABI registers directly alias the Win64 argument bank
+
+Allocated code is immune; hand-written emitter code naming `abi::c_arg(n)` / `abi::SCRATCH[n]` is not, and both traps are invisible until the Windows box runs the binary:
+
+- **`div` writes `rdx`.** `unsigned_divide_registers` leaves the remainder in `rdx`, which is `c_arg(1)` on Win64 (`c_arg(2)` on SysV). A value parked there across a divide is replaced. Keep live values in `c_arg(2)`/`c_arg(3)` and reload constants after a divide.
+- **Low `SCRATCH` overlaps the Win64 argument registers.** `map_scratch_register` sends `SCRATCH[13]` to `r8` and `SCRATCH[14]` to `r9`, which are Win64 argument registers and not SysV ones. An order that is safe elsewhere (stage the argument, then read the scratch) destroys the value on Windows.
+
+They show up as plausible wrong values (a short sleep, a garbage `tv_nsec`), not crashes, and byte-identity goldens can't see them.
+
 ## riscv64
 
 ### riscv64 V-extension (RVV) two-profile qemu oracle
@@ -373,6 +382,12 @@ Removing a single caller-saved temporary (`t3`) from `src/arch/riscv64/regmodel.
 
 **How to apply:** this is worth its own bug. To reproduce: drop one reg from `INT_ALLOCATABLE`, rebuild release, build any record/float rt-behavior fixture for linux-riscv64, run on 2229 → SIGSEGV. Suspect the spill-slot / eviction indexing in `regalloc/linear_scan.rs` (off-by-one against pool size).
 
+## AArch64 (all OSes)
+
+### A single function over ~1 MiB of code fails to build
+
+AArch64 conditional branches reach ±1 MiB and the backend emits no veneers, so a very large function fails with e.g. `AArch64 branch 'b.eq' displacement 1199944 to 'while_end_621' exceeds ±1 MiB`. The limit is per function. MFBASIC constructs inline a lot of code (`WITH` rebuilds, record constructors, `collections::get(...).field`), so a ~700-line `main` reached 1.2 MiB. Split it into smaller functions: keep non-resource state in a record, make handlers return the new state plus an intent, and do the resource operations in the small caller (`examples/ai_chat`).
+
 ## macOS AArch64
 
 ### macOS codegen latent bugs
@@ -424,6 +439,10 @@ What measurement showed (so it need not be re-derived):
 - Proof of mechanism: attach to the hung process, `AudioQueueEnqueueBuffer` one more *full* buffer, and the stranded buffer is released and the program exits.
 
 Debugging technique that cracked it: **taking `close` out of the picture** — a probe that writes the PCM then only polls `audio::available` for 2.5 s, never closing, plateaus at 3 of 4 buffers on exactly the runs that would have hung. Do that before suspecting the synchronization. To read the state at a hang: `lldb -p <pid>`, `frame select 2` (the mfb frame), `$st = *(unsigned long*)($sp+0x50)` is the state page (STATE_OFF 48 + a 0x40 saved-register base), then `S_FREE_TOP` at `+0x120`, `S_FREE_BUFS` at `+0x128`, `S_OSOBJECT` at `+0x118`. lldb can call AudioToolbox directly to test remedies live, which beats a rebuild cycle per hypothesis.
+
+### A hand-written pthread start routine must save the callee-saved registers it uses
+
+`_pthread_start` keeps its own state in callee-saved registers, so a start routine that clobbers one (e.g. pinning `ARENA_STATE_REGISTER`) runs its body correctly and then crashes at thread exit — in `_pthread_terminate`, or a libmalloc abort in `_pthread_tsd_cleanup` — with no MFB frame in the trace. `lower_thread_trampoline` (`src/codegen/runtime/thread/runtime_helpers.rs`) saves `ARENA_STATE_REGISTER`, `CURRENT_THREAD` and `CLOSURE_ENV_REGISTER`; copy it. Same neighbourhood: give the thread an explicit 8 MiB stack (macOS defaults to 512 KiB and musl to 128 KiB, and an overflow smashes the TSD block with the same exit-time symptom), and don't create autoreleased Objective-C objects on a thread with no autorelease pool — the thread-exit drain aborts on them.
 
 ## Windows (PE / console / audio)
 
@@ -661,6 +680,13 @@ fork-child "between" in which to call `signal(SIGPIPE, SIG_DFL)`. Drop the
 attribute and a spawned `writer | head` **never terminates** — the writer takes
 `EPIPE` as a return code it ignores instead of dying. The sigset must be filled:
 Darwin's `sigset_t` is a single 32-bit word, so `sigfillset` is `0xFFFFFFFF`.
+
+For any future process-wide signal disposition: prefer `SIG_IGN` to a handler, because a
+handler makes a blocking syscall in *any* thread return `EINTR`. And an ignore reaches paths
+that wanted the old behaviour — ignoring SIGPIPE for sockets also stops a stdout writer dying
+on a closed pipe — so restore `SIG_DFL` and re-raise at those write sites on `EPIPE`.
+`MSG_NOSIGNAL`/`SO_NOSIGPIPE` can't replace it where a library owns the `write(2)` (OpenSSL's
+socket BIO), and Linux has no `SO_NOSIGPIPE`.
 
 Do **not** use a close-loop here. `getdtablesize()` measures **245,760** on a
 normal macOS host, so a loop is a quarter-million syscalls per spawn.

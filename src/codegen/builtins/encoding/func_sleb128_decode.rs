@@ -108,7 +108,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Integer,
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat"],
             body: Body::mfb(BODY, "__encoding_sleb128Decode"),
         }],
     });

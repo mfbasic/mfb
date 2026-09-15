@@ -1,0 +1,8 @@
+{
+  "name": "scopepkg",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "plan-136-C fixture package: an exported binding an importer's local may share a bare name with.",
+  "sources": [{ "root": "src", "role": "package", "include": ["**/*.mfb"] }]
+}

@@ -243,8 +243,9 @@ mov_imm x0, #0x1234_0000_5678          ; value = 0x0000_1234_0000_5678
     0xF2800000 | (2 << 21) | (0x1234 << 5) | 0 = 0xF2C24680
 ```
 
-`wide_imm_word_count` precomputes this length (1 + nonzero high lanes) so the
-op's byte size is known before emission. [[src/arch/aarch64/encode/sizing.rs:wide_imm_word_count]]
+`instruction_size` measures this length (1 + nonzero high lanes) by encoding the
+op into a throwaway probe encoder, so the op's byte size is known before
+emission. [[src/arch/aarch64/encode/sizing.rs:instruction_size]]
 
 ### `adrp` + `add_pageoff` — symbol address
 

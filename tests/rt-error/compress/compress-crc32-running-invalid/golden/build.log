@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-error/compress/compress-crc32-running-invalid
+Wrote AST to tests/rt-error/compress/compress-crc32-running-invalid/compress-crc32-running-invalid.ast
+Wrote IR to tests/rt-error/compress/compress-crc32-running-invalid/compress-crc32-running-invalid.ir
+[exit 0]
+$ mfb build tests/rt-error/compress/compress-crc32-running-invalid
+Wrote executable to tests/rt-error/compress/compress-crc32-running-invalid/build/compress-crc32-running-invalid.out
+[exit 0]
+$ tests/rt-error/compress/compress-crc32-running-invalid/build/compress-crc32-running-invalid.out
+before
+Error: 7-705-0002
+compress::crc32: running must be 0..4294967295
+[exit 255]

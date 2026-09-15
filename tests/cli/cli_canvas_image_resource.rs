@@ -64,6 +64,23 @@ FUNC closedRefuses() AS Integer
   RETURN 31
 END FUNC
 
+' bug-610: a second explicit close raises `ErrResourceClosed`, exactly as `fs::close`
+' does (`mfb spec language resource-management` §15). It used to return silently. The
+' scope-drop of `img` after both closes must stay silent, which reaching `RETURN 0`
+' and the program printing IMAGE_OK confirms.
+FUNC doubleCloseRefuses() AS Integer
+  LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
+  RES img AS canvas::Image = canvas::createImage(1, 1, px)
+  closeIt(img)
+  closeIt(img) TRAP(err)
+    IF err.code = errorCode::ErrResourceClosed THEN
+      RETURN 0
+    END IF
+    RETURN 50
+  END TRAP
+  RETURN 51
+END FUNC
+
 FUNC setBytesRejectsWrongLength() AS Integer
   LET px AS List OF Byte = [toByte(10), toByte(20), toByte(30), toByte(40), toByte(50), toByte(60), toByte(70), toByte(80)]
   RES img AS canvas::Image = canvas::createImage(2, 1, px)
@@ -135,6 +152,10 @@ FUNC main AS Integer
   IF r3 <> 0 THEN
     RETURN r3
   END IF
+  LET r4 AS Integer = doubleCloseRefuses()
+  IF r4 <> 0 THEN
+    RETURN r4
+  END IF
 
   io::print("IMAGE_OK")
   RETURN 0
@@ -194,7 +215,8 @@ fn macos_the_image_resource_contract_holds_at_runtime() {
         code, 0,
         "image resource contract failed with code {code} \
          (1-2 getSize, 3-5 getBytes, 6 imageRef, 7-8 setBytes round-trip, \
-         20-21 createImage pixel count, 30-31 closed guard, 40-41 setBytes count)"
+         20-21 createImage pixel count, 30-31 closed guard, 40-41 setBytes count, \
+         50-51 second destroyImage)"
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),

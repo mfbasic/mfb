@@ -56,6 +56,39 @@ hello 2
 `LET` is the default and the one to reach for. Use `MUT` when a name genuinely
 has to take a new value over time.
 
+A name declared inside a function cannot reuse the name of a top-level `LET` or
+`MUT` that its file can see: one in the same file, or a `PUBLIC` one from another
+file. This first program does not build; the compiler points at the inner `LET`
+and says `limit` is already a top-level binding:
+
+```basic
+IMPORT io
+
+LET limit AS Integer = 5
+
+SUB main()
+  LET limit AS Integer = 10
+  io::print(toString(limit))
+END SUB
+```
+
+Give the inner name its own spelling instead:
+
+```basic
+IMPORT io
+
+LET limit AS Integer = 5
+
+SUB main()
+  LET localLimit AS Integer = limit * 2
+  io::print(toString(localLimit))
+END SUB
+```
+
+```
+10
+```
+
 ## Every value is independent
 
 Assigning copies. The two names go their separate ways:

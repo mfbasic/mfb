@@ -151,6 +151,33 @@ FUNC area(s AS Shape) AS Float
 END FUNC
 ```
 
+A parameter can declare a default with `=`. A call that leaves the argument out
+gets the default, worked out again on every such call. A default can use the
+program's globals and functions, but not the function's own parameters, and it
+never sees the caller's variables.
+
+```
+IMPORT io
+
+MUT issued AS Integer = 0
+
+FUNC nextTicket() AS Integer
+  issued = issued + 1
+  RETURN issued
+END FUNC
+
+FUNC greet(name AS String, greeting AS String = "Hello", ticket AS Integer = nextTicket()) AS String
+  RETURN greeting & ", " & name & " #" & toString(ticket)
+END FUNC
+
+FUNC main() AS Integer
+  io::print(greet("Ada"))                   ' Hello, Ada #1
+  io::print(greet("Bob", greeting := "Hi"))  ' Hi, Bob #2
+  io::print(greet("Cy", "Hey", 99))          ' Hey, Cy #99
+  RETURN 0
+END FUNC
+```
+
 Functions are values: `LAMBDA` builds anonymous functions (parameter types are
 written, not inferred), and the pipeline operator `|>` threads a value through
 calls at the `_` placeholder.

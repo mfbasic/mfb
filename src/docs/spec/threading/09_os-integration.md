@@ -61,9 +61,11 @@ main function returns, and unmapping shared runtime memory would race that
 worker: `thread::start` allocates both the worker's thread control block and the
 worker's whole arena-state block out of the *spawning* thread's arena, so a
 running worker's pinned arena register and current-thread register point into the
-main arena's blocks. Dropping a `Thread` handle only cancels and broadcasts — a
-detached worker keeps running — so `_mfb_shutdown` is reached with those blocks
-live, and freeing them pulls a worker's own arena state out from under it. Process
+main arena's blocks. Those blocks are freed only for a joined worker (`thread::waitFor`,
+or the drop of an already-completed handle — `control-block` § Lifetime); dropping a
+handle whose worker is still running only cancels and broadcasts — a detached worker
+keeps running — so `_mfb_shutdown` is reached with those blocks live, and freeing
+them pulls a worker's own arena state out from under it. Process
 exit lets the OS reclaim the arena instead. The deferral is gated on the program
 embedding any `thread.` runtime call, so a program that starts no worker still
 frees the arena at exit exactly as before.

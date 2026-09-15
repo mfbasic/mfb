@@ -1,0 +1,380 @@
+{
+  "project": "encoding-decode-errors-rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 3 },
+    { "module": "encoding", "line": 4 },
+    { "module": "errorCode", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "report",
+      "line": 7,
+      "params": [
+      { "name": "name", "type": "String", "default": null, "line": 7 },
+      { "name": "code", "type": "Integer", "default": null, "line": 7 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "name" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } }] } }] }, "line": 8 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "percentDecode",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "encoding.percentDecode", "arguments": [{ "kind": "string", "value": "%" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "percentDecode" }, { "kind": "number", "value": "0" }] }, "line": 14 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 15,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "percentDecode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 16 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "formUrlDecode",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "encoding.formUrlDecode", "arguments": [{ "kind": "string", "value": "%zz" }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "formUrlDecode" }, { "kind": "number", "value": "0" }] }, "line": 22 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 23,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "formUrlDecode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 24 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "base32Decode",
+      "line": 28,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.base32Decode", "arguments": [{ "kind": "string", "value": "A" }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "base32Decode" }, { "kind": "number", "value": "0" }] }, "line": 30 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 31,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "base32Decode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 32 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "base64Decode",
+      "line": 36,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.base64Decode", "arguments": [{ "kind": "string", "value": "!!!!" }] }, "line": 37 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "base64Decode" }, { "kind": "number", "value": "0" }] }, "line": 38 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 39,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "base64Decode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 40 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "base64UrlDecode",
+      "line": 44,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.base64UrlDecode", "arguments": [{ "kind": "string", "value": "A" }] }, "line": 45 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "base64UrlDecode" }, { "kind": "number", "value": "0" }] }, "line": 46 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 47,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "base64UrlDecode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 48 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "hexDecode",
+      "line": 52,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 53 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "hexDecode" }, { "kind": "number", "value": "0" }] }, "line": 54 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 55,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "hexDecode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 56 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "htmlUnescape",
+      "line": 60,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "encoding.htmlUnescape", "arguments": [{ "kind": "string", "value": "&nope;" }] }, "line": 61 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "htmlUnescape" }, { "kind": "number", "value": "0" }] }, "line": 62 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 63,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "htmlUnescape" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 64 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "sleb128Decode",
+      "line": 68,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "truncated", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "128" }] }, "line": 69 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "callee": "encoding.sleb128Decode", "arguments": [{ "kind": "identifier", "value": "truncated" }] }, "line": 70 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "sleb128Decode" }, { "kind": "number", "value": "0" }] }, "line": 71 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 72,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "sleb128Decode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 73 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "uleb128Decode",
+      "line": 77,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "truncated", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "128" }] }, "line": 78 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "callee": "encoding.uleb128Decode", "arguments": [{ "kind": "identifier", "value": "truncated" }] }, "line": 79 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "uleb128Decode" }, { "kind": "number", "value": "0" }] }, "line": 80 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 81,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "uleb128Decode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 82 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "uleb128Encode",
+      "line": 86,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.uleb128Encode", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 87 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "uleb128Encode" }, { "kind": "number", "value": "0" }] }, "line": 88 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 89,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "uleb128Encode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 90 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "utf16Decode",
+      "line": 94,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "lone", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "55296" }] }, "line": 95 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "encoding.utf16Decode", "arguments": [{ "kind": "identifier", "value": "lone" }] }, "line": 96 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "utf16Decode" }, { "kind": "number", "value": "0" }] }, "line": 97 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 98,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "utf16Decode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 99 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "utf32Decode",
+      "line": 103,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "surrogate", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "55296" }] }, "line": 104 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "encoding.utf32Decode", "arguments": [{ "kind": "identifier", "value": "surrogate" }] }, "line": 105 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "utf32Decode" }, { "kind": "number", "value": "0" }] }, "line": 106 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 107,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "utf32Decode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 108 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "utf8DecodeBytes",
+      "line": 112,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "invalid", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "255" }] }, "line": 113 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "identifier", "value": "invalid" }] }, "line": 114 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "utf8Decode(List OF Byte)" }, { "kind": "number", "value": "0" }] }, "line": 115 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 116,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "utf8Decode(List OF Byte)" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 117 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "utf8DecodeInts",
+      "line": 121,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "outOfRange", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "300" }] }, "line": 122 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "identifier", "value": "outOfRange" }] }, "line": 123 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "utf8Decode(List OF Integer)" }, { "kind": "number", "value": "0" }] }, "line": 124 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 125,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "utf8Decode(List OF Integer)" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 126 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "varintDecode",
+      "line": 130,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "truncated", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "128" }] }, "line": 131 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "callee": "encoding.varintDecode", "arguments": [{ "kind": "identifier", "value": "truncated" }] }, "line": 132 },
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "varintDecode" }, { "kind": "number", "value": "0" }] }, "line": 133 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 134,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "varintDecode" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] }, "line": 135 }
+      ]
+    }
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 139,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r1", "type": "Integer", "value": { "kind": "call", "callee": "percentDecode", "arguments": [] }, "line": 140 },
+      { "kind": "binding", "mutable": false, "name": "r2", "type": "Integer", "value": { "kind": "call", "callee": "formUrlDecode", "arguments": [] }, "line": 141 },
+      { "kind": "binding", "mutable": false, "name": "r3", "type": "Integer", "value": { "kind": "call", "callee": "base32Decode", "arguments": [] }, "line": 142 },
+      { "kind": "binding", "mutable": false, "name": "r4", "type": "Integer", "value": { "kind": "call", "callee": "base64Decode", "arguments": [] }, "line": 143 },
+      { "kind": "binding", "mutable": false, "name": "r5", "type": "Integer", "value": { "kind": "call", "callee": "base64UrlDecode", "arguments": [] }, "line": 144 },
+      { "kind": "binding", "mutable": false, "name": "r6", "type": "Integer", "value": { "kind": "call", "callee": "hexDecode", "arguments": [] }, "line": 145 },
+      { "kind": "binding", "mutable": false, "name": "r7", "type": "Integer", "value": { "kind": "call", "callee": "htmlUnescape", "arguments": [] }, "line": 146 },
+      { "kind": "binding", "mutable": false, "name": "r8", "type": "Integer", "value": { "kind": "call", "callee": "sleb128Decode", "arguments": [] }, "line": 147 },
+      { "kind": "binding", "mutable": false, "name": "r9", "type": "Integer", "value": { "kind": "call", "callee": "uleb128Decode", "arguments": [] }, "line": 148 },
+      { "kind": "binding", "mutable": false, "name": "r10", "type": "Integer", "value": { "kind": "call", "callee": "uleb128Encode", "arguments": [] }, "line": 149 },
+      { "kind": "binding", "mutable": false, "name": "r11", "type": "Integer", "value": { "kind": "call", "callee": "utf16Decode", "arguments": [] }, "line": 150 },
+      { "kind": "binding", "mutable": false, "name": "r12", "type": "Integer", "value": { "kind": "call", "callee": "utf32Decode", "arguments": [] }, "line": 151 },
+      { "kind": "binding", "mutable": false, "name": "r13", "type": "Integer", "value": { "kind": "call", "callee": "utf8DecodeBytes", "arguments": [] }, "line": 152 },
+      { "kind": "binding", "mutable": false, "name": "r14", "type": "Integer", "value": { "kind": "call", "callee": "utf8DecodeInts", "arguments": [] }, "line": 153 },
+      { "kind": "binding", "mutable": false, "name": "r15", "type": "Integer", "value": { "kind": "call", "callee": "varintDecode", "arguments": [] }, "line": 154 }
+      ]
+    }
+    ]
+  }
+  ]
+}

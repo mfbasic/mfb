@@ -171,9 +171,10 @@ clobber). The choice is `target.starts_with("_mfb_")`. [[src/arch/x86_64/encode/
 
 Program entry reuses the shared `lower_program_entry` (Result-tag error reporting,
 signal setup, RNG-seed, global init), with `select_x86` mapping neutral registers
-to System V homes plus the one-time `xor r14,r14` zero-register init. Program exit
+to System V homes. x86-64 has no zero register — the neutral zero token encodes as
+an immediate zero, so `r14` is allocatable. Program exit
 uses `exit_group`. The `__libc_start_main` trampoline (7th argument on the stack)
-applies to **app (GTK) mode only**, not console mode. [[src/target/linux_x86_64/code.rs:emit_program_entry]]
+applies to **app (GTK) mode only**, not console mode. [[src/target/linux_common/code.rs:emit_program_entry]] [[src/arch/x86_64/regmodel.rs:INT_ALLOCATABLE]]
 
 ## Op-specific lowerings and hazards
 

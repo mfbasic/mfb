@@ -1,0 +1,12 @@
+' compress is an ARGUMENT_CHECKED_PACKAGES member: a wrong arity or argument type
+' reports the call-argument diagnostic instead of collapsing to an unknown value.
+IMPORT compress
+IMPORT io
+IMPORT strings
+
+SUB main()
+  LET a AS Integer = compress::crc32()
+  LET b AS Integer = compress::crc32(strings::toBytes("abc"), 0, 1)
+  LET c AS Integer = compress::crc32("abc")
+  io::print(toString(a + b + c))
+END SUB

@@ -47,9 +47,12 @@ pub(super) fn validate_function(
     for param in &function.params {
         validate_param(function, param, &mut locals)?;
         if let Some(default) = &param.default {
+            // plan-136-A: a default is evaluated outside the function (a call-site
+            // literal or a call to its hidden default function), so no parameter
+            // is in its scope.
             validate_value(
                 default,
-                &locals,
+                &HashMap::new(),
                 function_names,
                 global_names,
                 import_names,

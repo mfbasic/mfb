@@ -9,6 +9,7 @@ Collection mutation codegen is rewritten for amortized-O(1) append.
 - **In-place MUT append**: `try_inplace_append_assign` (`collection/assign/builder_inplace_assign.rs`) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (`collection/list/list_mutate.rs`): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias) and `FOR EACH` snapshotting count at loop entry (in-place writes only past that count). transform/filter use the same helper on their private accumulator.
 - **GOTCHA — the in-place arms assume one owner and never check it; copy-insertion is what makes that true** (bug-601). For a flat value `lower_value_owned` copies an aliasing source with `copy_flat_block`. For a value whose type reaches a type cycle it copies with the graph walker (`needs_graph_copy`, plan-134-D) at the five owning stores — bind, assign, global, return (`lower_returned_value`) and closure capture — unless plan-134-C's analysis says the store is the source's last read, which moves. Before that, `MUT ys = xs` over a `List OF Tree` shared `xs`'s block, and an in-place `append` on `ys` grew it under `xs` (`ys=6 xs=112`, a read of freed memory). Construction stores aliased until plan-134-E: a constructor argument and the in-place list/map arms' item operand were lowered with plain `lower_value`, so `xs = collections::append(xs, Node[kids := xs, tag := 1])` stored `xs`'s own block (SIGSEGV at the next `get`). They now go through `lower_value_stored`. Adding a drop for the class before every owner held a distinct graph would have double-freed. plan-134-G added the owner drops (`owns_graph`) only after that, and plan-134-H the in-place element drops (`emit_drop_list_element` / `emit_drop_entry_value`) — see bug-536 shape C. The helper-built pointer-`String` records (`net::Address`, `udp::Datagram`, `audio::AudioDevice`) were in this class and left it by being flattened onto the ordinary record layout (plan-132, bug-599/601), not by adding copy-insertion. `json::parse` depends on the in-place `append` over `List OF Json`, so declining the arms for the class is not free.
 - **Headroom**: `emit_write_collection_header_full` sets capacity/dataCapacity > count/dataLength. Growth shape (`emit_geometric_step`): lookup 4→1024 then ×1.5; data 32→64KiB then ×1.5. Literals/splices stay tight.
+- **GOTCHA — a fixed-width payload's data capacity is NOT an independent counter** (bug-621). For a fixed-width list element (`list_element_is_fixed_width`) or a map entry whose key and value are both fixed-width, every in-place grow sets `dataCapacity = newCapacity × stride` (`emit_fixed_width_data_capacity`), still clamped to at least the bytes needed. Stepping data on its own step — even on the grows the *count* triggered — froze the reservation at ≈19 bytes per slot whatever the width: a 16 MiB append-built `List OF Byte` peaked at 982 MB RSS, byte-identical to a `List OF Integer`. Only variable-width payloads (whose data need is independent of the count) keep the independent data step. A new grow arm must make the same split; `tests/runtime/rt_list_append_growth_bounds.rs` pins each existing arm against the rule.
 - **GOTCHA — data base uses capacity, never count**: with headroom the data region is at `header + capacity*ENTRY`. Always use `emit_collection_data_pointer`. Two hand-written runtime helpers (`_mfb_rt_fs_path_join`, `_mfb_rt_sort_string_list` in mod.rs) had count-based bases → read garbage from a grown list; fixed to load COLLECTION_OFFSET_CAPACITY. Any NEW hand-rolled collection reader must do the same. (Note: `_mfb_*` helper calls clobber all caller-saved registers x0-x17 — spill live scratch such as x14/x15 to stack slots.)
 - **Shrink-to-fit copies**: `copy_collection_tight` re-tightens every collection value copy (copy_flat_block routes collections to it) so headroom never leaks into a snapshot or across a thread boundary.
 - Removal stays eager-repack (no lazy holes) — meets the contract without liveBytes tracking.
@@ -223,6 +224,13 @@ Two rules from it that are easy to get wrong:
     `lower_list_set_in_place`'s rebuild branch is *unreachable* (its own comment
     says so) and the sub-block route is sound. A variable-width element makes that
     branch reachable, so the arm must decline.
+  - **Read `COUNT` from the sub-block base before adding `COLLECTION_HEADER_SIZE`.**
+    Reading it past the header gives a garbage count, a huge entry copy and arena
+    corruption. Byte lists hide it (no entry array); String and entry lists show it.
+  - **`FOR EACH x IN rec.field` is an alias nothing tracks.** `for_each_iterable_locals`
+    tracks only a plain `Local` iterable, so growing that field inside the loop (or the
+    plain rebuild freeing the old block) frees the buffer mid-iteration — wrong results,
+    no crash. Decline the in-place path and skip the free while such an iterable is live.
 * **The third container is `RES … STATE`, and it differs from a record field by
   exactly one obligation (plan-121-D).** The reallocation split above transfers
   unchanged — it is a property of the operation, not of who owns the block — so
@@ -240,42 +248,45 @@ Two rules from it that are easy to get wrong:
   `.ncodesum` fixture contains a STATE collection update at all, so it reports 0
   diffs either way. See `.ai/resources-packages.md` for the full rule and the
   instruments that can see it.
-* **A length-changing `set` on a variable-width element shifts inside the block;
-  it does NOT rebuild (plan-121-F).** A same-length replacement was always O(1)
-  (offsets unchanged, nothing to move). **Any** length change — longer *or*
-  shorter — used to take the `removeAt` + `insert` rebuild: three allocations and
-  two full copies per call. Measured, that was **O(N^1.6)**, not the O(N) a data
-  shift costs; the excess is the arena free-list degradation `benchmark/README.md`
-  documents under mixed-size transient churn.
+* **A length-changing `set` on a variable-width element touches no other element
+  (plan-121-F, then bug-627).** A same-length replacement was always O(1). **Any**
+  length change used to take the `removeAt` + `insert` rebuild (three allocations,
+  two full copies, measured **O(N^1.6)**). plan-121-F replaced that with an
+  in-block shift of every byte after the written element plus an offset fixup of
+  every later entry — still **O(N) per write**, so widening every element of a
+  list front to back was O(N²): 6.69 s for 100,000 writes (bug-627). The arm
+  (`set_inplace_resize` in `lower_list_set_in_place`) is now:
 
-  The path is now: widen or narrow the span where it lies, then fix up every
-  entry whose payload sat after it. Three things about it are easy to get wrong:
+  - **shorter** — overwrite where it lies; the unused bytes become a hole;
+  - **longer, last payload in the data region** (`valueOffset + oldLen ==
+    dataLength`) — grow where it lies;
+  - **longer, elsewhere** — write at the *aligned* data tail and repoint the
+    entry; the old span becomes a hole;
+  - **a tail write that does not fit** — `emit_repack_list_data`: copy every live
+    payload, by its own entry, packed in entry order into a block of
+    `step(live + need + count)` data bytes, then write at the new tail. The
+    written element's `valueLength` is zeroed first so its old bytes are not
+    carried.
 
-  - **The two directions are different code.** Widening moves the tail **up into
-    itself** and needs a **backward** copy; narrowing moves it down and needs a
-    forward one. A forward copy used for widening smears the first tail bytes
-    over the region whenever the shift distance is less than the tail length — and
-    still looks correct on a 1–2 element list, which is what a small test uses.
-  - **The offset fixup has two directions too, and they are not one operation
-    with a negated argument.** `emit_offset_compaction_fixup` subtracts;
-    `emit_offset_expansion_fixup` adds. Offsets are read back **unsigned**, so
-    passing a negative `hole_len` to the subtracting one wraps. Both use `>` not
-    `>=`, which is what leaves the written element's own entry alone.
-  - **The overflow path must grow GEOMETRICALLY, or the shift never runs.** This
-    is the one that hid: with an in-block shift added but the overflow still
-    falling back to the rebuild — which produces a **tight** buffer — every
-    widening overflowed on its first call, rebuilt tight, and overflowed again.
-    The widening cost was **unchanged** (72 → 828 → 11619 → 122465 ns/set over
-    N = 50…3200) while narrowing, which cannot overflow, improved ~7×. A test
-    exercising only the narrowing case would have shown a real win and hidden
-    that half the feature was dead code.
+  Three things about it are easy to get wrong:
 
-  `emit_grow_list_data_capacity` is deliberately simpler than `append`'s grow:
-  because `capacity` is unchanged, the header, the entry table and the live data
-  are one **contiguous** prefix, so it is a single verbatim block copy — and the
-  data region keeps the same block-relative base ("data base uses capacity, never
-  count"), so no entry offset moves.
+  - **Holes are legal only because no reader locates a payload by position.**
+    Every consumer — copy, `=`/`contains`, slice, join, sort, `FOR EACH`, thread
+    transfer, graph copy — goes through each entry's `(valueOffset, valueLength)`
+    (audited for bug-627). A new hand-rolled reader that walks the data region
+    linearly, or sizes live data by `dataLength`, is wrong for a kind-0 list.
+    Kind-2 (fixed-width) lists never reach the arm, and keep index order.
+  - **Size the repack from LIVE bytes, never from `dataCapacity`.** A loop that
+    keeps rewriting one element with alternating lengths overflows repeatedly
+    while the live data stays tiny; stepping the old capacity would grow the block
+    geometrically forever. The `+ count` term is what pays for the O(count) repack
+    pass when the payloads are mostly empty.
+  - **The overflow must stay GEOMETRIC** (plan-121-F Correction F1): a tight
+    rebuild overflows again on the next widening, which is how an earlier version
+    of the shift measured no faster at all (72 → 828 → 11619 → 122465 ns/set over
+    N = 50…3200).
 
+  The plan-121-F measurements that follow predate the bug-627 arm.
   With both halves: **37× and 41× faster at N = 3200**, with the same-length path
   flat at ~10 ns throughout as the control.
 
@@ -333,6 +344,14 @@ Two rules from it that are easy to get wrong:
   7.0 GB/s against a `-O0` C word loop's 7.36 — it is at the rate of the loop it
   emits, and what is left is that it shifts *while growing* into fresh buffers
   where `removeAt` shifts inside one that only gets hotter.
+
+## An accumulator must be a local of the function that writes it
+
+Every `try_inplace_*` arm resolves its destination through `self.locals`, so a collection threaded through a helper's parameter and return, or kept in a module-level `MUT`, misses the fast path and is copied whole on every write. Measured on 20,000 writes into a 200,000-byte `List OF Byte`: 5 ms as a same-function local, ~1.2 s through a helper or a global (290×). This holds for `append`, `set`, `add`, `removeKey`, bulk append and the record-field `WITH` append alike.
+
+A call as the written item used to miss it too: `static_item_type` (`src/codegen/memory/value/builder_value_semantics.rs`) knew user and package return types plus `static_type_name`'s hand-written list of builtins, so `keep = collections::append(keep, fs::readText(p))` copied the whole list per element (bug-626: 5,000 appends of a 5,000-byte file mapped 63 GB). It now falls back to the registry resolver `resolve_call_return_type_typed`, typing the arguments through itself. **Do not "fix" a gate miss by adding a row to `static_type_name`'s table** — that table also feeds numeric typing and the slice specialisation, and it covers only the names someone thought of.
+
+`String` behaves the same way: `out = out & piece` on the same local is amortized O(1) (`try_inplace_concat_assign`), but returning it through a recursive helper copies it at every level (`packages/mustache`: over 120 s, versus 0.18 s once each level returned only its own output). And `out = out & ch` in a loop beats `List OF String` plus one `strings::join` by ~3.5×, so don't switch to the list form out of O(n²) habit.
 
 ## In-place map mutation: branch arg order, dead slack, BUCKETS_READY
 

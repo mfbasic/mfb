@@ -33,9 +33,14 @@ impl CodeBuilder<'_> {
     /// like any other exit. A function-level (trap-shared) **owned arena value**
     /// is *not* dropped here: it stays live for the handler to read and is freed
     /// exactly once on the handler's own exit — dropping it here would
-    /// double-free it. Trap-shared threads/resources *are* still dropped here:
-    /// their drop is idempotent (the handler's later drop is a harmless no-op)
-    /// and propagating an error past them cancels/closes them as before.
+    /// double-free it. Trap-shared resources *are* still dropped here: their drop
+    /// is idempotent (the handler's later drop is a harmless no-op) and
+    /// propagating an error past them closes them as before.
+    ///
+    /// A trap-shared thread is CLOSED here (cancelled, joined or detached, as before)
+    /// but not RELEASED: the handler can still name it and must read a live, closed
+    /// control block (`ErrResourceClosed`), so its owner count is given up by the
+    /// handler's own exit cleanup (bug-622).
     pub(crate) fn trap_route_cleanups(&self) -> Vec<ActiveCleanup> {
         let floor = self.trap_cleanup_floor();
         self.active_cleanups
@@ -44,7 +49,15 @@ impl CodeBuilder<'_> {
             .filter(|(index, cleanup)| {
                 !(*index < floor && matches!(cleanup, ActiveCleanup::OwnedValue(_)))
             })
-            .map(|(_, cleanup)| cleanup.clone())
+            .map(|(index, cleanup)| match cleanup {
+                ActiveCleanup::Thread(thread) if index < floor => {
+                    ActiveCleanup::Thread(ThreadCleanup {
+                        release: false,
+                        ..thread.clone()
+                    })
+                }
+                other => other.clone(),
+            })
             .collect()
     }
 
@@ -76,7 +89,11 @@ impl CodeBuilder<'_> {
         &mut self,
         target: &str,
         cleanup_depth: usize,
+        temp_depth: usize,
     ) -> Result<(), String> {
+        // bug-620: the branch skips the statement-end drop of every statement it leaves, so
+        // their temps are freed here. In place: the fall-through path still frees them.
+        self.emit_pending_temp_frees_in_place_from(temp_depth)?;
         let cleanups = self.active_cleanups[cleanup_depth..].to_vec();
         for cleanup in cleanups.iter().rev() {
             match cleanup {

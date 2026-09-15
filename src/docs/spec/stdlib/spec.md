@@ -70,6 +70,16 @@ built-in injection chain.
   canonical form, why the language operators, `Map` keys and `Set` elements do not
   apply, the total/fallible split, the truncating division and remainder rule, and the
   absence of any constant-time guarantee.
+- `compress` — the in-memory compression package: the MFBASIC-source-only implementation
+  guarantee, per-member source gating and its measured size effect, the CRC-32/ISO-HDLC
+  model (catalogue parameters, the `running` continuation and its range, slicing-by-8, and
+  the lookup tables built at program start), and the DEFLATE decoders — one shared core, the
+  zlib and gzip wrappers, decode-table validity matching zlib's `inflate_table`, the
+  `ignoreChecksum` / trailing-byte / preset-dictionary behaviours, `maxBytes` bounds, and the
+  measured design choices; and the DEFLATE encoders — per-block choice of stored, fixed and
+  dynamic Huffman by exact cost, package-merge code lengths and zlib's header rules, greedy and lazy
+  hash-chain matching with zlib's per-level limits, the zlib and gzip header bytes, the determinism
+  guarantee, and dated throughput and size measurements.
 
 ## See Also
 

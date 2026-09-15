@@ -1,0 +1,53 @@
+' plan-136-C: a local binding may not reuse the name of a local that is still live,
+' at the binding sites that did not check it before: a lambda parameter, an
+' inline-TRAP binding, a MATCH case binding, a MATCH guard binding, and a
+' function-level TRAP binding.
+IMPORT io
+
+TYPE Circle
+  radius AS Integer
+END TYPE
+TYPE Rect
+  w AS Integer
+  h AS Integer
+END TYPE
+UNION Shape
+  Circle
+  Rect
+END UNION
+
+' Function-level TRAP binding duplicating a body local (the TRAP body sees the
+' function body's top-level locals).
+FUNC byFunctionTrap() AS Integer
+  LET err AS Integer = 1
+  RETURN toInt("nope") + err
+  TRAP(err)
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  ' Lambda parameter duplicating a live local.
+  LET x AS Integer = 1
+  LET addTen = LAMBDA(x AS Integer) -> x + 10
+  ' Inline-TRAP binding duplicating a live local.
+  LET e AS Integer = 3
+  LET parsed AS Integer = toInt("7") TRAP(e)
+    RECOVER 0
+  END TRAP
+  LET s AS Shape = Circle[3]
+  LET c AS Integer = 4
+  LET g AS Integer = 5
+  MATCH s
+    ' MATCH guard binding duplicating a live local.
+    CASE Circle(g) WHEN g.radius > 1
+      io::print("big")
+    ' MATCH case binding duplicating a live local.
+    CASE Rect(c)
+      io::print("rect")
+    CASE ELSE
+      io::print("other")
+  END MATCH
+  io::print(toString(addTen(x) + parsed + e + c + g + byFunctionTrap()))
+  RETURN 0
+END FUNC

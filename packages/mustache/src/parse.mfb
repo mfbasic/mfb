@@ -39,7 +39,7 @@ IMPORT strings
 ' including template had changed them. Both are what the specification requires.
 PUBLIC FUNC parseTemplate(template AS String) AS List OF Node
   IF strings::byteLen(template) > TEMPLATE_LIMIT THEN
-    FAIL error(ERR_LIMIT, "mustache: the template is " & toString(strings::byteLen(template)) & " bytes, past the " & toString(TEMPLATE_LIMIT) & "-byte limit")
+    FAIL error(ErrorLimit, "mustache: the template is " & toString(strings::byteLen(template)) & " bytes, past the " & toString(TEMPLATE_LIMIT) & "-byte limit")
   END IF
 
   LET bytes AS List OF Byte = strings::toBytes(template)

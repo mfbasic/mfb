@@ -674,12 +674,23 @@ pub(crate) struct LoopLabels {
     pub(crate) continue_label: String,
     pub(crate) exit_label: String,
     pub(crate) cleanup_depth: usize,
+    /// `pending_temp_frees.len()` when the body starts. An `EXIT`/`CONTINUE` jumps past the
+    /// statement-end drop of every statement it leaves inside the body — an `IF` whose
+    /// condition made a temp — so it frees the pending temps above this depth (bug-620).
+    pub(crate) temp_depth: usize,
 }
 
 #[derive(Clone)]
 pub(crate) struct ThreadCleanup {
     pub(crate) name: String,
     pub(crate) symbol: String,
+    /// Close the handle (`THREAD_DROP_CLOSE`). False for a handle moved into a callee:
+    /// the callee's parameter closes it, and the caller may still read it.
+    pub(crate) close: bool,
+    /// Give up this binding's owner count (`THREAD_DROP_RELEASE`, bug-622). False on a
+    /// trap route for a handle the `TRAP` handler can still name: the handler's own exit
+    /// releases it.
+    pub(crate) release: bool,
 }
 
 #[derive(Clone)]

@@ -28,6 +28,9 @@ pub(super) struct LowerContext<'a> {
     function_returns: &'a HashMap<String, ParameterType>,
     function_types: &'a HashMap<String, ParameterType>,
     function_params: &'a HashMap<String, Vec<CallParam>>,
+    /// Native LINK functions' parameters, keyed `alias.func` (plan-136-A), so a
+    /// LINK call that omits a defaulted argument is filled.
+    link_params: &'a HashMap<String, Vec<CallParam>>,
     /// plan-121-G: reducers whose body is exactly `RETURN acc & rhs`, so a
     /// `collections::reduce` over one can be rewritten into the loop it is sugar
     /// for. Only the MATCHED shape is carried, never an arbitrary body.
@@ -193,6 +196,10 @@ pub fn lower_project_with_external_functions(
     // see (plan-122-B).
     let augmented = crate::codegen::builtins::color::augmented_project(&augmented)
         .expect("built-in color package source must parse");
+    // `compress` after it: canvas's injected PNG decoder calls `compress::zlibDecode`
+    // (plan-137-C).
+    let augmented = crate::codegen::builtins::compress::augmented_project(&augmented)
+        .expect("built-in compress package source must parse");
     let mut ir = lower_augmented_project(
         &crate::hir::elaborate(&augmented),
         entry,
@@ -274,11 +281,14 @@ pub fn lower_augmented_project(
                 HirItem::Type(type_decl) => {
                     types.push(lower_type(type_decl, type_index, &context.current_file))
                 }
+                // A LINK block's native functions are surfaced to package metadata
+                // separately (plan-link-update.md §10) and are not lowered to
+                // ordinary IR functions; only their computed parameter defaults
+                // get hidden default functions (plan-136-A).
+                HirItem::Link(link) => lower_link_defaults(link, &mut context),
                 // Native LINK resource declarations and re-export aliases carry no
-                // executable body. The LINK block's native functions are surfaced
-                // to package metadata separately (plan-link-update.md §10); they
-                // are not lowered to ordinary IR functions here.
-                HirItem::Resource(_) | HirItem::FuncAlias(_) | HirItem::Link(_) => {}
+                // executable body.
+                HirItem::Resource(_) | HirItem::FuncAlias(_) => {}
                 // DOC blocks carry no executable body; documentation is collected
                 // separately into the project's doc table.
                 HirItem::Doc(_) => {}
@@ -327,6 +337,7 @@ pub(super) struct LowerFacts {
     function_returns: HashMap<String, ParameterType>,
     function_types: HashMap<String, ParameterType>,
     function_params: HashMap<String, Vec<CallParam>>,
+    link_params: HashMap<String, Vec<CallParam>>,
     /// plan-121-G: reducers recognized as `RETURN acc & rhs`.
     concat_reducers: HashMap<String, ConcatReducer>,
     binding_types: HashMap<String, ParameterType>,
@@ -376,6 +387,7 @@ impl LowerFacts {
             function_returns: &self.function_returns,
             function_types: &self.function_types,
             function_params: &self.function_params,
+            link_params: &self.link_params,
             concat_reducers: self.concat_reducers.clone(),
             binding_types: self.binding_types.clone(),
             type_index: &self.type_index,
@@ -433,7 +445,20 @@ pub(super) fn lower_facts(
                 .map(|param| CallParam {
                     name: param.name.clone(),
                     type_: param.type_.clone(),
-                    default: None,
+                    // plan-136-B: an imported call that omits an argument passes the
+                    // exporting package's default exactly as a local call does.
+                    default: match &param.default {
+                        ExternalDefault::None => None,
+                        ExternalDefault::Literal { type_, value } => {
+                            Some(CallDefault::Constant(IrValue::Const {
+                                type_: type_.clone(),
+                                value: value.clone(),
+                            }))
+                        }
+                        ExternalDefault::Function(name) => {
+                            Some(CallDefault::Function(name.clone()))
+                        }
+                    },
                 })
                 .collect(),
         );
@@ -444,6 +469,7 @@ pub(super) fn lower_facts(
         function_returns,
         function_types,
         function_params,
+        link_params: link_params(hir),
         concat_reducers: concat_reducers(hir),
         binding_types,
         type_index,
@@ -640,7 +666,8 @@ fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrF
         params: function
             .params
             .iter()
-            .map(|param| lower_param(param, &locals, context))
+            .enumerate()
+            .map(|(index, param)| lower_param(&function.name, index, param, context))
             .collect(),
         returns,
         body,
@@ -699,8 +726,9 @@ fn lower_function_body(
 }
 
 fn lower_param(
+    function: &str,
+    index: usize,
     param: &HirParam,
-    locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> IrParam {
     // A `RES` parameter's `STATE T` rides inside its type's nominal spelling so
@@ -713,19 +741,99 @@ fn lower_param(
         name: param.name.clone(),
         type_: type_.clone(),
         // The default is typed by the parameter, exactly as the call site
-        // fills it (`lower_local_call_arguments`): a bare numeric literal — or a
-        // list of them — coerces to a `Fixed`/`Money`/`Float` parameter here too,
-        // so `a AS List OF Fixed = [1, 2]` lowers as the `List OF Fixed` the
+        // fills it (`lower_call_default`): a bare numeric literal — or a list of
+        // them — coerces to a `Fixed`/`Money`/`Float` parameter here too, so
+        // `a AS List OF Fixed = [1, 2]` lowers as the `List OF Fixed` the
         // declaration names rather than a `List OF Integer` the default-value
-        // rule then rejects.
-        default: param
-            .default
-            .as_ref()
-            .map(|value| lower_expression_with_expected(value, Some(&type_), locals, context)),
+        // rule then rejects. plan-136-A: it is lowered in the declaration's
+        // scope, and a computed one is the call to its hidden default function.
+        default: param.default.as_ref().map(|value| {
+            lower_parameter_default(function, index, &type_, value, param.line, context)
+        }),
         loc: IrSourceLoc {
             line: param.line as u32,
             column: 1,
         },
+    }
+}
+
+/// Lower parameter `index`'s default of `function` in the DECLARATION's scope
+/// (plan-136-A): with no locals, and with the declaring file's imports (the
+/// caller's context is never involved).
+///
+/// A [`DefaultKind::Literal`] lowers to its value. A [`DefaultKind::Computed`]
+/// default is lowered once into the body of a hidden, private, parameterless
+/// function — `RETURN <default>` through ordinary statement lowering, so every
+/// statement-position desugar (an inline `TRAP`) applies — and the default
+/// becomes a zero-argument call to it. Each call that omits the argument makes
+/// that call, so the default is evaluated on every such call.
+fn lower_parameter_default(
+    function: &str,
+    index: usize,
+    type_: &ParameterType,
+    default: &HirExpression,
+    line: usize,
+    context: &mut LowerContext<'_>,
+) -> IrValue {
+    match default_kind(default, &context.current_imports) {
+        DefaultKind::Literal => {
+            lower_expression_with_expected(default, Some(type_), &HashMap::new(), context)
+        }
+        DefaultKind::Computed => {
+            let name = crate::internal_name::hidden_default_function_name(function, index);
+            let loc = IrSourceLoc {
+                line: line as u32,
+                column: 1,
+            };
+            let previous_return_type = context.current_return_type.replace(type_.clone());
+            let body = lower_statement(
+                &HirStatement::Return {
+                    value: Some(default.clone()),
+                    line,
+                },
+                &mut HashMap::new(),
+                context,
+                None,
+            );
+            context.current_return_type = previous_return_type;
+            context.lambdas.push(IrFunction {
+                name: name.clone(),
+                visibility: "private".to_string(),
+                kind: "func".to_string(),
+                isolated: false,
+                params: Vec::new(),
+                returns: type_.clone(),
+                body,
+                file: context.current_file.clone(),
+                loc,
+                resource_owners: HashMap::new(),
+            });
+            IrValue::Call {
+                target: name,
+                args: Vec::new(),
+                type_: type_.clone(),
+                loc,
+            }
+        }
+    }
+}
+
+/// Synthesize the hidden default function of every computed parameter default in
+/// a LINK block (plan-136-A). A LINK function has no IR body, so its defaults are
+/// used only by the calls `link_params` fills.
+fn lower_link_defaults(link: &crate::hir::HirLinkBlock, context: &mut LowerContext<'_>) {
+    for native in &link.functions {
+        let function = format!("{}.{}", link.alias, native.name);
+        for (index, param) in native.params.iter().enumerate() {
+            let Some(default) = &param.default else {
+                continue;
+            };
+            if default_kind(default, &context.current_imports) == DefaultKind::Computed {
+                let type_ = param.type_.clone().unwrap_or(ParameterType::Unknown);
+                let _ =
+                    lower_parameter_default(&function, index, &type_, default, param.line, context);
+            }
+        }
     }
 }
 
@@ -766,7 +874,119 @@ struct RecoverTarget {
 struct CallParam {
     name: String,
     type_: ParameterType,
-    default: Option<HirExpression>,
+    /// How a call that omits this argument fills it (plan-136-A).
+    default: Option<CallDefault>,
+}
+
+/// How a call that omits a defaulted argument fills it (plan-136-A).
+#[derive(Clone)]
+enum CallDefault {
+    /// A [`DefaultKind::Literal`] default, lowered at the call site typed by the
+    /// parameter. It names nothing a caller could capture; a package constant is
+    /// stored under the canonical `package.NAME` of the DECLARING file's imports.
+    Literal(HirExpression),
+    /// A [`DefaultKind::Computed`] default: a zero-argument call to this hidden
+    /// default function.
+    Function(String),
+    /// An imported package's literal default, already the `IrValue::Const` the
+    /// exporting package stored (plan-136-B). It is passed as-is: re-lowering its
+    /// text could classify a number differently from the declaration.
+    Constant(IrValue),
+}
+
+/// The two kinds of parameter default (plan-136-A).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DefaultKind {
+    /// A string, number, scalar or boolean literal, `NOTHING`, or a built-in
+    /// package constant: exactly the forms `lower_expression_with_expected`
+    /// lowers to a scalar `IrValue::Const`. It names nothing, so the scope it is
+    /// lowered in cannot matter, and it lowers at the call site as it always did.
+    Literal,
+    /// Everything else: lowered once into a hidden default function.
+    Computed,
+}
+
+/// Classify a parameter default. A total match with no wildcard arm, so a new
+/// `HirExpression` variant is a build error here rather than a silent verdict.
+/// `imports` are the declaring file's import bindings.
+pub(super) fn default_kind(
+    default: &HirExpression,
+    imports: &HashMap<String, String>,
+) -> DefaultKind {
+    match default {
+        HirExpression::String(_)
+        | HirExpression::Number(_)
+        | HirExpression::Scalar(_)
+        | HirExpression::Boolean(_) => DefaultKind::Literal,
+        HirExpression::Identifier(name) if name == "NOTHING" => DefaultKind::Literal,
+        // The identifier arm of `lower_expression_with_expected` folds a built-in
+        // package constant to a `Const` — unless it is a record constant, which it
+        // inlines as a constructor first.
+        HirExpression::Identifier(name) => {
+            let canonical = canonical_import_name_in(name, imports);
+            if registry_record_constant(&canonical).is_none()
+                && builtins::is_package_constant(&canonical)
+            {
+                DefaultKind::Literal
+            } else {
+                DefaultKind::Computed
+            }
+        }
+        HirExpression::Binary { .. }
+        | HirExpression::Unary { .. }
+        | HirExpression::Call { .. }
+        | HirExpression::Lambda { .. }
+        | HirExpression::Constructor { .. }
+        | HirExpression::WithUpdate { .. }
+        | HirExpression::ListLiteral(_)
+        | HirExpression::SetLiteral { .. }
+        | HirExpression::MapLiteral { .. }
+        | HirExpression::MemberAccess { .. }
+        | HirExpression::Trapped { .. } => DefaultKind::Computed,
+    }
+}
+
+/// The call-site fill for parameter `index`'s `default` of `function`, whose file
+/// has `imports` (plan-136-A).
+fn call_default(
+    function: &str,
+    index: usize,
+    default: &HirExpression,
+    imports: &HashMap<String, String>,
+) -> CallDefault {
+    match default_kind(default, imports) {
+        DefaultKind::Literal => CallDefault::Literal(match default {
+            HirExpression::Identifier(name) => {
+                HirExpression::Identifier(canonical_import_name_in(name, imports))
+            }
+            literal => literal.clone(),
+        }),
+        DefaultKind::Computed => CallDefault::Function(
+            crate::internal_name::hidden_default_function_name(function, index),
+        ),
+    }
+}
+
+/// Fill an omitted defaulted argument at a call site, or `None` when `param` has
+/// no default (plan-136-A). A literal lowers with NO locals and a computed default
+/// is a call to its hidden default function, so a caller's locals can never
+/// capture a default's names (bug-614).
+fn lower_call_default(param: &CallParam, context: &mut LowerContext<'_>) -> Option<IrValue> {
+    match param.default.as_ref()? {
+        CallDefault::Literal(literal) => Some(lower_expression_with_expected(
+            literal,
+            Some(&param.type_),
+            &HashMap::new(),
+            context,
+        )),
+        CallDefault::Function(name) => Some(IrValue::Call {
+            target: name.clone(),
+            args: Vec::new(),
+            type_: param.type_.clone(),
+            loc: context.current_loc,
+        }),
+        CallDefault::Constant(value) => Some(value.clone()),
+    }
 }
 
 #[derive(Clone)]
@@ -3424,6 +3644,8 @@ fn function_types(hir: &HirProject) -> HashMap<String, ParameterType> {
 fn function_params(hir: &HirProject) -> HashMap<String, Vec<CallParam>> {
     let mut params = HashMap::new();
     for file in &hir.files {
+        // A default is classified against the file that DECLARES it (plan-136-A).
+        let imports = file.import_bindings();
         for item in &file.items {
             if let HirItem::Function(function) = item {
                 params.insert(
@@ -3431,13 +3653,48 @@ fn function_params(hir: &HirProject) -> HashMap<String, Vec<CallParam>> {
                     function
                         .params
                         .iter()
-                        .map(|param| CallParam {
+                        .enumerate()
+                        .map(|(index, param)| CallParam {
                             name: param.name.clone(),
                             type_: param.type_.clone(),
-                            default: param.default.clone(),
+                            default: param.default.as_ref().map(|default| {
+                                call_default(&function.name, index, default, &imports)
+                            }),
                         })
                         .collect(),
                 );
+            }
+        }
+    }
+    params
+}
+
+/// Every native LINK function's parameters, keyed `alias.func` like
+/// [`function_types`], so a LINK call that omits a defaulted argument passes its
+/// default (plan-136-A — the omitted argument used to be simply not passed).
+fn link_params(hir: &HirProject) -> HashMap<String, Vec<CallParam>> {
+    let mut params = HashMap::new();
+    for file in &hir.files {
+        let imports = file.import_bindings();
+        for item in &file.items {
+            if let HirItem::Link(link) = item {
+                for native in &link.functions {
+                    let function = format!("{}.{}", link.alias, native.name);
+                    let call_params = native
+                        .params
+                        .iter()
+                        .enumerate()
+                        .map(|(index, param)| CallParam {
+                            name: param.name.clone(),
+                            type_: param.type_.clone().unwrap_or(ParameterType::Unknown),
+                            default: param
+                                .default
+                                .as_ref()
+                                .map(|default| call_default(&function, index, default, &imports)),
+                        })
+                        .collect();
+                    params.insert(function, call_params);
+                }
             }
         }
     }
@@ -3911,10 +4168,16 @@ fn canonical_import_type(type_: &ParameterType, context: &LowerContext<'_>) -> P
 }
 
 fn canonical_import_name(name: &str, context: &LowerContext<'_>) -> String {
+    canonical_import_name_in(name, &context.current_imports)
+}
+
+/// [`canonical_import_name`] against an explicit file's import bindings — the
+/// DECLARING file's, for a parameter default (plan-136-A).
+fn canonical_import_name_in(name: &str, imports: &HashMap<String, String>) -> String {
     let Some((binding, rest)) = name.split_once('.') else {
         return name.to_string();
     };
-    let Some(package) = context.current_imports.get(binding) else {
+    let Some(package) = imports.get(binding) else {
         return name.to_string();
     };
     // `IMPORT self` binds the current package's own exported interface, so a
@@ -4160,11 +4423,9 @@ fn lower_local_call_arguments(
                     locals,
                     context,
                 )),
-                None => params.get(index).and_then(|param| {
-                    param.default.as_ref().map(|default| {
-                        lower_expression_with_expected(default, Some(&param.type_), locals, context)
-                    })
-                }),
+                None => params
+                    .get(index)
+                    .and_then(|param| lower_call_default(param, context)),
             }
         })
         .collect()
@@ -4471,7 +4732,7 @@ fn lower_expression_with_expected(
             {
                 lower_local_call_arguments(callee, arguments, locals, context)
             } else {
-                normalized_builtin
+                let mut args = normalized_builtin
                     .iter()
                     .enumerate()
                     .map(|(index, argument)| {
@@ -4493,7 +4754,23 @@ fn lower_expression_with_expected(
                         context.nonescaping_callback = false;
                         value
                     })
-                    .collect()
+                    .collect::<Vec<_>>();
+                // plan-136-A: a LINK call that omits trailing defaulted arguments
+                // passes their defaults. Before, the native thunk read an argument
+                // that was never passed (`absval()` → an overflow error).
+                let link_params = context.link_params;
+                if let Some(params) = link_params
+                    .get(callee)
+                    .or_else(|| link_params.get(&canonical_callee))
+                {
+                    for param in params.iter().skip(args.len()) {
+                        let Some(value) = lower_call_default(param, context) else {
+                            break;
+                        };
+                        args.push(value);
+                    }
+                }
+                args
             };
             // Pad optional trailing arguments (`tls.connect` defaults)
             // with constants so the fixed-ABI runtime helper always receives

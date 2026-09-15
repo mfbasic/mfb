@@ -1,0 +1,62 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "trap_body_local_lambda_shadows_private_func_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "#c2515768f1aa7dc6$helper",
+    "line": 15,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "42" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 20, "mutable": false, "name": "helper", "type": "FUNC() AS Integer", "value": { "kind": "functionRef", "name": "$lambda0", "type": "FUNC() AS Integer" } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "bad", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "const", "type": "String", "value": "nope" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "bad" }] }] } },
+    { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "trap",
+      "line": 24,
+      "name": "e",
+      "body": [
+      { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "helper", "args": [] }] }] } },
+      { "op": "return", "line": 26, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "line": 20,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 20, "value": { "kind": "const", "type": "Integer", "value": "7" } }
+    ]
+  }
+  ]
+}

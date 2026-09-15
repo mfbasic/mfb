@@ -671,7 +671,7 @@ impl RegistryRecord {
             out.push_str("\n  ");
             out.push_str(prop.name);
             out.push_str(" AS ");
-            out.push_str(&source_spelling(&prop.ty));
+            out.push_str(&prop.ty.display());
         }
         out.push_str("\nEND TYPE");
         out
@@ -1881,7 +1881,7 @@ impl Registry {
                 // skipped, on the reasoning that a record round-trips through
                 // injectable source where a qualifier is `::` and a `.` would parse
                 // as field access. True, but it argues for rendering `::`, not for
-                // leaving the field bare -- and `source_spelling` already does that
+                // leaving the field bare -- and `ParameterType::display` already does that
                 // rewrite for every rendered type. Leaving them bare put a name that
                 // is IMPORTED into the declaring package (`udp::Datagram`'s `from`
                 // is net's `Address`) into the companion with no prefix, against the
@@ -2030,28 +2030,6 @@ pub(crate) fn builtin_record_layouts() -> &'static [BuiltinRecordLayout] {
 /// The `example` package is an illustrative entry that exercises the shape (a
 /// single-implementation function and a two-implementation overload); `csv` is the
 /// first real package migrated off `target::shared::registry` — it registers itself
-/// from its own module, `crate::codegen::builtins::csv`.
-/// Render `ty` the way SOURCE spells it.
-///
-/// The type system's qualifier is a dot (`net.Address`), matching the parser's
-/// internal normalization. MFBASIC source spells it `net::Address` -- a dot there
-/// is FIELD ACCESS, so emitting the internal form into injectable source makes the
-/// companion unparseable (`<builtin-udp>:10 Field name must be an identifier`).
-///
-/// Only the qualifier is rewritten; container spellings (`List OF`, `Map OF … TO`)
-/// and their nesting are already source-shaped.
-fn source_spelling(ty: &ParameterType) -> String {
-    let rendered = ty.name().into_owned();
-    let mut out = rendered.clone();
-    for package in registry().packages() {
-        let dotted = format!("{}.", package.import_name());
-        if out.contains(&dotted) {
-            out = out.replace(&dotted, &format!("{}::", package.import_name()));
-        }
-    }
-    out
-}
-
 /// Map every NOMINAL leaf of `ty` from its bare spelling to the package-qualified
 /// identity, per the owner rule in
 /// [`Registry::qualify_value_type_references`]. Container shapes
@@ -2188,6 +2166,12 @@ fn qualify_type_leaves_inner(
     }
 }
 
+/// Construct the registry by registering every migrated package.
+///
+/// The `example` package is an illustrative entry that exercises the shape (a
+/// single-implementation function and a two-implementation overload); `csv` is the
+/// first real package migrated off `target::shared::registry` — it registers itself
+/// from its own module, `crate::codegen::builtins::csv`.
 fn build() -> Registry {
     let mut r = Registry::new();
     crate::codegen::builtins::app::register(&mut r);
@@ -2197,6 +2181,7 @@ fn build() -> Registry {
     crate::codegen::builtins::bits::register(&mut r);
     crate::codegen::builtins::canvas::register(&mut r);
     crate::codegen::builtins::color::register(&mut r);
+    crate::codegen::builtins::compress::register(&mut r);
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);
     crate::codegen::builtins::math::register(&mut r);
@@ -3750,7 +3735,7 @@ impl ProjectView {
 }
 
 /// Inject a late-pass package's source companion (`http`/`net`/`encoding`) into
-/// an AST project.
+/// an AST project, with its gated helpers (see [`late_pass_files`]).
 ///
 /// These three are skipped by [`Registry::augment_project`]'s single pass and
 /// injected in their own dependency order afterwards, because each carries
@@ -3762,14 +3747,18 @@ pub(crate) fn inject_late_pass(
     label: &str,
     doc: &str,
 ) -> Result<crate::ast::AstProject, ()> {
-    match late_pass_file(package, label, doc, &ProjectView::of_ast(ast))? {
-        Some(file) => {
-            let mut augmented = ast.clone();
+    let files = late_pass_files(package, label, doc, &ProjectView::of_ast(ast))?;
+    let mut augmented = ast.clone();
+    for file in files {
+        if !augmented
+            .files
+            .iter()
+            .any(|present| present.path == file.path)
+        {
             augmented.files.push(file);
-            Ok(augmented)
         }
-        None => Ok(ast.clone()),
     }
+    Ok(augmented)
 }
 
 /// The same injection onto the elaborated project the former source checker consumes.
@@ -3779,33 +3768,66 @@ pub(crate) fn inject_late_pass_hir(
     label: &str,
     doc: &str,
 ) -> Result<crate::hir::HirProject, ()> {
-    match late_pass_file(package, label, doc, &ProjectView::of_hir(hir))? {
-        Some(file) => {
-            let mut augmented = hir.clone();
+    let files = late_pass_files(package, label, doc, &ProjectView::of_hir(hir))?;
+    let mut augmented = hir.clone();
+    for file in files {
+        if !augmented
+            .files
+            .iter()
+            .any(|present| present.path == file.path)
+        {
             augmented.files.push(crate::hir::elaborate_file(&file));
-            Ok(augmented)
         }
-        None => Ok(hir.clone()),
     }
+    Ok(augmented)
 }
 
-fn late_pass_file(
+/// The files a late pass injects: the package's `get_mfb` companion, then each of its
+/// [`HelperGate::WhenUsed`] helpers whose gate the late pass's view opens.
+///
+/// `get_mfb` renders no gated helper, so a package whose members all rewrite onto gated
+/// helpers (`compress`) would otherwise inject only its `IMPORT` lines. Its gates are
+/// opened here by the calls in the source earlier passes injected — canvas's PNG decoder
+/// calling `compress::zlibDecode` (plan-137-C) — which the generic pass never sees. The
+/// callers skip a file whose path the project already has, so a helper the generic pass
+/// injected for a program that imports the package itself keeps its position and is not
+/// injected twice.
+fn late_pass_files(
     package: &str,
     label: &str,
     doc: &str,
     view: &ProjectView,
-) -> Result<Option<crate::ast::AstFile>, ()> {
+) -> Result<Vec<crate::ast::AstFile>, ()> {
     let Some(pkg) = registry().resolve_package(package) else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     if !pkg.is_imported_by(view) {
-        return Ok(None);
+        return Ok(Vec::new());
     }
-    Ok(Some(crate::ast::parse_source_internal(
+    let mut files = vec![crate::ast::parse_source_internal(
         std::path::Path::new(label),
         doc,
         &pkg.get_mfb(),
-    )?))
+    )?];
+    for helper in pkg.helpers() {
+        let (Some(body), HelperGate::WhenUsed(names)) = (helper.body, &helper.gate) else {
+            continue;
+        };
+        if !view.references_any(names) {
+            continue;
+        }
+        // Labelled and parsed exactly as `Registry::synthetic_files` does, so the path
+        // matches a copy the generic pass already injected.
+        let label = format!("<builtin-{}>", helper.name);
+        let doc = format!("builtins/{}.mfb", helper.name);
+        files.push(crate::ast::parse_source_builtin(
+            std::path::Path::new(&label),
+            &doc,
+            &format!("{}\n", body.trim_end()),
+            pkg.import_name(),
+        )?);
+    }
+    Ok(files)
 }
 
 /// The final segment of a callee across `::` and `.` — the form a `WhenUsed` gate
@@ -4599,7 +4621,7 @@ mod tests {
     /// The three seams a record field crosses, in the order it crosses them:
     ///
     /// 1. **Export** — `RegistryRecord::render` writes the record out as MFBASIC source
-    ///    that is injected and then compiled. If `source_spelling` did not spell the
+    ///    that is injected and then compiled. If `ParameterType::display` did not spell the
     ///    `RES`, the emitted `TYPE` would declare a *value* field of the resource's
     ///    name, and the program would compile against the wrong type rather than fail.
     /// 2. **Qualification** — a nominal leaf is rewritten to its owning package. The

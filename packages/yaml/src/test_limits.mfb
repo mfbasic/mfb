@@ -67,17 +67,16 @@ TESTING
     TCASE "a billion-laughs document is refused by the node budget"
       ' Six levels stay under a million nodes; seven do not.
       expectNTrap(parse(billionLaughs(5)))
-      expectTrap(parse(billionLaughs(7)), ERR_EXPANSION_LIMIT)
+      expectTrap(parse(billionLaughs(7)), ErrorExpansionLimit)
     END TCASE
 
     TCASE "the alias budget bounds how many aliases one document may expand"
       expectNTrap(parse(manyAliases(ALIAS_LIMIT)))
-      expectTrap(parse(manyAliases(ALIAS_LIMIT + 1)), ERR_EXPANSION_LIMIT)
+      expectTrap(parse(manyAliases(ALIAS_LIMIT + 1)), ErrorExpansionLimit)
     END TCASE
 
     TCASE "the exported code is the generator-9 value the docs name"
-      expectInteger(expansionLimitCode(), 93110001)
-      expectInteger(ERR_EXPANSION_LIMIT, 93110001)
+      expectInteger(ErrorExpansionLimit, 93110001)
     END TCASE
   END TGROUP
 END TESTING

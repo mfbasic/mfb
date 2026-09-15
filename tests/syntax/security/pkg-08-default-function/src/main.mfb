@@ -1,0 +1,12 @@
+' PKG-08 (plan-136-B): `sec_default`'s `f` carries a parameter record whose
+' default-function flag points at an exported function that takes a parameter,
+' not at `f`'s private, parameterless hidden default function. Calling `f()`
+' would call the wrong function, so the package must be refused at
+' decode/verification rather than producing an executable.
+IMPORT io
+IMPORT sec_default AS sec_default
+
+FUNC main() AS Integer
+  io::print(toString(sec_default::f()))
+  RETURN 0
+END FUNC

@@ -75,7 +75,6 @@ mod helper_font;
 mod helper_geometry;
 mod helper_glyph;
 mod helper_glyph_cache;
-mod helper_inflate;
 mod helper_items;
 mod helper_paint_defaults;
 mod helper_png;
@@ -162,8 +161,8 @@ The one colour type a canvas program names, `color::Color`, belongs to `color` a
 needs its own `IMPORT color`.
 An image closes itself when its binding goes out of scope, or earlier with
 `canvas::destroyImage`; destroying one that a presented scene still draws is
-safe. Calling `canvas::destroyImage` again on an image it already closed does
-nothing; any other use of a closed image raises `ErrResourceClosed`. An image
+safe. Calling `canvas::destroyImage` again on an image it already closed raises
+`ErrResourceClosed`, as does any other use of a closed image. An image
 stays on the drawing surface's thread."#;
 
 /// Register the `canvas` package on the clean-room registry.
@@ -191,10 +190,13 @@ pub(crate) fn register(r: &mut Registry) {
     // `color::toLinear`/`color::fromLinear` rather than a canvas-local sRGB table.
     // canvas already has a non-empty companion and already pays a companion cost, so
     // this adds `color`'s 33,024 bytes but does not change canvas's cost *class*.
+    // `compress` (plan-137-C): the PNG decoder inflates IDAT through
+    // `compress::zlibDecode`; its gated helpers ride in by `compress`'s late pass.
     pkg.add_imports(vec![
         "canvas",
         "collections",
         "color",
+        "compress",
         "math",
         "os",
         "fs",
@@ -985,6 +987,8 @@ pub(crate) fn register(r: &mut Registry) {
         live_slots: &[],
         // `destroyImage` sets the closed flag and returns; the backend frees the real
         // object later, on its own schedule, so there is nothing here that can fail.
+        // Its only error is `ErrResourceClosed` on a re-close, which the drop path
+        // treats as benign, so it is not a close failure.
         unsendable_reason: Some("it belongs to the drawing surface's thread"),
         close_may_fail: false,
         kind: crate::codegen::resource::ResourceKind::Builtin,
@@ -1053,7 +1057,6 @@ pub(crate) fn register(r: &mut Registry) {
     helper_glyph::register(&mut pkg);
     helper_damage::register(&mut pkg);
     helper_glyph_cache::register(&mut pkg);
-    helper_inflate::register(&mut pkg);
     helper_png::register(&mut pkg);
     helper_geometry::register(&mut pkg);
     helper_items::register(&mut pkg);
