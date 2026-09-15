@@ -1,0 +1,32 @@
+$ mfb build -ast -ir tests/syntax/scope/duplicate-local-at-every-binding-site-invalid
+  22 |   LET err AS Integer = 1
+  23 |   RETURN toInt("nope") + err
+  24 |   TRAP(err)
+     | ^
+tests/syntax/scope/duplicate-local-at-every-binding-site-invalid/src/main.mfb:24 error[2-201-0009 SYMBOL_DUPLICATE_LOCAL]: local symbol is declared more than once
+               Local binding `err` is already declared in this function.
+  30 |   ' Lambda parameter duplicating a live local.
+  31 |   LET x AS Integer = 1
+  32 |   LET addTen = LAMBDA(x AS Integer) -> x + 10
+     | ^
+tests/syntax/scope/duplicate-local-at-every-binding-site-invalid/src/main.mfb:32 error[2-201-0009 SYMBOL_DUPLICATE_LOCAL]: local symbol is declared more than once
+               Lambda parameter `x` is already declared in this function.
+  33 |   ' Inline-TRAP binding duplicating a live local.
+  34 |   LET e AS Integer = 3
+  35 |   LET parsed AS Integer = toInt("7") TRAP(e)
+     | ^
+tests/syntax/scope/duplicate-local-at-every-binding-site-invalid/src/main.mfb:35 error[2-201-0009 SYMBOL_DUPLICATE_LOCAL]: local symbol is declared more than once
+               Local binding `e` is already declared in this function.
+  41 |   MATCH s
+  42 |     ' MATCH guard binding duplicating a live local.
+  43 |     CASE Circle(g) WHEN g.radius > 1
+     | ^
+tests/syntax/scope/duplicate-local-at-every-binding-site-invalid/src/main.mfb:43 error[2-201-0009 SYMBOL_DUPLICATE_LOCAL]: local symbol is declared more than once
+               Local binding `g` is already declared in this function.
+  44 |       io::print("big")
+  45 |     ' MATCH case binding duplicating a live local.
+  46 |     CASE Rect(c)
+     | ^
+tests/syntax/scope/duplicate-local-at-every-binding-site-invalid/src/main.mfb:46 error[2-201-0009 SYMBOL_DUPLICATE_LOCAL]: local symbol is declared more than once
+               Local binding `c` is already declared in this function.
+[exit 1]

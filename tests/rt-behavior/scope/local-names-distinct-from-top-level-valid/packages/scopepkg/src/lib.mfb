@@ -1,0 +1,1 @@
+EXPORT LET shared AS Integer = 100

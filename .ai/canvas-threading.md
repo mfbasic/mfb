@@ -821,3 +821,19 @@ bases and the region chain, despite plan-116-F having found it named for the edg
 alone) and `the_shaders_gradient_base_matches_the_buffer_layout` (Vulkan), which fired
 on **every** one of those letters and were the only thing that noticed. Item 2 has no guard beyond the
 reflection — plan-116-D shipped the fragment half alone and found it that way.
+
+### A layout constant shared by MFBASIC source and the emitter has no compiler between them
+
+Builtin MFBASIC lives in a Rust `&'static str`, so a record width or slot index it shares
+with the native emitter is checked by nothing: the build is clean and tests are green.
+Two real cases:
+
+- `__canvas_pushOneDraw` appended four words per entry while `emit_draw_list_pass` stepped
+  eight, so every other entry was misread. Under Vulkan that crashes inside the driver,
+  with no MFB frame in the backtrace.
+- The geometry record's declared length (written by `__canvas_paintHeader`) and its tail
+  (appended by `__canvas_tailFor`) disagreed for one kind, so the reader took the next
+  record's header as data: wrong colours, no crash.
+
+Define the width once as a Rust constant, derive the emitter's literals from it, and pin
+the MFBASIC side with a unit test that reads the source string.

@@ -599,6 +599,14 @@ name = "rt_top_level_initializer_globals"
 path = "tests/runtime/rt_top_level_initializer_globals.rs"
 
 [[test]]
+name = "rt_parameter_default_scope"
+path = "tests/runtime/rt_parameter_default_scope.rs"
+
+[[test]]
+name = "rt_package_parameter_defaults"
+path = "tests/runtime/rt_package_parameter_defaults.rs"
+
+[[test]]
 name = "rt_imported_record_map_field_keys"
 path = "tests/runtime/rt_imported_record_map_field_keys.rs"
 
@@ -629,6 +637,10 @@ path = "tests/runtime/rt_big_int.rs"
 [[test]]
 name = "rt_json_bounds"
 path = "tests/runtime/rt_json_bounds.rs"
+
+[[test]]
+name = "rt_list_append_growth_bounds"
+path = "tests/runtime/rt_list_append_growth_bounds.rs"
 
 [[test]]
 name = "rt_native_float_pow_operator_runtime"
@@ -673,6 +685,10 @@ path = "tests/runtime/rt_package_calls_software_curve_builtin.rs"
 [[test]]
 name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
+
+[[test]]
+name = "rt_debug_soak"
+path = "tests/runtime/rt_debug_soak.rs"
 
 [[test]]
 name = "rt_debug_report"

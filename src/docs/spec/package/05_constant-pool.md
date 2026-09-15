@@ -2,6 +2,8 @@
 
 The `CONST_POOL` stores immutable literal values.
 
+A parameter's literal default is a `CONST_POOL` entry. A computed default (one that calls a function, reads a global, or is any other non-literal expression) is not a constant and is never stored here: its parameter record sets flag bit 3 and points at the parameter's hidden default function in the `FUNCTION_TABLE` instead (`mfb spec package functions`).
+
 ```text
 constCount      u32
 ConstEntry[constCount]

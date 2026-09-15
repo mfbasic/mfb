@@ -406,19 +406,46 @@ fn collect_diagnostics_with(
             // `mutable: false`), so assigning one is TYPE_ASSIGN_REQUIRES_MUT.
             muts.insert(param.name.clone(), false);
             if let Some(default) = &param.default {
-                // bug-297: a parameter default is evaluated in the caller's frame,
-                // which has no captured environment at all, so ANY `Capture` here
-                // is malformed IR -- `None` selects the stray-capture rejection.
+                // bug-297 / plan-136-A: a parameter default is evaluated outside its
+                // function (a call-site literal or a call to its hidden default
+                // function), which has no captured environment and no locals at
+                // all, so ANY `Capture` here is malformed IR -- `None` selects the
+                // stray-capture rejection -- and it is checked with no locals.
+                let no_locals = HashMap::new();
                 env.check_value_captures(default, None);
-                env.check_value(default, &locals);
+                env.check_value(default, &no_locals);
                 // A parameter default must match the declared parameter type —
                 // the former source checker's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
                 let expected = resource_base_type(&param.type_);
                 if !matches!(expected, ParameterType::Unknown | ParameterType::Nothing)
                     && !expected.name().is_empty()
                 {
-                    if let Some(actual) = env.infer_type(default, &locals) {
-                        if !env.expression_compatible(&expected, &actual, default) {
+                    // plan-136-A: a computed default is a call to its hidden default
+                    // function, annotated with the parameter type by construction, so
+                    // the default's own type is that function's returned value.
+                    let checked = match default {
+                        IrValue::Call { target, args, .. }
+                            if args.is_empty()
+                                && crate::internal_name::is_hidden_default_function(target) =>
+                        {
+                            project
+                                .functions
+                                .iter()
+                                .find(|hidden| hidden.name == *target)
+                                .and_then(|hidden| {
+                                    hidden.body.iter().rev().find_map(|op| match op {
+                                        IrOp::Return {
+                                            value: Some(value), ..
+                                        } => Some(value),
+                                        _ => None,
+                                    })
+                                })
+                                .unwrap_or(default)
+                        }
+                        _ => default,
+                    };
+                    if let Some(actual) = env.infer_type(checked, &no_locals) {
+                        if !env.expression_compatible(&expected, &actual, checked) {
                             let (actual, expected) = (actual.name(), expected.name());
                             env.emit(
                                 "TYPE_DEFAULT_VALUE_MISMATCH",

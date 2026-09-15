@@ -16,6 +16,21 @@ END SUB
 - **Default args** allowed (trailing). A non-default parameter may not follow a
   defaulted one (the semantic verifier rejects it with `TYPE_DEFAULT_ARG_ORDER`:
   "Parameter … must have a default because an earlier parameter has one").
+  A call that omits a defaulted argument receives the default **evaluated on that
+  call**, with the default's names resolved **where the function is declared**: the
+  declaring file's top-level bindings, functions, imports and own-file `PRIVATE`
+  names. A default never sees a caller's locals, and it may not name any parameter
+  of its own function — an earlier one, itself, or a later one — because it is
+  evaluated outside the function; that is `SYMBOL_DEFAULT_NAMES_PARAMETER`, reported
+  at the parameter (to give two parameters the same default, write it twice). The
+  same rules hold for a `LINK` function's parameters. A lambda parameter may not
+  declare a default at all (`SYMBOL_LAMBDA_PARAMETER_DEFAULT`): a call through a
+  function value carries no defaults. A default that names nothing — a string,
+  number, scalar or boolean literal, `NOTHING`, or a built-in package constant — is
+  passed as that value; any other default is compiled once, in the declaration's
+  scope, into a hidden function that every omitting call invokes.
+  [[src/ir/lower.rs:default_kind]] [[src/internal_name.rs:hidden_default_function_name]]
+  [[src/resolver/resolution.rs:resolve_parameter_default]]
 - **Many parameters allowed.** A callable may take **any number of parameters**.
   The first eight are passed in registers and the rest in a stack tail, on every
   native target; there is no parameter-count limit. (See `./mfb spec

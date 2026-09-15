@@ -691,6 +691,57 @@ def mutate_sign_then_tamper(data: bytes) -> bytes:
     return bytes(tampered)
 
 
+# FUNCTION_TABLE parameter-record and function flags (src/binary_repr/mod.rs).
+PARAM_FLAG_DEFAULT_FUNCTION = 1 << 3
+FUNCTION_FLAG_PRIVATE = 1 << 1
+
+
+def mutate_default_function_target(data: bytes) -> bytes:
+    """PKG-08 (plan-136-B): re-point a computed default's parameter record — the
+    one carrying the default-function flag (bit 3) — at an EXPORTED function that
+    takes one parameter, instead of its private, parameterless hidden default
+    function. Nothing else changes, and the sigHash hashes only the flag, so the
+    reader's default-function validation is the only check that can refuse it."""
+    container = parse_mfp(data)
+    mfpc = parse_mfpc(container.binary_repr)
+    table = bytearray(mfpc.get(SECTION_FUNCTION_TABLE))
+    count = _read_u32(table, 0)
+    off = 4
+    entries = []  # (flags, param_count, params_offset) per function
+    for _ in range(count):
+        # A 52-byte entry: name u32, kind u16, flags u16, paramCount u32, returnType
+        # u32, registerCount u32, codeOffset u64, codeLength u64, sourceMap u32,
+        # cleanupCount u32, cleanupOffset u64; then 16-byte params, 8-byte registers,
+        # 24-byte cleanups.
+        flags = _read_u16(table, off + 6)
+        param_count = _read_u32(table, off + 8)
+        register_count = _read_u32(table, off + 16)
+        cleanup_count = _read_u32(table, off + 40)
+        params_offset = off + 52
+        entries.append((flags, param_count, params_offset))
+        off = params_offset + param_count * 16 + register_count * 8 + cleanup_count * 24
+    owner = None
+    for index, (_, param_count, params_offset) in enumerate(entries):
+        for p in range(param_count):
+            record = params_offset + p * 16
+            if _read_u32(table, record + 8) & PARAM_FLAG_DEFAULT_FUNCTION:
+                owner = (index, record)
+                break
+        if owner is not None:
+            break
+    if owner is None:
+        raise RuntimeError("base package has no default-function parameter record")
+    target = next(
+        index
+        for index, (flags, param_count, _) in enumerate(entries)
+        if index != owner[0] and not flags & FUNCTION_FLAG_PRIVATE and param_count == 1
+    )
+    table[owner[1] + 12 : owner[1] + 16] = _u32(target)
+    mfpc.set(SECTION_FUNCTION_TABLE, bytes(table))
+    container.binary_repr = mfpc.to_bytes()
+    return container.to_bytes()
+
+
 # --- driver helpers ---------------------------------------------------------
 
 

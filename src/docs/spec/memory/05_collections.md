@@ -242,11 +242,15 @@ same discipline as a scalar `Integer` word: the pointer is written verbatim on
 insert, read back verbatim on `get`, and `memcpy`-copied when the collection is
 copied — the closure object it points at is **never deep-copied on insert and
 never freed when the collection is dropped**. A function value therefore
-matches the `List OF Integer` flatness class (`type_is_flat` is true for a function
-type), so a `List`/`Map` of function values is itself a flat block whose scope-drop
-`arena_free` reclaims only the packed pointer array, leaving every referenced
-closure object owned by the arena. A record **field** of function type is likewise
-a bare 8-byte slot and is unaffected. [[src/codegen/engine/types/type_utils.rs:is_function_type]] [[src/codegen/collection/layout/builder_collection_layout.rs:emit_payload_length_to_stack]]
+matches the `List OF Integer` flatness class. `type_is_memcpy_copyable` is true for
+a function type: the flatness walk sends `Func` to its model lookup, and a function
+type is not a record, a union or `Error`, so it takes the scalar answer. A
+`List`/`Map` of function values is therefore itself a flat block, which
+`is_freeable_flat_value` hands to scope-drop. Its `arena_free` reclaims only the
+packed pointer array, leaving every referenced closure object owned by the arena;
+a bare function value is never freed by that path. A record **field** of function
+type is likewise a bare 8-byte slot and is unaffected.
+[[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]] [[src/codegen/collection/layout/builder_collection_layout.rs:named_field_is_pointer]] [[src/codegen/engine/value/builder_values.rs:is_freeable_flat_value]] [[src/codegen/collection/layout/builder_collection_layout.rs:emit_payload_length_to_stack]]
 
 ### Capacity Headroom and Growth
 
@@ -255,10 +259,17 @@ path over-allocates so `capacity > count` and `dataCapacity > dataLength`, and a
 later append into the same uniquely-owned `MUT` buffer writes into the spare slot
 and bumps `count`/`dataLength` in place — amortized **O(1)** append instead of a
 realloc-and-copy per item. The growth shape (an implementation tuning detail, not
-an observable contract): lookup slots start at 4, double until 1024, then ×1.5;
-data bytes start at 32, double until 64 KiB, then ×1.5; each grows to at least
-what the appended element needs. Fixed-width element lists grow lookup and data
-in lockstep; variable-width lists grow them independently.
+an observable contract): lookup slots start at 4, double until 1024, then ×1.5.
+For a fixed-width payload — a fixed-width list element, or a `Map`/`Set` entry
+whose key and value are both fixed-width — the data region is sized from the
+lookup capacity, `dataCapacity = capacity × stride`, where the stride is the
+element width, or for a map entry the key and value each padded to their
+alignment. A variable-width payload's data bytes grow on their own step instead:
+start at 32, double until 64 KiB, then ×1.5. Either way data grows to at least
+what the operation needs. Stepping a fixed-width payload's data independently
+would let it drift to about 19 bytes per slot, whatever the width, because the
+grows the count triggers would step it too (bug-621).
+[[src/codegen/collection/buffer/collection_buffer.rs:emit_fixed_width_data_capacity]]
 
 Headroom is a property of a **mutable working buffer, never of a value**:
 
@@ -516,8 +527,10 @@ iterator, unlike a beyond-`count` append, so that case takes the value path.
   (`removeKey` + concat). A miss writes the key+value into a spare lookup slot and
   the spare data tail — the entry packed exactly like a literal entry (key then
   value, each aligned to its payload alignment) — and bumps `count`/`dataLength`,
-  growing the buffer geometrically (capacity and `dataCapacity` stepped
-  independently, entries and data copied verbatim against the capacity-based base)
+  growing the buffer geometrically (capacity stepped, `dataCapacity` sized from it
+  for a fixed-width key and value and stepped independently otherwise — see
+  *Capacity Headroom and Growth* — entries and data copied verbatim against the
+  capacity-based base)
   when full. Insertion order is preserved, and the new key is folded into the hash
   index per *Map Hash Index* (incremental `_mfb_rt_map_bucket_put` when built, or
   `bucketsReady = 0` when a grow moved the bucket region).

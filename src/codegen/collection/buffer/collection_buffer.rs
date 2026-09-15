@@ -237,6 +237,33 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&after));
     }
 
+    /// The data capacity of a grown block whose every slot holds exactly
+    /// `slot_bytes` data bytes — a fixed-width list element, or a map entry whose
+    /// key and value are both fixed-width: `out = new_capacity * slot_bytes`,
+    /// branching to `overflow` on wrap. `out` may alias `new_capacity`.
+    ///
+    /// bug-621: stepping `dataCapacity` on its own [`Self::emit_geometric_step`]
+    /// instead, on every grow — including the ones the count triggers — let it
+    /// drift to ≈19 bytes per slot whatever the width, so a `List OF Byte` reserved
+    /// as much as a `List OF Integer`. Tied to the element capacity, a count grow
+    /// and a data grow are one event and the reservation stays geometric.
+    pub(crate) fn emit_fixed_width_data_capacity(
+        &mut self,
+        new_capacity: impl Into<Operand>,
+        out: impl Into<Operand>,
+        scratch: impl Into<Operand>,
+        slot_bytes: usize,
+        overflow: &str,
+    ) {
+        let scratch = scratch.into();
+        self.emit(abi::move_immediate(
+            scratch.clone(),
+            "Integer",
+            &slot_bytes.to_string(),
+        ));
+        self.emit_checked_size_multiply(out, new_capacity, scratch, overflow);
+    }
+
     /// Bulk-copy `count` list lookup entries (`count * ENTRY` bytes) verbatim from
     /// the entry-table cursor `src_entry` to `dst_entry` with a single word loop
     /// (`emit_block_copy_advance`), then — when `delta` is `Some((reg, subtract))`

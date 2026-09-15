@@ -119,7 +119,7 @@ returning it, or storing it into a collection copies the pointer only. This is t
 same discipline a resource handle follows (a non-owning pointer, `./mfb spec memory
 arenas`), and it is why `lower_value_owned`'s copy-insertion and the
 `is_freeable_flat_value` owned-value drop **exclude** function types: there is no
-per-value copy on a store and no per-value `arena_free` on scope drop. [[src/codegen/engine/value/builder_values.rs:is_freeable_flat_value]] [[src/codegen/engine/types/type_utils.rs:is_function_type]]
+per-value copy on a store and no per-value `arena_free` on scope drop. [[src/codegen/engine/value/builder_values.rs:is_freeable_flat_value]] [[src/codegen/engine/value/builder_values.rs:lower_value_owned]]
 
 The consequence for lifetime is the **arena-lifetime closure rule**: a closure
 object (and its capture environment, if any) is owned by the constructing scope's

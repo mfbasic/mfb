@@ -478,7 +478,7 @@ pub(crate) fn external_package_function_types_from_files(
         for export in decode.exports()? {
             signatures.insert(
                 format!("{package_name}.{}", export.name),
-                package_export_signature(&export),
+                package_export_signature(&package_name, &export),
             );
         }
     }
@@ -673,7 +673,7 @@ fn external_package_function_types_from_files_lossy(
         for export in exports {
             signatures.insert(
                 format!("{package_name}.{}", export.name),
-                package_export_signature(&export),
+                package_export_signature(&package_name, &export),
             );
         }
     }
@@ -687,7 +687,10 @@ fn external_package_function_types_from_files_lossy(
 /// format still stores types as strings, and everything downstream — the driver's
 /// resource-import filter, `ir::lower`'s `function_returns`/`function_params` — now
 /// reads the structure instead of re-splitting a formatted `FUNC(…) AS R` blob.
-fn package_export_signature(export: &binary_repr::BinaryReprExport) -> ir::ExternalSignature {
+fn package_export_signature(
+    package: &str,
+    export: &binary_repr::BinaryReprExport,
+) -> ir::ExternalSignature {
     ir::ExternalSignature {
         params: export
             .params
@@ -695,7 +698,22 @@ fn package_export_signature(export: &binary_repr::BinaryReprExport) -> ir::Exter
             .map(|param| ir::ExternalFunctionParam {
                 name: param.name.clone(),
                 type_: param.type_.clone(),
-                has_default: param.has_default,
+                default: match &param.default {
+                    binary_repr::BinaryReprExportDefault::None => ir::ExternalDefault::None,
+                    binary_repr::BinaryReprExportDefault::Literal { type_, value } => {
+                        ir::ExternalDefault::Literal {
+                            type_: type_.clone(),
+                            value: value.clone(),
+                        }
+                    }
+                    // plan-136-B: an importer names a package symbol `package.name`,
+                    // which `ir::package::apply_package_identity` rewrites to the
+                    // merged, identity-prefixed definition — a private hidden
+                    // default function included.
+                    binary_repr::BinaryReprExportDefault::Function(name) => {
+                        ir::ExternalDefault::Function(format!("{package}.{name}"))
+                    }
+                },
             })
             .collect(),
         returns: export.return_type.clone(),
@@ -1538,17 +1556,17 @@ mod tests {
                 binary_repr::BinaryReprExportParam {
                     name: "a".to_string(),
                     type_: crate::types::ParameterType::Integer,
-                    has_default: false,
+                    default: binary_repr::BinaryReprExportDefault::None,
                 },
                 binary_repr::BinaryReprExportParam {
                     name: "b".to_string(),
                     type_: crate::types::ParameterType::String,
-                    has_default: false,
+                    default: binary_repr::BinaryReprExportDefault::None,
                 },
             ],
             return_type: crate::types::ParameterType::Boolean,
         };
-        let signature = package_export_signature(&export);
+        let signature = package_export_signature("pkg", &export);
         // Params and return are decoded structurally (parse-once), and render
         // back to the exact spelling the pre-plan-105 hand formatter produced.
         assert_eq!(
@@ -1573,7 +1591,7 @@ mod tests {
             params: Vec::new(),
             ..export
         };
-        let isolated = package_export_signature(&isolated);
+        let isolated = package_export_signature("pkg", &isolated);
         assert!(isolated.isolated);
         assert_eq!(
             isolated.signature_type().name(),
@@ -1591,7 +1609,7 @@ mod tests {
         let param = |type_: &str| binary_repr::BinaryReprExportParam {
             name: "p".to_string(),
             type_: crate::types::ParameterType::parse(type_),
-            has_default: false,
+            default: binary_repr::BinaryReprExportDefault::None,
         };
         // (param types, return type, isolated) -> the hand-formatted spelling.
         let cases: Vec<(Vec<&str>, &str, bool)> = vec![
@@ -1649,7 +1667,9 @@ mod tests {
                 param_types.join(", "),
             );
             assert_eq!(
-                package_export_signature(&export).signature_type().name(),
+                package_export_signature("pkg", &export)
+                    .signature_type()
+                    .name(),
                 expected,
                 "signature round-trip lost information for {expected}"
             );

@@ -273,6 +273,10 @@ stream needs no reproducibility. `arena_fill_random(ptr, len)` streams PRNG word
 (no syscall per fill); `arena_free` calls it after the coalescing insert (over
 the freed payload past the FreeNode words — see `arena_free` above), and
 `arena_alloc` calls it on a freshly mapped block's usable region before first use.
+A `--debug` build counts both kinds of fill for each arena in the debug report:
+`arena.<n>.fill_grow_calls`/`.fill_grow_bytes` for fresh blocks and
+`arena.<n>.fill_free_calls`/`.fill_free_bytes` for freed chunks (see
+`tooling/09_debug-report.md`).
 
 ## Cleanup and Reclamation
 
@@ -352,8 +356,12 @@ close/drop split.) [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:em
 Two classes of value are **excluded** from scope-drop frees because they are not
 plain arena blocks this scope owns: **runtime-managed thread
 results** (`thread::receive`/`waitFor`/… yield values owned by the thread plumbing
-and the worker arena, bulk-freed at teardown); and **recursive / non-flat composites**
-(kept as pointer graphs, `type_is_flat` is false). Builtins that could otherwise return
+and the worker arena, bulk-freed at teardown); and **pointer graphs whose type holds
+a resource**. A recursive or cycle-reaching value is not `type_is_memcpy_copyable`, so the
+flat `arena_free` path never claims it. Instead its owner frees it through
+`_mfb_rt_graph_drop` when the type has a graph-drop kind, which every resource-free type in
+or reaching a cycle does. A resource-bearing type never gets a kind: it is move-only and
+closed by its own op. [[src/codegen/engine/value/builder_values.rs:owns_graph]] [[src/codegen/memory/arena/graph_drop.rs:graph_drop_kind]] Builtins that could otherwise return
 an interior pointer into an argument return an owned block instead (`collections::get`/`getOr`
 materialize the element; `strings::replace`'s no-op path returns a fresh copy), so a
 call result is always safe for the caller to own and free.

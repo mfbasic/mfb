@@ -9,6 +9,7 @@ Collection mutation codegen is rewritten for amortized-O(1) append.
 - **In-place MUT append**: `try_inplace_append_assign` (`collection/assign/builder_inplace_assign.rs`) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (`collection/list/list_mutate.rs`): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias) and `FOR EACH` snapshotting count at loop entry (in-place writes only past that count). transform/filter use the same helper on their private accumulator.
 - **GOTCHA — the in-place arms assume one owner and never check it; copy-insertion is what makes that true** (bug-601). For a flat value `lower_value_owned` copies an aliasing source with `copy_flat_block`. For a value whose type reaches a type cycle it copies with the graph walker (`needs_graph_copy`, plan-134-D) at the five owning stores — bind, assign, global, return (`lower_returned_value`) and closure capture — unless plan-134-C's analysis says the store is the source's last read, which moves. Before that, `MUT ys = xs` over a `List OF Tree` shared `xs`'s block, and an in-place `append` on `ys` grew it under `xs` (`ys=6 xs=112`, a read of freed memory). Construction stores aliased until plan-134-E: a constructor argument and the in-place list/map arms' item operand were lowered with plain `lower_value`, so `xs = collections::append(xs, Node[kids := xs, tag := 1])` stored `xs`'s own block (SIGSEGV at the next `get`). They now go through `lower_value_stored`. Adding a drop for the class before every owner held a distinct graph would have double-freed. plan-134-G added the owner drops (`owns_graph`) only after that, and plan-134-H the in-place element drops (`emit_drop_list_element` / `emit_drop_entry_value`) — see bug-536 shape C. The helper-built pointer-`String` records (`net::Address`, `udp::Datagram`, `audio::AudioDevice`) were in this class and left it by being flattened onto the ordinary record layout (plan-132, bug-599/601), not by adding copy-insertion. `json::parse` depends on the in-place `append` over `List OF Json`, so declining the arms for the class is not free.
 - **Headroom**: `emit_write_collection_header_full` sets capacity/dataCapacity > count/dataLength. Growth shape (`emit_geometric_step`): lookup 4→1024 then ×1.5; data 32→64KiB then ×1.5. Literals/splices stay tight.
+- **GOTCHA — a fixed-width payload's data capacity is NOT an independent counter** (bug-621). For a fixed-width list element (`list_element_is_fixed_width`) or a map entry whose key and value are both fixed-width, every in-place grow sets `dataCapacity = newCapacity × stride` (`emit_fixed_width_data_capacity`), still clamped to at least the bytes needed. Stepping data on its own step — even on the grows the *count* triggered — froze the reservation at ≈19 bytes per slot whatever the width: a 16 MiB append-built `List OF Byte` peaked at 982 MB RSS, byte-identical to a `List OF Integer`. Only variable-width payloads (whose data need is independent of the count) keep the independent data step. A new grow arm must make the same split; `tests/runtime/rt_list_append_growth_bounds.rs` pins each existing arm against the rule.
 - **GOTCHA — data base uses capacity, never count**: with headroom the data region is at `header + capacity*ENTRY`. Always use `emit_collection_data_pointer`. Two hand-written runtime helpers (`_mfb_rt_fs_path_join`, `_mfb_rt_sort_string_list` in mod.rs) had count-based bases → read garbage from a grown list; fixed to load COLLECTION_OFFSET_CAPACITY. Any NEW hand-rolled collection reader must do the same. (Note: `_mfb_*` helper calls clobber all caller-saved registers x0-x17 — spill live scratch such as x14/x15 to stack slots.)
 - **Shrink-to-fit copies**: `copy_collection_tight` re-tightens every collection value copy (copy_flat_block routes collections to it) so headroom never leaks into a snapshot or across a thread boundary.
 - Removal stays eager-repack (no lazy holes) — meets the contract without liveBytes tracking.
@@ -223,6 +224,13 @@ Two rules from it that are easy to get wrong:
     `lower_list_set_in_place`'s rebuild branch is *unreachable* (its own comment
     says so) and the sub-block route is sound. A variable-width element makes that
     branch reachable, so the arm must decline.
+  - **Read `COUNT` from the sub-block base before adding `COLLECTION_HEADER_SIZE`.**
+    Reading it past the header gives a garbage count, a huge entry copy and arena
+    corruption. Byte lists hide it (no entry array); String and entry lists show it.
+  - **`FOR EACH x IN rec.field` is an alias nothing tracks.** `for_each_iterable_locals`
+    tracks only a plain `Local` iterable, so growing that field inside the loop (or the
+    plain rebuild freeing the old block) frees the buffer mid-iteration — wrong results,
+    no crash. Decline the in-place path and skip the free while such an iterable is live.
 * **The third container is `RES … STATE`, and it differs from a record field by
   exactly one obligation (plan-121-D).** The reallocation split above transfers
   unchanged — it is a property of the operation, not of who owns the block — so
@@ -333,6 +341,14 @@ Two rules from it that are easy to get wrong:
   7.0 GB/s against a `-O0` C word loop's 7.36 — it is at the rate of the loop it
   emits, and what is left is that it shifts *while growing* into fresh buffers
   where `removeAt` shifts inside one that only gets hotter.
+
+## An accumulator must be a local of the function that writes it
+
+Every `try_inplace_*` arm resolves its destination through `self.locals`, so a collection threaded through a helper's parameter and return, or kept in a module-level `MUT`, misses the fast path and is copied whole on every write. Measured on 20,000 writes into a 200,000-byte `List OF Byte`: 5 ms as a same-function local, ~1.2 s through a helper or a global (290×). This holds for `append`, `set`, `add`, `removeKey`, bulk append and the record-field `WITH` append alike.
+
+A call as the written item can also miss it: `static_item_type` (`src/codegen/memory/value/builder_value_semantics.rs`) knows user and package return types plus a hand-written list of builtins, so `keep = collections::append(keep, fs::readText(p))` copies per element. Bind the call to a `LET` first.
+
+`String` behaves the same way: `out = out & piece` on the same local is amortized O(1) (`try_inplace_concat_assign`), but returning it through a recursive helper copies it at every level (`packages/mustache`: over 120 s, versus 0.18 s once each level returned only its own output). And `out = out & ch` in a loop beats `List OF String` plus one `strings::join` by ~3.5×, so don't switch to the list form out of O(n²) habit.
 
 ## In-place map mutation: branch arg order, dead slack, BUCKETS_READY
 

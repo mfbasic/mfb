@@ -55,6 +55,17 @@ linking the `mfb` test binary (`ld terminated with signal 11`, LLVM stack dump),
 5 GB free and 26 GB disk — so not resource exhaustion. `RUSTFLAGS='-C
 link-arg=-fuse-ld=bfd'` links it, at the cost of invalidating the dependency cache.
 
+**2227 and 2228 are QEMU-TCG-emulated x86_64 VMs on the ARM Mac** (check with
+`ps -axo command | grep QEMULauncher`). That is why 2223 is preferred: a release
+`cargo build` took 145 minutes on 2227, and the emulation takes CPU away from local jobs
+running at the same time. Use them only when x86_64 itself is the point, and keep those
+runs short.
+
+**No Linux box has `strace` or passwordless `sudo`.** On apt box 2223, install it without root:
+`apt-get download strace && dpkg -x strace_*.deb root && ./root/usr/bin/strace -f -i ./prog-glibc.out`.
+That build has no `-k`; use `-i` instead (PIE executable IPs are `0xaaaa…`, libc's `0xffff…`).
+2223 has no musl loader, so run the `-glibc.out` build there.
+
 *None of this stays true by itself.* This section is a snapshot of a probe; the probe is
 the part to keep.
 
@@ -96,3 +107,26 @@ qemu-user` → `dpkg -x qemu-user_*.deb ~/qemuroot` (→ `~/qemuroot/usr/bin/qem
 Linux-host only, so it cannot run on the Mac). `tools/math-kernels/rvv-qemu-runner.sh` ships a
 build to 2232 and runs it under `qemu-riscv64 -cpu rv64,v=true,vlen=128` / `v=false`;
 `tools/math-kernels/rvv-ulp-two-profile.sh` drives the ULP harness across both profiles.
+
+## Box 2230 (Windows): ssh quirks and crash diagnosis without a debugger
+
+`cmd.exe` over ssh produces several things that look like a broken box but aren't:
+
+- `ssh -p 2230 test@127.0.0.1 true` fails because `cmd.exe` has no `true`. Probe with `ver`.
+- `The system cannot find the path specified.` prints on almost every command. It is session noise.
+- `set X=1 && prog` gives `X` a trailing space, and quoting through ssh is unreliable. Write a
+  **CRLF** `.bat`, `scp` it, and run that.
+- `timeout /t` fails ("Input redirection is not supported"); use `ping -n <sec+1> 127.0.0.1 >nul`.
+- No C compiler and no `openssl`. Probe Win32 struct layouts with a PowerShell `Add-Type` C#
+  P/Invoke snippet; for a TLS client, use PowerShell `SslStream`.
+- An access violation exits with `-1073741819` (`0xC0000005`).
+
+To find a fault without cdb/windbg:
+1. `Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='Application Error'} -MaxEvents 1`
+   gives the faulting module and offset.
+2. Symbolize by walking the module's PE export table in PowerShell, and report the nearest
+   exports **below and above** the offset. Most MFB functions are private, so the nearest one
+   below can be far off.
+3. For a stack, enable `HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps`
+   (`DumpFolder`, `DumpCount`, `DumpType=1`) and parse the minidump: streams 3 (threads),
+   4 (modules), 6 (exception). In an AMD64 `CONTEXT`, `Rip` is at `0xF8` and `Rsp` at `0x98`.

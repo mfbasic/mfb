@@ -458,7 +458,9 @@ pub(super) const CORPUS: &[&str] = &[
     "inline-trap-infallible-builtin-valid",
     "inline-trap-tostring-bytes-rt",
     "inline-trap-union-bind-rt",
-    "trap-body-local-shadows-private-rt",
+    // plan-136-C: replaces `trap-body-local-shadows-private-rt` (now an `-invalid`
+    // syntax fixture); the same bug-285 trap-body scoping, through a FUNC name.
+    "trap-body-local-lambda-shadows-private-func-rt",
     "trap-function-inline-errors-rt",
     // rt-behavior/types
     "bug105_grouped_type_names",

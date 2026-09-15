@@ -1,0 +1,80 @@
+{
+  "project": "local_names_distinct_from_top_level_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 },
+    { "module": "scopepkg", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "helper",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "secret", "type": "Integer", "value": { "kind": "number", "value": "7" }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "helper", "type": "Integer", "value": { "kind": "number", "value": "2" }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "shared", "type": "Integer", "value": { "kind": "number", "value": "3" }, "line": 17 },
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 18 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "3" },
+        "step": null,
+        "line": 19,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "i" } }, "line": 20 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "secret" }] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "otherSecret", "arguments": [] }] } }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "helper" }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "shared" }] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "scopepkg.shared" }] } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] }] }, "line": 25 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 26 }
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/other.mfb",
+    "imports": [
+    ],
+    "items": [
+    { "kind": "binding", "visibility": "private", "mutable": false, "name": "#f03e7e4406143891$secret", "type": "Integer", "value": { "kind": "number", "value": "42" }, "line": 3 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "otherSecret",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "#f03e7e4406143891$secret" }, "line": 6 }
+      ]
+    }
+    ]
+  }
+  ]
+}

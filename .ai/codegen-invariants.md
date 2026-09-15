@@ -13,6 +13,8 @@ The deliberate STRING boundaries that remain — render `name()` at these sinks,
 
 `parse ∘ name = id` is load-bearing across every one of these seams; a construction like `ParameterType::parse(&format!("List OF {element}"))` is behavior-safe but directionally wrong when a typed head exists — prefer `ParameterType::list_of(element.clone())`.
 
+The one deliberate exception to that identity: `parse` peels a whole-name group, so `parse("(Integer)").name()` is `"Integer"`. Every consumer already calls `strip_type_group` at its own position.
+
 ## `ParameterType::parse` is the ONLY type-grammar implementation (plan-105-B)
 
 `src/types.rs` owns the type grammar. The only other legitimate parser is the **source-language** one in `src/ast/` (tokenizer-side, produces the AST). Everything else — resolver, monomorph, the shape pass, IR lowering, `ir::verify`, codegen — MATCHES on `ParameterType` variants; it does not re-implement the grammar. The private `strip_prefix("List OF ")`-style cascades that used to live in `monomorph::helpers` (`user_template_parts`, `func_type_parts`, `split_top_level_to`, `split_top_level_commas`), `resolver::resolution` and the former source checker are deleted (the checker itself went with plan-107-D).
@@ -47,7 +49,7 @@ Neither failed to compile and neither reddened a unit test. The signal was one
 acceptance fixture that stopped building, found only by the full cross-target
 gate. **Budget an `artifact-gate all` run for any variant addition.**
 
-## `tests/no_type_strings.rs` is a hard floor with two named remainders (plan-111)
+## `tests/guards/no_type_strings.rs` is a hard floor with two named remainders (plan-111)
 
 It scans `src/` (minus `src/ast`, `src/lexer.rs`, `src/docs` — the string domain) for **eight** ways a type SPELLING reaches a decision: `ParameterType::parse` outside the boundary files, `ParameterType::declared` (class 1b — where a declared NAME crosses into the type domain), a type-named `&str` parameter, a `match` arm or `==` on a spelling, a hand-rolled grammar op, a `format!`-built spelling, and a `String`-keyed type map.
 
@@ -62,6 +64,11 @@ Two things to know before you touch it:
 - **It does not use `architecture_guards.rs`'s `code_above_tests`.** That helper truncates a file at its first `#[cfg(test)]`, which is safe for `src/codegen` + `src/target` but wrong across `src/`, where `#[cfg(test)]` also sits on mid-file items (`ir/shape.rs`'s `bound_types`, `resolver/mod.rs`'s `resolve_hir_project`) — it scanned 4202-line `shape.rs` down to 158 lines. `test_free_lines` strips each `#[cfg(test)]` item by brace depth instead. `architecture_guards.rs` still carries the naive version; harmless only because of its narrower roots.
 
 The `string_keyed_type_maps` class is a **curated** `(file, identifier)` list, not a regex: the broad needle matches 1209 lines in `src/`, nearly all keyed by a symbol (function name, binding name, package alias), which is legitimately a string. Its doc comment names the four nearest non-type-keyed lookalikes so they do not get "fixed".
+
+Two more traps:
+
+- **It scans all of `src/` below the AST, including `src/cli/`.** A doc-renderer helper taking `type_name: &str` trips `str_type_params`. The guard is its own test binary, so `cargo test --bin mfb <filter>` stays green while the full suite fails. Pass the registry descriptor instead of raising a budget.
+- **`TYPE_KEYED_TABLES`'s failure text is half wrong.** Deleting a map from that list fails `curated_type_keyed_tables_all_exist` with "lower the `string_keyed_type_maps` budget", but a map that was already type-keyed has no budget row to lower. Check for the row first; if there is none, just delete the entry.
 
 ### User-generic limitations that are GRAMMAR, not bugs
 
@@ -493,7 +500,7 @@ Likely a residual path not covered by the earlier mixed-churn fix (arena-allocat
 ## A type argument is a `ParameterType`, and the ratchet gate has known edges
 
 Since plan-111 an emitter takes `&ParameterType`, never a rendered spelling, and
-`tests/no_type_strings.rs` enforces it with per-`(class, directory)` budgets that
+`tests/guards/no_type_strings.rs` enforces it with per-`(class, directory)` budgets that
 only ever shrink. Two things about that gate are worth knowing before trusting a
 zero:
 
@@ -631,6 +638,7 @@ arena". Four live instances, plus two the tree already recorded:
 | `ThreadHandle` | same | bug-479 |
 | user resource as a collection payload | not a pointer payload | build error, fixed with bug-479's sweep |
 | `MapEntryOf` | flat | **still inherited — nobody has decided it** |
+| `http::route`'s retained `FUNC` handler | invoke-only callback, freeable after the call (`SYNCHRONOUS_CALLBACK_PARAMETERS` vs `RETAINED_CALLBACK_PARAMETERS`) | use-after-free; RSS goes *down*, so a leak test can't see it |
 
 **So the variant dispatch in these classifiers is a `match` with no `_` arm.**
 `cargo build` is the enforcement, not review: adding a 25th variant fails to
@@ -673,3 +681,51 @@ secondary guard against a `_` coming back. **Note it is local-only: clippy is no
 run in CI** (`.github/workflows/` has `coverage.yml` and nothing else), which is
 also true of the existing `[lints.clippy] items_after_test_module = "deny"`. The
 exhaustive `match` is the mechanism that actually holds the line.
+
+## Codegen that iterates a `HashMap` to decide emission order is nondeterministic
+
+Function order is visible in `.ncode`, and the whole byte-identity gate assumes `mfb build` is deterministic. A `HashMap`/`HashSet` iteration deciding what to emit, or in what order, gave three different hashes for three builds of one fixture. It looks like a flaky golden, and regenerating hides it. Sort before the emitting loop (return a `Vec` from census functions). Before regenerating an unexplained diff set, build one fixture three times and compare `shasum -a 256` of its `-ncode` dump. `tests/cli/cli_build_determinism.rs` pins this.
+
+## An elision analysis keyed on a desugar's exact shape miscompiles when the shape changes
+
+`trap_discard_error_results` decides an inline conversion's `Error` is never observed by matching only `NirValue::Bind { value: ResultError(local) }`. A lowering that emits `Assign { value: ResultError(local) }` instead is invisible to it, the error is discarded, and the process dies on a signal with no output. A missed match is a miscompile, not a lost optimization. Before changing a lowering that emits `ResultError`, `CallResult` or another value an analysis keys on, grep codegen for matches on that variant and update them together. Only `tests/acceptance` exercises this; a signal death prints nothing, so the last line the harness printed locates the group.
+
+## A pass belongs on the `-O` dial only if it can't change a value or a trap
+
+The dial's contract is that levels change emitted code, never results — at `-O0` too. Before gating a pass on `level_enabled`, ask whether it can change a float result or whether something traps. FP contraction can, which is why `fuse_scalar_fma` is mandatory lowering (`src/codegen/compiler/opt/fma_fusion.rs`) rather than a dial row.
+
+## A guard written for `a.b` does not cover `pkg::Name`
+
+`::` is its own token (`DoubleColon`), so `pkg::Name` and a dotted `a.b` reach different parser and resolver arms. A fix that made statement-position `a.b = c` an assignment left `pkg::Name = value` parsing as a discarded comparison. Any rule about qualified names needs both token forms and a fixture for each. If a fix makes an internal error disappear, check what that error was surfacing.
+
+## A type-spelling parser and its prefix measurer are two lists that drift
+
+`ParameterType::parse` decomposes a spelling; `type_prefix_len` (`src/types.rs`) measures how many bytes one type occupies. A constructor missing from the measurer doesn't fail locally: the enclosing type fails to split and the whole spelling falls through to one opaque `Named`, with nothing downstream reporting it. It hides because a trailing position is never measured, and a `parse`↔`name` round trip echoes the junk back. Compare the two lists arm by arm, and assert `type_prefix_len(s) == Some(s.len())` for complete types. A report naming one missing arm is a lower bound.
+
+## Overload resolution has to stay in monomorph
+
+Monomorph picks an overload from argument types computed during the walk (`lower_expression` in `src/monomorph/lower.rs`); inside `foo OF T` those are the concrete substituted types, so the choice varies per instantiation. Before monomorph the leaves are still `Var`, so resolving earlier silently changes overloaded calls in generic code.
+
+## An `Unknown` template binding is provisional, not dropped
+
+When `unify_type` (`src/monomorph/helpers.rs`) meets an `Unknown` actual — usually `[]`, which types as `List OF Unknown` — the param binds to `Unknown` provisionally: a later concrete actual refines it, and it never overwrites a concrete binding. Dropping it breaks width-agnostic natives such as `collections::flatten` instantiating `flatten$Unknown`. "Refines" is structural: a binding of `List OF Unknown` must accept a later `List OF Integer`, or `pick([], rows)` is rejected.
+
+## A shared raise helper doesn't set every result register
+
+`raise_error_into` sets the value, tag and message registers, not `RESULT_ERROR_SOURCE_REGISTER`. An op that returns an error origin (e.g. `thread::waitFor`) sets that register on every error path, so a new raise path that only calls the helper leaves garbage there, and the `TRAP` handler SIGSEGVs reading it — in the handler, far from the raise. Before adding an exit to an existing op, match every register and slot its existing exits write.
+
+## Out-of-lining an inline lowering: replay the existing emitter
+
+Build the helper with `CodeBuilder::for_synthetic_function` and call the same emitter the call site used, then allocate and finalize, so the out-of-line code can't drift from the inline code. Demand-gate it by scanning lowered functions' relocations for its symbol (as `runtime.mapProbe` is gated), not through the `RuntimeHelper` family. Two traps: a synthetic function has no source file, so its allocation-failure `ErrorLoc` references `_mfb_str_empty`, which must be force-emitted; and "helper returns an error, call site raises one fixed code" is only correct for an emitter with a single error — `test-accept.sh` sees a wrong error code, the artifact gate does not.
+
+## A registered scope cleanup needs a runtime null guard
+
+`active_cleanups` is a compile-time stack: a binding is registered when its `bind` is lowered, whatever happens at run time, and the function's `TRAP` handler runs every registered cleanup. So a new `ActiveCleanup` kind needs (1) the slot zeroed before the fallible initializer and pushed for prologue zero-init, and (2) a compare-and-branch past the drop when the slot is 0. Without (1) the slot holds stack garbage the guard can't recognise, and the program SIGSEGVs after the user's handler has already returned.
+
+## "Left unchecked" in a type check means `Unknown`, and a comparison accepts `Unknown`
+
+The member-access check (`src/ir/verify/values.rs`) skipped unions as "unchecked", which made the field type `Unknown`. As a call argument `Unknown` is rejected, so the case looked covered; in a comparison (`s.label <> "hi"`) nothing rejects it and codegen reads a field that doesn't exist. When auditing a skip list, test the skipped case in a comparison and an assignment, not only as an argument.
+
+## `toFloat(String)` is correctly rounded
+
+It is an Eisel-Lemire parser with an exact big-integer fallback (`src/codegen/string/format/float_parse.rs`), fuzzed against Rust's `str::parse::<f64>` through `float_parse_ref.rs`. Don't add tolerance or `+ 0.5` workarounds for an assumed rounding error; they introduce one. Hand-written NIR of that size gets the same treatment: write the algorithm in Rust under `cfg(test)`, pin it against a real oracle, then transliterate.

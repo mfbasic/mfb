@@ -49,7 +49,9 @@ Rules:
   must be bound to a producing expression.
 - **Lexical, hierarchical scope.** Inner blocks may read and use bindings from
   enclosing scopes, but may **not** re-declare (shadow) a name already in scope —
-  that is a `SYMBOL_DUPLICATE_LOCAL` error (see the resolver scope model below).
+  that is a `SYMBOL_DUPLICATE_LOCAL` error — and no local may reuse the name of a
+  top-level `LET`/`MUT` visible from its file — `SYMBOL_SHADOWS_TOP_LEVEL_BINDING`
+  (see the resolver scope model below).
 - **Outer `MUT` reassignment.** An inner block may reassign an enclosing `MUT` (same live scope, same cell).
 - **Collection representation follows the binding.** A collection bound with `LET` is an immutable, fixed snapshot. A collection bound with `MUT` is a locally mutable, growable buffer while it remains in that live binding. Binding a `MUT` collection to `LET`, such as `LET snap = pts`, creates an immutable snapshot; if `pts` is used afterward the snapshot is an independent copy, and if `pts` is not used afterward the compiler may freeze and move the buffer.
 - **Bindings die at `END`/scope exit.**
@@ -97,11 +99,12 @@ earlier parameter is `SYMBOL_DUPLICATE_LOCAL`.
 ### No shadowing of an in-scope local
 
 Re-declaring a name that is **already live** in the function's flat map is
-`SYMBOL_DUPLICATE_LOCAL` — the resolver detects the collision when the insert
-returns a previous entry. This applies to a `LET`/`MUT`/`RES` that reuses a
-parameter or earlier local name, and to a `FOR`/`FOR EACH` loop variable that
-reuses a name already in scope. There is no shadowing: an inner binding may not
-re-use a name still visible from an enclosing block.
+`SYMBOL_DUPLICATE_LOCAL`. Every site that introduces a local checks before it
+inserts: a parameter, a `LET`/`MUT`/`RES`, a `FOR` or `FOR EACH` variable, a lambda
+parameter, a `MATCH` pattern binding, an inline-`TRAP` binding, and the
+function-level `TRAP` binding (which sees the body's top-level locals). There is no
+shadowing: an inner binding may not re-use a name still visible from an enclosing
+block.
 
 ```basic
 LET x = 10
@@ -110,6 +113,27 @@ FOR x = 1 TO 3            ' ERROR: x is already in scope
 NEXT
 ```
 [[src/resolver/resolution.rs:resolve_statement]]
+
+### No local reuses a visible top-level binding's name
+
+A local introduced at any of those sites whose name equals a top-level `LET`/`MUT`
+**visible from its file** is `SYMBOL_SHADOWS_TOP_LEVEL_BINDING`, reported at the
+local's line and naming the top-level declaration. Visible means `PUBLIC`/`EXPORT`
+anywhere in the project, or `PRIVATE` in the same file. The rule does not cover a
+function, `SUB`, type, union, enum or resource name; another file's `PRIVATE`
+binding; an imported package's binding (reachable only as `pkg::Name`); a
+compiler-internal name; or a local inside a built-in package's source. A name
+already live as a local is reported as `SYMBOL_DUPLICATE_LOCAL` instead, and each
+binding is checked exactly once — a `MATCH` pattern binding once per `CASE`,
+guarded or not.
+
+```basic
+LET limit = 5
+FUNC f(limit AS Integer) AS Integer   ' ERROR: SYMBOL_SHADOWS_TOP_LEVEL_BINDING
+  RETURN limit
+END FUNC
+```
+[[src/resolver/resolution.rs:check_new_local]]
 
 ### Straight-line locals persist to later siblings
 
