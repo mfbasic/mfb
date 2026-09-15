@@ -656,11 +656,14 @@ impl CodeBuilder<'_> {
         // resource path carries for the identical hazard (bug-246); the bind site
         // zeroes the slot and lists it for prologue zero-init so it reads 0 rather
         // than stack garbage.
-        let done = match self
+        if !cleanup.close && !cleanup.release {
+            return Ok(());
+        }
+        let slot = self
             .locals
             .get(&cleanup.name)
-            .map(|local| local.stack_offset)
-        {
+            .map(|local| local.stack_offset);
+        let done = match slot {
             Some(offset) => {
                 let done = self.label("thread_cleanup_done");
                 let handle = self.allocate_register();
@@ -671,12 +674,36 @@ impl CodeBuilder<'_> {
             }
             None => None,
         };
-        let arg = NirValue::Local(cleanup.name.clone());
-        self.emit_raw_call(
-            &cleanup.symbol,
-            std::slice::from_ref(&arg),
-            "thread_drop_arg",
-        )?;
+        // bug-622: the drop's second argument says what this edge does to the handle —
+        // close it, give up this binding's owner count, or both (`THREAD_DROP_CLOSE` /
+        // `THREAD_DROP_RELEASE`).
+        let mode = (if cleanup.close {
+            crate::codegen::runtime::thread::THREAD_DROP_CLOSE
+        } else {
+            0
+        }) | (if cleanup.release {
+            crate::codegen::runtime::thread::THREAD_DROP_RELEASE
+        } else {
+            0
+        });
+        let args = [
+            NirValue::Local(cleanup.name.clone()),
+            NirValue::Const {
+                type_: ParameterType::Integer,
+                value: mode.to_string(),
+            },
+        ];
+        self.emit_raw_call(&cleanup.symbol, &args, "thread_drop_arg")?;
+        // bug-622: a release is this binding's last word on the handle, and the drop that
+        // takes the owner count to 0 frees the control block. Null the slot so the guard
+        // above makes any later drop of the same binding — an exit edge after the one
+        // that already ran — a no-op instead of a second release. A close-only trap-route
+        // drop leaves the slot alone: the handler still reads the handle.
+        if cleanup.release {
+            if let Some(offset) = slot {
+                self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), offset));
+            }
+        }
         if let Some(done) = done {
             self.emit(abi::label(&done));
         }
@@ -687,6 +714,8 @@ impl CodeBuilder<'_> {
         let cleanup = ThreadCleanup {
             name: name.to_string(),
             symbol: Self::thread_drop_symbol(),
+            close: true,
+            release: true,
         };
         self.emit_thread_cleanup_call(&cleanup)
     }

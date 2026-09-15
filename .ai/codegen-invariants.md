@@ -210,9 +210,15 @@ an argument or a container corrupts the free list, surfacing much later as
   call, `os::hostName()` 129 B, `fs::tempDirectory()` 260 B (bug-576). It now marks
   its own result when `runtime_result_is_caller_owned` holds — the SAME gate the
   `Bind` path and bug-566's inline-`TRAP` path already ask, so the licence is not a
-  new one. The exclusion it turns on is `thread.*`: `x19` is per-thread, a
-  `thread::waitFor` result is the WORKER's block, and freeing it from this thread
-  writes this thread's free list into another thread's heap. The catalog-wide audit
+  new one. The exclusion it turns on is the RAW `thread.*` block: `x19` is per-thread,
+  the pointer `thread::waitFor`'s helper hands back is the WORKER's block, and freeing
+  it from this thread writes this thread's free list into another thread's heap. The
+  five reads `emit_runtime_helper_call` copies at the call site (`waitFor`, `read`,
+  `receive`, `acceptResource`, `readResource` —
+  `runtime_call_result_is_copied_at_call_site`) are the exception: the value they
+  yield is that copy, fresh in THIS arena, so it is marked and owned like any other
+  fresh result — treating the copy as runtime-managed left it with no owner at all
+  (bug-622). The catalog-wide audit
   is `every_block_returning_runtime_helper_is_classified` /
   `every_string_returning_runtime_helper_is_marked_fresh` in `codegen::registry`.
 - **A producer that JOINS two allocating paths must mark at the join.**

@@ -999,26 +999,80 @@ impl CodeBuilder<'_> {
     }
 
     /// Whether lowering `value` yields a value whose lifetime is managed by the
-    /// thread runtime, not by this scope: the result of a cross-thread data call
-    /// (`thread::receive`/`read`/`waitFor`/`result`). Such a value lives in the
-    /// thread's message plumbing and the worker arena that the runtime bulk-frees
-    /// at teardown; scope-drop must not `arena_free` it (it may be a non-owning
-    /// view, or already reclaimed on a cancel/timeout path), so its binding is not
-    /// registered for an owned-value free — same exclusion principle as resources.
+    /// thread runtime, not by this scope — so its binding registers no owned-value
+    /// free and an unbound temp is not freed (same exclusion principle as
+    /// resources).
+    ///
+    /// That is a `thread` family call whose RAW helper result reaches the caller
+    /// uncopied ([`Self::runtime_call_result_is_foreign_arena`]), and a
+    /// `t.result` read, whose `materialize_current_result` keeps its own ownership
+    /// (`RawSuccessBlock::OwnedElsewhere`).
+    ///
+    /// bug-622 A: it is NOT a call in
+    /// [`Self::runtime_call_result_is_copied_at_call_site`]. `emit_runtime_helper_call`
+    /// deep-copies that helper's result into the CURRENT thread's arena before the
+    /// value exists, so what lowering yields is a fresh block with no other owner —
+    /// the worker's original is never seen by this scope. Declaring the copy
+    /// runtime-managed left it with no owner at all: a `LET r AS String =
+    /// thread::waitFor(t)` leaked 16 B per thread, a recursive union result its
+    /// whole copied graph.
+    ///
+    /// An inline-`TRAP`ped call (`CallResult`) is never runtime-managed, for any
+    /// `thread` member: the value it yields is the `Result` block
+    /// `materialize_current_result` just built in this frame, around its own copy of the
+    /// payload (the raw helper block stays `RawSuccessBlock::OwnedElsewhere` there).
+    /// Classifying it by target left the wrapper of every trapped `thread::isRunning` /
+    /// `poll` / `cancel` / `send` unowned — 144 B per trapped `isRunning` (bug-622).
     pub(crate) fn value_is_runtime_managed(value: &NirValue) -> bool {
         let target = match value {
-            NirValue::Call { target, .. }
-            | NirValue::CallResult { target, .. }
-            | NirValue::RuntimeCall { target, .. } => target.as_str(),
+            NirValue::CallResult { .. } => return false,
+            NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
+                target.as_str()
+            }
             NirValue::MemberAccess { member, .. } if member == "result" => return true,
             _ => return false,
         };
         Self::runtime_call_result_is_foreign_arena(target)
+            && !Self::runtime_call_result_is_copied_at_call_site(target)
+    }
+
+    /// bug-622 A: whether `emit_runtime_helper_call` deep-copies this runtime call's
+    /// success value into the CURRENT thread's arena (`copy_value_to_current_arena`)
+    /// before handing it on — the single source of truth for that copy and for the
+    /// ownership of what it yields.
+    ///
+    /// These five are the `thread` members that READ a value out of another arena:
+    /// a worker's terminal result (`waitFor`) or a queued message / resource
+    /// (`receive`/`read`, `acceptResource`/`readResource`). The RAW helper result is
+    /// still another arena's ([`Self::runtime_call_result_is_foreign_arena`] keeps
+    /// answering `true`); the COPY is this frame's, freshly `_mfb_arena_alloc`ed for
+    /// every freeable-flat or graph type, so its owner frees it like any other fresh
+    /// value. "Current" is whichever thread runs the call — inside a worker
+    /// (`thread::receive(w)`) that is the worker's own arena, and so is the free.
+    ///
+    /// Both spellings the frontend and the emitter use are listed: the NIR names
+    /// (`receive`, `acceptResource`) and the handle-direction runtime names they are
+    /// rewritten to (`read`, `readResource`).
+    pub(crate) fn runtime_call_result_is_copied_at_call_site(target: &str) -> bool {
+        matches!(
+            target,
+            "thread.waitFor"
+                | "thread.read"
+                | "thread.receive"
+                | "thread.acceptResource"
+                | "thread.readResource"
+        )
     }
 
     /// bug-566: whether the block a RUNTIME HELPER returns lives outside the
     /// calling thread's arena — the one exclusion that separates "this frame may
     /// free it" from a cross-arena wild free.
+    ///
+    /// This describes the RAW helper result only. bug-622 A: for the members in
+    /// [`Self::runtime_call_result_is_copied_at_call_site`] the value the call site
+    /// yields is a copy in the current arena, owned there; this predicate still
+    /// answers `true` for them because the pointer the helper handed back — the one
+    /// an inline `TRAP`'s `materialize_current_result` sees — is not this frame's.
     ///
     /// `x19` (the arena state) is PER-THREAD. A block produced by
     /// `thread::waitFor`, `thread::receive` or `thread.result` was allocated by the
@@ -1132,10 +1186,15 @@ impl CodeBuilder<'_> {
     /// SAME question the `Bind` path (`owns_freeable_value`) and bug-566's
     /// inline-`TRAP` path already ask of this call, so no new licence is created
     /// here: it is the licence `LET s AS String = fs::readText(p)` has always
-    /// exercised, asked at the position that had no owner at all. `thread.*` is
-    /// excluded (its block is the WORKER's — `x19` is per-thread), and a bound or
+    /// exercised, asked at the position that had no owner at all. A bound or
     /// returned result is unaffected because its owner claims the temp
     /// (`claim_pending_temp`) exactly as it does for a marked native producer.
+    ///
+    /// The raw `thread.*` block is excluded (it is the WORKER's — `x19` is
+    /// per-thread). bug-622 A: `block` is never that raw block for a call in
+    /// [`Self::runtime_call_result_is_copied_at_call_site`] — it is the operand
+    /// `copy_value_to_current_arena` just allocated in this arena — so those calls
+    /// are marked too, and an unbound `len(thread::waitFor(t))` frees its copy.
     pub(crate) fn mark_runtime_helper_result_fresh(
         &mut self,
         target: &str,
@@ -1143,7 +1202,8 @@ impl CodeBuilder<'_> {
         block: impl Into<Operand>,
     ) {
         if Self::runtime_result_needs_fresh_string_mark(result_type)
-            && self.runtime_result_is_caller_owned(target, result_type)
+            && (self.runtime_result_is_caller_owned(target, result_type)
+                || Self::runtime_call_result_is_copied_at_call_site(target))
         {
             self.mark_fresh_string(block);
         }

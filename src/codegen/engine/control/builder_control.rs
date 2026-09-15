@@ -565,9 +565,11 @@ impl CodeBuilder<'_> {
                         // so the binding is neither deep-copied nor freed here.
                         let aliases_union_variant =
                             matches!(value, Some(NirValue::UnionExtract { .. }));
-                        // A thread-boundary result (`thread::receive`/`waitFor`/…)
-                        // is owned by the thread runtime / worker arena, not this
-                        // scope, so it is neither zero-initialized nor freed here.
+                        // A raw thread-boundary result (`t.result`) is owned by the
+                        // thread runtime / worker arena, not this scope, so it is
+                        // neither zero-initialized nor freed here. A
+                        // `thread::receive`/`waitFor`/… value is the call site's copy
+                        // into this arena and is owned like any fresh value (bug-622 A).
                         let runtime_managed =
                             value.as_ref().is_some_and(Self::value_is_runtime_managed);
                         // This binding owns a freeable flat block that scope-drop
@@ -841,7 +843,14 @@ impl CodeBuilder<'_> {
                                 .push(ActiveCleanup::Thread(ThreadCleanup {
                                     name: name.clone(),
                                     symbol: Self::thread_drop_symbol(),
+                                    close: true,
+                                    release: true,
                                 }));
+                            // bug-622: a handle read from another binding is SHARED, not
+                            // moved — both bindings release it — so it takes an owner.
+                            if !Self::thread_value_is_fresh_handle(value.as_ref()) {
+                                self.emit_thread_owner_increment(stack_offset);
+                            }
                         } else if aliases_union_variant || by_ref_capture_slot {
                             // Non-owning — no cleanup (the parent binding frees it).
                         } else if let crate::ir::resource_escape::ResOwner::Float(collection) =
@@ -1184,6 +1193,12 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     slot,
                                 ));
+                                // bug-622: a handle read from another binding is shared,
+                                // so it takes an owner — BEFORE the old handle's drop, or
+                                // `t = t` would free the block it is about to store.
+                                if !Self::thread_value_is_fresh_handle(Some(value)) {
+                                    self.emit_thread_owner_increment(slot);
+                                }
                                 self.emit_thread_cleanup_for_name(name)?;
                                 Some(slot)
                             } else if let Some(symbol) = self.resource_cleanup_symbol(&result.type_)

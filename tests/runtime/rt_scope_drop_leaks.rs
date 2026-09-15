@@ -6643,3 +6643,451 @@ fn a_return_from_a_while_with_a_condition_temp_frees_every_block() {
         2,
     );
 }
+
+// ------------------------------------------------- bug-622: thread start + waitFor
+
+/// bug-622: a `thread::start` + `thread::waitFor` loop, measured on the `--debug` report's
+/// main-arena `live_bytes` (exact, where peak RSS is paged). Returns the program's output and
+/// `live_bytes`; `{N}` is the thread count. A skipped double free fails the case outright.
+#[cfg(unix)]
+fn thread_loop_report(name: &str, source: &str, count: u64) -> (String, u64) {
+    let program = source.replace("{N}", &count.to_string());
+    let case = format!("{name}_{count}");
+    let exe = common::debug_report::build_debug(&case, &program);
+    let (stdout, stderr) = common::debug_report::run_ok(&case, &exe);
+    let lines = common::debug_report::arena_lines(&case, &stderr);
+    assert_eq!(
+        common::debug_report::counter(&case, &lines, 0, "double_free_skips"),
+        0,
+        "{case}: the arena skipped a double free"
+    );
+    (
+        stdout.trim().to_string(),
+        common::debug_report::counter(&case, &lines, 0, "live_bytes"),
+    )
+}
+
+/// Main-arena `live_bytes` growth between 50 and 100 threads, after checking both outputs.
+#[cfg(unix)]
+fn thread_loop_growth(name: &str, source: &str, small_out: &str, large_out: &str) -> u64 {
+    let (out_small, live_small) = thread_loop_report(name, source, 50);
+    let (out_large, live_large) = thread_loop_report(name, source, 100);
+    assert_eq!(out_small, small_out, "{name}: wrong value at 50 threads");
+    assert_eq!(out_large, large_out, "{name}: wrong value at 100 threads");
+    live_large.saturating_sub(live_small)
+}
+
+/// The scalar result: nothing is copied back, so all growth is the thread's own plumbing —
+/// the control block, the worker arena state and the four queues `thread::start` carves out of
+/// the parent arena.
+const B622_INTEGER_RESULT: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    total = total + thread::waitFor(t)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// A handle whose worker has finished, dropped at scope exit with no `waitFor`.
+const B622_COMPLETED_DROP: &str = "IMPORT io\nIMPORT os\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    WHILE thread::isRunning(t)\n      os::sleep(1)\n    END WHILE\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"done=\" & toString(i))\n\
+END SUB\n";
+
+const B622_STRING_BOUND: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO String, seed AS String) AS String\n  RETURN seed & \"-\" & seed\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
+    LET r AS String = thread::waitFor(t)\n\
+    total = total + len(r)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+const B622_STRING_UNBOUND: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO String, seed AS String) AS String\n  RETURN seed & \"-\" & seed\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
+    total = total + len(thread::waitFor(t))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+const B622_STRING_TRAPPED: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO String, seed AS String) AS String\n  RETURN seed & \"-\" & seed\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
+    LET r AS String = thread::waitFor(t) TRAP(e)\n      RECOVER \"\"\n    END TRAP\n\
+    total = total + len(r)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+const B622_UNION: &str = "IMPORT io\nIMPORT thread\n\
+TYPE TwEl\n  tag AS String\n  kids AS List OF TwNode\nEND TYPE\n\
+TYPE TwText\n  text AS String\nEND TYPE\n\
+UNION TwNode\n  TwEl\n  TwText\nEND UNION\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO TwNode, seed AS String) AS TwNode\n\
+  LET leaf AS TwNode = TwText[seed & \"!\"]\n\
+  LET root AS TwNode = TwEl[\"div\", [leaf, leaf]]\n\
+  RETURN root\n\
+END FUNC\n\
+SUB main()\n\
+  MUT count AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO TwNode = thread::start(work, \"abc\")\n\
+    LET r AS TwNode = thread::waitFor(t)\n\
+    MATCH r\n      CASE TwEl(e)\n        count = count + len(e.kids)\n      CASE ELSE\n    END MATCH\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"count=\" & toString(count))\n\
+END SUB\n";
+
+const B622_RECORD: &str = "IMPORT io\nIMPORT thread\n\
+TYPE TwEl\n  tag AS String\n  kids AS List OF TwNode\nEND TYPE\n\
+TYPE TwText\n  text AS String\nEND TYPE\n\
+UNION TwNode\n  TwEl\n  TwText\nEND UNION\n\
+TYPE TwResult\n  ok AS Boolean\n  document AS TwNode\n  title AS String\nEND TYPE\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO TwResult, seed AS String) AS TwResult\n\
+  LET leaf AS TwNode = TwText[seed & \"!\"]\n\
+  LET root AS TwNode = TwEl[\"div\", [leaf, leaf]]\n\
+  RETURN TwResult[TRUE, root, seed & \"?\"]\n\
+END FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO TwResult = thread::start(work, \"abc\")\n\
+    LET r AS TwResult = thread::waitFor(t)\n\
+    total = total + len(r.title)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// The same call-site copy on the message plane: the parent's `thread::receive` of a
+/// worker-sent `String`.
+const B622_RECEIVE: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n\
+  thread::send(w, seed & \"!\")\n\
+  RETURN len(seed)\n\
+END FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    LET m AS String = thread::receive(t)\n\
+    total = total + len(m) + thread::waitFor(t)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// A trapped thread query that does not read a value across the boundary: the inline `TRAP`
+/// builds its `Result` in this frame, and that wrapper leaked 144 B per trapped
+/// `thread::isRunning` while every `thread.*` `CallResult` counted as runtime-managed.
+const B622_TRAPPED_QUERY: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT closed AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    total = total + thread::waitFor(t)\n\
+    LET isClosed AS Boolean = thread::isRunning(t) TRAP(e)\n      RECOVER e.code = 77030004\n    END TRAP\n\
+    IF isClosed THEN closed = closed + 1\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total) & \" closed=\" & toString(closed))\n\
+END SUB\n";
+
+/// bug-622 Part B: once a thread has been waited for and its handle dropped, the parent arena
+/// holds nothing for it — not the control block, the worker arena state or the queues.
+#[cfg(unix)]
+#[test]
+fn a_waited_for_thread_leaves_nothing_in_the_parent_arena() {
+    let grew = thread_loop_growth(
+        "b622_integer_result",
+        B622_INTEGER_RESULT,
+        "total=150",
+        "total=300",
+    );
+    assert_eq!(
+        grew, 0,
+        "main-arena live_bytes grew {grew} B between 50 and 100 waited-for threads — \
+         thread::start's plumbing is never freed"
+    );
+}
+
+/// A handle moved into a function that waits for it: the callee's parameter is the only owner,
+/// so the plumbing is freed once, by the callee's drop — the caller's must not run as well.
+const B622_MOVED_TO_CALLEE: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+FUNC finish(t AS Thread OF String TO Integer) AS Integer\n  RETURN thread::waitFor(t)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    total = total + finish(t)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// A `MUT Thread` reassigned every pass: each reassignment drops the waited-for old handle.
+const B622_REASSIGNED: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  MUT t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+  WHILE i < {N}\n\
+    total = total + thread::waitFor(t)\n\
+    t = thread::start(work, \"abc\")\n\
+    i = i + 1\n\
+  END WHILE\n\
+  total = total + thread::waitFor(t)\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// bug-622 Part B positive pins: the free happens exactly once whichever binding holds the
+/// handle last — a callee parameter it was moved into, or a `MUT` binding reassigned over it.
+/// A second drop of a freed block would show as a skipped double free or a wrong value.
+#[cfg(unix)]
+#[test]
+fn a_moved_or_reassigned_thread_handle_is_freed_exactly_once() {
+    let moved = thread_loop_growth(
+        "b622_moved_to_callee",
+        B622_MOVED_TO_CALLEE,
+        "total=150",
+        "total=300",
+    );
+    assert_eq!(
+        moved, 0,
+        "main-arena live_bytes grew {moved} B between 50 and 100 handles moved into a callee"
+    );
+    let reassigned =
+        thread_loop_growth("b622_reassigned", B622_REASSIGNED, "total=153", "total=303");
+    assert_eq!(
+        reassigned, 0,
+        "main-arena live_bytes grew {reassigned} B between 50 and 100 reassigned handles"
+    );
+}
+
+/// One handle under two names: `t2` retrieves the result, then `t` is read again and must
+/// answer `ErrResourceClosed` from a live control block.
+const B622_ALIAS: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT closed AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    LET t2 AS Thread OF String TO Integer = t\n\
+    total = total + thread::waitFor(t2)\n\
+    LET again AS Integer = thread::waitFor(t) TRAP(e)\n      RECOVER e.code\n    END TRAP\n\
+    IF again = 77030004 THEN closed = closed + 1\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total) & \" closed=\" & toString(closed))\n\
+END SUB\n";
+
+/// A handle passed to a function that waits for it, then read again by the caller.
+const B622_MOVED_REUSE: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+FUNC finish(t AS Thread OF String TO Integer) AS Integer\n  RETURN thread::waitFor(t)\nEND FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT closed AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    total = total + finish(t)\n\
+    LET isClosed AS Boolean = thread::isRunning(t) TRAP(e)\n      RECOVER e.code = 77030004\n    END TRAP\n\
+    IF isClosed THEN closed = closed + 1\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total) & \" closed=\" & toString(closed))\n\
+END SUB\n";
+
+/// An inline `TRAP` on `thread::start`: the handle is bound once as the trap's value and
+/// again as `t`.
+const B622_INLINE_TRAP_START: &str = "IMPORT io\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+FUNC once() AS Integer\n\
+  LET t AS Thread OF String TO Integer = thread::start(work, \"abc\") TRAP(e)\n    RETURN -100\n  END TRAP\n\
+  RETURN thread::waitFor(t)\n\
+END FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    total = total + once()\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// A completed worker's handle, closed by the trap route of a `FAIL`, then read by the
+/// function's `TRAP` handler (`ErrResourceClosed` → -1).
+const B622_TRAP_ROUTED: &str = "IMPORT io\nIMPORT os\nIMPORT thread\n\
+ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
+FUNC routed() AS Integer\n\
+  LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+  WHILE thread::isRunning(t)\n    os::sleep(1)\n  END WHILE\n\
+  FAIL error(77050002, \"forced\")\n\
+  RETURN 0\n\
+  TRAP(err)\n\
+    LET v AS Integer = thread::waitFor(t) TRAP(e2)\n      RECOVER -1\n    END TRAP\n\
+    RETURN v\n\
+  END TRAP\n\
+END FUNC\n\
+SUB main()\n\
+  MUT total AS Integer = 0\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < {N}\n\
+    total = total + routed()\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+END SUB\n";
+
+/// bug-622: a handle more than one binding can read — an alias, a moved-from caller, the
+/// value binding of an inline `TRAP`, a function `TRAP` handler after the route closed it —
+/// stays readable (`ErrResourceClosed` from a live block, no crash, no skipped double free)
+/// and is still freed exactly once, when its last binding releases it. Freeing at the first
+/// drop crashed all four shapes (exit 139).
+#[cfg(unix)]
+#[test]
+fn a_shared_thread_handle_stays_readable_and_is_freed_once() {
+    for (name, source, small_out, large_out) in [
+        (
+            "b622_alias",
+            B622_ALIAS,
+            "total=150 closed=50",
+            "total=300 closed=100",
+        ),
+        (
+            "b622_moved_reuse",
+            B622_MOVED_REUSE,
+            "total=150 closed=50",
+            "total=300 closed=100",
+        ),
+        (
+            "b622_inline_trap_start",
+            B622_INLINE_TRAP_START,
+            "total=150",
+            "total=300",
+        ),
+        (
+            "b622_trap_routed",
+            B622_TRAP_ROUTED,
+            "total=-50",
+            "total=-100",
+        ),
+    ] {
+        let grew = thread_loop_growth(name, source, small_out, large_out);
+        assert_eq!(
+            grew, 0,
+            "{name}: main-arena live_bytes grew {grew} B between 50 and 100 shared handles"
+        );
+    }
+}
+
+/// bug-622 Part B: the same for a completed thread whose handle is dropped without `waitFor`.
+#[cfg(unix)]
+#[test]
+fn a_completed_thread_dropped_without_waitfor_leaves_nothing_in_the_parent_arena() {
+    let grew = thread_loop_growth(
+        "b622_completed_drop",
+        B622_COMPLETED_DROP,
+        "done=50",
+        "done=100",
+    );
+    assert_eq!(
+        grew, 0,
+        "main-arena live_bytes grew {grew} B between 50 and 100 completed, dropped threads"
+    );
+}
+
+/// bug-622 Part A: the parent-arena copy of a thread result is owned by whatever receives it
+/// — a binding, a statement temp, a trapped `Result` — and freed like any fresh value. Each
+/// shape must grow exactly as much as the scalar-result loop, whose growth is the plumbing
+/// alone (zero once Part B holds), so this gate does not depend on Part B.
+#[cfg(unix)]
+#[test]
+fn a_thread_result_copy_is_freed_by_its_owner() {
+    let baseline = thread_loop_growth(
+        "b622_baseline",
+        B622_INTEGER_RESULT,
+        "total=150",
+        "total=300",
+    );
+    for (name, source, small_out, large_out) in [
+        (
+            "b622_string_bound",
+            B622_STRING_BOUND,
+            "total=350",
+            "total=700",
+        ),
+        (
+            "b622_string_unbound",
+            B622_STRING_UNBOUND,
+            "total=350",
+            "total=700",
+        ),
+        (
+            "b622_string_trapped",
+            B622_STRING_TRAPPED,
+            "total=350",
+            "total=700",
+        ),
+        ("b622_union", B622_UNION, "count=100", "count=200"),
+        ("b622_record", B622_RECORD, "total=200", "total=400"),
+        (
+            "b622_trapped_query",
+            B622_TRAPPED_QUERY,
+            "total=150 closed=50",
+            "total=300 closed=100",
+        ),
+        ("b622_receive", B622_RECEIVE, "total=350", "total=700"),
+    ] {
+        let grew = thread_loop_growth(name, source, small_out, large_out);
+        assert_eq!(
+            grew,
+            baseline,
+            "{name}: main-arena live_bytes grew {grew} B between 50 and 100 threads, \
+             {} B more than the scalar-result loop — the result copy is never freed",
+            grew.saturating_sub(baseline)
+        );
+    }
+}
