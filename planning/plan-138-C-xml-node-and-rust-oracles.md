@@ -353,15 +353,27 @@ Acceptance: robustness and performance hold, and the README documents every mode
   `ok   perf: 3 case(s) agreed three ways` — `flat 1687 KiB in 1.04 s; deep 684 KiB in 0.85 s;
   wide 391 KiB in 0.45 s`, each inside the 3.00 s budget. The first run failed on the deep shape at
   15.64 s; see Corrections.
-Commit: —
+Commit: `f1b198fa1`
 
 ## Validation Plan
 
 - Tests: every defect found adds a TESTING case in `packages/xml/src/test_*.mfb` before its fix.
+  DONE: one package defect was found in this whole letter — the colon in a processing-instruction
+  target (NE08) — and it landed behind a failing case in `test_refuse.mfb`. Every other defect the
+  oracle exposed was in the harness or in this plan's own rules, and each is recorded in Corrections.
 - Coverage check: `target/release/mfb test --coverage packages/xml` after Phase 5; any reader branch
   the oracle never reaches gets a corpus document.
+  DONE: `Tests: 158  Pass: 158  Fail: 0`; `chars.mfb` 113/113, `core.mfb` 4/4, `lib.mfb` 34/34,
+  `scan.mfb` 89/89, `write.mfb` 173/173, `content.mfb` 46/47, `read.mfb` 386/391. The six uncovered
+  slots are unreachable by construction — `content.mfb:114` is the `CASE ELSE` a four-variant `MATCH`
+  needs for exhaustiveness, and `read.mfb` 184/226/337/554/555 are the `RETURN`s after a `FAIL`. So
+  no reachable reader branch needs a new corpus document.
 - Runtime proof: `node packages/xml/oracle/diff.mjs` (all modes) → exit 0.
+  DONE, exit 0: `corpus 25`, `xmlconf 2140`, `fuzz-read 1200`, `fuzz-write 1800`, `roundtrip 428`,
+  `mutate 166`, `perf 3` — every mode green against the rewritten probe.
 - Doc sync: `packages/xml/oracle/README.md`; `packages/xml/README.md` links it.
+  DONE: both written, and the README's "What it found" table lists every defect this letter exposed,
+  on whichever side it was found.
 - Final gate: runs once at the end of plan-138-E.
 
 ## Open Decisions
