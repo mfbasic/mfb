@@ -678,8 +678,17 @@ Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
 ### Phase 4 — collections (50 units)
 
 - [ ] 49 function pages + overview.
-- [ ] Mark, in the ledger, which 25 pages postdate plan-108's review — they
+- [x] Mark, in the ledger, which 25 pages postdate plan-108's review — they
       get the closest reading.
+      *Premise corrected (Correction 1):* plan-108-D reviewed all 49 pages. The
+      closest-reading set is instead the pages whose source changed after
+      plan-108-D closed (`git diff --stat 734646ce6 HEAD --
+      src/codegen/builtins/collections`). That is the overview (`mod.rs`) and 25
+      function pages: `add`, `append`, `contains`, `distinct`, `filter`, `find`,
+      `findIndex`, `findLastIndex` (the largest change, 180 lines), `forEach`,
+      `get`, `getOr`, `groupBy`, `hasKey`, `insert`, `merge`, `mid`, `partition`,
+      `prepend`, `reduce`, `removeKey`, `replace`, `sum`, `transform`, `values`,
+      `window`. The Phase 4 ledger marks each of these rows.
 - [ ] Every example compiled and run; every mutation/ordering/identity claim
       probe-verified against the `.ai/collections.md` developer contract
       (never against its internals).
@@ -712,7 +721,27 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in DURING execution. -->
+1. **"25 `collections` pages plan-108 never saw" is false; plan-108-D reviewed
+   all 49.** Found 2026-09-15 while starting Phase 4's second box. §2 took the
+   24 from plan-108-D's *uncorrected* population table ("collections 24/24").
+   The same plan's Correction 1 re-measured collections at **49** ("Scope
+   corrected in place above"), and its closed Phase 1 box reads "Verify
+   collections **49** + math **21** pages ... every example compiled and run
+   (collections 140/140)" (`planning/completed/plan-108-D-verify-filled-batch-1.md`,
+   closed in `734646ce6`, 2026-08-31). No collections page has been added since:
+   `git diff --name-status --diff-filter=A 734646ce6 HEAD --
+   src/codegen/builtins/collections` prints nothing. §2's "Verified properties"
+   line ("`collections` doubled since plan-108's review") and the Summary's "25
+   pages that postdate plan-108's only review" rest on the same misreading.
+   **Consequence:** Phase 4's second box keeps its purpose (give the closest
+   reading to the pages plan-108 never saw *in their current form*) with a
+   measurable set: the pages whose source file changed after plan-108-D closed.
+   `git diff --stat 734646ce6 HEAD -- src/codegen/builtins/collections` → 25
+   `func_*.rs` files, plus `mod.rs` (the overview) and four `gen_*.rs` lowering
+   files, which have no page of their own. That this set is also 25 is a
+   coincidence, not a vindication of the original count. It is a superset: a
+   file-level change may be to the member's body, not its prose. The letter's
+   core premise, that every page gets a per-page review, is unaffected.
 
 ## Summary
 
