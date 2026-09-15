@@ -292,15 +292,22 @@ pub(crate) fn emit_free_byte_list_guarded(
     instructions.push(abi::label(&skip));
 }
 
-/// Free the contiguous scratch buffer whose pointer is at `ptr_off` — allocated with the
-/// byte count now at `len_off`, which is the size `_mfb_arena_free` must receive
-/// (bug-560) — when the slot is non-null, then null the slot so a second call frees
-/// nothing. The same register contract as [`emit_free_byte_list_guarded`] (bug-625).
+/// The byte count a scratch buffer was allocated with: read from a frame slot, or a
+/// compile-time constant.
+pub(crate) enum ScratchSize {
+    Slot(usize),
+    Bytes(usize),
+}
+
+/// Free the contiguous scratch buffer whose pointer is at `ptr_off` — allocated with
+/// `size` bytes, which is the size `_mfb_arena_free` must receive (bug-560) — when the
+/// slot is non-null, then null the slot so a second call frees nothing. The same register
+/// contract as [`emit_free_byte_list_guarded`] (bug-625).
 pub(crate) fn emit_free_buffer_guarded(
     symbol: &str,
     tag: &str,
     ptr_off: usize,
-    len_off: usize,
+    size: ScratchSize,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
@@ -309,7 +316,10 @@ pub(crate) fn emit_free_buffer_guarded(
         abi::load_u64("%v9", abi::stack_pointer(), ptr_off),
         abi::compare_immediate("%v9", "0"),
         abi::branch_eq(&skip),
-        abi::load_u64("%v12", abi::stack_pointer(), len_off),
+        match size {
+            ScratchSize::Slot(len_off) => abi::load_u64("%v12", abi::stack_pointer(), len_off),
+            ScratchSize::Bytes(bytes) => abi::move_immediate("%v12", "Integer", &bytes.to_string()),
+        },
         abi::store_u64(abi::ZERO, abi::stack_pointer(), ptr_off),
         abi::move_register(abi::c_arg(0), "%v9"),
         abi::move_register(abi::c_arg(1), "%v12"),

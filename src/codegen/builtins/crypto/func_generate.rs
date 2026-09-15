@@ -23,7 +23,7 @@ use crate::codegen::error::emission::emit_fail;
 use crate::codegen::memory::arena::emit_data_address;
 use crate::codegen::memory::marshal::{
     emit_build_byte_list, emit_build_inlined_record, emit_free_buffer_guarded,
-    emit_free_byte_list_guarded, emit_zero_guarded, RecordBuildScratch,
+    emit_free_byte_list_guarded, emit_zero_guarded, RecordBuildScratch, ScratchSize,
 };
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
@@ -966,9 +966,9 @@ fn emit_linux_ec(
         &mut builder.relocations,
     );
     // bug-625: the SEC1 / SPKI / raw scratch buffers are the helper's own; free them.
-    emit_free_buffer_guarded(symbol, "oksec1", L_SEC1PTR, L_SEC1LEN, &mut builder.instructions, &mut builder.relocations);
-    emit_free_buffer_guarded(symbol, "okspki", L_SPKIPTR, L_SPKILEN, &mut builder.instructions, &mut builder.relocations);
-    emit_free_buffer_guarded(symbol, "okraw", L_RAWBUF, L_RAWLEN, &mut builder.instructions, &mut builder.relocations);
+    emit_free_buffer_guarded(symbol, "oksec1", L_SEC1PTR, ScratchSize::Slot(L_SEC1LEN), &mut builder.instructions, &mut builder.relocations);
+    emit_free_buffer_guarded(symbol, "okspki", L_SPKIPTR, ScratchSize::Slot(L_SPKILEN), &mut builder.instructions, &mut builder.relocations);
+    emit_free_buffer_guarded(symbol, "okraw", L_RAWBUF, ScratchSize::Slot(L_RAWLEN), &mut builder.instructions, &mut builder.relocations);
     builder.instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), L_RRESULT),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1014,9 +1014,9 @@ fn emit_linux_ec(
             &format!("{tag}rw"),
             ins,
         );
-        emit_free_buffer_guarded(symbol, &format!("{tag}sec1"), L_SEC1PTR, L_SEC1LEN, ins, rel);
-        emit_free_buffer_guarded(symbol, &format!("{tag}spki"), L_SPKIPTR, L_SPKILEN, ins, rel);
-        emit_free_buffer_guarded(symbol, &format!("{tag}raw"), L_RAWBUF, L_RAWLEN, ins, rel);
+        emit_free_buffer_guarded(symbol, &format!("{tag}sec1"), L_SEC1PTR, ScratchSize::Slot(L_SEC1LEN), ins, rel);
+        emit_free_buffer_guarded(symbol, &format!("{tag}spki"), L_SPKIPTR, ScratchSize::Slot(L_SPKILEN), ins, rel);
+        emit_free_buffer_guarded(symbol, &format!("{tag}raw"), L_RAWBUF, ScratchSize::Slot(L_RAWLEN), ins, rel);
     };
     builder.instructions.push(abi::label(&load_fail));
     cleanup(&mut builder.instructions, &mut builder.relocations, "lf", v9);
@@ -1156,6 +1156,7 @@ fn emit_windows_ec(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), W_BLOB),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), W_COLL),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), W_PUBCOLL),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), W_RAW),
     ]);
     // raw_len = 1 + 3·field; point_len = 1 + 2·field.
     ins.extend([
@@ -1378,6 +1379,39 @@ fn emit_windows_ec(
         &mut builder.instructions,
         &mut builder.relocations,
     );
+    // bug-625: wipe (both hold the private scalar) and free the blob and raw scratch.
+    emit_zero_guarded(
+        symbol,
+        W_BLOB,
+        None,
+        gen_cert::BLOBCAP,
+        "wokblobz",
+        &mut builder.instructions,
+    );
+    emit_zero_guarded(
+        symbol,
+        W_RAW,
+        Some(W_RAWLEN),
+        0,
+        "wokrawz",
+        &mut builder.instructions,
+    );
+    emit_free_buffer_guarded(
+        symbol,
+        "wokblob",
+        W_BLOB,
+        ScratchSize::Bytes(gen_cert::BLOBCAP),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    emit_free_buffer_guarded(
+        symbol,
+        "wokraw",
+        W_RAW,
+        ScratchSize::Slot(W_RAWLEN),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     builder.instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), W_RRESULT),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1385,6 +1419,39 @@ fn emit_windows_ec(
     ]);
 
     builder.instructions.push(abi::label(&fail));
+    // bug-625: wipe (both hold the private scalar) and free the blob and raw scratch.
+    emit_zero_guarded(
+        symbol,
+        W_BLOB,
+        None,
+        gen_cert::BLOBCAP,
+        "wfblobz",
+        &mut builder.instructions,
+    );
+    emit_zero_guarded(
+        symbol,
+        W_RAW,
+        Some(W_RAWLEN),
+        0,
+        "wfrawz",
+        &mut builder.instructions,
+    );
+    emit_free_buffer_guarded(
+        symbol,
+        "wfblob",
+        W_BLOB,
+        ScratchSize::Bytes(gen_cert::BLOBCAP),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    emit_free_buffer_guarded(
+        symbol,
+        "wfraw",
+        W_RAW,
+        ScratchSize::Slot(W_RAWLEN),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     win_cleanup(
         symbol,
         "c2",
@@ -1401,6 +1468,39 @@ fn emit_windows_ec(
         done,
     );
     builder.instructions.push(abi::label(&alloc_fail));
+    // bug-625: wipe (both hold the private scalar) and free the blob and raw scratch.
+    emit_zero_guarded(
+        symbol,
+        W_BLOB,
+        None,
+        gen_cert::BLOBCAP,
+        "wafblobz",
+        &mut builder.instructions,
+    );
+    emit_zero_guarded(
+        symbol,
+        W_RAW,
+        Some(W_RAWLEN),
+        0,
+        "wafrawz",
+        &mut builder.instructions,
+    );
+    emit_free_buffer_guarded(
+        symbol,
+        "wafblob",
+        W_BLOB,
+        ScratchSize::Bytes(gen_cert::BLOBCAP),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    emit_free_buffer_guarded(
+        symbol,
+        "wafraw",
+        W_RAW,
+        ScratchSize::Slot(W_RAWLEN),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     // bug-625: a list built before the failure is freed too.
     emit_free_byte_list_guarded(
         symbol,

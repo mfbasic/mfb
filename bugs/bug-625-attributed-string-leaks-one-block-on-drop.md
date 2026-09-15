@@ -209,6 +209,20 @@ that drops the type.
   and raw on success, and frees none (only `L_SEC1PTR` was nulled at entry, so the failure
   cleanup could not have freed the other two). The macOS path has no such scratch
   (`a_native_ec_generate_loop` is flat there).
+- **Sub-issue F (new, found by the remote proof of C on Windows):** with C and D fixed,
+  `crypto::generate` P256+P384+P521 still grew 55,200 B per 50 rounds on 2230
+  (windows-x86_64); every other case (fromString, defaulted record, software curves,
+  randomBytes) was flat there. `func_generate.rs:emit_windows_ec` allocates the
+  `BCryptExportKey` blob (`W_BLOB`, the constant `gen_cert::BLOBCAP` bytes) and the raw
+  point‖scalar buffer (`W_RAW`, `W_RAWLEN` bytes), wipes only the blob on success, and frees
+  neither; `W_RAW` was never nulled or wiped. Fix: null `W_RAW` at entry; after the record
+  build and on the `fail` / `alloc_fail` exits, wipe both and free both
+  (`emit_free_buffer_guarded` now takes a `ScratchSize` of a slot or a constant).
+- Remote proof matrix (`/tmp/wt604_remote_leak.py`, `mfb build --debug --target …`, N vs 2N
+  `arena.0.live_bytes`): before any fix `as_single` grew 48,000 B on linux-aarch64 (2223),
+  linux-x86_64 (2228) and windows-x86_64 (2230) — the harness can fail. After A–D every
+  AttributedString / defaulted-record / software-curve / randomBytes case was flat on all
+  three; `generate_ec` needed E (Linux) and F (Windows).
 - RED tests (`tests/runtime/rt_debug_soak.rs`, live_bytes): `a_bound_attributed_string_…`,
   `a_list_of_attributed_strings_…`, `a_record_of_attributed_strings_…`,
   `an_attributed_string_with_an_attribute_…`, `a_defaulted_record_…`,
