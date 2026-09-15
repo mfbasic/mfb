@@ -77,7 +77,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat"],
             body: Body::mfb(BODY, "__encoding_uleb128Encode"),
         }],
     });

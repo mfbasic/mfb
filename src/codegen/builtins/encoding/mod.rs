@@ -445,6 +445,71 @@ mod tests {
             ast.files.len()
         );
     }
+
+    /// bug-606: every member's declared errors, per overload, are exactly the codes
+    /// its source body can raise — a member is fallible when its body, or a helper
+    /// it calls, reaches `FAIL error(77050003, …)`. The Errors table on
+    /// `mfb man encoding <member>` is rendered from these lists, and the
+    /// fallibility verdict (`mfb spec language error-model` §8.6 rule 11) is read
+    /// off them, so an empty list on a raising member is a page claiming the call
+    /// never fails. Each raising member was probed at runtime and trapped
+    /// `77050003`.
+    #[test]
+    fn members_declare_the_errors_they_raise() {
+        const INVALID_FORMAT: &str = "ErrInvalidFormat";
+        let cases: &[(&str, &[&[&str]])] = &[
+            ("encoding.percentDecode", &[&[INVALID_FORMAT]]),
+            ("encoding.formUrlDecode", &[&[INVALID_FORMAT]]),
+            ("encoding.base32Decode", &[&[INVALID_FORMAT]]),
+            ("encoding.base64Decode", &[&[INVALID_FORMAT]]),
+            ("encoding.base64UrlDecode", &[&[INVALID_FORMAT]]),
+            ("encoding.hexDecode", &[&[INVALID_FORMAT]]),
+            ("encoding.htmlUnescape", &[&[INVALID_FORMAT]]),
+            ("encoding.sleb128Decode", &[&[INVALID_FORMAT]]),
+            ("encoding.uleb128Decode", &[&[INVALID_FORMAT]]),
+            ("encoding.uleb128Encode", &[&[INVALID_FORMAT]]),
+            ("encoding.utf16Decode", &[&[INVALID_FORMAT]]),
+            ("encoding.utf32Decode", &[&[INVALID_FORMAT]]),
+            ("encoding.utf8Decode", &[&[INVALID_FORMAT], &[INVALID_FORMAT]]),
+            ("encoding.varintDecode", &[&[INVALID_FORMAT]]),
+            ("encoding.codepageDecode", &[&[INVALID_FORMAT]]),
+            ("encoding.codepageEncode", &[&[INVALID_FORMAT]]),
+            ("encoding.punycodeDecode", &[&[INVALID_FORMAT]]),
+            // No path in the body or its helpers reaches a `FAIL`.
+            ("encoding.base32Encode", &[&[]]),
+            ("encoding.base64Encode", &[&[]]),
+            ("encoding.base64UrlEncode", &[&[]]),
+            ("encoding.formUrlEncode", &[&[]]),
+            ("encoding.hexEncode", &[&[]]),
+            ("encoding.htmlEscape", &[&[]]),
+            ("encoding.percentEncode", &[&[]]),
+            ("encoding.punycodeEncode", &[&[]]),
+            ("encoding.sleb128Encode", &[&[]]),
+            ("encoding.utf16Encode", &[&[]]),
+            ("encoding.utf32Encode", &[&[]]),
+            ("encoding.utf8Encode", &[&[], &[]]),
+            ("encoding.varintEncode", &[&[]]),
+        ];
+        assert_eq!(
+            cases.len(),
+            registry()
+                .resolve_package("encoding")
+                .expect("encoding")
+                .functions()
+                .len(),
+            "every public member is listed"
+        );
+        for (member, expected) in cases {
+            let function = registry().resolve_func(member).expect(member).function;
+            let declared: Vec<Vec<&str>> = function
+                .implementations
+                .iter()
+                .map(|implementation| implementation.errors.clone())
+                .collect();
+            let expected: Vec<Vec<&str>> = expected.iter().map(|errors| errors.to_vec()).collect();
+            assert_eq!(declared, expected, "{member} declared errors per overload");
+        }
+    }
 }
 
 /// Differential checks of the generated `Codepage` tables against the vendored
