@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed
 Regression Test: tests/runtime/rt_imported_overload_imported_field_argument.rs
 
 A consumer that calls an **overloaded function exported by a package** fails to build when the
@@ -28,6 +28,32 @@ This is the natural way to use a package that exports a tree and overloaded func
 **The single correct behavior a fix produces:** an argument read from an imported record's field
 has the field's declared type during imported-overload resolution, exactly as a field of a local
 record does, so the call resolves to the one matching overload and the program builds and runs.
+
+## STATUS: FIXED (73ab94edc, c30373da7)
+
+`src/monomorph/helpers.rs:collect_imported_records` decodes each imported package's `.mfp`
+record layouts (via `imported_type_defs_from_files`) into a separate `imported_records` map.
+`record_fields` consults it after `concrete_types`, under the type's own spelling and then its
+package-qualifier-stripped one. `resolve_imported_overload`, `types_compatible` and bug-36's
+ambiguity rule are untouched. Deviations from the design:
+
+- A separate map, as the Open Decision defaulted (`concrete_types` is emitted from).
+- The local-overload and generic latent sites were confirmed failing and are fixed by the same
+  change. The imported-record constructor site was already working; it is kept as a guard.
+- The consumer-local `TYPE A` collision row is a different, pre-existing bug: the package's own
+  `A[1]` is checked against the consumer's `A` even with no overloaded call. Filed as bug-632 and
+  removed from this bug's test.
+- `tests/guards/no_type_strings.rs` `declared_sites`/`monomorph` 8 -> 9, justified in the table
+  the same way as the `ir` row's identical `.mfp`-name-as-table-key entry.
+- plan-138-B's `packages/xml` consumer check cannot run until plan-138-A lands; its prerequisite
+  row is marked partially met.
+
+Verification: `cargo test --no-fail-fast` over the whole tree (`artifact_gate_all ... ok`, 186
+test binaries `ok`). The only two failures were the stale collision case and the budget row. After
+fixing them, `no_type_strings` (7 passed), the regression test (11 passed) and
+`cargo test --bin mfb monomorph` (63 passed) were re-run green. Since the full run, the only source
+change is `cargo fmt` on one unrelated match arm. The reproduction rebuilt with the fixed compiler
+prints `A, A, A A, U, A, A`.
 
 References:
 
@@ -298,10 +324,10 @@ Commit: 73ab94edc
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Run the IR golden gate; any diff is inspected fixture by fixture (AGENTS.md: an unexpected
+- [x] Run the IR golden gate; any diff is inspected fixture by fixture (AGENTS.md: an unexpected
       golden diff is a bug-hunt trigger). No golden is re-baselined without the four answers
       AGENTS.md requires.
-- [ ] Run the full suite.
+- [x] Run the full suite.
 - [x] Re-run the reproduction table end to end with the rebuilt `target/release/mfb`; every row
       prints its expected output.
 - [ ] Update `planning/plan-138-B-xml-serializer-and-docs.md` Prerequisites status to MET.
@@ -309,7 +335,7 @@ Commit: 73ab94edc
 Acceptance: full suite green; golden deltas none or exactly explained; every reproduction row
 builds and prints its expected output.
   Check: `cargo test` → exit 0 (est. per `.ai/testing-gates.md`); reproduction table re-run → all ✓.
-Commit: —
+Commit: c30373da7
 
 ## Validation Plan
 
