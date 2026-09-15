@@ -207,7 +207,8 @@ Acceptance: every documented example compiles and runs.
   example's printed output matches the expectation written beside it in its `DOC` block: `feed`;
   `catalog holds 1 child` then `refused: 77050003`; the three `stringify` forms; `catalog`; and
   `page` then `none`.
-Commit: —
+Commit: `809c3a979` (also carries the coverage follow-up: the empty-prefix writer bug, the two dead
+  guards, and `Tests: 157  Pass: 157  Fail: 0`)
 
 ## Validation Plan
 
