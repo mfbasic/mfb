@@ -1,5 +1,6 @@
 //! `__COMPRESS_FIXED_LIT` / `__COMPRESS_FIXED_LENGTH` / `__COMPRESS_FIXED_DIST` /
-//! `__COMPRESS_DIST_CODE` — the encoder's RFC 1951 §3.2.6 fixed Huffman codes, bit-reversed.
+//! `__COMPRESS_DIST_CODE` / `__COMPRESS_LEN_SYM` — the encoder's RFC 1951 §3.2.6 fixed Huffman codes,
+//! bit-reversed, and the length and distance symbol lookups.
 //!
 //! RFC 1951 §3.1.1 packs Huffman codes most-significant bit first into a stream that is
 //! otherwise least-significant bit first, so every code is stored reversed and the encoder's bit
@@ -122,10 +123,27 @@ FUNC __compress_distanceCodes() AS List OF Integer
   RETURN t
 END FUNC
 
+' The length code index (0..28; symbol 257 + index) of every match length 0..258; lengths 0..2 hold 0.
+FUNC __compress_lengthSymbols() AS List OF Integer
+  LET base AS List OF Integer = __compress_lengthTable(TRUE)
+  MUT t AS List OF Integer = [0, 0, 0]
+  MUT li AS Integer = 0
+  MUT length AS Integer = 3
+  WHILE length <= 258
+    WHILE li < 28 AND length >= collections::get(base, li + 1)
+      li = li + 1
+    END WHILE
+    t = collections::append(t, li)
+    length = length + 1
+  END WHILE
+  RETURN t
+END FUNC
+
 LET __COMPRESS_FIXED_LIT AS List OF Integer = __compress_fixedLitCodes()
 LET __COMPRESS_FIXED_LENGTH AS List OF Integer = __compress_fixedLengthCodes()
 LET __COMPRESS_FIXED_DIST AS List OF Integer = __compress_fixedDistanceCodes()
-LET __COMPRESS_DIST_CODE AS List OF Integer = __compress_distanceCodes()"#;
+LET __COMPRESS_DIST_CODE AS List OF Integer = __compress_distanceCodes()
+LET __COMPRESS_LEN_SYM AS List OF Integer = __compress_lengthSymbols()"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper {

@@ -2,13 +2,18 @@
 //!
 //! One function owns all encoder state as locals, as the decoder core does (plan-137-B §4.1, whose
 //! Phase 1 measurements chose one function over helpers called per symbol): the LSB-first bit
-//! buffer, the output list, and the match finder's `head` / `prev` hash chains.
+//! buffer, the output list, the match finder's `head` / `prev` hash chains, and the current block's
+//! symbols and frequencies. Helpers are called once per block (code lengths, codes, header, costs),
+//! never per symbol.
 //!
 //! - **Level 0** writes stored blocks of at most 65,535 bytes; empty input is one final empty
-//!   stored block.
-//! - **Levels 1–9** write fixed-Huffman blocks (`BTYPE = 01`), one per 64 KiB of input: a block
-//!   ends at the first symbol that starts at or past 65,536 bytes after its first, so a match may
-//!   run past the boundary. Empty input is one final block holding only end-of-block.
+//!   stored block. Unchanged from plan-137-D.
+//! - **Levels 1–9** gather one block per 64 KiB of input: a block ends at the first symbol that
+//!   starts at or past 65,536 bytes after its first, so a match may run past the boundary. The block's
+//!   symbols are buffered (a literal as its byte, a match as `length * 65536 + distance`) with their
+//!   literal/length and distance frequencies and extra bits. The block is then written as the
+//!   cheapest of stored, fixed Huffman and dynamic Huffman by exact bit count (plan-137-E §4.2); ties
+//!   prefer fixed, then stored. A stored block longer than 65,535 bytes is written as several.
 //! - **Matching is greedy** over hash chains of the next three bytes. Each position is looked up
 //!   before it is inserted, so its own `prev` slot still links the position 32,768 bytes back and a
 //!   match at the full RFC distance of 32,768 is found. A chain is followed for at most the level's
@@ -97,17 +102,19 @@ FUNC __compress_deflateCore(data AS List OF Byte, level AS Integer, prefix AS Li
   ' --- bit writer: bitCount bits pending in bitBuf, least significant first ---
   MUT bitBuf AS Integer = 0
   MUT bitCount AS Integer = 0
+  ' --- the current block ---
+  MUT symbols AS List OF Integer = []
+  MUT litFreq AS List OF Integer = []
+  MUT distFreq AS List OF Integer = []
 
   WHILE final = FALSE
+    LET blockStart AS Integer = pos
     LET blockEnd AS Integer = pos + 65536
     final = blockEnd >= n
-    ' BFINAL, then BTYPE = 01.
-    IF final THEN
-      bitBuf = bits::bor(bitBuf, bits::sl(3, bitCount))
-    ELSE
-      bitBuf = bits::bor(bitBuf, bits::sl(2, bitCount))
-    END IF
-    bitCount = bitCount + 3
+    symbols = []
+    litFreq = __compress_zeroList(286)
+    distFreq = __compress_zeroList(30)
+    MUT extraBits AS Integer = 0
     WHILE pos < blockEnd AND pos < n
       MUT bestLen AS Integer = 0
       MUT bestDist AS Integer = 0
@@ -142,9 +149,9 @@ FUNC __compress_deflateCore(data AS List OF Byte, level AS Integer, prefix AS Li
         head = collections::set(head, h, pos)
       END IF
       IF bestLen >= 3 THEN
-        LET lengthCode AS Integer = collections::get(__COMPRESS_FIXED_LENGTH, bestLen)
-        bitBuf = bits::bor(bitBuf, bits::sl(lengthCode / 32, bitCount))
-        bitCount = bitCount + lengthCode MOD 32
+        symbols = collections::append(symbols, bestLen * 65536 + bestDist)
+        LET li AS Integer = collections::get(__COMPRESS_LEN_SYM, bestLen)
+        litFreq = collections::set(litFreq, 257 + li, collections::get(litFreq, 257 + li) + 1)
         LET d1 AS Integer = bestDist - 1
         MUT dsym AS Integer = 0
         IF d1 < 256 THEN
@@ -152,9 +159,8 @@ FUNC __compress_deflateCore(data AS List OF Byte, level AS Integer, prefix AS Li
         ELSE
           dsym = collections::get(__COMPRESS_DIST_CODE, 256 + bits::sr(d1, 7))
         END IF
-        LET distValue AS Integer = collections::get(__COMPRESS_FIXED_DIST, dsym) + bits::sl(bestDist - collections::get(__COMPRESS_DIST_BASE, dsym), 5)
-        bitBuf = bits::bor(bitBuf, bits::sl(distValue, bitCount))
-        bitCount = bitCount + 5 + collections::get(__COMPRESS_DIST_EXTRA, dsym)
+        distFreq = collections::set(distFreq, dsym, collections::get(distFreq, dsym) + 1)
+        extraBits = extraBits + collections::get(__COMPRESS_LEN_EXTRA, li) + collections::get(__COMPRESS_DIST_EXTRA, dsym)
         IF bestLen <= maxInsert THEN
           MUT q AS Integer = pos + 1
           LET qEnd AS Integer = pos + bestLen
@@ -169,24 +175,137 @@ FUNC __compress_deflateCore(data AS List OF Byte, level AS Integer, prefix AS Li
         END IF
         pos = pos + bestLen
       ELSE
-        LET litCode AS Integer = collections::get(__COMPRESS_FIXED_LIT, toInt(collections::get(data, pos)))
-        bitBuf = bits::bor(bitBuf, bits::sl(litCode / 16, bitCount))
-        bitCount = bitCount + litCode MOD 16
+        LET literal AS Integer = toInt(collections::get(data, pos))
+        symbols = collections::append(symbols, literal)
+        litFreq = collections::set(litFreq, literal, collections::get(litFreq, literal) + 1)
         pos = pos + 1
       END IF
+    END WHILE
+    ' End of block.
+    litFreq = collections::set(litFreq, 256, 1)
+
+    ' --- choose the block type by exact bit count; ties prefer fixed, then stored ---
+    LET litLens AS List OF Integer = __compress_codeLengths(litFreq, 15)
+    LET distLens AS List OF Integer = __compress_codeLengths(distFreq, 15)
+    LET header AS List OF Integer = __compress_dynamicHeader(litLens, distLens)
+    LET dynamicBits AS Integer = 3 + __compress_headerBits(header) + __compress_treeBits(litFreq, litLens) + __compress_treeBits(distFreq, distLens) + extraBits
+    LET fixedBits AS Integer = 3 + __compress_fixedLitBits(litFreq, distFreq) + extraBits
+    LET storedBits AS Integer = __compress_storedBits(pos - blockStart, bitCount)
+    MUT btype AS Integer = 2
+    IF fixedBits <= storedBits AND fixedBits <= dynamicBits THEN
+      btype = 1
+    ELSEIF storedBits <= dynamicBits THEN
+      btype = 0
+    END IF
+    MUT finalBit AS Integer = 0
+    IF final THEN
+      finalBit = 1
+    END IF
+
+    IF btype = 0 THEN
+      MUT at AS Integer = blockStart
+      MUT first AS Boolean = TRUE
+      WHILE first OR at < pos
+        first = FALSE
+        MUT chunk AS Integer = pos - at
+        IF chunk > 65535 THEN
+          chunk = 65535
+        END IF
+        IF at + chunk >= pos THEN
+          bitBuf = bits::bor(bitBuf, bits::sl(finalBit, bitCount))
+        END IF
+        bitCount = bitCount + 3
+        bitCount = bitCount + (8 - bitCount MOD 8) MOD 8
+        WHILE bitCount >= 8
+          out = collections::append(out, toByte(bits::band(bitBuf, 255)))
+          bitBuf = bits::sr(bitBuf, 8)
+          bitCount = bitCount - 8
+        END WHILE
+        out = collections::append(out, toByte(bits::band(chunk, 255)))
+        out = collections::append(out, toByte(bits::sr(chunk, 8)))
+        out = collections::append(out, toByte(bits::band(65535 - chunk, 255)))
+        out = collections::append(out, toByte(bits::sr(65535 - chunk, 8)))
+        MUT k AS Integer = 0
+        WHILE k < chunk
+          out = collections::append(out, collections::get(data, at + k))
+          k = k + 1
+        END WHILE
+        at = at + chunk
+      END WHILE
+    ELSE
+      bitBuf = bits::bor(bitBuf, bits::sl(finalBit + btype * 2, bitCount))
+      bitCount = bitCount + 3
+      MUT litCodes AS List OF Integer = __COMPRESS_FIXED_LIT
+      MUT distCodes AS List OF Integer = []
+      IF btype = 2 THEN
+        litCodes = __compress_canonicalCodes(litLens)
+        distCodes = __compress_canonicalCodes(distLens)
+        MUT e AS Integer = 0
+        WHILE e < len(header)
+          LET entry AS Integer = collections::get(header, e)
+          bitBuf = bits::bor(bitBuf, bits::sl(entry / 32, bitCount))
+          bitCount = bitCount + entry MOD 32
+          WHILE bitCount >= 8
+            out = collections::append(out, toByte(bits::band(bitBuf, 255)))
+            bitBuf = bits::sr(bitBuf, 8)
+            bitCount = bitCount - 8
+          END WHILE
+          e = e + 1
+        END WHILE
+      ELSE
+        distCodes = __COMPRESS_FIXED_DIST
+      END IF
+      MUT si AS Integer = 0
+      LET symbolCount AS Integer = len(symbols)
+      WHILE si < symbolCount
+        LET sym AS Integer = collections::get(symbols, si)
+        IF sym < 65536 THEN
+          LET litCode AS Integer = collections::get(litCodes, sym)
+          bitBuf = bits::bor(bitBuf, bits::sl(litCode / 16, bitCount))
+          bitCount = bitCount + litCode MOD 16
+        ELSE
+          LET length AS Integer = sym / 65536
+          LET dist AS Integer = sym MOD 65536
+          LET li AS Integer = collections::get(__COMPRESS_LEN_SYM, length)
+          LET lengthCode AS Integer = collections::get(litCodes, 257 + li)
+          bitBuf = bits::bor(bitBuf, bits::sl(lengthCode / 16, bitCount))
+          bitCount = bitCount + lengthCode MOD 16
+          bitBuf = bits::bor(bitBuf, bits::sl(length - collections::get(__COMPRESS_LEN_BASE, li), bitCount))
+          bitCount = bitCount + collections::get(__COMPRESS_LEN_EXTRA, li)
+          LET d1 AS Integer = dist - 1
+          MUT dsym AS Integer = 0
+          IF d1 < 256 THEN
+            dsym = collections::get(__COMPRESS_DIST_CODE, d1)
+          ELSE
+            dsym = collections::get(__COMPRESS_DIST_CODE, 256 + bits::sr(d1, 7))
+          END IF
+          MUT distCode AS Integer = 0
+          IF btype = 2 THEN
+            distCode = collections::get(distCodes, dsym)
+          ELSE
+            distCode = collections::get(distCodes, dsym) * 16 + 5
+          END IF
+          bitBuf = bits::bor(bitBuf, bits::sl(distCode / 16, bitCount))
+          bitCount = bitCount + distCode MOD 16
+          bitBuf = bits::bor(bitBuf, bits::sl(dist - collections::get(__COMPRESS_DIST_BASE, dsym), bitCount))
+          bitCount = bitCount + collections::get(__COMPRESS_DIST_EXTRA, dsym)
+        END IF
+        WHILE bitCount >= 8
+          out = collections::append(out, toByte(bits::band(bitBuf, 255)))
+          bitBuf = bits::sr(bitBuf, 8)
+          bitCount = bitCount - 8
+        END WHILE
+        si = si + 1
+      END WHILE
+      LET eob AS Integer = collections::get(litCodes, 256)
+      bitBuf = bits::bor(bitBuf, bits::sl(eob / 16, bitCount))
+      bitCount = bitCount + eob MOD 16
       WHILE bitCount >= 8
         out = collections::append(out, toByte(bits::band(bitBuf, 255)))
         bitBuf = bits::sr(bitBuf, 8)
         bitCount = bitCount - 8
       END WHILE
-    END WHILE
-    ' End of block: symbol 256 is the seven-bit fixed code 0000000.
-    bitCount = bitCount + 7
-    WHILE bitCount >= 8
-      out = collections::append(out, toByte(bits::band(bitBuf, 255)))
-      bitBuf = bits::sr(bitBuf, 8)
-      bitCount = bitCount - 8
-    END WHILE
+    END IF
   END WHILE
   IF bitCount > 0 THEN
     out = collections::append(out, toByte(bits::band(bitBuf, 255)))

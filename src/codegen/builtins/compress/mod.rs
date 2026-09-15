@@ -114,6 +114,11 @@ pub(crate) fn register(r: &mut Registry) {
     // DEFLATE encoding (gated on the encoders): the fixed Huffman codes, the encoder core, then
     // the `deflate` wrapper over it.
     helper_deflate_codes::register(&mut pkg);
+    // Dynamic Huffman blocks (plan-137-E): package-merge code lengths and canonical codes, the
+    // block header, and the per-block cost of each encoding.
+    helper_package_merge::register(&mut pkg);
+    helper_dynamic_block::register(&mut pkg);
+    helper_block_cost::register(&mut pkg);
     helper_deflate_core::register(&mut pkg);
     helper_deflate::register(&mut pkg);
     // Encoder framing (gated per encoder): the zlib wrapper, then the gzip wrapper.
@@ -139,18 +144,21 @@ mod func_inflate;
 mod func_zlib_decode;
 mod func_zlib_encode;
 mod helper_adler32;
+mod helper_block_cost;
 mod helper_crc32;
 mod helper_crc32_table;
 mod helper_deflate;
 mod helper_deflate_codes;
 mod helper_deflate_core;
 mod helper_deflate_tables;
+mod helper_dynamic_block;
 mod helper_end_position;
 mod helper_gzip_encode;
 mod helper_gzip_frame;
 mod helper_huffman_table;
 mod helper_inflate;
 mod helper_inflate_core;
+mod helper_package_merge;
 mod helper_zlib_encode;
 mod helper_zlib_frame;
 

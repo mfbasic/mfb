@@ -24,9 +24,9 @@ expected_cases() {
     decode-zlib) echo 150 ;; # the same matrix, zlib-wrapped
     decode-gzip) echo 159 ;; # the same matrix gzip-wrapped, 3 multi-member files, 6 optional-header shapes
     mutate) echo 600 ;; # seeded 1-3 byte edits of 36 valid raw / zlib / gzip streams
-    encode-raw) echo 120 ;; # 9 edge inputs + 3 corpora x levels 0..9, compressed by compress::deflate
-    encode-zlib) echo 120 ;; # the same payloads and levels through compress::zlibEncode
-    encode-gzip) echo 120 ;; # the same payloads and levels through compress::gzipEncode (and host gzip -t)
+    encode-raw) echo 160 ;; # (9 edge inputs + 3 corpora + 4 adversarial distributions) x levels 0..9, by compress::deflate
+    encode-zlib) echo 160 ;; # the same payloads and levels through compress::zlibEncode
+    encode-gzip) echo 160 ;; # the same payloads and levels through compress::gzipEncode (and host gzip -t)
     *) echo 0 ;;
   esac
 }

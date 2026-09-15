@@ -144,8 +144,49 @@ def mutate_cases(rng):
     return cases
 
 
+def de_bruijn(k, n):
+    """The de Bruijn sequence B(k, n): every length-n string over k symbols exactly once (cyclically)."""
+    a = [0] * k * n
+    seq = []
+
+    def db(t, p):
+        if t > n:
+            if n % p == 0:
+                seq.extend(a[1:p + 1])
+        else:
+            a[t] = a[t - p]
+            db(t + 1, p)
+            for j in range(a[t - p] + 1, k):
+                a[t] = j
+                db(t + 1, t)
+
+    db(1, 1)
+    return seq
+
+
+def adversarial_payloads(rng):
+    """plan-137-E's distributions: Fibonacci symbol frequencies (an optimal code for them is deeper
+    than 15 bits, so the length limit must bind), no matches at all (a de Bruijn B(32, 3): every
+    3-byte string once, so a dynamic block with no distance symbol), all-distinct 256-byte cycles, and
+    one literal repeated across several blocks."""
+    fib = [1, 1]
+    while len(fib) < 20:
+        fib.append(fib[-1] + fib[-2])
+    fibonacci = bytearray()
+    for symbol, count in enumerate(fib):
+        fibonacci += bytes([97 + symbol]) * count
+    shuffled = bytearray(fibonacci)
+    rng.shuffle(shuffled)
+    return [
+        bytes(shuffled),  # 17,710 bytes, 20 symbols with Fibonacci counts 1..6765
+        bytes(65 + s for s in de_bruijn(32, 3)),  # 32,768 bytes, no 3-byte repeat
+        bytes(range(256)) * 64,  # all-distinct 256-byte cycles
+        b"a" * 200000,  # one literal symbol, 258-byte matches, four 64 KiB blocks
+    ]
+
+
 def encode_payloads(rng):
-    """plan-137-D §1's edge inputs by name, then the three corpora."""
+    """plan-137-D §1's edge inputs by name, the three corpora, then plan-137-E's adversarial distributions."""
     window = rng.randbytes(32768)
     return [
         b"",  # 0 bytes
@@ -157,7 +198,7 @@ def encode_payloads(rng):
         bytes(100000),  # highly repetitive: 258-byte matches
         window * 3,  # matches at distance 32,768
         rng.randbytes(100000),  # incompressible
-    ] + corpora(rng)
+    ] + corpora(rng) + adversarial_payloads(rng)
 
 
 def encode_raw_cases(rng):

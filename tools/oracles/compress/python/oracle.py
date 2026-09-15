@@ -122,6 +122,154 @@ def mutate(index, data, fmt):
     return f"case {index} ok {len(out)} {zlib.crc32(out)}"
 
 
+# --- plan-137-E per-block audit: re-decode the produced DEFLATE data bit by bit and check that no
+# dynamic block is larger than the fixed-Huffman or stored encoding of the same block ---
+
+FIXED_LIT_LENS = [8] * 144 + [9] * 112 + [7] * 24 + [8] * 8
+LEN_BASE, LEN_EXTRA = [], []
+_base = 3
+for _i in range(28):
+    _extra = (_i - 4) // 4 if _i >= 8 else 0
+    LEN_BASE.append(_base)
+    LEN_EXTRA.append(_extra)
+    _base += 1 << _extra
+LEN_BASE.append(258)
+LEN_EXTRA.append(0)
+DIST_BASE, DIST_EXTRA = [], []
+_base = 1
+for _i in range(30):
+    _extra = (_i - 2) // 2 if _i >= 4 else 0
+    DIST_BASE.append(_base)
+    DIST_EXTRA.append(_extra)
+    _base += 1 << _extra
+CL_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
+AUDIT = {"stored": 0, "fixed": 0, "dynamic": 0, "max_lit_len": 0, "max_dist_len": 0, "limit_hit_cases": 0}
+
+
+class BitReader:
+    def __init__(self, data):
+        self.data, self.pos = data, 0
+
+    def get(self, n):
+        v = 0
+        for i in range(n):
+            v |= ((self.data[self.pos >> 3] >> (self.pos & 7)) & 1) << i
+            self.pos += 1
+        return v
+
+
+def canonical(lengths):
+    """{(length, code): symbol} for MSB-first matching, per RFC 1951 3.2.2."""
+    bl_count = [0] * 16
+    for l in lengths:
+        if l:
+            bl_count[l] += 1
+    code, next_code = 0, [0] * 16
+    for bits in range(1, 16):
+        code = (code + bl_count[bits - 1]) << 1
+        next_code[bits] = code
+    table = {}
+    for sym, l in enumerate(lengths):
+        if l:
+            table[(l, next_code[l])] = sym
+            next_code[l] += 1
+    return table
+
+
+def read_symbol(br, table):
+    code = length = 0
+    while length < 16:
+        code = (code << 1) | br.get(1)
+        length += 1
+        sym = table.get((length, code))
+        if sym is not None:
+            return sym
+    raise ValueError("invalid code")
+
+
+FIXED_LIT_TABLE = canonical(FIXED_LIT_LENS)
+FIXED_DIST_TABLE = canonical([5] * 30)
+
+
+def audit_blocks(deflate):
+    """Violations (strings) for every dynamic block larger than its fixed or stored encoding."""
+    br = BitReader(deflate)
+    violations = []
+    block = 0
+    case_max_lit = 0
+    while True:
+        start = br.pos
+        bfinal, btype = br.get(1), br.get(2)
+        if btype == 0:
+            br.pos = (br.pos + 7) & ~7
+            length = br.get(16)
+            br.get(16)
+            br.pos += 8 * length
+            AUDIT["stored"] += 1
+        else:
+            if btype == 2:
+                hlit, hdist, hclen = br.get(5) + 257, br.get(5) + 1, br.get(4) + 4
+                cl = [0] * 19
+                for i in range(hclen):
+                    cl[CL_ORDER[i]] = br.get(3)
+                cl_table = canonical(cl)
+                lengths = []
+                while len(lengths) < hlit + hdist:
+                    s = read_symbol(br, cl_table)
+                    if s < 16:
+                        lengths.append(s)
+                    elif s == 16:
+                        lengths += [lengths[-1]] * (3 + br.get(2))
+                    elif s == 17:
+                        lengths += [0] * (3 + br.get(3))
+                    else:
+                        lengths += [0] * (11 + br.get(7))
+                lit_lens, dist_lens = lengths[:hlit], lengths[hlit:]
+                AUDIT["max_lit_len"] = max(AUDIT["max_lit_len"], max(lit_lens))
+                AUDIT["max_dist_len"] = max(AUDIT["max_dist_len"], max(dist_lens))
+                case_max_lit = max(case_max_lit, max(lit_lens), max(dist_lens))
+                lit_table, dist_table = canonical(lit_lens), canonical(dist_lens)
+                AUDIT["dynamic"] += 1
+            else:
+                lit_table, dist_table = FIXED_LIT_TABLE, FIXED_DIST_TABLE
+                AUDIT["fixed"] += 1
+            fixed_bits = 3
+            produced = 0
+            while True:
+                sym = read_symbol(br, lit_table)
+                fixed_bits += FIXED_LIT_LENS[sym]
+                if sym < 256:
+                    produced += 1
+                elif sym == 256:
+                    break
+                else:
+                    li = sym - 257
+                    produced += LEN_BASE[li] + br.get(LEN_EXTRA[li])
+                    dsym = read_symbol(br, dist_table)
+                    br.get(DIST_EXTRA[dsym])
+                    fixed_bits += LEN_EXTRA[li] + 5 + DIST_EXTRA[dsym]
+            if btype == 2:
+                actual = br.pos - start
+                chunks = max(1, -(-produced // 65535))
+                pad = (8 - (start + 3) % 8) % 8
+                stored_bits = chunks * 35 + pad + (chunks - 1) * 5 + 8 * produced
+                if actual > fixed_bits or actual > stored_bits:
+                    violations.append(f"block {block}: dynamic {actual} bits, fixed {fixed_bits}, stored {stored_bits}")
+        block += 1
+        if bfinal:
+            break
+    if case_max_lit == 15:
+        AUDIT["limit_hit_cases"] += 1
+    return violations
+
+
+def audited(index, data, deflate):
+    violations = audit_blocks(deflate)
+    if violations:
+        return f"case {index} BLOCKCOST {violations[0]}"
+    return f"case {index} {len(data)} {zlib.crc32(data)}"
+
+
 def encode_raw(index, data, _level, produced):
     """Decode what the MFB probe produced from this payload; it must be exactly the payload, with
     nothing after the end of the DEFLATE data."""
@@ -136,7 +284,7 @@ def encode_raw(index, data, _level, produced):
         return f"case {index} MISMATCH {len(out)} {zlib.crc32(out)}"
     if d.unused_data:
         return f"case {index} TRAILING {len(d.unused_data)}"
-    return f"case {index} {len(data)} {zlib.crc32(data)}"
+    return audited(index, data, produced)
 
 
 def encode_zlib(index, data, level, produced):
@@ -156,7 +304,7 @@ def encode_zlib(index, data, level, produced):
     want = zlib.compress(b"", level)[:2]
     if produced[:2] != want:
         return f"case {index} HEADER {produced[:2].hex()} want {want.hex()}"
-    return f"case {index} {len(data)} {zlib.crc32(data)}"
+    return audited(index, data, produced[2:])
 
 
 def encode_gzip(index, data, level, produced):
@@ -181,7 +329,7 @@ def encode_gzip(index, data, level, produced):
     tested = subprocess.run(["gzip", "-t"], input=produced, capture_output=True)
     if tested.returncode != 0:
         return f"case {index} GZIP-T {tested.returncode} {tested.stderr.decode(errors='replace').strip()}"
-    return f"case {index} {len(data)} {zlib.crc32(data)}"
+    return audited(index, data, produced[10:])
 
 
 # Encode modes judge the MFB probe's output file (a job of the same layout) against the payloads.
@@ -207,6 +355,9 @@ def main():
         produced = [data for _, data, _ in read_job(sys.argv[3])]
         for index, data, aux in read_job(sys.argv[2]):
             print(judge(index, data, aux, produced[index]))
+        print(f"block audit ({sys.argv[1]}): {AUDIT['stored']} stored, {AUDIT['fixed']} fixed, {AUDIT['dynamic']} dynamic;"
+              f" longest literal/length code {AUDIT['max_lit_len']} bits, distance {AUDIT['max_dist_len']} bits;"
+              f" {AUDIT['limit_hit_cases']} case(s) with a 15-bit code", file=sys.stderr)
         return
     if len(sys.argv) != 3 or sys.argv[1] not in MODES:
         sys.exit(f"usage: oracle.py <{'|'.join(MODES)}> <job-path>")

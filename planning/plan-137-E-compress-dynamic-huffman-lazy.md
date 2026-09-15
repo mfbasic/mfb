@@ -128,15 +128,41 @@ Commit: —
 
 ### Phase 2 — package-merge + dynamic blocks + block choice
 
-- [ ] `compress/helper_package_merge.rs`, `helper_dynamic_block.rs`, `helper_block_cost.rs`; the
+- [x] `compress/helper_package_merge.rs`, `helper_dynamic_block.rs`, `helper_block_cost.rs`; the
       encoder core emits the chosen block type.
-- [ ] Oracle job generator gains adversarial distributions: Fibonacci frequencies (forces the
+      (2026-09-14.
+      - `helper_package_merge.rs`: `__compress_codeLengths`, which pads to two codes as `build_tree` does, then runs
+        package-merge over a node pool; plus `__compress_canonicalCodes` and `__compress_zeroList`.
+      - `helper_dynamic_block.rs`: `__compress_treeRle`, a transcription of zlib's `send_tree`, and
+        `__compress_dynamicHeader` with `HLIT`/`HDIST` and `HCLEN` trimmed as `build_bl_tree` does.
+      - `helper_block_cost.rs`: exact dynamic, fixed and stored bits, the stored count covering multi-chunk blocks and
+        the pad at the block's bit position.
+      - The core buffers each 64 KiB block's symbols and frequencies, chooses by bit count with ties going to fixed,
+        then stored (Open Decisions), and writes the choice. Level 0 is unchanged.
+      - `helper_deflate_codes.rs` gains `__COMPRESS_LEN_SYM`.
+      - `cargo test --bin mfb codegen::builtins::compress::tests` → `ok. 7 passed; 0 failed`.)
+- [x] Oracle job generator gains adversarial distributions: Fibonacci frequencies (forces the
       15-bit limit), single-symbol blocks, no-match blocks, all-distinct 256-byte cycles.
-- [ ] Oracle modes `encode-raw`/`encode-zlib`/`encode-gzip` re-run; add assertion in the MFB probe
+      (`gen.py` `adversarial_payloads`, appended to the encode payloads:
+      - 17,710 shuffled bytes of 20 symbols with Fibonacci counts 1…6,765;
+      - `bytes(65 + s for s in de_bruijn(32, 3))`, 32,768 bytes with no 3-byte repeat, so no match at all;
+      - `bytes(range(256)) * 64`;
+      - `b"a" * 200000`, a single literal symbol across four 64 KiB blocks.
+
+      Each mode now has 16 payloads × 10 levels = 160 cases, declared in `run.sh`.)
+- [x] Oracle modes `encode-raw`/`encode-zlib`/`encode-gzip` re-run; add assertion in the MFB probe
       that no emitted dynamic block is larger than its fixed or stored cost (printed per block, checked by `run.sh`).
+      (The check lives in the Python judge rather than the probe; see Corrections. `audit_blocks` re-decodes every
+      produced stream bit by bit. For each dynamic block it compares the bits used with the fixed-code cost of the same
+      symbols and the stored cost of the same bytes at that bit position. Any excess fails the case as `BLOCKCOST`.
+      `run.sh … encode-raw encode-zlib encode-gzip` → `160/160` against Python and Node in each mode,
+      `480 case(s), 0 failure(s)`. The audit line reads, per mode: `106 stored, 36 fixed, 126 dynamic; longest
+      literal/length code 15 bits, distance 11 bits; 1 case(s) with a 15-bit code`.)
 
 Acceptance: zlib decodes everything; the size invariant holds on every block.
   Check: `tools/oracles/compress/run.sh target/release/mfb encode-raw encode-zlib encode-gzip` → exit 0 (est. 15 min).
+  (2026-09-14: exit 0, 480 cases, 0 failures, no `BLOCKCOST`; 126 dynamic blocks per mode were audited against their
+  fixed and stored costs.)
 Commit: —
 
 ### Phase 3 — lazy matching + records + docs
@@ -191,6 +217,9 @@ Commit: —
 
 - Tie-break order between equal-cost block types — fixed, then stored, then dynamic (recommended:
   cheapest header to decode) vs. dynamic first.
+  **Resolved 2026-09-14:** fixed, then stored, then dynamic, as recommended. zlib's `_tr_flush_block` prefers stored
+  over fixed on a tie (Corrections). The difference shows only when the two cost exactly the same bits, and neither
+  order is part of the contract, since the output is not byte-identical to zlib.
 
 ## Corrections
 
@@ -213,6 +242,24 @@ Commit: —
   every letter only here would leave each of those rows NOT MET forever. Each letter is archived when it
   completes (plan-137-A: moved to `planning/completed/` in the commit after `5b9aaa579`); this letter's
   Phase 4 task archives E only.
+
+- **The size-invariant check is in the oracle's Python judge, not printed by the MFB probe** (2026-09-14). The probe
+  calls the public members, which expose no block costs. Printing them would mean a debug surface in the product's
+  encoder, compiled into every program that compresses. The judge instead re-decodes each produced stream
+  independently and recomputes, per block, the fixed-code cost of the same symbols and the stored cost of the same
+  bytes. That is a stronger check than the encoder's own claim, and it runs in `run.sh` for all three encode modes.
+- **The first Phase 2 build failed to parse: `step` is a keyword** (2026-09-14). The package-merge loop counter was
+  renamed from `round` to `step`, and `STEP` is in the keyword set (`mfb spec language lexical-structure`: "… RES STEP
+  TO TYPE …"). The injected helper failed with `MFB_PARSE_UNEXPECTED_STATEMENT` at `<builtin-compress_package_merge>`
+  lines 126–134, and the oracle build stopped with exit 2. It is renamed `packLevel`. A scan of every new helper body
+  for bindings named after keywords then found none.
+- **The 15-bit limit binds in one case per mode**, a single level of the Fibonacci payload (audit line above). At the
+  other levels, matches take enough of the most frequent symbols out of the literal stream that the optimal code fits
+  in 15 bits. The oracle shows the limited code is valid where it binds.
+- **The compress byte-identity and roundtrip goldens are stale after this phase, by design.** Every program that calls
+  an encoder now injects the dynamic-block helpers, and levels 1–9 emit different bytes. Phase 3's byte-identity
+  regeneration task refreshes them, together with `compress-encode-roundtrip-valid`'s `build.log`, whose output lengths
+  and CRCs change with the block choice.
 
 ## Summary
 
