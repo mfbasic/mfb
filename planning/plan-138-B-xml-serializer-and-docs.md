@@ -24,7 +24,7 @@ See plan-138-A. Additionally:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-138-A complete | `ls planning/completed/plan-138-A-*` → one file | MET (re-measured 2026-09-15 → `planning/completed/plan-138-A-xml-tree-builder-and-reader.md`; archived in `2281f1932`) |
-| bug-631 fixed: an imported overloaded call resolves when its argument is a field of an imported record | `ls bugs/completed/bug-631-*` → one file; and a consumer of `packages/xml` with `FOR EACH n IN doc.children` / `io::print(xml::stringify(n))` → `mfb build` prints `Wrote executable` | PARTIALLY MET (2026-09-15): bug-631 fixed on `worktree-B-631` (`73ab94edc`); every ✗ reproduction row now builds and prints its expected output. The `packages/xml` consumer check waits on plan-138-A; re-run it then. |
+| bug-631 fixed: an imported overloaded call resolves when its argument is a field of an imported record | `ls bugs/completed/bug-631-*` → one file; and a consumer of `packages/xml` with `FOR EACH n IN doc.children` / `io::print(xml::stringify(n))` → `mfb build` prints `Wrote executable` | MET (re-measured 2026-09-15, both halves). `ls bugs/completed/bug-631-*` → `bugs/completed/bug-631-imported-overload-ambiguous-on-imported-record-field-argument.md`. The deferred consumer check now runs against the real package (`/tmp/xml-consumer`, importing the built `xml.mfp`): `mfb build app` → `Wrote executable to app/build/xmlconsumer.out`, and running it prints `<!--note-->`, `<a><b id="1"/></a>`, `<?p d?>` for `FOR EACH n IN doc.children` / `xml::stringify(n)`, the pretty forms for `xml::stringify(n, 2)`, and the whole document for `xml::stringify(doc)`. So the untyped loop variable bound to a field of an imported record resolves against both imported overloads, which is the bug-631 shape. |
 
 ## 1. Goal
 
@@ -62,7 +62,7 @@ See plan-138-A. Additionally:
 | What | Value | Command |
 |---|---|---|
 | packages with a `check-doc-examples.sh` | 4 (cli, json_schema, logger, mustache) | `ls packages/*/check-doc-examples.sh` |
-| packages with a tracked `doc.html` | 6 (json_schema, jwt, logger, mustache, timezones, yaml) | `ls packages/*/doc.html \| wc -l` → 6 |
+| packages with a tracked `doc.html` | **0** — the plan's "6" counted files on disk, not tracked ones | `git ls-files packages/*/doc.html` → (no output). `ls packages/*/doc.html \| wc -l` counts generated artifacts, which is how the 6 was arrived at. |
 
 ### Verified properties
 
@@ -178,24 +178,35 @@ Acceptance: pretty output matches the exact expectations and preserves content o
   Check: `target/release/mfb test packages/xml` → all pass (est. 1 min).
   MET: `./target/release/mfb test packages/xml` → `Tests: 154  Pass: 154  Fail: 0`, exit 0 (13 added
   here). The run before the §5 correction was `Pass: 153  Fail: 1`, failing exactly on content.
-Commit: —
+  With the added inline-comments case the suite is `Tests: 155  Pass: 155  Fail: 0`.
+Commit: `ea4d79040`
 
 ### Phase 3 — documentation
 
-- [ ] `packages/xml/src/lib.mfb` — full `DOC` blocks (`PACKAGE` intro like yaml's, with the
+- [x] `packages/xml/src/lib.mfb` — full `DOC` blocks (`PACKAGE` intro like yaml's, with the
       compatibility policy as `INFO` paragraphs: no DTD, prefixes not resolved, UTF-8 / 1.0 only,
       limits, what content means), an `EXAMPLE` on `parse`, `root`, `attr`, `stringify`.
-- [ ] `packages/xml/README.md` — mirror `packages/yaml/README.md`: usage, "Why this is a package",
-      what it reads, a policy table (decision / behaviour / code), content vs. formatting.
-- [ ] `packages/xml/check-doc-examples.sh` — copy `packages/mustache/check-doc-examples.sh`, adjust
+- [x] `packages/xml/README.md` — mirror `packages/yaml/README.md`: usage, "Why this is a package",
+      what it reads, a policy table (decision / behaviour / code), content vs. formatting. Also
+      states the `root(doc)`-widening rule from Corrections, so the first user does not hit it cold.
+- [x] `packages/xml/check-doc-examples.sh` — copy `packages/mustache/check-doc-examples.sh`, adjust
       the package name.
-- [ ] `packages/xml/doc.html` — `target/release/mfb build packages/xml && target/release/mfb pkg doc packages/xml/xml.mfp --out packages/xml/doc.html`.
-- [ ] `planning/todo.md` — row 6 and the "XML as pure MFB" note point at plan-138.
-- [ ] `examples/browser/README.md` — correct the two stale claims plan-138-A measured (arena
+- [x] `packages/xml/doc.html` — `target/release/mfb build packages/xml && target/release/mfb pkg doc packages/xml/xml.mfp --out packages/xml/doc.html`
+      → `Wrote documentation to packages/xml/doc.html` (25,479 bytes). Generated and verified, but
+      **not committed**: `doc.html` is git-ignored tree-wide and no package tracks one. See
+      Corrections.
+- [x] `planning/todo.md` — row 6 and the "XML as pure MFB" note point at plan-138.
+- [x] `examples/browser/README.md` — correct the two stale claims plan-138-A measured (arena
       free-list "known open issue"; imported-union recursion), citing the plan-138-A measurements.
+      The section also now states what IS still true and why `dom` keeps its work-stack: rebuilding a
+      shared list of subtrees is quadratic (bug-647), which is a different claim from either stale one.
 
 Acceptance: every documented example compiles and runs.
   Check: `packages/xml/check-doc-examples.sh` → exit 0 (est. 3 min).
+  MET: `./packages/xml/check-doc-examples.sh` → `all 5 example(s) built and ran`, exit 0. Each
+  example's printed output matches the expectation written beside it in its `DOC` block: `feed`;
+  `catalog holds 1 child` then `refused: 77050003`; the three `stringify` forms; `catalog`; and
+  `page` then `none`.
 Commit: —
 
 ## Validation Plan
@@ -203,6 +214,22 @@ Commit: —
 - Tests: `packages/xml/src/test_write.mfb` (escaping, refusals, pretty rules, content equality).
 - Coverage check: `target/release/mfb test --coverage packages/xml`; every refusal branch in
   `write.mfb` is hit.
+  DONE: `Tests: 157  Pass: 157  Fail: 0`; slot coverage (`coverage.covmap.json` paired with
+  `coverage.covdata`) `write.mfb` **173/173**, `content.mfb` 46/47, `chars.mfb` 113/113,
+  `lib.mfb` 34/34, `scan.mfb` 89/89, `core.mfb` 4/4, `read.mfb` 384/389. `content.mfb`'s one slot is
+  the `CASE ELSE` a `MATCH` over the four-variant union needs for exhaustiveness, and `read.mfb`'s
+  five are letter A's `RETURN`s after a `FAIL` — all unreachable by construction.
+
+  **The coverage read found a writer bug, not just untested lines.** `requireWritableName` returned
+  early whenever the prefix was empty, so `stringify(element(":a", …))` emitted `<:a/>` — which this
+  package's own reader refuses (`parse("<:a/>")` → `ErrInvalidFormat`). That breaks the writer's
+  contract of never emitting XML its own reader rejects. A colon is a `NameChar`, so `isName` accepts
+  `:a`, `a:` and `a:b:c` alike; the QName rules belong in the writer's own check. Fixed, with cases
+  for all four spellings over both element and attribute names.
+
+  Two further branches were dead and were deleted rather than tested: `isLayoutText`'s and
+  `isAllSpace`'s empty-string guards, whose callers already skip empty text. That fix also corrected
+  a real classification: empty text is **not** data, so it no longer forces an element inline.
 - Runtime proof: `check-doc-examples.sh` runs the `stringify` example end to end.
 - Doc sync: `packages/xml/README.md`, `packages/xml/doc.html`, `planning/todo.md`,
   `examples/browser/README.md`.
@@ -223,6 +250,17 @@ the first `EXPORT FUNC` and carries the union of the `ARG` lines, which is what 
 already does for its two `toIso` overloads (`packages/timezones/src/lib.mfb:189-224`: one block,
 `ARG dt` / `ARG digits` / `ARG name`). §8's table lists the six `stringify` forms as separate rows;
 that is the API surface, not six doc blocks.
+
+**Phase 3 — `doc.html` is generated, never committed; the plan's "6 tracked" was miscounted.** §2's
+Measured populations row claimed six packages carry a tracked `doc.html`, and Phase 3 listed
+`packages/xml/doc.html` as a deliverable. Both rest on `ls packages/*/doc.html | wc -l`, which counts
+files on disk. The tracked count is **zero**: `git ls-files packages/*/doc.html` prints nothing, and
+`.gitignore:83` ignores `doc.html` tree-wide — its own comment says so, "no doc.html is a tracked
+file anywhere in the tree" (`git check-ignore -v packages/xml/doc.html` → `.gitignore:83:doc.html`).
+Committing mine would need `git add -f` and would make `packages/xml` the only package in the tree
+carrying one. The file is therefore generated and verified as the task asks, and left untracked like
+every other package's. The command stays in the README and in this plan, which is what a reader
+needs.
 
 **Phase 2 — §5's indent condition was incomplete: it must also require an ELEMENT child.** §5 says an
 element's children go on their own lines "only when the element has no data text child". That is not

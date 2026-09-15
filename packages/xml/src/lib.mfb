@@ -8,6 +8,82 @@
 
 IMPORT collections
 
+DOC
+  PACKAGE
+  DESC Read and write XML 1.0 (Fifth Edition), strictly.
+  DESC
+  DESC `xml::parse` turns UTF-8 XML text into an `xml::Document` -- a tree of
+  DESC `Element`, `Text`, `Comment` and `ProcessingInstruction` nodes -- and
+  DESC `xml::stringify` writes a tree back, compact or pretty-printed. The
+  DESC package owns no filesystem access, exactly as `csv::parse` and
+  DESC `json::parse` own none: read the text and pass the `String`.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<feed><entry id=\"1\">first</entry></feed>")
+      LET feed AS xml::Element = xml::root(doc)
+      io::print(feed.name)
+      ' feed
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+  DESC
+  DESC What the reader accepts
+  DESC
+  DESC Elements, attributes, text, CDATA sections, comments and processing
+  DESC instructions; the five predefined entities and numeric character
+  DESC references in decimal and hexadecimal; the XML declaration; a leading
+  DESC UTF-8 BOM; and namespace declarations. Line-end normalization (§2.11)
+  DESC and attribute-value normalization (§3.3.3) are applied while reading.
+  DESC
+  DESC Deliberate limits
+  DESC
+  DESC Reading XML means choosing what to refuse. Every one of these fails with
+  DESC an `Error` rather than repairing the document into something that merely
+  DESC looks similar:
+  INFO No DTD, of any kind. Any `<!DOCTYPE` is refused with
+  INFO `errorCode::ErrUnsupported` -- with or without an internal subset, with
+  INFO or without an external ID. There are no entity declarations, no default
+  INFO attributes and no validation, so a reference to any entity other than
+  INFO `lt`, `gt`, `amp`, `apos` and `quot` is a well-formedness error rather
+  INFO than a lookup.
+  INFO
+  INFO UTF-8 only, XML 1.0 only. An `encoding` naming anything else, or a
+  INFO `version` other than `1.0`, is refused with
+  INFO `errorCode::ErrUnsupported`. Output is always UTF-8.
+  INFO
+  INFO Namespace prefixes are checked but never resolved. Names are kept as the
+  INFO raw `prefix:local` text, so `xml::attr(e, "xlink:href")` finds the
+  INFO attribute by that exact spelling. A prefix must be declared in scope;
+  INFO `xml` is pre-bound and may not be rebound; `xmlns` may not be declared or
+  INFO bound; and two attributes may not share an expanded name. Each violation
+  INFO is `errorCode::ErrInvalidFormat`.
+  INFO
+  INFO Well-formedness is absolute. A mismatched or unclosed tag, a second root
+  INFO element, text outside the root, a literal `]]>` in character data, `--`
+  INFO inside a comment, or a reserved `xml` processing-instruction target is
+  INFO `errorCode::ErrInvalidFormat`. A duplicate attribute name is
+  INFO `errorCode::ErrAlreadyExists`. Nothing is repaired, and this is not an
+  INFO HTML parser: there is no tag-soup recovery, no void elements and no case
+  INFO folding.
+  INFO
+  INFO Expansion is bounded. Elements may nest 256 levels
+  INFO (`errorCode::ErrDepthExceeded`, matching `json::parse`) and a document
+  INFO may hold 1,000,000 nodes (`xml::ErrorNodeLimit`).
+  DESC
+  DESC Content and formatting
+  DESC
+  DESC Content survives every read, write and pretty-print; formatting may
+  DESC change. Content is the tree once comments and processing instructions
+  DESC are removed, adjacent text is merged, and whitespace-only text whose
+  DESC parent also has an element child is dropped as layout -- with attributes
+  DESC compared as a set, since XML gives their order no meaning. Text that is
+  DESC its parent's only content, such as `<a>   </a>`, is data and is kept
+  DESC byte for byte.
+END DOC
+
 ' ---------------------------------------------------------------------------
 ' Reading.
 ' ---------------------------------------------------------------------------
@@ -33,6 +109,25 @@ DOC
   ERROR 77050005 An element has two attributes with the same name, or the same expanded name.
   ERROR 77050024 Elements nest more than 256 levels deep.
   ERROR 93140001 The document holds more than 1,000,000 nodes.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<catalog><book id=\"a\">Dune</book></catalog>")
+      LET catalog AS xml::Element = xml::root(doc)
+      io::print(catalog.name & " holds " & toString(len(catalog.children)) & " child")
+      ' catalog holds 1 child
+
+      ' Anything malformed is refused rather than repaired.
+      LET bad AS xml::Document = xml::parse("<a></b>") TRAP(e)
+        io::print("refused: " & toString(e.code))
+        ' refused: 77050003
+        RECOVER doc
+      END TRAP
+      RETURN 0
+    END FUNC
+  END EXAMPLE
 END DOC
 EXPORT FUNC parse(text AS String) AS Document
   RETURN parseWithLimits(text, NODE_LIMIT)
@@ -75,6 +170,28 @@ DOC
   RET The XML text.
   ERROR 77050002 The tree could not be written as XML that reads back the same.
   ERROR 77050024 The tree nests more than 256 levels deep.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<a><b id=\"1\"/></a>")
+      io::print(xml::stringify(doc))
+      ' <?xml version="1.0" encoding="UTF-8"?><a><b id="1"/></a>
+      io::print(xml::stringify(doc, 2))
+      ' <?xml version="1.0" encoding="UTF-8"?>
+      ' <a>
+      '   <b id="1"/>
+      ' </a>
+
+      ' A Node writes a fragment, with no declaration. root returns the
+      ' Element record, so widen it to a Node first.
+      LET node AS xml::Node = xml::root(doc)
+      io::print(xml::stringify(node))
+      ' <a><b id="1"/></a>
+      RETURN 0
+    END FUNC
+  END EXAMPLE
 END DOC
 EXPORT FUNC stringify(doc AS Document) AS String
   RETURN writeDocumentCompact(doc)
@@ -181,6 +298,19 @@ DOC
   ARG doc The document to read.
   RET The root `xml::Element`.
   ERROR 77050004 The document holds no element.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<!--a note--><catalog><book/></catalog>")
+      LET catalog AS xml::Element = xml::root(doc)
+      ' The prolog comment is skipped: the root is the first element.
+      io::print(catalog.name)
+      ' catalog
+      RETURN 0
+    END FUNC
+  END EXAMPLE
 END DOC
 EXPORT FUNC root(doc AS Document) AS Element
   FOR EACH n IN doc.children
@@ -204,6 +334,21 @@ DOC
   ARG name The attribute name to find.
   RET The attribute value, after the normalization the reader applied.
   ERROR 77050004 The element has no attribute with that name.
+  EXAMPLE
+    IMPORT xml
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET doc AS xml::Document = xml::parse("<a xmlns:xlink=\"urn:x\" xlink:href=\"page\"/>")
+      LET a AS xml::Element = xml::root(doc)
+      ' Prefixes are not resolved, so the name is matched exactly as written.
+      io::print(xml::attr(a, "xlink:href"))
+      ' page
+      io::print(xml::attrOr(a, "title", "none"))
+      ' none
+      RETURN 0
+    END FUNC
+  END EXAMPLE
 END DOC
 EXPORT FUNC attr(e AS Element, name AS String) AS String
   FOR EACH a IN e.attributes

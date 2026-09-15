@@ -33,8 +33,17 @@ PRIVATE FUNC requireWritableName(what AS String, name AS String) AS Nothing
   IF NOT isName(name) THEN
     FAIL error(ERR_ARGUMENT, "xml: `" & name & "` is not a valid XML " & what)
   END IF
-  LET prefix AS String = prefixOf(name)
-  IF prefix = "" THEN RETURN NOTHING
+  ' A colon is a NameChar, so `isName` accepts `:a`, `a:` and `a:b:c` -- the
+  ' QName rules are checked here, not there. An empty prefix must be refused
+  ' like an empty local part: the reader rejects both, and the writer may never
+  ' emit a name its own reader would reject.
+  LET colon AS Integer = strings::find(name, ":", 0) TRAP(e)
+    RECOVER -1
+  END TRAP
+  IF colon < 0 THEN RETURN NOTHING
+  IF colon = 0 THEN
+    FAIL error(ERR_ARGUMENT, "xml: " & what & " `" & name & "` has an empty namespace prefix")
+  END IF
   LET local AS String = localOf(name)
   LET more AS Integer = strings::find(local, ":", 0) TRAP(e)
     RECOVER -1
@@ -260,9 +269,9 @@ PRIVATE FUNC holdsElement(children AS List OF Node) AS Boolean
   RETURN FALSE
 END FUNC
 
-' TRUE when `s` is non-empty and entirely XML whitespace.
+' TRUE when `s` is entirely XML whitespace. The only caller skips empty text
+' before asking, so there is no empty-string case to answer for.
 PRIVATE FUNC isAllSpace(s AS String) AS Boolean
-  IF len(s) = 0 THEN RETURN FALSE
   FOR EACH sc IN strings::toScalars(s)
     IF NOT isSpace(toInt(sc)) THEN RETURN FALSE
   NEXT
@@ -276,8 +285,12 @@ PRIVATE FUNC holdsDataText(children AS List OF Node) AS Boolean
   FOR EACH k IN children
     MATCH k
       CASE Text(t)
-        IF NOT withElement THEN RETURN TRUE
-        IF NOT isAllSpace(t.text) THEN RETURN TRUE
+        ' Empty text is not data: it contributes nothing to the content, and
+        ' treating it as data would wrongly force the whole element inline.
+        IF len(t.text) > 0 THEN
+          IF NOT withElement THEN RETURN TRUE
+          IF NOT isAllSpace(t.text) THEN RETURN TRUE
+        END IF
       CASE ELSE
     END MATCH
   NEXT

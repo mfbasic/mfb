@@ -191,12 +191,26 @@ TESTING
       expectTrap(stringify(document([text("x"), element("a", noAttrs(), noKids())])), 77050002)
     END TCASE
 
+    TCASE "a name with an empty prefix or an empty local part is refused"
+      ' A colon is a NameChar, so each of these IS a Name -- it is the QName
+      ' rule that rejects them, and the reader rejects the same spellings.
+      expectTrap(stringify(element("a:", noAttrs(), noKids())), 77050002)
+      expectTrap(stringify(element(":a", noAttrs(), noKids())), 77050002)
+      expectTrap(stringify(element("a", [Attribute["k:", "v"]], noKids())), 77050002)
+      expectTrap(stringify(element("a", [Attribute[":k", "v"]], noKids())), 77050002)
+      expectTrap(parse("<a:/>"), 77050003)
+      expectTrap(parse("<:a/>"), 77050003)
+    END TCASE
+
     TCASE "a tree deeper than the depth limit is refused before it is written"
       MUT deep AS Node = element("d", noAttrs(), noKids())
       FOR i = 1 TO DEPTH_LIMIT + 2
         deep = element("d", noAttrs(), [deep])
       NEXT
       expectTrap(stringify(deep), 77050024)
+      ' The pretty path bounds its recursion the same way.
+      expectTrap(stringify(deep, 2), 77050024)
+      expectTrap(stringify(deep, "\t"), 77050024)
     END TCASE
   END TGROUP
 
@@ -258,6 +272,15 @@ TESTING
     TCASE "comments and processing instructions each get their own line"
       expectString(stringify(rootNode("<a><!--c--><b/></a>"), 2), "<a>\n  <!--c-->\n  <b/>\n</a>")
       expectString(stringify(rootNode("<a><?p d?><b/></a>"), 2), "<a>\n  <?p d?>\n  <b/>\n</a>")
+    END TCASE
+
+    TCASE "an empty text child is not data, so it does not block indenting"
+      ' The reader never builds an empty Text node, but a hand-built tree can.
+      ' Empty text is not data -- treating it as data would wrongly force the
+      ' whole element inline.
+      LET withEmpty AS Node = element("a", noAttrs(), [text(""), element("b", noAttrs(), noKids())])
+      expectString(stringify(withEmpty, 2), "<a>\n  <b/>\n</a>")
+      expectString(stringify(withEmpty), "<a><b/></a>")
     END TCASE
 
     TCASE "an element holding only comments or PIs is left inline"

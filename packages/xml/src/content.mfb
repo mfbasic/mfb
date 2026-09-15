@@ -25,9 +25,11 @@
 IMPORT collections
 IMPORT strings
 
-' TRUE when `s` is entirely XML whitespace (and non-empty).
+' TRUE when `s` is entirely XML whitespace.
+'
+' Both callers pass the merged text of a run they have already found non-empty,
+' so there is no empty-string case to answer for.
 PRIVATE FUNC isLayoutText(s AS String) AS Boolean
-  IF len(s) = 0 THEN RETURN FALSE
   FOR EACH sc IN strings::toScalars(s)
     IF NOT isSpace(toInt(sc)) THEN RETURN FALSE
   NEXT
