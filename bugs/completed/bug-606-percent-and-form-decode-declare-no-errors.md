@@ -1,12 +1,28 @@
 # bug-606: `encoding::percentDecode` and `encoding::formUrlDecode` raise `ErrInvalidFormat` but declare no errors
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 Effort: small (<1h)
 Severity: LOW
 Class: Correctness (registry error declaration) / Documentation
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (ba8ec3125, 748fb275f)
+Regression Test: `encoding::tests::members_declare_the_errors_they_raise`
+(`src/codegen/builtins/encoding/mod.rs`) + `tests/rt-behavior/encoding/encoding-decode-errors-rt`
+
+> **STATUS: FIXED (ba8ec3125)** — deviation from the doc's scope: the Phase 1
+> decoder audit found the same defect on **12 more members**, all fixed here.
+> Tracing each public body through the helpers it calls for
+> `FAIL error(77050003, …)`: `base32Decode`, `base64Decode`, `base64UrlDecode`,
+> `hexDecode`, `htmlUnescape`, `sleb128Decode`, `uleb128Decode`,
+> `uleb128Encode` (an encoder — rejects a negative value), `utf16Decode`,
+> `utf32Decode`, `utf8Decode` (both overloads, via `helper_utf8_decode.rs`), and
+> `varintDecode` (via `__encoding_uleb128Decode`) all declared `errors: vec![]`.
+> A runtime probe (macos-aarch64) trapped `77050003` from every one of the 14
+> members; the other 16 members reach no `FAIL` and stay `[]`. The unit test pins
+> all 30 members per overload (RED on `percentDecode` before the change); the
+> fixture is the runtime half. No existing golden changed — `.ir` goldens carry the
+> lowered bodies, not the `errors` list. The cross-package census stays out of
+> scope as recorded below.
 
 `encoding::percentDecode("%")` and `encoding::formUrlDecode("%")` fail with
 `ErrInvalidFormat` (`77050003`), and the package overview promises it
@@ -85,9 +101,11 @@ the shared rejecting percent decoder, which raises `ErrInvalidFormat`.
 
 ## Fix
 
-Phase 1 — a test that `percentDecode` and `formUrlDecode` declare
-`ErrInvalidFormat` (RED), plus the decoder audit above. Commit:
+- [x] Phase 1 — a test that `percentDecode` and `formUrlDecode` declare
+`ErrInvalidFormat` (RED), plus the decoder audit above. The audit widened the test
+to all 30 members (see STATUS). Commit: ba8ec3125
 
-Phase 2 — add `ErrInvalidFormat` to both descriptors (GREEN); regenerate and check
+- [x] Phase 2 — add `ErrInvalidFormat` to both descriptors (GREEN); regenerate and check
 any golden that carries the error list (memory: registry description drifts `.ir`
-goldens); full suite. Commit:
+goldens); full suite. Added to all 14 raising descriptors; no existing golden
+drifted; new runtime fixture `encoding-decode-errors-rt`. Commit: ba8ec3125, 748fb275f
