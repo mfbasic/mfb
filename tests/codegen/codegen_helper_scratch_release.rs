@@ -458,12 +458,16 @@ const TLS_HELPERS_OPENSSL: &[(&str, Counts)] = &[
 /// `tests/net/rt_tls_listener_local_address.rs` is the test that catches it, and
 /// the bind-all spelling does NOT: that path parks a rodata pointer.
 const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
-    ("_mfb_rt_tls_tls_accept", (2, 0, 0)),
-    ("_mfb_rt_tls_tls_close", (0, 2, 0)),
-    ("_mfb_rt_tls_tls_closeListener", (0, 1, 0)),
-    ("_mfb_rt_tls_tls_connect", (4, 3, 2)),
-    ("_mfb_rt_tls_tls_connectAddr", (4, 3, 2)),
-    ("_mfb_rt_tls_tls_listen", (7, 2, 2)),
+    // bug-623 D: the connection and listener ctx blocks moved from the arena to the C
+    // heap (`gen_macos::emit_ctx_calloc` / `emit_ctx_free`), so accept, connect and
+    // listen each allocate one fewer arena block and close / closeListener /
+    // connect's failure exit free one fewer. No guarded scratch release changed.
+    ("_mfb_rt_tls_tls_accept", (1, 0, 0)),
+    ("_mfb_rt_tls_tls_close", (0, 1, 0)),
+    ("_mfb_rt_tls_tls_closeListener", (0, 0, 0)),
+    ("_mfb_rt_tls_tls_connect", (3, 2, 2)),
+    ("_mfb_rt_tls_tls_connectAddr", (3, 2, 2)),
+    ("_mfb_rt_tls_tls_listen", (6, 2, 2)),
     ("_mfb_rt_tls_tls_localAddress", (3, 2, 0)),
     // plan-132: `emit_address_from_host_and_port` allocates the scratch host
     // `String` and the record, and frees the scratch once the record holds it.
