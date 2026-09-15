@@ -714,6 +714,11 @@ pub(crate) struct ResourceCleanup {
     /// `arena_free` a poison value and segfaulted every `net::` program during
     /// cleanup (plan-52-B Phase 2).
     pub(crate) has_io_buffers: bool,
+    /// bug-623: whether the drop also frees the 96-byte record itself, after the
+    /// close and the block reclaim, and nulls the binding's slot. True only for the
+    /// kinds `CodeBuilder::resource_record_freed_at_drop` names (the `tcp`, `udp`
+    /// and `tls` handles); every other kind keeps its record as the tombstone.
+    pub(crate) frees_record: bool,
 }
 
 #[derive(Clone)]

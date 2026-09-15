@@ -32,6 +32,8 @@ pub(crate) fn lower_tls_read(
     let timed_out = format!("{symbol}_timed_out");
     let fail = format!("{symbol}_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
+    // bug-623: the result list's allocation failure, reached once OUTBUF exists.
+    let result_alloc_fail = format!("{symbol}_result_alloc_fail");
     let done = format!("{symbol}_done");
     let have = format!("{symbol}_have");
     let dloop = format!("{symbol}_dloop");
@@ -210,8 +212,23 @@ pub(crate) fn lower_tls_read(
         abi::subtract_registers(&v13, &v13, &v10),
         abi::store_u64(&v13, &v9, st::LEFT_LEN),
     ]);
-    emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &alloc_fail, &mut ins, &mut rel);
-    ins.push(abi::branch(&done));
+    emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &result_alloc_fail, &mut ins, &mut rel);
+    // bug-623: OUTBUF (NOUT bytes) was only the copy source for the list; release
+    // it, then reload the list from COLL -- `arena_free` clobbers the result bank.
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), OUTBUF),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), NOUT),
+        abi::branch_link(ARENA_FREE_SYMBOL),
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&result_alloc_fail),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), OUTBUF),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), NOUT),
+        abi::branch_link(ARENA_FREE_SYMBOL),
+        abi::branch(&alloc_fail),
+    ]);
+    rel.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
 
 
     // --- SEC_I_RENEGOTIATE handler: drive the buffered post-handshake data through
@@ -482,6 +499,20 @@ pub(crate) fn lower_tls_close(
     ins.push(abi::label(&skip_free));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
     platform.emit_external_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+    // bug-623: return the SSPI credential/context block to the arena. Everything
+    // above was its last use, and every other tls:: operation checks the closed
+    // flag before it loads TLS_SCHANNEL_OFFSET_BLOCK. The block is always the
+    // closing thread's own: `thread::transfer` copies it into the receiver's arena
+    // (`SlotTransfer::ArenaBlock`), never aliases it. The slot is zeroed after.
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
+        abi::move_immediate(abi::c_arg(1), "Integer", &SOCKET_BLOCK_SIZE.to_string()),
+    ]);
+    crate::codegen::engine::builder::emit_arena_free(symbol, &mut ins, &mut rel);
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), REC),
+        abi::store_u64(abi::ZERO, &v9, TLS_SCHANNEL_OFFSET_BLOCK),
+    ]);
     // Mark closed.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), REC),

@@ -163,3 +163,37 @@ Measured at main `9b5e5b55f`, `target/release/mfb build --debug`, macOS:
   `a_tcp_read_loop_keeps_live_bytes_constant`, `a_tcp_connect_close_loop_keeps_live_bytes_constant`,
   `a_udp_bind_close_loop_keeps_live_bytes_constant`, `a_tls_connect_close_loop_keeps_live_bytes_constant`
   (an OpenSSL `s_server` loopback peer; skipped where only LibreSSL is present).
+
+## Phase 2 findings (fix-bug, 2026-09-15)
+
+Implemented by a fix-bug subagent; reviewed and applied on the main thread.
+
+- **Read buffers.** `tcp/gen_io.rs:lower_net_read_helper` frees the capped read buffer
+  (size at `MAX_OFFSET`, the bug-261 cap) exactly once on every exit after its allocation:
+  success (the result spilled to a frame slot across the `arena_free`), `peer_closed`,
+  `read_fail`, `timeout`, and a new `result_alloc_fail` (result-block allocation failure).
+  The text path's `encoding_error` also frees the `N + 9` String it built
+  (`os/socket/shared.rs:emit_string_result_build` allocates `N + 9`). The same leak was
+  in `tls/gen_openssl.rs:lower_tls_read_openssl` (an uncapped `maxBytes` buffer) and
+  `tls/gen_schannel_read_close.rs:lower_tls_read` (`OUTBUF`, allocated `NOUT` bytes) —
+  both fixed the same way.
+- **Socket / listener records** — freed by the owning binding's scope drop, not by `close`:
+  a `close` through a `RES` parameter leaves the owner holding the record, and a second
+  operation must still read the closed flag (`tests/net/rt_double_close_is_refused.rs`),
+  so a free at close would be a use-after-free.
+  `resource/cleanup/builder_resource_cleanup.rs:resource_record_freed_at_drop` names
+  `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`, `tls.Listener`; the drop frees
+  the 96 B record last (after the close and block reclaim), skips moved records, and zeroes
+  the slot. An explicit `close` on the owner keeps that cleanup registered
+  (`deactivate_moved_resource_arguments`): the drop's re-close is the existing unreported
+  `ErrResourceClosed` no-op. Other resource kinds (`fs`, `audio`, `process`, LINK) keep their
+  tombstone record (unaudited producers).
+- **TLS per-connection blocks.** macOS: `tls::close` frees the connection ctx and listener
+  lctx after the cancel drain, only when `CTX_OWNER` (new slot; `CTX_SIZE` / `LCTX_SIZE`
+  208 → 216) equals the closing thread's arena, and not while a poll receive (`CTX_ARMED`)
+  or timed-out send (`CTX_WARMED`) is outstanding; a failed connect frees its ctx after
+  the drain. Schannel: `close` frees the socket STATE block and the listener WORK block
+  (`thread::transfer` copies both into the receiver's arena). OpenSSL has no arena block
+  beyond the record.
+- **Resource-union box.** The single-binding union drop frees its 16 B `{tag, record}` box;
+  the variant record is not freed there (`RES c AS Union = u` wraps a record `u` owns).

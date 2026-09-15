@@ -20,6 +20,40 @@ impl CodeBuilder<'_> {
         type_.without_state().is_named("fs.File")
     }
 
+    /// bug-623: the resource kinds whose 96-byte record the owning binding's scope
+    /// drop frees — the `tcp`, `udp` and `tls` handles. Before this, a
+    /// `tcp::connect`/`tcp::close` loop leaked one record per connection forever.
+    ///
+    /// **The drop is the owner of the free, not `close`.** A `close` through a
+    /// `RES` parameter leaves the owner holding the record, and a later operation
+    /// through it — a second close included — must still read the closed flag and
+    /// raise `ErrResourceClosed` (`tests/net/rt_double_close_is_refused.rs`). At the
+    /// owner's drop nothing can name the record any more: every non-owning holder
+    /// (a `RES` parameter, an aliasing bind, a `collections::get`/`tcp::poll`
+    /// borrow, a record `RES` field) lives in the owner's scope or deeper, and a
+    /// floated or returned handle has moved its cleanup elsewhere. For the same
+    /// reason an explicit `close` on the owning binding keeps this cleanup
+    /// registered (`deactivate_moved_resource_arguments`): its drop-time re-close
+    /// is the defined, unreported `ErrResourceClosed` no-op, and the record is
+    /// freed after it.
+    ///
+    /// Every producer of these kinds hands the binding a record in the current
+    /// thread's arena — the open helpers' `emit_make_handle`/TLS record allocs, the
+    /// closed default of `emit_closed_resource_record`, and the thread-transfer
+    /// copy — so the free goes to the arena that allocated it. The slot is zeroed
+    /// after the free so a drop reached again on the same slot (a loop re-entry, a
+    /// `TRAP` handler after a scope exit) skips on the existing null guard.
+    ///
+    /// Other kinds keep the tombstone: their producers include records this
+    /// analysis has not audited (native `LINK` thunks, `audio`, `process`), and
+    /// `fs::File` shares the record with the drop's buffer reclaim.
+    pub(crate) fn resource_record_freed_at_drop(type_: &ParameterType) -> bool {
+        let base = type_.without_state();
+        ["tcp.Socket", "tcp.Listener", "udp.Socket", "tls.Socket", "tls.Listener"]
+            .iter()
+            .any(|name| base.is_named(name))
+    }
+
     pub(crate) fn resource_cleanup_symbol(&self, type_: &ParameterType) -> Option<String> {
         let Some(close) = crate::codegen::builtins::resource_close_function(&type_) else {
             // bug-374: not one of the language's own resources, so fall back to
@@ -248,12 +282,29 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_eq(&done));
         }
 
+        // bug-623: every dispatched drop converges on `dropped`, which frees the
+        // union's own `{tag@0, record-ptr@8}` box. The box is this binding's alone:
+        // a resource-union `UnionWrap` and the closed default both allocate a fresh
+        // 16-byte block for the bind, and every other holder of it (an aliasing
+        // bind, a record `RES` field, a floated owned-list node, a `RETURN`) either
+        // registers no cleanup or skips to `done` above. The variant RECORD is not
+        // freed here: `RES c AS Union = u` wraps a record the concrete binding `u`
+        // still owns and frees. The slot is zeroed so a re-reached drop skips on
+        // the null guard. The null and escaping-value skips branch past it.
+        let dropped = self.label("resource_union_drop_box");
         self.emit_union_tag_dispatch_drop(
             &union_ptr,
             &cleanup.variants,
             cleanup.state_type.as_ref(),
-            &done,
+            &dropped,
         )?;
+        self.emit(abi::label(&dropped));
+        let block = self.allocate_register();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
+        self.emit(abi::move_register(abi::c_arg(0), &block));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
+        self.emit_arena_free_call();
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), stack_offset));
         self.emit(abi::label(&done));
         Ok(())
     }
@@ -348,7 +399,10 @@ impl CodeBuilder<'_> {
                 continue;
             };
             let consumed = if target == close {
-                index == 0
+                // bug-623: a kind whose record the drop frees keeps its cleanup
+                // across an explicit close — the drop's re-close is a no-op and the
+                // drop is the record's only free (`resource_record_freed_at_drop`).
+                index == 0 && !Self::resource_record_freed_at_drop(&local.type_)
             } else if matches!(
                 target,
                 "thread.start"
@@ -458,6 +512,7 @@ impl CodeBuilder<'_> {
                 offset,
                 cleanup.state_type.as_ref(),
                 cleanup.has_io_buffers,
+                cleanup.frees_record,
             )?;
         }
         self.emit(abi::label(&done));
@@ -490,6 +545,7 @@ impl CodeBuilder<'_> {
         resource_slot: usize,
         state_type: Option<&ParameterType>,
         has_io_buffers: bool,
+        free_record: bool,
     ) -> Result<(), String> {
         // A moved record's blocks belong to the receiver now: `thread::transfer`
         // copied the STATE pointer into the receiver's record, so freeing it here
@@ -533,6 +589,22 @@ impl CodeBuilder<'_> {
         }
         if let Some(state_type) = state_type {
             self.emit_free_resource_state_block(resource_slot, state_type)?;
+        }
+        if free_record {
+            // bug-623: last, after the close and the blocks the record points at —
+            // the record itself (`resource_record_freed_at_drop`). A moved record
+            // took the skip above and is not freed here. The slot is zeroed so a
+            // drop re-reached on it reads 0 and skips.
+            let record = self.allocate_register();
+            self.emit(abi::load_u64(&record, abi::stack_pointer(), resource_slot));
+            self.emit(abi::move_register(abi::c_arg(0), &record));
+            self.emit(abi::move_immediate(
+                abi::c_arg(1),
+                "Integer",
+                RESOURCE_RECORD_SIZE,
+            ));
+            self.emit_arena_free_call();
+            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), resource_slot));
         }
         self.emit(abi::label(&skip));
         Ok(())

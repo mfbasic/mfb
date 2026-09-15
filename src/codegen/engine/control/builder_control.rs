@@ -891,6 +891,7 @@ impl CodeBuilder<'_> {
                                     symbol,
                                     state_type: type_.state(),
                                     has_io_buffers: Self::resource_uses_io_buffers(type_),
+                                    frees_record: Self::resource_record_freed_at_drop(type_),
                                 }));
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
                             // A resource union drops by dispatching on its tag to
@@ -1214,6 +1215,9 @@ impl CodeBuilder<'_> {
                                     symbol,
                                     state_type: result.type_.state(),
                                     has_io_buffers: Self::resource_uses_io_buffers(&result.type_),
+                                    frees_record: Self::resource_record_freed_at_drop(
+                                        &result.type_,
+                                    ),
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)

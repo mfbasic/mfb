@@ -1023,6 +1023,12 @@ pub(crate) fn lower_tls_listen_macos(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    // bug-623: record the allocating arena; close frees the block only there.
+    ins.push(abi::store_u64(
+        crate::codegen::error::constants::ARENA_STATE_REGISTER,
+        abi::mfb_return(1),
+        CTX_OWNER,
+    ));
     ins.push(abi::store_u64(
         abi::mfb_return(1),
         abi::stack_pointer(),
@@ -1564,6 +1570,12 @@ pub(crate) fn lower_tls_accept_macos(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    // bug-623: record the allocating arena; close frees the block only there.
+    ins.push(abi::store_u64(
+        crate::codegen::error::constants::ARENA_STATE_REGISTER,
+        abi::mfb_return(1),
+        CTX_OWNER,
+    ));
     ins.push(abi::store_u64(
         abi::mfb_return(1),
         abi::stack_pointer(),
@@ -1864,6 +1876,7 @@ pub(crate) fn lower_tls_close_listener_macos(
     // rejects still-queued connections). Blocks on the listener ctx semaphore
     // until the async `nw_listener_cancel` reaches `cancelled`.
     let lcancel_drain = format!("{symbol}_lcancel_drain");
+    let skip_lctx_free = format!("{symbol}_skip_lctx_free");
     let done = format!("{symbol}_done");
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
@@ -2020,6 +2033,24 @@ pub(crate) fn lower_tls_close_listener_macos(
         // the same reason as the connection close: nw_listener_cancel is async
         // and the listener state handler still signals ctx->sem on the cancelled
         // transition. It is reclaimed with the arena-allocated lctx block.
+        //
+        // bug-623: the lctx block itself goes back to the arena now. The cancel
+        // drain above reached the terminal state, so neither the state handler
+        // nor the new-connection handler runs again, and `tls::accept` checks
+        // REC_CLOSED before it loads REC_CTX. Kept when another thread's arena
+        // allocated it (CTX_OWNER; a transferred listener).
+        abi::load_u64(&v9, abi::stack_pointer(), LCTX),
+        abi::load_u64(&v10, &v9, CTX_OWNER),
+        abi::compare_registers(&v10, crate::codegen::error::constants::ARENA_STATE_REGISTER),
+        abi::branch_ne(&skip_lctx_free),
+        abi::move_register(abi::return_register(), &v9),
+        abi::move_immediate(abi::c_arg(1), "Integer", LCTX_SIZE),
+    ]);
+    crate::codegen::engine::builder::emit_arena_free(symbol, &mut ins, &mut rel);
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), REC),
+        abi::store_u64(abi::ZERO, &v9, REC_CTX),
+        abi::label(&skip_lctx_free),
         // Mark closed.
         abi::load_u64(&v9, abi::stack_pointer(), REC),
         abi::move_immediate(&v10, "Integer", "1"),

@@ -195,7 +195,16 @@ pub(crate) const CTX_WARMED: usize = 120;
 // a function pointer to call.
 pub(crate) const CTX_EDOMFN: usize = 192;
 pub(crate) const CTX_EDOM: usize = 200;
-const CTX_SIZE: &str = "208";
+// bug-623: the arena state (`ARENA_STATE_REGISTER`) of the thread that allocated
+// this ctx. `tls::close` returns the block to the arena only when the closing
+// thread's arena is that one: `thread::transfer` moves `REC_CTX` VERBATIM (the
+// Network.framework blocks hold this address), so a transferred socket is closed
+// on a thread whose arena did not allocate the ctx, and `_mfb_arena_free` has no
+// ownership check — handing it a foreign block would park it on the wrong
+// arena's bins. Shared by connection and listener ctx (both allocate at 216), and
+// above the listener ring (64..192) and the EDOM pair, which STATE_INVOKE writes.
+pub(crate) const CTX_OWNER: usize = 208;
+const CTX_SIZE: &str = "216";
 
 // The listener context extends the shared ctx prefix (the listener's
 // state-changed handler is the plain STATE_INVOKE trampoline over the same
@@ -208,7 +217,7 @@ pub(crate) const LCTX_HEAD: usize = 48; // producer count (trampoline-owned)
 pub(crate) const LCTX_TAIL: usize = 56; // consumer count (accept-owned)
 pub(crate) const LCTX_RING: usize = 64; // LCTX_RING_CAP pointer slots
 pub(crate) const LCTX_RING_CAP: usize = 16; // power of two (index mask 15)
-const LCTX_SIZE: &str = "208"; // 64 + 16*8, then the shared CTX_EDOMFN/CTX_EDOM tail
+const LCTX_SIZE: &str = "216"; // 64 + 16*8, the shared CTX_EDOMFN/CTX_EDOM tail, CTX_OWNER
 
 // Block literal: isa, flags, invoke, descriptor, one captured ctx pointer.
 const BLK_ISA: usize = 0;

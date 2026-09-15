@@ -498,6 +498,9 @@ pub(crate) fn lower_net_read_helper(
     const BUF_OFFSET: usize = 24;
     const N_OFFSET: usize = 32;
     const STR_OFFSET: usize = 40;
+    // bug-623: the finished result (List OF Byte) is spilled here across the
+    // read-buffer `arena_free`, which clobbers every caller-saved register.
+    const RESULT_OFFSET: usize = 48;
     // bug-261: the per-call temporary read buffer is capped at this size instead of
     // the caller's `maxBytes`, so a large (or attacker-influenced) `maxBytes` does
     // not pre-commit that much memory for a `read` that delivers far fewer bytes.
@@ -515,6 +518,9 @@ pub(crate) fn lower_net_read_helper(
     let read_fail = format!("{symbol}_read_fail");
     let timeout = format!("{symbol}_timeout");
     let alloc_fail = format!("{symbol}_alloc_fail");
+    // bug-623: an allocation failure AFTER the read buffer exists (the result
+    // block) must release the buffer first; `alloc_fail` is the buffer's own.
+    let result_alloc_fail = format!("{symbol}_result_alloc_fail");
     let encoding_error = format!("{symbol}_encoding_error");
     let build_list = format!("{symbol}_build_list");
     let entry_loop = format!("{symbol}_entry_loop");
@@ -533,6 +539,18 @@ pub(crate) fn lower_net_read_helper(
     let v13 = vregs.next();
     let v14 = vregs.next();
     let v15 = vregs.next();
+    // bug-623: release the temporary read buffer. It was allocated with the
+    // capped size stored back at MAX_OFFSET, and every exit after the allocation
+    // runs this exactly once — the success paths after copying out of it, each
+    // failure label before raising. The pointer and size are reloaded from the
+    // frame because the read/alloc/validate calls clobber caller-saved registers.
+    let emit_free_read_buffer = |instructions: &mut Vec<CodeInstruction>| {
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), BUF_OFFSET),
+            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), MAX_OFFSET),
+            abi::branch_link(ARENA_FREE_SYMBOL),
+        ]);
+    };
     instructions.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MAX_OFFSET),
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
@@ -607,17 +625,25 @@ pub(crate) fn lower_net_read_helper(
             STR_OFFSET,
             &str_copy,
             &str_done,
-            &alloc_fail,
+            &result_alloc_fail,
             &encoding_error,
             &mut instructions,
             &mut relocations,
         );
+        emit_free_read_buffer(&mut instructions);
         instructions.extend([
             abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STR_OFFSET),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&done),
             abi::label(&encoding_error),
+            // The String was allocated (N + 9 bytes, pointer at STR_OFFSET) before
+            // the UTF-8 check refused it; release it, then the read buffer.
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), STR_OFFSET),
+            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), N_OFFSET),
+            abi::add_immediate(abi::c_arg(1), abi::c_arg(1), 9),
+            abi::branch_link(ARENA_FREE_SYMBOL),
         ]);
+        emit_free_read_buffer(&mut instructions);
         emit_fail(
             symbol,
             "ErrEncoding",
@@ -636,8 +662,9 @@ pub(crate) fn lower_net_read_helper(
             abi::add_registers(abi::return_register(), &v12, &v10),
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
-        emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+        emit_alloc(symbol, &mut instructions, &mut relocations, &result_alloc_fail);
         instructions.extend([
+            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RESULT_OFFSET),
             abi::move_register(&v15, abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
             abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),
             abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KIND),
@@ -692,12 +719,16 @@ pub(crate) fn lower_net_read_helper(
             abi::add_immediate(&v9, &v9, 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),
-            abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
+        ]);
+        emit_free_read_buffer(&mut instructions);
+        instructions.extend([
+            abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFFSET),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&done),
         ]);
     }
     instructions.push(abi::label(&peer_closed));
+    emit_free_read_buffer(&mut instructions);
     emit_fail(
         symbol,
         "ErrConnectionClosed",
@@ -731,6 +762,7 @@ pub(crate) fn lower_net_read_helper(
         abi::compare_immediate(&v9, EINTR_ERRNO),
         abi::branch_eq(&read_retry),
     ]);
+    emit_free_read_buffer(&mut instructions);
     emit_fail(
         symbol,
         "ErrConnectionClosed",
@@ -739,6 +771,7 @@ pub(crate) fn lower_net_read_helper(
         &done,
     );
     instructions.push(abi::label(&timeout));
+    emit_free_read_buffer(&mut instructions);
     emit_fail(
         symbol,
         "ErrTimeout",
@@ -762,6 +795,8 @@ pub(crate) fn lower_net_read_helper(
         &mut relocations,
         &done,
     );
+    instructions.push(abi::label(&result_alloc_fail));
+    emit_free_read_buffer(&mut instructions);
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,
@@ -770,6 +805,8 @@ pub(crate) fn lower_net_read_helper(
         &mut relocations,
         &done,
     );
+    // One declaration covers every `arena_free` site above (per (from, to) pair).
+    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         Ok((instructions, relocations, FRAME_SIZE))

@@ -146,6 +146,12 @@ pub(crate) fn lower_tls_connect_macos(
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    // bug-623: record the allocating arena; close frees the block only there.
+    ins.push(abi::store_u64(
+        crate::codegen::error::constants::ARENA_STATE_REGISTER,
+        abi::mfb_return(1),
+        CTX_OWNER,
+    ));
     ins.push(abi::store_u64(
         abi::mfb_return(1),
         abi::stack_pointer(),
@@ -887,7 +893,14 @@ pub(crate) fn lower_tls_connect_macos(
         abi::load_u32(&v10, &v9, CTX_STATE),
         abi::compare_immediate(&v10, "5"), // nw_connection_state_cancelled
         abi::branch_ne(&cancel_drain),
+        // bug-623: drained to `cancelled`, no handler can reach the ctx any more,
+        // and no receive/send was ever posted on this never-ready connection — so
+        // the ctx this helper allocated goes back to the arena instead of leaking
+        // one block per failed connect.
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX),
+        abi::move_immediate(abi::c_arg(1), "Integer", CTX_SIZE),
     ]);
+    emit_arena_free(symbol, &mut ins, &mut rel);
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     // conn_timeout: the deadline elapsed; cancel the connection, report a
     // timeout.
@@ -2211,6 +2224,7 @@ pub(crate) fn lower_tls_close_macos(
         abi::branch_link_register(&v9),
     ]);
     let skip_queue = format!("{symbol}_skip_queue_release");
+    let skip_ctx_free = format!("{symbol}_skip_ctx_free");
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -2265,6 +2279,33 @@ pub(crate) fn lower_tls_close_macos(
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::branch_link_register(&v9),
         abi::label(&skip_prelease),
+        // bug-623: return the ctx block to the arena. Safe here and only here:
+        // the cancel drain above waited for the terminal `cancelled` state, so the
+        // state handler cannot run again, and every other tls:: operation checks
+        // REC_CLOSED before it loads REC_CTX. Kept (as before) when a poll
+        // receive (CTX_ARMED) or a timed-out send (CTX_WARMED) is still
+        // outstanding — its completion block holds this address and may still
+        // write through it — and when another thread's arena allocated it
+        // (CTX_OWNER; a transferred socket). The slot is zeroed after the free.
+        abi::load_u64(&v9, abi::stack_pointer(), REC),
+        abi::load_u64(&v10, &v9, REC_CTX),
+        abi::load_u64(&v9, &v10, CTX_OWNER),
+        abi::compare_registers(&v9, crate::codegen::error::constants::ARENA_STATE_REGISTER),
+        abi::branch_ne(&skip_ctx_free),
+        abi::load_u64(&v9, &v10, CTX_ARMED),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_ne(&skip_ctx_free),
+        abi::load_u64(&v9, &v10, CTX_WARMED),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_ne(&skip_ctx_free),
+        abi::move_register(abi::return_register(), &v10),
+        abi::move_immediate(abi::c_arg(1), "Integer", CTX_SIZE),
+    ]);
+    emit_arena_free(symbol, &mut ins, &mut rel);
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), REC),
+        abi::store_u64(abi::ZERO, &v9, REC_CTX),
+        abi::label(&skip_ctx_free),
         // Mark closed.
         abi::load_u64(&v9, abi::stack_pointer(), REC),
         abi::move_immediate(&v10, "Integer", "1"),
