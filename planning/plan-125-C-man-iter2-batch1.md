@@ -671,9 +671,9 @@ Measured at the closing commit:
 
 Bugs filed from this phase: bug-629 (wrong record type accepted), bug-631
 (`nowNanos` wraps after 2262), bug-632 (negative-year padding).
-Belongs-in-spec rows appended: 28–43 from this phase; row 44 back-fills Phase 2's
-`utf8Decode` cut.
-Commit: —
+Belongs-in-spec rows appended: 28–43 from this phase; rows 44 and 45 back-fill
+Phase 2's `utf8Decode` and `punycodeEncode` scope cuts.
+Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
 
 ### Phase 4 — collections (50 units)
 
