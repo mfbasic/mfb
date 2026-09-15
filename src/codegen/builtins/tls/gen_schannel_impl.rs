@@ -322,6 +322,8 @@ pub(crate) fn lower_tls_connect(
     ins.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOF),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), REC),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SNAMEW),
     ]);
     {
         // plan-73-D: reject a negative (non-sentinel) `timeoutMs` up front — before
@@ -731,6 +733,16 @@ pub(crate) fn lower_tls_connect(
         symbol, STATE, SNAMEW, ALLOW, &fail, imports, platform, &mut ins, &mut rel, &mut vregs,
     )?;
 
+    // bug-623: the wide server-name buffer (WIDE_CSTRING_BYTES) was last read by the
+    // hostname verification; every connect used to leak it.
+    crate::codegen::memory::marshal::emit_free_buffer_guarded(
+        symbol,
+        "ok_snamew",
+        SNAMEW,
+        crate::codegen::memory::marshal::ScratchSize::Bytes(WIDE_CSTRING_BYTES),
+        &mut ins,
+        &mut rel,
+    );
     // Store state ptr in the resource, return the resource.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), STATE),
@@ -758,6 +770,54 @@ pub(crate) fn lower_tls_connect(
     // timeout → ErrTimeout; every other `fail` branch is a network failure.
     let fail_timeout = format!("{symbol}_fail_timeout");
     ins.push(abi::label(&fail));
+    // bug-623: a connect that fails once the handshake state exists releases what it
+    // built. Every branch here runs after the TCP connect (FD open) and after the STATE /
+    // record / server-name allocations; the SSPI handles in STATE start zeroed, so
+    // releasing one that was never acquired is a harmless SEC_E_INVALID_HANDLE.
+    {
+        let no_state = format!("{symbol}_hsf_no_state");
+        ins.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&no_state),
+            abi::add_immediate(abi::return_register(), abi::return_register(), st::CTXT),
+        ]);
+        sspi_call(symbol, "DeleteSecurityContext", SECUR32, 1, imports, platform, &mut ins, &mut rel)?;
+        ins.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
+            abi::add_immediate(abi::return_register(), abi::return_register(), st::CRED),
+        ]);
+        sspi_call(symbol, "FreeCredentialsHandle", SECUR32, 1, imports, platform, &mut ins, &mut rel)?;
+        ins.push(abi::label(&no_state));
+        ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
+        platform.emit_external_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+        crate::codegen::memory::marshal::emit_free_buffer_guarded(
+            symbol,
+            "hsf_snamew",
+            SNAMEW,
+            crate::codegen::memory::marshal::ScratchSize::Bytes(WIDE_CSTRING_BYTES),
+            &mut ins,
+            &mut rel,
+        );
+        crate::codegen::memory::marshal::emit_free_buffer_guarded(
+            symbol,
+            "hsf_state",
+            STATE,
+            crate::codegen::memory::marshal::ScratchSize::Bytes(st::SIZE),
+            &mut ins,
+            &mut rel,
+        );
+        crate::codegen::memory::marshal::emit_free_buffer_guarded(
+            symbol,
+            "hsf_rec",
+            REC,
+            crate::codegen::memory::marshal::ScratchSize::Bytes(
+                crate::codegen::error::constants::RESOURCE_RECORD_SIZE_BYTES,
+            ),
+            &mut ins,
+            &mut rel,
+        );
+    }
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), HSTOF),
         abi::compare_immediate(&v9, "0"),
@@ -772,6 +832,54 @@ pub(crate) fn lower_tls_connect(
     ins.push(abi::label(&net_fail));
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
+    // bug-623: a connect that fails once the handshake state exists releases what it
+    // built. Every branch here runs after the TCP connect (FD open) and after the STATE /
+    // record / server-name allocations; the SSPI handles in STATE start zeroed, so
+    // releasing one that was never acquired is a harmless SEC_E_INVALID_HANDLE.
+    {
+        let no_state = format!("{symbol}_af_no_state");
+        ins.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&no_state),
+            abi::add_immediate(abi::return_register(), abi::return_register(), st::CTXT),
+        ]);
+        sspi_call(symbol, "DeleteSecurityContext", SECUR32, 1, imports, platform, &mut ins, &mut rel)?;
+        ins.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
+            abi::add_immediate(abi::return_register(), abi::return_register(), st::CRED),
+        ]);
+        sspi_call(symbol, "FreeCredentialsHandle", SECUR32, 1, imports, platform, &mut ins, &mut rel)?;
+        ins.push(abi::label(&no_state));
+        ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
+        platform.emit_external_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+        crate::codegen::memory::marshal::emit_free_buffer_guarded(
+            symbol,
+            "af_snamew",
+            SNAMEW,
+            crate::codegen::memory::marshal::ScratchSize::Bytes(WIDE_CSTRING_BYTES),
+            &mut ins,
+            &mut rel,
+        );
+        crate::codegen::memory::marshal::emit_free_buffer_guarded(
+            symbol,
+            "af_state",
+            STATE,
+            crate::codegen::memory::marshal::ScratchSize::Bytes(st::SIZE),
+            &mut ins,
+            &mut rel,
+        );
+        crate::codegen::memory::marshal::emit_free_buffer_guarded(
+            symbol,
+            "af_rec",
+            REC,
+            crate::codegen::memory::marshal::ScratchSize::Bytes(
+                crate::codegen::error::constants::RESOURCE_RECORD_SIZE_BYTES,
+            ),
+            &mut ins,
+            &mut rel,
+        );
+    }
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     emit_helper_scratch_release(symbol, &[host_scratch], &mut vregs, &mut ins, &mut rel);
