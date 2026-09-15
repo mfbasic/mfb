@@ -76,9 +76,10 @@ built-in injection chain.
   the lookup tables built at program start), and the DEFLATE decoders — one shared core, the
   zlib and gzip wrappers, decode-table validity matching zlib's `inflate_table`, the
   `ignoreChecksum` / trailing-byte / preset-dictionary behaviours, `maxBytes` bounds, and the
-  measured design choices; and the DEFLATE encoders — stored and fixed-Huffman blocks, greedy
-  hash-chain matching with zlib's per-level chain limits, the zlib and gzip header bytes, the
-  determinism guarantee, and dated throughput and size measurements.
+  measured design choices; and the DEFLATE encoders — per-block choice of stored, fixed and
+  dynamic Huffman by exact cost, package-merge code lengths and zlib's header rules, greedy and lazy
+  hash-chain matching with zlib's per-level limits, the zlib and gzip header bytes, the determinism
+  guarantee, and dated throughput and size measurements.
 
 ## See Also
 

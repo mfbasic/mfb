@@ -310,18 +310,41 @@ or any compressed size.
 
 - **Level 0** writes stored blocks (`BTYPE = 00`) of at most 65,535 bytes. Empty `data` is one final,
   empty stored block.
-- **Levels 1–9** write fixed-Huffman blocks (`BTYPE = 01`, the RFC 1951 §3.2.6 codes), one per 65,536
-  bytes of input. A block ends at the first symbol that starts 65,536 or more bytes after the block's
-  first, so a match can run past the boundary. Empty `data` is one final block holding only
-  end-of-block.
+- **Levels 1–9** gather one block per 65,535 bytes of input, the most one stored block holds. A block
+  ends at the first symbol that starts 65,535 or more bytes after the block's first, so a match can run
+  past the boundary. Its
+  symbols are held with their frequencies, then the block is written as whichever of three encodings
+  costs the fewest bits, counted exactly:
+  - **stored** (`BTYPE = 00`), split into several stored blocks when longer than 65,535 bytes, including
+    the padding to a byte boundary the bits already written leave;
+  - **fixed Huffman** (`BTYPE = 01`, the RFC 1951 §3.2.6 codes);
+  - **dynamic Huffman** (`BTYPE = 10`), including its header.
 
-The fixed codes are bit-reversed once, at program start, into tables the bit writer ORs in unchanged
-(RFC 1951 §3.1.1 packs Huffman codes most-significant bit first into an otherwise
-least-significant-bit-first stream). [[src/codegen/builtins/compress/helper_deflate_codes.rs:BODY]]
+  On a tie, fixed wins, then stored. Empty `data` is one final fixed block holding only end-of-block.
+  [[src/codegen/builtins/compress/helper_block_cost.rs:BODY]]
+
+A **dynamic block** carries codes built for that block alone:
+[[src/codegen/builtins/compress/helper_package_merge.rs:BODY]]
+[[src/codegen/builtins/compress/helper_dynamic_block.rs:BODY]]
+
+- **Code lengths** come from package-merge (Larmore and Hirschberg, "A fast algorithm for optimal
+  length-limited Huffman codes", JACM 37(3):464–473, 1990), which is optimal under the limit: 15 bits for
+  the literal/length and distance codes, 7 for the code-length code.
+- **Padding:** a tree with fewer than two used symbols gets extra symbols of weight 1, as zlib 1.2.12's
+  `build_tree` adds them ("The pkzip format requires that at least one distance code exists"). So a
+  block with no match still sends two distance codes, and every code sent is complete.
+- **Header:** `HLIT` and `HDIST` stop at the last used code (at least 257 and 1). Each tree's lengths
+  are run-length encoded on its own with code-length symbols 16, 17 and 18, by zlib's `send_tree` rules.
+  `HCLEN` drops trailing unused entries of the §3.2.7 order, keeping at least four.
+- **Codes** are the RFC 1951 §3.2.2 canonical codes for those lengths.
+
+Every Huffman code is bit-reversed before it is written, fixed ones once at program start: RFC 1951
+§3.1.1 packs a code most-significant bit first into an otherwise least-significant-bit-first stream.
+[[src/codegen/builtins/compress/helper_deflate_codes.rs:BODY]]
 
 ### Matching
 
-Every level from 1 to 9 matches greedily over hash chains:
+Every level from 1 to 9 searches hash chains:
 
 - The hash of the next three bytes is `((b0 << 10) XOR (b1 << 5) XOR b2) AND 32767`. `head[hash]` holds
   the latest position with that hash and `prev[p MOD 32768]` the position before `p` with the same hash.
@@ -330,17 +353,30 @@ Every level from 1 to 9 matches greedily over hash chains:
 - A chain is followed for at most `max_chain` candidates. The search stops at the first match of
   `nice_length` bytes or more. A match runs to 258 bytes or to the end of `data`. A candidate is compared
   in full only when its byte at the current best length already matches.
-- The positions inside an emitted match are inserted into the chains at levels 4–9. At levels 1–3 they are
-  inserted only when the match is no longer than the level's `max_lazy`, as zlib's `deflate_fast` does.
+- **Levels 1–3 match greedily**, as zlib's `deflate_fast` does. A match is emitted where it is found, and
+  the positions inside it are inserted into the chains only when it is no longer than the level's
+  `max_lazy`.
+- **Levels 4–9 match lazily**, as zlib's `deflate_slow` does. The match found at a position is held while
+  the next position is searched too:
+  - the search only runs while the held match is shorter than `max_lazy`, and only a longer match counts;
+  - the chain budget is quartered once the held match reaches `good_length`;
+  - a three-byte match more than 4,096 bytes back is dropped (zlib's `TOO_FAR`).
+
+  If the next position does no better, the held match is emitted and every position inside it inserted.
+  Otherwise the held position becomes a literal. A byte still held when a block ends is written as a
+  literal in that block, so a block holds exactly the bytes its symbols cover.
 
 | level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
 |---|---|---|---|---|---|---|---|---|---|
 | `max_chain` | 4 | 8 | 32 | 16 | 32 | 128 | 256 | 1024 | 4096 |
 | `nice_length` | 8 | 16 | 32 | 16 | 32 | 128 | 128 | 258 | 258 |
-| positions inside a match inserted | if ≤ 4 | if ≤ 5 | if ≤ 6 | all | all | all | all | all | all |
+| `max_lazy` | 4 | 5 | 6 | 4 | 16 | 16 | 32 | 128 | 258 |
+| `good_length` | — | — | — | 4 | 8 | 8 | 8 | 32 | 32 |
+| matching | greedy | greedy | greedy | lazy | lazy | lazy | lazy | lazy | lazy |
 
-The numbers are zlib 1.2.12's `configuration_table` (`deflate.c:134`). zlib evaluates matches lazily at
-levels 4–9; this encoder does not.
+The numbers are zlib 1.2.12's `configuration_table` (`deflate.c:134`); the lazy rules are its
+`deflate_slow` (`deflate.c:1974`), and the block choice follows `trees.c`'s `_tr_flush_block`, except
+that ties prefer fixed over stored.
 
 The core is one function: 12,612 instructions on macos-aarch64 and linux-aarch64 (50,448 B, well inside
 AArch64's ±1 MiB conditional-branch range), 12,378 on linux-x86_64, 12,382 on windows-x86_64 and 12,895 on
@@ -351,41 +387,47 @@ linux-riscv64 (`mfb build --ncode` of a program calling all three encoders, 2026
 `OPT_LEVELS=1 ROUNDS=1 tools/compress-bench/run.sh target/release/mfb deflate1 deflate6 deflate9`,
 2026-09-14, macos-aarch64: the bench corpora at 16 MiB, `-O1`, the median of five in-process runs; MiB/s
 over the input size; size relative to Python zlib 1.2.12 raw DEFLATE at the same level. Every output
-decodes back to its input, and every 16 MiB / 4 MiB time ratio is 3.77–4.30.
+decodes back to its input, and every 16 MiB / 4 MiB time ratio is 3.92–4.05.
 
 | level | corpus | `compress` MiB/s | Python zlib MiB/s | size vs zlib |
 |---|---|---|---|---|
-| 1 | random | 8.0 | 58.8 | 1.054× |
-| 1 | text | 51.9 | 458.0 | 1.412× |
-| 1 | zero | 111.0 | 924.5 | 2.225× |
-| 6 | random | 8.0 | 55.5 | 1.054× |
-| 6 | text | 9.3 | 168.4 | 1.593× |
-| 6 | zero | 29.9 | 436.0 | 6.499× |
-| 9 | random | 8.2 | 56.0 | 1.054× |
-| 9 | text | 4.1 | 64.6 | 1.588× |
-| 9 | zero | 30.6 | 436.1 | 6.499× |
+| 1 | random | 7.1 | 58.2 | 1.000× |
+| 1 | text | 38.4 | 496.6 | 1.004× |
+| 1 | zero | 97.8 | 918.4 | 1.046× |
+| 6 | random | 7.2 | 56.3 | 1.000× |
+| 6 | text | 13.1 | 182.9 | 1.005× |
+| 6 | zero | 29.6 | 395.0 | 1.193× |
+| 9 | random | 7.2 | 55.8 | 1.000× |
+| 9 | text | 2.5 | 63.1 | 1.005× |
+| 9 | zero | 29.4 | 434.4 | 1.193× |
 
-The size gap follows from the fixed code. Pseudo-random bytes cost their literal codes — 8 or 9 bits a
-byte, 5.4% over the input — where zlib stores them. Each 258-byte match of the zero corpus costs 13 bits
-(an 8-bit length code and a 5-bit distance code), which is 105,993 B for 16 MiB; zlib writes 16,310 B.
+At every corpus size (1, 4 and 16 MiB), level 9's output is no larger than level 1's.
 Speed and size are not part of the contract; these are dated measurements.
 
 ### Verification
 
-- `tools/oracles/compress/run.sh` (offline): `encode-raw`, `encode-zlib` and `encode-gzip` compress twelve
+- `tools/oracles/compress/run.sh` (offline): `encode-raw`, `encode-zlib` and `encode-gzip` compress sixteen
   payloads at every level:
   - the 0-, 1- and 2-byte inputs;
   - 65,535, 65,536 and 65,537 bytes;
   - 100,000 zero bytes (258-byte matches);
   - a 32,768-byte block repeated three times (matches at distance 32,768);
   - 100,000 pseudo-random bytes;
-  - the three decoder corpora.
+  - the three decoder corpora;
+  - the four adversarial distributions below.
 
   Python's and Node's zlib must each decode every output back to its payload, with nothing after the
   end. The zlib and gzip header bytes must equal zlib's, and the host's `gzip -t` must accept every gzip
   member.
-- `tests/interop/rt_compress_interop.rs` (in `cargo test`): `flate2` decodes seven payloads in all three
-  formats at every level; each case compressed twice, and a second run of the program, give the same
+- `tests/interop/rt_compress_interop.rs` (in `cargo test`): `flate2` decodes eleven payloads, the four
+  adversarial distributions among them, in all three formats at every level; each case compressed twice, and a second run of the program, give the same
   bytes.
 - `tests/rt-behavior/compress/compress-encode-roundtrip-valid` prints every output's length and CRC-32 at
   every level and format, and decodes each back with this package's decoders.
+- The oracle's Python judge also re-decodes every produced stream bit by bit and fails the run if any
+  dynamic block is larger than the fixed or stored encoding of the same block. The payloads include
+  plan-137-E's adversarial distributions:
+  - Fibonacci symbol frequencies, whose optimal code is deeper than 15 bits;
+  - a de Bruijn sequence B(32, 3), which has no match at all;
+  - all-distinct 256-byte cycles;
+  - one literal repeated across several blocks.

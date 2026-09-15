@@ -8,20 +8,29 @@
 //!
 //! - **Level 0** writes stored blocks of at most 65,535 bytes; empty input is one final empty
 //!   stored block. Unchanged from plan-137-D.
-//! - **Levels 1–9** gather one block per 64 KiB of input: a block ends at the first symbol that
-//!   starts at or past 65,536 bytes after its first, so a match may run past the boundary. The block's
+//! - **Levels 1–9** gather one block per 65,535 bytes of input — the most one stored block holds, so a
+//!   block that ends up stored needs a single `LEN`/`NLEN` header: a block ends at the first symbol that
+//!   starts at or past 65,535 bytes after its first, so a match may run past the boundary. The block's
 //!   symbols are buffered (a literal as its byte, a match as `length * 65536 + distance`) with their
 //!   literal/length and distance frequencies and extra bits. The block is then written as the
 //!   cheapest of stored, fixed Huffman and dynamic Huffman by exact bit count (plan-137-E §4.2); ties
 //!   prefer fixed, then stored. A stored block longer than 65,535 bytes is written as several.
-//! - **Matching is greedy** over hash chains of the next three bytes. Each position is looked up
-//!   before it is inserted, so its own `prev` slot still links the position 32,768 bytes back and a
-//!   match at the full RFC distance of 32,768 is found. A chain is followed for at most the level's
-//!   `max_chain` candidates and stops at the first match of `nice_length` or longer. As zlib's
-//!   `deflate_fast` does at levels 1–3, the positions inside a match are inserted only when the
-//!   match is no longer than the level's `max_lazy` column (`max_insert_length`); levels 4–9 insert
-//!   every position. The per-level numbers are zlib 1.2.12's `configuration_table`, fetched and
-//!   pasted in plan-137-D §2.
+//! - **Matching** is over hash chains of the next three bytes. Each position is looked up before it
+//!   is inserted, so its own `prev` slot still links the position 32,768 bytes back and a match at
+//!   the full RFC distance of 32,768 is found. A chain is followed for at most the level's
+//!   `max_chain` candidates and stops at the first match of `nice_length` or longer. The per-level
+//!   numbers are zlib 1.2.12's `configuration_table`, fetched and pasted in plan-137-D §2.
+//! - **Levels 1–3 match greedily**, as zlib's `deflate_fast` does: a match is emitted where it is
+//!   found, and the positions inside it are inserted only when it is no longer than the level's
+//!   `max_lazy` column (`max_insert_length`).
+//! - **Levels 4–9 match lazily**, as zlib's `deflate_slow` does (`deflate.c` 1974–2081, fetched for
+//!   plan-137-E). The match found at a position is held back, and the next position is searched
+//!   too, but only while the held match is shorter than `max_lazy`, only for a longer match, and with
+//!   the chain budget quartered once the held match reaches `good_length`. A three-byte match more
+//!   than 4,096 bytes back (`TOO_FAR`) is dropped. If the next position does no better, the held
+//!   match is emitted and every position inside it inserted; otherwise the held position becomes a
+//!   literal. Unlike zlib, a byte still held when a block ends is emitted as a literal in that block,
+//!   so a block holds exactly the bytes its symbols cover.
 //!
 //! The output starts as `prefix` — a zlib or gzip header, or empty for raw DEFLATE — so a framing
 //! helper never copies the compressed data to put a header in front of it. Written by in-place
@@ -74,6 +83,9 @@ FUNC __compress_deflateCore(data AS List OF Byte, level AS Integer, prefix AS Li
   LET chains AS List OF Integer = [0, 4, 8, 32, 16, 32, 128, 256, 1024, 4096]
   LET nices AS List OF Integer = [0, 8, 16, 32, 16, 32, 128, 128, 258, 258]
   LET lazies AS List OF Integer = [0, 4, 5, 6, 4, 16, 16, 32, 128, 258]
+  LET goods AS List OF Integer = [0, 4, 4, 4, 4, 8, 8, 8, 32, 32]
+  LET maxLazy AS Integer = collections::get(lazies, level)
+  LET good AS Integer = collections::get(goods, level)
   LET maxChain AS Integer = collections::get(chains, level)
   LET nice AS Integer = collections::get(nices, level)
   MUT maxInsert AS Integer = collections::get(lazies, level)
@@ -102,6 +114,12 @@ FUNC __compress_deflateCore(data AS List OF Byte, level AS Integer, prefix AS Li
   ' --- bit writer: bitCount bits pending in bitBuf, least significant first ---
   MUT bitBuf AS Integer = 0
   MUT bitCount AS Integer = 0
+  ' --- lazy matching (levels 4-9): the match found at pos - 1, not yet emitted ---
+  MUT matchLength AS Integer = 2
+  MUT matchDist AS Integer = 0
+  MUT prevLength AS Integer = 2
+  MUT prevDist AS Integer = 0
+  MUT matchAvailable AS Boolean = FALSE
   ' --- the current block ---
   MUT symbols AS List OF Integer = []
   MUT litFreq AS List OF Integer = []
@@ -109,61 +127,146 @@ FUNC __compress_deflateCore(data AS List OF Byte, level AS Integer, prefix AS Li
 
   WHILE final = FALSE
     LET blockStart AS Integer = pos
-    LET blockEnd AS Integer = pos + 65536
+    LET blockEnd AS Integer = pos + 65535
     final = blockEnd >= n
     symbols = []
     litFreq = __compress_zeroList(286)
     distFreq = __compress_zeroList(30)
     MUT extraBits AS Integer = 0
-    WHILE pos < blockEnd AND pos < n
-      MUT bestLen AS Integer = 0
-      MUT bestDist AS Integer = 0
-      MUT maxLen AS Integer = n - pos
-      IF maxLen > 258 THEN
-        maxLen = 258
-      END IF
-      IF maxLen >= 3 THEN
-        LET h AS Integer = bits::band(bits::bxor(bits::bxor(bits::sl(toInt(collections::get(data, pos)), 10), bits::sl(toInt(collections::get(data, pos + 1)), 5)), toInt(collections::get(data, pos + 2))), 32767)
-        LET limit AS Integer = pos - 32768
-        MUT cand AS Integer = collections::get(head, h)
-        MUT chain AS Integer = maxChain
-        bestLen = 2
-        WHILE cand >= limit AND cand >= 0 AND chain > 0
-          IF collections::get(data, cand + bestLen) = collections::get(data, pos + bestLen) THEN
-            MUT k AS Integer = 0
-            WHILE k < maxLen AND collections::get(data, cand + k) = collections::get(data, pos + k)
-              k = k + 1
+    IF level <= 3 THEN
+      WHILE pos < blockEnd AND pos < n
+        MUT bestLen AS Integer = 0
+        MUT bestDist AS Integer = 0
+        MUT maxLen AS Integer = n - pos
+        IF maxLen > 258 THEN
+          maxLen = 258
+        END IF
+        IF maxLen >= 3 THEN
+          LET h AS Integer = bits::band(bits::bxor(bits::bxor(bits::sl(toInt(collections::get(data, pos)), 10), bits::sl(toInt(collections::get(data, pos + 1)), 5)), toInt(collections::get(data, pos + 2))), 32767)
+          LET limit AS Integer = pos - 32768
+          MUT cand AS Integer = collections::get(head, h)
+          MUT chain AS Integer = maxChain
+          bestLen = 2
+          WHILE cand >= limit AND cand >= 0 AND chain > 0
+            IF collections::get(data, cand + bestLen) = collections::get(data, pos + bestLen) THEN
+              MUT k AS Integer = 0
+              WHILE k < maxLen AND collections::get(data, cand + k) = collections::get(data, pos + k)
+                k = k + 1
+              END WHILE
+              IF k > bestLen THEN
+                bestLen = k
+                bestDist = pos - cand
+                IF k >= nice OR k >= maxLen THEN
+                  EXIT WHILE
+                END IF
+              END IF
+            END IF
+            cand = collections::get(prev, bits::band(cand, 32767))
+            chain = chain - 1
+          END WHILE
+          prev = collections::set(prev, bits::band(pos, 32767), collections::get(head, h))
+          head = collections::set(head, h, pos)
+        END IF
+        IF bestLen >= 3 THEN
+          symbols = collections::append(symbols, bestLen * 65536 + bestDist)
+          LET li AS Integer = collections::get(__COMPRESS_LEN_SYM, bestLen)
+          litFreq = collections::set(litFreq, 257 + li, collections::get(litFreq, 257 + li) + 1)
+          LET d1 AS Integer = bestDist - 1
+          MUT dsym AS Integer = 0
+          IF d1 < 256 THEN
+            dsym = collections::get(__COMPRESS_DIST_CODE, d1)
+          ELSE
+            dsym = collections::get(__COMPRESS_DIST_CODE, 256 + bits::sr(d1, 7))
+          END IF
+          distFreq = collections::set(distFreq, dsym, collections::get(distFreq, dsym) + 1)
+          extraBits = extraBits + collections::get(__COMPRESS_LEN_EXTRA, li) + collections::get(__COMPRESS_DIST_EXTRA, dsym)
+          IF bestLen <= maxInsert THEN
+            MUT q AS Integer = pos + 1
+            LET qEnd AS Integer = pos + bestLen
+            WHILE q < qEnd
+              IF q + 2 < n THEN
+                LET hq AS Integer = bits::band(bits::bxor(bits::bxor(bits::sl(toInt(collections::get(data, q)), 10), bits::sl(toInt(collections::get(data, q + 1)), 5)), toInt(collections::get(data, q + 2))), 32767)
+                prev = collections::set(prev, bits::band(q, 32767), collections::get(head, hq))
+                head = collections::set(head, hq, q)
+              END IF
+              q = q + 1
             END WHILE
-            IF k > bestLen THEN
-              bestLen = k
-              bestDist = pos - cand
-              IF k >= nice OR k >= maxLen THEN
-                EXIT WHILE
+          END IF
+          pos = pos + bestLen
+        ELSE
+          LET literal AS Integer = toInt(collections::get(data, pos))
+          symbols = collections::append(symbols, literal)
+          litFreq = collections::set(litFreq, literal, collections::get(litFreq, literal) + 1)
+          pos = pos + 1
+        END IF
+      END WHILE
+    ELSE
+      WHILE pos < blockEnd AND pos < n
+        MUT maxLen AS Integer = n - pos
+        IF maxLen > 258 THEN
+          maxLen = 258
+        END IF
+        prevLength = matchLength
+        prevDist = matchDist
+        matchLength = 2
+        IF maxLen >= 3 THEN
+          LET h AS Integer = bits::band(bits::bxor(bits::bxor(bits::sl(toInt(collections::get(data, pos)), 10), bits::sl(toInt(collections::get(data, pos + 1)), 5)), toInt(collections::get(data, pos + 2))), 32767)
+          ' longest_match: only a match longer than the one at pos - 1 counts.
+          IF prevLength < maxLazy AND prevLength < maxLen THEN
+            LET limit AS Integer = pos - 32768
+            MUT cand AS Integer = collections::get(head, h)
+            MUT chain AS Integer = maxChain
+            IF prevLength >= good THEN
+              chain = chain / 4
+            END IF
+            MUT bestLen AS Integer = prevLength
+            MUT bestDist AS Integer = 0
+            WHILE cand >= limit AND cand >= 0 AND chain > 0
+              IF collections::get(data, cand + bestLen) = collections::get(data, pos + bestLen) THEN
+                MUT k AS Integer = 0
+                WHILE k < maxLen AND collections::get(data, cand + k) = collections::get(data, pos + k)
+                  k = k + 1
+                END WHILE
+                IF k > bestLen THEN
+                  bestLen = k
+                  bestDist = pos - cand
+                  IF k >= nice OR k >= maxLen THEN
+                    EXIT WHILE
+                  END IF
+                END IF
+              END IF
+              cand = collections::get(prev, bits::band(cand, 32767))
+              chain = chain - 1
+            END WHILE
+            IF bestDist > 0 THEN
+              matchLength = bestLen
+              matchDist = bestDist
+              ' TOO_FAR: a three-byte match more than 4096 bytes back costs more than its literals.
+              IF matchLength = 3 AND matchDist > 4096 THEN
+                matchLength = 2
               END IF
             END IF
           END IF
-          cand = collections::get(prev, bits::band(cand, 32767))
-          chain = chain - 1
-        END WHILE
-        prev = collections::set(prev, bits::band(pos, 32767), collections::get(head, h))
-        head = collections::set(head, h, pos)
-      END IF
-      IF bestLen >= 3 THEN
-        symbols = collections::append(symbols, bestLen * 65536 + bestDist)
-        LET li AS Integer = collections::get(__COMPRESS_LEN_SYM, bestLen)
-        litFreq = collections::set(litFreq, 257 + li, collections::get(litFreq, 257 + li) + 1)
-        LET d1 AS Integer = bestDist - 1
-        MUT dsym AS Integer = 0
-        IF d1 < 256 THEN
-          dsym = collections::get(__COMPRESS_DIST_CODE, d1)
-        ELSE
-          dsym = collections::get(__COMPRESS_DIST_CODE, 256 + bits::sr(d1, 7))
+          prev = collections::set(prev, bits::band(pos, 32767), collections::get(head, h))
+          head = collections::set(head, h, pos)
         END IF
-        distFreq = collections::set(distFreq, dsym, collections::get(distFreq, dsym) + 1)
-        extraBits = extraBits + collections::get(__COMPRESS_LEN_EXTRA, li) + collections::get(__COMPRESS_DIST_EXTRA, dsym)
-        IF bestLen <= maxInsert THEN
+        IF prevLength >= 3 AND matchLength <= prevLength THEN
+          ' The match at pos - 1 is no worse than this one: emit it.
+          symbols = collections::append(symbols, prevLength * 65536 + prevDist)
+          LET li AS Integer = collections::get(__COMPRESS_LEN_SYM, prevLength)
+          litFreq = collections::set(litFreq, 257 + li, collections::get(litFreq, 257 + li) + 1)
+          LET d1 AS Integer = prevDist - 1
+          MUT dsym AS Integer = 0
+          IF d1 < 256 THEN
+            dsym = collections::get(__COMPRESS_DIST_CODE, d1)
+          ELSE
+            dsym = collections::get(__COMPRESS_DIST_CODE, 256 + bits::sr(d1, 7))
+          END IF
+          distFreq = collections::set(distFreq, dsym, collections::get(distFreq, dsym) + 1)
+          extraBits = extraBits + collections::get(__COMPRESS_LEN_EXTRA, li) + collections::get(__COMPRESS_DIST_EXTRA, dsym)
+          ' pos - 1 and pos are already in the chains; insert the rest of the match.
           MUT q AS Integer = pos + 1
-          LET qEnd AS Integer = pos + bestLen
+          LET qEnd AS Integer = pos - 1 + prevLength
           WHILE q < qEnd
             IF q + 2 < n THEN
               LET hq AS Integer = bits::band(bits::bxor(bits::bxor(bits::sl(toInt(collections::get(data, q)), 10), bits::sl(toInt(collections::get(data, q + 1)), 5)), toInt(collections::get(data, q + 2))), 32767)
@@ -172,15 +275,29 @@ FUNC __compress_deflateCore(data AS List OF Byte, level AS Integer, prefix AS Li
             END IF
             q = q + 1
           END WHILE
+          pos = qEnd
+          matchAvailable = FALSE
+          matchLength = 2
+        ELSEIF matchAvailable THEN
+          ' No match at pos - 1, or a longer one here: pos - 1 is a literal.
+          LET literal AS Integer = toInt(collections::get(data, pos - 1))
+          symbols = collections::append(symbols, literal)
+          litFreq = collections::set(litFreq, literal, collections::get(litFreq, literal) + 1)
+          pos = pos + 1
+        ELSE
+          matchAvailable = TRUE
+          pos = pos + 1
         END IF
-        pos = pos + bestLen
-      ELSE
-        LET literal AS Integer = toInt(collections::get(data, pos))
+      END WHILE
+      ' A block holds exactly the bytes its symbols cover, so the byte still pending is a literal here.
+      IF matchAvailable THEN
+        LET literal AS Integer = toInt(collections::get(data, pos - 1))
         symbols = collections::append(symbols, literal)
         litFreq = collections::set(litFreq, literal, collections::get(litFreq, literal) + 1)
-        pos = pos + 1
+        matchAvailable = FALSE
+        matchLength = 2
       END IF
-    END WHILE
+    END IF
     ' End of block.
     litFreq = collections::set(litFreq, 256, 1)
 

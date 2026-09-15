@@ -163,21 +163,49 @@ Acceptance: zlib decodes everything; the size invariant holds on every block.
   Check: `tools/oracles/compress/run.sh target/release/mfb encode-raw encode-zlib encode-gzip` → exit 0 (est. 15 min).
   (2026-09-14: exit 0, 480 cases, 0 failures, no `BLOCKCOST`; 126 dynamic blocks per mode were audited against their
   fixed and stored costs.)
-Commit: —
+Commit: 7cce7cce0
 
 ### Phase 3 — lazy matching + records + docs
 
-- [ ] Lazy finder per §4.3 for the slow levels.
-- [ ] Bench: ratio vs zlib and MiB/s at levels 1, 6, 9 recorded in Corrections and in
+- [x] Lazy finder per §4.3 for the slow levels.
+      (2026-09-14, `helper_deflate_core.rs`: levels 4–9 follow zlib 1.2.12's `deflate_slow` (`deflate.c` 1974–2081, fetched,
+      sha256 `824ff399…0bce`):
+      - the held match at `pos - 1` and a search at `pos` only while it is shorter than `max_lazy`, and only for a longer
+        match;
+      - the chain budget quartered at `good_length`;
+      - `TOO_FAR` 4096 for three-byte matches;
+      - emit-held-match-and-insert-its-positions, or held-literal.
+
+      Levels 1–3 keep D's greedy finder. A byte still held at a block end is flushed as a literal in that block
+      (Corrections).
+      - `run.sh target/release/mfb encode-raw encode-zlib encode-gzip` → `480 case(s), 0 failure(s)`, no `BLOCKCOST`.
+      - The same job through all three framings gives byte-identical DEFLATE payloads (0 of 160 differ), and two runs
+        are identical (0 differ).)
+- [x] Bench: ratio vs zlib and MiB/s at levels 1, 6, 9 recorded in Corrections and in
       `20_compress.md` as dated measurements.
-- [ ] `tests/interop/rt_compress_interop.rs`: the level sweep re-run (sizes change, validity must
+      (Corrections, "Phase 3 bench", and the spec's "Measured throughput and size".)
+- [x] `tests/interop/rt_compress_interop.rs`: the level sweep re-run (sizes change, validity must
       not); add the adversarial distributions.
-- [ ] Byte-identity program regenerated; man `desc` of the three encoders states what `level`
+      (`encode_payloads` gains Fibonacci frequencies, a de Bruijn B(32,3), 256-byte cycles and 200,000 × `a`:
+      11 payloads × 3 formats × 10 levels = 330 cases. `cargo test --test rt_compress_interop` → `ok. 6 passed; 0 failed`
+      on the Phase 2 core and again on the lazy core. Re-run after the 65,535-byte block fix → `ok. 6 passed; 0 failed`.)
+- [x] Byte-identity program regenerated; man `desc` of the three encoders states what `level`
       trades (effort vs size), no internals; spec encoder section updated.
+      (Byte-identity: `scripts/sync-goldens.sh target/release/mfb byte-identity/compress compress-encode-roundtrip-valid compress-gzip-encode-level-invalid` → `synced 9 golden file(s) across 3 test(s)`; the five `.ncodesum` rebuilt by `/tmp/p137d-ncodesum.py` as the gate's pass 2 builds them; `bash scripts/artifact-gate.sh target/release/mfb compress` → `7 golden(s) checked, 0 diff(s)`. the same sync regenerated the two encoder rt fixtures, and only their `.ir` changed,
+      because the injected helper source did. `git diff --stat` shows no `build.log` change. On the roundtrip fixture's
+      2,672-byte input, every level's output has the same lengths and CRC-32s as under plan-137-D, so the bytes are
+      identical; `scripts/test-accept.sh target/release/mfb /tmp/p137e 'compress-*'` → `acceptance tests passed (10 test(s) ran)`, and the roundtrip `build.log` still prints `TRUE` for every format and level (`grep -c FALSE` → 0).
+      Man: the three `desc`s already say "`level` trades time for size … a higher level takes longer and usually gives
+      a smaller result"; the dynamic blocks keep that true and name no internals. `scripts/man-run-examples.sh compress --run` → `examples: 12 built: 12 ran: 12 not run: 0 failed: 0`.
+      Spec: `20_compress.md` "Blocks" (per-block choice, dynamic trees, package-merge, padding, header rules), "Matching"
+      (greedy 1–3, lazy 4–9, `max_lazy`/`good_length` rows) and "Measured throughput and size", plus the `spec.md`
+      bullet. `cargo test -p mfb --bins citations_resolve` → `1 passed`.)
 
 Acceptance: validity everywhere; level 9 output ≤ level 1 output on every corpus file (recorded;
 a violation is investigated and explained in Corrections, not hidden).
   Check: `cargo test --test rt_compress_interop`; `tools/compress-bench/run.sh target/release/mfb` (est. 15 min).
+  (2026-09-14: interop `ok. 6 passed`; bench `OPT_LEVELS=1 ROUNDS=1 … deflate1 deflate6 deflate9`, exit 0, every row `ok`.
+  Level 9 output ≤ level 1 output on every corpus file: yes (random 1 MiB: level 9 1,048,659 B, level 1 1,048,659 B; random 4 MiB: level 9 4,194,629 B, level 1 4,194,634 B; random 16 MiB: level 9 16,778,501 B, level 1 16,778,511 B; text 1 MiB: level 9 79,099 B, level 1 94,045 B; text 4 MiB: level 9 316,167 B, level 1 376,304 B; text 16 MiB: level 9 1,264,348 B, level 1 1,505,437 B; zero 1 MiB: level 9 1,220 B, level 1 4,792 B; zero 4 MiB: level 9 4,867 B, level 1 19,155 B; zero 16 MiB: level 9 19,452 B, level 1 76,606 B)..)
 Commit: —
 
 ### Phase 4 — whole-feature validation (plan-137 final gate, runs once)
@@ -253,6 +281,52 @@ Commit: —
   TO TYPE …"). The injected helper failed with `MFB_PARSE_UNEXPECTED_STATEMENT` at `<builtin-compress_package_merge>`
   lines 126–134, and the oracle build stopped with exit 2. It is renamed `packLevel`. A scan of every new helper body
   for bindings named after keywords then found none.
+- **Phase 3 bench** (2026-09-14, macos-aarch64,
+  `OPT_LEVELS=1 ROUNDS=1 tools/compress-bench/run.sh target/release/mfb deflate1 deflate6 deflate9`). These are the
+  settings of plan-137-D's baseline, so each row compares directly with it: the plan names no optimization level or
+  round count.
+
+  | level | corpus (16 MiB) | MiB/s | D MiB/s | Python MiB/s | size vs zlib | D size vs zlib |
+  |---|---|---|---|---|---|---|
+  | 1 | random | 7.1 | 8.0 | 58.2 | 1.000× | 1.054× |
+  | 1 | text | 38.4 | 51.9 | 496.6 | 1.004× | 1.412× |
+  | 1 | zero | 97.8 | 111.0 | 918.4 | 1.046× | 2.225× |
+  | 6 | random | 7.2 | 8.0 | 56.3 | 1.000× | 1.054× |
+  | 6 | text | 13.1 | 9.3 | 182.9 | 1.005× | 1.593× |
+  | 6 | zero | 29.6 | 29.9 | 395.0 | 1.193× | 6.499× |
+  | 9 | random | 7.2 | 8.2 | 55.8 | 1.000× | 1.054× |
+  | 9 | text | 2.5 | 4.1 | 63.1 | 1.005× | 1.588× |
+  | 9 | zero | 29.4 | 30.6 | 434.4 | 1.193× | 6.499× |
+
+  Every row checked `ok`; the 16/4 MiB time ratios are 3.92–4.05.
+- **The audit lines differ between modes because each mode's payloads are seeded differently** (2026-09-14). The lazy
+  run printed a longest distance code of 12 bits for `encode-raw` and 11 for `encode-zlib`/`encode-gzip`, with 2/2/3
+  cases hitting 15 bits, although the three formats wrap one core. Localized:
+  - `gen.py` seeds `random.Random(f"{SEED}-{mode}")`, so the random and shuffled payloads differ per mode;
+  - the same `encode-raw` job pushed through all three framings gives byte-identical DEFLATE payloads (0 of 160
+    differ), and two runs are identical (0 differ), by `/tmp/p137e-framecmp.py`;
+  - the judge's own `audit_blocks` over those outputs gives the same line for every framing: 126 dynamic blocks, 12-bit
+    longest distance, 15-bit codes in cases 113 and 116 (`/tmp/p137e-auditcmp.py`).
+
+  There is no encoder or audit defect.
+- **Blocks were one byte too long to store in one piece; they are now 65,535 bytes of input** (2026-09-14). The first
+  Phase 3 bench failed the acceptance clause "level 9 output ≤ level 1 output on every corpus file" on random 4 MiB:
+  level 9 wrote 4,194,944 B, level 1 4,194,939 B. Localized with `/tmp/p137e-blocks.py`, which encodes that corpus at
+  both levels and walks the blocks:
+  - level 1 wrote 127 stored blocks, 63 of 65,535 bytes, 62 of 1 byte, one of 3 and one of 65,534;
+  - level 9 wrote 128 stored blocks, 64 of 65,535 bytes and 64 of 1 byte.
+
+  A block gathered from 65,536 input bytes cannot be one stored block (`LEN` is at most 65,535), so every
+  incompressible block paid a second 5-byte header for its last byte. The two levels differed only in where a match
+  moved a block end. Blocks now end at 65,535 input bytes (`helper_deflate_core.rs`, `20_compress.md`). This revises
+  plan-137-D's recorded 64 KiB choice. After the fix: the same `/tmp/p137e-blocks.py` gives level 1 4,194,634 B in 66 stored blocks (64 × 65,535, one of 1 and one of 63,
+  where a match ran past a block end) and level 9 4,194,629 B in 65 (64 × 65,535 and a final 64). Level 9 is now the
+  smaller, and both levels save about 310 B on the 4 MiB corpus. Across the 480 encode cases the oracle still agrees on
+  every one, and the per-mode audit counts 79 stored, 45 fixed and 126 dynamic blocks, where it counted 106 stored and 36 fixed.
+- **A held byte is flushed at a block end** (not in zlib). zlib's `deflate_slow` keeps `match_available` across
+  `FLUSH_BLOCK`. Here a block is priced as stored from exactly the bytes `[blockStart, pos)`, so its symbols must cover
+  exactly those bytes. The byte held at `pos - 1` when the block ends is therefore written as a literal in that block,
+  and the next block starts with no held match. At most one lazy decision per 64 KiB block differs from zlib's.
 - **The 15-bit limit binds in one case per mode**, a single level of the Fibonacci payload (audit line above). At the
   other levels, matches take enough of the most frequent symbols out of the literal stream that the optimal code fits
   in 15 bits. The oracle shows the limited code is valid where it binds.

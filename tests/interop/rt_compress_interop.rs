@@ -34,8 +34,10 @@
 //! | output past `maxBytes` (`ErrTooLarge`) | `compress-inflate-too-large-invalid`; `tests/runtime/rt_compress_bounds.rs` |
 //! | negative `maxBytes` (`ErrInvalidArgument`) | `compress-inflate-max-bytes-negative-invalid` |
 //!
-//! **Encoders.** `compress::deflate`, `zlibEncode` and `gzipEncode` compress seven payloads (the
-//! plan-137-D §1 edge sizes, a long zero run and seeded text) at every level. `flate2` must decode
+//! **Encoders.** `compress::deflate`, `zlibEncode` and `gzipEncode` compress eleven payloads (the
+//! plan-137-D §1 edge sizes, a long zero run, seeded text, and plan-137-E's adversarial
+//! distributions: Fibonacci frequencies, no matches, 256-byte cycles, one literal across blocks) at
+//! every level. `flate2` must decode
 //! every output back to its payload. Each case is compressed twice in one run and the two outputs
 //! must match, and a second run of the program must write byte-identical output.
 //!
@@ -517,8 +519,8 @@ fn decided_behaviours_hold() {
 
 use flate2::read::DeflateDecoder;
 
-/// raw / zlib / gzip x levels 0..=9 x the seven payloads of `encode_payloads`.
-const EXPECTED_ENCODED_CASES: usize = 3 * 10 * 7;
+/// raw / zlib / gzip x levels 0..=9 x the eleven payloads of `encode_payloads`.
+const EXPECTED_ENCODED_CASES: usize = 3 * 10 * 11;
 
 /// Reads the job named by `MFB_COMPRESS_JOB` — a `(length, format * 16 + level)` pair per case —
 /// compresses each case twice, prints `case <i> <TRUE when both calls gave the same bytes>`, and
@@ -594,8 +596,33 @@ SUB main()
 END SUB
 "#;
 
+/// The de Bruijn sequence B(k, n): every length-n string over k symbols exactly once (cyclically).
+fn de_bruijn(k: usize, n: usize) -> Vec<usize> {
+    fn db(t: usize, p: usize, k: usize, n: usize, a: &mut Vec<usize>, seq: &mut Vec<usize>) {
+        if t > n {
+            if n % p == 0 {
+                seq.extend_from_slice(&a[1..=p]);
+            }
+        } else {
+            a[t] = a[t - p];
+            db(t + 1, p, k, n, a, seq);
+            for j in a[t - p] + 1..k {
+                a[t] = j;
+                db(t + 1, t, k, n, a, seq);
+            }
+        }
+    }
+    let mut a = vec![0; k * n];
+    let mut seq = Vec::new();
+    db(1, 1, k, n, &mut a, &mut seq);
+    seq
+}
+
 /// plan-137-D §1's edge sizes (0, 1, 2, and around the 65,535-byte stored-block limit), a run of
-/// zeros long enough for many 258-byte matches, and seeded text.
+/// zeros long enough for many 258-byte matches, seeded text, and plan-137-E's adversarial
+/// distributions: Fibonacci symbol frequencies (an optimal code for them is deeper than 15 bits),
+/// a de Bruijn B(32, 3) with no 3-byte repeat (no match at all), all-distinct 256-byte cycles, and
+/// one literal repeated across several 64 KiB blocks.
 fn encode_payloads() -> Vec<Vec<u8>> {
     let mut rng = Lcg(0x137d);
     let mut random = |n: usize| (0..n).map(|_| rng.next() as u8).collect::<Vec<u8>>();
@@ -604,7 +631,35 @@ fn encode_payloads() -> Vec<Vec<u8>> {
     let text: Vec<u8> = (0..2_000)
         .flat_map(|i| format!("line {i} of the interop corpus, bucket {}\n", i % 13).into_bytes())
         .collect();
-    vec![Vec::new(), vec![b'a'], b"ab".to_vec(), below, above, vec![0u8; 70_000], text]
+    let mut fib = vec![1usize, 1];
+    while fib.len() < 20 {
+        let k = fib.len();
+        fib.push(fib[k - 1] + fib[k - 2]);
+    }
+    let mut fibonacci: Vec<u8> = fib
+        .iter()
+        .enumerate()
+        .flat_map(|(symbol, &count)| std::iter::repeat(b'a' + symbol as u8).take(count))
+        .collect();
+    for i in (1..fibonacci.len()).rev() {
+        let j = (rng.next() as usize) % (i + 1);
+        fibonacci.swap(i, j);
+    }
+    let no_matches: Vec<u8> = de_bruijn(32, 3).into_iter().map(|s| 65 + s as u8).collect();
+    let cycles: Vec<u8> = (0..=255u8).cycle().take(16_384).collect();
+    vec![
+        Vec::new(),
+        vec![b'a'],
+        b"ab".to_vec(),
+        below,
+        above,
+        vec![0u8; 70_000],
+        text,
+        fibonacci,
+        no_matches,
+        cycles,
+        vec![b'a'; 200_000],
+    ]
 }
 
 /// Split a job file into its cases' bytes and `aux` values.
