@@ -443,7 +443,7 @@ Acceptance: character and scanner rules hold at every range boundary.
   Check: `target/release/mfb test packages/xml` → all cases pass (est. 1 min).
   MET: `./target/release/mfb test packages/xml` → `Tests: 29  Pass: 29  Fail: 0`, exit 0 (11 from
   Phase 2, 18 added here).
-Commit: —
+Commit: `0f29fc90f`
 
 ### Phase 4 — reader
 
@@ -490,7 +490,8 @@ Acceptance: limits fire exactly at the boundary, and the real reader meets the b
   MET: `./target/release/mfb test packages/xml` → `Tests: 110  Pass: 110  Fail: 0`, exit 0; every one
   of the 9 consumer runs above is ≤ 0.45 s against the 3.00 s budget — 6.7× inside it on the slowest
   shape. The node counts confirm each shape really built 100k nodes.
-Commit: —
+Commit: `b2f376d79` (the coverage follow-up, which added 4 more cases and deleted three dead
+  branches, is the commit after it)
 
 ## Validation Plan
 
@@ -498,6 +499,21 @@ Commit: —
   `test_limits.mfb` — accept and refuse cases for every grammar row.
 - Coverage check: `target/release/mfb test --coverage packages/xml` → open `coverage.html`; every
   refusal branch in `read.mfb` is hit.
+  DONE: `Tests: 114  Pass: 114  Fail: 0`; per-file slot coverage (from `coverage.covmap.json` paired
+  with `coverage.covdata`) `chars.mfb` 113/113, `core.mfb` 4/4, `lib.mfb` 28/28, `scan.mfb` 89/89,
+  `read.mfb` 384/389. The five uncovered slots in `read.mfb` (lines 184, 226, 337, 547, 548) are the
+  `RETURN`s that follow a `failAt` — unreachable by construction, and present only because the
+  declared return type demands a value after a statement that always fails.
+  The first run found 20 uncovered slots. Nine were genuinely unhit refusal branches, each now with a
+  case: the declaration's `?` not followed by `>`, a character that cannot begin an attribute name, a
+  PI target not followed by whitespace, an end tag not finishing with `>`, a DOCTYPE *inside* an
+  element, `encoding` after `standalone`, the text flush before a PI, the `xml`-prefix arm of the
+  expanded-name check, and lowercase hexadecimal digits in a character reference. Three were dead
+  code and were deleted rather than tested: the `--->` comment branch (the `--` rule always fires
+  first, since the comment's trailing `-` and the terminator's first `-` form a `--` before the
+  close), `positionText`'s `size > 0` else-arm (a sequence that does not decode still reports size 1),
+  and `findFrom`'s empty-needle guard (no caller passes one). `isName`'s decode-failure guard went the
+  same way: its argument is a `String`, so its bytes are valid UTF-8 by construction.
 - Runtime proof: the Phase 5 `/tmp` consumer parsing the 100k shapes.
 - Doc sync: none in A (docs land in B).
 - Final gate: runs once at the end of plan-138-E.

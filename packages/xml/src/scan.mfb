@@ -84,11 +84,9 @@ PUBLIC FUNC positionText(bytes AS List OF Byte, offset AS Integer) AS String
     ELSE
       LET sc AS Decoded = decodeAt(bytes, i)
       column = column + 1
-      IF sc.size > 0 THEN
-        i = i + sc.size
-      ELSE
-        i = i + 1
-      END IF
+      ' A sequence that does not decode still reports a size of 1, so this
+      ' always advances and the loop always terminates.
+      i = i + sc.size
     END IF
   LOOP
   RETURN "line " & toString(line) & ", column " & toString(column)
@@ -159,7 +157,6 @@ PUBLIC FUNC findFrom(bytes AS List OF Byte, needle AS String, from AS Integer) A
   LET want AS List OF Byte = strings::toBytes(needle)
   LET n AS Integer = len(want)
   LET total AS Integer = len(bytes)
-  IF n = 0 THEN RETURN from
   LET firstByte AS Integer = toInt(collections::get(want, 0))
   MUT i AS Integer = from
   DO WHILE i + n <= total

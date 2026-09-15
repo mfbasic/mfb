@@ -162,6 +162,8 @@ TESTING
       expectString(treeOf("<a>&#65;&#x42;&#x43;</a>"), "e(a[t(ABC)])")
       ' Above the BMP: U+10348.
       expectString(treeOf("<a>&#x10348;</a>"), "e(a[t(𐍈)])")
+      ' Hexadecimal digits are accepted in either case.
+      expectString(treeOf("<a>&#x6a;&#x6A;&#xe9;&#xE9;</a>"), "e(a[t(jjéé)])")
     END TCASE
 
     TCASE "a lone ] or ]] is ordinary character data"
@@ -205,6 +207,8 @@ TESTING
       expectString(treeOf("<a><?target?></a>"), "e(a[p(target|)])")
       ' The whitespace after the target is a separator, not data.
       expectString(treeOf("<a><?target   x  ?></a>"), "e(a[p(target|x  )])")
+      ' Text before a PI is flushed as its own node, in order.
+      expectString(treeOf("<a>x<?p d?></a>"), "e(a[t(x),p(p|d)])")
     END TCASE
 
     TCASE "comments and PIs are allowed before and after the root element"
@@ -237,6 +241,8 @@ TESTING
     TCASE "the xml prefix is bound everywhere without a declaration"
       expectString(treeOf("<a xml:lang=\"en\"/>"), "e(a{xml:lang=en}[])")
       expectString(treeOf("<a xml:space=\"preserve\"/>"), "e(a{xml:space=preserve}[])")
+      ' Beside another prefixed attribute: different URIs, so no collision.
+      expectString(treeOf("<a xmlns:p=\"urn:x\" p:lang=\"1\" xml:lang=\"en\"/>"), "e(a{xmlns:p=urn:x,p:lang=1,xml:lang=en}[])")
     END TCASE
 
     TCASE "the same prefix may be rebound on an inner element"
@@ -245,6 +251,20 @@ TESTING
 
     TCASE "two attributes with the same local name but different URIs are fine"
       expectString(treeOf("<a xmlns:p=\"urn:x\" xmlns:q=\"urn:y\" p:id=\"1\" q:id=\"2\"/>"), "e(a{xmlns:p=urn:x,xmlns:q=urn:y,p:id=1,q:id=2}[])")
+    END TCASE
+  END TGROUP
+
+  TGROUP "name splitting"
+    TCASE "an unprefixed name has no prefix and is its own local part"
+      expectString(prefixOf("item"), "")
+      expectString(localOf("item"), "item")
+    END TCASE
+
+    TCASE "a prefixed name splits at the colon"
+      expectString(prefixOf("svg:rect"), "svg")
+      expectString(localOf("svg:rect"), "rect")
+      expectString(prefixOf("xmlns:p"), "xmlns")
+      expectString(localOf("xmlns:p"), "p")
     END TCASE
   END TGROUP
 

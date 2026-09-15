@@ -85,6 +85,19 @@ TESTING
       expectInteger(decodedCode([240, 144, 141]), -1)
       expectInteger(decodedCode([128]), -1)
       expectInteger(decodedCode([191]), -1)
+      ' A second, third or fourth byte that is not a continuation, at each
+      ' sequence length.
+      expectInteger(decodedCode([226, 65, 172]), -1)
+      expectInteger(decodedCode([226, 130, 65]), -1)
+      expectInteger(decodedCode([240, 65, 141, 136]), -1)
+      expectInteger(decodedCode([240, 144, 65, 136]), -1)
+      expectInteger(decodedCode([240, 144, 141, 65]), -1)
+    END TCASE
+
+    TCASE "decoding past the end of the input reports no scalar"
+      LET empty AS List OF Byte = []
+      expectInteger(decodeAt(empty, 0).code, -1)
+      expectInteger(decodeAt(strings::toBytes("ab"), 5).code, -1)
     END TCASE
   END TGROUP
 
@@ -283,6 +296,9 @@ TESTING
       ' A name may not start here, so the offset does not advance.
       LET digits AS List OF Byte = strings::toBytes("1bad")
       expectInteger(scanName(digits, 0, len(digits)), 0)
+      ' Nor at the very end of the input.
+      LET ab AS List OF Byte = strings::toBytes("ab")
+      expectInteger(scanName(ab, 2, 2), 2)
     END TCASE
   END TGROUP
 END TESTING

@@ -150,8 +150,10 @@ PUBLIC FUNC isName(s AS String) AS Boolean
   MUT i AS Integer = 0
   MUT first AS Boolean = TRUE
   DO WHILE i < total
+    ' No decode check here: `s` is a String, so its bytes are valid UTF-8 by
+    ' construction and `decodeAt` cannot fail on them. The malformed-input
+    ' refusals live in `requireScalar`, which reads bytes the caller supplied.
     LET sc AS Decoded = decodeAt(bytes, i)
-    IF sc.code < 0 THEN RETURN FALSE
     IF first THEN
       IF NOT isNameStartChar(sc.code) THEN RETURN FALSE
       first = FALSE

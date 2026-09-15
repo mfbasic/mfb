@@ -38,6 +38,10 @@ TESTING
       expectTrap(parse("<?xml version=\"1.0\" standalone=\"maybe\"?><a/>"), 77050003)
       ' Never closed.
       expectTrap(parse("<?xml version=\"1.0\"><a/>"), 77050003)
+      ' A `?` inside the declaration that does not close it.
+      expectTrap(parse("<?xml version=\"1.0\" ?x?><a/>"), 77050003)
+      ' encoding after standalone is out of order too.
+      expectTrap(parse("<?xml version=\"1.0\" standalone=\"yes\" encoding=\"UTF-8\"?><a/>"), 77050003)
     END TCASE
   END TGROUP
 
@@ -48,6 +52,8 @@ TESTING
       expectTrap(parse("<!DOCTYPE a PUBLIC \"-//X//EN\" \"a.dtd\"><a/>"), 77050007)
       expectTrap(parse("<!DOCTYPE a [<!ENTITY x \"y\">]><a/>"), 77050007)
       expectTrap(parse("<?xml version=\"1.0\"?><!DOCTYPE a><a/>"), 77050007)
+      ' Inside an element it is just as unsupported, and refused there too.
+      expectTrap(parse("<a><!DOCTYPE b></a>"), 77050007)
     END TCASE
   END TGROUP
 
@@ -57,6 +63,8 @@ TESTING
       expectTrap(parse("<a><b></a></b>"), 77050003)
       ' Names are case-sensitive: this is not HTML.
       expectTrap(parse("<a></A>"), 77050003)
+      ' An end tag may hold whitespace before its `>`, but nothing else.
+      expectTrap(parse("<a></a x>"), 77050003)
     END TCASE
 
     TCASE "an unclosed element is refused"
@@ -118,6 +126,11 @@ TESTING
     TCASE "a stray / in a start tag is refused"
       expectTrap(parse("<a / >"), 77050003)
       expectTrap(parse("<a /x>"), 77050003)
+    END TCASE
+
+    TCASE "a character that cannot begin an attribute name is refused"
+      expectTrap(parse("<a %=\"1\"/>"), 77050003)
+      expectTrap(parse("<a 1=\"x\"/>"), 77050003)
     END TCASE
   END TGROUP
 
@@ -183,6 +196,8 @@ TESTING
     END TCASE
 
     TCASE "a comment ending in ---> is refused"
+      ' Refused by the `--` rule itself: the comment's trailing `-` and the
+      ' first `-` of `-->` are a `--` before the close.
       expectTrap(parse("<a><!--x---></a>"), 77050003)
     END TCASE
 
@@ -202,6 +217,8 @@ TESTING
     TCASE "a processing instruction with no target, or never closed, is refused"
       expectTrap(parse("<a><? ?></a>"), 77050003)
       expectTrap(parse("<a><?target</a>"), 77050003)
+      ' The target must be followed by whitespace or by `?>`, not by data.
+      expectTrap(parse("<a><?target\"x\"?></a>"), 77050003)
     END TCASE
   END TGROUP
 

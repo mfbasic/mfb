@@ -380,13 +380,12 @@ PRIVATE FUNC readComment(bytes AS List OF Byte, from AS Integer, stop AS Integer
   IF close < 0 OR close >= stop THEN
     failAt(bytes, from, ERR_FORMAT, "a comment is not closed by `-->`")
   END IF
-  ' `--` may not appear inside a comment, and a comment may not end in `--->`.
+  ' `--` may not appear inside a comment. That one rule also refuses a comment
+  ' ending `--->`: the trailing `-` and the first `-` of the terminator are a
+  ' `--` before the close, so a separate check for it would never run.
   LET doubleDash AS Integer = findFrom(bytes, "--", textStart)
   IF doubleDash >= 0 AND doubleDash < close THEN
     failAt(bytes, doubleDash, ERR_FORMAT, "`--` may not appear inside a comment")
-  END IF
-  IF byteAt(bytes, close - 1) = B_DASH AND close > textStart THEN
-    failAt(bytes, close, ERR_FORMAT, "a comment may not end with `--->`")
   END IF
   requireChars(bytes, textStart, close)
   LET node AS Node = Comment[textOf(bytes, textStart, close)]
