@@ -53,7 +53,7 @@ includes `LC_SEGMENT_64` for each emitted segment, `LC_LOAD_DYLINKER`
 - and **one of two mutually exclusive fixup encodings**: `LC_DYLD_INFO_ONLY`
   (rebase/bind/export opcode streams) when a `__DATA_CONST` is present, or else
   `LC_DYLD_CHAINED_FIXUPS` (`0x80000034`) plus `LC_DYLD_EXPORTS_TRIE`
-  (`0x80000033`) when it is not. [[src/os/macos/link/macho.rs:write_load_commands]]
+  (`0x80000033`) when it is not. [[src/os/macos/link/macho.rs:encode_unsigned_mach_o]]
 
 ## Relocations and imports
 

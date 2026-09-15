@@ -1,0 +1,21 @@
+$ mfb build -ast -ir tests/rt-behavior/compress/compress-encode-roundtrip-valid
+Wrote AST to tests/rt-behavior/compress/compress-encode-roundtrip-valid/compress-encode-roundtrip-valid.ast
+Wrote IR to tests/rt-behavior/compress/compress-encode-roundtrip-valid/compress-encode-roundtrip-valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/compress/compress-encode-roundtrip-valid
+Wrote executable to tests/rt-behavior/compress/compress-encode-roundtrip-valid/build/compress-encode-roundtrip-valid.out
+[exit 0]
+$ tests/rt-behavior/compress/compress-encode-roundtrip-valid/build/compress-encode-roundtrip-valid.out
+input: 2672 bytes, crc32 3605029079
+level 0: raw 2677 2808673847 TRUE | zlib 2683 1415604089 TRUE | gzip 2695 4065813858 TRUE
+level 1: raw 382 1523927077 TRUE | zlib 388 3441985813 TRUE | gzip 400 1780079063 TRUE
+level 2: raw 380 3294416983 TRUE | zlib 386 2393832682 TRUE | gzip 398 470473425 TRUE
+level 3: raw 380 3294416983 TRUE | zlib 386 2393832682 TRUE | gzip 398 470473425 TRUE
+level 4: raw 373 2104305035 TRUE | zlib 379 1979275868 TRUE | gzip 391 3598815172 TRUE
+level 5: raw 371 4223429195 TRUE | zlib 377 1594690066 TRUE | gzip 389 3822793320 TRUE
+level 6: raw 366 1222451525 TRUE | zlib 372 3133560921 TRUE | gzip 384 3007134151 TRUE
+level 7: raw 366 1222451525 TRUE | zlib 372 1990693870 TRUE | gzip 384 3007134151 TRUE
+level 8: raw 366 1222451525 TRUE | zlib 372 1990693870 TRUE | gzip 384 3007134151 TRUE
+level 9: raw 366 1222451525 TRUE | zlib 372 1990693870 TRUE | gzip 384 3463100498 TRUE
+empty, default level: raw 2 1794392380 TRUE | zlib 8 3278637884 TRUE | gzip 20 1161266512 TRUE
+[exit 0]

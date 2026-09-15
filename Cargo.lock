@@ -1850,6 +1850,7 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "ed25519-dalek",
+ "flate2",
  "hmac 0.12.1",
  "icns",
  "image",

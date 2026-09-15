@@ -146,6 +146,7 @@ registry order. [[src/codegen/builtins/errorcode/mod.rs:register]]
 | `7-705-0024` | `77050024` | `ErrDepthExceeded`           | Structural nesting exceeds the implementation depth limit. Distinct from `ErrInvalidFormat`: the text is well-formed, it is just nested deeper than the reader will descend (`json::parse` stops at 256 nested arrays and objects; `canvas::present` stops at 64 nested `canvas::Group` references, which is also how a group that eventually references itself is reported — a cycle is unbounded depth). |
 | `7-705-0025` | `77050025` | `ErrInvalidSurrogate`        | A `\u` escape encodes an unpaired surrogate. Strings are Unicode text, so a high surrogate must be followed by a `\u` low surrogate, and a lone low surrogate is never valid. Distinct from `ErrInvalidFormat`, which is a grammar mistake. |
 | `7-705-0026` | `77050026` | `ErrCanvasGroupLimit`        | The canvas named-group table is full: `canvas::setGroup` holds at most 256 groups at once. Remove one with `canvas::removeGroup`, or install fewer — installing again under a name you already used replaces it and needs no new slot. Distinct from `ErrOutOfMemory`: the arena has room, the fixed table does not.  |
+| `7-705-0027` | `77050027` | `ErrTooLarge`                | The result would be larger than the size limit the caller set. Distinct from `ErrOutOfMemory`: the input can be perfectly valid and memory can be available — raise the limit (for example `maxBytes` on `compress::inflate`) when the size is expected, or reject the input. |
 
 ## Resolution API
 
@@ -156,11 +157,11 @@ rejects unqualified or unknown names. [[src/codegen/registry/mod.rs:constant_val
 
 ## Drift Guard
 
-The `errorCode` constants are generated at build time directly from the
-**Constant Registry** table above — this topic is the single source of truth
-for the runtime registry. [[build.rs:generate_errorcode_table]] A drift-guard
-test re-parses the same table and asserts the generated table reproduces every
-row with the integer equal to the hyphen-stripped code, so the generated
+The `errorCode` constants are a hand-maintained table in the package's
+`register`, which must reproduce the **Constant Registry** table above — this
+topic is the single source of truth for the runtime registry. [[src/codegen/builtins/errorcode/mod.rs:register]] A drift-guard
+test re-parses the same table and asserts the registered table reproduces every
+row with the integer equal to the hyphen-stripped code, so the registered
 constants cannot drift from this registry. [[src/codegen/builtins/errorcode/mod.rs:table_matches_registry]]
 
 ## See Also

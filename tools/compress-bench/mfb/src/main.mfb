@@ -1,0 +1,66 @@
+' The MFB side of tools/compress-bench.
+'
+' Reads BENCH_FILE, then runs BENCH_OP on it five times, timing each run with
+' datetime::monotonicNanos around the operation alone (not the file read, and not the
+' result check), and prints `run <nanoseconds> <result>` per run. With no BENCH_FILE it
+' prints nothing and exits 0, which is how bench.py checks that a built flavor runs.
+'
+' crc32's result is the checksum; a decoder's result is `<output length> <CRC-32 of output>`,
+' computed after the timed section. An encoder op times the compression only; its result is the
+' length and CRC-32 of decompressing the output, and it prints `size <compressed bytes>` too.
+IMPORT compress
+IMPORT datetime
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC decode(op AS String, data AS List OF Byte) AS List OF Byte
+  IF op = "inflate" THEN
+    RETURN compress::inflate(data)
+  ELSEIF op = "zlibDecode" THEN
+    RETURN compress::zlibDecode(data)
+  END IF
+  RETURN compress::gzipDecode(data)
+END FUNC
+
+SUB main()
+  LET path AS String = os::getEnvOr("BENCH_FILE", "")
+  IF path = "" THEN
+    EXIT SUB
+  END IF
+  LET op AS String = os::getEnvOr("BENCH_OP", "")
+  RES h AS fs::File = fs::openFile(path, "r")
+  LET data AS List OF Byte = fs::readAllBytes(h)
+  fs::close(h)
+  MUT i AS Integer = 0
+  WHILE i < 5
+    MUT result AS String = "unknown-op"
+    MUT elapsed AS Integer = 0
+    IF op = "crc32" THEN
+      LET started AS Integer = datetime::monotonicNanos()
+      LET c AS Integer = compress::crc32(data)
+      elapsed = datetime::monotonicNanos() - started
+      result = toString(c)
+    ELSEIF op = "deflate1" OR op = "deflate6" OR op = "deflate9" THEN
+      MUT level AS Integer = 6
+      IF op = "deflate1" THEN
+        level = 1
+      ELSEIF op = "deflate9" THEN
+        level = 9
+      END IF
+      LET started AS Integer = datetime::monotonicNanos()
+      LET packed AS List OF Byte = compress::deflate(data, level)
+      elapsed = datetime::monotonicNanos() - started
+      LET back AS List OF Byte = compress::inflate(packed)
+      result = toString(len(back)) & " " & toString(compress::crc32(back))
+      io::print("size " & toString(len(packed)))
+    ELSEIF op = "inflate" OR op = "zlibDecode" OR op = "gzipDecode" THEN
+      LET started AS Integer = datetime::monotonicNanos()
+      LET out AS List OF Byte = decode(op, data)
+      elapsed = datetime::monotonicNanos() - started
+      result = toString(len(out)) & " " & toString(compress::crc32(out))
+    END IF
+    io::print("run " & toString(elapsed) & " " & result)
+    i = i + 1
+  END WHILE
+END SUB

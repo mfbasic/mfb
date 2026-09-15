@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-error/compress/compress-gzip-encode-level-invalid
+Wrote AST to tests/rt-error/compress/compress-gzip-encode-level-invalid/compress-gzip-encode-level-invalid.ast
+Wrote IR to tests/rt-error/compress/compress-gzip-encode-level-invalid/compress-gzip-encode-level-invalid.ir
+[exit 0]
+$ mfb build tests/rt-error/compress/compress-gzip-encode-level-invalid
+Wrote executable to tests/rt-error/compress/compress-gzip-encode-level-invalid/build/compress-gzip-encode-level-invalid.out
+[exit 0]
+$ tests/rt-error/compress/compress-gzip-encode-level-invalid/build/compress-gzip-encode-level-invalid.out
+before
+Error: 7-705-0002
+compress::gzipEncode: level must be from 0 to 9
+[exit 255]

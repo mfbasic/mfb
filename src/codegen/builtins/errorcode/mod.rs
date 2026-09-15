@@ -133,7 +133,8 @@ pub(crate) fn register(r: &mut Registry) {
         // own nesting cap and any future parser report the same two things.
         .add_constant(constant("ErrDepthExceeded", "77050024", "Structural nesting exceeds the implementation depth limit. Distinct from `ErrInvalidFormat`: the text is well-formed, it is just nested deeper than the reader will descend (`json::parse` stops at 256).", "_mfb_str_error_depth_exceeded"))
         .add_constant(constant("ErrInvalidSurrogate", "77050025", "A `\\u` escape encodes an unpaired surrogate. Strings are Unicode text, so a high surrogate must be followed by a `\\u` low surrogate and a lone low surrogate is never valid.", "_mfb_str_error_invalid_surrogate"))
-        .add_constant(constant("ErrCanvasGroupLimit", "77050026", "The canvas named-group table is full: `canvas::setGroup` holds at most 256 groups at once. Remove one with `canvas::removeGroup`, or install fewer — installing again under a name you already used replaces it and needs no new slot.", "_mfb_str_error_canvas_group_limit"));
+        .add_constant(constant("ErrCanvasGroupLimit", "77050026", "The canvas named-group table is full: `canvas::setGroup` holds at most 256 groups at once. Remove one with `canvas::removeGroup`, or install fewer — installing again under a name you already used replaces it and needs no new slot.", "_mfb_str_error_canvas_group_limit"))
+        .add_constant(constant("ErrTooLarge", "77050027", "The result would be larger than the size limit the caller set. Distinct from `ErrOutOfMemory`: the input can be perfectly valid and memory can be available — raise the limit (for example `maxBytes` on `compress::inflate`) when the size is expected, or reject the input.", "_mfb_str_error_too_large"));
 
     r.add_package(pkg);
 }
@@ -300,6 +301,11 @@ mod tests {
         //       actively misleading: the arena has room, and a handler that responded
         //       to it by freeing memory would change nothing. The fix is to remove a
         //       group or reuse a name, and the message says so.
+        //   +1  ErrTooLarge (plan-137-B): output that would exceed a caller-set size
+        //       bound (`compress::inflate` / `zlibDecode` / `gzipDecode` `maxBytes`) is
+        //       not a malformed stream — the data may be perfectly valid — so it is not
+        //       `ErrInvalidFormat`; and it is not `ErrOutOfMemory`, whose remedy is to
+        //       free memory. The caller's fix is to raise the bound or reject the input.
         const LEGACY_ROWS: usize = 45;
         const ADDED_SINCE_MIGRATION: &[&str] = &[
             "ErrBadPixelCount",
@@ -308,6 +314,7 @@ mod tests {
             "ErrDepthExceeded",
             "ErrInvalidSurrogate",
             "ErrCanvasGroupLimit",
+            "ErrTooLarge",
         ];
         for added in ADDED_SINCE_MIGRATION {
             assert!(names.contains(added), "{added} is not in the table");

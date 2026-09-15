@@ -231,7 +231,7 @@ Two guards enforce the invariant with **no allowlist**:
   point a shared stream is finished — the pre-selection seam, the hand-built
   helper finalizer, the entry stub, and the thread
   trampoline. A physical name in a shared stream is a build error (an ICE for
-  helper bodies), not a silent miscompile. [[src/codegen/engine/regalloc/mod.rs:find_physical_operand]] [[run_register_allocation]] [[finalize_vreg_body_with_locals]]
+  helper bodies), not a silent miscompile. [[src/codegen/engine/regalloc/mod.rs:find_physical_operand]] [[src/codegen/engine/regalloc/builder_registers.rs:run_register_allocation]] [[src/codegen/engine/util/vreg_frame.rs:finalize_vreg_body_with_locals]]
 
 Standalone per-target streams (the macOS app-mode views, the GTK app
 functions, the TLS block trampolines) are target-native machine floor with
