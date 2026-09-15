@@ -1,6 +1,6 @@
 # plan-137-B: table-driven inflate + `inflate` / `zlibDecode` / `gzipDecode`
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 Effort: large (3h–1d)
 Depends on: plan-137-A (the `compress` package, its test homes, oracle and bench harnesses).
 If plan-137-A is not complete, this plan cannot start, full stop. Whole-feature
@@ -389,7 +389,7 @@ examples run; byte-identity drift is confined to `tests/byte-identity/compress/`
   `cargo test --bin mfb spec`; `scripts/artifact-gate.sh target/release/mfb compress` (est. 15 min).
   (2026-09-14: on the Phase 1 stream `compress::zlibDecode` takes 3,847.0 ms (median of three; 16.64 MiB/s) vs canvas's
   43,691.6 ms through `loadImage` — faster; docs render and all examples run; artifact gate 7 goldens, 0 diffs.)
-Commit: —
+Commit: fb279295b
 
 ## Validation Plan
 
@@ -398,6 +398,8 @@ Commit: —
   fixture (list them in the test's module doc).
 - Runtime proof: `compress-decode-valid` on macos-aarch64 and box 2223
   (`FILTER=compress scripts/linux-runtime-proof.sh target/release/mfb 2223 linux-aarch64 glibc`).
+  (2026-09-14: macOS acceptance `9 test(s) ran`; box 2223 → `linux runtime proof: linux-aarch64/glibc on port 2223 —
+  7 passed, 0 failed, 0 not run` — both `crc32` fixtures, `compress-decode-valid`, and the four decoder rt-error fixtures.)
 - Doc sync: man descriptors + `20_compress.md` + `02_error-codes.md`.
 - Final gate: plan-137-E.
 
